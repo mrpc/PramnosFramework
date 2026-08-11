@@ -414,6 +414,14 @@ class RedisAdapter extends AbstractAdapter
         }
     }
 
+    /**
+     * Redis can enumerate, through SCAN.
+     */
+    public function supportsKeyEnumeration(): bool
+    {
+        return true;
+    }
+
     public function keys($pattern)
     {
         if (!$this->caching || !$this->connected) {

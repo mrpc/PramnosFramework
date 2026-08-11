@@ -76,7 +76,9 @@ class Health extends Controller
             try {
                 $cacheAdapter = \Pramnos\Cache\Cache::getInstance()->method;
             } catch (\Throwable) {
-            }
+            // A check that cannot run reports as unhealthy below rather than
+            // breaking the health endpoint itself.
+        }
         }
 
         // Active users — delegated to User model

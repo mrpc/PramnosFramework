@@ -351,8 +351,29 @@ abstract class AbstractAdapter implements AdapterInterface
     }
 
     /**
-     * Return keys matching a glob-style pattern. Enumeration requires a capable
-     * adapter (e.g. RedisAdapter via SCAN); the default returns an empty list.
+     * Can this adapter list the keys it holds?
+     *
+     * File, Array and Memcached cannot — the first two have no index to scan
+     * without walking the filesystem, and Memcached exposes no reliable key
+     * enumeration at all. Redis can, through SCAN.
+     *
+     * The question exists because {@see keys()} answers `[]` for two different
+     * situations: "nothing matched" and "I cannot look". Nothing depends on
+     * telling them apart today, and the first thing that does would break
+     * silently on three adapters out of four. Ask this first.
+     *
+     * @return bool
+     */
+    public function supportsKeyEnumeration(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Return keys matching a glob-style pattern.
+     *
+     * An empty array from an adapter that cannot enumerate means "I cannot
+     * look", not "nothing matched" — see {@see supportsKeyEnumeration()}.
      *
      * @return string[]
      */

@@ -252,7 +252,9 @@ class Migrate extends Command
             if ($db->schema()->getCapabilities()->hasTimescaleDB()) {
                 $label .= ' · TimescaleDB';
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable) {
+            // Progress reporting only — the migration itself already ran.
+        }
 
         return $label;
     }

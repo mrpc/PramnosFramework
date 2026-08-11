@@ -261,6 +261,22 @@ class FlatCache implements CacheInterface
      */
     public function keys(string $pattern): array
     {
+        // An adapter that cannot enumerate answers `[]`, which reads exactly
+        // like "nothing matched". Saying so once, out loud, is the difference
+        // between a caller learning why its invalidation never fires and a
+        // caller believing the cache was empty.
+        if (!$this->supportsKeyEnumeration()) {
+            \Pramnos\Logs\Logger::log(
+                'Cache keys() was asked of ' . get_class($this->adapter)
+                . ', which cannot enumerate keys — the empty result means '
+                . '"cannot look", not "nothing matched". Use the Redis adapter '
+                . 'where key enumeration matters.',
+                'cache'
+            );
+
+            return [];
+        }
+
         $found  = $this->adapter->keys($this->key($pattern));
         $prefix = $this->prefix;
         if ($prefix === '') {
@@ -271,6 +287,17 @@ class FlatCache implements CacheInterface
             $out[] = str_starts_with($k, $prefix) ? substr($k, strlen($prefix)) : $k;
         }
         return $out;
+    }
+
+    /**
+     * Can the adapter behind this cache list its keys?
+     *
+     * @return bool
+     */
+    public function supportsKeyEnumeration(): bool
+    {
+        return method_exists($this->adapter, 'supportsKeyEnumeration')
+            && $this->adapter->supportsKeyEnumeration();
     }
 
     public function getMultiple(iterable $keys, mixed $default = null): iterable

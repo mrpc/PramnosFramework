@@ -320,7 +320,10 @@ class MigrationRunner
                     $elapsed = microtime(true) - $start;
 
                     if ($useTransaction) {
-                        try { $db->query('ROLLBACK'); } catch (\Throwable) {}
+                        try { $db->query('ROLLBACK'); } catch (\Throwable) {
+            // Best-effort rollback of a transaction that may already be gone;
+                    // the failure that brought us here is what gets reported.
+        }
                     }
 
                     $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());

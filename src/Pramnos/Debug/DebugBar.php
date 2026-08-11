@@ -542,7 +542,9 @@ HTML;
   function pdbCopy(sql,btn){
     var done=function(){btn.classList.add("pdb-copied");btn.textContent="✓";setTimeout(function(){btn.classList.remove("pdb-copied");btn.innerHTML="⎘";},1500);};
     if(navigator.clipboard){navigator.clipboard.writeText(sql).then(done).catch(function(){done();});}
-    else{var ta=document.createElement("textarea");ta.value=sql;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(e){}document.body.removeChild(ta);done();}
+    else{var ta=document.createElement("textarea");ta.value=sql;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch (e) {
+            // The toolbar annotates a response; it never breaks one.
+        }document.body.removeChild(ta);done();}
   }
   document.addEventListener("click",function(e){
     var btn=e.target.closest(".pdb-copy");

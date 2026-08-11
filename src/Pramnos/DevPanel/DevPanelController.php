@@ -394,7 +394,8 @@ class DevPanelController extends Controller
             if ($tsRes && $tsRes->numRows > 0) {
                 $isTimescaleDb = true;
             }
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('TimescaleDB detection', $ex);
         }
 
         $rows = '';
@@ -595,35 +596,53 @@ class DevPanelController extends Controller
         }
 
         // Active sessions (tokens)
+        //
+        // This panel was empty on every installation, and nothing said why: it
+        // queried a table called `tokens` (the framework's is `usertokens`),
+        // columns `last_used` and `ip_address` (`lastused`, `ipaddress`), a
+        // numeric `tokentype` in a column that holds text, and prefixed all of
+        // it with a `PREFIX` constant this framework never defines. Every query
+        // threw, and the empty catch below turned a broken panel into a blank
+        // one.
         $sessions = [];
         try {
-            $prefix = defined('PREFIX') ? PREFIX : '';
-            $res    = $db->execute(
-                "SELECT t.tokenid, t.userid, u.username, t.last_used, t.ip_address,
-                        t.application, t.tokentype
-                 FROM {$prefix}tokens t
-                 JOIN {$prefix}users u ON u.userid = t.userid
-                 WHERE t.status = 1 AND t.tokentype IN (1,3)
-                 ORDER BY t.last_used DESC
-                 LIMIT 50"
-            );
+            $res = $db->queryBuilder()
+                ->table('usertokens AS t')
+                ->select([
+                    't.tokenid', 't.userid', 'u.username',
+                    't.lastused', 't.ipaddress', 't.tokentype', 't.applicationid',
+                ])
+                ->join('users AS u', 't.userid', '=', 'u.userid')
+                ->where('t.status', 1)
+                ->whereIn('t.tokentype', ['auth', 'access_token'])
+                ->orderBy('t.lastused', 'desc')
+                ->limit(50)
+                ->get();
             $sessions = $res ? $res->fetchAll() : [];
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            // A dev panel must never take the page down over one of its
+            // sections — but it must say what it could not show.
+            $this->panelError('active sessions', $ex);
         }
 
         // Active lockouts
+        //
+        // Empty for the same reason as the panel above: the table is
+        // `authserver.loginlockouts`, and its columns are `displayvalue`,
+        // `lastipaddress`, `lockoutuntil` and `failedattempts` — none of the
+        // names this asked for.
         $lockouts = [];
         try {
-            $prefix = defined('PREFIX') ? PREFIX : '';
-            $res    = $db->execute(
-                "SELECT identifier, ip_address, lockout_until, failed_attempts
-                 FROM {$prefix}loginlockouts
-                 WHERE lockout_until > NOW()
-                 ORDER BY lockout_until DESC
-                 LIMIT 20"
-            );
+            $res = $db->queryBuilder()
+                ->table('authserver.loginlockouts')
+                ->select(['displayvalue', 'lastipaddress', 'lockoutuntil', 'failedattempts'])
+                ->where('lockoutuntil', '>', $db->queryBuilder()->raw('NOW()'))
+                ->orderBy('lockoutuntil', 'desc')
+                ->limit(20)
+                ->get();
             $lockouts = $res ? $res->fetchAll() : [];
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('login lockouts', $ex);
         }
 
         $sessionRows = '';
@@ -631,9 +650,9 @@ class DevPanelController extends Controller
             $tid       = (int) ($s['tokenid'] ?? 0);
             $uid       = (int) ($s['userid'] ?? 0);
             $user      = htmlspecialchars($s['username'] ?? '');
-            $app       = htmlspecialchars($s['application'] ?? '—');
-            $ip        = htmlspecialchars($s['ip_address'] ?? '—');
-            $last      = $s['last_used'] ?? '—';
+            $app       = htmlspecialchars((string) ($s['applicationid'] ?? '—'));
+            $ip        = htmlspecialchars($s['ipaddress'] ?? '—');
+            $last      = htmlspecialchars((string) ($s['lastused'] ?? '—'));
             $tokenLink = "<a href='?action=users&amp;token={$tid}'>#{$tid}</a>";
             $userLink  = "<a href='?action=users&amp;user={$uid}'>{$user}</a>";
             $sessionRows .= "<tr><td>{$tokenLink}</td><td>{$userLink}</td><td>{$ip}</td><td>{$app}</td><td>{$last}</td></tr>";
@@ -641,10 +660,10 @@ class DevPanelController extends Controller
 
         $lockoutRows = '';
         foreach ($lockouts as $l) {
-            $id       = htmlspecialchars($l['identifier'] ?? '');
-            $ip       = htmlspecialchars($l['ip_address'] ?? '—');
-            $until    = htmlspecialchars($l['lockout_until'] ?? '');
-            $attempts = (int) ($l['failed_attempts'] ?? 0);
+            $id       = htmlspecialchars($l['displayvalue'] ?? '');
+            $ip       = htmlspecialchars($l['lastipaddress'] ?? '—');
+            $until    = htmlspecialchars((string) ($l['lockoutuntil'] ?? ''));
+            $attempts = (int) ($l['failedattempts'] ?? 0);
             $lockoutRows .= "<tr><td>{$id}</td><td>{$ip}</td><td>{$attempts}</td><td>{$until}</td></tr>";
         }
 
@@ -674,7 +693,6 @@ class DevPanelController extends Controller
     private function renderTokenDetail(int $tokenId): string
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $prefix = defined('PREFIX') ? PREFIX : '';
         $page   = max(1, (int) ($_GET['page'] ?? 1));
         $perPage = 50;
         $offset = ($page - 1) * $perPage;
@@ -682,16 +700,17 @@ class DevPanelController extends Controller
         $tokenInfo = null;
         try {
             $res = $db->execute(
-                "SELECT t.tokenid, t.userid, u.username, t.application
-                 FROM {$prefix}tokens t
-                 JOIN {$prefix}users u ON u.userid = t.userid
+                "SELECT t.tokenid, t.userid, u.username, t.applicationid AS application
+                 FROM usertokens t
+                 JOIN users u ON u.userid = t.userid
                  WHERE t.tokenid = {$tokenId}
                  LIMIT 1"
             );
             if ($res && $res->numRows > 0) {
                 $tokenInfo = $res->fields;
             }
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('token detail', $ex);
         }
 
         if ($tokenInfo === null) {
@@ -703,7 +722,7 @@ class DevPanelController extends Controller
         $total   = 0;
         try {
             $countRes = $db->execute(
-                "SELECT COUNT(*) AS cnt FROM {$prefix}tokenactions WHERE tokenid = {$tokenId}"
+                "SELECT COUNT(*) AS cnt FROM #PREFIX#tokenactions WHERE tokenid = {$tokenId}"
             );
             if ($countRes && $countRes->numRows > 0) {
                 $total = (int) $countRes->fields['cnt'];
@@ -711,13 +730,14 @@ class DevPanelController extends Controller
 
             $res = $db->execute(
                 "SELECT urlid, method, servertime, execution_time_ms, return_status
-                 FROM {$prefix}tokenactions
+                 FROM #PREFIX#tokenactions
                  WHERE tokenid = {$tokenId}
                  ORDER BY servertime DESC
                  LIMIT {$perPage} OFFSET {$offset}"
             );
             $actions = $res ? $res->fetchAll() : [];
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('token activity', $ex);
         }
 
         $uname = htmlspecialchars($tokenInfo['username'] ?? '');
@@ -767,7 +787,6 @@ class DevPanelController extends Controller
     private function renderUserLog(int $userId): string
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $prefix = defined('PREFIX') ? PREFIX : '';
         $page   = max(1, (int) ($_GET['page'] ?? 1));
         $perPage = 50;
         $offset = ($page - 1) * $perPage;
@@ -776,14 +795,15 @@ class DevPanelController extends Controller
         try {
             $res = $db->execute(
                 "SELECT userid, username
-                 FROM {$prefix}users
+                 FROM #PREFIX#users
                  WHERE userid = {$userId}
                  LIMIT 1"
             );
             if ($res && $res->numRows > 0) {
                 $userInfo = $res->fields;
             }
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('user detail', $ex);
         }
 
         if ($userInfo === null) {
@@ -795,7 +815,7 @@ class DevPanelController extends Controller
         $total = 0;
         try {
             $countRes = $db->execute(
-                "SELECT COUNT(*) AS cnt FROM {$prefix}userlog WHERE userid = {$userId}"
+                "SELECT COUNT(*) AS cnt FROM #PREFIX#userlog WHERE userid = {$userId}"
             );
             if ($countRes && $countRes->numRows > 0) {
                 $total = (int) $countRes->fields['cnt'];
@@ -803,13 +823,14 @@ class DevPanelController extends Controller
 
             $res = $db->execute(
                 "SELECT logid, date, logtype, log, details
-                 FROM {$prefix}userlog
+                 FROM #PREFIX#userlog
                  WHERE userid = {$userId}
                  ORDER BY date DESC, logid DESC
                  LIMIT {$perPage} OFFSET {$offset}"
             );
             $logs = $res ? $res->fetchAll() : [];
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('user activity log', $ex);
         }
 
         $uname = htmlspecialchars($userInfo['username'] ?? '');
@@ -862,13 +883,12 @@ class DevPanelController extends Controller
         $endpoints = [];
         $slowUsers = [];
         try {
-            $prefix = defined('PREFIX') ? PREFIX : '';
             $res    = $db->execute(
                 "SELECT urlid AS endpoint, method,
                         COUNT(*) AS calls,
                         ROUND(AVG(execution_time_ms), 1) AS avg_ms,
                         MAX(execution_time_ms) AS max_ms
-                 FROM {$prefix}tokenactions
+                 FROM #PREFIX#tokenactions
                  WHERE servertime >= NOW() - INTERVAL {$range} HOUR
                  GROUP BY urlid, method
                  ORDER BY avg_ms DESC
@@ -883,17 +903,18 @@ class DevPanelController extends Controller
                         COUNT(*) AS calls,
                         ROUND(AVG(ta.execution_time_ms), 1) AS avg_ms,
                         MAX(ta.execution_time_ms) AS max_ms
-                 FROM {$prefix}tokenactions ta
-                 JOIN {$prefix}tokens t ON t.tokenid = ta.tokenid
-                 JOIN {$prefix}users u ON u.userid = t.userid
-                 LEFT JOIN {$prefix}applications a ON a.appid = t.applicationid
+                 FROM #PREFIX#tokenactions ta
+                 JOIN usertokens t ON t.tokenid = ta.tokenid
+                 JOIN users u ON u.userid = t.userid
+                 LEFT JOIN applications a ON a.appid = t.applicationid
                  WHERE ta.servertime >= NOW() - INTERVAL {$range} HOUR
                  GROUP BY t.userid, u.username, a.name
                  ORDER BY avg_ms DESC
                  LIMIT 20"
             );
             $slowUsers = $res2 ? $res2->fetchAll() : [];
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('slow users', $ex);
         }
 
         $rows = '';
@@ -1008,9 +1029,10 @@ class DevPanelController extends Controller
     {
         try {
             $db     = \Pramnos\Framework\Factory::getDatabase();
-            $prefix = defined('PREFIX') ? PREFIX : '';
             $res    = $db->execute(
-                "SELECT status, COUNT(*) AS cnt FROM {$prefix}queue_jobs GROUP BY status"
+                // `queueitems`, not `queue_jobs`: no migration has ever created
+                // a table by the latter name, so this panel counted nothing.
+                'SELECT status, COUNT(*) AS cnt FROM #PREFIX#queueitems GROUP BY status'
             );
             $stats  = ['pending' => 0, 'running' => 0, 'failed' => 0];
             foreach ($res ? $res->fetchAll() : [] as $row) {
@@ -1289,6 +1311,26 @@ class DevPanelController extends Controller
             return true;
         }
         return false;
+    }
+
+    /**
+     * Record that one panel could not be drawn.
+     *
+     * A developer dashboard must not take the whole page down because one of its
+     * sections failed — but the alternative used to be an empty `catch`, and an
+     * empty section looks exactly like "nothing to show". Three panels here were
+     * broken for years behind that resemblance: they queried a table called
+     * `tokens` that does not exist, with column names that do not exist either.
+     *
+     * @param string     $panel     What could not be shown
+     * @param \Throwable $exception Why
+     */
+    private function panelError(string $panel, \Throwable $exception): void
+    {
+        \Pramnos\Logs\Logger::log(
+            'DevPanel could not load ' . $panel . ': ' . $exception->getMessage(),
+            'devpanel'
+        );
     }
 
     private function card(string $title, string $body): string

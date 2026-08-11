@@ -268,6 +268,8 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $mc->record(static::class, (string) $this->_dbtable, 'save', $this->{$this->_primaryKey} ?? null);
             }
         } catch (\Throwable) {
+            // Schema introspection is an optimisation here; without it the caller
+            // falls back to the untyped path below.
         }
 
         if ($debug==true) {
@@ -519,6 +521,8 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $mc->record(static::class, (string) $this->_dbtable, 'load', $primaryKey);
             }
         } catch (\Throwable) {
+            // Schema introspection is an optimisation here; without it the caller
+            // falls back to the untyped path below.
         }
         if ($this->_dbtable != NULL) {
             if ($this->_cacheKey === NULL) {

@@ -138,6 +138,8 @@ trait Broadcastable
                 return $app->container->get('broadcasting');
             }
         } catch (\Throwable) {
+            // Broadcasting is a side effect of the action, never its purpose:
+            // a failed publish must not roll back what the user asked for.
         }
         return null;
     }

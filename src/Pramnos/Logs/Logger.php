@@ -202,6 +202,8 @@ class Logger
                 $collector->addEntry($level, $message);
             }
         } catch (\Throwable) {
+            // Logging that the logger failed would recurse. The write is lost;
+            // there is nowhere left to say so.
         }
     }
 

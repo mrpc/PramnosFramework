@@ -440,7 +440,11 @@ class SchemaBuilder
 
     /**
      * Convert a regular table into a TimescaleDB hypertable.
-     * Silent no-op on non-TimescaleDB backends.
+     *
+     * Returns false in two situations, and only one of them is quiet: a backend
+     * without TimescaleDB is a documented no-op, while a real failure is logged
+     * with the statement that produced it. Before, both were silent and
+     * indistinguishable.
      *
      * @param  string $table
      * @param  string $timeColumn  Time-partitioning column.
@@ -473,12 +477,59 @@ class SchemaBuilder
         }
 
         $sql .= ')';
-        return (bool)$this->db->query($sql);
+
+        return $this->runTimescaleStatement($sql, 'hypertable conversion', $table);
+    }
+
+    /**
+     * Run a TimescaleDB statement, and make a failure audible.
+     *
+     * These methods return `false` for two situations that are nothing alike:
+     * the backend does not support the operation, and the operation was
+     * attempted and failed. Both were silent, so a migration whose
+     * `createHypertable()` failed looked exactly like one running on MySQL — and
+     * the table stayed unpartitioned with nothing anywhere saying why.
+     *
+     * The signature stays `bool` because callers depend on it. What changes is
+     * that only one of the two cases is quiet now: an unsupported backend
+     * returns false without a word, as documented, and a real failure is logged
+     * with the statement that produced it.
+     *
+     * @param  string $sql       The statement to run
+     * @param  string $operation What was being attempted, for the log
+     * @param  string $table     The table it was attempted on
+     * @return bool
+     */
+    protected function runTimescaleStatement(string $sql, string $operation, string $table): bool
+    {
+        try {
+            $result = (bool) $this->db->query($sql);
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError(
+                'TimescaleDB ' . $operation . ' failed for ' . $table . ': '
+                . $ex->getMessage(),
+                $ex
+            );
+
+            return false;
+        }
+
+        if (!$result) {
+            \Pramnos\Logs\Logger::error(
+                'TimescaleDB ' . $operation . ' failed for ' . $table
+                . '. Statement: ' . $sql,
+                [],
+                'migrations'
+            );
+        }
+
+        return $result;
     }
 
     /**
      * Add a TimescaleDB space dimension (hash-partitioning).
-     * Silent no-op on non-TimescaleDB backends.
+     *
+     * No-op without TimescaleDB; a failure on a capable backend is logged.
      *
      * @param  string $table
      * @param  string $column
@@ -492,14 +543,18 @@ class SchemaBuilder
         }
 
         $resolved = $this->resolveTable($table);
-        return (bool)$this->db->query(
-            "SELECT add_dimension('{$resolved}', '{$column}', number_partitions => {$partitions})"
+
+        return $this->runTimescaleStatement(
+            "SELECT add_dimension('{$resolved}', '{$column}', number_partitions => {$partitions})",
+            'space dimension',
+            $table
         );
     }
 
     /**
      * Enable column compression on a hypertable.
-     * Silent no-op on non-TimescaleDB backends.
+     *
+     * No-op without TimescaleDB; a failure on a capable backend is logged.
      *
      * @param  string      $table
      * @param  array       $options  e.g. ['segmentby' => 'device_id', 'orderby' => 'time DESC']
@@ -517,14 +572,17 @@ class SchemaBuilder
         foreach ($options as $key => $value) {
             $parts[] = "timescaledb.compress_{$key} = '{$value}'";
         }
-        return (bool)$this->db->query(
-            "ALTER TABLE {$quoted} SET (" . implode(', ', $parts) . ')'
+        return $this->runTimescaleStatement(
+            "ALTER TABLE {$quoted} SET (" . implode(', ', $parts) . ')',
+            'compression settings',
+            $table
         );
     }
 
     /**
-     * Add a TimescaleDB compression policy (automatically compress chunks older than $after).
-     * Silent no-op on non-TimescaleDB backends.
+     * Add a TimescaleDB compression policy (compress chunks older than $after).
+     *
+     * No-op without TimescaleDB; a failure on a capable backend is logged.
      *
      * @param  string $table
      * @param  string $compressAfter  e.g. '7 days'
@@ -537,8 +595,11 @@ class SchemaBuilder
         }
 
         $resolved = $this->resolveTable($table);
-        return (bool)$this->db->query(
-            "SELECT add_compression_policy('{$resolved}', INTERVAL '{$compressAfter}')"
+
+        return $this->runTimescaleStatement(
+            "SELECT add_compression_policy('{$resolved}', INTERVAL '{$compressAfter}')",
+            'compression policy',
+            $table
         );
     }
 
@@ -558,8 +619,11 @@ class SchemaBuilder
     {
         if ($this->capabilities->hasTimescaleDB()) {
             $resolved = $this->resolveTable($table);
-            return (bool)$this->db->query(
-                "SELECT add_retention_policy('{$resolved}', INTERVAL '{$dropAfter}')"
+
+            return $this->runTimescaleStatement(
+                "SELECT add_retention_policy('{$resolved}', INTERVAL '{$dropAfter}')",
+                'retention policy',
+                $table
             );
         }
 
@@ -597,11 +661,14 @@ class SchemaBuilder
     ): bool {
         if ($this->capabilities->hasTimescaleDB()) {
             $resolved = $this->resolveTable($view);
-            return (bool)$this->db->query(
+
+            return $this->runTimescaleStatement(
                 "SELECT add_continuous_aggregate_policy('{$resolved}'," .
                 " start_offset => INTERVAL '{$startOffset}'," .
                 " end_offset => INTERVAL '{$endOffset}'," .
-                " schedule_interval => INTERVAL '{$scheduleInterval}')"
+                " schedule_interval => INTERVAL '{$scheduleInterval}')",
+                'aggregate refresh policy',
+                $view
             );
         }
 

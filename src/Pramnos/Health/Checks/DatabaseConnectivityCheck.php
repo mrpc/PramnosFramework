@@ -52,7 +52,8 @@ class DatabaseConnectivityCheck implements HealthCheck
                 $vr = $this->db->query('SELECT VERSION() AS v');
                 $details['version'] = $vr ? ($vr->fields['v'] ?? null) : null;
             } catch (\Throwable) {
-            }
+            // The failure IS the answer here — reported as unhealthy by the caller.
+        }
 
             return HealthCheckResult::ok($this->getName(), 'Reachable', $details);
         } catch (\Throwable $e) {
