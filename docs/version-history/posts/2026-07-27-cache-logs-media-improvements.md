@@ -41,7 +41,7 @@ adapters. (This consistency is also what let FlatCache be adapter-agnostic.)
 for the LogViewer, awkward for containers). It now supports STDERR output too:
 `Logger::setOutputMode('both')`, or the `PRAMNOS_LOG_MODE` env var / `LOG_MODE`
 constant. Default stays `file`, fully backward-compatible. See the
-[Logging guide](../../Pramnos_Logging_Guide.md#output-mode-file--stream--both).
+[Logging guide](../../Pramnos_Logging_Guide.md#output-mode-file-stream-both).
 
 ## Media
 
