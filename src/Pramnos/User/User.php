@@ -1794,14 +1794,40 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      * without this the password could be persisted in clear text by a step that
      * has nothing to do with passwords.
      *
-     * @return array<int, string> Property names to serialize
+     * `__serialize()` rather than `__sleep()`, and the difference is not
+     * cosmetic. `__sleep()` returns property *names*, and PHP looks each one up
+     * on the object being serialized; a private property of this class is
+     * stored under a mangled name, so when a subclass instance is serialized —
+     * which is the normal case, applications extend this class — PHP cannot
+     * find `_userstable` and emits a warning for every private property on
+     * every serialize. `__serialize()` returns the data itself and has no such
+     * lookup.
+     *
+     * @return array<string, mixed> The state to serialize
      */
-    public function __sleep()
+    public function __serialize(): array
     {
-        return array_diff(
-            array_keys(get_object_vars($this)),
-            ['_pendingPlainPassword']
-        );
+        $data = get_object_vars($this);
+        unset($data['_pendingPlainPassword']);
+
+        return $data;
+    }
+
+    /**
+     * Restore the state written by {@see __serialize()}.
+     *
+     * Only names that were serialized are written back, and they were read from
+     * this object in the first place, so each one exists. The pending password
+     * is simply absent and stays null — which is correct: a user restored from
+     * a session has no password change in flight.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function __unserialize(array $data): void
+    {
+        foreach ($data as $name => $value) {
+            $this->$name = $value;
+        }
     }
 
     /**

@@ -1051,6 +1051,32 @@ class Application extends Base
     }
 
     /**
+     * The current application if one exists, without creating one.
+     *
+     * {@see getInstance()} is a factory: given no existing instance it reads
+     * `app.php`, defines constants and runs the whole constructor — which sets
+     * up the database, the language and the session. That is correct for a
+     * caller that wants an application, and wrong for one that only wants to
+     * read a setting.
+     *
+     * Low-level code must use this instead. A CSRF fingerprint check that boots
+     * an application is not a configuration lookup, it is a side effect in the
+     * middle of a security decision — and it broke exactly that way once:
+     * `Session::getFingerprint()` began asking for the trusted-proxy list, and
+     * a reference application's login tests started failing on invalid tokens
+     * because a second application instance was being constructed underneath
+     * them.
+     *
+     * @return static|null
+     */
+    public static function currentInstance(): ?self
+    {
+        $app = self::$lastUsedApplication ?? 'default';
+
+        return self::$appInstances[$app] ?? null;
+    }
+
+    /**
      * Factory method
      * @param string $app
      * @return \Pramnos\Application\Application

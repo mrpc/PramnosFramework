@@ -108,11 +108,20 @@ class ClientIpResolver
      * Returns a resolver trusting nothing when there is no application, which
      * is the case in CLI and in most unit tests — and trusting nothing means
      * answering `REMOTE_ADDR`, so those contexts behave exactly as before.
+     *
+     * It asks for the *existing* application via
+     * {@see \Pramnos\Application\Application::currentInstance()} and never
+     * `getInstance()`, which is a factory: with no instance yet that would read
+     * `app.php`, define constants and run the whole constructor — booting a
+     * database and a session from inside a CSRF check or a rate-limit decision.
+     * That is not a hypothetical: it broke a reference application's login
+     * tests, which failed on "security token invalid" because a second
+     * application was being constructed underneath them.
      */
     public static function fromApplication(): self
     {
-        $app = \Pramnos\Application\Application::getInstance();
-        if (!is_object($app)) {
+        $app = \Pramnos\Application\Application::currentInstance();
+        if ($app === null) {
             return new self();
         }
 
