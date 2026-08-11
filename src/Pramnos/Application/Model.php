@@ -101,13 +101,124 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             $this->_dbtable = '#PREFIX#' . $name . 's';
         }
         $database = \Pramnos\Database\Database::getInstance();
-        $this->_dbtable=str_ireplace(
-            '#PREFIX#', $database->prefix, $this->_dbtable
-        );
+        $this->_dbtable = static::resolveTableName($this->_dbtable, $database->prefix);
 
         parent::__construct();
     }
 
+
+    /**
+     * The table name this model actually reads and writes.
+     *
+     * A model names its table in one of two ways, and until now they did not
+     * end up in the same place:
+     *
+     *   - `'#PREFIX#users'` — the token is substituted, giving `pramnos_users`;
+     *   - `'mails'` — nothing happened, giving `mails`.
+     *
+     * Six framework models use the second form. With an empty prefix — the
+     * default, and every installation the framework was developed against — the
+     * two are identical and the difference is invisible. With a prefix set they
+     * are different tables, and the model then used one name in its own SQL and
+     * (once the schema builder started prefixing) another through the query
+     * builder. Half a model working is harder to diagnose than none of it.
+     *
+     * So the name is normalised once, here: token substituted, prefix applied,
+     * and never applied twice. A schema-qualified name is left alone — on
+     * PostgreSQL the schema is the namespace, and prefixing inside it would
+     * rename tables the framework addresses by schema everywhere else.
+     *
+     * @param  string|null $table  As declared by the model
+     * @param  string      $prefix Configured prefix, already ending in `_`
+     * @return string|null
+     */
+    public static function resolveTableName($table, string $prefix)
+    {
+        if ($table === null || $table === '') {
+            return $table;
+        }
+
+        if (stripos($table, '#PREFIX#') !== false) {
+            return str_ireplace('#PREFIX#', $prefix, $table);
+        }
+
+        if ($prefix === ''
+            || strpos($table, '.') !== false
+            || str_starts_with($table, $prefix)) {
+            return $table;
+        }
+
+        return $prefix . $table;
+    }
+
+    /**
+     * Set `$_dbtable` when the model computes its table name at runtime.
+     *
+     * Most models declare `protected $_dbtable` and never need this. Those that
+     * work it out — from a tenant, a locale, a constructor argument — override
+     * this, and the listing helpers call it before they need the name.
+     *
+     * It exists because the base used to get the table by calling
+     * `$this->load(0)`: not to load anything, but hoping the subclass would set
+     * `$_dbtable` as a side effect before failing to find the row with id 0.
+     * That coupled table discovery to record loading, ran a pointless query, and
+     * — the part that mattered — assumed every subclass's `load()` takes exactly
+     * one argument.
+     *
+     * `load()` is deliberately **not** declared anywhere in this hierarchy.
+     * Declaring it would fix that signature for every model: PHP only lets a
+     * child *add optional* parameters, so an `abstract load($id)`, a concrete
+     * `load($id = null)` and even `load(...$args)` all reject a child written as
+     * `load($username, $type)`. Subclasses own that signature; the base owns
+     * this one.
+     *
+     * @return void
+     */
+    protected function initTable()
+    {
+    }
+
+    /**
+     * Last resort for a model that still sets `$_dbtable` inside `load()`.
+     *
+     * Kept so that models written against the old behaviour keep working. The
+     * call is made only when `load()` can actually accept the single argument
+     * the base would pass; a model whose `load()` needs more gets a message
+     * naming the class and the fix, instead of an `ArgumentCountError` from a
+     * call that should never have been attempted.
+     *
+     * @throws \LogicException When the table name cannot be determined
+     * @return void
+     */
+    protected function tableFromLegacyLoad()
+    {
+        $problem = static::class . ' has no $_dbtable. Set it as a property, or'
+            . ' override initTable() to set it.';
+
+        if (!method_exists($this, 'load')) {
+            throw new \LogicException($problem);
+        }
+
+        try {
+            $reflection = new \ReflectionMethod($this, 'load');
+        } catch (\ReflectionException) {
+            throw new \LogicException($problem);
+        }
+
+        if ($reflection->getNumberOfRequiredParameters() > 1) {
+            throw new \LogicException(
+                $problem . ' (Its load() requires '
+                . $reflection->getNumberOfRequiredParameters()
+                . ' arguments, so the old load(0) fallback cannot be used.)'
+            );
+        }
+
+        // If it still leaves the table unset, that is not an error to raise
+        // here: each caller already decides what an unknown table means — one
+        // returns an empty list, the others skip the query. Turning that into an
+        // exception would change three public methods for no gain.
+        $this->load(0);
+    }
 
     /**
      * This function can run after initial variable setups
@@ -521,7 +632,10 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             $this->_primaryKey = $key;
         }
         if ($this->_dbtable === NULL) {
-            $this->load(0);
+            $this->initTable();
+        }
+        if ($this->_dbtable === NULL) {
+            $this->tableFromLegacyLoad();
         }
         if ($this->_dbtable != NULL) {
             if ($this->_cacheKey === NULL) {
@@ -691,7 +805,10 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         }
         
         if ($this->_dbtable === NULL) {
-            $this->load(0);
+            $this->initTable();
+        }
+        if ($this->_dbtable === NULL) {
+            $this->tableFromLegacyLoad();
         }
         
         if ($this->_dbtable != NULL) {
@@ -820,7 +937,10 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             $this->_primaryKey = $key;
         }
         if ($this->_dbtable === NULL) {
-            $this->load(0);
+            $this->initTable();
+        }
+        if ($this->_dbtable === NULL) {
+            $this->tableFromLegacyLoad();
         }
         if ($this->_dbtable == NULL) {
             return [];
