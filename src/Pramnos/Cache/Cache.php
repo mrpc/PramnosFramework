@@ -497,7 +497,60 @@ class Cache extends \Pramnos\Framework\Base
         return $this->adapter ? $this->adapter->save($this->_cachename, $this->data, $this->timeout) : false;
     }
 
-    
+    /**
+     * Whether this cache can count atomically.
+     *
+     * Only the adapters backed by a server that implements an atomic increment
+     * can — Redis and Memcached. The File and Array adapters cannot, and saying
+     * so lets a caller that needs a correct count under concurrency choose a
+     * different algorithm rather than silently getting a wrong one.
+     */
+    public function supportsAtomicCounter(): bool
+    {
+        return $this->adapter !== null && method_exists($this->adapter, 'increment');
+    }
+
+    /**
+     * Atomically increment a counter and return its new value.
+     *
+     * A read-modify-write through {@see load()} and {@see save()} loses
+     * increments under concurrency: two requests read the same value, both write
+     * their own, and the second overwrites the first. For a rate limiter that is
+     * the worst possible failure mode, because a flood is concurrent by
+     * definition — the count is least accurate exactly when it matters.
+     *
+     * This delegates to the backing server's own counter, where the read and the
+     * write are one operation. The TTL is applied when the key is created, so
+     * the counter expires with its window rather than living for ever.
+     *
+     * @param string $id  Cache name, as for {@see load()}.
+     * @param int    $ttl Seconds the counter should live.
+     * @return int|false The new value, or false when the adapter cannot count
+     *                   atomically or the operation failed. False is not zero —
+     *                   callers must not treat it as "no requests yet".
+     */
+    public function increment($id, int $ttl)
+    {
+        if ($this->caching == false || !$this->supportsAtomicCounter()) {
+            return false;
+        }
+
+        $this->_id        = $id;
+        $this->_cachename = $this->_generateCacheName($id);
+
+        // Fixed window: the expiry is set by whichever call creates the key and
+        // is not refreshed afterwards, so the window ends even under sustained
+        // traffic. The Memcached adapter has that behaviour inherently; Redis
+        // needs to be told, since its default is a sliding expiry.
+        $adapter = $this->adapter;
+        if ($adapter instanceof Adapter\RedisAdapter) {
+            return $adapter->increment($this->_cachename, 1, $ttl, false);
+        }
+
+        return $adapter->increment($this->_cachename, 1, $ttl);
+    }
+
+
 
     /**
      * Generate the file name to be saved

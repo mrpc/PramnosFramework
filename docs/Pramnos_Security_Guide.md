@@ -354,6 +354,81 @@ if (!in_array($mime, ['image/jpeg', 'image/png', 'image/gif'])) {
 move_uploaded_file($_FILES['avatar']['tmp_name'], '/secure/uploads/avatar_' . uniqid() . '.jpg');
 ```
 
+## Who is the client? Trusted proxies
+
+`$_SERVER['REMOTE_ADDR']` is the **connecting peer**. Behind a reverse proxy, a
+CDN or a load balancer that peer is the proxy, so every visitor in the world
+shares one address. A per-IP rate limit becomes a global one and fires for
+everybody at once; anything binding a session to the address binds every session
+to the same value.
+
+Use `Request::clientIp()` rather than reading `REMOTE_ADDR` directly:
+
+```php
+$ip = \Pramnos\Http\Request::clientIp();
+```
+
+### Configure the proxies, or nothing changes
+
+```php
+// app.php
+'trusted_proxies' => ['private_ranges'],                      // shorthand
+'trusted_proxies' => ['cloudflare'],                          // shorthand
+'trusted_proxies' => ['10.0.0.0/8', '2001:db8::/32', '192.0.2.7'],
+```
+
+With the list empty — the default — the answer is `REMOTE_ADDR`, unchanged.
+
+**This is not an oversight, it is the point.** Reading `X-Forwarded-For`
+unconditionally would be *worse than doing nothing*: the header is written by
+the client, so an attacker setting a fresh random value on every request gets a
+fresh rate-limit bucket every time and defeats the limiter completely — while
+the logs show a healthy spread of addresses and the limiter reports that it is
+working.
+
+So a forwarding header is believed only when the peer that delivered it is
+itself a trusted proxy, and the chain is walked **from the right** — the end the
+infrastructure appended — taking the first address that is not a trusted hop.
+The leftmost entry is the client-supplied end and is never trusted.
+
+`Forwarded` (RFC 7239) and `CF-Connecting-IP` are understood under the same
+rule. `X-Real-IP` is deliberately ignored: it is single-valued, so there is no
+chain to walk.
+
+!!! warning "Behind Cloudflare?"
+    Set `'trusted_proxies' => ['cloudflare']`. Until you do, session and token
+    records store the Cloudflare edge address rather than the visitor's.
+    `ClientIpResolver::CLOUDFLARE_RANGES` is a snapshot of the published list
+    and does change — pin your own copy if this matters to you.
+
+## Human checks on public writes
+
+`\Pramnos\Security\HumanCheck` is proof-of-work, not a CAPTCHA:
+
+```php
+$check     = new HumanCheck(difficultyMs: 300);
+$challenge = $check->challenge();     // hand to the page
+
+if (!$check->verify($submitted['challenge'], $submitted['solution'])) {
+    // refuse
+}
+```
+
+Pair it with `scaffolding/assets/js/pf-humancheck.js`, which solves the
+challenge in a Web Worker while the visitor types.
+
+**Read the limit before adopting it.** Proof-of-work does not *stop* automated
+submissions — it **prices** them. An attacker with a botnet and free CPU still
+gets through; what changes is that a thousand signups cost real compute instead
+of nothing. It is the right defence against volume and no defence at all against
+a targeted attack. Code reading a passed check must not conclude that a human
+was involved, because nothing here establishes that.
+
+It is single-use (enforced through an atomic counter — a replayed solve is the
+obvious bypass), HMAC-signed with its own expiry, and costs the visitor battery,
+which is why difficulty is set in milliseconds of work on a mid-range phone and
+per call site.
+
 ## Dependency Security
 
 ### Keep Dependencies Updated

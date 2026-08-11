@@ -73,7 +73,7 @@ class ActivityLog
                 return;
             }
 
-            $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+            $ip = \Pramnos\Http\Request::clientIp() ?: null;
             $ua = $_SERVER['HTTP_USER_AGENT'] ?? null;
 
             $database->queryBuilder()

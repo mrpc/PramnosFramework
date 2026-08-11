@@ -487,7 +487,7 @@ class Auth extends \Pramnos\Framework\Base
         $_SESSION['username'] = $info['username'];
         $_SESSION['auth']     = $info['auth'];
 
-        $remoteIp = $_SERVER['REMOTE_ADDR'] ?? '';
+        $remoteIp = \Pramnos\Http\Request::clientIp();
         $remember = $info['remember'] ?? true;
 
         if ((int) $info['uid'] > 1) {

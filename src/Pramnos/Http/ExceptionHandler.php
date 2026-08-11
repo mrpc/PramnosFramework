@@ -52,10 +52,24 @@ class ExceptionHandler
     ): Response {
         $status = static::httpStatus($exception);
 
-        if ($format === 'json') {
-            return static::renderJson($exception, $status, $debug);
+        $response = $format === 'json'
+            ? static::renderJson($exception, $status, $debug)
+            : static::renderHtml($exception, $status, $debug);
+
+        // A rate limiter that does not say when to come back leaves a
+        // well-behaved client guessing, and guessing usually means retrying
+        // immediately. Carrying it on the response rather than emitting a bare
+        // header() keeps it visible to buffering, inspection and tests.
+        if ($exception instanceof TooManyRequestsException
+            && $exception->getRetryAfter() > 0
+        ) {
+            $response = $response->withHeader(
+                'Retry-After',
+                (string) $exception->getRetryAfter()
+            );
         }
-        return static::renderHtml($exception, $status, $debug);
+
+        return $response;
     }
 
     /**

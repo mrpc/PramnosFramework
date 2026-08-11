@@ -161,8 +161,56 @@ class MemcachedAdapter extends AbstractAdapter
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
-    }   
-    
+    }
+
+    /**
+     * Atomically increment a raw integer counter and return the new value.
+     *
+     * Stored as a bare integer, not the `{data,time}` envelope {@see save()}
+     * writes — this is a counter, not a cache value, and {@see load()} must not
+     * be used to read it.
+     *
+     * Memcached's `increment` fails when the key does not exist, so creation
+     * goes through `add`, which is itself atomic: if two requests race to
+     * create the counter, exactly one `add` succeeds and the loser falls back to
+     * incrementing what the winner created. No increment is lost either way,
+     * which is the whole point of using the server's counter instead of a
+     * read-modify-write.
+     *
+     * @param string   $key The raw (already-prefixed) counter key.
+     * @param int      $by  Amount to add (default 1).
+     * @param int|null $ttl Seconds the counter lives, applied when it is created.
+     * @return int|false New value, or false when unavailable or on failure.
+     */
+    public function increment($key, $by = 1, $ttl = null)
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        try {
+            $new = $this->memcached->increment($key, (int) $by);
+            if ($new !== false) {
+                return (int) $new;
+            }
+
+            // No counter yet. `add` only succeeds if the key is still absent,
+            // so the expiry is set exactly once, by whoever creates it.
+            if ($this->memcached->add($key, (int) $by, (int) ($ttl ?? 0))) {
+                return (int) $by;
+            }
+
+            // Lost the creation race — someone else's `add` won, so count on
+            // top of theirs.
+            $new = $this->memcached->increment($key, (int) $by);
+
+            return $new === false ? false : (int) $new;
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+    }
+
     /**
      * @inheritDoc
      */

@@ -74,14 +74,17 @@ class SessionTrackingMiddleware implements MiddlewareInterface
         }
 
         // 2. Collect request context
-        $agent    = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
-        $remoteip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $agent = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
 
-        $cloudflareip = '';
-        if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $cloudflareip = $remoteip;
-            $remoteip     = $_SERVER['HTTP_CF_CONNECTING_IP'];
-        }
+        // The peer that connected, and who the peer says the client is. The
+        // second is only honoured when the first is a configured trusted proxy
+        // — `CF-Connecting-IP` is a request header like any other, and without
+        // that check anyone can write whatever address they like into the
+        // session record.
+        $peer     = $_SERVER['REMOTE_ADDR'] ?? '';
+        $remoteip = Request::clientIp();
+
+        $cloudflareip = ($remoteip !== '' && $remoteip !== $peer) ? $peer : '';
 
         $country = '';
         if (isset($_SERVER['HTTP_CF_IPCOUNTRY'])

@@ -196,18 +196,68 @@ class SessionTest extends TestCase
      */
     public function testOnAppInitWithCloudflareHeaders(): void
     {
-        // Arrange
+        // Arrange — the peer is 127.0.0.1 (set in setUp), declared a proxy
+        $app      = \Pramnos\Application\Application::getInstance();
+        $original = $app->applicationInfo['trusted_proxies'] ?? null;
+        $app->applicationInfo['trusted_proxies'] = ['private_ranges'];
+
         $_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.195';
         $_SERVER['HTTP_CF_IPCOUNTRY'] = 'GR';
         $_SERVER['HTTP_ACCEPT_LANGUAGE'] = 'el-GR,el;q=0.9';
         $sessionAddon = new Session();
 
         // Act
-        $sessionAddon->onAppInit();
+        try {
+            $sessionAddon->onAppInit();
+        } finally {
+            if ($original === null) {
+                unset($app->applicationInfo['trusted_proxies']);
+            } else {
+                $app->applicationInfo['trusted_proxies'] = $original;
+            }
+        }
 
         // Assert
         $this->assertCount(3, $this->queriesExecuted);
         $this->assertStringContainsString('203.0.113.195', $this->queriesExecuted[2], 'Insert query must contain cloudflare connecting IP');
+    }
+
+    /**
+     * Without a trusted-proxy list the Cloudflare header is not believed.
+     *
+     * The addon used to read it unconditionally, so any visitor could choose
+     * the address recorded against their own session. A session row whose IP
+     * the subject picked is worse than one recording the proxy, because it
+     * still reads like a fact.
+     */
+    public function testOnAppInitIgnoresCloudflareHeaderFromAnUntrustedPeer(): void
+    {
+        // Arrange — a header present, but nothing declared as a proxy
+        $app      = \Pramnos\Application\Application::getInstance();
+        $original = $app->applicationInfo['trusted_proxies'] ?? null;
+        $app->applicationInfo['trusted_proxies'] = [];
+
+        $_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.195';
+        $sessionAddon = new Session();
+
+        // Act
+        try {
+            $sessionAddon->onAppInit();
+        } finally {
+            if ($original === null) {
+                unset($app->applicationInfo['trusted_proxies']);
+            } else {
+                $app->applicationInfo['trusted_proxies'] = $original;
+            }
+        }
+
+        // Assert — the peer was recorded, not the claim
+        $this->assertStringNotContainsString(
+            '203.0.113.195',
+            $this->queriesExecuted[2],
+            'an unverified header must not reach the session record'
+        );
+        $this->assertStringContainsString('127.0.0.1', $this->queriesExecuted[2]);
     }
 
     /**

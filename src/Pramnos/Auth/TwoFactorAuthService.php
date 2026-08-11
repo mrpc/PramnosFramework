@@ -247,7 +247,7 @@ class TwoFactorAuthService
             ->where('id', $setupId)
             ->update(['used' => 1]);
 
-        $this->logAttempt($userId, true, 'SETUP', $_SERVER['REMOTE_ADDR'] ?? null);
+        $this->logAttempt($userId, true, 'SETUP', \Pramnos\Http\Request::clientIp() ?: null);
 
         return true;
     }
@@ -279,21 +279,21 @@ class TwoFactorAuthService
         if (TOTPHelper::verifyCode($secret, $code)) {
             // Replay protection: reject if this window was already consumed
             if ($this->isRecentlyUsed($userId)) {
-                $this->logAttempt($userId, false, $code, $_SERVER['REMOTE_ADDR'] ?? null);
+                $this->logAttempt($userId, false, $code, \Pramnos\Http\Request::clientIp() ?: null);
                 return false;
             }
 
             $this->updateLastUsed($userId);
-            $this->logAttempt($userId, true, $code, $_SERVER['REMOTE_ADDR'] ?? null);
+            $this->logAttempt($userId, true, $code, \Pramnos\Http\Request::clientIp() ?: null);
             return true;
         }
 
         if ($this->verifyAndConsumeBackupCode($userId, $code)) {
-            $this->logAttempt($userId, true, 'BACKUP', $_SERVER['REMOTE_ADDR'] ?? null);
+            $this->logAttempt($userId, true, 'BACKUP', \Pramnos\Http\Request::clientIp() ?: null);
             return true;
         }
 
-        $this->logAttempt($userId, false, $code, $_SERVER['REMOTE_ADDR'] ?? null);
+        $this->logAttempt($userId, false, $code, \Pramnos\Http\Request::clientIp() ?: null);
         return false;
     }
 
@@ -335,7 +335,7 @@ class TwoFactorAuthService
             ->where('userid', $userId)
             ->delete();
 
-        $this->logAttempt($userId, true, 'DISABLE', $_SERVER['REMOTE_ADDR'] ?? null);
+        $this->logAttempt($userId, true, 'DISABLE', \Pramnos\Http\Request::clientIp() ?: null);
         return true;
     }
 
@@ -365,7 +365,7 @@ class TwoFactorAuthService
                 'updated_at'   => time(),
             ]);
 
-        $this->logAttempt($userId, true, 'REGEN_BACKUP', $_SERVER['REMOTE_ADDR'] ?? null);
+        $this->logAttempt($userId, true, 'REGEN_BACKUP', \Pramnos\Http\Request::clientIp() ?: null);
         return $plainCodes;
     }
 

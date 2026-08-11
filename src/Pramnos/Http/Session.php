@@ -75,7 +75,10 @@ class Session extends Base
     public function getFingerprint(bool $useIp = false): string
     {
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'none';
-        $ip = $useIp ? ($_SERVER['REMOTE_ADDR'] ?? 'none') : '';
+        // Behind a proxy REMOTE_ADDR is the proxy, identical for every visitor,
+        // so pinning to it would pin to nothing. clientIp() is the real client
+        // wherever the application has declared its proxies.
+        $ip = $useIp ? (\Pramnos\Http\Request::clientIp('none')) : '';
         return hash_hmac('sha256', $ua . $ip, $this->_token);
     }
 

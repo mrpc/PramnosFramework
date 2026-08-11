@@ -287,7 +287,15 @@ class SessionTrackingMiddlewareMySQLTest extends TestCase
      */
     public function testTrackUsesCloudflareConnectingIpAndHeaders(): void
     {
-        // Arrange — simulate a request routed through Cloudflare
+        // Arrange — a request routed through Cloudflare, with the connecting
+        // peer declared as a trusted proxy. Without that declaration the header
+        // is an unverified claim; see the test below.
+        $app      = \Pramnos\Application\Application::getInstance();
+        $original = $app->applicationInfo['trusted_proxies'] ?? null;
+        // 1.2.3.4 is the peer set in setUp(); it must be named explicitly
+        // because it is a public address, not one of the private ranges.
+        $app->applicationInfo['trusted_proxies'] = ['1.2.3.4'];
+
         $_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.77';
         $_SERVER['HTTP_CF_IPCOUNTRY']     = 'GR';
         $_SERVER['HTTP_ACCEPT_LANGUAGE']  = 'el-GR,el;q=0.9,en;q=0.8';
@@ -296,12 +304,57 @@ class SessionTrackingMiddlewareMySQLTest extends TestCase
         $middleware = new SessionTrackingMiddleware();
 
         // Act
-        $middleware->track($request);
+        try {
+            $middleware->track($request);
+        } finally {
+            if ($original === null) {
+                unset($app->applicationInfo['trusted_proxies']);
+            } else {
+                $app->applicationInfo['trusted_proxies'] = $original;
+            }
+        }
 
         // Assert — host_addr must be the CF-Connecting-IP, not REMOTE_ADDR
         $row = $this->fetchRow($visitorid);
         $this->assertSame('203.0.113.77', $row['host_addr'] ?? '',
             'host_addr must record the Cloudflare CF-Connecting-IP');
+    }
+
+    /**
+     * An untrusted peer's Cloudflare header does not reach the session row.
+     *
+     * The middleware used to read the header unconditionally, so any visitor
+     * could choose the address stored against their own session. Session rows
+     * are consulted as evidence of where someone was; an address the subject
+     * supplied is not evidence of anything.
+     */
+    public function testTrackIgnoresCloudflareIpFromAnUntrustedPeer(): void
+    {
+        // Arrange — the header is present, but no proxy is declared
+        $app      = \Pramnos\Application\Application::getInstance();
+        $original = $app->applicationInfo['trusted_proxies'] ?? null;
+        $app->applicationInfo['trusted_proxies'] = [];
+
+        $_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.88';
+        $visitorid = 'aaaa111122224444';
+        $request   = $this->makeRequest(visitorid: $visitorid);
+        $middleware = new SessionTrackingMiddleware();
+
+        // Act
+        try {
+            $middleware->track($request);
+        } finally {
+            if ($original === null) {
+                unset($app->applicationInfo['trusted_proxies']);
+            } else {
+                $app->applicationInfo['trusted_proxies'] = $original;
+            }
+        }
+
+        // Assert — the peer, not the claim
+        $row = $this->fetchRow($visitorid);
+        $this->assertNotSame('203.0.113.88', $row['host_addr'] ?? '',
+            'an unverified header must not become the recorded address');
     }
 
     // -------------------------------------------------------------------------

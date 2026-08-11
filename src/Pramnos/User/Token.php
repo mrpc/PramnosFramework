@@ -341,13 +341,10 @@ class Token extends \Pramnos\Framework\Base
                 $_SERVER['HTTP_USER_AGENT']
             );
         }
-        $remoteip = '';
-        if (isset($_SERVER['REMOTE_ADDR'])) {
-            $remoteip = $_SERVER['REMOTE_ADDR'];
-        }
-        if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $remoteip = $_SERVER['HTTP_CF_CONNECTING_IP'];
-        }
+        // Forwarding headers are only honoured from a configured trusted proxy.
+        // A token record whose IP any client can dictate is worse than one that
+        // records the proxy, because it looks like evidence.
+        $remoteip = \Pramnos\Http\Request::clientIp();
         if ($remoteip != '') {
             $this->ipaddress = $remoteip;
         }

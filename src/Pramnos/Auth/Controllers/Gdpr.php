@@ -448,7 +448,7 @@ class Gdpr extends Controller
             'status'          => 'pending',
             'requested_at'    => $db->queryBuilder()->raw('NOW()'),
             'request_details' => $details,
-            'ip_address'      => $_SERVER['REMOTE_ADDR'] ?? null,
+            'ip_address'      => \Pramnos\Http\Request::clientIp() ?: null,
         ]);
 
         return (int) $db->getInsertId();

@@ -44,16 +44,12 @@ class Session extends \Pramnos\Addon\Addon
         } else {
             $agent = '';
         }
-        if (isset($_SERVER['REMOTE_ADDR'])) {
-            $remoteip = $_SERVER['REMOTE_ADDR'];
-        } else {
-            $remoteip = '';
-        }
-        $cloudflareip = '';
-        if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $cloudflareip = $remoteip;
-            $remoteip = $_SERVER['HTTP_CF_CONNECTING_IP'];
-        }
+        // The connecting peer, and the client it vouches for. A forwarding
+        // header is only believed when the peer is a configured trusted proxy;
+        // otherwise the client could name itself anything.
+        $peer = $_SERVER['REMOTE_ADDR'] ?? '';
+        $remoteip = \Pramnos\Http\Request::clientIp();
+        $cloudflareip = ($remoteip !== '' && $remoteip !== $peer) ? $peer : '';
         $country = '';
         if (isset($_SERVER['HTTP_CF_IPCOUNTRY']) 
             && is_string($_SERVER['HTTP_CF_IPCOUNTRY'])) {
