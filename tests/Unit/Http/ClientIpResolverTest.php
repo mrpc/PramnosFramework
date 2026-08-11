@@ -375,6 +375,51 @@ class ClientIpResolverTest extends TestCase
     }
 
     /**
+     * Blank entries in the configuration are skipped, not treated as a range.
+     *
+     * A trailing comma or an empty environment variable is the ordinary way
+     * this list acquires an empty string, and an empty string that matched
+     * anything would trust the whole internet.
+     */
+    public function testBlankConfigurationEntriesAreSkipped(): void
+    {
+        // Arrange
+        $resolver = new ClientIpResolver(['', '  ', '10.0.0.1']);
+
+        // Assert
+        $this->assertTrue($resolver->isTrusted('10.0.0.1'), 'the real entry still works');
+        $this->assertFalse($resolver->isTrusted('203.0.113.5'), 'the blanks match nothing');
+    }
+
+    /**
+     * Asking whether a non-address is trusted answers no.
+     *
+     * `isTrusted()` is public, and a caller passing something that is not an
+     * address must get a refusal rather than a warning or a true.
+     */
+    public function testANonAddressIsNeverTrusted(): void
+    {
+        // Assert
+        $this->assertFalse((new ClientIpResolver(['private_ranges']))->isTrusted('not-an-address'));
+    }
+
+    /**
+     * With no application there is nothing to configure, so nothing is trusted.
+     *
+     * This is CLI and most unit tests. Failing closed here means those contexts
+     * answer REMOTE_ADDR, which is exactly what they did before.
+     */
+    public function testWithoutAnApplicationNothingIsTrusted(): void
+    {
+        // Act — the test bootstrap may or may not have an application; either
+        // way the resolver must be usable and must not trust a stranger.
+        $resolver = ClientIpResolver::fromApplication();
+
+        // Assert
+        $this->assertFalse($resolver->isTrusted('203.0.113.5'));
+    }
+
+    /**
      * Malformed configuration is ignored rather than trusted.
      *
      * A typo in `trusted_proxies` must fail closed. Anything else turns a

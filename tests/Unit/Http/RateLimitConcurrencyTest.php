@@ -296,6 +296,27 @@ class RateLimitConcurrencyTest extends TestCase
     }
 
     /**
+     * A cache with no atomic counter still limits, through the fallback.
+     *
+     * The Array and File adapters are what tests and small installations
+     * actually run on. They must be limited — approximately, but limited — and
+     * not silently pass everything because the preferred path was unavailable.
+     */
+    public function testACacheWithoutAnAtomicCounterStillLimits(): void
+    {
+        // Arrange
+        $middleware = new RateLimitMiddleware(2, 60, 'fallback:', new NonAtomicCache());
+
+        // Act
+        $this->assertSame('passed', $middleware->handle($this->request(), $this->next()));
+        $this->assertSame('passed', $middleware->handle($this->request(), $this->next()));
+
+        // Assert
+        $this->expectException(TooManyRequestsException::class);
+        $middleware->handle($this->request(), $this->next());
+    }
+
+    /**
      * Two different clients get two different buckets.
      *
      * The obvious property, and the one that silently stopped holding behind a
