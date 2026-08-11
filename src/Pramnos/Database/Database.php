@@ -2342,7 +2342,14 @@ class Database extends \Pramnos\Framework\Base
             if (isset($_SERVER['HTTP_USER_AGENT']) && $_SERVER['HTTP_USER_AGENT'] == 'cli') {
                 $appName = 'CLI';
             } else {
-                $app = \Pramnos\Application\Application::getInstance();
+                // currentInstance(), not getInstance(): this runs while the
+                // connection is being opened, and getInstance() is a factory —
+                // with no application yet it would build one, which sets up
+                // Settings, which queries the database through the connection
+                // still being established. The `!== null` check below was
+                // already written as though this could not construct; now it
+                // cannot.
+                $app = \Pramnos\Application\Application::currentInstance();
                 if ($app !== null && is_array($app->applicationInfo) && isset($app->applicationInfo['name'])) {
                     $appName = str_replace(' ', '', ucfirst($app->applicationInfo['name']));
                 } else {
