@@ -504,10 +504,19 @@ class Cache extends \Pramnos\Framework\Base
      * can — Redis and Memcached. The File and Array adapters cannot, and saying
      * so lets a caller that needs a correct count under concurrency choose a
      * different algorithm rather than silently getting a wrong one.
+     *
+     * The adapter is asked directly rather than probed with `method_exists()`,
+     * because *every* adapter inherits a working `increment()` from
+     * {@see Adapter\AbstractAdapter} — a load followed by a save. Probing for
+     * the method would report the File adapter as atomic, which is precisely
+     * the "looks like it works and does not" answer this method exists to
+     * prevent.
      */
     public function supportsAtomicCounter(): bool
     {
-        return $this->adapter !== null && method_exists($this->adapter, 'increment');
+        return $this->adapter !== null
+            && method_exists($this->adapter, 'supportsAtomicCounter')
+            && $this->adapter->supportsAtomicCounter();
     }
 
     /**
@@ -538,16 +547,11 @@ class Cache extends \Pramnos\Framework\Base
         $this->_id        = $id;
         $this->_cachename = $this->_generateCacheName($id);
 
-        // Fixed window: the expiry is set by whichever call creates the key and
-        // is not refreshed afterwards, so the window ends even under sustained
-        // traffic. The Memcached adapter has that behaviour inherently; Redis
-        // needs to be told, since its default is a sliding expiry.
-        $adapter = $this->adapter;
-        if ($adapter instanceof Adapter\RedisAdapter) {
-            return $adapter->increment($this->_cachename, 1, $ttl, false);
-        }
-
-        return $adapter->increment($this->_cachename, 1, $ttl);
+        // Fixed window: the adapters apply the expiry on the call that creates
+        // the key and do not refresh it, so the window ends even under
+        // sustained traffic. (FlatCache asks for the sliding variant
+        // explicitly; that is its own documented contract, not this one.)
+        return $this->adapter->increment($this->_cachename, 1, $ttl);
     }
 
 

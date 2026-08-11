@@ -209,6 +209,25 @@ abstract class AbstractAdapter implements AdapterInterface
     }
 
     /**
+     * Whether {@see increment()} is atomic on this backend.
+     *
+     * False here, and that is the important part: every adapter inherits a
+     * working `increment()` from this class, so the mere presence of the method
+     * says nothing about whether it is safe under concurrency. The default
+     * above is a load followed by a save, which loses increments when two
+     * processes overlap.
+     *
+     * A caller doing security work — a rate limiter, a single-use token — needs
+     * to know the difference, and asking `method_exists()` would tell it the
+     * File adapter counts atomically. Backends with a native counter override
+     * this to true.
+     */
+    public function supportsAtomicCounter(): bool
+    {
+        return false;
+    }
+
+    /**
      * Decrement an integer counter and return the new value.
      * Non-atomic default; see {@see increment()}.
      *

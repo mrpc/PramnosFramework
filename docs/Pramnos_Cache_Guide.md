@@ -364,6 +364,23 @@ Two differences from `FlatCache::increment()` are deliberate:
 all. Redis (`INCRBY`) and Memcached (`increment`, with creation through the
 atomic `add`) can; Array and File cannot, and say so rather than pretending.
 
+!!! danger "Do not probe with `method_exists()`"
+    **Every** adapter has an `increment()` method — `AbstractAdapter` provides a
+    working non-atomic default, so `method_exists($adapter, 'increment')` is
+    true for the File adapter too. Asking that question is how the first version
+    of this reported the File adapter as atomic and sent the rate limiter down
+    the "exact under concurrency" path on a backend that loses increments.
+
+    Ask `supportsAtomicCounter()`, which is `false` in `AbstractAdapter` and
+    overridden to `true` only by the adapters that mean it.
+
+A note on expiry, since the two entry points differ deliberately:
+`FlatCache::increment()` keeps its documented **sliding** TTL, refreshed on
+every call. The adapter's own default — and therefore `Cache::increment()` — is
+the **fixed** window, because a sliding expiry on a rate-limit counter never
+lets a busy key die: sustained traffic refreshes it on every hit, the count
+climbs for ever, and the client is locked out permanently.
+
 ### Atomic swap (change detection / de-duplication)
 
 `swap()` sets a key to a new value and returns the **previous** one in a single

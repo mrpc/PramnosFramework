@@ -164,6 +164,16 @@ class MemcachedAdapter extends AbstractAdapter
     }
 
     /**
+     * Memcached counts atomically.
+     */
+    public function supportsAtomicCounter(): bool
+    {
+        // Both `increment` and the `add` used to create the counter are
+        // server-side atomic operations.
+        return true;
+    }
+
+    /**
      * Atomically increment a raw integer counter and return the new value.
      *
      * Stored as a bare integer, not the `{data,time}` envelope {@see save()}
