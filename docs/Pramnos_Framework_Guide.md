@@ -384,6 +384,32 @@ $user = \Pramnos\User\User::getCurrentUser();
 $database = \Pramnos\Database\Database::getInstance();
 ```
 
+### `getInstance()` builds; `currentInstance()` only looks
+
+`Application::getInstance()` is a **factory**. With no instance for the key it
+reads `app.php`, defines constants and runs the whole constructor — setting up
+the database, the language and the session. That is what you want when you want
+an application.
+
+It is emphatically not what you want when you only need to read a setting:
+
+```php
+// Wrong in low-level code — may construct an entire application
+$proxies = Application::getInstance()->applicationInfo['trusted_proxies'] ?? [];
+
+// Right — null when there is none, and nothing is built
+$app     = Application::currentInstance();
+$proxies = $app?->applicationInfo['trusted_proxies'] ?? [];
+```
+
+Use `currentInstance()` anywhere that runs **before the application is ready**:
+CSRF verification, middleware that runs early in the pipeline, and anything on
+the database connection path. The last one is not hypothetical — reading the
+application name while a connection was being opened built an application, which
+set up `Settings`, which queried the database through the very connection still
+being established. `ConnectionPathPurityTest` now fails the build if that
+returns.
+
 This guide provides a comprehensive overview of the Pramnos framework structure and conventions. Use it as a reference for building consistent, secure, and maintainable applications within the Pramnos ecosystem.
 
 ---
