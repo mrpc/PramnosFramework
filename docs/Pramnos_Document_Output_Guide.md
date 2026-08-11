@@ -25,7 +25,7 @@ src/Pramnos/Document/
 └── DocumentTypes/           # Format-specific implementations
     ├── Html.php             # HTML document type
     ├── Amp.php              # AMP (Accelerated Mobile Pages)
-    ├── Pdf.php              # PDF document generation
+    ├── PrintDocument.php    # Printable HTML (print dialog / save as PDF)
     ├── Png.php              # PNG image output
     ├── Rss.php              # RSS feed generation
     └── Rss/
@@ -34,7 +34,7 @@ src/Pramnos/Document/
 
 ### Key Features
 
-- **Multiple Output Formats**: HTML, AMP, PDF, RSS, PNG, JSON, XML
+- **Multiple Output Formats**: HTML, AMP, print, RSS, PNG, JSON, XML
 - **Asset Management**: JavaScript and CSS dependency management
 - **Theme Integration**: Seamless theming and template system
 - **SEO Optimization**: Meta tags, Open Graph, and structured data
@@ -48,7 +48,7 @@ src/Pramnos/Document/
 ```php
 // Get document instance for different formats
 $htmlDoc = \Pramnos\Framework\Factory::getDocument('html');
-$pdfDoc = \Pramnos\Framework\Factory::getDocument('pdf');
+$printDoc = \Pramnos\Framework\Factory::getDocument('print');
 $rssDoc = \Pramnos\Framework\Factory::getDocument('rss');
 $ampDoc = \Pramnos\Framework\Factory::getDocument('amp');
 
@@ -78,28 +78,61 @@ $doc->extraBodyTag = 'onload="initPage()"';
 echo $doc->render();
 ```
 
-### PDF Document Type
+### Printable Document Type
+
+Produces a normal HTML page carrying a print stylesheet and a call to
+`window.print()`. The browser's own print dialog handles the rest — including
+**Save as PDF**, which every current browser offers.
+
+It is an HTML document in every respect: theme, meta tags, `addCss()`,
+`enqueueStyle()`, `enqueueScript()` all work as they do on a `html` document.
 
 ```php
-$doc = \Pramnos\Framework\Factory::getDocument('pdf');
+$doc = \Pramnos\Framework\Factory::getDocument('print');
 
-// Set PDF properties
-$doc->title = 'Report Title';
-$doc->setAuthor('Your Name');
-$doc->setSubject('Monthly Report');
+$doc->title       = 'Invoice 2026-0042';
+$doc->paperSize   = 'A4';          // or 'Letter', 'A5', '210mm 297mm'
+$doc->orientation = 'portrait';    // or 'landscape'
+$doc->margin      = '15mm';
 
-// Add content (HTML is automatically converted)
+$doc->addCss('/css/invoice.css');                    // the real layout
+$doc->addPrintCss('.totals { break-inside: avoid; }'); // page-specific rules
+$doc->noPrint('.site-nav');                          // hide from the printout
+
 $doc->addContent('
-    <h1>Monthly Report</h1>
-    <table border="1">
-        <tr><th>Metric</th><th>Value</th></tr>
-        <tr><td>Sales</td><td>$10,000</td></tr>
+    <h1>Invoice 2026-0042</h1>
+    <table>
+        <tr><th>Item</th><th>Amount</th></tr>
+        <tr><td>Services</td><td>1,200.00</td></tr>
     </table>
 ');
 
-// Output PDF (will trigger download)
-$doc->render();
+echo $doc->render();
 ```
+
+**Properties**
+
+| Property | Default | What it does |
+|---|---|---|
+| `autoPrint` | `true` | Open the print dialog once the page has loaded |
+| `closeAfterPrint` | `false` | Close the window on `afterprint` — only works for a window the script opened |
+| `paperSize` | `'A4'` | `@page size` |
+| `orientation` | `'portrait'` | Appended to the size when it is portrait/landscape |
+| `margin` | `'12mm'` | `@page margin` |
+| `baseStyles` | `true` | Emit the built-in print stylesheet |
+| `printStyles` | `''` | Extra CSS, appended after it — see `addPrintCss()` |
+| `hideOnPrint` | `[]` | Selectors hidden when printing — see `noPrint()` |
+
+Anything with class `.no-print` is hidden already, and `.page-break` forces a
+page break before the element.
+
+Set `autoPrint = false` for a page the reader is meant to check before printing.
+
+> **Note on `pdf`.** The old `pdf` document type rendered through TCPDF, which is
+> not a dependency of this framework — it raised a fatal error on its first line,
+> so every caller of it was already broken. `getDocument('pdf')` now returns this
+> printable document, so old links produce something usable rather than a stack
+> trace. Use `'print'` in new code.
 
 ### RSS Feed Type
 
@@ -340,7 +373,7 @@ $doc->setType('json');
 // Automatic format detection from URL/request
 // Example URLs:
 // /page.html     -> HTML output
-// /page.pdf      -> PDF output  
+// /page?format=print -> printable page (save as PDF from the browser)
 // /page.rss      -> RSS output
 // /page?format=json -> JSON output
 
@@ -348,8 +381,8 @@ $doc->setType('json');
 $format = \Pramnos\Http\Request::staticGet('format', 'html', 'get');
 
 switch ($format) {
-    case 'pdf':
-        $doc = \Pramnos\Framework\Factory::getDocument('pdf');
+    case 'print':
+        $doc = \Pramnos\Framework\Factory::getDocument('print');
         break;
     case 'rss':
         $doc = \Pramnos\Framework\Factory::getDocument('rss');
@@ -729,8 +762,8 @@ public function display()
             return $this->renderJson($data);
         case 'xml':
             return $this->renderXml($data);
-        case 'pdf':
-            return $this->renderPdf($data);
+        case 'print':
+            return $this->renderPrintable($data);
         case 'rss':
             return $this->renderRss($data);
         default:

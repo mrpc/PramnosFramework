@@ -17,7 +17,7 @@ class Document extends \Pramnos\Framework\Base
      * type or is an application-specific value that should be ignored for
      * type selection.
      */
-    public const KNOWN_TYPES = ['html', 'amp', 'json', 'rss', 'pdf', 'raw', 'png'];
+    public const KNOWN_TYPES = ['html', 'amp', 'json', 'rss', 'print', 'pdf', 'raw', 'png'];
 
     public $content = '';
     public static $type = 'html';
@@ -323,9 +323,19 @@ class Document extends \Pramnos\Framework\Base
                     $instances[$type] = new DocumentTypes\Rss();
                     $instances[$type]->type = 'rss';
                     break;
+                case 'print':
+                    $instances[$type] = new DocumentTypes\PrintDocument();
+                    $instances[$type]->type = 'print';
+                    break;
                 case 'pdf':
-                    $instances[$type] = new DocumentTypes\Pdf();
-                    $instances[$type]->type = 'pdf';
+                    // The old TCPDF-backed type. TCPDF is not a dependency of
+                    // this framework, so that type raised a fatal error on its
+                    // first line — every caller of it was already broken. It
+                    // now yields a printable page, which the browser's own
+                    // dialog turns into a PDF, so old links produce a document
+                    // instead of a stack trace.
+                    $instances[$type] = new DocumentTypes\PrintDocument();
+                    $instances[$type]->type = 'print';
                     break;
                 case 'raw':
                     $instances[$type] = new DocumentTypes\Raw();

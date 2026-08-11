@@ -804,22 +804,42 @@ class DocumentTest extends TestCase
     }
 
     /**
-     * getInstance('pdf') must return a Pdf document instance.
-     *
-     * Covers lines 307-310 of Document.php — the 'pdf' case.
+     * getInstance('print') must return a printable HTML document.
      */
-    public function testGetInstancePdfReturnsPdfDocument(): void
+    public function testGetInstancePrintReturnsPrintDocument(): void
+    {
+        // Act
+        $doc = Document::getInstance('print', false);
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Document\DocumentTypes\PrintDocument::class,
+            $doc,
+            "getInstance('print') must return a DocumentTypes\\PrintDocument instance"
+        );
+        $this->assertSame('print', $doc->type);
+    }
+
+    /**
+     * getInstance('pdf') still answers, with the printable document.
+     *
+     * The old type rendered through TCPDF, which is not a dependency of this
+     * framework — `new TCPDF(...)` resolved to a class that does not exist, so
+     * every caller of `format=pdf` was already getting a fatal error. Mapping
+     * the name onto the printable page means those callers get a document they
+     * can save as a PDF from the browser, rather than a stack trace.
+     */
+    public function testGetInstancePdfFallsBackToThePrintableDocument(): void
     {
         // Act
         $doc = Document::getInstance('pdf', false);
 
         // Assert
         $this->assertInstanceOf(
-            \Pramnos\Document\DocumentTypes\Pdf::class,
-            $doc,
-            "getInstance('pdf') must return a DocumentTypes\\Pdf instance"
+            \Pramnos\Document\DocumentTypes\PrintDocument::class,
+            $doc
         );
-        $this->assertSame('pdf', $doc->type);
+        $this->assertSame('print', $doc->type, 'It reports what it actually is');
     }
 
     /**
