@@ -64,6 +64,15 @@ chain to walk. `Forwarded` (RFC 7239) is understood, including its obfuscated
 had no counter at all; it creates one through `add`, which is atomic, so a race
 to create it loses no increments either way.
 
+`supportsAtomicCounter()` is a declaration on the adapter, not a
+`method_exists()` probe — and that distinction was itself a bug in the first
+version of this work. Every adapter inherits a working `increment()` from
+`AbstractAdapter`, so probing for the method reported the **File adapter as
+atomic** and sent the limiter down the exact-counting path on a backend that
+loses increments. The middleware's own tests could not have caught it: they used
+doubles that answered the question themselves. `AtomicCounterCapabilityTest`
+asks the real adapters instead.
+
 **`TooManyRequestsException`.** An `\Exception` with code 429 — so every
 existing handler is unaffected — that carries a `Retry-After` value.
 
@@ -91,6 +100,13 @@ silent slop in a security control is not.
 which creates and increments in one operation. An application that overrode its
 storage seams keeps its own behaviour — routing around a subclass's storage
 would be a worse bug than the race it fixes.
+
+**The Redis counter's expiry no longer slides by default.** `RedisAdapter::increment()`
+reset the TTL on every call, so a key under sustained traffic never expired: the
+count climbed for ever and the client stayed locked out permanently. The expiry
+is now applied by the call that creates the key. `FlatCache` asks for the
+sliding behaviour explicitly, because that is what its own documented contract
+promises and applications rely on it for login-attempt counters.
 
 **A dropped Redis connection no longer means no limit.** `increment()` returns
 `false` for "the counter did not work", which is not zero. Reading it as an empty

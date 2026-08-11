@@ -135,6 +135,13 @@ class FlatCache implements CacheInterface
         $seconds = $this->ttlToSeconds($ttl);
         $full    = $this->key($key);
         if (method_exists($this->adapter, 'increment')) {
+            // FlatCache's contract is a *sliding* TTL — reset on every call —
+            // so it asks for that explicitly now that the adapter's default is
+            // the fixed window a rate limiter needs.
+            if ($this->adapter instanceof Adapter\RedisAdapter) {
+                return (int) $this->adapter->increment($full, $by, $seconds, true);
+            }
+
             return (int) $this->adapter->increment($full, $by, $seconds);
         }
         // Fallback for a bare AdapterInterface without the counter capability.

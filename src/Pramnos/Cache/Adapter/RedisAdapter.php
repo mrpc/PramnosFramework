@@ -196,20 +196,33 @@ class RedisAdapter extends AbstractAdapter
      * Uses Redis INCRBY, so the key is stored as a bare integer (NOT the
      * serialized {data,time} envelope that {@see save()} writes) — this is a
      * distinct atomic-counter operation, not a cache value. When $ttl is a
-     * positive number of seconds the key's expiry is (re)set on every call,
-     * giving a sliding window (matching typical rate-limit/attempt counters).
+     * positive number of seconds the expiry is applied by the call that creates
+     * the key; pass $slidingExpiry to refresh it on every call instead.
      * Read the current value with {@see counter()}; never with {@see load()}.
      *
      * @param string   $key The raw (already-prefixed) counter key.
      * @param int      $by  Amount to add (default 1).
-     * @param int|null $ttl Sliding TTL in seconds; null/<=0 leaves expiry untouched.
-     * @param bool     $slidingExpiry When false, the TTL is applied only on the
-     *                 call that creates the key, giving a window that actually
-     *                 ends. The default is true and preserves the original
-     *                 behaviour for existing callers.
+     * @param int|null $ttl TTL in seconds; null/<=0 leaves expiry untouched.
+     * @param bool     $slidingExpiry When true the TTL is refreshed on every
+     *                 call. Defaults to false — the expiry is applied only by
+     *                 the call that creates the key — because a sliding expiry
+     *                 never lets a busy key die: sustained traffic refreshes it
+     *                 on every hit, so a rate-limit counter climbs for ever and
+     *                 locks the client out permanently. FlatCache asks for the
+     *                 sliding behaviour explicitly, since that is what its own
+     *                 documented contract promises.
      * @return int|false New value, or false when caching/connection is unavailable.
      */
-    public function increment($key, $by = 1, $ttl = null, $slidingExpiry = true)
+    /**
+     * Redis counts atomically.
+     */
+    public function supportsAtomicCounter(): bool
+    {
+        // INCRBY reads and writes in one server-side operation.
+        return true;
+    }
+
+    public function increment($key, $by = 1, $ttl = null, $slidingExpiry = false)
     {
         if (!$this->caching || !$this->connected) {
             return false;
