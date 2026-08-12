@@ -151,6 +151,66 @@ class Token extends \Pramnos\Framework\Base
      */
     public $lastActionTime = null;
 
+    /**
+     * The action recorded by addAction() but not yet written.
+     *
+     * An API request logs its call and then, once the response is known, logs
+     * the status and how long it took. That used to be an INSERT followed by an
+     * UPDATE of the same row — two round trips, plus a third for the generated
+     * id, all on the request's critical path.
+     *
+     * Holding the row here until the status is known collapses that into one
+     * write, and lets it be buffered rather than paid for while the visitor
+     * waits. See {@see flushPendingAction()}.
+     *
+     * @var array<string, mixed>|null
+     */
+    protected $pendingAction = null;
+
+    /**
+     * Whether a shutdown handler has been registered for this token.
+     *
+     * @var bool
+     */
+    protected $pendingActionRegistered = false;
+
+    /**
+     * URL ids already resolved, keyed by hash.
+     *
+     * Filled by the drain rather than by requests, and therefore by a process
+     * that lives long enough for it to matter: a site serves a few hundred
+     * distinct URLs, and a worker learns them all within minutes.
+     *
+     * @var array<string, int>
+     */
+    protected static $urlIdCache = [];
+
+    /**
+     * How many URL ids are kept before the oldest are dropped.
+     *
+     * A worker runs for days. A site that puts an id or a search term in the
+     * path generates URLs without limit, and an unbounded cache in a process
+     * that never exits is a memory leak with a long fuse.
+     */
+    const URL_CACHE_LIMIT = 2000;
+
+    /**
+     * How often the token row is rewritten just to record that it was used.
+     *
+     * `lastused` answers "is this token still in use" and `actions` is a
+     * counter nobody watches live; a minute's granularity answers both. A
+     * change a reader would notice — a new address, a new device — is written
+     * at once regardless of this.
+     */
+    const USE_WRITE_INTERVAL = 60;
+
+    /**
+     * What the token looked like the last time its use was written.
+     *
+     * @var array{ip: string, device: string|false, at: int}|null
+     */
+    protected $useSnapshot = null;
+
 
     /**
      * A user token
@@ -269,27 +329,7 @@ class Token extends \Pramnos\Framework\Base
     {
         $this->lastActionTime = (int) (microtime(true) * 1000);
         $request = \Pramnos\Framework\Factory::getRequest();
-        $url = $request->getURL(false);
-        $urlHash = crc32($url);
-        $database = \Pramnos\Framework\Factory::getDatabase();
-        $findUrlSql = $database->prepareQuery(
-            "select `urlid` from `#PREFIX#urls` "
-                . " where `hash` = %s limit 1",
-            $urlHash
-        );
-        $findUrlResult = $database->query($findUrlSql);
-        if ($findUrlResult->numRows == 0) {
-            $urlInsertSql = $database->prepareQuery(
-                "insert into `#PREFIX#urls` (`url`, `hash`) "
-                    . " values (%s, %s)",
-                $url,
-                $urlHash
-            );
-            $database->query($urlInsertSql);
-            $urlid = $database->getInsertId();
-        } else {
-            $urlid = $findUrlResult->fields['urlid'];
-        }
+        $url     = $request->getURL(false);
 
         \Pramnos\Framework\Factory::getRequest();
         switch (\Pramnos\Http\Request::$requestMethod) {
@@ -306,33 +346,34 @@ class Token extends \Pramnos\Framework\Base
                 $inputData = file_get_contents("php://input");
                 break;
         }
+        // The row is held rather than written. An API request logs its call and
+        // then, once the response is known, logs the status and the duration —
+        // which used to be an INSERT, an UPDATE of the same row, and a third
+        // round trip for the generated id, all while the visitor waited.
+        //
+        // Held here, the two become one write, and that write is buffered. The
+        // id is therefore not available: nothing needs it any more, because
+        // updateAction() completes this array instead of updating a row.
         $this->lastActionId = null;
-        if ($urlid > 0) {
-            $sql = $database->prepareQuery(
-                "insert into `#PREFIX#tokenactions` "
-                    . "(`tokenid`, `urlid`, `method`, `params`, `servertime`)"
-                    . " values "
-                    . "(%d, %d, %s, %s, %d)",
-                $this->tokenid,
-                $urlid,
-                \Pramnos\Http\Request::$requestMethod,
-                $inputData,
-                time()
-            );
-            try {
-                $database->query($sql);
-            } catch (\Exception $e) {
-                // Handle any exceptions that may occur during the query execution
-                \Pramnos\Logs\Logger::logError(
-                    'Error while adding token action with query: ' 
-                    . $sql . ' - Error: ' 
-                    . $e->getMessage(),
-                    $e
-                );
-                return $this;
-            }
-            $this->lastActionId = $database->getInsertId();
-        }
+
+        // The URL travels as a URL. Turning it into an id means a SELECT
+        // against the registry, and doing that here would put back exactly the
+        // kind of round trip the buffering removes — on every logged request,
+        // to look up a value that never changes.
+        //
+        // The drain resolves it instead. That process is long-running, so its
+        // memory of what it has already resolved is worth far more than a
+        // per-request one: a site serves a few hundred distinct URLs, and a
+        // worker learns all of them within minutes and then never asks again.
+        $this->pendingAction = [
+            'tokenid'    => (int) $this->tokenid,
+            'url'        => $url,
+            'method'     => \Pramnos\Http\Request::$requestMethod,
+            'params'     => $inputData,
+            'servertime' => time(),
+        ];
+
+        $this->registerPendingActionFlush();
         $this->actions += 1;
         $this->lastused = time();
         $remoteip = '';
@@ -349,13 +390,245 @@ class Token extends \Pramnos\Framework\Base
             $this->ipaddress = $remoteip;
         }
 
-        $this->save();
+        // The token row is rewritten in full — every column, including the
+        // token itself, the device description and the scope — to move
+        // `lastused` forward and add one to `actions`. On every request, and
+        // twice for a page that then calls its own API.
+        //
+        // None of that needs to be current to the second: `lastused` answers
+        // "is this token still in use", and `actions` is a counter nobody reads
+        // in real time. Writing it once a minute answers both questions just as
+        // well, and turns a per-request write into an occasional one.
+        //
+        // Anything that changed something a reader would notice — a new IP, a
+        // different device — writes immediately regardless, because those are
+        // the fields somebody looks at when a token is doing something
+        // unexpected.
+        if ($this->shouldPersistTokenUse($remoteip)) {
+            $this->save();
+        }
 
         return $this;
     }
 
     /**
-     * Update an action in the token log
+     * Is this token's row worth rewriting on this request?
+     *
+     * True when something a reader would notice changed — the address or the
+     * device — and otherwise only once every {@see USE_WRITE_INTERVAL} seconds.
+     *
+     * @param  string $remoteip The address this request came from
+     * @return bool
+     */
+    protected function shouldPersistTokenUse($remoteip)
+    {
+        // A token that has never been written has nothing to compare against.
+        if ($this->_isnew || (int) $this->tokenid === 0) {
+            return true;
+        }
+
+        // A new address or a new device is the thing somebody investigating a
+        // stolen token looks at first; it is never delayed.
+        if ($this->useSnapshot === null) {
+            $this->useSnapshot = [
+                'ip'     => (string) $remoteip,
+                'device' => json_encode($this->deviceinfo),
+                // Now, not zero: an epoch timestamp is older than any interval,
+                // so the very next request would decide it was time to write
+                // again — making the first two requests both write.
+                'at'     => time(),
+            ];
+
+            return true;
+        }
+
+        if ((string) $remoteip !== $this->useSnapshot['ip']
+            || json_encode($this->deviceinfo) !== $this->useSnapshot['device']) {
+            $this->useSnapshot['ip']     = (string) $remoteip;
+            $this->useSnapshot['device'] = json_encode($this->deviceinfo);
+            $this->useSnapshot['at']     = time();
+
+            return true;
+        }
+
+        if ((time() - $this->useSnapshot['at']) >= static::USE_WRITE_INTERVAL) {
+            $this->useSnapshot['at'] = time();
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Turn a buffered action row into the row the table wants.
+     *
+     * Registered with {@see \Pramnos\Database\WriteSpool} and run by the
+     * drain, never by a request. It swaps the URL the request recorded for the
+     * id the column holds.
+     *
+     * @param  array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public static function resolveActionRow(array $row): array
+    {
+        if (!array_key_exists('url', $row)) {
+            return $row;
+        }
+
+        $url = (string) $row['url'];
+        unset($row['url']);
+
+        $row['urlid'] = static::urlId($url);
+
+        return $row;
+    }
+
+    /**
+     * The id of a URL in the deduplicated registry, creating it if it is new.
+     *
+     * Called from the drain, which is a long-running process — so the cache in
+     * front of it is the point rather than an optimisation. A site serves a few
+     * hundred distinct URLs; a worker learns them in its first minutes and then
+     * resolves everything from memory.
+     *
+     * The cache is bounded, so a site that generates URLs without limit — an id
+     * in the path, a search term in the query string — cannot grow it without
+     * limit either. When it fills, the oldest half is dropped: the URLs a page
+     * actually keeps calling are the ones that were just used, and they survive.
+     *
+     * @param  string $url
+     * @return int    The url id, or 0 when it could not be resolved
+     */
+    public static function urlId($url)
+    {
+        $hash = (string) crc32($url);
+
+        if (isset(self::$urlIdCache[$hash])) {
+            return self::$urlIdCache[$hash];
+        }
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+
+        try {
+            $result = $database->queryBuilder()
+                ->table('#PREFIX#urls')
+                ->select('urlid')
+                ->where('hash', $hash)
+                ->limit(1)
+                ->get();
+
+            if ($result && $result->numRows > 0) {
+                return self::rememberUrlId($hash, (int) $result->fields['urlid']);
+            }
+
+            // A URL nobody has logged before. This happens once per distinct
+            // URL for the life of the installation.
+            $database->queryBuilder()->table('#PREFIX#urls')->insert([
+                'url'  => $url,
+                'hash' => $hash,
+            ]);
+
+            return self::rememberUrlId($hash, (int) $database->getInsertId());
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+
+            return 0;
+        }
+    }
+
+    /**
+     * Keep a resolved id, without letting the cache grow without bound.
+     *
+     * @param  string $hash
+     * @param  int    $urlid
+     * @return int    The id, so callers can return it directly
+     */
+    protected static function rememberUrlId($hash, $urlid)
+    {
+        if (count(self::$urlIdCache) >= self::URL_CACHE_LIMIT) {
+            // Drop the oldest half rather than everything: clearing outright
+            // would make a worker re-resolve the URLs it is busiest with, over
+            // and over, exactly when it is busiest.
+            self::$urlIdCache = array_slice(
+                self::$urlIdCache,
+                (int) (self::URL_CACHE_LIMIT / 2),
+                null,
+                true
+            );
+        }
+
+        return self::$urlIdCache[$hash] = $urlid;
+    }
+
+    /**
+     * Make sure a held action is written even if nothing completes it.
+     *
+     * The API path calls updateAction() once it knows the response, and that is
+     * what writes the row. The web path never does — so without this, a page
+     * view would be logged by being held and then dropped when the process
+     * ended.
+     *
+     * @return void
+     */
+    protected function registerPendingActionFlush()
+    {
+        if ($this->pendingActionRegistered) {
+            return;
+        }
+
+        $this->pendingActionRegistered = true;
+
+        register_shutdown_function(function (): void {
+            $this->flushPendingAction();
+        });
+    }
+
+    /**
+     * Write the held action, if there is one.
+     *
+     * Buffered through {@see \Pramnos\Database\WriteSpool}, which parks the row
+     * somewhere cheap and lets the scheduled drain write it. On an installation
+     * where nothing can be buffered the spool writes it directly, which is what
+     * this method did before it existed.
+     *
+     * @return void
+     */
+    public function flushPendingAction()
+    {
+        if ($this->pendingAction === null) {
+            return;
+        }
+
+        $row = $this->pendingAction;
+
+        // Cleared first: a failure to write must not leave a row that a later
+        // flush would write a second time.
+        $this->pendingAction = null;
+
+        try {
+            \Pramnos\Database\WriteSpool::append('#PREFIX#tokenactions', $row);
+        } catch (\Throwable $ex) {
+            // Recording that a request happened is not a reason for the request
+            // to fail, and by this point it has usually finished anyway.
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+    }
+
+    /**
+     * Complete the action this token logged, with what the response turned out
+     * to be.
+     *
+     * Two shapes, and the signature is unchanged for both:
+     *
+     * - **The usual one.** `addAction()` held the row; this fills in the status,
+     *   the duration and the response, and the completed row is written **once**.
+     *   `$actionid` is ignored, because there is no row to identify yet — the
+     *   caller passes `$token->lastActionId`, which is null.
+     * - **The legacy one.** No row is being held (`addAction()` was not called,
+     *   or the row has already been written) and `$actionid` names a real row.
+     *   That row is updated exactly as before.
+     *
      * @param int $actionid
      * @param int $return_status
      * @param int $execution_time_ms
@@ -377,6 +650,24 @@ class Token extends \Pramnos\Framework\Base
         } elseif (!is_string($return_data)) {
             $return_data = json_encode(array('data' => $return_data));
         }
+
+        // The held row is completed and written here — one write instead of an
+        // insert followed by an update of the row it just made.
+        if ($this->pendingAction !== null) {
+            if ($return_status >= 0) {
+                $this->pendingAction['return_status']     = (int) $return_status;
+                $this->pendingAction['execution_time_ms'] = round((float) $execution_time_ms, 3);
+                $this->pendingAction['return_data']       = $return_data;
+            }
+
+            // Written even when the status says not to record one: the request
+            // happened, and an audit log that silently omits the calls that
+            // ended badly is worse than no audit log.
+            $this->flushPendingAction();
+
+            return;
+        }
+
         if ($actionid == 0 || $return_status < 0) {
             return;
         }

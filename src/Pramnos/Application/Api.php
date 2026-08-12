@@ -170,7 +170,10 @@ class Api extends Application
             );
         }
 
-        if (isset($_SESSION['usertoken']) && is_object($_SESSION['usertoken'])) {
+        if (isset($_SESSION['usertoken']) && is_object($_SESSION['usertoken'])
+            && \Pramnos\Application\VisitLogPolicy::shouldLog(
+                \Pramnos\Application\VisitLogPolicy::CONTEXT_API
+            )) {
             try {
                 $_SESSION['usertoken']->addAction();
             } catch (\Exception $ex) {
@@ -459,14 +462,10 @@ class Api extends Application
      */
     protected function _sendServerTiming()
     {
-        if (!\Pramnos\Debug\ApiDebugPayload::isEnabled()) {
-            return;
-        }
-        if (PHP_SAPI === 'cli' || headers_sent()) {
-            return;
-        }
-
-        header('Server-Timing: ' . \Pramnos\Debug\ApiDebugPayload::serverTiming(), false);
+        // Both headers, once per response — the output-buffer callback offers
+        // again for every response, and ApiDebugPayload keeps them from being
+        // sent twice.
+        \Pramnos\Debug\ApiDebugPayload::sendHeaders();
     }
 
     /**

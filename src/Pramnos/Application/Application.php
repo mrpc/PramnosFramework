@@ -291,7 +291,14 @@ class Application extends Base
         // app has not listed 'debug' in its features array.  Mirrors the
         // Laravel Debugbar experience: just set APP_DEBUG or development=true
         // and the toolbar appears on every HTML page.
-        if (!FeatureRegistry::isEnabled('debug') && $this->isDebugMode()) {
+        //
+        // A valid debug token counts too, and that is the only way the toolbar
+        // ever loads on a live server. It is checked here rather than inside
+        // isDebugMode(), because that method also decides whether errors are
+        // shown to the browser — a debug token must open the toolbar for one
+        // person, not turn a production server into a development one.
+        if (!FeatureRegistry::isEnabled('debug')
+            && ($this->isDebugMode() || \Pramnos\Debug\DebugAccess::isGranted())) {
             $class = FeatureRegistry::getProvider('debug');
             if ($class !== null && class_exists($class)) {
                 $this->serviceProviders[] = new $class($this);
@@ -312,6 +319,106 @@ class Application extends Base
      * Checks (in order): APP_DEBUG env var, DEVELOPMENT constant, 'debug'
      * setting, 'development' setting.
      */
+    /**
+     * Load the theme named in the application configuration, if there is one.
+     *
+     * @param  object|null $document
+     * @return void
+     */
+    protected function loadConfiguredTheme($document): void
+    {
+        if (!isset($this->applicationInfo['theme'])
+            || $this->applicationInfo['theme'] == ''
+            || $this->applicationInfo['theme'] == null
+            || !is_object($document)
+            || !method_exists($document, 'loadtheme')) {
+            return;
+        }
+
+        $document->loadtheme($this->applicationInfo['theme'], '', $this);
+    }
+
+    /**
+     * Load the theme after the controller has run, when that was deferred.
+     *
+     * By this point the response type is known — a controller answering with
+     * JSON has asked for that document — so a theme is built only when
+     * something is going to render one. On a page that keeps talking to the
+     * server after it loads, that is the difference between building a theme
+     * once and building it on every datatable page, every autocomplete, every
+     * save.
+     *
+     * Does nothing unless the application opted in.
+     *
+     * @param  object|null $document
+     * @return void
+     */
+    protected function loadThemeIfDeferred($document): void
+    {
+        if (!$this->lazyThemeEnabled() || !$this->documentCanRenderATheme($document)) {
+            return;
+        }
+
+        $this->loadConfiguredTheme($document);
+    }
+
+    /**
+     * Has the application asked for the theme to be built only when needed?
+     *
+     * Off by default. A controller may read `$document->themeObject` while it
+     * runs, and deferring the load would hand it a null it never used to get —
+     * so an application says when that is safe for its own controllers.
+     *
+     * ```php
+     * // app/app.php
+     * return ['theme' => 'default', 'lazytheme' => true, ...];
+     * ```
+     *
+     * @return bool
+     */
+    protected function lazyThemeEnabled(): bool
+    {
+        if (!empty($this->applicationInfo['lazytheme'])) {
+            return true;
+        }
+
+        $setting = Settings::getSetting('lazytheme');
+
+        return $setting === true || $setting === '1'
+            || $setting === 'true' || $setting === 'yes';
+    }
+
+    /**
+     * Can this document put a theme to use?
+     *
+     * `html`, `amp` and `print` render a page, and therefore a theme — a
+     * printable invoice may well want the site's styling. Everything else —
+     * `json`, `raw`, `rss`, `png` — has nowhere to put one.
+     *
+     * An unknown or missing type is treated as themeable, so a custom document
+     * type an application registered keeps working as it did.
+     *
+     * Protected rather than private so an application with an unusual document
+     * type can widen it.
+     *
+     * @param  object|null $document The document this request will render
+     * @return bool
+     */
+    protected function documentCanRenderATheme($document): bool
+    {
+        if (!is_object($document)) {
+            return true;
+        }
+
+        // The document the controller actually chose. `Factory::getDocument()`
+        // sets the static default type, so a controller that switched to JSON
+        // has changed this even though $document is still the instance the
+        // request started with.
+        $type = \Pramnos\Document\Document::$type ?? ($document->type ?? 'html');
+
+        return !in_array($type, ['json', 'raw', 'rss', 'png'], true);
+    }
+
     private function isDebugMode(): bool
     {
         $env = getenv('APP_DEBUG');
@@ -949,18 +1056,29 @@ class Application extends Base
 
         /*
          * Check for theme in the application configuration. If set, load it.
+         *
+         * This runs before the controller, which is why it cannot know what the
+         * response will be: a controller that answers with JSON says so inside
+         * its own action (`getDocument('json')`), which has not happened yet. So
+         * a datatable endpoint, an XHR handler, anything that replies with JSON
+         * builds a theme that nothing will ever render.
+         *
+         * Deferring it is opt-in (`'lazytheme' => true` in app.php) because a
+         * controller is entitled to read `$document->themeObject` while it runs,
+         * and moving the load after the controller would hand such a controller
+         * a null it never used to get. See loadThemeIfDeferred().
          */
-        if (isset($this->applicationInfo['theme'])
-            && $this->applicationInfo['theme'] != ''
-            && $this->applicationInfo['theme'] != null) {
-            $doc->loadtheme($this->applicationInfo['theme'], '', $this);
+        if (!$this->lazyThemeEnabled()) {
+            $this->loadConfiguredTheme($doc);
         }
 
         // Track the web request in tokenactions when a web-session token is present.
         // This mirrors Api::_executeCore() so that both web and API paths appear
-        // in the same audit log.
+        // in the same audit log — and both ask the same setting whether the
+        // application wants that log at all. See VisitLogPolicy.
         if (isset($_SESSION['usertoken']) && is_object($_SESSION['usertoken'])
-            && $_SESSION['usertoken']->tokentype === \Pramnos\User\Token::TYPE_WEB_SESSION) {
+            && $_SESSION['usertoken']->tokentype === \Pramnos\User\Token::TYPE_WEB_SESSION
+            && VisitLogPolicy::shouldLog(VisitLogPolicy::CONTEXT_WEB)) {
             try {
                 $_SESSION['usertoken']->addAction();
             } catch (\Exception $ex) {
@@ -988,6 +1106,7 @@ class Application extends Base
                 $doc->addContent($controllerResult);
             }
             \Pramnos\Debug\DebugBar::stopTimer('controller');
+            $this->loadThemeIfDeferred($doc);
         } catch (\Pramnos\Http\RedirectException $exception) {
             \Pramnos\Debug\DebugBar::stopTimer('controller');
             $this->redirect($exception->getUrl(), true, $exception->getStatusCode());
@@ -1508,6 +1627,144 @@ class Application extends Base
     }
 
     /**
+     * Forget which migration fingerprints have been verified.
+     *
+     * The cache is keyed on the migration files themselves, so it invalidates
+     * itself when they change — but a test that rewrites those files within one
+     * process, and a deploy that swaps the directory under a long-running
+     * worker, both want it gone now rather than at the next key change.
+     *
+     * @return void
+     */
+    public static function forgetVerifiedMigrations(): void
+    {
+        if (function_exists('apcu_enabled') && apcu_enabled() && function_exists('apcu_delete')) {
+            // Only this application's entries: several may share a pool.
+            $prefix = 'pramnos:migrations:' . md5(defined('ROOT') ? ROOT : '');
+
+            if (class_exists('\APCUIterator')) {
+                apcu_delete(new \APCUIterator('/^' . preg_quote($prefix, '/') . '/'));
+            } else {
+                apcu_clear_cache();   // @codeCoverageIgnore — no iterator available
+            }
+        }
+
+        $base = defined('VAR_PATH')
+            ? VAR_PATH
+            : (defined('ROOT') ? ROOT . DIRECTORY_SEPARATOR . 'var' : null);
+
+        if ($base === null) {
+            return;
+        }
+
+        foreach (glob($base . DIRECTORY_SEPARATOR . 'migrations' . DIRECTORY_SEPARATOR . '*.verified') ?: [] as $file) {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * Has this exact set of migration files already been checked?
+     *
+     * Keyed on the fingerprint, which is derived from the files themselves —
+     * their count, the latest timestamp, and the cutoff. That is what makes a
+     * cache safe here where a time-based one would not be: adding a migration
+     * changes the key, so the answer cannot outlive the thing it describes.
+     *
+     * APCu when it is available, because this is asked once per request and a
+     * shared-memory read costs nothing. A file otherwise, which is still far
+     * cheaper than the round trip it replaces. Neither is required: with no
+     * cache at all this returns false and the check runs as it always did.
+     *
+     * @param  string $fingerprint
+     * @return bool
+     */
+    protected function fingerprintAlreadyVerified(string $fingerprint): bool
+    {
+        if (function_exists('apcu_fetch') && function_exists('apcu_enabled') && apcu_enabled()) {
+            return apcu_fetch($this->fingerprintCacheKey($fingerprint)) === true;
+        }
+
+        $file = $this->fingerprintCacheFile($fingerprint);
+
+        return $file !== null && is_file($file);
+    }
+
+    /**
+     * Remember that this set of migration files is up to date.
+     *
+     * A lifetime is still applied to the APCu entry as a backstop — not because
+     * the key can go stale, but so that a long-lived process on a machine whose
+     * files changed underneath it (a deploy that swaps the directory rather than
+     * restarting) rechecks eventually.
+     *
+     * @param  string $fingerprint
+     * @return void
+     */
+    protected function rememberVerifiedFingerprint(string $fingerprint): void
+    {
+        if (function_exists('apcu_store') && function_exists('apcu_enabled') && apcu_enabled()) {
+            apcu_store($this->fingerprintCacheKey($fingerprint), true, 3600);
+
+            return;
+        }
+
+        $file = $this->fingerprintCacheFile($fingerprint);
+
+        if ($file === null) {
+            return;
+        }
+
+        $directory = dirname($file);
+
+        if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
+            return;
+        }
+
+        // The name carries the fingerprint, so the content is irrelevant and the
+        // file is a marker. Written to a temporary name and moved into place, so
+        // a concurrent reader never sees a half-written one.
+        $temporary = $file . '.' . getmypid();
+
+        if (@file_put_contents($temporary, (string) time()) !== false) {
+            @rename($temporary, $file);
+        }
+    }
+
+    /**
+     * The APCu key for a fingerprint.
+     *
+     * Namespaced by the application root, so several applications sharing one
+     * PHP-FPM pool do not answer each other's question.
+     *
+     * @param  string $fingerprint
+     * @return string
+     */
+    protected function fingerprintCacheKey(string $fingerprint): string
+    {
+        $root = defined('ROOT') ? ROOT : '';
+
+        return 'pramnos:migrations:' . md5($root) . ':' . $fingerprint;
+    }
+
+    /**
+     * The marker file for a fingerprint, or null when there is nowhere to put one.
+     *
+     * @param  string $fingerprint
+     * @return string|null
+     */
+    protected function fingerprintCacheFile(string $fingerprint): ?string
+    {
+        if (!defined('VAR_PATH') && !defined('ROOT')) {
+            return null;
+        }
+
+        $base = defined('VAR_PATH') ? VAR_PATH : ROOT . DIRECTORY_SEPARATOR . 'var';
+
+        return $base . DIRECTORY_SEPARATOR . 'migrations'
+            . DIRECTORY_SEPARATOR . md5($fingerprint) . '.verified';
+    }
+
+    /**
      * Runs pending framework-level migrations with autoExecute=true.
      *
      * Called once per Application instance from exec() (guarded by
@@ -1587,6 +1844,25 @@ class Application extends Base
         $histTable = $this->getMigrationHistoryTable();
         $quote     = $this->database->type === 'postgresql' ? '"' : '`';
 
+        // Phase 1a: has this exact fingerprint already been verified?
+        //
+        // The guard above is per Application instance, which means per request —
+        // so a page making ten API calls asked the database ten times whether
+        // its migrations were up to date, and got the same answer each time.
+        //
+        // A plain time-based cache would be wrong here: after a deploy that adds
+        // a migration, a stale "all applied" would leave the schema behind the
+        // code, which is the one failure this check exists to prevent. But the
+        // fingerprint already describes the migration files — their count and
+        // the latest timestamp — so using it as the *key* makes the cache
+        // invalidate itself. A deploy that adds a migration changes the key, and
+        // the next request misses and does the real work. No lifetime has to be
+        // guessed, and there is no window in which the code is ahead of the
+        // schema.
+        if ($this->fingerprintAlreadyVerified($fingerprint)) {
+            return;
+        }
+
         // Phase 1b: one PK lookup — same pattern as old checkversion().
         try {
             $sql    = $this->database->prepareQuery(
@@ -1595,7 +1871,12 @@ class Application extends Base
             );
             $result = $this->database->query($sql);
             if ($result && $result->numRows > 0) {
-                return; // Fingerprint found → nothing changed since last check
+                // Nothing changed since last check. Remembered so that the rest
+                // of this request — and the next few minutes of requests — do
+                // not ask again.
+                $this->rememberVerifiedFingerprint($fingerprint);
+
+                return;
             }
         } catch (\Throwable) {
             // History table does not yet exist — fall through to full run
@@ -1610,6 +1891,7 @@ class Application extends Base
         if (!$runner->hasPendingFromSlugs($slugTimestamps, $cutoff)) {
             // No pending migrations — record fingerprint for future fast-path.
             $this->insertFingerprintRow($fingerprint, $histTable, $quote);
+            $this->rememberVerifiedFingerprint($fingerprint);
             return;
         }
 
