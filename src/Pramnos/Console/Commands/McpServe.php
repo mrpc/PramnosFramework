@@ -6,6 +6,7 @@ namespace Pramnos\Console\Commands;
 
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Mcp\McpServer;
 use Pramnos\Mcp\McpResource;
@@ -53,6 +54,8 @@ class McpServe extends Command
 
         $server = $this->resolveServer($app);
 
+        $this->announce($server, $output);
+
         // Silence all PHP errors / notices to STDOUT — they would corrupt
         // the JSON-RPC stream. Real errors are caught inside McpServer::run().
         ini_set('display_errors', '0');
@@ -63,14 +66,73 @@ class McpServe extends Command
         return Command::SUCCESS;
     }
 
+    /**
+     * Say what is being served — on STDERR, never STDOUT.
+     *
+     * STDOUT is the JSON-RPC channel. A banner there is not cosmetic damage: the
+     * client parses the stream, fails on the first line, and reports the server
+     * as broken. STDERR has no such contract — MCP clients route it to a log and
+     * ignore it — so it is the only place a human-facing word can go.
+     *
+     * And a word is needed. Run by hand the command otherwise prints nothing and
+     * blocks on STDIN, which is indistinguishable from a hang; the one thing the
+     * reader needs to know is that it is waiting for a client rather than for
+     * them.
+     */
+    private function announce(McpServer $server, OutputInterface $output): void
+    {
+        $stderr = $this->errorOutput($output);
+        if ($stderr === null) {
+            return;
+        }
+
+        $tools     = $server->getTools();
+        $resources = $server->getResources();
+
+        $stderr->writeln('<info>MCP server ready on stdio.</info>');
+        $stderr->writeln(sprintf(
+            '  %d tool%s: %s',
+            count($tools),
+            count($tools) === 1 ? '' : 's',
+            $tools === [] ? '(none)' : implode(', ', array_map(fn($t) => $t->name(), $tools))
+        ));
+        if ($resources !== []) {
+            $stderr->writeln('  ' . count($resources) . ' resources: '
+                . implode(', ', array_map(fn($r) => $r->name, $resources)));
+        }
+        $stderr->writeln('  Waiting for JSON-RPC on stdin — this is normally launched by an');
+        $stderr->writeln('  MCP client (see .mcp.json), not run by hand. Ctrl-C to stop.');
+    }
+
+    /**
+     * The stream a human-facing message may go to, or null when there is none.
+     *
+     * A non-console output — a test, an embedded runner — has no separate error
+     * stream, and staying silent is better than risking STDOUT. Protected so a
+     * test can hand in a buffer: capturing the real STDERR through Symfony's
+     * tester means `capture_stderr_separately`, which reaches for
+     * ReflectionProperty::setAccessible() and is deprecated on PHP 8.5.
+     */
+    protected function errorOutput(OutputInterface $output): ?OutputInterface
+    {
+        return $output instanceof ConsoleOutputInterface
+            ? $output->getErrorOutput()
+            : null;
+    }
+
     private function resolveServer(?\Pramnos\Application\Application $app): McpServer
     {
         // Prefer the container-bound server (has app-specific tools registered
-        // via McpServiceProvider::boot())
+        // via McpServiceProvider::boot()).
+        //
+        // getContainer() rather than ->container: the console reaches the
+        // application without initialising it, so nothing had created a
+        // container and this line died with "Call to a member function has() on
+        // null" — the command could not start at all.
         if ($app !== null
-            && $app->container->has('mcp.server')) {
+            && $app->getContainer()->has('mcp.server')) {
             /** @var McpServer $server */
-            $server = $app->container->get('mcp.server');
+            $server = $app->getContainer()->get('mcp.server');
             return $server;
         }
 

@@ -116,6 +116,56 @@ class ApplicationTest extends TestCase
     /**
      * Test getInstance.
      */
+    /**
+     * getContainer() creates the container the first time it is asked for.
+     *
+     * `container` is a magic property and nothing ever assigned it, so every
+     * `$app->container->…` call site read null and died: `mcp:serve` could not
+     * start, and `init()` itself crashed for any application that enabled the
+     * `mcp`, `webhook` or `broadcasting` features. Creating it lazily rather than
+     * in `init()` matters because the console reaches the application *without*
+     * initialising it — which is the path that was reported broken.
+     */
+    public function testGetContainerCreatesOneOnDemand(): void
+    {
+        // Arrange — a fresh application, never initialised, as the console sees it
+        $app = new Application('test_app');
+
+        // Act
+        $container = $app->getContainer();
+
+        // Assert
+        $this->assertInstanceOf(\Pramnos\Application\Container::class, $container);
+        // The same instance every time: a second container would silently lose
+        // whatever the first one had bound, which is worse than the crash.
+        $this->assertSame($container, $app->getContainer());
+        // Readable through the property the existing call sites use, so a
+        // provider binding into it and a command reading it agree.
+        $this->assertSame($container, $app->container);
+    }
+
+    /**
+     * An application that already has a container keeps it.
+     *
+     * Applications may assign their own before init(); replacing it here would
+     * discard every binding made against it.
+     */
+    public function testGetContainerKeepsAnExistingContainer(): void
+    {
+        // Arrange
+        $app       = new Application('test_app');
+        $preset    = new \Pramnos\Application\Container();
+        $preset->instance('marker', 'kept');
+        $app->container = $preset;
+
+        // Act
+        $container = $app->getContainer();
+
+        // Assert
+        $this->assertSame($preset, $container);
+        $this->assertSame('kept', $container->get('marker'), 'bindings survive');
+    }
+
     public function testGetInstance(): void
     {
         // getInstance with no args uses 'default' or existing

@@ -5,7 +5,7 @@ use_cases:
   - Writing a new console command
   - Refreshing framework-owned files in an existing project (project:resync)
   - Finding out what `init` scaffolds, including the files aimed at AI assistants
-  - Starting the development server
+  - Starting the development server, or the SPA dev server and build
 ---
 
 # Pramnos Console Commands Guide
@@ -33,6 +33,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `user:` | User administration | `user:create` |
 | `key:` | Secret/key management | `key:generate` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
+| `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `health:` / `debug:` | Diagnostics | `health:check`, `debug:status` |
 | *(top-level)* | Entry-point & REPL | `init`, `serve`, `tinker` |
 
@@ -74,6 +75,37 @@ php bin/pramnos serve
 # Start server on specific port
 php bin/pramnos serve --port=8080
 ```
+
+### Front-end commands (`spa:`) — SPA projects only
+
+The front-end toolchain is npm, but the two things done daily belong in the CLI
+the rest of the project uses:
+
+```bash
+php bin/pramnos spa:dev              # dev server with HMR (alias: spa:serve)
+php bin/pramnos spa:build            # production build → www/assets/spa/
+php bin/pramnos spa:build --watch    # rebuild on every change, no dev server
+```
+
+Both wrap npm, so `./dockernpm run <script>` still works for anything else in
+`package.json`.
+
+**Where npm comes from is decided for you.** The scaffolded CLI wrapper is
+`docker-compose exec -u www-data app php <cli>.php`, so the console is usually
+*already inside* the container: there npm runs directly, with `HOME=/tmp` so it
+can write its cache. Run from the host instead and `./dockernpm` is used, which
+enters the container as the right user — so build output never ends up owned by
+root. Missing dependencies are installed first rather than reported.
+
+**Do not open the Vite port.** `spa:dev` prints the URL to browse, which is the
+application's. The dev server serves no HTML: while it runs it writes a hot file
+that the shell reads, and the shell loads modules from it — so HMR happens
+against the real backend on the application's own URL. The Vite port itself
+answers nothing, which reads as a broken dev server.
+
+Both commands refuse, with the reason, where they cannot apply: an MVC project
+has no front end to build, and the build-less stack serves `www/assets/js/`
+exactly as written, so there is nothing to build and nothing to serve.
 
 ### Project Reconfiguration Commands (`project:`)
 

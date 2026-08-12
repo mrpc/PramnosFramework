@@ -37,21 +37,11 @@ class TestBroadcastingApp extends \Pramnos\Application\Application
     public $container;
     public function __construct()
     {
-        $this->container = new class {
-            private array $bindings = [];
-            public function singleton(string $name, callable $resolver)
-            {
-                $this->bindings[$name] = $resolver();
-            }
-            public function get(string $name)
-            {
-                return $this->bindings[$name] ?? null;
-            }
-            public function has(string $name): bool
-            {
-                return isset($this->bindings[$name]);
-            }
-        };
+        // The real container. This used to be a hand-rolled look-alike, because
+        // Application had no getContainer() to satisfy — and a double that only
+        // resembles the container is exactly how the production null-container
+        // bug stayed invisible to this suite.
+        $this->container = new \Pramnos\Application\Container();
     }
 }
 

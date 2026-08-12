@@ -498,41 +498,19 @@ class BroadcastServeTest extends TestCase
             }
         };
 
-        // Hand-rolled container stub: has('broadcasting') = true, make() = $managerStub
-        $containerStub = new class($managerStub) {
-            private object $manager;
+        // The real container, with the manager bound under the id the command
+        // looks for. It used to be a hand-rolled stub returned by an overridden
+        // getContainer(), because Application had no such method — which is also
+        // why the production call `$app->getContainer()` threw, silently, into
+        // the catch below it. The method exists now, so the test uses it.
+        $container = new \Pramnos\Application\Container();
+        $container->instance('broadcasting', $managerStub);
 
-            public function __construct(object $manager)
-            {
-                $this->manager = $manager;
-            }
-
-            public function has(string $id): bool
-            {
-                return $id === 'broadcasting';
-            }
-
-            public function make(string $id): object
-            {
-                return $this->manager;
-            }
-        };
-
-        // Hand-rolled Application-like stub that supports getContainer()
-        // (Application::getContainer() is not a formal public method, so
-        //  createMock cannot stub it — we use __call magic instead).
-        $appStub = new class($containerStub) extends \Pramnos\Application\Application {
-            private object $container;
-
-            public function __construct(object $container)
+        $appStub = new class($container) extends \Pramnos\Application\Application {
+            public function __construct(\Pramnos\Application\Container $container)
             {
                 // Do NOT call parent::__construct() — it would require a full bootstrap
                 $this->container = $container;
-            }
-
-            public function getContainer(): object
-            {
-                return $this->container;
             }
         };
 

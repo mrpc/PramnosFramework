@@ -21,7 +21,7 @@ use Pramnos\Mcp\Tools\RouteListTool;
  * The McpServer singleton is registered in the container under 'mcp.server' so
  * apps can add custom tools in their own service providers:
  *
- *   $server = $app->container->get('mcp.server');
+ *   $server = $app->getContainer()->get('mcp.server');
  *   $server->addTool(new MyCustomTool());
  *
  * The `pramnos mcp:serve` command reads the server from the container when it
@@ -40,19 +40,19 @@ class McpServiceProvider extends ServiceProvider
 
         $server = new McpServer((string) $appName, (string) $appVersion);
 
-        $app->container->singleton('mcp.server', fn() => $server);
+        $app->getContainer()->singleton('mcp.server', fn() => $server);
     }
 
     public function boot(): void
     {
         $app = $this->app;
 
-        if (!$app->container->has('mcp.server')) {
+        if (!$app->getContainer()->has('mcp.server')) {
             return;
         }
 
         /** @var McpServer $server */
-        $server = $app->container->get('mcp.server');
+        $server = $app->getContainer()->get('mcp.server');
 
         $db = $app->database ?? null;
         if ($db !== null) {

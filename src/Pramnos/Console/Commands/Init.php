@@ -4098,7 +4098,13 @@ BASH;
      * and, when the first build did not happen, exactly which command produces
      * it, because until then the shell serves the unbuilt fallback assets.
      */
-    private function spaSummaryStep(string $appStyle, string $spaStack, int $spaDevPort, string $appUrl = ''): string
+    private function spaSummaryStep(
+        string $appStyle,
+        string $spaStack,
+        int $spaDevPort,
+        string $appUrl = '',
+        string $cliName = 'pramnos'
+    ): string
     {
         // The URL is the first thing anyone wants after init; describing the
         // mount point and leaving them to assemble it is a small cruelty.
@@ -4117,12 +4123,16 @@ BASH;
         if (self::spaNeedsNode($spaStack)) {
             $lines[] = '    Sources in <comment>frontend/</comment>, build output in <comment>www/' . self::SPA_BUILD_DIR . '/</comment>';
             if (!$this->spaBuilt) {
-                $lines[] = '    Build it with <comment>./dockernpm install && ./dockernpm run build</comment>';
+                $lines[] = '    Build it with <comment>./' . $cliName . ' spa:build</comment>';
             }
             // Deliberately not the Vite port: the dev server has no HTML to
             // serve. It only supplies modules to this app's own pages.
-            $lines[] = '    Dev server with HMR: <comment>./dockernpm run dev</comment>, then keep browsing the app URL';
+            $lines[] = '    Dev server with HMR: <comment>./' . $cliName . ' spa:dev</comment>, then keep browsing the app URL';
             $lines[] = '    Front-end tests: <comment>./testjs</comment> (Vitest)';
+            // The npm commands still work and are what the shortcuts run; naming
+            // them here means the reader can drop to npm for anything the two
+            // shortcuts do not cover.
+            $lines[] = '    (both wrap npm — <comment>./dockernpm run build|dev</comment> if you need other scripts)';
         } else {
             $lines[] = '    Sources in <comment>www/assets/js/</comment> — served as written, no build step';
             $lines[] = '    Front-end tests: <comment>./testjs</comment> (node --test, no dependencies)';
@@ -4157,7 +4167,8 @@ BASH;
                 $appStyle,
                 $spaStack,
                 $spaDevPort,
-                $useDocker ? "http://localhost:$dockerPort" : ''
+                $useDocker ? "http://localhost:$dockerPort" : '',
+                $cliName !== '' ? $cliName : 'pramnos'
             );
         }
 
