@@ -24,16 +24,79 @@ use Pramnos\Broadcasting\SubscriptionOptions;
 class SseWriter
 {
     /**
+     * The id of the backplane event currently being forwarded, if any.
+     *
+     * Set by {@see stream()} around each callback so {@see event()} can attach
+     * it without the application having to pass it along.
+     */
+    private ?string $currentEventId = null;
+
+    /**
+     * Where this client wants to be resumed from, according to the request.
+     *
+     * Two sources, in order:
+     *
+     *  - **`Last-Event-ID`** — sent by `EventSource` automatically on every
+     *    reconnect, carrying the last `id:` frame it saw. Nothing on the client
+     *    side has to be written for this; it is the SSE spec's own answer to the
+     *    gap a reconnect opens.
+     *  - **`?since=`** — for clients that manage their own cursor (a native app,
+     *    a polyfill, a first connection that already has data on screen).
+     *
+     * Returns an empty string when the client said nothing, which means "start
+     * live" — a first connection has nothing to catch up on.
+     */
+    public static function resumePoint(): string
+    {
+        $header = $_SERVER['HTTP_LAST_EVENT_ID'] ?? '';
+        if (is_string($header) && $header !== '') {
+            return $header;
+        }
+
+        $since = $_GET['since'] ?? '';
+        return is_string($since) ? $since : '';
+    }
+
+    /**
      * Emit a named event with a data payload.
      *
      * A string payload is written verbatim; anything else is JSON-encoded.
      * Multi-line payloads are split into multiple `data:` lines per the SSE spec.
+     *
+     * @param string      $event Event name the client listens for.
+     * @param mixed       $data  Payload.
+     * @param string|null $id    The backplane's id for this event. Written as an
+     *                           `id:` frame, which is how the client comes to
+     *                           know where it got to: the browser remembers the
+     *                           last one it saw and sends it back as
+     *                           `Last-Event-ID` when it reconnects. Without it
+     *                           there is nothing to resume from, and everything
+     *                           published during the reconnect is lost.
      */
-    public function event(string $event, mixed $data): void
+    public function event(string $event, mixed $data, ?string $id = null): void
     {
+        $id ??= $this->currentEventId;
+        if ($id !== null && $id !== '') {
+            $this->id($id);
+        }
         echo 'event: ' . $event . "\n";
         $this->writeData($data);
         $this->flush();
+    }
+
+    /**
+     * Emit an `id:` frame.
+     *
+     * Rarely called directly — {@see event()} and {@see stream()} write it — but
+     * available for an endpoint that formats its own frames.
+     *
+     * Newlines are stripped rather than escaped: a newline inside an id would
+     * terminate the field and turn the rest of it into a frame of its own, which
+     * is a malformed stream rather than a wrong id.
+     */
+    public function id(string $id): void
+    {
+        echo 'id: ' . str_replace(["\r", "\n"], '', $id) . "\n";
     }
 
     /**
@@ -88,6 +151,12 @@ class SseWriter
      *                                                   refreshing presence for the still-connected client).
      *                                                   Return false to end the stream. Optional; omit for the
      *                                                   historical ping-only idle behaviour.
+     * @param string|null                 $sinceId       Resume after this event id instead of from "now".
+     *                                                   Null (the default) reads the client's own resume
+     *                                                   point from the request — see {@see resumePoint()} —
+     *                                                   so an ordinary endpoint needs no code for it at all.
+     *                                                   Pass a string to override, or an empty string to
+     *                                                   opt out and start live.
      */
     public function stream(
         SubscribableDriverInterface $driver,
@@ -96,7 +165,10 @@ class SseWriter
         int $maxRuntime = 0,
         int $pingInterval = 20,
         ?callable $onTick = null,
+        ?string $sinceId = null,
     ): void {
+        $resumeFrom = $sinceId ?? self::resumePoint();
+
         $options = new SubscriptionOptions(
             readTimeout: max(1, $pingInterval),
             maxRuntime: $maxRuntime > 0 ? $maxRuntime : null,
@@ -110,15 +182,27 @@ class SseWriter
                 $this->ping();
                 return true;
             },
+            sinceId: ($resumeFrom === '' ? null : $resumeFrom),
         );
+
+        // The id of the event being delivered, so that an application callback
+        // which simply calls $sse->event(...) still produces an `id:` frame
+        // without having to thread the id through itself. Almost every callback
+        // is that shape, and one that wants the id can take a fifth argument.
+        $this->currentEventId = null;
 
         $driver->subscribe(
             $channels,
-            function (string $channel, string $event, array $payload) use ($onEvent): bool {
+            function (string $channel, string $event, array $payload, ?string $id = null) use ($onEvent): bool {
                 if (connection_aborted()) {
                     return false;
                 }
-                return $onEvent($channel, $event, $payload, $this) !== false;
+                $this->currentEventId = $id;
+                try {
+                    return $onEvent($channel, $event, $payload, $this, $id) !== false;
+                } finally {
+                    $this->currentEventId = null;
+                }
             },
             $options,
         );

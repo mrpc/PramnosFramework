@@ -34,12 +34,32 @@ final class SubscriptionOptions
      *                                   backplane error is swallowed and the driver
      *                                   is about to reconnect. Signature:
      *                                   fn(\Throwable $e): void. Purely for logging.
+     * @param string|null   $sinceId     Resume *after* this event id instead of
+     *                                   from "now". Null = only events published
+     *                                   from this moment on, which is the
+     *                                   historical behaviour.
+     *
+     *                                   This is what closes the reconnect gap.
+     *                                   `maxRuntime` ends every SSE stream on
+     *                                   purpose, so each client reconnects on a
+     *                                   schedule — and a driver that always
+     *                                   starts at "now" delivers nothing that
+     *                                   was published while it was away. A
+     *                                   driver that cannot replay ignores this
+     *                                   and says so in its documentation; one
+     *                                   that can (database, Redis streams)
+     *                                   resumes from it.
+     *
+     *                                   A string because ids are the backplane's
+     *                                   own: an integer row id in a table, a
+     *                                   `1699…-0` entry id in a Redis stream.
      */
     public function __construct(
         public readonly int $readTimeout = 20,
         public readonly ?int $maxRuntime = null,
         public readonly mixed $onIdle = null,
         public readonly mixed $onError = null,
+        public readonly ?string $sinceId = null,
     ) {
         if ($readTimeout < 1) {
             throw new \InvalidArgumentException('readTimeout must be at least 1 second.');
