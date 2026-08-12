@@ -485,7 +485,7 @@ describe('the server-rendered toolbar', () => {
             }));
         };
         const { dom, sandbox } = loadToolbar({
-            payload: island({ logs_url: '/devpanel/logs' }),
+            payload: island(),
             fetch: server,
         });
 
@@ -536,7 +536,6 @@ describe('the server-rendered toolbar', () => {
         const { dom, sandbox } = loadToolbar({
             payload: island({
                 request: { time: 12.5, memory: 2.5, id: 'aabbccddeeff0011' },
-                logs_url: '/devpanel/logs',
                 logs: { count: 0, entries: [] },
             }),
             fetch: server,
@@ -553,7 +552,7 @@ describe('the server-rendered toolbar', () => {
         const html = dom.byId['pdb-panel'].innerHTML;
         assert.match(html, /From the server/);
         assert.match(html, /the real reason/);
-        assert.match(asked.join(' '), /\/devpanel\/logs\?request=aabbccddeeff0011/);
+        assert.match(asked.join(' '), /devpanel\/logs\?request=aabbccddeeff0011/);
 
         // Assert — and the toolbar's own call did not become a row
         openTab(dom, 'requests');
@@ -690,5 +689,73 @@ describe('the server-rendered toolbar', () => {
             openTab(dom, 'requests');
             assert.ok(dom.byId['pdb-panel'].innerHTML.length > 0);
         });
+    });
+
+    /**
+     * The toolbar works out the endpoint itself; the server never sends it.
+     *
+     * The route is a framework constant — the same path in every installation —
+     * so putting it in every debug payload would be sending the client something
+     * it could already work out. A response should carry what only it knows.
+     */
+    test('the log endpoint is resolved from the page, not from the payload', async () => {
+        // Arrange
+        const asked = [];
+        const server = (url) => {
+            asked.push(String(url));
+            return Promise.resolve({
+                status: 200,
+                headers: { get: () => null },
+                clone: () => ({ text: () => Promise.resolve('{}') }),
+                json: () => Promise.resolve({ lines: [] }),
+            });
+        };
+        const { dom, sandbox } = loadToolbar({
+            payload: island({ request: { time: 1, memory: 1, id: 'aabbccddeeff0011' } }),
+            fetch: server,
+        });
+
+        // Act
+        openTab(dom, 'logs');
+        clickInBar(dom, '.pdb-fetch-logs', { dataset: { request: 'aabbccddeeff0011' }, textContent: '' });
+        await settle();
+
+        // Assert — the constant path, with no advertisement anywhere
+        assert.match(asked.join(' '), /devpanel\/logs\?request=aabbccddeeff0011/);
+    });
+
+    /**
+     * An application with the DevPanel switched off answers 404, and the toolbar
+     * takes that as the answer: it says so once and stops offering. Feature
+     * detection by use, rather than by advertisement.
+     */
+    test('a 404 from the endpoint retires the offer', async () => {
+        // Arrange
+        let calls = 0;
+        const server = () => {
+            calls++;
+            return Promise.resolve({
+                status: 404,
+                headers: { get: () => null },
+                clone: () => ({ text: () => Promise.resolve('') }),
+                json: () => Promise.resolve({}),
+            });
+        };
+        const { dom, sandbox } = loadToolbar({
+            payload: island({ request: { time: 1, memory: 1, id: 'aabbccddeeff0011' } }),
+            fetch: server,
+        });
+
+        // Act
+        openTab(dom, 'logs');
+        clickInBar(dom, '.pdb-fetch-logs', { dataset: { request: 'aabbccddeeff0011' }, textContent: '' });
+        await settle();
+        await settle();
+
+        // Assert — the offer is gone, and asking again does not happen
+        assert.equal(dom.byId['pdb-panel'].innerHTML.includes('pdb-fetch-logs'), false);
+        clickInBar(dom, '.pdb-fetch-logs', { dataset: { request: 'aabbccddeeff0011' }, textContent: '' });
+        await settle();
+        assert.equal(calls, 1, 'a refusal is not re-asked on every render');
     });
 });

@@ -95,13 +95,22 @@
     var entries = [];
 
     /**
-     * Where the server will hand back a request's log lines, if it offers to.
+     * The framework route that hands back one request's log lines.
      *
-     * Carried in the payload rather than assumed, because the endpoint is a
-     * DevPanel route that an application can have switched off, and a SPA is not
-     * necessarily served from the same place as its API. No URL, no button.
+     * Known here rather than announced by the server. It is the same path in
+     * every installation, so putting it in every debug payload would be sending
+     * the client something it could already work out — and a response should
+     * carry what only it knows, not a constant.
+     *
+     * Whether the route *answers* is a different question, and one the answer
+     * itself settles: an application with the DevPanel switched off replies 404,
+     * the toolbar says so once and stops offering. Feature detection by use,
+     * rather than by advertisement.
      */
-    var logsUrl = null;
+    var LOGS_PATH = 'devpanel/logs';
+
+    /** Set once the endpoint has refused, so it is not asked again. */
+    var logsUnavailable = false;
 
     /** @type {Object<string, Array>} Server-side log lines, by request id. */
     var serverLogs = {};
@@ -226,13 +235,6 @@
             extra = extra || {};
             if (!payload && entries.length === 0) {
                 return;
-            }
-
-            // Offered by the server, not assumed by the toolbar: an application
-            // that has the DevPanel switched off never sends one, and the button
-            // that would fetch server-side detail is simply not drawn.
-            if (payload && payload.logs_url) {
-                logsUrl = payload.logs_url;
             }
 
             entries.push({
@@ -732,7 +734,7 @@
      * the server offered an endpoint.
      */
     function fetchMissingExceptionDetail() {
-        if (!logsUrl) {
+        if (logsUnavailable) {
             return;
         }
 
@@ -914,6 +916,29 @@
         return logTable(rows, false) + serverLogSection(entry);
     }
 
+    /**
+     * The absolute URL of the log endpoint for this installation.
+     *
+     * The base is whatever the page already knows about itself:
+     *
+     *  - `window.__PRAMNOS__.base`, which a SPA shell already publishes for its
+     *    own router — the one case where the toolbar cannot infer anything,
+     *    because the API may not live where the page does;
+     *  - otherwise the document's own base URL, which is right for a
+     *    server-rendered page including one served from a subdirectory.
+     *
+     * Nothing here comes from a debug payload.
+     */
+    function logsEndpoint() {
+        try {
+            var runtime = window.__PRAMNOS__ || {};
+            var base = runtime.base || runtime.appBase || document.baseURI || location.origin;
+            return new URL(LOGS_PATH, base).toString();
+        } catch (e) {
+            return '/' + LOGS_PATH;
+        }
+    }
+
     /** This request's id, if the server named it. */
     function requestIdOf(entry) {
         var p = entry && entry.payload ? entry.payload.request : null;
@@ -930,7 +955,7 @@
      * duplicated into every response.
      */
     function serverLogSection(entry) {
-        if (!logsUrl) {
+        if (logsUnavailable) {
             return '';
         }
 
@@ -1021,7 +1046,7 @@
      */
     function fetchServerLogs(id, button) {
         var send = rawFetch || (typeof window.fetch === 'function' ? window.fetch : null);
-        if (!send || !logsUrl || !id || fetching[id]) {
+        if (!send || !id || fetching[id] || logsUnavailable) {
             return;
         }
 
@@ -1034,12 +1059,28 @@
             button.disabled = true;
         }
 
-        var url = logsUrl + (logsUrl.indexOf('?') > -1 ? '&' : '?')
+        var endpoint = logsEndpoint();
+        var url = endpoint + (endpoint.indexOf('?') > -1 ? '&' : '?')
             + 'request=' + encodeURIComponent(id);
 
         send.call(window, url, { credentials: 'same-origin' }).then(function (response) {
+            // The route not being there — the DevPanel feature is off, or the
+            // grant expired — is answered by the response rather than declared
+            // in advance. Asked once, then not offered again.
+            if (response.status === 404 || response.status === 403 || response.status === 401) {
+                logsUnavailable = true;
+                return null;
+            }
             return response.json();
         }).then(function (data) {
+            if (data === null) {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = 'The server does not offer this';
+                }
+                render();
+                return;
+            }
             serverLogs[id] = (data && data.lines) || [];
             render();
         }, function () {
@@ -1122,7 +1163,7 @@
         // A summary row *is* the request whose detail did not make it back, so
         // the way to go and get it belongs on that row rather than somewhere
         // below the table.
-        if (item.type === 'summary' && from && requestIdOf(from) && logsUrl) {
+        if (item.type === 'summary' && from && requestIdOf(from) && !logsUnavailable) {
             item = {
                 type: 'summary',
                 class: item.class,

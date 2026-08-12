@@ -153,11 +153,6 @@ class DebugBar
             'status_code'    => (int) (http_response_code() ?: 200),
         ];
 
-        $logsUrl = self::logsUrl();
-        if ($logsUrl !== null) {
-            $payload['logs_url'] = $logsUrl;
-        }
-
         // Hex-escaping the four characters that could end the element early means
         // the island needs no HTML escaping of its own: what `textContent` yields
         // is the JSON byte for byte, and there is nothing in it a parser could
@@ -175,27 +170,6 @@ class DebugBar
 <div id="pramnos-debug-data" hidden>{$json}</div>
 <script{$na}>{$script}</script>
 HTML;
-    }
-
-    /**
-     * Where the toolbar can ask for a request's server-side log lines.
-     *
-     * Null unless the DevPanel feature is on — the endpoint lives there, and a
-     * button pointing at a route that does not exist is worse than no button.
-     * The renderer draws it only when this arrives, so nothing has to be
-     * configured in the front end.
-     *
-     * @return string|null Absolute URL, or null when the endpoint is not there
-     */
-    public static function logsUrl(): ?string
-    {
-        if (!\Pramnos\Application\FeatureRegistry::isEnabled('devpanel')) {
-            return null;
-        }
-
-        // sURL is the application's own base; without it there is nothing to
-        // build a URL from that would be right in every install.
-        return defined('sURL') ? rtrim((string) sURL, '/') . '/devpanel/logs' : null;
     }
 
     /**

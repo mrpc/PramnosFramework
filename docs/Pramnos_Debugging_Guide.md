@@ -197,6 +197,18 @@ server the toolbar is open for one browser, by grant, while every other visitor
 writes into the same seconds. Their lines are not yours to read. A line qualifies
 only by carrying the id.
 
+**The toolbar works out the URL itself.** The route is a framework constant, the
+same path in every installation, so nothing about it travels in a debug payload —
+a response should carry what only it knows, and this is not that. The base comes
+from what the page already knows about itself: `window.__PRAMNOS__.base` in a
+SPA, whose API need not live where the page does, and the document's own base URL
+otherwise, which is right for a server-rendered page including one served from a
+subdirectory.
+
+Whether the route *answers* is settled by the answer. An application with the
+DevPanel switched off replies `404`; the toolbar says so once on the button and
+stops offering. Feature detection by use, rather than by advertisement.
+
 The endpoint requires the DevPanel feature, and accepts either an admin user or
 the same signed `debug:token` grant that opened the toolbar — the developer
 holding a token on a live server is usually not an admin user. It replies

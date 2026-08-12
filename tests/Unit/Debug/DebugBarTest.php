@@ -142,27 +142,18 @@ class DebugBarTest extends TestCase
     }
 
     /**
-     * The island tells the toolbar where to ask for more, and what to ask about.
+     * The island carries this request's id.
      *
-     * Two values, and the button in the Logs and Exceptions tabs needs both: the
-     * endpoint's URL, which only exists when the DevPanel feature is on, and this
-     * request's id, which only exists while the toolbar is running. Either one
-     * missing means no button — better than one pointing at a route that is not
-     * there.
+     * The id is the one thing the client cannot work out: it is what every log
+     * line written during the request also carries, and what the toolbar hands
+     * back when it asks the server for those lines. Where to ask is a constant
+     * the toolbar already knows, so it is not sent.
      */
-    public function testIslandCarriesTheLogEndpointAndTheRequestId(): void
+    public function testIslandCarriesTheRequestId(): void
     {
         // Arrange
         RequestId::reset();
         RequestId::activate();
-        FeatureRegistry::loadFromConfig(['devpanel']);
-        // sURL is a constant, so whichever test runs first in a process fixes it
-        // — the expectation is derived from it rather than asserted against a
-        // value this test only sometimes gets to choose.
-        if (!defined('sURL')) {
-            define('sURL', 'https://example.test/');
-        }
-        $expected = rtrim((string) sURL, '/') . '/devpanel/logs';
         $bar = DebugBar::getInstance();
         $bar->addCollector($this->makeMockCollector('demo'));
 
@@ -170,34 +161,15 @@ class DebugBarTest extends TestCase
         $payload = $this->islandOf($bar->render());
 
         // Assert
-        $this->assertSame($expected, $payload['logs_url']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{16}$/', $payload['request']['id']);
         // The same id the log lines will carry — that is the entire point of it.
         $this->assertSame(RequestId::current(), $payload['request']['id']);
+        // And nothing telling the client where the endpoint lives: that is a
+        // constant, and a response should carry what only it knows.
+        $this->assertArrayNotHasKey('logs_url', $payload);
 
         // Cleanup
         RequestId::reset();
-    }
-
-    /**
-     * With the DevPanel switched off there is no endpoint, so nothing is offered.
-     */
-    public function testNoLogEndpointIsAdvertisedWithoutTheDevPanel(): void
-    {
-        // Arrange — a registry with the panel absent from the feature list
-        FeatureRegistry::reset();
-        FeatureRegistry::loadFromConfig(['cache']);
-        $bar = DebugBar::getInstance();
-        $bar->addCollector($this->makeMockCollector('demo'));
-
-        // Act
-        $payload = $this->islandOf($bar->render());
-
-        // Assert
-        $this->assertArrayNotHasKey('logs_url', $payload);
-
-        // Cleanup — the registry is process-wide
-        FeatureRegistry::reset();
     }
 
     /**
