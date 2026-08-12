@@ -7,6 +7,7 @@ namespace Pramnos\Tests\Unit\Debug;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Pramnos\Debug\RequestId;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Application\FeatureRegistry;
 use Pramnos\Debug\ApiDebugPayload;
 use Pramnos\Debug\Collectors\CollectorInterface;
 use Pramnos\Debug\Collectors\ExceptionsCollector;
@@ -599,4 +600,5 @@ class ApiDebugPayloadTest extends TestCase
         // Assert — reaching here without a "headers already sent" error is it
         $this->assertFalse(ApiDebugPayload::isEnabled());
     }
+
 }

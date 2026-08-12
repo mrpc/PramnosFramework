@@ -453,4 +453,176 @@ class DevPanelControllerTest extends TestCase
             \Pramnos\Application\FeatureRegistry::loadFromConfig(['devpanel']);
         }
     }
+
+    // ── The log endpoint's access control ─────────────────────────────────────
+
+    /**
+     * A signed debug grant is enough, without an admin user.
+     *
+     * The rest of the DevPanel requires `usertype >= 90`. This endpoint
+     * deliberately does not: the person who opened the toolbar on a live server
+     * with `debug:token` is a developer holding a signed, expiring grant, and
+     * usually not an admin user of that application at all. Requiring both would
+     * make the endpoint useless exactly where it is needed.
+     */
+    public function testAGrantIsEnoughWithoutAnAdminUser(): void
+    {
+        // Arrange — no logged-in user at all, but a valid grant. A grant has to
+        // be signed with something, and this fixture application has no key, so
+        // one is set for the duration of the test: what is under test is the
+        // guard, not where the secret comes from.
+        $_ENV['APP_KEY'] = 'test-key-for-signing-a-debug-grant';
+        $_GET[\Pramnos\Debug\DebugAccess::PARAM] = \Pramnos\Debug\DebugAccess::issue(600);
+        \Pramnos\Debug\DebugAccess::reset();
+        $_GET['request'] = str_repeat('ab', 8);
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->logs();
+            $output = ob_get_clean();
+
+            // Assert — it answered, rather than redirecting to a login
+            $decoded = json_decode($output, true);
+            $this->assertIsArray($decoded, 'the endpoint replies JSON');
+            $this->assertSame(str_repeat('ab', 8), $decoded['request']);
+            $this->assertSame([], $decoded['lines'], 'nothing was logged under that id');
+        } finally {
+            \Pramnos\Debug\DebugAccess::reset();
+            unset($_ENV['APP_KEY']);
+            $_GET = [];
+        }
+    }
+
+    /**
+     * Without a grant and without an admin user, nothing comes back.
+     *
+     * This is the one route in the framework that hands over log lines, so the
+     * negative case is the one worth pinning: the guard must refuse, not fall
+     * through to the reply.
+     */
+    public function testWithoutAGrantOrAnAdminUserItRefuses(): void
+    {
+        // Arrange — an ordinary user, no grant
+        $this->setMockUser(10);
+        \Pramnos\Debug\DebugAccess::reset();
+        $_GET['request'] = str_repeat('ab', 8);
+
+        // Act & Assert — guardUserType() redirects, which the test double turns
+        // into an exception rather than an exit
+        try {
+            ob_start();
+            $this->controller->logs();
+            $output = (string) ob_get_clean();
+
+            $this->assertStringNotContainsString('"lines"', $output, 'no log lines may be written');
+        } catch (\RuntimeException $e) {
+            ob_end_clean();
+            $this->assertSame('redirect_quit', $e->getMessage());
+        } finally {
+            \Pramnos\Debug\DebugAccess::reset();
+            $_GET = [];
+        }
+    }
+
+    /**
+     * An admin user gets through without a grant — the panel's own audience.
+     */
+    public function testAnAdminUserIsAllowedWithoutAGrant(): void
+    {
+        // Arrange
+        $this->setMockUser(95);
+        \Pramnos\Debug\DebugAccess::reset();
+        $_GET['request'] = str_repeat('cd', 8);
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->logs();
+            $output = ob_get_clean();
+
+            // Assert
+            $decoded = json_decode($output, true);
+            $this->assertIsArray($decoded);
+            $this->assertSame(str_repeat('cd', 8), $decoded['request']);
+        } finally {
+            $_GET = [];
+        }
+    }
+
+    /**
+     * An id that this framework never issued is refused before anything is read.
+     *
+     * The value decides which log lines are handed back and reaches file
+     * handling, so the shape is checked rather than sanitised — sixteen hex
+     * characters cannot carry a path, a glob or a regex.
+     */
+    public function testAMalformedRequestIdIsRefused(): void
+    {
+        // Arrange
+        $this->setMockUser(95);
+        $_GET['request'] = '../../etc/passwd';
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->logs();
+            $output = ob_get_clean();
+
+            // Assert — an error, and no lines key at all
+            $decoded = json_decode($output, true);
+            $this->assertArrayHasKey('error', $decoded);
+            $this->assertArrayNotHasKey('lines', $decoded);
+        } finally {
+            $_GET = [];
+        }
+    }
+
+    /**
+     * A missing id is the same refusal: there is no "everything" to ask for.
+     */
+    public function testAnAbsentRequestIdIsRefused(): void
+    {
+        // Arrange
+        $this->setMockUser(95);
+
+        // Act
+        ob_start();
+        $this->controller->logs();
+        $output = ob_get_clean();
+
+        // Assert
+        $decoded = json_decode($output, true);
+        $this->assertArrayHasKey('error', $decoded);
+    }
+
+    /**
+     * With the DevPanel feature switched off the route does not exist, whatever
+     * grant the caller holds.
+     */
+    public function testTheEndpointIsGoneWhenTheFeatureIsOff(): void
+    {
+        // Arrange
+        \Pramnos\Application\FeatureRegistry::reset();
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['cache']);
+        $_GET['request'] = str_repeat('ab', 8);
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->logs();
+            $output = (string) ob_get_clean();
+
+            // Assert — the 404 page, not a reply
+            $this->assertStringContainsString('Error 404', $output);
+            $this->assertStringNotContainsString('"lines"', $output);
+        } catch (\RuntimeException $e) {
+            ob_end_clean();
+            $this->assertStringContainsString('Terminated', $e->getMessage());
+        } finally {
+            $_GET = [];
+            \Pramnos\Application\FeatureRegistry::reset();
+            \Pramnos\Application\FeatureRegistry::loadFromConfig(['devpanel']);
+        }
+    }
 }
