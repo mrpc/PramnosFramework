@@ -278,10 +278,12 @@ describe('SPA toolbar module', () => {
         // Act
         openTab(dom, 'requests');
 
-        // Assert
-        const html = dom.byId['pdb-panel'].innerHTML;
-        assert.ok(html.indexOf('/api/1.0/second') < html.indexOf('/api/1.0/first'), 'newest first');
-        assert.ok(/\d{2}:\d{2}:\d{2}\.\d{3}/.test(html), 'each row carries a wall clock');
+        // Assert — in the table; the waterfall above it is a time axis and runs
+        // the other way, oldest first
+        const html  = dom.byId['pdb-panel'].innerHTML;
+        const table = html.split('<table')[1];
+        assert.ok(table.indexOf('/api/1.0/second') < table.indexOf('/api/1.0/first'), 'newest first');
+        assert.ok(/\d{2}:\d{2}:\d{2}\.\d{3}/.test(table), 'each row carries a wall clock');
     });
 
     /**

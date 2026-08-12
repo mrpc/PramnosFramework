@@ -128,14 +128,16 @@ describe('the server-rendered toolbar', () => {
         await sandbox.fetch('/api/1.0/things');
         await settle();
 
-        // Assert — the request is listed, newest first
+        // Assert — the request is listed, newest first *in the table*. The
+        // waterfall above it runs the other way, oldest first, because a time
+        // axis reads downwards — so the order is asserted where it is claimed.
         openTab(dom, 'requests');
-        const list = dom.byId['pdb-panel'].innerHTML;
+        const table = dom.byId['pdb-panel'].innerHTML.split('<table')[1];
         assert.ok(
-            list.indexOf('/api/1.0/things') < list.indexOf('/dashboard'),
-            'the newest request is at the top'
+            table.indexOf('/api/1.0/things') < table.indexOf('/dashboard'),
+            'the newest request is at the top of the table'
         );
-        assert.match(list, /40ms/, 'its server time came from the _debug payload');
+        assert.match(table, /40ms/, 'its server time came from the _debug payload');
 
         // Assert — its statements are one click away, once it is picked
         selectRequest(dom, 1);
@@ -963,5 +965,133 @@ describe('the server-rendered toolbar', () => {
         // again would release it.)
         assert.match(first, /"a"/);
         assert.match(dom.byId['pdb-panel'].innerHTML, /"a"/);
+    });
+
+    /**
+     * Client versus server, as one bar and one sentence.
+     *
+     * Both numbers were already known — the browser measured the call, the
+     * server reported its share — and nobody does the subtraction by hand. A
+     * call that spends 40ms in PHP and 210ms in the air is not a slow endpoint,
+     * and optimising the endpoint is the wrong afternoon.
+     */
+    test('the Time tab splits client time from server time', async () => {
+        // Arrange — a response that took far longer to arrive than to produce
+        const slow = () => new Promise((resolve) => {
+            setTimeout(() => resolve(makeResponse({
+                status: 200,
+                body: body({
+                    request: { time: 40 },
+                    timers: { request_ms: 40, named_timers: [], start_time: '12:00:00' },
+                    queries: { count: 1, total_ms: 24, queries: [{ sql: 'SELECT 1', time: 24 }] },
+                }),
+            })), 30);
+        });
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: slow });
+
+        // Act
+        await sandbox.fetch('/api/slow');
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'timers');
+
+        // Assert — the split, named rather than left to be worked out
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /client \d+ms = /);
+        assert.match(html, /server 40ms/);
+        assert.match(html, /ms elsewhere/);
+        assert.match(html, /pdb-split-server/);
+    });
+
+    /**
+     * SQL as a share of server time — the difference between an indexing problem
+     * and an application one, from a number already in the payload.
+     */
+    test('the Time tab reports SQL as a share of server time', async () => {
+        // Arrange — 24ms of database inside 40ms of PHP
+        const server = () => Promise.resolve(makeResponse({
+            status: 200,
+            body: body({
+                request: { time: 40 },
+                timers: { request_ms: 40, named_timers: [], start_time: '12:00:00' },
+                queries: { count: 2, total_ms: 24, queries: [] },
+            }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act
+        await sandbox.fetch('/api/heavy');
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'timers');
+
+        // Assert
+        assert.match(dom.byId['pdb-panel'].innerHTML, /SQL 24ms — <strong[^>]*>60%<\/strong> of server time/);
+    });
+
+    /**
+     * The waterfall is the insight no per-request tab can give.
+     *
+     * Three calls of 200ms each are a 200ms page if they overlap and a 600ms
+     * page if they do not, and a tab that shows each of them separately cannot
+     * tell you which you have.
+     */
+    test('the requests tab draws every request on one time axis', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act
+        await sandbox.fetch('/api/one');
+        await sandbox.fetch('/api/two');
+        await settle();
+        openTab(dom, 'requests');
+
+        // Assert — a bar per request, oldest first, on a shared axis
+        const html = dom.byId['pdb-panel'].innerHTML;
+        const bars = html.match(/pdb-wf-bar/g) || [];
+        assert.equal(bars.length, 3, 'the page and both calls');
+        assert.match(html, /ms from the first request to the last/);
+        assert.ok(
+            html.indexOf('/api/one') < html.indexOf('/api/two'),
+            'the axis reads downwards, oldest first'
+        );
+    });
+
+    /**
+     * A single request has nothing to compare against, so no axis is drawn — an
+     * axis of one is a bar that says only what the row beside it already said.
+     */
+    test('one request alone draws no waterfall', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island() });
+        openTab(dom, 'requests');
+
+        // Assert
+        assert.equal(dom.byId['pdb-panel'].innerHTML.includes('pdb-wf-bar'), false);
+    });
+
+    /**
+     * Clicking a bar picks that request, the same as clicking its row — the
+     * waterfall is where the slow one is spotted, so it has to be where it can
+     * be opened.
+     */
+    test('a waterfall bar selects its request', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 9 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+        await sandbox.fetch('/api/interesting');
+        await settle();
+        openTab(dom, 'requests');
+
+        // Act — click the bar belonging to the fetch
+        clickInBar(dom, '.pdb-wf-row', { dataset: { entry: '1' } });
+
+        // Assert
+        assert.match(dom.byId['pdb-info'].innerHTML, /\/api\/interesting/);
     });
 });
