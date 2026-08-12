@@ -265,6 +265,32 @@ $qb->from('users AS u');        // explicit AS
 $qb->table('users')->insert([...]);
 ```
 
+#### Table prefixes — write `#PREFIX#` yourself
+
+The builder does **not** add the installation's table prefix for you. It
+substitutes the `#PREFIX#` token, and only that:
+
+```php
+$qb->table('#PREFIX#settings')      // → prefix_settings
+$qb->table('settings')              // → settings  (no prefix, ever)
+```
+
+Both forms appear in the framework, because a table that no installation
+prefixes reads better without the token. But if the table *is* prefixed — and
+every table a migration creates through the schema builder is — omitting
+`#PREFIX#` produces a query against a name that exists only where the prefix is
+empty. It works on the developer's machine and finds nothing on the installation
+that has one.
+
+Rule of thumb: if the raw SQL you are replacing had `#PREFIX#`, keep it.
+
+#### Schema-qualified tables
+
+`authserver.roles` is resolved per driver: a PostgreSQL schema, and a
+prefix-flattened `prefix_authserver_roles` on MySQL, which has no schemas. This
+is one of the reasons hand-written SQL against those tables silently matches
+nothing — see [rule 12 in the project rules](Pramnos_Framework_Guide.md).
+
 ### WHERE Conditions
 
 #### `where(string $column, mixed $operator = null, mixed $value = null): static`
