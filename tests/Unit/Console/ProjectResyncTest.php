@@ -383,6 +383,237 @@ class ProjectResyncTest extends TestCase
         $this->assertStringContainsString('Nothing to sync', $tester->getDisplay());
     }
 
+    /**
+     * Turn the fixture project into a SPA one and give the scaffolding a debug
+     * panel stub.
+     *
+     * @param string $stack A value of app.php's `spa_stack`: 'svelte' (build,
+     *                      sources in frontend/) or '' (build-less, sources in
+     *                      www/assets/js/).
+     */
+    private function seedSpaProject(string $stack): void
+    {
+        file_put_contents(
+            $this->projectDir . '/app/app.php',
+            "<?php\nreturn ['name' => 'Acme', 'app_style' => 'spa', 'spa_stack' => '$stack'];\n"
+        );
+        file_put_contents(
+            $this->scaffoldDir . '/templates/spa-debug-panel.js.stub',
+            "// Debug panel for the {{ appName }} SPA.\nexport function record() {}\n"
+        );
+    }
+
+    /**
+     * --spa refreshes a stale debug panel in place.
+     *
+     * The panel is the framework's own renderer living in the project; when the
+     * framework improves it, an existing project must have a way to receive that
+     * — otherwise the only route to a better panel is writing a second one.
+     */
+    public function testSpaScopeRefreshesDebugPanel(): void
+    {
+        // Arrange: a Vite-based SPA project holding last year's panel.
+        $this->seedSpaProject('svelte');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+
+        // Act
+        $tester = $this->tester();
+        $exit = $tester->execute(['--spa' => true]);
+
+        // Assert: refreshed, with the project's own name substituted into it.
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('Debug panel for the Acme SPA', $this->read('frontend/lib/debug.js'));
+        // The token must not survive: a stub marker in shipped source is a bug
+        // the reader would have to diagnose before trusting the file.
+        $this->assertStringNotContainsString('{{', $this->read('frontend/lib/debug.js'));
+    }
+
+    /**
+     * A project scaffolded before the panel existed gains it with --all.
+     *
+     * This is the case the flag exists for: without it the file can only be
+     * copied by hand, and the practical outcome is a hand-rolled panel instead.
+     */
+    public function testSpaAllCreatesMissingDebugPanel(): void
+    {
+        // Arrange: SPA project, no panel anywhere.
+        $this->seedSpaProject('svelte');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true, '--all' => true]);
+
+        // Assert
+        $this->assertFileExists($this->projectDir . '/frontend/lib/debug.js');
+        $this->assertStringContainsString('created', $tester->getDisplay());
+    }
+
+    /** Without --all a missing panel is reported as skipped, not created. */
+    public function testSpaSkipsMissingPanelWithoutAll(): void
+    {
+        // Arrange
+        $this->seedSpaProject('svelte');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true]);
+
+        // Assert
+        $this->assertFileDoesNotExist($this->projectDir . '/frontend/lib/debug.js');
+        $this->assertStringContainsString('use --all to add', $tester->getDisplay());
+    }
+
+    /**
+     * The build-less stack keeps its sources inside the web root, so the panel
+     * belongs under www/assets/js/ — resolved from app.php, not assumed.
+     *
+     * Writing it to frontend/ there would produce a file no page ever loads,
+     * which looks exactly like a panel that does not work.
+     */
+    public function testSpaPathFollowsBuildlessStack(): void
+    {
+        // Arrange: no spa_stack → no build step.
+        $this->seedSpaProject('');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true, '--all' => true]);
+
+        // Assert
+        $this->assertFileExists($this->projectDir . '/www/assets/js/lib/debug.js');
+        $this->assertFileDoesNotExist($this->projectDir . '/frontend/lib/debug.js');
+    }
+
+    /** An MVC project has no front-end sources, so the SPA group yields nothing. */
+    public function testSpaScopeIsANoOpForMvcProject(): void
+    {
+        // Arrange: the default fixture app.php has no app_style at all.
+        file_put_contents(
+            $this->scaffoldDir . '/templates/spa-debug-panel.js.stub',
+            "// {{ appName }}\n"
+        );
+
+        // Act
+        $tester = $this->tester();
+        $exit = $tester->execute(['--spa' => true, '--all' => true]);
+
+        // Assert: nothing written, nothing claimed.
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('Nothing to sync', $tester->getDisplay());
+        $this->assertFileDoesNotExist($this->projectDir . '/frontend/lib/debug.js');
+    }
+
+    /** --spa is a scope: the pf-*.js hooks and docs tooling stay untouched. */
+    public function testSpaScopeLeavesOtherGroupsAlone(): void
+    {
+        // Arrange
+        $this->seedSpaProject('svelte');
+        $this->seed('www/assets/js/pf-utils.js', 'UTILS_V1');
+        $this->seed('scripts/apidoc-to-openapi.js', 'GEN_V1');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true]);
+
+        // Assert
+        $this->assertSame('UTILS_V1', $this->read('www/assets/js/pf-utils.js'), '--spa must not touch the UI hooks');
+        $this->assertSame('GEN_V1', $this->read('scripts/apidoc-to-openapi.js'), '--spa must not touch the docs tooling');
+        $this->assertStringNotContainsString('OLD PANEL', $this->read('frontend/lib/debug.js'));
+    }
+
+    /** With no scope flag the SPA group is synced along with the others. */
+    public function testDefaultRunIncludesSpaGroup(): void
+    {
+        // Arrange
+        $this->seedSpaProject('svelte');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+        $this->seed('www/assets/js/pf-utils.js', 'UTILS_V1');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute([]);
+
+        // Assert: both groups moved.
+        $this->assertStringContainsString('Debug panel for the Acme SPA', $this->read('frontend/lib/debug.js'));
+        $this->assertSame('UTILS_V2', $this->read('www/assets/js/pf-utils.js'));
+    }
+
+    /**
+     * A panel nothing calls is as silent as a missing one, so an api.js that
+     * never records is reported — with the two lines to add.
+     *
+     * Not repaired automatically: lib/api.js is the project's file and people
+     * edit it; rewriting it from the stub would discard those edits.
+     */
+    public function testUnwiredPanelIsReported(): void
+    {
+        // Arrange: panel present, client that never imports it.
+        $this->seedSpaProject('svelte');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+        $this->seed('frontend/lib/api.js', "export async function get() {}\n");
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true]);
+
+        // Assert
+        $this->assertStringContainsString('does not feed the debug panel', $tester->getDisplay());
+        $this->assertStringContainsString("from './debug.js'", $tester->getDisplay());
+        // The advice is advice: the file itself is left exactly as it was.
+        $this->assertSame("export async function get() {}\n", $this->read('frontend/lib/api.js'));
+    }
+
+    /** A client that already records stays silent — no false alarm. */
+    public function testWiredPanelIsNotReported(): void
+    {
+        // Arrange
+        $this->seedSpaProject('svelte');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+        $this->seed('frontend/lib/api.js', "import { record } from './debug.js';\n");
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true]);
+
+        // Assert
+        $this->assertStringNotContainsString('does not feed the debug panel', $tester->getDisplay());
+    }
+
+    /**
+     * The wiring check needs both files: with no api.js at all (or no panel
+     * yet) there is nothing to diagnose, and warning would be noise.
+     */
+    public function testWiringCheckSilentWhenApiClientAbsent(): void
+    {
+        // Arrange: panel only.
+        $this->seedSpaProject('svelte');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true]);
+
+        // Assert
+        $this->assertStringNotContainsString('does not feed the debug panel', $tester->getDisplay());
+    }
+
+    /** --dry-run covers the SPA group too: reported, not written. */
+    public function testSpaDryRunWritesNothing(): void
+    {
+        // Arrange
+        $this->seedSpaProject('svelte');
+        $this->seed('frontend/lib/debug.js', '// OLD PANEL');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--spa' => true, '--dry-run' => true]);
+
+        // Assert
+        $this->assertSame('// OLD PANEL', $this->read('frontend/lib/debug.js'));
+        $this->assertStringContainsString('would update', $tester->getDisplay());
+    }
+
     private function rmdir(string $dir): void
     {
         if (!is_dir($dir)) {
