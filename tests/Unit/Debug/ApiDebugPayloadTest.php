@@ -601,4 +601,55 @@ class ApiDebugPayloadTest extends TestCase
         $this->assertFalse(ApiDebugPayload::isEnabled());
     }
 
+
+    /**
+     * The summary carries the request id, and so does a header of its own.
+     *
+     * This is the case the id was added for: a response reduced to headers is
+     * one that could not carry its own detail, and the id is how the detail is
+     * asked for afterwards. `X-Request-Id` is additionally readable in the
+     * browser's network panel and in a proxy log, without parsing anything —
+     * it is what somebody quotes when they ask for help.
+     */
+    public function testTheRequestIdTravelsInTheSummaryAndItsOwnHeader(): void
+    {
+        // Arrange
+        RequestId::reset();
+        RequestId::activate();
+        $id = RequestId::current();
+        DebugBar::getInstance()->addCollector(new FakeCollector('demo', ['count' => 1]));
+
+        try {
+            // Act
+            $summary = json_decode(ApiDebugPayload::summary(), true);
+            $headers = ApiDebugPayload::headerLines();
+
+            // Assert
+            $this->assertSame($id, $summary['id']);
+            $this->assertContains(['X-Request-Id: ' . $id, true], $headers);
+        } finally {
+            RequestId::reset();
+        }
+    }
+
+    /**
+     * With no id issued — production — neither appears, and the headers are the
+     * ones they always were.
+     */
+    public function testNoIdMeansNoIdHeader(): void
+    {
+        // Arrange — ids inactive
+        RequestId::reset();
+        DebugBar::getInstance()->addCollector(new FakeCollector('demo', ['count' => 1]));
+
+        // Act
+        $summary = json_decode(ApiDebugPayload::summary(), true);
+        $headers = ApiDebugPayload::headerLines();
+
+        // Assert
+        $this->assertArrayNotHasKey('id', $summary);
+        foreach ($headers as [$line, $replace]) {
+            $this->assertStringNotContainsString('X-Request-Id', $line);
+        }
+    }
 }

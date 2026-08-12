@@ -34,9 +34,22 @@ class FakeSubscribableDriver implements SubscribableDriverInterface
     {
     }
 
+    /** How many idle ticks to fire before replaying the scripted events. */
+    public int $idleTicks = 0;
+
     public function subscribe(array $channels, callable $onEvent, ?SubscriptionOptions $options = null): void
     {
         $this->lastOptions = $options;
+
+        // The idle path is where an SSE consumer pings, checks whether the
+        // client is still there, and runs onTick — none of which any event can
+        // exercise, because it only happens when nothing arrived.
+        for ($i = 0; $i < $this->idleTicks; $i++) {
+            if ($options !== null && !$options->fireIdle()) {
+                return;
+            }
+        }
+
         foreach ($this->events as $entry) {
             [$channel, $event, $payload] = $entry;
             // A driver with a durable log passes the event's id as a fourth
@@ -342,6 +355,62 @@ class SseStreamTest extends TestCase
 
         // Cleanup
         unset($_SERVER['HTTP_LAST_EVENT_ID']);
+    }
+
+
+    /**
+     * An idle tick sends a keep-alive ping.
+     *
+     * A proxy closes a connection that has been silent for a minute, so the
+     * ping is what keeps a quiet stream alive. It only happens when *nothing*
+     * arrived, so no event can exercise it.
+     */
+    public function testAnIdleTickPings(): void
+    {
+        // Arrange
+        $driver = new FakeSubscribableDriver();
+        $driver->idleTicks = 2;
+
+        // Act
+        $output = $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(driver: $driver, channels: ['chat'], onEvent: fn () => null);
+        });
+
+        // Assert — two comment-form pings, which EventSource ignores
+        $this->assertSame(2, substr_count($output, ': ping'));
+    }
+
+    /**
+     * onTick runs on every idle tick, and can end the stream.
+     *
+     * The canonical use is server-driven presence: the live connection is itself
+     * proof the user is online, so it is refreshed each tick rather than trusted
+     * from a client heartbeat.
+     */
+    public function testOnTickRunsAndCanEndTheStream(): void
+    {
+        // Arrange
+        $driver = new FakeSubscribableDriver();
+        $driver->idleTicks = 5;
+        $ticks = 0;
+
+        // Act
+        $output = $this->capture(function () use ($driver, &$ticks) {
+            (new SseWriter())->stream(
+                driver: $driver,
+                channels: ['chat'],
+                onEvent: fn () => null,
+                pingInterval: 20,
+                onTick: function () use (&$ticks): bool {
+                    $ticks++;
+                    return $ticks < 3;   // stop on the third
+                },
+            );
+        });
+
+        // Assert — it stopped when asked, before the five ticks ran out
+        $this->assertSame(3, $ticks);
+        $this->assertSame(2, substr_count($output, ': ping'), 'the tick that stopped it does not ping');
     }
 
     /**

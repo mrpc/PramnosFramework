@@ -548,6 +548,38 @@ class DebugBarTest extends TestCase
         $this->assertSame($html, $result);
     }
 
+
+    /**
+     * A settings lookup that throws costs the brand, not the page.
+     *
+     * Reading a setting can reach the database, and this one runs while the
+     * response is being assembled — after the application has done its work. A
+     * toolbar that turned a slow or broken database connection into a fatal
+     * error at that point would destroy the very response it exists to annotate.
+     */
+    public function testASettingsFailureCostsTheBrandAndNothingElse(): void
+    {
+        // Arrange — a database that throws on any settings read
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('queryBuilder')->willThrowException(new \RuntimeException('connection refused'));
+        \Pramnos\Application\Settings::clearSettings();
+        \Pramnos\Application\Settings::setDatabase($db);
+
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+
+        try {
+            // Act — must not throw
+            $html = $bar->render();
+
+            // Assert — the toolbar still ships
+            $this->assertStringContainsString('pramnos-debug-data', $html);
+            $this->assertStringContainsString('&#9881;', $html, 'the bar still has a brand');
+        } finally {
+            \Pramnos\Application\Settings::clearSettings();
+        }
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     /**

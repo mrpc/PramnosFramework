@@ -231,4 +231,116 @@ class DatabaseDriverTest extends TestCase
         // Assert
         $this->assertSame('5', $received);
     }
+
+    /**
+     * The driver names itself, so a config dump or a log line says which
+     * backplane is in use — and `database` versus `redis` differs in latency by
+     * a poll interval.
+     */
+    public function testItNamesItself(): void
+    {
+        // Arrange & Act
+        $driver = new DatabaseDriver(new ScriptedEventStore([]), $this->noSleep());
+
+        // Assert
+        $this->assertSame('database', $driver->name());
+    }
+
+    /**
+     * The runtime ceiling ends the loop, and ends it mid-batch if it has to.
+     *
+     * `maxRuntime` exists to close an SSE stream before an edge proxy does. A
+     * channel that keeps producing must not be able to hold the connection open
+     * past that point — the events are durable and the client resumes from its
+     * cursor, so stopping costs nothing.
+     */
+    public function testTheRuntimeCeilingStopsTheLoopMidBatch(): void
+    {
+        // Arrange — a batch of three, and a one-second ceiling
+        $store = new ScriptedEventStore([[
+            ['id' => 1, 'channel' => 'chat', 'event' => 'a', 'payload' => []],
+            ['id' => 2, 'channel' => 'chat', 'event' => 'b', 'payload' => []],
+            ['id' => 3, 'channel' => 'chat', 'event' => 'c', 'payload' => []],
+        ]]);
+        $driver = new DatabaseDriver($store, $this->noSleep());
+
+        $seen = 0;
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static function () use (&$seen): bool {
+                $seen++;
+                sleep(1);   // push past the deadline inside the batch
+                return true;
+            },
+            new SubscriptionOptions(readTimeout: 1, maxRuntime: 1),
+        );
+
+        // Assert — it stopped rather than draining the batch
+        $this->assertSame(1, $seen);
+    }
+
+    /**
+     * A consumer that returns false ends the loop there and then, without
+     * waiting for the next poll — an SSE stream whose client has gone must not
+     * keep querying for another twenty seconds.
+     */
+    public function testAConsumerCanEndTheLoopImmediately(): void
+    {
+        // Arrange
+        $store = new ScriptedEventStore([[
+            ['id' => 1, 'channel' => 'chat', 'event' => 'a', 'payload' => []],
+            ['id' => 2, 'channel' => 'chat', 'event' => 'b', 'payload' => []],
+        ]]);
+        $driver = new DatabaseDriver($store, $this->noSleep());
+
+        $seen = 0;
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static function () use (&$seen): bool {
+                $seen++;
+                return false;
+            },
+            new SubscriptionOptions(readTimeout: 1),
+        );
+
+        // Assert — one delivery, then out; the second row is left for a later
+        // subscription to resume from
+        $this->assertSame(1, $seen);
+        $this->assertSame(1, $store->fetchCalls, 'and no further polling');
+    }
+
+    /**
+     * A quiet channel still stops at the runtime ceiling.
+     *
+     * The busy case is covered above; this is the one that actually happens on a
+     * chat page nobody is typing in — nothing arrives for ninety-five seconds
+     * and the stream has to close itself anyway, or the edge proxy does it less
+     * politely.
+     */
+    public function testAQuietLoopStopsAtTheRuntimeCeiling(): void
+    {
+        // Arrange — nothing to deliver, a one-second ceiling, and a sleeper that
+        // really sleeps so the deadline is reached the way it is in production
+        $store  = new ScriptedEventStore([]);
+        $driver = new DatabaseDriver($store, static function (int $ms): void {
+            usleep(min($ms, 1100) * 1000);
+        });
+
+        $start = time();
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static fn (): bool => true,
+            new SubscriptionOptions(readTimeout: 1, maxRuntime: 1),
+        );
+
+        // Assert — it came back on its own, near the ceiling rather than after it
+        $this->assertLessThan(4, time() - $start, 'the ceiling ended the loop');
+        $this->assertGreaterThan(0, $store->fetchCalls, 'it did poll at least once');
+    }
 }

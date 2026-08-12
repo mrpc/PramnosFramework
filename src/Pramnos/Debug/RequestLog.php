@@ -118,9 +118,12 @@ final class RequestLog
     private static function logFiles(): array
     {
         $dir = Logger::logDirectory();
+        // @codeCoverageIgnoreStart — Logger creates this directory on its first
+        // write, so reaching here means an installation with no logs at all.
         if (!is_dir($dir)) {
             return [];
         }
+        // @codeCoverageIgnoreEnd
 
         $files = glob($dir . DIRECTORY_SEPARATOR . '*.log') ?: [];
 
@@ -147,9 +150,12 @@ final class RequestLog
         }
 
         $handle = @fopen($path, 'rb');
+        // @codeCoverageIgnoreStart — a file glob() just listed and filesize()
+        // just measured, refusing to open: a permissions change mid-read.
         if ($handle === false) {
             return [];
         }
+        // @codeCoverageIgnoreEnd
 
         $truncated = $size > self::TAIL_BYTES;
         if ($truncated) {
@@ -159,9 +165,12 @@ final class RequestLog
         $chunk = stream_get_contents($handle);
         fclose($handle);
 
+        // @codeCoverageIgnoreStart — an open handle whose read fails is a
+        // disk-level failure, not a case a test can set up.
         if ($chunk === false) {
             return [];
         }
+        // @codeCoverageIgnoreEnd
 
         $lines = explode("\n", $chunk);
         if ($truncated) {
