@@ -397,8 +397,46 @@ The `$callback` receives `SchemaBuilder $schema` (not `Database`).
 | `DatabaseCapabilities::MATERIALIZED_VIEWS` | PostgreSQL or TimescaleDB |
 | `DatabaseCapabilities::ENUMS` | PostgreSQL (native `CREATE TYPE … AS ENUM`) |
 | `DatabaseCapabilities::JSONB` | PostgreSQL |
+| `DatabaseCapabilities::SEQUENCES` | PostgreSQL, MariaDB ≥ 10.3 |
+| `DatabaseCapabilities::RETURNING` | PostgreSQL, MariaDB ≥ 10.5 |
+| `DatabaseCapabilities::NATIVE_JSON` | PostgreSQL, MySQL ≥ 5.7.8 (**not** MariaDB) |
+| `DatabaseCapabilities::CHECK_CONSTRAINTS` | PostgreSQL, MariaDB ≥ 10.2, MySQL ≥ 8.0.16 |
 
-Convenience methods: `hasMaterializedViews(): bool`, `hasEnums(): bool`, `hasTimescaleDB(): bool`.
+Convenience methods: `hasMaterializedViews(): bool`, `hasEnums(): bool`, `hasTimescaleDB(): bool`,
+`hasSequences(): bool`, `hasReturning(): bool`, `hasNativeJson(): bool`, `hasCheckConstraints(): bool`.
+
+### Engine, flavor and version
+
+`isMySQL()` means *"the MySQL family"* and is therefore **true on MariaDB as well**. Every
+capability gate in the framework reads it as "compile MySQL-compatible grammar" — backtick
+quoting, `information_schema` introspection, `AUTO_INCREMENT` — all of which MariaDB does.
+
+`isMariaDB()` is the narrowing predicate: true only when the MySQL-family server is
+specifically MariaDB. It implies `isMySQL() === true`.
+
+```php
+$caps = $db->schema()->getCapabilities();
+
+$caps->isMySQL();      // true on MySQL *and* MariaDB
+$caps->isMariaDB();    // true only on MariaDB
+$caps->getVersion();   // "10.11.6" — normalised, vendor noise stripped
+$caps->atLeast('10.5') // version-aware gating
+```
+
+The flavor is detected from the **live server version string**, never from configuration:
+MariaDB installations are configured as `type = 'mysql'` and must stay that way. Detection
+degrades safely — an unconnected `Database` reports an unknown version, and every
+version-gated capability then answers `false`, so new behaviour is always opt-in.
+
+Prefer asking the feature question over the identity question:
+
+```php
+// Good — works on PostgreSQL and MariaDB 10.3+, no-ops elsewhere
+if ($caps->has(DatabaseCapabilities::SEQUENCES)) { … }
+
+// Fragile — says nothing about what the server can actually do
+if ($caps->isPostgreSQL()) { … }
+```
 
 ## Triggers
 
@@ -436,9 +474,14 @@ $schema->dropTrigger('trg_log_insert', 'orders', ifExists: true);
 | DDL verb | `CREATE TRIGGER` | `CREATE OR REPLACE TRIGGER` |
 | Drop syntax | `DROP TRIGGER [IF EXISTS] name` | `DROP TRIGGER [IF EXISTS] name ON table` |
 
-## Sequences (PostgreSQL only)
+## Sequences (PostgreSQL and MariaDB 10.3+)
 
-Sequences are monotonically increasing integer generators. All methods are **silent no-ops** on MySQL and return `0` as a sentinel.
+Sequences are monotonically increasing integer generators. They are supported on PostgreSQL and
+on MariaDB 10.3+, where the framework selects a MariaDB DDL grammar that emits real
+`CREATE SEQUENCE` / `NEXTVAL()` / `SETVAL()` / `DROP SEQUENCE` statements.
+
+On Oracle MySQL — and on a MariaDB older than 10.3, which has no sequence objects — all methods
+are **silent no-ops** and return `0` as a sentinel.
 
 ```php
 $schema = $db->schema();
@@ -473,11 +516,26 @@ MySQL compatibility:
 ```php
 $id = $schema->nextVal('order_seq');
 if ($id === 0) {
-    // Running on MySQL — fall back to AUTO_INCREMENT
+    // No sequence objects on this server — fall back to AUTO_INCREMENT
     $db->query("INSERT INTO orders ...");
     $id = $db->insertId();
 }
 ```
+
+Or ask before you act, which is clearer than reading a sentinel:
+
+```php
+if ($schema->getCapabilities()->hasSequences()) {
+    $id = $schema->nextVal('order_seq');
+} else {
+    // AUTO_INCREMENT path
+}
+```
+
+Note the dialect differences the grammar hides for you: MariaDB spells the negative cycle
+option `NOCYCLE` (one word, not PostgreSQL's `NO CYCLE`), and its `NEXTVAL`/`SETVAL` take a
+bare identifier rather than PostgreSQL's string literal. MariaDB's third `SETVAL` argument is
+named `is_used` but carries the same meaning as PostgreSQL's `is_called`.
 
 ## Time Bucketing
 

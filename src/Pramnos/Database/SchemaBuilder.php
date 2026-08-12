@@ -3,6 +3,7 @@
 namespace Pramnos\Database;
 
 use Pramnos\Database\Grammar\SchemaGrammarInterface;
+use Pramnos\Database\Grammar\MariaDBSchemaGrammar;
 use Pramnos\Database\Grammar\MySQLSchemaGrammar;
 use Pramnos\Database\Grammar\PostgreSQLSchemaGrammar;
 use Pramnos\Database\Grammar\TimescaleDBSchemaGrammar;
@@ -93,6 +94,17 @@ class SchemaBuilder
         return $this->capabilities;
     }
 
+    /**
+     * Pick the DDL grammar for the current connection.
+     *
+     * The MariaDB branch is gated on the SEQUENCES *capability* rather than on
+     * the flavor name: MariaDB only grew sequence objects in 10.3, and the only
+     * thing MariaDBSchemaGrammar changes is sequences.  An older MariaDB gets
+     * the plain MySQL grammar and therefore keeps its existing no-op behaviour
+     * instead of being handed DDL its server cannot parse.
+     *
+     * @return SchemaGrammarInterface
+     */
     protected function makeGrammar(): SchemaGrammarInterface
     {
         if ($this->db->type === 'postgresql') {
@@ -100,6 +112,11 @@ class SchemaBuilder
                 ? new TimescaleDBSchemaGrammar()
                 : new PostgreSQLSchemaGrammar();
         }
+
+        if ($this->capabilities->has(DatabaseCapabilities::SEQUENCES)) {
+            return new MariaDBSchemaGrammar();
+        }
+
         return new MySQLSchemaGrammar();
     }
 
@@ -1404,12 +1421,14 @@ class SchemaBuilder
     }
 
     // =========================================================================
-    // Sequence DDL (PostgreSQL only; silent no-op on MySQL)
+    // Sequence DDL (PostgreSQL and MariaDB 10.3+; silent no-op on Oracle MySQL)
     // =========================================================================
 
     /**
-     * Create a named sequence (PostgreSQL only).
-     * On MySQL the call is silently ignored — no exception.
+     * Create a named sequence.
+     *
+     * Supported on PostgreSQL and on MariaDB 10.3+.  On Oracle MySQL (and on a
+     * MariaDB older than 10.3) the call is silently ignored — no exception.
      *
      * @param  string   $name
      * @param  int      $start
@@ -1434,8 +1453,10 @@ class SchemaBuilder
     }
 
     /**
-     * Drop a sequence (PostgreSQL only).
-     * On MySQL the call is silently ignored.
+     * Drop a sequence.
+     *
+     * Supported on PostgreSQL and on MariaDB 10.3+.  Silently ignored where the
+     * server has no sequence objects.
      *
      * @param  string $name
      * @param  bool   $ifExists
@@ -1450,17 +1471,18 @@ class SchemaBuilder
     }
 
     /**
-     * Advance a sequence and return its new value (PostgreSQL only).
+     * Advance a sequence and return its new value.
      *
-     * Equivalent to PostgreSQL's `SELECT nextval('name')`.
-     * On MySQL returns 0 — sequences are not supported.
+     * Equivalent to PostgreSQL's `SELECT nextval('name')` and MariaDB's
+     * `SELECT NEXTVAL(name)`.  Returns 0 where sequences are unsupported
+     * (Oracle MySQL, MariaDB < 10.3).
      *
      * Use this when you need a unique ID from a shared sequence that is
      * independent of any particular table (e.g. for sharded PKs, event IDs,
      * or document numbers that must be globally unique across tables).
      *
      * @param  string $name  Sequence name (schema-qualify if needed, e.g. "public.order_seq")
-     * @return int           Next value, or 0 on MySQL
+     * @return int           Next value, or 0 where sequences are unsupported
      */
     public function nextVal(string $name): int
     {
@@ -1476,10 +1498,11 @@ class SchemaBuilder
     }
 
     /**
-     * Set a sequence's current value (PostgreSQL only).
+     * Set a sequence's current value.
      *
-     * Equivalent to PostgreSQL's `SELECT setval('name', value, is_called)`.
-     * On MySQL returns 0 — sequences are not supported.
+     * Equivalent to PostgreSQL's `SELECT setval('name', value, is_called)` and
+     * MariaDB's `SELECT SETVAL(name, value, is_used)`.  Returns 0 where
+     * sequences are unsupported (Oracle MySQL, MariaDB < 10.3).
      *
      * Useful after bulk-inserting rows with explicit IDs to reset the sequence
      * so the next `nextval()` / serial column does not collide with existing rows.
@@ -1488,7 +1511,7 @@ class SchemaBuilder
      * @param  int    $value     Value to set
      * @param  bool   $isCalled  true (default): next nextval() returns value + increment.
      *                           false: next nextval() returns value itself (useful after INSERT … ON CONFLICT).
-     * @return int               The value that was set, or 0 on MySQL
+     * @return int               The value that was set, or 0 where unsupported
      */
     public function setVal(string $name, int $value, bool $isCalled = true): int
     {
