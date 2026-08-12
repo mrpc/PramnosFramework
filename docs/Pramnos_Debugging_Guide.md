@@ -92,6 +92,26 @@ naming it in the info strip — either way the toolbar goes back to its default.
   error logged by a background call would otherwise be invisible while some other
   request was in view.
 
+**What the page sent** is shown above whichever tab is open, collapsed, for any
+request that had a body — it belongs to the request rather than to a collector,
+and "what did I send" is the first question when a call comes back wrong. A
+form-urlencoded body is decoded into the structure it encodes, so a datatables
+request reads as `columns[0][data]: "userid"` rather than as
+`columns%5B0%5D%5Bdata%5D=userid`.
+
+The body never leaves the browser: it is what the page just sent, shown back to
+whoever sent it, and nothing is added to the request to produce it. Secret-looking
+values are masked anyway — this panel gets screenshotted, and a password in a bug
+report is a password that has to be changed.
+
+Two limits keep it from becoming the reason a page feels slow. Bodies are kept up
+to **8KB** and say so when cut, because holding fifty file uploads is how a
+debugging aid runs a tab out of memory. Above **2KB** a body is shown as it was
+sent rather than laid out — pretty-printing means parsing, re-serialising and
+walking every key to mask it, which is nothing for two kilobytes and real work
+for eight. Masking applies at every size. The layout is computed once per request
+and reused, so a polling page does not redo it on every render.
+
 The **Exceptions** tab turns red and carries a `⚠` as soon as any request has
 raised something, so you do not have to open it to find out. A request whose
 response could not carry the details — an error page is not a JSON object — still
