@@ -199,17 +199,17 @@ class DebugBar
 
         return <<<HTML
 <style{$na}>{$css}</style>
-<script{$na}>document.body.style.paddingBottom='36px';</script>
 <div id="pramnos-debugbar">
   <div id="pdb-bar">
     <span id="pdb-brand">&#9881; Pramnos</span>
     {$tabsHtml}
     {$infoHtml}
     <a class="pdb-devpanel" href="/devpanel" title="DevPanel">&#128270; DevPanel</a>
-    <button class="pdb-close" id="pdb-close-btn">&#x2715;</button>
+    <button class="pdb-close" id="pdb-close-btn" title="Hide the toolbar">&#x2715;</button>
   </div>
   <div id="pdb-panels">{$panelsHtml}</div>
 </div>
+<button id="pdb-restore" title="Show the Pramnos toolbar">&#9881;</button>
 <script{$na}>{$js}</script>
 HTML;
     }
@@ -549,6 +549,8 @@ HTML;
 .pdb-devpanel{color:#a6e3a1;text-decoration:none;padding:2px 8px;font:inherit;flex-shrink:0;margin-left:6px}
 .pdb-devpanel:hover{color:#cba6f7}
 .pdb-close{background:none;border:none;color:#f38ba8;cursor:pointer;margin-left:4px;font:inherit;flex-shrink:0}
+#pdb-restore{position:fixed;right:8px;bottom:8px;z-index:99998;display:none;background:#1e1e2e;color:#89b4fa;border:1px solid #313244;border-radius:6px;padding:2px 7px;cursor:pointer;font:12px/1.4 monospace;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+#pdb-restore:hover{color:#cba6f7;border-color:#cba6f7}
 #pdb-panels{max-height:300px;overflow-y:auto;padding:8px 12px;background:#181825;border-top:1px solid #313244;display:none}
 .pdb-table{width:100%;border-collapse:collapse;font-size:11px}
 .pdb-table th{background:#313244;padding:4px 8px;text-align:left;color:#89b4fa}
@@ -619,12 +621,35 @@ HTML;
       btn.classList.add("pdb-active");
     });
   });
+  // The ✕ hides the whole toolbar, and the ⚙ handle brings it back. It used to
+  // toggle #pdb-panels from an inline style that started empty, so the first
+  // click set display:none on something the stylesheet already hid and the
+  // second handed it back to the stylesheet: the button did nothing, twice.
+  // Closing just the open panel is what clicking its own tab already does.
+  var PDB_HIDDEN="pramnos.debugbar.hidden";
+  function pdbHiddenStored(){
+    // Storage can throw outright (private mode, a blocked origin); a toolbar
+    // never breaks the page it measures.
+    try{return localStorage.getItem(PDB_HIDDEN)==="1";}catch(e){return false;}
+  }
+  function pdbSetHidden(hidden){
+    var bar=document.getElementById("pramnos-debugbar");
+    var handle=document.getElementById("pdb-restore");
+    if(!bar)return;
+    bar.style.display=hidden?"none":"";
+    if(handle)handle.style.display=hidden?"block":"none";
+    // Give the page back the strip the bar occupied; a gap under a hidden bar
+    // is a layout bug nothing on screen explains.
+    document.body.style.paddingBottom=hidden?"":"36px";
+    try{hidden?localStorage.setItem(PDB_HIDDEN,"1"):localStorage.removeItem(PDB_HIDDEN);}catch(e){}
+  }
   var closeBtn=document.getElementById("pdb-close-btn");
-  if(closeBtn){closeBtn.addEventListener("click",function(){
-    var d=document.getElementById("pdb-panels");
-    d.style.display=d.style.display==="none"?"":"none";
-    if(d.style.display==="none")document.querySelectorAll(".pdb-tab").forEach(function(t){t.classList.remove("pdb-active");});
-  });}
+  if(closeBtn){closeBtn.addEventListener("click",function(){pdbSetHidden(true);});}
+  var restoreBtn=document.getElementById("pdb-restore");
+  if(restoreBtn){restoreBtn.addEventListener("click",function(){pdbSetHidden(false);});}
+  // Apply the remembered choice on load. Hiding it on one page and having it
+  // return on the next reads as the button not working — which it was.
+  pdbSetHidden(pdbHiddenStored());
 })();
 ' . $this->ajaxJs();
     }

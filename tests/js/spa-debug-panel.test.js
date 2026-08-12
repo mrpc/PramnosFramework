@@ -98,7 +98,7 @@ function makeDom() {
  * The stub is a template with `{{ appName }}` placeholders, so it is rendered
  * to a temporary file first — which is also what the scaffolder does.
  */
-async function loadPanel() {
+async function loadPanel({ stored = null, storageThrows = false } = {}) {
     const source = fs.readFileSync(STUB, 'utf8').replace(/\{\{ appName \}\}/g, 'TestApp');
     const file   = path.join(
         fs.mkdtempSync(path.join(os.tmpdir(), 'pramnos-spa-dbg-')), 'debug.mjs'
@@ -107,6 +107,22 @@ async function loadPanel() {
 
     const dom = makeDom();
     global.document = dom.document;
+
+    // Storage, because the hidden/shown choice has to survive navigation — a bar
+    // that reappears on the next page reads as the button not working.
+    const store = stored === null ? {} : { 'pramnos.debugbar.hidden': stored };
+    const storage = {
+        getItem: (k) => (k in store ? store[k] : null),
+        setItem: (k, v) => { store[k] = String(v); },
+        removeItem: (k) => { delete store[k]; },
+    };
+    Object.defineProperty(global, 'localStorage', {
+        // A blocked origin or Safari's private mode makes *access itself* throw,
+        // not just the call — so the failure is simulated on the property.
+        get: () => { if (storageThrows) { throw new Error('access denied'); } return storage; },
+        configurable: true,
+    });
+    dom.store = store;
     // `navigator` is a getter-only global in modern Node, so it is redefined
     // rather than assigned. The panel only reads `navigator.clipboard`.
     Object.defineProperty(global, 'navigator', {
@@ -288,6 +304,97 @@ describe('SPA debug panel', () => {
 
         assert.ok(dom.byId['spa-dbg-panel'].innerHTML.length > 0);
     });
+
+    /**
+     * The ✕ hides the bar itself — the bug it replaced hid nothing.
+     *
+     * It used to toggle the panel's inline `display`, starting from `''`: the
+     * first click set `none` on something the stylesheet already hid, and the
+     * second handed it back to the stylesheet, which hid it again. Two clicks,
+     * no visible effect. So the assertion is on the *bar's* display, plus the
+     * page padding, which is the other half of "hidden" the user can see.
+     */
+    test('the close button hides the whole bar and frees the page', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/status', 200, payload());
+        assert.equal(dom.byId['spa-debugbar'].style.display, '', 'visible to begin with');
+        assert.equal(dom.document.body.style.paddingBottom, '32px');
+
+        // Act
+        clickClose(dom);
+
+        // Assert
+        assert.equal(dom.byId['spa-debugbar'].style.display, 'none', 'the bar goes, not the panel');
+        assert.equal(dom.document.body.style.paddingBottom, '', 'the reserved strip goes with it');
+        // Without a handle the button is a one-way door: the panel is only built
+        // when debug data arrives, so nothing else can bring it back.
+        assert.equal(dom.byId['spa-dbg-restore'].style.display, 'block');
+        assert.equal(dom.store['pramnos.debugbar.hidden'], '1', 'and the choice is remembered');
+    });
+
+    test('the restore handle brings it back and forgets the choice', async () => {
+        // Arrange — hidden, with the handle showing
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/status', 200, payload());
+        clickClose(dom);
+
+        // Act — the handle has its own listener, not the delegated one
+        dom.byId['spa-dbg-restore'].listeners.click();
+
+        // Assert
+        assert.equal(dom.byId['spa-debugbar'].style.display, '');
+        assert.equal(dom.byId['spa-dbg-restore'].style.display, 'none');
+        assert.equal(dom.document.body.style.paddingBottom, '32px');
+        assert.equal('pramnos.debugbar.hidden' in dom.store, false, 'nothing left to re-hide it');
+    });
+
+    /**
+     * A SPA navigates without reloading, but a full reload still happens — and
+     * the server-rendered pages of the same application reload every time. A bar
+     * that came back on its own would read as the hide button not working, which
+     * is the complaint this whole change came from.
+     */
+    test('a bar hidden earlier is still hidden when the panel is rebuilt', async () => {
+        // Arrange — the choice was made on a previous page
+        const { record, dom } = await loadPanel({ stored: '1' });
+
+        // Act — data arrives, so the panel is built
+        record('GET', '/api/status', 200, payload());
+
+        // Assert
+        assert.equal(dom.byId['spa-debugbar'].style.display, 'none');
+        assert.equal(dom.byId['spa-dbg-restore'].style.display, 'block');
+        assert.equal(dom.document.body.style.paddingBottom, '', 'no padding for a bar nobody sees');
+    });
+
+    /**
+     * Storage that throws must not take the panel with it.
+     *
+     * Reading `localStorage` at all throws in Safari's private mode and on a
+     * blocked origin. Instrumentation is never a good reason for a page to break,
+     * so the bar still hides — it just cannot remember that it did.
+     */
+    test('storage that throws costs the memory, not the button', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel({ storageThrows: true });
+
+        // Act & Assert
+        assert.doesNotThrow(() => {
+            record('GET', '/api/status', 200, payload());
+            clickClose(dom);
+        });
+        assert.equal(dom.byId['spa-debugbar'].style.display, 'none', 'hiding still works');
+    });
+
+    /** Click the ✕ the way the delegated listener sees it. */
+    function clickClose(dom) {
+        dom.byId['spa-debugbar'].listeners.click({
+            target: {
+                closest: (selector) => (selector === '#spa-dbg-close' ? { id: 'spa-dbg-close' } : null),
+            },
+        });
+    }
 
     /**
      * Open the panel the way a click on a tab would.
