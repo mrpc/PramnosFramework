@@ -31,13 +31,22 @@ class ScriptedEventStore implements BroadcastEventStore
         $this->appended[] = [$channel, $event, $payload];
     }
 
+    /** Pretend the table already holds this many rows. */
+    public int $latest = 0;
+
     public function latestId(): int
     {
-        return 0;
+        return $this->latest;
     }
+
+    /** The cursor the driver asked from on its first poll. */
+    public ?int $firstFetchFrom = null;
 
     public function fetchSince(int $lastId, array $channels): array
     {
+        if ($this->fetchCalls === 0) {
+            $this->firstFetchFrom = $lastId;
+        }
         $batch = $this->batches[$this->fetchCalls] ?? [];
         $this->fetchCalls++;
         // Honour the lastId cursor so already-delivered rows are not re-sent.
@@ -127,5 +136,99 @@ class DatabaseDriverTest extends TestCase
         $driver = new DatabaseDriver(new ScriptedEventStore(), $this->noSleep());
         $this->expectException(\InvalidArgumentException::class);
         $driver->subscribe([], fn () => false);
+    }
+
+    /**
+     * Without a cursor, the loop starts at the end of the table.
+     *
+     * This is the historical behaviour and still the right default for a first
+     * connection: a client with nothing on screen wants what happens next, not
+     * the last thousand events.
+     */
+    public function testWithoutACursorTheLoopStartsFromNow(): void
+    {
+        // Arrange — a store that already holds 42 rows
+        $store = new ScriptedEventStore([]);
+        $store->latest = 42;
+        $driver = new DatabaseDriver($store, $this->noSleep());
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static fn (): bool => true,
+            new SubscriptionOptions(readTimeout: 1, onIdle: static fn (): bool => false),
+        );
+
+        // Assert — it asked for what comes after row 42, not for row 1 onwards
+        $this->assertSame(42, $store->firstFetchFrom);
+    }
+
+    /**
+     * With a cursor, the loop resumes after it — which is the reconnect gap
+     * closed.
+     *
+     * `maxRuntime` ends every SSE stream on purpose, so a client reconnects on a
+     * schedule. The events published while it was away are in the table the
+     * whole time; before this the loop started at `latestId()` and stepped over
+     * them, and nothing anywhere reported a loss.
+     */
+    public function testACursorResumesAfterThatEventAndReplaysWhatWasMissed(): void
+    {
+        // Arrange — three rows were written while the client was reconnecting
+        $store = new ScriptedEventStore([[
+            ['id' => 8,  'channel' => 'chat', 'event' => 'missed.one', 'payload' => ['n' => 1]],
+            ['id' => 9,  'channel' => 'chat', 'event' => 'missed.two', 'payload' => ['n' => 2]],
+            ['id' => 10, 'channel' => 'chat', 'event' => 'live',       'payload' => ['n' => 3]],
+        ]]);
+        $store->latest = 10;
+        $driver = new DatabaseDriver($store, $this->noSleep());
+
+        $seen = [];
+
+        // Act — the client says it last saw event 7
+        $driver->subscribe(
+            ['chat'],
+            function (string $channel, string $event, array $payload, ?string $id) use (&$seen): bool {
+                $seen[] = [$event, $id];
+                return count($seen) < 3;   // stop once all three have arrived
+            },
+            new SubscriptionOptions(readTimeout: 1, sinceId: '7', onIdle: static fn (): bool => false),
+        );
+
+        // Assert — everything after 7, in order, none of it skipped
+        $this->assertSame(
+            [['missed.one', '8'], ['missed.two', '9'], ['live', '10']],
+            $seen
+        );
+        // And it really resumed rather than starting from the end of the table
+        $this->assertSame(7, $store->firstFetchFrom);
+    }
+
+    /**
+     * The event's id reaches the consumer, which is what lets it be written into
+     * the transport and handed back on the next connection. A driver that
+     * delivers events without ids can never be resumed from.
+     */
+    public function testTheEventIdIsPassedToTheConsumer(): void
+    {
+        // Arrange
+        $store = new ScriptedEventStore([[
+            ['id' => 5, 'channel' => 'chat', 'event' => 'message.created', 'payload' => []],
+        ]]);
+        $driver = new DatabaseDriver($store, $this->noSleep());
+        $received = null;
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            function (string $channel, string $event, array $payload, ?string $id) use (&$received): bool {
+                $received = $id;
+                return false;
+            },
+            new SubscriptionOptions(readTimeout: 1),
+        );
+
+        // Assert
+        $this->assertSame('5', $received);
     }
 }

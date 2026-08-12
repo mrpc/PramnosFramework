@@ -37,8 +37,12 @@ class FakeSubscribableDriver implements SubscribableDriverInterface
     public function subscribe(array $channels, callable $onEvent, ?SubscriptionOptions $options = null): void
     {
         $this->lastOptions = $options;
-        foreach ($this->events as [$channel, $event, $payload]) {
-            if ($onEvent($channel, $event, $payload) === false) {
+        foreach ($this->events as $entry) {
+            [$channel, $event, $payload] = $entry;
+            // A driver with a durable log passes the event's id as a fourth
+            // argument; one without passes null. Both shapes appear here.
+            $id = $entry[3] ?? null;
+            if ($onEvent($channel, $event, $payload, $id) === false) {
                 return;
             }
         }
@@ -161,5 +165,196 @@ class SseStreamTest extends TestCase
 
         $this->assertSame(20, $driver->lastOptions->readTimeout);
         $this->assertSame(95, $driver->lastOptions->maxRuntime);
+    }
+
+    /**
+     * An event carrying a backplane id is written with an `id:` frame.
+     *
+     * This is the whole mechanism: `EventSource` remembers the last id it saw
+     * and sends it back as `Last-Event-ID` when it reconnects, which is how the
+     * server knows what to replay. Without the frame there is nothing to
+     * remember, and everything published during a reconnect is lost — and
+     * `maxRuntime` makes that reconnect happen on a schedule.
+     */
+    public function testAnEventWithAnIdWritesAnIdFrame(): void
+    {
+        // Arrange — the application callback does not touch the id at all
+        $driver = new FakeSubscribableDriver([
+            ['chat', 'message.created', ['n' => 1], '42'],
+        ]);
+
+        // Act
+        $output = $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(
+                driver: $driver,
+                channels: ['chat'],
+                onEvent: function (string $c, string $e, array $p, SseWriter $sse): void {
+                    $sse->event($e, $p);
+                },
+            );
+        });
+
+        // Assert — the id precedes its event, per the SSE spec
+        $this->assertStringContainsString("id: 42\nevent: message.created\n", $output);
+    }
+
+    /**
+     * A driver with no ids produces no `id:` frames — rather than an empty one,
+     * which the client would remember as its resume point and send back.
+     */
+    public function testAnEventWithoutAnIdWritesNoIdFrame(): void
+    {
+        // Arrange
+        $driver = new FakeSubscribableDriver([['chat', 'ping', []]]);
+
+        // Act
+        $output = $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(
+                driver: $driver,
+                channels: ['chat'],
+                onEvent: function (string $c, string $e, array $p, SseWriter $sse): void {
+                    $sse->event($e, $p);
+                },
+            );
+        });
+
+        // Assert
+        $this->assertStringNotContainsString('id:', $output);
+    }
+
+    /**
+     * `Last-Event-ID` becomes the resume point, with no application code.
+     *
+     * The browser sends this header by itself on every reconnect. Reading it
+     * here is what makes replay the default rather than something each endpoint
+     * has to remember to implement.
+     */
+    public function testLastEventIdHeaderBecomesTheResumePoint(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_LAST_EVENT_ID'] = '1699-7';
+        $driver = new FakeSubscribableDriver();
+
+        // Act
+        $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(driver: $driver, channels: ['chat'], onEvent: fn () => null);
+        });
+
+        // Assert
+        $this->assertSame('1699-7', $driver->lastOptions->sinceId);
+
+        // Cleanup
+        unset($_SERVER['HTTP_LAST_EVENT_ID']);
+    }
+
+    /**
+     * `?since=` works for clients that keep their own cursor — a native app, a
+     * polyfill, or a page that already has data on screen from a first render.
+     */
+    public function testSinceQueryParameterIsUsedWhenTheHeaderIsAbsent(): void
+    {
+        // Arrange
+        $_GET['since'] = '128';
+        $driver = new FakeSubscribableDriver();
+
+        // Act
+        $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(driver: $driver, channels: ['chat'], onEvent: fn () => null);
+        });
+
+        // Assert
+        $this->assertSame('128', $driver->lastOptions->sinceId);
+
+        // Cleanup
+        unset($_GET['since']);
+    }
+
+    /**
+     * A first connection says nothing, and gets the live stream — not a replay
+     * of everything the backplane happens to be holding.
+     */
+    public function testAFirstConnectionStartsLive(): void
+    {
+        // Arrange — no header, no query parameter
+        $driver = new FakeSubscribableDriver();
+
+        // Act
+        $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(driver: $driver, channels: ['chat'], onEvent: fn () => null);
+        });
+
+        // Assert
+        $this->assertNull($driver->lastOptions->sinceId);
+    }
+
+    /**
+     * An explicit $sinceId beats whatever the request said.
+     *
+     * An endpoint that derives the resume point itself — from a database cursor
+     * belonging to the signed-in user, say — must not be overruled by a header
+     * the client controls.
+     */
+    public function testAnExplicitSinceIdOverridesTheRequest(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_LAST_EVENT_ID'] = '999';
+        $driver = new FakeSubscribableDriver();
+
+        // Act
+        $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(
+                driver: $driver,
+                channels: ['chat'],
+                onEvent: fn () => null,
+                sinceId: '5',
+            );
+        });
+
+        // Assert
+        $this->assertSame('5', $driver->lastOptions->sinceId);
+
+        // Cleanup
+        unset($_SERVER['HTTP_LAST_EVENT_ID']);
+    }
+
+    /**
+     * Passing an empty string opts out: start live, whatever the client asked
+     * for. The escape hatch for an endpoint whose events are not replayable.
+     */
+    public function testAnEmptySinceIdOptsOutOfReplay(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_LAST_EVENT_ID'] = '999';
+        $driver = new FakeSubscribableDriver();
+
+        // Act
+        $this->capture(function () use ($driver) {
+            (new SseWriter())->stream(
+                driver: $driver,
+                channels: ['chat'],
+                onEvent: fn () => null,
+                sinceId: '',
+            );
+        });
+
+        // Assert
+        $this->assertNull($driver->lastOptions->sinceId);
+
+        // Cleanup
+        unset($_SERVER['HTTP_LAST_EVENT_ID']);
+    }
+
+    /**
+     * Capture what the writer echoes.
+     */
+    private function capture(callable $fn): string
+    {
+        ob_start();
+        try {
+            $fn();
+        } finally {
+            $output = (string) ob_get_clean();
+        }
+        return $output;
     }
 }

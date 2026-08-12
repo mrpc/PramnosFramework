@@ -26,8 +26,15 @@ interface SubscribableDriverInterface extends DriverInterface
      * Block and consume events from the given channels.
      *
      * For every event received, $onEvent is invoked as:
-     *     fn(string $channel, string $event, array $payload): bool|void
+     *     fn(string $channel, string $event, array $payload, ?string $id): bool|void
      * Returning false from $onEvent stops the loop and returns from subscribe().
+     *
+     * The fourth argument is the event's id in the backplane, or null from a
+     * driver that has none. A consumer writes it into the transport — SSE puts
+     * it in an `id:` frame — so the client can hand it back on reconnect and be
+     * resumed from there through {@see SubscriptionOptions::$sinceId}. It is
+     * passed as a trailing argument on purpose: a callback written before this
+     * existed takes three parameters and is unaffected.
      *
      * The loop also honours {@see SubscriptionOptions}: it surfaces an idle tick
      * every readTimeout seconds (so callers can ping / check liveness), stops
@@ -35,7 +42,7 @@ interface SubscribableDriverInterface extends DriverInterface
      * reconnects on transient backplane errors.
      *
      * @param string[]                 $channels Logical channel names (no transport prefix).
-     * @param callable                 $onEvent  fn(string $channel, string $event, array $payload): bool|void
+     * @param callable                 $onEvent  fn(string $channel, string $event, array $payload, ?string $id): bool|void
      * @param SubscriptionOptions|null $options  Loop tuning; sensible defaults when null.
      */
     public function subscribe(array $channels, callable $onEvent, ?SubscriptionOptions $options = null): void;

@@ -131,6 +131,11 @@ migration can move publishers and consumers over incrementally.
 
 !!! note "Drivers"
     - **redis** — `\Redis::publish` / `subscribe` with reconnect. Primary backplane.
+      Pub/sub, so it keeps **no history**: an event published while nobody is
+      subscribed is not delivered later.
+    - **redis-stream** — the same envelope on a Redis **Stream**, which can be
+      replayed. Use this one for SSE, where every reconnect opens a gap; see
+      [Reconnecting, and the events published during it](#reconnecting-and-the-events-published-during-it).
     - **database** — appends to a `broadcast_events` table and polls it (for hosts
       without Redis). Run the shipped `broadcasting` migration to create the table.
     - **log** — writes JSONL; the WebSocket server can tail it.
@@ -213,6 +218,65 @@ optional parameter, so existing callers are unaffected.
 
 Return the `StreamedResponse` from your dispatcher exactly like a `Response`
 (both expose `send()`).
+
+#### Reconnecting, and the events published during it
+
+`EventSource` reconnects on its own, and `maxRuntime: 95` makes the server end
+the stream deliberately — so every client reconnects on a schedule, roughly
+every 95 seconds. Whatever is published in the window between the close and the
+new subscription has to come from somewhere, or it is simply lost. Nothing
+errors; the client never sees those events. Two applications lost data this way
+before it was noticed.
+
+**SSE specifies the answer, and the framework now implements it.** Every event
+that has a backplane id is written with an `id:` frame; the browser remembers
+the last one and sends it back as `Last-Event-ID` on reconnect; `stream()` reads
+that header and resumes from it. No client code, and no application code:
+
+```php
+$sse->stream(
+    driver:   new RedisStreamDriver(['prefix' => 'myapp:']),
+    channels: ['chat.updates'],
+    onEvent:  fn ($channel, $event, $payload, $w) => $w->event($event, $payload),
+    maxRuntime: 95,
+);
+```
+
+That works because the driver can replay. **Which driver you choose decides
+whether any of this happens:**
+
+| Driver | Replay | Notes |
+|---|---|---|
+| `RedisStreamDriver` | ✅ | Redis Streams. `XADD MAXLEN ~` caps history per channel (`maxLength`, default 1000). |
+| `DatabaseDriver` | ✅ | Already durable; resumes from the row id. |
+| `RedisDriver` | ❌ | Pub/sub keeps nothing. Right for a WebSocket daemon that stays connected; loses the gap for SSE. |
+
+`RedisDriver` is unchanged and still the default — switching a deployment to
+streams is a decision about retention, not a bug fix applied behind your back.
+Both write the same envelope, so consumers do not change.
+
+##### Choosing a resume point yourself
+
+`stream()` takes `sinceId` when the endpoint knows better than the client:
+
+```php
+$sse->stream(..., sinceId: (string) $user->lastSeenEventId);   // your own cursor
+$sse->stream(..., sinceId: '');                                // opt out; start live
+```
+
+With neither, the resume point comes from `Last-Event-ID`, then from `?since=`
+(for clients that keep their own cursor — a native app, a polyfill), and
+otherwise a first connection starts live rather than replaying whatever history
+happens to exist.
+
+##### What replay does not solve
+
+Retention is finite and deliberately so. A stream capped at 1000 entries covers
+a reconnect; it does not cover a laptop that was closed for an hour. Send a
+snapshot on connect for that case — the `history` event in the example above —
+and give events stable ids so the client can discard what it has already seen. An
+event published *during* the snapshot query arrives both ways, and that is the
+safe direction to err in.
 
 ### On the browser
 
@@ -339,7 +403,7 @@ deployment across edges with **no code change**.
 | Protocol | plain HTTP (long-lived response) | `ws://` upgrade |
 | Behind Apache/Cloudflare | works out of the box | needs a WS-aware proxy path |
 | Server process | normal request lifecycle (shared hosting OK) | long-running daemon |
-| Browser reconnect | automatic (`EventSource`) | manual / via client lib |
+| Browser reconnect | automatic (`EventSource`), with `Last-Event-ID` replay on a replayable driver | manual / via client lib |
 
 Use **SSE** for one-way feeds on constrained/shared hosting; use **WebSocket**
 when you control the host and need bidirectional messaging.

@@ -19,6 +19,12 @@ use Pramnos\Broadcasting\SubscriptionOptions;
  * The poll cadence is {@see SubscriptionOptions::$readTimeout} seconds; every
  * poll that returns nothing fires the idle tick (keep-alive ping / liveness /
  * runtime check), mirroring the Redis driver's read-timeout behaviour.
+ *
+ * Because the store is durable, this driver can **replay**: pass
+ * {@see SubscriptionOptions::$sinceId} and the loop resumes after that row
+ * instead of from "now". That is what closes the gap an SSE reconnect opens —
+ * and the events were always there; the loop simply used to start at the end of
+ * the table.
  */
 class DatabaseDriver implements SubscribableDriverInterface
 {
@@ -56,7 +62,15 @@ class DatabaseDriver implements SubscribableDriverInterface
 
         $channels = array_values($channels);
         $deadline = $options->maxRuntime !== null ? time() + $options->maxRuntime : null;
-        $lastId   = $this->store->latestId();
+
+        // Where to resume from. Without a cursor this starts at "now", which is
+        // the reconnect gap in one line of code: the events are durable and sat
+        // in the table the whole time, and the loop skipped over them because
+        // nobody said where to begin. A client that hands back the last id it saw
+        // gets everything published while it was away.
+        $lastId = $options->sinceId !== null
+            ? max(0, (int) $options->sinceId)
+            : $this->store->latestId();
 
         while (true) {
             if ($deadline !== null && time() >= $deadline) {
@@ -72,7 +86,15 @@ class DatabaseDriver implements SubscribableDriverInterface
             } else {
                 foreach ($rows as $row) {
                     $lastId = max($lastId, (int) $row['id']);
-                    if ($onEvent((string) $row['channel'], (string) $row['event'], (array) $row['payload']) === false) {
+                    // The id travels with the event so the consumer can put it on
+                    // the wire — an SSE `id:` frame — and be resumed from it.
+                    $delivered = $onEvent(
+                        (string) $row['channel'],
+                        (string) $row['event'],
+                        (array) $row['payload'],
+                        (string) $row['id'],
+                    );
+                    if ($delivered === false) {
                         return;
                     }
                     if ($deadline !== null && time() >= $deadline) {
