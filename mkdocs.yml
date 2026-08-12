@@ -105,3 +105,4 @@ nav:
     - Console Commands: Pramnos_Console_Guide.md
     - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
     - Testing: Pramnos_Testing_Guide.md
+    - Debugging: Pramnos_Debugging_Guide.md

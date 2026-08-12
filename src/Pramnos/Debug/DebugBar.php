@@ -173,6 +173,23 @@ class DebugBar
             return '';
         }
 
+        // The AJAX tab is always present and always starts empty: it is filled
+        // by the browser, not by PHP. A page's requests are what the toolbar
+        // could not see before — everything above describes the one request that
+        // built the page, and then the page carries on talking to the server for
+        // as long as it is open.
+        $tabs[]   = '<button class="pdb-tab" data-panel="ajax" id="pdb-ajax-tab">ajax</button>';
+        $panels[] = '<div class="pdb-panel" id="pdb-panel-ajax" style="display:none">'
+            . '<p id="pdb-ajax-empty">No requests yet. XHR and fetch calls made by '
+            . 'this page will appear here.</p>'
+            . '<table class="pdb-table" id="pdb-ajax-table" style="display:none">'
+            . '<thead><tr><th></th><th title="When the request was sent">At</th>'
+            . '<th>Method</th><th>URL</th><th>Status</th>'
+            . '<th title="Time spent in PHP, as the server reported it">Server</th>'
+            . '<th title="Wall-clock time in the browser, including the network">Client</th>'
+            . '<th>Queries</th></tr></thead>'
+            . '<tbody id="pdb-ajax-rows"></tbody></table></div>';
+
         $tabsHtml   = implode('', $tabs);
         $panelsHtml = implode('', $panels);
         $infoHtml   = $this->renderInfoStrip($memData, $routeData);
@@ -314,7 +331,26 @@ HTML;
         $live   = $count - $cached;
         $total  = $data['total_ms'] ?? 0;
         $info   = $cached > 0 ? " ({$live} live · {$cached} from cache)" : '';
-        return "<p><strong>{$count} queries{$info}</strong> — {$total}ms total</p>"
+
+        // Copy the lot, annotated with timings, in the order they ran. Copying
+        // twenty statements one button at a time is the sort of thing somebody
+        // does once and then stops reporting the problem.
+        $all = [];
+        foreach ($data['queries'] ?? [] as $q) {
+            $ms = ($q['from_cache'] ?? false) ? 'CACHE' : (($q['time'] ?? 0) . 'ms');
+            $all[] = '-- ' . $ms . "\n" . ($q['sql'] ?? '') . ';';
+        }
+        $allAttr = htmlspecialchars(
+            implode("\n\n", $all),
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        );
+        $copyAll = $count > 0
+            ? " <button class=\"pdb-copy pdb-copy-all\" data-sql=\"{$allAttr}\""
+                . " title=\"Copy every statement, with its timing\">&#x2398; Copy all</button>"
+            : '';
+
+        return "<p><strong>{$count} queries{$info}</strong> — {$total}ms total{$copyAll}</p>"
              . "<table class=\"pdb-table\"><thead><tr><th>Time</th><th>SQL</th></tr></thead><tbody>{$rows}</tbody></table>";
     }
 
@@ -522,6 +558,8 @@ HTML;
 .pdb-slow .pdb-time{color:#f38ba8}
 .pdb-cached{color:#a6e3a1!important;font-size:9px;letter-spacing:.05em;font-weight:bold}
 .pdb-copy{background:none;border:1px solid #45475a;color:#6c7086;cursor:pointer;font:10px monospace;padding:0 3px;border-radius:2px;line-height:14px;vertical-align:middle}
+.pdb-copy-all{color:#cba6f7;border-color:#45475a;padding:1px 6px;margin-left:6px}
+.pdb-copy-all:hover{background:#313244;border-color:#cba6f7}
 .pdb-copy:hover{background:#313244;color:#cba6f7;border-color:#cba6f7}
 .pdb-copy.pdb-copied{color:#a6e3a1;border-color:#a6e3a1}
 .pdb-dl{display:grid;grid-template-columns:150px 1fr;gap:4px 12px}
@@ -532,6 +570,17 @@ HTML;
 .pdb-timeline{position:relative;height:20px;background:#313244;border-radius:4px;margin:6px 0 4px;overflow:hidden}
 .pdb-tl-seg{position:absolute;top:0;height:100%;border-radius:2px;font-size:9px;line-height:20px;padding:0 3px;white-space:nowrap;overflow:hidden;opacity:.9;color:#1e1e2e;font-weight:bold}
 .pdb-tl-seg:hover{opacity:1;z-index:1}
+.pdb-ajax-row{cursor:pointer}
+.pdb-ajax-row:hover td{background:#1e1e2e}
+.pdb-ajax-url{word-break:break-all;max-width:420px}
+.pdb-ajax-toggle{color:#6c7086;width:10px;display:inline-block}
+.pdb-ajax-detail td{background:#11111b;padding:6px 10px}
+.pdb-s-2{color:#a6e3a1}
+.pdb-s-3{color:#89b4fa}
+.pdb-s-4{color:#fab387}
+.pdb-s-5{color:#f38ba8}
+.pdb-s-0{color:#f38ba8}
+.pdb-tab-count{background:#45475a;color:#cdd6f4;border-radius:8px;padding:0 5px;margin-left:4px;font-size:10px}
 ';
     }
 
@@ -540,7 +589,11 @@ HTML;
         return '
 (function(){
   function pdbCopy(sql,btn){
-    var done=function(){btn.classList.add("pdb-copied");btn.textContent="✓";setTimeout(function(){btn.classList.remove("pdb-copied");btn.innerHTML="⎘";},1500);};
+    // Remember what the button said. Restoring a hardcoded glyph works for the
+    // per-statement buttons and silently erases the label of any button that
+    // has one — "Copy all" became a bare tick the first time it was used.
+    var original=btn.innerHTML;
+    var done=function(){btn.classList.add("pdb-copied");btn.textContent="✓";setTimeout(function(){btn.classList.remove("pdb-copied");btn.innerHTML=original;},1500);};
     if(navigator.clipboard){navigator.clipboard.writeText(sql).then(done).catch(function(){done();});}
     else{var ta=document.createElement("textarea");ta.value=sql;ta.style.cssText="position:fixed;opacity:0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch (e) {
             // The toolbar annotates a response; it never breaks one.
@@ -572,6 +625,338 @@ HTML;
     d.style.display=d.style.display==="none"?"":"none";
     if(d.style.display==="none")document.querySelectorAll(".pdb-tab").forEach(function(t){t.classList.remove("pdb-active");});
   });}
+})();
+' . $this->ajaxJs();
+    }
+
+    /**
+     * The part of the toolbar that watches what the page does after it loads.
+     *
+     * Everything else in this toolbar describes one request: the one that built
+     * the page. But a page is rarely finished when it renders — a datatable
+     * pages and sorts, a form saves, a widget polls, a SPA does nothing else at
+     * all. Those requests were invisible here, and they are the ones running the
+     * queries nobody is watching.
+     *
+     * So `fetch` and `XMLHttpRequest` are wrapped, and each response is read for
+     * what the server attached to it: the full payload from a JSON body`s
+     * `_debug` key, or the summary from the `X-Pramnos-Debug` header when the
+     * response has no body to put it in.
+     *
+     * Three rules this code follows without exception, because it runs inside
+     * somebody else`s application:
+     *
+     *  - the original `fetch`/`XMLHttpRequest` is always called, with the
+     *    original arguments, and its result is always returned unchanged;
+     *  - a response body is only ever read through `clone()`, so the
+     *    application still gets to consume it;
+     *  - every piece of it is wrapped in try/catch. A toolbar that breaks the
+     *    page it is measuring is worse than no toolbar.
+     */
+    private function ajaxJs(): string
+    {
+        return '
+(function(){
+  var rows=[],open={};
+  function esc(s){var d=document.createElement("div");d.textContent=String(s==null?"":s);return d.innerHTML;}
+  // esc() escapes text nodes, which leaves quotes alone — fine inside an
+  // element, wrong inside an attribute, where an unescaped quote ends the
+  // attribute and everything after it becomes markup.
+  function escAttr(s){return esc(s).replace(/"/g,"&quot;").replace(/\'/g,"&#39;");}
+  function copyButton(text){
+    return "<button class=\'pdb-copy\' title=\'Copy\' data-sql=\'"+escAttr(text)+"\'>⎘</button>";
+  }
+  function shorten(u){try{var s=String(u);if(s.indexOf(location.origin)===0)s=s.slice(location.origin.length);return s.length>90?s.slice(0,90)+"…":s;}catch(e){return String(u);}}
+  function parseHeader(v){try{return v?JSON.parse(v):null;}catch(e){return null;}}
+  var BODY_LIMIT=8192;
+  // Field names whose values are masked before they are ever put on screen.
+  // The body never leaves the browser, but a panel gets screenshotted and
+  // screen-shared, and a password in a bug report is a password that has to be
+  // changed.
+  // Built from a source string rather than written as a literal: this file is a
+  // PHP single-quoted string, where a backslash in a regex does not survive the
+  // trip. Kept deliberately simple — a JSON string value, and a query-string
+  // value — because a masker that is hard to read is a masker nobody trusts.
+  var SECRET_WORDS="pass|secret|token|apikey|api_key|authorization|cvv";
+  var SECRET_JSON=new RegExp("(\"[^\"]*(?:" + SECRET_WORDS + ")[^\"]*\"\\s*:\\s*)\"[^\"]*\"","gi");
+  var SECRET_QUERY=new RegExp("([?&][^=&]*(?:" + SECRET_WORDS + ")[^=&]*=)[^&]*","gi");
+  function maskSecrets(text){
+    try{
+      return String(text).replace(SECRET_JSON,"$1\"***\"").replace(SECRET_QUERY,"$1***");
+    }catch(e){return text;}
+  }
+  /**
+   * Whatever the caller passed as a request body, as text.
+   *
+   * Read synchronously and without consuming anything: a string is already
+   * text, URLSearchParams and FormData can be walked, and everything else is
+   * described rather than decoded — reading a Blob is asynchronous and the
+   * application owns that object.
+   */
+  function captureBody(body){
+    try{
+      if(body==null)return null;
+      if(typeof body==="string")return body.length>BODY_LIMIT?body.slice(0,BODY_LIMIT)+"\\n… truncated":body;
+      if(typeof URLSearchParams!=="undefined"&&body instanceof URLSearchParams)return body.toString();
+      if(typeof FormData!=="undefined"&&body instanceof FormData){
+        var parts=[];
+        body.forEach(function(v,k){parts.push(k+"="+(typeof v==="string"?v:"[file]"));});
+        return parts.join("&");
+      }
+      if(typeof Blob!=="undefined"&&body instanceof Blob)return "[Blob, "+body.size+" bytes]";
+      if(body.byteLength!=null)return "[binary, "+body.byteLength+" bytes]";
+      return null;
+    }catch(e){return null;}
+  }
+  /**
+   * Turn a form-urlencoded body into the structure it encodes.
+   *
+   * `columns%5B0%5D%5Bdata%5D=0` is a nested value written flat and then
+   * percent-escaped twice over. A datatables request is fifty of those, and as
+   * raw text it is unreadable — which is the same as not being shown.
+   */
+  function decodeForm(text){
+    var out={};
+    var pairs=String(text).split("&");
+    for(var i=0;i<pairs.length;i++){
+      if(pairs[i]==="")continue;
+      var eq=pairs[i].indexOf("=");
+      var rawKey=eq<0?pairs[i]:pairs[i].slice(0,eq);
+      var rawVal=eq<0?"":pairs[i].slice(eq+1);
+      var key,val;
+      try{key=decodeURIComponent(rawKey.replace(/\+/g," "));}catch(e){key=rawKey;}
+      try{val=decodeURIComponent(rawVal.replace(/\+/g," "));}catch(e){val=rawVal;}
+      // name[a][b] -> ["name","a","b"]
+      var path=[],m=/^([^\[]*)/.exec(key);
+      if(m)path.push(m[1]);
+      var re=/\[([^\]]*)\]/g,part;
+      while((part=re.exec(key))!==null)path.push(part[1]);
+      var node=out;
+      for(var p=0;p<path.length;p++){
+        var seg=path[p]===""?String(Object.keys(node).length):path[p];
+        if(p===path.length-1){node[seg]=val;}
+        else{
+          if(typeof node[seg]!=="object"||node[seg]===null)node[seg]={};
+          node=node[seg];
+        }
+      }
+    }
+    return out;
+  }
+  /** Does this look like a form-urlencoded body rather than JSON or text? */
+  function looksLikeForm(text){
+    var t=String(text);
+    return t.indexOf("=")>-1&&t.charAt(0)!=="{"&&t.charAt(0)!=="[";
+  }
+  /** Pretty-print JSON and form bodies; leave anything else alone. */
+  function formatBody(text){
+    try{
+      var t=String(text).trim();
+      if(t.charAt(0)==="{"||t.charAt(0)==="[")return JSON.stringify(JSON.parse(t),null,2);
+      if(looksLikeForm(t))return JSON.stringify(decodeForm(t),null,2);
+    }catch(e){/* a body that will not parse is not a body we can show */}
+    return text;
+  }
+  /** A human size for the collapsed summary line. */
+  function sizeOf(text){
+    var n=String(text).length;
+    return n<1024?(n+" B"):((n/1024).toFixed(1)+" KB");
+  }
+  function pad(n,w){var s=String(n);while(s.length<w)s="0"+s;return s;}
+  // Local wall-clock, to the millisecond: the point of the column is lining a
+  // request up against a server log, and a relative offset cannot do that.
+  function clockTime(d){
+    try{return pad(d.getHours(),2)+":"+pad(d.getMinutes(),2)+":"+pad(d.getSeconds(),2)+"."+pad(d.getMilliseconds(),3);}
+    catch(e){return "";}
+  }
+  function bodyDebug(t){try{if(!t)return null;var s=String(t);var i=s.indexOf("{");if(i!==0)return null;var o=JSON.parse(s);return(o&&o._debug)?o._debug:null;}catch(e){return null;}}
+  function queryCount(e){
+    if(e.debug&&e.debug.queries){var q=e.debug.queries;if(typeof q.count==="number")return q.count;if(q.queries&&q.queries.length!=null)return q.queries.length;}
+    if(e.summary&&typeof e.summary.queries==="number")return e.summary.queries;
+    return null;
+  }
+  function serverMs(e){
+    if(e.debug&&typeof e.debug.time==="number")return e.debug.time;
+    if(e.summary&&typeof e.summary.time==="number")return e.summary.time;
+    if(typeof e.timing==="number")return e.timing;
+    return null;
+  }
+  // Server-Timing is the third source, and the one that survives when the
+  // others do not: a proxy that strips unknown headers usually keeps this one,
+  // and it is present even on a response with no body to carry a payload.
+  function parseServerTiming(v){
+    if(!v)return null;
+    var m=/(?:^|,)\s*app;dur=([0-9.]+)/.exec(String(v));
+    return m?parseFloat(m[1]):null;
+  }
+  // Peak memory in MB, from whichever source has it as a number. The `memory`
+  // key of the full payload is not one: a collector registered under the same
+  // name overwrites it with its own object, which is how this line used to
+  // render "[object Object]MB".
+  function memoryMb(e){
+    if(e.debug&&e.debug.request&&typeof e.debug.request.memory==="number")return e.debug.request.memory;
+    if(e.summary&&typeof e.summary.memory==="number")return e.summary.memory;
+    return null;
+  }
+  function detailHtml(e){
+    var out="";
+    var sm=serverMs(e),mem=memoryMb(e);
+    out+="<div>"+esc(e.method)+" "+esc(e.url)+"</div>";
+    out+="<div style=\'color:#6c7086\'>"+esc(clockTime(e.startedAt))+" · client "+e.ms+"ms"+
+      (sm!=null?(" · server "+sm+"ms"):"")+
+      (mem!=null?(" · "+mem+"MB"):"")+
+      (e.summary&&e.summary.route?(" · "+esc(e.summary.route)):"")+"</div>";
+    // The request body, as the caller handed it to fetch/XHR. It never left the
+    // browser, so showing it costs nothing and adds no header — but obvious
+    // secrets are masked first, because this panel gets screenshotted.
+    if(e.body){
+      var shown=maskSecrets(formatBody(e.body));
+      // Collapsed: a datatables body is two kilobytes of column metadata, and
+      // it would push everything worth reading off the screen. <details> keeps
+      // it one click away without any script of its own — and the click never
+      // reaches the row toggle, because a detail row is not a .pdb-ajax-row.
+      out+="<div style=\'margin-top:8px\'>"+
+        "<details><summary style=\'cursor:pointer;color:#89b4fa\'>Request body · "+
+        esc(sizeOf(e.body))+"</summary>"+
+        "<div style=\'margin:4px 0 0\'>"+copyButton(shown)+"</div>"+
+        "<pre style=\'margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;padding:6px;border-radius:3px;max-height:260px;overflow:auto\'>"+
+        esc(shown)+"</pre></details></div>";
+    }
+    var q=e.debug&&e.debug.queries?(e.debug.queries.queries||e.debug.queries.statements||[]):null;
+    if(q&&q.length){
+      // Everything at once, annotated and in order — the form somebody pastes
+      // into a bug report. One button per statement is fine for looking and
+      // useless for reporting.
+      var all=[];
+      for(var j=0;j<q.length;j++){
+        var r=q[j],s=r.sql||r.query||r.statement||"";
+        var ms=r.time!=null?r.time:(r.duration!=null?r.duration:"");
+        all.push("-- "+ms+"ms\\n"+s+";");
+      }
+      out+="<div style=\'margin-top:8px;color:#89b4fa\'>"+q.length+" queries "+
+        "<button class=\'pdb-copy pdb-copy-all\' title=\'Copy every statement, with its timing\' data-sql=\'"+
+        escAttr(all.join("\\n\\n"))+"\'>⎘ Copy all</button></div>";
+      out+="<table class=\'pdb-table\' style=\'margin-top:4px\'><tbody>";
+      for(var i=0;i<q.length;i++){
+        var row=q[i];
+        var sql=row.sql||row.query||row.statement||"";
+        var t=row.time!=null?row.time:(row.duration!=null?row.duration:"");
+        out+="<tr><td class=\'pdb-time\'>"+esc(t)+"</td><td class=\'pdb-sql\'>"+esc(sql)+
+          " "+copyButton(sql)+"</td></tr>";
+      }
+      out+="</tbody></table>";
+      if(e.debug.queries.truncated)out+="<p style=\'color:#6c7086\'>+"+e.debug.queries.truncated+" more not carried</p>";
+    }else if(!e.debug&&!e.summary&&e.timing==null){
+      // Nothing at all came back. Saying why beats an empty row: every one of
+      // these is a different fix, and the panel is where somebody looks first.
+      out+="<p style=\'color:#6c7086;margin-top:6px\'>No debug data on this response. "+
+        "Either it did not go through this application, or the toolbar was not "+
+        "active for it — a cross-origin call, a cached response, or a route that "+
+        "returns before the debug headers are sent.</p>";
+    }else if(!e.debug){
+      out+="<p style=\'color:#6c7086;margin-top:6px\'>Summary only — this response had no JSON object to carry the full payload.</p>";
+    }
+    return out;
+  }
+  function render(){
+    try{
+      var tbody=document.getElementById("pdb-ajax-rows");
+      if(!tbody)return;
+      var table=document.getElementById("pdb-ajax-table"),empty=document.getElementById("pdb-ajax-empty"),tab=document.getElementById("pdb-ajax-tab");
+      if(rows.length){if(table)table.style.display="";if(empty)empty.style.display="none";}
+      if(tab)tab.innerHTML="ajax"+(rows.length?" <span class=\'pdb-tab-count\'>"+rows.length+"</span>":"");
+      var html="";
+      // Newest first. The panel is read while the page is being used, and the
+      // request you just triggered is the one you are looking for — at the
+      // bottom of a growing list it scrolls away from you.
+      //
+      // The index still identifies the entry, so `open` and the click handler
+      // keep working against the order rows were captured in, not the order
+      // they are drawn.
+      for(var i=rows.length-1;i>=0;i--){
+        // Per row, so that one entry the panel cannot format costs that row
+        // rather than the whole table — which is exactly what a missing field
+        // did once already.
+        try{
+        var e=rows[i],qc=queryCount(e),sm=serverMs(e);
+        if(!e.startedAt)e.startedAt=new Date();
+        html+="<tr class=\'pdb-ajax-row\' data-i=\'"+i+"\'>"+
+          "<td class=\'pdb-ajax-toggle\'>"+(open[i]?"▾":"▸")+"</td>"+
+          "<td class=\'pdb-ajax-at\' title=\'"+esc(e.startedAt.toISOString())+"\'>"+esc(clockTime(e.startedAt))+"</td>"+
+          "<td>"+esc(e.method)+"</td>"+
+          "<td class=\'pdb-ajax-url\'>"+esc(shorten(e.url))+"</td>"+
+          "<td class=\'pdb-s-"+Math.floor((e.status||0)/100)+"\'>"+(e.status||"—")+"</td>"+
+          "<td class=\'pdb-time\'>"+(sm!=null?(sm+"ms"):"<span title=\'The response carried no debug data — see the row detail\'>—</span>")+"</td>"+
+          "<td class=\'pdb-time\'>"+e.ms+"ms</td>"+
+          "<td>"+(qc!=null?qc:"—")+"</td></tr>";
+        if(open[i])html+="<tr class=\'pdb-ajax-detail\'><td colspan=\'8\'>"+detailHtml(e)+"</td></tr>";
+        }catch(rowError){
+          html+="<tr><td colspan=\'8\' style=\'color:#f38ba8\'>row "+i+": "+esc(rowError.message)+"</td></tr>";
+        }
+      }
+      tbody.innerHTML=html;
+    }catch(x){/* instrumentation never interrupts the page it measures */}
+  }
+  document.addEventListener("click",function(ev){
+    var tr=ev.target.closest?ev.target.closest(".pdb-ajax-row"):null;
+    if(!tr)return;
+    var i=tr.getAttribute("data-i");
+    open[i]=!open[i];
+    render();
+  });
+  function record(e){rows.push(e);render();}
+  var of=window.fetch;
+  if(typeof of==="function"){
+    window.fetch=function(){
+      var args=arguments,t0=(window.performance?performance.now():Date.now()),startedAt=new Date(),url="",method="GET",body=null;
+      try{
+        var first=args[0];
+        url=(first&&typeof first==="object"&&first.url)?first.url:String(first);
+        method=(args[1]&&args[1].method)||(first&&first.method)||"GET";
+        // Only the init object: a Request instance owns its body and reading it
+        // would consume the stream the application is about to send.
+        body=captureBody(args[1]&&args[1].body);
+      }catch(x){/* instrumentation never interrupts the page it measures */}
+      return of.apply(this,args).then(function(res){
+        try{
+          var e={method:String(method).toUpperCase(),url:url,status:res.status,ms:Math.round((window.performance?performance.now():Date.now())-t0),startedAt:startedAt,body:body,summary:null,debug:null,timing:null};
+          try{e.summary=parseHeader(res.headers.get("X-Pramnos-Debug"));}catch(x){/* a header a proxy stripped is simply absent */}
+          try{e.timing=parseServerTiming(res.headers.get("Server-Timing"));}catch(x){/* same */}
+          var ct="";try{ct=res.headers.get("content-type")||"";}catch(x){/* instrumentation never interrupts the page it measures */}
+          record(e);
+          if(ct.indexOf("json")!==-1&&typeof res.clone==="function"){
+            res.clone().text().then(function(t){e.debug=bodyDebug(t);render();},function(){});
+          }
+        }catch(x){/* instrumentation never interrupts the page it measures */}
+        return res;
+      },function(err){
+        try{record({method:String(method).toUpperCase(),url:url,status:0,ms:Math.round((window.performance?performance.now():Date.now())-t0),startedAt:startedAt,body:body,summary:null,debug:null,timing:null});}catch(x){/* instrumentation never interrupts the page it measures */}
+        throw err;
+      });
+    };
+  }
+  if(window.XMLHttpRequest&&XMLHttpRequest.prototype){
+    var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open=function(m,u){try{this.__pdb={method:String(m||"GET").toUpperCase(),url:String(u||"")};}catch(x){/* instrumentation never interrupts the page it measures */}return oo.apply(this,arguments);};
+    XMLHttpRequest.prototype.send=function(sendBody){
+      var self=this,t0=(window.performance?performance.now():Date.now()),startedAt=new Date(),body=captureBody(sendBody);
+      try{
+        self.addEventListener("loadend",function(){
+          try{
+            var i=self.__pdb||{},e={method:i.method||"GET",url:i.url||"",status:self.status,ms:Math.round((window.performance?performance.now():Date.now())-t0),startedAt:startedAt,body:body,summary:null,debug:null,timing:null};
+            try{e.summary=parseHeader(self.getResponseHeader("X-Pramnos-Debug"));}catch(x){/* instrumentation never interrupts the page it measures */}
+            try{e.timing=parseServerTiming(self.getResponseHeader("Server-Timing"));}catch(x){/* instrumentation never interrupts the page it measures */}
+            try{
+              if(self.responseType===""||self.responseType==="text")e.debug=bodyDebug(self.responseText);
+              else if(self.responseType==="json"&&self.response&&self.response._debug)e.debug=self.response._debug;
+            }catch(x){/* instrumentation never interrupts the page it measures */}
+            record(e);
+          }catch(x){/* instrumentation never interrupts the page it measures */}
+        });
+      }catch(x){/* instrumentation never interrupts the page it measures */}
+      return os.apply(this,arguments);
+    };
+  }
 })();
 ';
     }

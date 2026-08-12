@@ -1,114 +1,471 @@
 /**
  * Debug panel for the {{ appName }} SPA.
  *
- * The framework's HTML toolbar is injected before `</body>`, which a JSON
- * response does not have — so a SPA had no debug information for the requests
- * that actually do the work. In development the API attaches a `_debug` key to
- * every response; this renders the last few of them in a corner of the screen.
+ * A server-rendered page gets the framework's toolbar injected before
+ * `</body>`. A JSON response has no `</body>`, and a SPA's shell is a static
+ * file that never goes through that pipeline — so the requests that actually do
+ * the work had no toolbar at all.
+ *
+ * This is that toolbar, for a SPA: same bar along the bottom, same tabs, same
+ * tables, same copy buttons. It reads the `_debug` key the API attaches to every
+ * response in development.
  *
  * Inert in production: nothing is attached to the responses, so `record()` never
- * has anything to show and the panel never appears.
+ * has anything to show, the DOM is never touched, and the panel never appears.
  */
 
 /** How many requests are kept. Enough to see a pattern, not enough to hoard. */
-const HISTORY = 20;
+const HISTORY = 50;
 
+/** Statements carried per request before the list is cut short server-side. */
 const entries = [];
-let panel   = null;
-let list    = null;
-let open    = false;
+
+let root    = null;
+let rowsEl  = null;
+let tabsEl  = null;
+let panelEl = null;
+let openRow = null;
+let activeTab = 'requests';
 
 /**
  * Note one API response.
  *
- * Called by the API client for every request, with whatever `_debug` the server
- * attached (or null). A call with no debug data is ignored rather than shown as
- * an empty row — that is the normal production case.
- *
  * @param {string} method
  * @param {string} path
  * @param {number} status
- * @param {object|null} debug
+ * @param {object|null} debug   The `_debug` payload, or null in production
+ * @param {object} [extra]      { ms, body } from the caller, when it has them
  */
-export function record(method, path, status, debug) {
-    if (!debug) {
+export function record(method, path, status, debug, extra = {}) {
+    // A payload is what proves the toolbar is meant to be here: the server only
+    // attaches one in development. Once one has arrived, later calls are
+    // recorded whether or not they carry their own — a 204 from a save has no
+    // body to put a payload in, and it is exactly the call somebody wants to
+    // see. In production none ever arrives, so nothing is recorded, the DOM is
+    // never touched, and the panel never appears.
+    if (!debug && entries.length === 0) {
         return;
     }
 
-    entries.unshift({ method, path, status, debug, at: new Date() });
-    entries.length = Math.min(entries.length, HISTORY);
+    entries.push({
+        method,
+        path,
+        status,
+        debug,
+        at: new Date(),
+        ms: extra.ms ?? null,
+        body: extra.body ?? null,
+    });
+    if (entries.length > HISTORY) {
+        entries.shift();
+    }
 
     render();
 }
 
+// ─── Formatting helpers ─────────────────────────────────────────────────────
+
+/** Escape for use as text. */
+function esc(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value ?? '');
+    return div.innerHTML;
+}
+
+/** Escape for use inside a single-quoted attribute. */
+function escAttr(value) {
+    return esc(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Local wall-clock to the millisecond, to line up against a server log. */
+function clockTime(date) {
+    const pad = (n, w) => String(n).padStart(w, '0');
+    return `${pad(date.getHours(), 2)}:${pad(date.getMinutes(), 2)}:`
+        + `${pad(date.getSeconds(), 2)}.${pad(date.getMilliseconds(), 3)}`;
+}
+
 /**
- * Create the panel on first use, so a production bundle that never records
+ * Server time for one entry.
+ *
+ * `request.time` is the reliable copy: the top-level `time` and `memory` keys
+ * are overwritten by any collector registered under the same name.
+ */
+function serverMs(entry) {
+    return entry.debug?.request?.time ?? entry.debug?.time ?? null;
+}
+
+/** Peak memory in MB, from the copy no collector can overwrite. */
+function memoryMb(entry) {
+    const value = entry.debug?.request?.memory;
+    return typeof value === 'number' ? value : null;
+}
+
+/** The statements one entry carries. */
+function queriesOf(entry) {
+    const q = entry.debug?.queries;
+    return q ? (q.queries || q.statements || []) : [];
+}
+
+/** How many statements ran, however the collector labelled them. */
+function queryCount(entry) {
+    const q = entry.debug?.queries;
+    if (!q) {
+        return null;
+    }
+    return typeof q.count === 'number' ? q.count : queriesOf(entry).length;
+}
+
+/** A copy button carrying the given text. */
+function copyButton(text, label = '⎘') {
+    return `<button class="spa-dbg-copy" title="Copy" data-copy="${escAttr(text)}">${label}</button>`;
+}
+
+/** Every statement of an entry, annotated and in order — for one paste. */
+function allQueriesText(entry) {
+    return queriesOf(entry)
+        .map((q) => {
+            const ms  = q.time ?? q.duration ?? '';
+            const sql = q.sql || q.query || q.statement || '';
+            return `-- ${ms}ms\n${sql};`;
+        })
+        .join('\n\n');
+}
+
+/** Every statement of every captured request. */
+function everythingText() {
+    return entries
+        .map((entry) => `-- ${entry.method} ${entry.path} → ${entry.status}`
+            + ` (${serverMs(entry) ?? '?'}ms)\n${allQueriesText(entry)}`)
+        .join('\n\n');
+}
+
+// ─── The panel ──────────────────────────────────────────────────────────────
+
+/**
+ * Build the panel on first use, so a production bundle that never records
  * anything also never touches the DOM.
  */
 function ensurePanel() {
-    if (panel) {
+    if (root) {
         return;
     }
 
-    panel = document.createElement('div');
-    panel.style.cssText = 'position:fixed;right:0;bottom:0;z-index:2147483000;'
-        + 'font:12px/1.4 ui-monospace,monospace;color:#eee;background:#1b1b1f;'
-        + 'border-top-left-radius:.5rem;box-shadow:0 0 12px rgba(0,0,0,.4);max-width:min(48rem,95vw)';
+    const style = document.createElement('style');
+    style.textContent = `
+#spa-debugbar{position:fixed;bottom:0;left:0;right:0;z-index:2147483000;font:12px/1.4 ui-monospace,monospace;color:#cdd6f4;background:#1e1e2e;border-top:2px solid #89b4fa}
+#spa-dbg-bar{display:flex;align-items:center;padding:0 8px;height:28px;gap:4px;overflow-x:auto;white-space:nowrap}
+#spa-dbg-brand{color:#89b4fa;font-weight:bold;margin-right:8px;flex-shrink:0}
+.spa-dbg-tab{background:none;border:none;color:#cdd6f4;cursor:pointer;padding:2px 8px;border-radius:4px;font:inherit}
+.spa-dbg-tab:hover,.spa-dbg-tab.active{background:#313244;color:#89b4fa}
+.spa-dbg-count{background:#45475a;border-radius:8px;padding:0 5px;margin-left:4px;font-size:10px}
+#spa-dbg-info{margin-left:auto;display:flex;gap:5px;flex-shrink:0}
+.spa-dbg-chip{font-size:10px;color:#6c7086;padding:1px 6px;background:#313244;border-radius:3px}
+#spa-dbg-panel{max-height:320px;overflow:auto;padding:8px 12px;background:#181825;border-top:1px solid #313244;display:none}
+.spa-dbg-table{width:100%;border-collapse:collapse;font-size:11px}
+.spa-dbg-table th{background:#313244;padding:4px 8px;text-align:left;color:#89b4fa}
+.spa-dbg-table td{padding:3px 8px;border-bottom:1px solid #1e1e2e;vertical-align:top}
+.spa-dbg-row{cursor:pointer}
+.spa-dbg-row:hover td{background:#1e1e2e}
+.spa-dbg-time{white-space:nowrap;color:#a6e3a1;min-width:50px}
+.spa-dbg-slow{color:#f38ba8}
+.spa-dbg-sql{word-break:break-all}
+.spa-dbg-url{word-break:break-all;max-width:400px}
+.spa-dbg-detail td{background:#11111b;padding:6px 10px}
+.spa-dbg-copy{background:none;border:1px solid #45475a;color:#6c7086;cursor:pointer;font:10px ui-monospace,monospace;padding:0 3px;border-radius:2px;line-height:14px;vertical-align:middle}
+.spa-dbg-copy:hover{background:#313244;color:#cba6f7;border-color:#cba6f7}
+.spa-dbg-copy.copied{color:#a6e3a1;border-color:#a6e3a1}
+.spa-dbg-copy-all{color:#cba6f7;padding:1px 6px;margin-left:6px}
+.spa-dbg-s-2{color:#a6e3a1}
+.spa-dbg-s-3{color:#89b4fa}
+.spa-dbg-s-4{color:#fab387}
+.spa-dbg-s-5,.spa-dbg-s-0{color:#f38ba8}
+#spa-dbg-close{background:none;border:none;color:#f38ba8;cursor:pointer;font:inherit;margin-left:4px}
+.spa-dbg-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;padding:6px;border-radius:3px;max-height:240px;overflow:auto}
+`;
 
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.style.cssText = 'all:unset;cursor:pointer;display:block;padding:.4rem .8rem;font:inherit;color:#9ae6b4';
-    toggle.addEventListener('click', () => {
-        open = !open;
-        render();
-    });
+    root = document.createElement('div');
+    root.id = 'spa-debugbar';
+    root.innerHTML = '<div id="spa-dbg-bar"><span id="spa-dbg-brand">⚙ {{ appName }}</span>'
+        + '<span id="spa-dbg-tabs"></span><span id="spa-dbg-info"></span>'
+        + '<button id="spa-dbg-close" title="Hide">✕</button></div>'
+        + '<div id="spa-dbg-panel"></div>';
 
-    list = document.createElement('div');
-    list.style.cssText = 'max-height:40vh;overflow:auto;padding:0 .8rem .8rem';
+    document.head.append(style);
+    document.body.append(root);
 
-    panel.append(toggle, list);
-    panel.__toggle = toggle;
-    document.body.append(panel);
+    tabsEl  = root.querySelector('#spa-dbg-tabs');
+    panelEl = root.querySelector('#spa-dbg-panel');
+
+    // One delegated listener for the whole panel: rows are redrawn constantly,
+    // and per-element handlers would leak with them.
+    root.addEventListener('click', onClick);
+    document.body.style.paddingBottom = '32px';
 }
 
-/** Draw the current history. */
+/** Handle every click inside the panel. */
+function onClick(event) {
+    const copy = event.target.closest('.spa-dbg-copy');
+    if (copy) {
+        event.stopPropagation();
+        copyText(copy.dataset.copy, copy);
+        return;
+    }
+
+    const tab = event.target.closest('.spa-dbg-tab');
+    if (tab) {
+        const name = tab.dataset.tab;
+        // Clicking the open tab closes the panel, as the server-rendered
+        // toolbar does.
+        if (activeTab === name && panelEl.style.display === 'block') {
+            panelEl.style.display = 'none';
+        } else {
+            activeTab = name;
+            panelEl.style.display = 'block';
+        }
+        render();
+        return;
+    }
+
+    if (event.target.closest('#spa-dbg-close')) {
+        panelEl.style.display = panelEl.style.display === 'none' ? 'block' : 'none';
+        return;
+    }
+
+    const row = event.target.closest('.spa-dbg-row');
+    if (row) {
+        const index = Number(row.dataset.index);
+        openRow = openRow === index ? null : index;
+        render();
+    }
+}
+
+/** Put text on the clipboard, and say so on the button. */
+function copyText(text, button) {
+    const original = button.innerHTML;
+    const done = () => {
+        button.classList.add('copied');
+        button.textContent = '✓';
+        setTimeout(() => {
+            button.classList.remove('copied');
+            button.innerHTML = original;
+        }, 1500);
+    };
+
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(done, done);
+        return;
+    }
+
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.cssText = 'position:fixed;opacity:0';
+    document.body.append(area);
+    area.select();
+    try {
+        document.execCommand('copy');
+    } catch {
+        // The panel annotates the application; it never interrupts it.
+    }
+    area.remove();
+    done();
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+
+/** Draw everything. */
 function render() {
     ensurePanel();
 
-    const last = entries[0];
-    panel.__toggle.textContent = `⚡ ${entries.length} API call${entries.length === 1 ? '' : 's'}`
-        + (last ? ` — last ${last.debug.time}ms, ${queryCount(last.debug)} queries` : '');
+    const totalQueries = entries.reduce((sum, e) => sum + (queryCount(e) ?? 0), 0);
+    const last = entries[entries.length - 1];
 
-    list.hidden = !open;
-    if (!open) {
+    tabsEl.innerHTML = tab('requests', `requests<span class="spa-dbg-count">${entries.length}</span>`)
+        + tab('queries', `queries<span class="spa-dbg-count">${totalQueries}</span>`);
+
+    root.querySelector('#spa-dbg-info').innerHTML = last
+        ? `<span class="spa-dbg-chip">last ${serverMs(last) ?? '?'}ms</span>`
+            + (memoryMb(last) !== null ? `<span class="spa-dbg-chip">${memoryMb(last)}MB</span>` : '')
+        : '';
+
+    if (panelEl.style.display !== 'block') {
         return;
     }
 
-    list.textContent = '';
-    for (const entry of entries) {
-        const row = document.createElement('details');
-        row.style.cssText = 'border-top:1px solid #333;padding:.35rem 0';
+    panelEl.innerHTML = activeTab === 'queries' ? renderQueries() : renderRequests();
+}
 
-        const summary = document.createElement('summary');
-        summary.style.cssText = 'cursor:pointer;color:' + (entry.status >= 400 ? '#feb2b2' : '#e2e8f0');
-        summary.textContent = `${entry.method} ${entry.path} → ${entry.status}`
-            + ` · ${entry.debug.time}ms · ${queryCount(entry.debug)} queries`;
-
-        const body = document.createElement('pre');
-        body.style.cssText = 'margin:.4rem 0 0;white-space:pre-wrap;color:#cbd5e0';
-        body.textContent = JSON.stringify(entry.debug, null, 2);
-
-        row.append(summary, body);
-        list.append(row);
-    }
+/** One tab button. */
+function tab(name, label) {
+    const active = activeTab === name ? ' active' : '';
+    return `<button class="spa-dbg-tab${active}" data-tab="${name}">${label}</button>`;
 }
 
 /**
- * Queries in one payload, however the collector labelled them.
- *
- * @param {object} debug
- * @returns {number}
+ * The request list — newest first, because the call you just made is the one
+ * you are looking for.
  */
-function queryCount(debug) {
-    return debug.queries?.count ?? (debug.queries?.queries ?? []).length ?? 0;
+function renderRequests() {
+    if (entries.length === 0) {
+        return '<p>No API calls yet.</p>';
+    }
+
+    let html = '<table class="spa-dbg-table"><thead><tr><th></th><th>At</th><th>Method</th>'
+        + '<th>Path</th><th>Status</th><th>Server</th><th>Client</th><th>Queries</th></tr></thead><tbody>';
+
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        const ms    = serverMs(entry);
+        const count = queryCount(entry);
+
+        html += `<tr class="spa-dbg-row" data-index="${i}">`
+            + `<td>${openRow === i ? '▾' : '▸'}</td>`
+            + `<td title="${escAttr(entry.at.toISOString())}">${esc(clockTime(entry.at))}</td>`
+            + `<td>${esc(entry.method)}</td>`
+            + `<td class="spa-dbg-url">${esc(entry.path)}</td>`
+            + `<td class="spa-dbg-s-${Math.floor((entry.status || 0) / 100)}">${entry.status}</td>`
+            + `<td class="spa-dbg-time">${ms !== null ? ms + 'ms' : '—'}</td>`
+            + `<td class="spa-dbg-time">${entry.ms !== null ? entry.ms + 'ms' : '—'}</td>`
+            + `<td>${count ?? '—'}</td></tr>`;
+
+        if (openRow === i) {
+            html += `<tr class="spa-dbg-detail"><td colspan="8">${renderDetail(entry)}</td></tr>`;
+        }
+    }
+
+    return html + '</tbody></table>';
+}
+
+/** Everything known about one request. */
+function renderDetail(entry) {
+    const ms  = serverMs(entry);
+    const mem = memoryMb(entry);
+    const queries = queriesOf(entry);
+
+    let html = `<div>${esc(entry.method)} ${esc(entry.path)}</div>`
+        + `<div style="color:#6c7086">${esc(clockTime(entry.at))}`
+        + (entry.ms !== null ? ` · client ${entry.ms}ms` : '')
+        + (ms !== null ? ` · server ${ms}ms` : '')
+        + (mem !== null ? ` · ${mem}MB` : '')
+        + '</div>';
+
+    if (entry.body) {
+        const text = formatBody(entry.body);
+        html += '<details style="margin-top:8px">'
+            + `<summary style="cursor:pointer;color:#89b4fa">Request body · ${esc(sizeOf(entry.body))}</summary>`
+            + `<div style="margin:4px 0 0">${copyButton(text)}</div>`
+            + `<pre class="spa-dbg-pre">${esc(text)}</pre></details>`;
+    }
+
+    if (queries.length > 0) {
+        html += `<div style="margin-top:8px;color:#89b4fa">${queries.length} queries`
+            + copyButton(allQueriesText(entry), '⎘ Copy all') + '</div>'
+            + '<table class="spa-dbg-table" style="margin-top:4px"><tbody>';
+
+        for (const q of queries) {
+            const sql  = q.sql || q.query || q.statement || '';
+            const time = q.time ?? q.duration ?? '';
+            const slow = typeof time === 'number' && time > 100 ? ' spa-dbg-slow' : '';
+            html += `<tr><td class="spa-dbg-time${slow}">${esc(time)}ms</td>`
+                + `<td class="spa-dbg-sql">${esc(sql)} ${copyButton(sql)}</td></tr>`;
+        }
+
+        html += '</tbody></table>';
+
+        if (entry.debug?.queries?.truncated) {
+            html += `<p style="color:#6c7086">+${entry.debug.queries.truncated} more not carried</p>`;
+        }
+    }
+
+    const errors = entry.debug?.exceptions?.items ?? entry.debug?.exceptions?.exceptions ?? [];
+    if (Array.isArray(errors) && errors.length > 0) {
+        html += '<div style="margin-top:8px;color:#f38ba8">Errors</div>'
+            + '<table class="spa-dbg-table"><tbody>';
+        for (const error of errors) {
+            html += `<tr><td>${esc(error.class ?? '')}</td>`
+                + `<td>${esc(error.message ?? '')} <span style="color:#6c7086">`
+                + `${esc(error.file ?? '')}:${esc(error.line ?? '')}</span></td></tr>`;
+        }
+        html += '</tbody></table>';
+    }
+
+    return html;
+}
+
+/** Every statement from every captured request, in one table. */
+function renderQueries() {
+    const rows = [];
+    for (const entry of entries) {
+        for (const q of queriesOf(entry)) {
+            rows.push({ entry, q });
+        }
+    }
+
+    if (rows.length === 0) {
+        return '<p>No queries captured.</p>';
+    }
+
+    let html = `<p><strong>${rows.length} queries</strong> across ${entries.length} `
+        + `request${entries.length === 1 ? '' : 's'}`
+        + copyButton(everythingText(), '⎘ Copy all') + '</p>'
+        + '<table class="spa-dbg-table"><thead><tr><th>Time</th><th>SQL</th><th>Request</th>'
+        + '</tr></thead><tbody>';
+
+    for (const { entry, q } of rows) {
+        const sql  = q.sql || q.query || q.statement || '';
+        const time = q.time ?? q.duration ?? '';
+        const slow = typeof time === 'number' && time > 100 ? ' spa-dbg-slow' : '';
+        html += `<tr><td class="spa-dbg-time${slow}">${esc(time)}ms</td>`
+            + `<td class="spa-dbg-sql">${esc(sql)} ${copyButton(sql)}</td>`
+            + `<td style="color:#6c7086">${esc(entry.method)} ${esc(entry.path)}</td></tr>`;
+    }
+
+    return html + '</tbody></table>';
+}
+
+// ─── Body formatting ────────────────────────────────────────────────────────
+
+/** A human size. */
+function sizeOf(text) {
+    const n = String(text).length;
+    return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
+}
+
+/** Field names whose values are hidden before they reach the screen. */
+const SECRET = /(pass|secret|token|apikey|api_key|authorization|cvv)/i;
+
+/**
+ * Pretty-print a body, masking anything that looks like a credential.
+ *
+ * The body never leaves the browser, but a panel gets screenshotted into bug
+ * reports — and a password in a bug report is a password that has to change.
+ */
+function formatBody(body) {
+    let text = typeof body === 'string' ? body : JSON.stringify(body);
+
+    try {
+        const parsed = JSON.parse(text);
+        text = JSON.stringify(mask(parsed), null, 2);
+    } catch {
+        text = text.replace(
+            new RegExp('([?&][^=&]*(?:pass|secret|token|apikey|api_key)[^=&]*=)[^&]*', 'gi'),
+            '$1***'
+        );
+    }
+
+    return text;
+}
+
+/** Replace secret-looking values, at any depth. */
+function mask(value) {
+    if (Array.isArray(value)) {
+        return value.map(mask);
+    }
+    if (value && typeof value === 'object') {
+        const out = {};
+        for (const [key, item] of Object.entries(value)) {
+            out[key] = SECRET.test(key) ? '***' : mask(item);
+        }
+        return out;
+    }
+    return value;
 }

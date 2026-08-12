@@ -127,15 +127,29 @@ export async function request(path, { method = 'GET', body = null, headers = {},
         requestHeaders['Content-Type'] = 'application/json';
     }
 
+    // Measured around the call so the panel can show what the browser waited
+    // for, next to what the server says it spent. The gap between the two is
+    // the network, and it is often the answer.
+    const startedAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const encodedBody = body === null ? null : JSON.stringify(body);
+
     const response = await fetch(apiPrefix + path, {
         method,
         headers: requestHeaders,
         // Sends the session cookie, which the API accepts as a credential.
         credentials: 'same-origin',
-        body: body === null ? null : JSON.stringify(body),
+        body: encodedBody,
     });
+    const elapsedMs = Math.round(
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+    );
 
     if (response.status === 204) {
+        // A save answers 204, and it is exactly the call somebody wants to see
+        // in the panel. It carries no body, so there is no `_debug` to attach —
+        // the timing and the request itself are still worth recording.
+        recordDebug(method, path, 204, null, { ms: elapsedMs, body: encodedBody });
+
         return null;
     }
 
@@ -150,7 +164,10 @@ export async function request(path, { method = 'GET', body = null, headers = {},
 
     // In development the API attaches its debug data to the response it
     // describes; the panel shows it. In production there is nothing to record.
-    recordDebug(method, path, response.status, payload && payload._debug);
+    recordDebug(method, path, response.status, payload && payload._debug, {
+        ms: elapsedMs,
+        body: encodedBody,
+    });
 
     if (!response.ok) {
         // A token the server will not accept is worse than no token: it fails
