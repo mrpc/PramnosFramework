@@ -34,6 +34,97 @@ addon's `onAuthCheck()`.
 *Done when:* remember-me login persistence is verified across new requests /
 browser restarts in a real application.
 
+## Debug toolbar
+
+The toolbar now has one renderer
+(`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`)
+and the SPA panel draws every collector the payload carries. Four things remain,
+in this order — each later item is cheaper once the earlier one lands.
+
+### 1. Finish the unification: the server-rendered half
+
+`DebugBar::render()` still builds its own HTML, CSS and inline JS, so
+server-rendered pages have neither the new tabs nor per-request logs in the ajax
+list. Replace it with the data island plus the single script:
+
+- emit `<div id="pramnos-debug-data" hidden>` holding `ApiDebugPayload::build()`
+  plus `request_method` / `request_path` / `status_code`, and
+  `<script{$nonce}>` with `DebugBarAsset::withAppName(DebugBarAsset::source(), …)`;
+  keep returning `''` when no collectors are registered;
+- **delete** `css()`, `js()`, `ajaxJs()`, `renderPanel()`, `formatTabLabel()`,
+  `renderInfoStrip()` and the nine `render*()` methods — bypassed dead code is how
+  two renderers happen again;
+- `tests/js/debugbar-ajax.test.js` and `debugbar-hide.test.js` extract `ajaxJs()`
+  and `js()`, which will be gone: point them at `DebugBarAsset::source()`, using
+  the already-rewritten `spa-debug-panel.test.js` as the pattern;
+- `DebugBarTest`'s six assertions on rendered HTML become assertions on the
+  island's JSON, plus `#pdb-restore` being outside `#pramnos-debugbar`.
+
+### 2. A Time tab that says something in a SPA
+
+Today it shows one segment, because `routing` and `controller` are instrumented on
+the MVC path and `Api` has no timers at all — and `boot` is misnamed: it measures
+the DebugBar provider's own registration window, not application boot.
+
+Free, in the renderer, from data already recorded:
+
+- client-versus-server as one bar (`client 210ms = server 42ms + 168ms elsewhere`);
+  both numbers are already kept, and nobody does the subtraction by hand;
+- SQL as a share of server time, from the query collector's `total_ms`;
+- **a waterfall across requests** in the `requests` tab, on a shared time axis.
+  This is the SPA-specific insight no per-request tab can give: sequential calls
+  that could have been parallel, and polling loops, become visible.
+
+Then instrument the API path the way MVC is (`route`, `middleware`, `action`,
+`serialize`) plus a real `bootstrap` segment around `Application::init()` — DB
+connect, service providers and session start are the classic invisible cost. Those
+segments also travel in `Server-Timing`, so they show in the browser's own network
+panel with no toolbar involved.
+
+### 3. A parent Service class, and a Domain tab
+
+In a `spa` / Services project the domain logic lives in `src/Services/*Service.php`
+— plain classes with nothing for the framework to hook, so the Models tab is empty
+even though the request did work.
+
+**Give services a base class, the way models have one.** `Model` is instrumented
+automatically because it is a framework base with load/save hooks; a
+`Pramnos\Application\Service` base can do the same for services, and carry the
+other things every scaffolded service currently re-implements by hand. Then:
+
+- a `ServicesCollector` fed by the base, so recording is automatic rather than
+  opt-in;
+- the tab becomes **Domain**, with a Models section and a Services section — the
+  label follows the content instead of the content following the label;
+- the payload keeps its `models` key, so anything already reading it is unaffected.
+
+`create:crud` and the service stub then generate services extending the base. A
+container-resolved timing proxy is the more elegant version and stays open as a
+follow-up, but it should wait until services are actually resolved through the
+container.
+
+### 4. What a SPA developer still cannot see
+
+- **Auth/session tab** — who is signed in, which credential is in use (apiKey,
+  accessToken, cookie), where it came from, and a countdown to expiry decoded from
+  the JWT. "It worked and then stopped" is almost always this.
+- **Runtime config and router** — `window.__PRAMNOS__`, the router base, the
+  current route and params. This is the "why does my deep link 404" class.
+- **Storage inspector** — the keys the application owns, with secrets masked. A
+  stale token in `localStorage` is already documented as a trap in the generated
+  `FRONTEND_TESTING.md`.
+- **Errors tab** — `window.onerror`, `unhandledrejection` and every `ApiError`,
+  tied to the request that produced them, plus component failures caught through
+  `<svelte:boundary>`. Component *state* stays the job of Svelte DevTools and the
+  `$inspect` rune; correlation is ours.
+- **API playground** — endpoints from the OpenAPI document, called with parameters,
+  response shown with its own `_debug`. Cheap for us because the OpenAPI document
+  already exists.
+
+*Done when:* the same toolbar, from the same source, answers "what did this request
+do" identically on a server-rendered page and in a SPA — including its logs, its
+domain-layer calls and where its time went.
+
 ## Testing
 
 ### The suite takes 17½ minutes, and that paces every change
