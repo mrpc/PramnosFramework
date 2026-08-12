@@ -128,10 +128,21 @@ import { record as recordDebug } from './debug.js';
 recordDebug(method, path, response.status, payload && payload._debug, { ms, body });
 ```
 
-It is the same toolbar: bar along the bottom, the same tabs and tables, copy
-buttons, the last 50 requests with their statements, secret-looking values
-masked. Nothing in it is application-specific, so **do not write your own** —
-if a field is missing, add it there or report it upstream.
+It is the same toolbar — literally. Both are generated from one source
+(`Pramnos\Debug\DebugBarAsset`): the server-rendered page gets it inlined, a SPA
+project gets it as an ES module with `record()` exported. There is no second
+renderer to drift, which is what produced a `✕` that had to be fixed twice.
+
+So the SPA panel draws **every collector the response carries**, not just the
+requests and their statements: SQL, Time, Route, Session, Logs, Views, Models,
+Migrations, Exceptions. `ApiDebugPayload::build()` has always attached all of
+them; only the drawing was missing. A collector the payload does not carry gets
+no tab, rather than an empty one that reads as "nothing happened".
+
+Selecting a request in the **requests** tab switches every other tab to that
+request. Nothing in the panel is application-specific, so **do not write your
+own** — if a field is missing, add it to the framework's source or report it
+upstream.
 
 In production nothing attaches `_debug`, so `record()` never has anything to
 show: no data, no DOM, no panel. That is why the file ships unconditionally

@@ -281,17 +281,18 @@ class ProjectResync extends Command
             return [];
         }
 
-        $stub = $scaffoldingDir . '/templates/spa-debug-panel.js.stub';
-        if (!is_file($stub)) {
-            // @codeCoverageIgnoreStart — the stub ships with the framework
+        $appName = (string) ($this->appConfig($base)['name'] ?? 'App');
+
+        try {
+            $content = \Pramnos\Debug\DebugBarAsset::spaModule($appName);
+        } catch (\RuntimeException) {
+            // @codeCoverageIgnoreStart — the asset ships with the framework
             return [];
             // @codeCoverageIgnoreEnd
         }
 
-        $appName = (string) ($this->appConfig($base)['name'] ?? 'App');
-
         return [[
-            'content' => str_replace('{{ appName }}', $appName, (string) file_get_contents($stub)),
+            'content' => $content,
             'dest'    => $sourceDir . 'lib/debug.js',
             'exec'    => false,
         ]];
