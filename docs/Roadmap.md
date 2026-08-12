@@ -36,31 +36,13 @@ browser restarts in a real application.
 
 ## Debug toolbar
 
-The toolbar now has one renderer
-(`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`)
-and the SPA panel draws every collector the payload carries. Four things remain,
-in this order — each later item is cheaper once the earlier one lands.
+The toolbar has one renderer
+(`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`),
+and both deliveries now use it: `DebugBar::render()` emits a data island plus that
+script, and draws nothing itself. Three things remain, in this order — each later
+item is cheaper once the earlier one lands.
 
-### 1. Finish the unification: the server-rendered half
-
-`DebugBar::render()` still builds its own HTML, CSS and inline JS, so
-server-rendered pages have neither the new tabs nor per-request logs in the ajax
-list. Replace it with the data island plus the single script:
-
-- emit `<div id="pramnos-debug-data" hidden>` holding `ApiDebugPayload::build()`
-  plus `request_method` / `request_path` / `status_code`, and
-  `<script{$nonce}>` with `DebugBarAsset::withAppName(DebugBarAsset::source(), …)`;
-  keep returning `''` when no collectors are registered;
-- **delete** `css()`, `js()`, `ajaxJs()`, `renderPanel()`, `formatTabLabel()`,
-  `renderInfoStrip()` and the nine `render*()` methods — bypassed dead code is how
-  two renderers happen again;
-- `tests/js/debugbar-ajax.test.js` and `debugbar-hide.test.js` extract `ajaxJs()`
-  and `js()`, which will be gone: point them at `DebugBarAsset::source()`, using
-  the already-rewritten `spa-debug-panel.test.js` as the pattern;
-- `DebugBarTest`'s six assertions on rendered HTML become assertions on the
-  island's JSON, plus `#pdb-restore` being outside `#pramnos-debugbar`.
-
-### 2. A Time tab that says something in a SPA
+### 1. A Time tab that says something in a SPA
 
 Today it shows one segment, because `routing` and `controller` are instrumented on
 the MVC path and `Api` has no timers at all — and `boot` is misnamed: it measures
@@ -81,7 +63,7 @@ connect, service providers and session start are the classic invisible cost. Tho
 segments also travel in `Server-Timing`, so they show in the browser's own network
 panel with no toolbar involved.
 
-### 3. A parent Service class, and a Domain tab
+### 2. A parent Service class, and a Domain tab
 
 In a `spa` / Services project the domain logic lives in `src/Services/*Service.php`
 — plain classes with nothing for the framework to hook, so the Models tab is empty
@@ -103,7 +85,7 @@ container-resolved timing proxy is the more elegant version and stays open as a
 follow-up, but it should wait until services are actually resolved through the
 container.
 
-### 4. What a SPA developer still cannot see
+### 3. What a SPA developer still cannot see
 
 - **Auth/session tab** — who is signed in, which credential is in use (apiKey,
   accessToken, cookie), where it came from, and a countdown to expiry decoded from

@@ -251,31 +251,17 @@ class MigrationsCollectorTest extends TestCase
         );
     }
 
-    // ── DebugBar rendering ────────────────────────────────────────────────────
+    // ── What the toolbar receives ─────────────────────────────────────────────
 
     /**
-     * When a MigrationsCollector is registered, render() must produce a
-     * 'Migrations' tab button and a corresponding panel.
+     * A migration that ran this request reaches the toolbar's data island.
+     *
+     * The tab, its label and the table are drawn by the one renderer
+     * (`DebugBarAsset::source()`) and driven in the JavaScript tests; what PHP
+     * still owns — and what this pins — is that the collector's data travels
+     * under the key that renderer reads.
      */
-    public function testDebugBarRendersMigrationsTab(): void
-    {
-        // Arrange
-        $bar = DebugBar::getInstance();
-        $bar->addCollector(new TimeCollector());
-        $bar->addCollector(new MigrationsCollector());
-
-        // Act
-        $html = $bar->render();
-
-        // Assert — tab button and panel div must be present
-        $this->assertStringContainsString('data-panel="migrations"', $html);
-        $this->assertStringContainsString('id="pdb-panel-migrations"', $html);
-    }
-
-    /**
-     * The tab label must show "(N ran)" when migrations ran this request.
-     */
-    public function testMigrationsTabLabelShowsCountWhenRan(): void
+    public function testMigrationsThatRanReachTheDataIsland(): void
     {
         // Arrange
         $bar = DebugBar::getInstance();
@@ -285,16 +271,23 @@ class MigrationsCollectorTest extends TestCase
         $bar->addCollector($mc);
 
         // Act
-        $html = $bar->render();
+        $payload = $this->islandOf($bar->render());
 
-        // Assert — label must contain "1 ran"
-        $this->assertStringContainsString('1 ran', $html);
+        // Assert
+        $this->assertSame('my_slug', $payload['migrations']['this_request'][0]['slug']);
+        // assertEquals, not assertSame: JSON has one number type, so a round
+        // trip through the island turns 30.0 into 30.
+        $this->assertEquals(30.0, $payload['migrations']['this_request'][0]['ms']);
     }
 
     /**
-     * When nothing ran this request, the panel must show an appropriate empty message.
+     * When nothing ran, the key is still there and its list is empty.
+     *
+     * An absent key and an empty list are different claims to the renderer: it
+     * draws no tab at all for a collector that reported nothing, and "nothing
+     * ran this request" for one that reported an empty list.
      */
-    public function testMigrationsPanelShowsEmptyMessageWhenNothingRan(): void
+    public function testAnIslandSaysSoWhenNoMigrationRan(): void
     {
         // Arrange
         $bar = DebugBar::getInstance();
@@ -302,9 +295,32 @@ class MigrationsCollectorTest extends TestCase
         $bar->addCollector(new MigrationsCollector());
 
         // Act
-        $html = $bar->render();
+        $payload = $this->islandOf($bar->render());
 
         // Assert
-        $this->assertStringContainsString('No migrations ran this request', $html);
+        $this->assertSame([], $payload['migrations']['this_request']);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * The data island's payload, decoded the way the browser reads it.
+     *
+     * @param  string $html The output of {@see DebugBar::render()}
+     * @return array<string, mixed>
+     */
+    private function islandOf(string $html): array
+    {
+        $matched = preg_match(
+            '#<div id="pramnos-debug-data" hidden>(.*?)</div>#s',
+            $html,
+            $m
+        );
+        $this->assertSame(1, $matched, 'the render carries a data island');
+
+        $decoded = json_decode(html_entity_decode($m[1]), true);
+        $this->assertIsArray($decoded, 'the island holds a JSON object');
+
+        return $decoded;
     }
 }

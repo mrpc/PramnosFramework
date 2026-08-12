@@ -53,6 +53,14 @@ class ApiDebugPayload
             'memory' => round(memory_get_peak_usage(true) / 1048576, 2),
         ];
 
+        // The name every log line written during this request also carries, so
+        // the toolbar can ask the server for what the response could not bring
+        // back. Absent when ids are not being issued, which is production.
+        $requestId = RequestId::activeId();
+        if ($requestId !== null) {
+            $request['id'] = $requestId;
+        }
+
         // `request` is the reliable copy. The two keys below are written first
         // and then overwritten by any collector that shares their name — and one
         // does: MemoryCollector is registered as `memory`, so `$payload['memory']`
@@ -171,6 +179,13 @@ class ApiDebugPayload
             'memory' => $payload['memory'],
         ];
 
+        // The id matters most exactly here: a response reduced to a header is one
+        // that could not carry its own detail, and the id is how the detail is
+        // asked for afterwards.
+        if (isset($payload['request']['id'])) {
+            $summary['id'] = $payload['request']['id'];
+        }
+
         // summarise() puts `count` on every query collector it understands, so
         // its absence means there was no usable query data — not that it has to
         // be counted here.
@@ -186,10 +201,14 @@ class ApiDebugPayload
                 . (isset($route['action']) ? '/' . $route['action'] : '');
         }
 
+        // ExceptionsCollector reports `count` and `items`. This used to look for
+        // `exceptions` or `errors` — keys it has never emitted — so the summary
+        // said nothing about a request that threw, which is the one thing a
+        // bodiless error response could still have told anybody.
         $exceptions = $payload['exceptions'] ?? [];
         if (is_array($exceptions)) {
-            $count = count($exceptions['exceptions'] ?? $exceptions['errors'] ?? []);
-            if ($count > 0) {
+            $count = $exceptions['count'] ?? count($exceptions['items'] ?? []);
+            if (is_int($count) && $count > 0) {
                 $summary['errors'] = $count;
             }
         }
@@ -263,6 +282,15 @@ class ApiDebugPayload
             [self::HEADER . ': ' . self::summary(), true],
             ['Vary: Cookie', false],
         ];
+
+        // Announced on its own header as well as inside the summary: this one is
+        // readable in the browser's network panel and in a proxy log, without
+        // parsing anything, and it is what somebody quotes when they ask for
+        // help with a request that failed.
+        $requestId = RequestId::activeId();
+        if ($requestId !== null) {
+            $lines[] = ['X-Request-Id: ' . $requestId, true];
+        }
 
         if (DebugAccess::isGranted()) {
             $lines[] = ['Cache-Control: no-store, private, max-age=0', true];

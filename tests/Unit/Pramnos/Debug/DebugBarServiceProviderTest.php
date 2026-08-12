@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Debug;
 
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use Pramnos\Debug\RequestId;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
@@ -31,6 +32,10 @@ class DebugBarServiceProviderTest extends TestCase
 
     protected function setUp(): void
     {
+        // Request ids are process-wide and change Logger's output shape while
+        // active. A test that activated them must not decide how another test's
+        // log lines are written — which is exactly what happened once.
+        RequestId::reset();
         DebugBar::reset();
         Settings::clearSettings();
         $this->app = new Application('test_debug_provider');
@@ -38,6 +43,7 @@ class DebugBarServiceProviderTest extends TestCase
 
     protected function tearDown(): void
     {
+        RequestId::reset();
         DebugBar::reset();
         Settings::clearSettings();
         putenv('APP_DEBUG=');

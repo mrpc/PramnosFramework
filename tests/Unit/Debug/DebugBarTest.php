@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Debug;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Application\FeatureRegistry;
 use Pramnos\Debug\DebugBar;
+use Pramnos\Debug\RequestId;
 use Pramnos\Debug\DebugBarMiddleware;
 use Pramnos\Debug\Collectors\CollectorInterface;
 use Pramnos\Debug\Collectors\MemoryCollector;
@@ -68,10 +70,15 @@ class DebugBarTest extends TestCase
     }
 
     /**
-     * render() must return a non-empty string containing the debugbar div when
-     * at least one collector is registered.
+     * render() emits the data island and the one toolbar source — nothing else.
+     *
+     * The bar used to be built here, in ~500 lines of PHP that drew the same
+     * tables as the SPA panel's JavaScript. They drifted, and a bug then had to
+     * be fixed twice. What ships now is this request's collector data as JSON
+     * and the script that draws it; the drawing is covered by the JS tests,
+     * which drive that script for real.
      */
-    public function testRenderProducesHtmlWithDebugbarDiv(): void
+    public function testRenderEmitsTheDataIslandAndTheToolbarSource(): void
     {
         // Arrange
         $bar = DebugBar::getInstance();
@@ -80,19 +87,156 @@ class DebugBarTest extends TestCase
         // Act
         $html = $bar->render();
 
-        // Assert — signature elements present
-        $this->assertStringContainsString('id="pramnos-debugbar"', $html);
-        $this->assertStringContainsString('pdb-bar', $html);
+        // Assert — the island, and the script that reads it
+        $this->assertStringContainsString('<div id="pramnos-debug-data" hidden>', $html);
+        $this->assertStringContainsString('window.__pramnosDebugBar', $html);
+        // No markup of its own: a second renderer is exactly what was removed.
+        $this->assertStringNotContainsString('<div id="pramnos-debugbar">', $html);
     }
 
     /**
-     * render($nonce) must add nonce="..." to every inline <style> and <script>
-     * tag in the widget output.
+     * The island carries every collector's data, plus what identifies the
+     * request it describes.
      *
-     * Without nonces a strict CSP would block the inline tags, breaking the
-     * toolbar in CSP-protected applications.
+     * `request_method` / `request_path` / `status_code` are what let the page's
+     * own request appear in the requests tab beside the API calls that follow
+     * it — the toolbar has one list, and the page belongs in it.
      */
-    public function testRenderAddsCspNonceToInlineTags(): void
+    public function testIslandCarriesCollectorDataAndRequestIdentity(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI']    = '/admin/settings?tab=mail';
+        // Explicit, because http_response_code() is process-wide: an earlier
+        // test in a full run can leave it at 404, and the island would then
+        // faithfully report what the process last set.
+        http_response_code(200);
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo', ['count' => 7]));
+
+        // Act
+        $payload = $this->islandOf($bar->render());
+
+        // Assert — the collector's own data, under its own name
+        $this->assertSame(7, $payload['demo']['count']);
+        // And the request it describes
+        $this->assertSame('POST', $payload['request_method']);
+        $this->assertSame('/admin/settings?tab=mail', $payload['request_path']);
+        $this->assertSame(200, $payload['status_code']);
+        // The timing copy no collector can overwrite — the top-level `memory`
+        // key is replaced by MemoryCollector, which is how a panel once printed
+        // "[object Object]MB".
+        //
+        // assertIsNumeric, not assertIsFloat: JSON has one number type, so a
+        // duration that lands on a whole millisecond comes back as an int. The
+        // stricter assertion passed or failed depending on how long the rest of
+        // the suite had been running.
+        $this->assertIsNumeric($payload['request']['time']);
+        // Not `> 0`: `REQUEST_TIME_FLOAT` is read from $_SERVER, and a test
+        // elsewhere in a full run clears it — the payload then measures from
+        // "now" and honestly reports 0.
+        $this->assertGreaterThanOrEqual(0, $payload['request']['time']);
+
+        // Cleanup
+        unset($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI']);
+    }
+
+    /**
+     * The island tells the toolbar where to ask for more, and what to ask about.
+     *
+     * Two values, and the button in the Logs and Exceptions tabs needs both: the
+     * endpoint's URL, which only exists when the DevPanel feature is on, and this
+     * request's id, which only exists while the toolbar is running. Either one
+     * missing means no button — better than one pointing at a route that is not
+     * there.
+     */
+    public function testIslandCarriesTheLogEndpointAndTheRequestId(): void
+    {
+        // Arrange
+        RequestId::reset();
+        RequestId::activate();
+        FeatureRegistry::loadFromConfig(['devpanel']);
+        // sURL is a constant, so whichever test runs first in a process fixes it
+        // — the expectation is derived from it rather than asserted against a
+        // value this test only sometimes gets to choose.
+        if (!defined('sURL')) {
+            define('sURL', 'https://example.test/');
+        }
+        $expected = rtrim((string) sURL, '/') . '/devpanel/logs';
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+
+        // Act
+        $payload = $this->islandOf($bar->render());
+
+        // Assert
+        $this->assertSame($expected, $payload['logs_url']);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{16}$/', $payload['request']['id']);
+        // The same id the log lines will carry — that is the entire point of it.
+        $this->assertSame(RequestId::current(), $payload['request']['id']);
+
+        // Cleanup
+        RequestId::reset();
+    }
+
+    /**
+     * With the DevPanel switched off there is no endpoint, so nothing is offered.
+     */
+    public function testNoLogEndpointIsAdvertisedWithoutTheDevPanel(): void
+    {
+        // Arrange — a registry with the panel absent from the feature list
+        FeatureRegistry::reset();
+        FeatureRegistry::loadFromConfig(['cache']);
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+
+        // Act
+        $payload = $this->islandOf($bar->render());
+
+        // Assert
+        $this->assertArrayNotHasKey('logs_url', $payload);
+
+        // Cleanup — the registry is process-wide
+        FeatureRegistry::reset();
+    }
+
+    /**
+     * The island must not be able to end its own element.
+     *
+     * Collector data is application data — a query containing `</div>`, a log
+     * message containing `<script>`. The JSON is hex-escaped rather than HTML-
+     * escaped, so `textContent` hands the script back the exact bytes and there
+     * is nothing in them a parser can read as markup.
+     */
+    public function testIslandCannotBreakOutOfItsElement(): void
+    {
+        // Arrange
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('queries', [
+            'count'   => 1,
+            'queries' => [['sql' => "SELECT '</div><script>alert(1)</script>'", 'time' => 1]],
+        ]));
+
+        // Act
+        $html = $bar->render();
+
+        // Assert — the dangerous characters are gone from the wire...
+        $islandEnd = strpos($html, '</div>');
+        $this->assertGreaterThan(0, $islandEnd);
+        $this->assertStringNotContainsString('<script>alert(1)', $html);
+        // ...and the value still arrives intact once JSON-decoded.
+        $payload = $this->islandOf($html);
+        $this->assertStringContainsString('alert(1)', $payload['queries']['queries'][0]['sql']);
+    }
+
+    /**
+     * render($nonce) must put the nonce on the inline <script>.
+     *
+     * Without it a strict CSP blocks the script outright. The toolbar copies the
+     * same nonce onto the `<style>` element it injects — read from the script
+     * tag itself, and driven in `tests/js/debugbar-ajax.test.js`.
+     */
+    public function testRenderAddsCspNonceToTheScriptTag(): void
     {
         // Arrange
         $bar   = DebugBar::getInstance();
@@ -102,24 +246,25 @@ class DebugBarTest extends TestCase
         // Act
         $html = $bar->render($nonce);
 
-        // Assert — every inline <style> and <script> must carry the nonce
-        $this->assertStringContainsString("nonce=\"$nonce\"", $html);
-        // At least two occurrences: one <style> + one <script> (JS init) + the main <script>
-        $this->assertGreaterThanOrEqual(2, substr_count($html, "nonce=\"$nonce\""));
-        // The nonce must NOT be injected when empty
-        $htmlNoNonce = $bar->render('');
-        $this->assertStringNotContainsString('nonce=', $htmlNoNonce);
+        // Assert
+        $this->assertStringContainsString("<script nonce=\"$nonce\">", $html);
+        // The nonce must NOT be injected when empty — `nonce=""` is not the same
+        // as no nonce, and a policy would reject it.
+        $this->assertStringNotContainsString('nonce=', $bar->render(''));
     }
 
     /**
-     * render() must include a DevPanel link in the toolbar bar.
+     * The toolbar is branded with the application's name when there is one.
      *
-     * The link lets developers navigate to the DevPanel from any page without
-     * memorising the URL.
+     * A bar that says "Pramnos" on every install names the framework, which the
+     * reader knew. Naming the application is what tells two tabs apart.
      */
-    public function testRenderIncludesDevPanelLink(): void
+    public function testRenderBrandsTheBarWithTheApplicationName(): void
     {
-        // Arrange
+        // Arrange — TITLE is the constant an application defines for itself
+        if (!defined('TITLE')) {
+            define('TITLE', 'Acme Admin');
+        }
         $bar = DebugBar::getInstance();
         $bar->addCollector($this->makeMockCollector('demo'));
 
@@ -127,43 +272,7 @@ class DebugBarTest extends TestCase
         $html = $bar->render();
 
         // Assert
-        $this->assertStringContainsString('pdb-devpanel', $html);
-        $this->assertStringContainsString('href="/devpanel"', $html);
-    }
-
-    /**
-     * The hide button has something to hide, and something to bring it back.
-     *
-     * The `✕` used to toggle the panel's inline display rather than the bar's,
-     * from a starting value the stylesheet already overrode — so it did nothing
-     * at all, in the toolbar and in the SPA panel alike. The behaviour is driven
-     * in `tests/js/debugbar-hide.test.js`; what this test pins is the markup half
-     * that behaviour needs: a hide button, and a restore handle **outside** the
-     * bar, because an element inside a hidden container cannot be clicked to
-     * unhide it.
-     */
-    public function testRenderShipsAHideButtonAndARestoreHandle(): void
-    {
-        // Arrange
-        $bar = DebugBar::getInstance();
-        $bar->addCollector($this->makeMockCollector('demo'));
-
-        // Act
-        $html = $bar->render();
-
-        // Assert
-        $this->assertStringContainsString('id="pdb-close-btn"', $html);
-        $this->assertStringContainsString('id="pdb-restore"', $html);
-        // The handle must sit after the toolbar's closing tag: nested inside it,
-        // hiding the bar would hide the only way back.
-        $barEnd = strpos($html, '<button id="pdb-restore"');
-        $this->assertGreaterThan(
-            (int) strpos($html, '</div>'),
-            (int) $barEnd,
-            'the restore handle must not be inside #pramnos-debugbar'
-        );
-        // Titles, because an unlabelled glyph is a guess for the reader.
-        $this->assertStringContainsString('title="Hide the toolbar"', $html);
+        $this->assertStringContainsString('&#9881; ' . TITLE, $html);
     }
 
     /**
@@ -468,6 +577,31 @@ class DebugBarTest extends TestCase
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * The data island's payload, decoded.
+     *
+     * Reading it back the way the browser does — `textContent`, then
+     * `JSON.parse` — is the only way to assert on what the toolbar will actually
+     * receive rather than on a string that happens to contain the right words.
+     *
+     * @param  string $html The output of {@see DebugBar::render()}
+     * @return array<string, mixed>
+     */
+    private function islandOf(string $html): array
+    {
+        $matched = preg_match(
+            '#<div id="pramnos-debug-data" hidden>(.*?)</div>#s',
+            $html,
+            $m
+        );
+        $this->assertSame(1, $matched, 'the render carries a data island');
+
+        $decoded = json_decode(html_entity_decode($m[1]), true);
+        $this->assertIsArray($decoded, 'the island holds a JSON object');
+
+        return $decoded;
+    }
 
     private function makeMockCollector(string $name, array $collectResult = []): CollectorInterface
     {

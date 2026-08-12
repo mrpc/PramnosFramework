@@ -302,6 +302,25 @@ describe('SPA toolbar module', () => {
         assert.match(dom.byId['pdb-panel'].innerHTML, /204/);
     });
 
+    /**
+     * A SPA has no page request — its shell never went through the middleware —
+     * so the newest call is the one worth showing, and the panel follows it.
+     * (A server-rendered page stays on its own request instead; that is driven
+     * in `debugbar-ajax.test.js`.)
+     */
+    test('with no page request, the newest call drives the tabs', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/first', 200, payload({ time: 11 }));
+
+        // Act
+        record('POST', '/api/1.0/second', 201, payload({ time: 22 }));
+
+        // Assert
+        assert.match(dom.byId['pdb-info'].innerHTML, /POST \/api\/1\.0\/second/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /22ms server/);
+    });
+
     test('rendering survives a payload with nothing in it', async () => {
         // Arrange — a collector that returned little, or an older server
         const { record, dom } = await loadPanel();

@@ -83,7 +83,9 @@ class DevPanelController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'db', 'cache', 'users', 'performance', 'git', 'phpinfo']);
+        // `logs` is dispatched like the rest, but guards itself: it accepts a
+        // signed debug grant as well as an admin user. See logs().
+        $this->addAuthAction(['display', 'db', 'cache', 'users', 'performance', 'git', 'phpinfo', 'logs']);
 
         // Register custom panel slugs as auth actions so Controller::exec() dispatches them.
         foreach (array_keys(static::$customPanels) as $slug) {
@@ -232,6 +234,86 @@ class DevPanelController extends Controller
         $phpInfoRaw = preg_replace('/<\/body>.*$/si', '', $phpInfoRaw);
 
         $this->renderLayout('phpinfo', '<div class="phpinfo-wrapper">' . $phpInfoRaw . '</div>');
+        return null;
+    }
+
+    /**
+     * The log lines one request wrote — JSON, for the debug toolbar.
+     *
+     * `GET /devpanel/logs?request=<id>`
+     *
+     * Everything else the toolbar knows travels with the response it describes,
+     * which is why it needs no endpoint at all. This exists for the one case
+     * that cannot: a request that died. An error page is not a JSON object, so
+     * it cannot carry a `_debug` key, and the header that still gets through has
+     * room for a count but never for a message. The lines are on disk, named
+     * with the request's id, and this hands back the ones carrying it.
+     *
+     * **Guarded differently from the rest of the panel, on purpose.** The other
+     * actions require an admin user (`usertype >= 90`). The person who opened
+     * the toolbar on a live server with `debug:token` is a developer holding a
+     * signed grant, and usually not an admin user at all — so the grant is
+     * accepted here, and the admin path is kept for someone browsing the panel
+     * normally. Either way the feature must be enabled and the application in
+     * debug mode: {@see guardAccess()} still decides that.
+     *
+     * The reply is `no-store`: it contains one request's log lines, and a shared
+     * cache in front of the application does not know who asked.
+     *
+     * @return mixed Always null — the response is written directly
+     */
+    public function logs(): mixed
+    {
+        if (!FeatureRegistry::isEnabled('devpanel')) {
+            $this->renderError(404, 'DevPanel feature is not enabled.');
+        }
+
+        // A signed grant is enough; otherwise fall back to the panel's own
+        // admin check, which also enforces dev mode.
+        if (!\Pramnos\Debug\DebugAccess::isGranted() && $this->guardAccess()) {
+            return null;
+        }
+
+        $request = new \Pramnos\Http\Request();
+        $id      = (string) $request->get('request', '', 'get');
+
+        if (!\Pramnos\Debug\RequestLog::isValidId($id)) {
+            return $this->sendJson(
+                ['error' => 'A valid request id is required.'],
+                400
+            );
+        }
+
+        $lines = \Pramnos\Debug\RequestLog::forRequest($id);
+
+        return $this->sendJson([
+            'request' => $id,
+            'count'   => count($lines),
+            'lines'   => $lines,
+        ]);
+    }
+
+    /**
+     * Write a JSON reply for the toolbar and stop.
+     *
+     * @param  array<string, mixed> $data
+     * @param  int                  $status
+     * @return null
+     */
+    private function sendJson(array $data, int $status = 200): mixed
+    {
+        \Pramnos\Framework\Factory::getDocument('json');
+
+        if (!headers_sent()) {
+            http_response_code($status);
+            header('Content-Type: application/json; charset=UTF-8');
+            // One request's log lines, fetched by whoever holds the grant. A
+            // shared cache must never serve this to the next person asking for
+            // the same URL.
+            header('Cache-Control: no-store, private, max-age=0');
+        }
+
+        echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         return null;
     }
 

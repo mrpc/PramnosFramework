@@ -14,6 +14,21 @@ class Logger
      */
     private static function getDefaultLogPath(): string
     {
+        return self::logDirectory();
+    }
+
+    /**
+     * Where log files are written.
+     *
+     * Public because reading the logs back is now a thing the framework does —
+     * {@see \Pramnos\Debug\RequestLog} hands the lines of one request to the
+     * debug toolbar — and it must read from exactly the directory this class
+     * writes to rather than deriving the path a second time.
+     *
+     * @return string Absolute path, no trailing separator
+     */
+    public static function logDirectory(): string
+    {
         $base = defined('LOG_PATH') ? \LOG_PATH : sys_get_temp_dir();
         return $base . DIRECTORY_SEPARATOR . 'logs';
     }
@@ -129,8 +144,26 @@ class Logger
             unset($context['level']);
         }
 
-        // Use JSON when: level is set (to avoid losing it), message is multiline, or extra context exists
-        if (isset($entry['level']) || strpos($message, "\n") !== false || !empty($context)) {
+        // Name the request that wrote this line — but only while the debug
+        // toolbar is running, which is the only thing that asks for ids. A
+        // production install issues none, so `activeId()` is null, nothing is
+        // added, and every line keeps the shape it has always had.
+        //
+        // This is what lets the toolbar ask the server for the detail a dead
+        // request could not carry back: the lines are found by id, never by a
+        // time window, which on a live server would also return everybody else's.
+        $requestId = \Pramnos\Debug\RequestId::activeId();
+        if ($requestId !== null) {
+            $entry['request'] = $requestId;
+        }
+
+        // Use JSON when: level is set (to avoid losing it), the line carries a
+        // request id, the message is multiline, or extra context exists
+        if (isset($entry['level'])
+            || isset($entry['request'])
+            || strpos($message, "\n") !== false
+            || !empty($context)
+        ) {
             // If message contains newlines or JSON, encode it
             $entry['message'] = str_replace("\n", "\\n", $message);
             

@@ -50,6 +50,25 @@
     /** Keys whose values are replaced before they can be read or screenshotted. */
     var SECRET = /pass|secret|token|apikey|api_key|authorization|cookie|csrf/i;
 
+    /**
+     * The CSP nonce this script was allowed to run with, if there is one.
+     *
+     * The stylesheet is created here rather than emitted as markup, and a strict
+     * `style-src` blocks an injected `<style>` just as it would an inline one —
+     * an unstyled toolbar is a column of unreadable text at the bottom of the
+     * page. Taken from the script element itself rather than from the data
+     * island: the server already had to nonce this tag for it to be running at
+     * all, so there is nothing extra to pass and nothing extra to leak.
+     */
+    var NONCE = (function () {
+        try {
+            var self = document.currentScript;
+            return self ? (self.nonce || self.getAttribute('nonce') || '') : '';
+        } catch (e) {
+            return '';
+        }
+    }());
+
     /** Segment colours for the timeline (Catppuccin). */
     var PALETTE = ['#89b4fa', '#cba6f7', '#a6e3a1', '#f9e2af', '#fab387', '#f38ba8', '#94e2d5'];
 
@@ -75,7 +94,26 @@
     /** @type {Array<Object>} One per request, oldest first. */
     var entries = [];
 
+    /**
+     * Where the server will hand back a request's log lines, if it offers to.
+     *
+     * Carried in the payload rather than assumed, because the endpoint is a
+     * DevPanel route that an application can have switched off, and a SPA is not
+     * necessarily served from the same place as its API. No URL, no button.
+     */
+    var logsUrl = null;
+
+    /** @type {Object<string, Array>} Server-side log lines, by request id. */
+    var serverLogs = {};
+
+    /** @type {Object<string, boolean>} Requests whose log fetch is in flight. */
+    var fetching = {};
+
+    /** The unwrapped fetch, kept so the toolbar's own calls are not recorded. */
+    var rawFetch = null;
+
     var selected = -1;          // entry whose tabs are shown; -1 = none yet
+    var userPicked = false;     // has the reader chosen a request themselves?
     var activeTab = null;       // 'requests' or a payload key; null = panel closed
     var root = null;
     var tabsEl = null;
@@ -190,6 +228,13 @@
                 return;
             }
 
+            // Offered by the server, not assumed by the toolbar: an application
+            // that has the DevPanel switched off never sends one, and the button
+            // that would fetch server-side detail is simply not drawn.
+            if (payload && payload.logs_url) {
+                logsUrl = payload.logs_url;
+            }
+
             entries.push({
                 kind: extra.kind || 'xhr',
                 method: method,
@@ -207,11 +252,8 @@
                 }
             }
 
-            // A new request becomes the selected one only while the reader is not
-            // looking at something else; pulling the panel out from under them
-            // mid-read is worse than a stale selection.
-            if (activeTab === null || activeTab === 'requests' || selected === entries.length - 2) {
-                selected = entries.length - 1;
+            if (!userPicked) {
+                selected = defaultSelection();
             }
 
             ensureBar();
@@ -219,6 +261,154 @@
         } catch (e) {
             /* instrumentation never breaks the page */
         }
+    }
+
+    /**
+     * The two tabs that read as a stream over the page, not as one request's state.
+     *
+     * A log line and an exception happen *at a moment*; which request produced
+     * one is a detail of it, not its identity. Route, Session, SQL and the rest
+     * describe a request — adding those up across three calls would produce a
+     * table that is true of nothing.
+     *
+     * Key → the array in that collector's payload.
+     */
+    var STREAMS = { logs: 'entries', exceptions: 'items' };
+
+    /**
+     * Show the streams across every request?
+     *
+     * Only until the reader picks a request. From that point every tab, these
+     * two included, describes the request they chose — asking for one request
+     * and being shown the page's total is the confusion this whole selection
+     * model exists to avoid.
+     */
+    function aggregating() {
+        if (entries.length < 2) {
+            return false;
+        }
+        // Also when the request in view brought nothing back. A call that died
+        // carries no payload — and it is the one somebody clicked *because* it
+        // went wrong. Emptying the bar down to a single tab at that moment is
+        // the opposite of what it is for; the page's other requests are the only
+        // place the reason can still be.
+        return !userPicked || !(entries[selected] && entries[selected].payload);
+    }
+
+    /**
+     * Every item of one stream, across all requests, each tagged with its source.
+     *
+     * @returns {Array<{item: Object, from: Object}>}
+     */
+    function streamAcross(key) {
+        var field = STREAMS[key];
+        var out = [];
+        entries.forEach(function (e) {
+            var data = e.payload ? e.payload[key] : null;
+            if (!data || data.error) {
+                return;
+            }
+
+            var items = data[field] || [];
+            items.forEach(function (item) {
+                out.push({ item: item, from: e });
+            });
+
+            // A count with no items is a request that only got its summary
+            // across — an error page cannot carry a `_debug` key, and a header
+            // never carries messages. Counting it as nothing would hide the one
+            // request that failed behind a tab reading "Exceptions 0", which is
+            // the report this fixes.
+            var missing = (typeof data.count === 'number' ? data.count : 0) - items.length;
+            if (missing <= 0) {
+                return;
+            }
+
+            // Once the server's own log has been fetched for this request, its
+            // error lines *are* the detail that was missing — so they take the
+            // placeholder's place, on the row belonging to the request that
+            // raised them. Reading "1 raised, details elsewhere" while the
+            // details sit in a table further down is a puzzle nobody needs.
+            var fromServer = serverLogs[requestIdOf(e)];
+            if (fromServer) {
+                var errors = fromServer.filter(function (line) {
+                    return ['error', 'critical', 'alert', 'emergency'].indexOf(line.level) > -1;
+                });
+                if (errors.length) {
+                    errors.forEach(function (line) {
+                        out.push({
+                            from: e,
+                            item: {
+                                type: 'server',
+                                class: '',
+                                // Logged messages carry their stack trace after
+                                // the first line; the row shows the sentence and
+                                // the full text stays in the server-log table.
+                                message: String(line.message || '').split('\\n')[0],
+                                file: line.file || '',
+                                line: 0
+                            }
+                        });
+                    });
+                    return;
+                }
+            }
+
+            out.push({
+                from: e,
+                item: {
+                    type: 'summary',
+                    class: '',
+                    message: missing + ' raised — this response could not carry '
+                        + 'the details; the application error log has them',
+                    file: '',
+                    line: 0
+                }
+            });
+        });
+        return out;
+    }
+
+    /** One stream, drawn with the request each item came from. */
+    function renderStream(key, entry) {
+        var all = streamAcross(key);
+        var rows = '';
+        all.forEach(function (row) {
+            rows += key === 'logs' ? logRow(row.item, row.from) : exceptionRow(row.item, row.from);
+        });
+
+        var lead = '<p class="pdb-muted">Everything this page has logged, across '
+            + entries.length + ' requests. Pick a request to see only its own.</p>';
+
+        // The offer to fetch the server's own log belongs here too. It was only
+        // drawn for a picked request, which is the state somebody reaches after
+        // they already know what they are looking for — and the default view is
+        // where they start.
+        return lead
+            + (key === 'logs' ? logTable(rows, true) : exceptionTable(rows, true))
+            + serverLogSection(entry);
+    }
+
+    /**
+     * The request to show when the reader has not chosen one.
+     *
+     * The page's own request, if this page has one. Everything else on the page
+     * is a consequence of it, and it is what somebody has in mind when they look
+     * at the bar — a datatable that fetches its rows the moment it renders used
+     * to move the tabs onto that JSON call, so a page that rendered a template
+     * reported `Views 0` and the number was true of a request nobody had asked
+     * about.
+     *
+     * With no page entry — a SPA, whose shell never went through the middleware
+     * — the newest request is the answer, and following it is the whole point.
+     */
+    function defaultSelection() {
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].kind === 'page') {
+                return i;
+            }
+        }
+        return entries.length - 1;
     }
 
     // ── Chrome ──────────────────────────────────────────────────────────────
@@ -236,8 +426,19 @@
         + 'border-radius:4px;font:inherit;flex-shrink:0}'
         + '.pdb-tab:hover,.pdb-tab.pdb-active{background:#313244;color:#89b4fa}'
         + '.pdb-tab-count{background:#45475a;border-radius:8px;padding:0 5px;margin-left:4px;font-size:10px}'
+        // The one tab that must be readable as "look here" from across the bar,
+        // including while another tab is the active one.
+        + '.pdb-tab-alert{color:#f38ba8;font-weight:bold}'
+        + '.pdb-tab-alert:hover,.pdb-tab-alert.pdb-active{color:#f38ba8;background:#45303a}'
+        + '.pdb-tab-alert .pdb-tab-count{background:#f38ba8;color:#11111b;font-weight:bold}'
         + '#pdb-info{margin-left:auto;display:flex;gap:5px;flex-shrink:0;align-items:center}'
         + '.pdb-chip{font-size:10px;color:#6c7086;padding:1px 6px;background:#313244;border-radius:3px}'
+        + '.pdb-fetch-logs{background:#313244;border:1px solid #45475a;color:#89b4fa;cursor:pointer;'
+        + 'font:inherit;font-size:11px;padding:2px 8px;border-radius:4px}'
+        + '.pdb-fetch-logs:hover{border-color:#89b4fa}'
+        + '.pdb-fetch-logs[disabled]{color:#6c7086;cursor:default}'
+        + 'button.pdb-unpick{border:1px solid #45475a;font:inherit;font-size:10px;cursor:pointer;color:#cdd6f4}'
+        + 'button.pdb-unpick:hover{color:#f38ba8;border-color:#f38ba8}'
         + '.pdb-devpanel{color:#a6e3a1;text-decoration:none;padding:2px 8px;font:inherit;flex-shrink:0;margin-left:6px}'
         + '.pdb-devpanel:hover{color:#cba6f7}'
         + '.pdb-close{background:none;border:none;color:#f38ba8;cursor:pointer;margin-left:4px;'
@@ -255,6 +456,13 @@
         + '.pdb-row{cursor:pointer}'
         + '.pdb-row:hover td{background:#1e1e2e}'
         + '.pdb-row.pdb-selected td{background:#313244}'
+        // A failed request is found by scanning the list, so the whole row
+        // carries the colour — a red cell in the narrowest column of six is a
+        // signal placed where nobody is looking.
+        + '.pdb-row-bad td{color:#f38ba8;background:#2a1e26}'
+        + '.pdb-row-bad:hover td{background:#3a2530}'
+        + '.pdb-row-bad.pdb-selected td{background:#45303a}'
+        + '.pdb-row-bad td.pdb-muted,.pdb-row-bad td.pdb-time{color:#f38ba8}'
         + '.pdb-time{white-space:nowrap;color:#a6e3a1;min-width:50px}'
         + '.pdb-slow .pdb-time{color:#f38ba8}'
         + '.pdb-cached{color:#a6e3a1!important;font-size:9px;letter-spacing:.05em;font-weight:bold}'
@@ -288,6 +496,13 @@
 
         styleEl = document.createElement('style');
         styleEl.textContent = css();
+        if (NONCE && styleEl.setAttribute) {
+            // Both the property and the attribute: browsers hide the attribute
+            // from script after parse, and only the property is read back — but
+            // the attribute is what the policy is checked against.
+            styleEl.setAttribute('nonce', NONCE);
+            styleEl.nonce = NONCE;
+        }
 
         root = document.createElement('div');
         root.id = 'pramnos-debugbar';
@@ -381,12 +596,22 @@
 
         TABS.forEach(function (tab) {
             var data = entry && entry.payload ? entry.payload[tab.key] : null;
-            if (!data) {
+            // While nothing has been picked, the two stream tabs answer for the
+            // whole page — so one of them is worth showing even when the request
+            // in view produced none of its own.
+            var stream = aggregating() && STREAMS[tab.key] ? streamAcross(tab.key) : null;
+            if (!data && !(stream && stream.length)) {
                 return;
             }
-            var count = tabCount(tab.key, data);
+            var count = stream ? stream.length : tabCount(tab.key, data);
+            // Something went wrong somewhere on this page, and a tab that looks
+            // exactly like the other eight does not say so. The colour is the
+            // whole point of collecting exceptions: nobody opens a tab to check
+            // whether there is anything in it.
+            var alarming = tab.key === 'exceptions' && count > 0;
             html += '<button class="pdb-tab' + (activeTab === tab.key ? ' pdb-active' : '')
-                + '" data-panel="' + tab.key + '">' + esc(tab.label)
+                + (alarming ? ' pdb-tab-alert' : '')
+                + '" data-panel="' + tab.key + '">' + (alarming ? '⚠ ' : '') + esc(tab.label)
                 + (count === null ? '' : '<span class="pdb-tab-count">' + count + '</span>')
                 + '</button>';
         });
@@ -442,8 +667,32 @@
         if (mb !== null) {
             bits.push('<span class="pdb-chip">' + mb + 'MB</span>');
         }
-        bits.push('<span class="pdb-chip">' + esc(entry.method) + ' ' + esc(entry.path) + '</span>');
+        // Once a request has been picked, the chip naming it becomes the way
+        // back: a selection with no visible way to undo it is a mode, and a mode
+        // nobody can leave is where "the toolbar is showing the wrong numbers"
+        // comes from.
+        bits.push(userPicked
+            ? '<button class="pdb-chip pdb-unpick" title="Stop showing just this request">'
+                + esc(entry.method) + ' ' + esc(entry.path) + ' ✕</button>'
+            : '<span class="pdb-chip">' + esc(entry.method) + ' ' + esc(entry.path) + '</span>');
         return bits.join('');
+    }
+
+    /**
+     * Did this request go wrong?
+     *
+     * Three ways, and the row is red for all of them: the status says so, the
+     * request never got a status at all (a network failure, `status: 0`), or it
+     * answered 200 while raising something — which is the one nobody would look
+     * for. Colouring the status cell alone put the signal in the narrowest column
+     * of a wide table.
+     */
+    function wentWrong(entry) {
+        if (!entry.status || entry.status >= 400) {
+            return true;
+        }
+        var ex = (entry.payload || {}).exceptions;
+        return !!(ex && !ex.error && (ex.count || 0) > 0);
     }
 
     /** The list of requests — the tab that makes the others make sense. */
@@ -453,7 +702,8 @@
             var e = entries[i];
             var q = queryCount(e);
             var ms = serverMs(e);
-            rows += '<tr class="pdb-row' + (i === selected ? ' pdb-selected' : '') + '" data-entry="' + i + '">'
+            rows += '<tr class="pdb-row' + (i === selected ? ' pdb-selected' : '')
+                + (wentWrong(e) ? ' pdb-row-bad' : '') + '" data-entry="' + i + '">'
                 + '<td class="pdb-muted">' + clockTime(e.at) + '</td>'
                 + '<td>' + esc(e.method) + '</td>'
                 + '<td class="pdb-sql">' + esc(e.path) + (e.kind === 'page' ? ' <span class="pdb-muted">(page)</span>' : '') + '</td>'
@@ -468,8 +718,62 @@
             + '<th>Status</th><th>Server</th><th>SQL</th></tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
+    /**
+     * Go and get the detail for any request that reported an exception it could
+     * not describe.
+     *
+     * The count arrived without messages — an error page cannot carry a payload,
+     * so the header said "1 raised" and nothing more. The toolbar already knows
+     * *which* request that was, so making somebody find it in a list and press a
+     * button to ask about it is a step with no decision in it. Opening the tab is
+     * the decision; the fetch follows.
+     *
+     * Only for requests actually missing detail, only once each, and only when
+     * the server offered an endpoint.
+     */
+    function fetchMissingExceptionDetail() {
+        if (!logsUrl) {
+            return;
+        }
+
+        entries.forEach(function (e) {
+            var ex = e.payload ? e.payload.exceptions : null;
+            if (!ex || ex.error) {
+                return;
+            }
+
+            var missing = (typeof ex.count === 'number' ? ex.count : 0) - ((ex.items || []).length);
+            var id = requestIdOf(e);
+            if (missing > 0 && id && !serverLogs[id]) {
+                fetchServerLogs(id, null);
+            }
+        });
+    }
+
     /** Draw one collector's data. */
     function renderTab(key, entry) {
+        if (key === 'exceptions') {
+            fetchMissingExceptionDetail();
+        }
+
+        // Checked before the payload: a stream tab answers for every request
+        // until one is picked, including the requests the selected one is not.
+        if (aggregating() && STREAMS[key]) {
+            return renderStream(key, entry);
+        }
+
+        if (entry && !entry.payload) {
+            // Saying why beats an empty panel: each of these has a different
+            // fix, and this is where somebody looks first.
+            return '<p class="pdb-muted">This response carried no debug data, so '
+                + 'there is nothing to show for it. Either it never reached this '
+                + 'application, or it ended before the debug headers were sent — '
+                + 'an uncaught error, a redirect, a cached or cross-origin '
+                + 'response. The other requests below are still readable, and an '
+                + 'error raised here should appear in <strong>Logs</strong> or '
+                + '<strong>Exceptions</strong>.</p>';
+        }
+
         var data = entry && entry.payload ? entry.payload[key] : null;
         if (!data) {
             return '<p class="pdb-muted">Nothing recorded for this request.</p>';
@@ -485,11 +789,11 @@
             case 'timers':     return renderTimers(data);
             case 'route':      return renderKeyValue(data);
             case 'session':    return renderSession(data);
-            case 'logs':       return renderLogs(data);
+            case 'logs':       return renderLogs(data, entry);
             case 'views':      return renderViews(data);
             case 'models':     return renderModels(data);
             case 'migrations': return renderMigrations(data);
-            case 'exceptions': return renderExceptions(data);
+            case 'exceptions': return renderExceptions(data, entry);
             default:           return '<pre class="pdb-pre">' + esc(JSON.stringify(mask(data), null, 2)) + '</pre>';
         }
     }
@@ -591,17 +895,172 @@
             + rows + '</tbody></table>';
     }
 
-    function renderLogs(data) {
+    /** One log row; `from` adds the request it came from, for the stream view. */
+    function logRow(e, from) {
+        var level = e.level || 'info';
+        var at = e.time ? clockTime(new Date(Number(e.time) * 1000)) : '';
+        return '<tr><td class="pdb-muted">' + esc(at) + '</td>'
+            + '<td class="pdb-level-' + esc(level) + '">' + esc(level) + '</td>'
+            + '<td class="pdb-sql">' + esc(e.message || '') + '</td>'
+            + (from ? '<td class="pdb-muted pdb-sql">' + esc(from.path) + '</td>' : '')
+            + '</tr>';
+    }
+
+    function renderLogs(data, entry) {
         var rows = '';
         (data.entries || []).forEach(function (e) {
-            var level = e.level || 'info';
-            var at = e.time ? clockTime(new Date(Number(e.time) * 1000)) : '';
-            rows += '<tr><td class="pdb-muted">' + esc(at) + '</td>'
-                + '<td class="pdb-level-' + esc(level) + '">' + esc(level) + '</td>'
-                + '<td class="pdb-sql">' + esc(e.message || '') + '</td></tr>';
+            rows += logRow(e, null);
         });
-        return '<table class="pdb-table"><thead><tr><th>Time</th><th>Level</th><th>Message</th></tr>'
-            + '</thead><tbody>' + (rows || '<tr><td colspan="3" class="pdb-muted">No log entries</td></tr>')
+        return logTable(rows, false) + serverLogSection(entry);
+    }
+
+    /** This request's id, if the server named it. */
+    function requestIdOf(entry) {
+        var p = entry && entry.payload ? entry.payload.request : null;
+        return p && p.id ? String(p.id) : null;
+    }
+
+    /**
+     * The server's own log lines for a request — on request.
+     *
+     * The response already carried what the collectors captured. This is for
+     * what it could not: lines written after the payload was built, and every
+     * line of a request that died before it could send one. Fetched rather than
+     * pushed, because most requests never need it and nobody wants their log
+     * duplicated into every response.
+     */
+    function serverLogSection(entry) {
+        if (!logsUrl) {
+            return '';
+        }
+
+        // While nothing is picked, every request that has a name is offerable —
+        // and naming them matters more than it sounds. Asking about "this
+        // request" in the default view asks about the *page*, which is usually
+        // the one that logged nothing, while the call that failed sits two rows
+        // below with a different id. The button now says whose log it fetches.
+        var targets = aggregating()
+            ? entries.filter(function (e) { return requestIdOf(e) !== null; })
+            : (requestIdOf(entry) ? [entry] : []);
+
+        if (!targets.length) {
+            return '';
+        }
+
+        var offers = '';
+        var tables = '';
+
+        targets.forEach(function (target) {
+            var id = requestIdOf(target);
+            var label = target.method + ' ' + target.path;
+            var lines = serverLogs[id];
+
+            if (!lines) {
+                offers += ' <button class="pdb-fetch-logs" data-request="' + escAttr(id) + '">'
+                    + esc(label) + '</button>';
+                return;
+            }
+
+            if (!lines.length) {
+                tables += '<p class="pdb-muted" style="margin-top:8px">The server logged nothing '
+                    + 'for ' + esc(label) + ' (request ' + esc(id) + '). Another request on this '
+                    + 'page may have — each one has its own id.</p>';
+                return;
+            }
+
+            var rows = '';
+            lines.forEach(function (line) {
+                rows += '<tr><td class="pdb-muted">' + esc(line.timestamp || '') + '</td>'
+                    + '<td class="pdb-level-' + esc(line.level || 'info') + '">' + esc(line.level || '') + '</td>'
+                    + '<td class="pdb-sql">' + logMessageHtml(line.message || '') + '</td>'
+                    + '<td class="pdb-muted">' + esc(line.file || '') + '</td></tr>';
+            });
+
+            tables += '<p style="margin-top:8px"><strong>From the server\'s log</strong> — '
+                + lines.length + ' line(s) for ' + esc(label) + '</p>'
+                + '<table class="pdb-table"><thead><tr><th>Time</th><th>Level</th><th>Message</th>'
+                + '<th>File</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        });
+
+        var ask = offers === ''
+            ? ''
+            : '<p style="margin-top:8px" class="pdb-muted">Ask the server for a request\'s own '
+                + 'log lines:' + offers + '</p>';
+
+        return ask + tables;
+    }
+
+    /**
+     * A logged message, with its stack trace folded away.
+     *
+     * Logger stores a multi-line message with its newlines escaped, so a trace
+     * arrives as one 2000-character line reading `…\n#0 /var/www/…\n#1 …`. The
+     * sentence is what identifies the error; the trace is what somebody opens
+     * once they believe it.
+     */
+    function logMessageHtml(message) {
+        var text = String(message).replace(/\\n/g, '\n');
+        var head = text.split('\n')[0];
+        var rest = text.slice(head.length).replace(/^\n/, '');
+
+        if (rest === '') {
+            return esc(head);
+        }
+
+        return esc(head)
+            + '<details><summary style="cursor:pointer;color:#89b4fa">trace</summary>'
+            + '<pre class="pdb-pre" style="white-space:pre-wrap;margin:2px 0 0">'
+            + esc(rest) + '</pre></details>';
+    }
+
+    /**
+     * Ask the endpoint for one request's log lines.
+     *
+     * Through the unwrapped `fetch`: going through the toolbar's own wrapper
+     * would record the act of looking as one more request to look at.
+     */
+    function fetchServerLogs(id, button) {
+        var send = rawFetch || (typeof window.fetch === 'function' ? window.fetch : null);
+        if (!send || !logsUrl || !id || fetching[id]) {
+            return;
+        }
+
+        // render() runs on every recorded request, so an automatic fetch would
+        // otherwise be re-issued a few times a second by a polling page.
+        fetching[id] = true;
+
+        if (button) {
+            button.textContent = 'Asking the server…';
+            button.disabled = true;
+        }
+
+        var url = logsUrl + (logsUrl.indexOf('?') > -1 ? '&' : '?')
+            + 'request=' + encodeURIComponent(id);
+
+        send.call(window, url, { credentials: 'same-origin' }).then(function (response) {
+            return response.json();
+        }).then(function (data) {
+            serverLogs[id] = (data && data.lines) || [];
+            render();
+        }, function () {
+            // The endpoint is off, the grant expired, or the network refused.
+            // Say so on the button rather than leaving it spinning — and let it
+            // be asked again.
+            fetching[id] = false;
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'The server did not answer — try again';
+            }
+        });
+    }
+
+    /** The Logs table, with or without the request column. */
+    function logTable(rows, withSource) {
+        var span = withSource ? 4 : 3;
+        return '<table class="pdb-table"><thead><tr><th>Time</th><th>Level</th><th>Message</th>'
+            + (withSource ? '<th>Request</th>' : '') + '</tr>'
+            + '</thead><tbody>'
+            + (rows || '<tr><td colspan="' + span + '" class="pdb-muted">No log entries</td></tr>')
             + '</tbody></table>';
     }
 
@@ -656,19 +1115,65 @@
             + rows + '</tbody></table>';
     }
 
-    function renderExceptions(data) {
+    /** One exception row; `from` adds the request it came from. */
+    function exceptionRow(item, from) {
+        var kind = item.type === 'php_error' ? 'PHP'
+            : (item.type === 'summary' ? '···' : (item.type === 'server' ? 'LOG' : 'EXC'));
+        // A summary row *is* the request whose detail did not make it back, so
+        // the way to go and get it belongs on that row rather than somewhere
+        // below the table.
+        if (item.type === 'summary' && from && requestIdOf(from) && logsUrl) {
+            item = {
+                type: 'summary',
+                class: item.class,
+                message: item.message,
+                file: item.file,
+                line: item.line,
+                fetch: requestIdOf(from)
+            };
+        }
+        return '<tr><td style="color:#f38ba8;white-space:nowrap">' + kind + '</td>'
+            + '<td style="color:#fab387">' + esc(item.class || '') + '</td>'
+            + '<td>' + esc(item.message || '')
+            + (item.fetch
+                ? ' <button class="pdb-fetch-logs" data-request="' + escAttr(item.fetch) + '">'
+                    + 'Ask the server</button>'
+                : '')
+            + '</td>'
+            + '<td class="pdb-sql">' + esc(item.file || '')
+            + (item.line ? ':' + esc(item.line) : '') + '</td>'
+            + (from ? '<td class="pdb-muted pdb-sql">' + esc(from.path) + '</td>' : '')
+            + '</tr>';
+    }
+
+    function renderExceptions(data, entry) {
         var rows = '';
         (data.items || []).forEach(function (item) {
-            rows += '<tr><td style="color:#f38ba8;white-space:nowrap">'
-                + (item.type === 'php_error' ? 'PHP' : 'EXC') + '</td>'
-                + '<td style="color:#fab387">' + esc(item.class || '') + '</td>'
-                + '<td>' + esc(item.message || '') + '</td>'
-                + '<td class="pdb-sql">' + esc(item.file || '') + ':' + esc(item.line || 0) + '</td></tr>';
+            rows += exceptionRow(item, null);
         });
+
+        // A count with no items came from the `X-Pramnos-Debug` header, which
+        // carries numbers only — messages in a header end up in access logs.
+        // Saying so beats an empty table under a heading that promises rows.
+        if (data.summary_only && !rows) {
+            return '<p><strong>' + (data.count || 0) + ' exception(s) / error(s)</strong> '
+                + 'were raised by this request.</p>'
+                + '<p class="pdb-muted">This response could not carry the details — '
+                + 'only the header summary, which never includes messages. The '
+                + 'application error log has them.</p>'
+                + serverLogSection(entry);
+        }
+
         return '<p><strong>' + (data.count || 0) + ' exception(s) / error(s)</strong></p>'
-            + '<table class="pdb-table"><thead><tr><th>Type</th><th>Class</th><th>Message</th>'
-            + '<th>Location</th></tr></thead><tbody>'
-            + (rows || '<tr><td colspan="4" style="color:#a6e3a1">No exceptions</td></tr>')
+            + exceptionTable(rows, false) + serverLogSection(entry);
+    }
+
+    /** The Exceptions table, with or without the request column. */
+    function exceptionTable(rows, withSource) {
+        var span = withSource ? 5 : 4;
+        return '<table class="pdb-table"><thead><tr><th>Type</th><th>Class</th><th>Message</th>'
+            + '<th>Location</th>' + (withSource ? '<th>Request</th>' : '') + '</tr></thead><tbody>'
+            + (rows || '<tr><td colspan="' + span + '" style="color:#a6e3a1">No exceptions</td></tr>')
             + '</tbody></table>';
     }
 
@@ -698,17 +1203,51 @@
                 return;
             }
 
+            var ask = event.target.closest('.pdb-fetch-logs');
+            if (ask) {
+                event.stopPropagation();
+                fetchServerLogs(ask.dataset.request, ask);
+                return;
+            }
+
+            if (event.target.closest('.pdb-unpick')) {
+                clearPick();
+                return;
+            }
+
             var row = event.target.closest('.pdb-row');
             if (row) {
+                // Clicking the row that is already selected releases it, the way
+                // clicking the open tab closes the panel.
+                if (userPicked && Number(row.dataset.entry) === selected) {
+                    clearPick();
+                    return;
+                }
+                // From here on the selection is theirs: later requests are added
+                // to the list without moving the panel off what they are reading.
+                userPicked = true;
                 selected = Number(row.dataset.entry);
-                // Land on the tab that answers "what did it do", not back on the
-                // list they just chose from.
-                activeTab = 'queries';
+                // The open tab stays open. Switching to SQL on every pick meant
+                // somebody comparing the same tab across two requests had to
+                // navigate back to it each time, and a tab changing under a
+                // click nobody aimed at it reads as the toolbar losing its place.
                 render();
             }
         } catch (e) {
             /* a click handler that throws must not take the page with it */
         }
+    }
+
+    /**
+     * Give the selection back to the toolbar.
+     *
+     * Back to the page's own request (or the newest, in a SPA), with the streams
+     * showing everything again — the state the bar opens in.
+     */
+    function clearPick() {
+        userPicked = false;
+        selected = defaultSelection();
+        render();
     }
 
     /** Put text on the clipboard, and say so on the button. */
@@ -754,6 +1293,11 @@
     function wrapTransports() {
         var nativeFetch = window.fetch;
         if (typeof nativeFetch === 'function') {
+            // Kept for the toolbar's own request to the log endpoint: going
+            // through the wrapper would record the act of looking as one more
+            // request to look at.
+            rawFetch = nativeFetch;
+
             window.fetch = function (input, init) {
                 var started = now();
                 var method = (init && init.method) || (input && input.method) || 'GET';
@@ -793,6 +1337,18 @@
                     xhr.addEventListener('load', function () {
                         try {
                             var payload = fromText(xhr.responseText);
+                            if (!payload) {
+                                // The header is the only channel left when the
+                                // body is not a JSON object — a 204, a redirect,
+                                // an HTML fragment, or an error page where a
+                                // handler took over. The fetch path has always
+                                // read it; this one did not, so a datatable (all
+                                // of which are XHR) reported "—" for every call
+                                // that went wrong.
+                                payload = headerPayload(function (name) {
+                                    return xhr.getResponseHeader(name);
+                                });
+                            }
                             record(xhr.__pdbMethod || 'GET', xhr.__pdbUrl || '', xhr.status,
                                 payload, { ms: Math.round(now() - started) });
                         } catch (e) {
@@ -822,22 +1378,21 @@
      */
     function harvest(method, url, response, ms) {
         try {
-            var header = response.headers && response.headers.get
-                ? response.headers.get('X-Pramnos-Debug')
-                : null;
+            var get = function (name) {
+                return response.headers && response.headers.get
+                    ? response.headers.get(name)
+                    : null;
+            };
 
             response.clone().text().then(function (text) {
-                var payload = fromText(text);
-                if (!payload && header) {
-                    // A 204, a redirect, an HTML fragment or a top-level JSON
-                    // array has nowhere to put a `_debug` key. The header carries
-                    // a summary — never statements, because headers land in access
-                    // logs and every proxy in between.
-                    payload = summaryFromHeader(header);
-                }
+                // A 204, a redirect, an HTML fragment or a top-level JSON array
+                // has nowhere to put a `_debug` key. The headers carry a summary
+                // — never statements, because headers land in access logs and
+                // every proxy in between.
+                var payload = fromText(text) || headerPayload(get);
                 record(method, url, response.status, payload, { ms: ms });
             }, function () {
-                record(method, url, response.status, header ? summaryFromHeader(header) : null, { ms: ms });
+                record(method, url, response.status, headerPayload(get), { ms: ms });
             });
         } catch (e) {
             /* never interfere with the response */
@@ -856,25 +1411,74 @@
         }
     }
 
-    /** Turn the `X-Pramnos-Debug` summary into a payload shape. */
+    /**
+     * Turn the `X-Pramnos-Debug` summary into a payload shape.
+     *
+     * `ApiDebugPayload::summary()` writes a JSON object, so that is what is tried
+     * first. The `k=v;k=v` reading is kept as a fallback for a proxy or a gateway
+     * that rewrites the value — a summary that cannot be read costs the whole row
+     * its numbers, and those rows are the 204s and redirects with no body to
+     * carry anything else.
+     */
     function summaryFromHeader(header) {
         var out = {};
-        String(header).split(';').forEach(function (part) {
-            var pair = part.split('=');
-            if (pair.length === 2) {
-                out[pair[0].trim()] = pair[1].trim();
+        try {
+            var parsed = JSON.parse(header);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                out = parsed;
             }
-        });
+        } catch (e) {
+            String(header).split(';').forEach(function (part) {
+                var pair = part.split('=');
+                if (pair.length === 2) {
+                    out[pair[0].trim()] = pair[1].trim();
+                }
+            });
+        }
 
         var ms = parseFloat(out.time);
         return {
             request: {
                 time: isNaN(ms) ? null : ms,
-                memory: out.memory ? parseFloat(out.memory) : null
+                memory: out.memory ? parseFloat(out.memory) : null,
+                // Without this a request that *died* — the one case the whole
+                // log endpoint exists for — arrives anonymous and cannot be
+                // asked about. The summary is the only thing such a response
+                // gets to send, and the id is in it.
+                id: out.id ? String(out.id) : undefined
             },
             queries: out.queries === undefined ? undefined : { count: Number(out.queries), queries: [] },
-            route: out.route ? { route: out.route } : undefined
+            route: out.route ? { route: out.route } : undefined,
+            // A count with no items: the header never carries messages, and the
+            // Exceptions tab says as much rather than drawing an empty table
+            // under a heading that claims one. Knowing the call raised something
+            // is what sends somebody to the server log.
+            exceptions: out.errors === undefined
+                ? undefined
+                : { count: Number(out.errors), items: [], summary_only: true }
         };
+    }
+
+    /**
+     * A payload built from whatever debug headers a response carries.
+     *
+     * @param {function(string): ?string} get Header reader for this response
+     */
+    function headerPayload(get) {
+        try {
+            var summary = get('X-Pramnos-Debug');
+            if (summary) {
+                return summaryFromHeader(summary);
+            }
+
+            // Server-Timing is the one a proxy is least likely to strip, and it
+            // is present even where the summary header was never sent.
+            var timing = get('Server-Timing');
+            var m = timing ? /(?:^|,)\s*app;dur=([0-9.]+)/.exec(String(timing)) : null;
+            return m ? { request: { time: parseFloat(m[1]), memory: null } } : null;
+        } catch (e) {
+            return null;
+        }
     }
 
     // ── Boot ────────────────────────────────────────────────────────────────

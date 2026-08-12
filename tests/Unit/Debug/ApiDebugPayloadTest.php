@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Debug;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Pramnos\Debug\RequestId;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Debug\ApiDebugPayload;
 use Pramnos\Debug\Collectors\CollectorInterface;
+use Pramnos\Debug\Collectors\ExceptionsCollector;
 use Pramnos\Debug\DebugBar;
 
 /**
@@ -65,6 +67,10 @@ class ApiDebugPayloadTest extends TestCase
 {
     protected function setUp(): void
     {
+        // Request ids are process-wide and change Logger's output shape while
+        // active. A test that activated them must not decide how another test's
+        // log lines are written — which is exactly what happened once.
+        RequestId::reset();
         parent::setUp();
         DebugBar::reset();
         ApiDebugPayload::resetHeaderState();
@@ -72,6 +78,7 @@ class ApiDebugPayloadTest extends TestCase
 
     protected function tearDown(): void
     {
+        RequestId::reset();
         DebugBar::reset();
         ApiDebugPayload::resetHeaderState();
         parent::tearDown();
@@ -276,20 +283,27 @@ class ApiDebugPayloadTest extends TestCase
     }
 
     /**
-     * Errors are counted into the summary.
+     * Errors are counted into the summary — from the shape the real collector
+     * actually emits.
      *
-     * A row in the ajax panel showing a 200 that quietly raised three warnings
-     * is the whole reason to look at a request nobody reported a problem with.
+     * A row in the requests list showing a 200 that quietly raised three
+     * warnings is the whole reason to look at a request nobody reported a
+     * problem with. And when a request dies, the header is the *only* channel
+     * left: an error page is not a JSON object, so it cannot carry a payload.
+     *
+     * This used the real ExceptionsCollector rather than a fake for a reason.
+     * The counting looked for `exceptions` / `errors` keys, which that collector
+     * has never emitted — it reports `count` and `items` — so the summary said
+     * nothing about a request that threw, and a test built on an invented shape
+     * kept saying it did.
      */
     public function testErrorsAreCountedIntoTheSummary(): void
     {
         // Arrange
-        DebugBar::getInstance()->addCollector(new FakeCollector('exceptions', [
-            'exceptions' => [
-                ['message' => 'Undefined array key'],
-                ['message' => 'Deprecated'],
-            ],
-        ]));
+        $collector = new ExceptionsCollector();
+        $collector->record(new \RuntimeException('Undefined array key'));
+        $collector->recordPhpError(E_WARNING, 'Deprecated', '/x.php', 12);
+        DebugBar::getInstance()->addCollector($collector);
 
         // Act
         $summary = json_decode(ApiDebugPayload::summary(), true);
@@ -307,7 +321,7 @@ class ApiDebugPayloadTest extends TestCase
     public function testACleanRequestReportsNoErrorKey(): void
     {
         // Arrange
-        DebugBar::getInstance()->addCollector(new FakeCollector('exceptions', ['exceptions' => []]));
+        DebugBar::getInstance()->addCollector(new ExceptionsCollector());
 
         // Act
         $summary = json_decode(ApiDebugPayload::summary(), true);
