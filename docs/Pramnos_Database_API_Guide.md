@@ -645,6 +645,48 @@ In different contexts, access the database through:
 - **Repositories**: `$this->application->database` (injected via constructor)
 - **Application**: `$this->application->database` (global application instance)
 
+### Which server am I talking to?
+
+`$database->type` holds the *configured* engine — `'mysql'` or `'postgresql'`. It is a
+configuration value, not an observation: **MariaDB is configured as `'mysql'`** and always has
+been, because it speaks MySQL's wire protocol and is reached through the same driver.
+
+Two additive accessors ask the live connection instead of the configuration file:
+
+```php
+$database->getServerVersion(); // raw, e.g. "10.11.6-MariaDB-1:10.11.6+maria~ubu2204"
+$database->isMariaDB();        // true only for a MariaDB server
+```
+
+Both degrade safely: with no live connection `getServerVersion()` returns `''` **without
+opening one**, and `isMariaDB()` answers `false`. The result is cached per connection and
+re-detected by `connect()`.
+
+For anything beyond identity, go through `DatabaseCapabilities` — it turns
+(engine, flavor, version) into "can it?" answers:
+
+```php
+$caps = new \Pramnos\Database\DatabaseCapabilities($database);
+
+$caps->isMySQL();    // true on MySQL *and* MariaDB — "the MySQL family"
+$caps->isMariaDB();  // narrows it to MariaDB specifically
+$caps->getVersion(); // "10.11.6" / "8.0.36" / "14.10" — normalised for version_compare()
+$caps->atLeast('10.5');
+
+$caps->hasSequences();        // PostgreSQL, MariaDB >= 10.3
+$caps->hasReturning();        // PostgreSQL, MariaDB >= 10.5
+$caps->hasNativeJson();       // PostgreSQL, MySQL >= 5.7.8 — *not* MariaDB
+$caps->hasCheckConstraints(); // PostgreSQL, MariaDB >= 10.2, MySQL >= 8.0.16
+```
+
+`hasNativeJson()` is the one worth reading twice: MariaDB accepts the `JSON` keyword, but the
+column is really `LONGTEXT` with a `CHECK (json_valid(...))` constraint — not a distinct type
+and not binary storage. Code that only needs to *store* JSON is fine either way; code that
+relies on the type itself must check.
+
+See the [Schema Builder guide](Pramnos_Schema_Builder_Guide.md#capability-conditional-ddl) for
+the full constant table and capability-conditional DDL.
+
 ## Error Handling
 
 ### Check Query Results

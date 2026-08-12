@@ -128,6 +128,24 @@ class Database extends \Pramnos\Framework\Base
     public $timescale = false;
 
     /**
+     * Raw server version string as reported by the live connection.
+     *
+     * Cached per connection and reset by connect().  `null` means "not looked
+     * up yet"; an empty string is a legitimate cached value meaning "the server
+     * did not tell us" (it is only cached once a connection actually exists).
+     *
+     * @var string|null
+     */
+    protected $serverVersion = null;
+
+    /**
+     * Cached MariaDB flavor flag.  `null` means "not determined yet".
+     *
+     * @var bool|null
+     */
+    protected $isMariaDB = null;
+
+    /**
      * Query log handler (fopen resource)
      * @var resource
      */
@@ -281,6 +299,94 @@ class Database extends \Pramnos\Framework\Base
     public function queryBuilder()
     {
         return new QueryBuilder($this);
+    }
+
+    /**
+     * Raw server version string as reported by the live connection.
+     *
+     * MySQL and MariaDB both connect through mysqli and both report
+     * `type = 'mysql'` in the framework configuration, so the configuration can
+     * never tell the two apart.  The server version string can: MariaDB always
+     * embeds the literal "MariaDB" in it, e.g.
+     * `10.11.6-MariaDB-1:10.11.6+maria~ubu2204` (and, on connections that keep
+     * the legacy replication-compatibility prefix, `5.5.5-10.11.6-MariaDB`).
+     *
+     * Degrades safely: when there is no live connection (an unconnected
+     * `new Database()`, as tests construct) it returns an empty string without
+     * attempting to connect and without caching that answer, so a later call
+     * after connect() still gets the real version.
+     *
+     * @return string Raw version string, or '' when it cannot be determined.
+     */
+    public function getServerVersion(): string
+    {
+        if ($this->serverVersion !== null) {
+            return $this->serverVersion;
+        }
+
+        // No connection: answer "unknown" but do not memoise it — connecting
+        // later must still be able to produce the real version.
+        if (!$this->connected) {
+            return '';
+        }
+
+        $version = '';
+
+        try {
+            $link = $this->getConnectionLink();
+
+            if ($link) {
+                if ($this->type === 'postgresql') {
+                    $info    = @\pg_version($link);
+                    $version = \is_array($info) && isset($info['server'])
+                        ? (string) $info['server']
+                        : '';
+                } elseif (\function_exists('mysqli_get_server_info')) {
+                    $version = (string) @\mysqli_get_server_info($link);
+                }
+            }
+        } catch (\Throwable $ex) {
+            return '';
+        }
+
+        $this->serverVersion = $version;
+
+        return $version;
+    }
+
+    /**
+     * Is the connected server MariaDB rather than Oracle MySQL?
+     *
+     * Detected from the live server version string, never from configuration —
+     * MariaDB installations are configured as `type = 'mysql'` and must stay
+     * that way for backward compatibility.
+     *
+     * Returns false on PostgreSQL and whenever there is no connection to ask,
+     * which is the conservative answer: callers then keep the plain-MySQL
+     * behaviour they have always had.
+     *
+     * @return bool
+     */
+    public function isMariaDB(): bool
+    {
+        if ($this->isMariaDB !== null) {
+            return $this->isMariaDB;
+        }
+
+        if ($this->type !== 'mysql') {
+            return false;
+        }
+
+        $version = $this->getServerVersion();
+
+        if ($version === '') {
+            // Unknown — do not cache, a later connected call must re-check.
+            return false;
+        }
+
+        $this->isMariaDB = \stripos($version, 'mariadb') !== false;
+
+        return $this->isMariaDB;
     }
 
     /**
@@ -660,6 +766,10 @@ class Database extends \Pramnos\Framework\Base
         $this->_writeConnection = null;
         $this->_dbConnection = null;
         $this->preparedStatements = [];
+        // Flavor/version are properties of the *server we are talking to*, so a
+        // new connection (possibly to a different host) must re-detect them.
+        $this->serverVersion = null;
+        $this->isMariaDB = null;
 
         if (\function_exists('error_clear_last')) {
             \error_clear_last();
@@ -947,12 +1057,24 @@ class Database extends \Pramnos\Framework\Base
         return $sql;
     }
 
-    /** Record a query that was served from cache (no DB round-trip). */
-    public function logCacheHit(string $sql): void
+    /**
+     * Record a query that was served from cache (no DB round-trip).
+     *
+     * The bindings are taken too, so a cached statement reads the same as one
+     * that ran. Without them a cache hit showed its template — `WHERE userid =
+     * %i` — which is the one entry in the panel where you most want to know
+     * *which* user, because that is what decided the cache key.
+     *
+     * @param string             $sql      The statement, as compiled
+     * @param array<int, mixed>  $bindings The parameters it would have used
+     */
+    public function logCacheHit(string $sql, array $bindings = []): void
     {
         if ($this->_inMemoryLogEnabled) {
             $this->_inMemoryQueryLog[] = [
-                'sql'        => $sql,
+                'sql'        => $bindings === []
+                    ? $sql
+                    : $this->describeStatement($sql, null, $bindings),
                 'time'       => 0.0,
                 'at'         => microtime(true),
                 'from_cache' => true,
@@ -1489,8 +1611,110 @@ class Database extends \Pramnos\Framework\Base
             - $timeStart[1] - $timeStart[0];
         $this->totalQueryTime += $queryTime;
 
+        // Prepared statements were absent from the in-memory log entirely, and
+        // that log is what the debug toolbar shows — so everything the query
+        // builder runs was invisible there, which is most of what a modern
+        // application runs. Recorded with its parameters filled in, because a
+        // template full of placeholders cannot be read, compared or pasted into
+        // a client.
+        if ($this->_inMemoryLogEnabled) {
+            $this->_inMemoryQueryLog[] = [
+                'sql'        => $this->describeStatement($sql, $stmtData ?? null, $arguments),
+                // Seconds, like every other entry in this log. The collector
+                // that reads it multiplies by 1000, so recording milliseconds
+                // here reported every prepared statement as a thousand times
+                // slower than it was.
+                'time'       => $queryTime,
+                'at'         => microtime(true),
+                'from_cache' => false,
+            ];
+        }
+
         return($obj);
 
+    }
+
+    /**
+     * A prepared statement written out the way it actually ran.
+     *
+     * For display only: the values are quoted well enough to read and to paste
+     * into a client, and nothing is ever executed from this. The statement that
+     * ran was parameterised — that is the whole point of it — so this is a
+     * description of it, not a rebuild.
+     *
+     * @param  mixed      $sql       What the caller passed to execute()
+     * @param  array|null $stmtData  The prepared statement's stored data
+     * @param  array      $arguments The bound parameters
+     * @return string
+     */
+    protected function describeStatement($sql, $stmtData, array $arguments): string
+    {
+        $template = is_string($sql)
+            ? $sql
+            : (is_array($stmtData) && isset($stmtData['query']) ? (string) $stmtData['query'] : '');
+
+        if ($template === '') {
+            return '(prepared statement)';
+        }
+
+        if ($arguments === []) {
+            return $template;
+        }
+
+        $values = array_values($arguments);
+        $index  = 0;
+
+        // Both spellings: the caller's own %d/%s/%i/%f/%b, and the ? or $1 the
+        // driver was given. A quoted literal is skipped, so a '%' inside a
+        // string does not consume a parameter.
+        return (string) preg_replace_callback(
+            "/'(?:''|[^'])*'|\\\$(\\d+)|\\?|%[idsbf]/i",
+            function (array $match) use ($values, &$index): string {
+                if ($match[0][0] === "'") {
+                    return $match[0];
+                }
+
+                // $1-style placeholders name their own parameter.
+                if (isset($match[1]) && $match[1] !== '') {
+                    $value = $values[((int) $match[1]) - 1] ?? null;
+                } else {
+                    $value = $values[$index++] ?? null;
+                }
+
+                return $this->describeValue($value);
+            },
+            $template
+        );
+    }
+
+    /**
+     * One bound value, written for a human.
+     *
+     * @param  mixed $value
+     * @return string
+     */
+    protected function describeValue($value): string
+    {
+        if ($value === null) {
+            return 'NULL';
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        $string = (string) $value;
+
+        // A parameter can hold an entire request body; the log is for reading.
+        if (mb_strlen($string) > 200) {
+            $string = mb_substr($string, 0, 200) . '…';
+        }
+
+        return "'" . str_replace("'", "''", $string) . "'";
     }
 
 
