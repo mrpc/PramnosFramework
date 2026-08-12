@@ -131,12 +131,21 @@ class RedisStreamDriver implements SubscribableDriverInterface
 
         $connection = ($this->factory)();
 
-        // Where each channel's cursor starts. `$` means "only what arrives from
-        // now on" — the right default for a first connection, and exactly the
-        // wrong thing for a reconnect, which is why sinceId exists.
+        // Where each channel's cursor starts.
+        //
+        // Resolved to a real entry id rather than left as `$`, and that is not a
+        // detail. `$` means "whatever is newest *at the moment this read is
+        // issued*", so every read that times out and is re-issued silently skips
+        // anything published in between — this driver would have had the exact
+        // gap it exists to close, once per read timeout, for ever. A live-server
+        // test caught it; the fake could not have.
+        //
+        // A stream with nothing in it resolves to `0-0`, which is correct
+        // precisely because there is no history to replay.
         $cursors = [];
         foreach ($channels as $channel) {
-            $cursors[$this->key($channel)] = $options->sinceId ?? '$';
+            $key = $this->key($channel);
+            $cursors[$key] = $options->sinceId ?? $this->latestId($connection, $key);
         }
 
         try {
@@ -206,6 +215,30 @@ class RedisStreamDriver implements SubscribableDriverInterface
         }
 
         return true;
+    }
+
+    /**
+     * The id of the last entry in a stream, or `0-0` when it has none.
+     *
+     * This is what "start from now" has to mean for a loop that re-reads: a
+     * fixed point, so the next read continues from where the last one stopped
+     * instead of from a new "now" with a gap in front of it.
+     *
+     * @param object $connection Live Redis
+     * @param string $key        Stream key
+     */
+    private function latestId(object $connection, string $key): string
+    {
+        try {
+            $last = $connection->xRevRange($key, '+', '-', 1);
+            if (is_array($last) && $last !== []) {
+                return (string) array_key_first($last);
+            }
+        } catch (\Throwable $e) {
+            // A stream that cannot be inspected is one with nothing to replay.
+        }
+
+        return '0-0';
     }
 
     /**
