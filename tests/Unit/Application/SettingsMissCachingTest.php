@@ -63,20 +63,29 @@ class SettingsMissCachingTest extends TestCase
      */
     private function installDatabase(): void
     {
+        // Settings goes through the query builder, so the methods to intercept
+        // are the ones the builder calls — execute() and the SQL cache — rather
+        // than query()/prepareQuery(). The builder itself is real: what these
+        // tests count is how many statements reach the database, and a fake
+        // builder would be counting its own behaviour instead.
         $db = $this->getMockBuilder(Database::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['query', 'prepareQuery'])
+            ->onlyMethods(['execute', 'cacheRead', 'cacheStore', 'shouldCacheResult', 'logCacheHit'])
             ->getMock();
 
-        $db->method('prepareQuery')->willReturnCallback(
-            static fn(string $sql, ...$args): string => $sql . '|' . implode('|', $args)
-        );
+        $db->type   = 'mysql';
+        $db->prefix = '';
 
-        $db->method('query')->willReturnCallback(function (string $sql) {
+        // No SQL cache in these tests: a cache hit would hide the very thing
+        // being counted.
+        $db->method('cacheRead')->willReturn(false);
+        $db->method('shouldCacheResult')->willReturn(false);
+
+        $db->method('execute')->willReturnCallback(function (string $sql, ...$bindings) {
             $this->queries++;
 
-            // The bulk read: every row at once.
-            if (!str_contains($sql, 'where')) {
+            // The bulk read has no WHERE; a per-key read binds the key.
+            if (!str_contains(strtolower($sql), 'where')) {
                 return $this->fakeResult(array_map(
                     static fn($k, $v) => ['setting' => $k, 'value' => $v],
                     array_keys($this->rows),
@@ -84,8 +93,7 @@ class SettingsMissCachingTest extends TestCase
                 ));
             }
 
-            // A per-key read: the key is the last thing prepareQuery appended.
-            $key  = substr($sql, strrpos($sql, '|') + 1);
+            $key  = (string) ($bindings[0] ?? '');
             $rows = isset($this->rows[$key])
                 ? [['value' => $this->rows[$key]]]
                 : [];
@@ -117,6 +125,23 @@ class SettingsMissCachingTest extends TestCase
 
             /** @var array<string, mixed> */
             public $fields;
+
+            // Written back by QueryBuilder::get() when it caches a result.
+            // Declared rather than created on the fly: PHP 8.2 deprecates
+            // dynamic properties, and the deprecation notice is noise in a test
+            // that is counting queries.
+
+            /** @var list<array<string, mixed>>|null */
+            public $result = null;
+
+            /** @var bool */
+            public $isCached = false;
+
+            /** @var int */
+            public $cursor = 0;
+
+            /** @var bool */
+            public $eof = true;
 
             /** @return list<array<string, mixed>> */
             public function fetchAll(): array
@@ -241,21 +266,28 @@ class SettingsMissCachingTest extends TestCase
      */
     public function testBothReadsUseTheSameCacheLifetime(): void
     {
-        // Arrange
+        // Arrange — the TTL now reaches the SQL cache through the query
+        // builder, so it is cacheRead() that reports which lifetime was asked
+        // for. Every read misses, so both statements actually run.
         $ttls = [];
         $db = $this->getMockBuilder(Database::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['query', 'prepareQuery'])
+            ->onlyMethods(['execute', 'cacheRead', 'cacheStore', 'shouldCacheResult', 'logCacheHit'])
             ->getMock();
-        $db->method('prepareQuery')->willReturnCallback(
-            static fn(string $sql, ...$args): string => $sql . '|' . implode('|', $args)
-        );
-        $db->method('query')->willReturnCallback(
-            function (string $sql, $cache = false, $ttl = 0) use (&$ttls) {
-                $ttls[] = $ttl;
-                return $this->fakeResult([]);
+
+        $db->type   = 'mysql';
+        $db->prefix = '';
+
+        $db->method('cacheRead')->willReturn(false);
+        $db->method('shouldCacheResult')->willReturn(true);
+        $db->method('cacheStore')->willReturnCallback(
+            function ($key, $data, $category = '', $ttl = 0) use (&$ttls): bool {
+                $ttls[] = (int) $ttl;
+                return true;
             }
         );
+        $db->method('execute')->willReturnCallback(fn(): object => $this->fakeResult([]));
+
         (new \ReflectionClass(Settings::class))
             ->getProperty('database')->setValue(null, $db);
 
