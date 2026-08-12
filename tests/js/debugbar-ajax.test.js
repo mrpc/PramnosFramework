@@ -1094,4 +1094,61 @@ describe('the server-rendered toolbar', () => {
         // Assert
         assert.match(dom.byId['pdb-info'].innerHTML, /\/api\/interesting/);
     });
+
+    /**
+     * The request id is copyable without spending a column on it.
+     *
+     * It is sixteen characters of noise that somebody reads once in their life —
+     * when pasting it into a bug report or a log search. A permanent column
+     * would give a sixth of a narrow table to that moment.
+     */
+    test('a request with an id offers to copy it, without a column', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200,
+            body: body({ request: { time: 5, id: 'ffee0011aabb2233' } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act
+        await sandbox.fetch('/api/thing');
+        await settle();
+        openTab(dom, 'requests');
+
+        // Assert — a copy button carrying the id, and no column heading for it
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /data-copy="ffee0011aabb2233"/);
+        assert.equal(html.includes('<th>Request id</th>'), false);
+    });
+
+    /**
+     * A request the server never named — production, or a response that carried
+     * nothing — offers nothing to copy, rather than an empty button.
+     */
+    test('a request with no id offers no copy button', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island() });
+        openTab(dom, 'requests');
+
+        // Assert
+        assert.equal(dom.byId['pdb-panel'].innerHTML.includes('pdb-id-copy'), false);
+    });
+
+    /**
+     * A server-rendered page links to the DevPanel; a SPA does not.
+     *
+     * The DevPanel is a page behind MVC routing — a controller, a layout, an
+     * admin session. A SPA has none of that: its shell is a static file, its
+     * server speaks JSON, and `/devpanel` is a 404 there. The data island is the
+     * exact test rather than a guess, because an island exists only for a page
+     * the middleware rendered, and that middleware is the pipeline the DevPanel
+     * lives in.
+     */
+    test('the DevPanel link is drawn for a page that came from the MVC pipeline', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island() });
+
+        // Assert
+        assert.match(dom.byId['pramnos-debugbar'].innerHTML, /pdb-devpanel/);
+    });
 });

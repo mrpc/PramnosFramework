@@ -414,4 +414,221 @@ describe('SPA toolbar module', () => {
         });
         assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none', 'hiding still works');
     });
+
+    /**
+     * Signing in changes the Auth tab, without a page refresh.
+     *
+     * Reported from the browser: after authenticating in a SPA, the tab still
+     * said "anonymous" and only a refresh appeared to fix it. Auth is a state,
+     * not a property of a request — the call made before signing in is over, and
+     * what a reader wants is who they are now.
+     */
+    test('the Auth tab follows the login rather than the selected request', async () => {
+        // Arrange — a call made while anonymous
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/status', 200, payload({
+            extraKeys: { auth: { user: { authenticated: false }, credential: 'none', source: '', token: null } },
+        }));
+
+        openTab(dom, 'auth');
+        assert.match(dom.byId['pdb-panel'].innerHTML, /Anonymous/);
+
+        // Act — the user signs in, and the next call carries a token
+        record('POST', '/api/1.0/account/login', 200, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: true, userid: 42, username: 'alice', usertype: 90 },
+                    credential: 'accessToken',
+                    source: 'accessToken header',
+                    token: { format: 'jwt', claims: { sub: 'u42' }, expires_at: Math.floor(Date.now() / 1000) + 900 },
+                },
+            },
+        }));
+
+        // Assert — without touching anything else
+        openTab(dom, 'auth');
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /alice/);
+        assert.match(html, /accessToken/);
+        assert.equal(html.includes('Anonymous'), false);
+    });
+
+    /**
+     * An expired credential is counted down to, and says when it ran out.
+     *
+     * The countdown is from the token's own absolute expiry rather than from a
+     * "seconds remaining" computed on the server: the response may have been
+     * sitting in the browser for a while before anybody opened the tab.
+     */
+    test('the Auth tab counts down, and says so when the credential has expired', async () => {
+        // Arrange — a token that ran out a minute ago
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/things', 401, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: false },
+                    credential: 'accessToken',
+                    source: 'Authorization: Bearer',
+                    token: { format: 'jwt', claims: {}, expires_at: Math.floor(Date.now() / 1000) - 60 },
+                },
+            },
+        }));
+
+        // Act
+        openTab(dom, 'auth');
+
+        // Assert
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /Expired/);
+        assert.match(html, /ago/);
+        // And the tab itself is drawn as an alarm, so a reader does not have to
+        // open it to find out why four calls were refused
+        assert.match(dom.byId['pdb-tabs'].innerHTML, /pdb-tab-alert/);
+    });
+
+    /**
+     * A credential with time left says how much, in something a person reads
+     * without counting zeros.
+     */
+    test('a valid credential shows how long it has left', async () => {
+        // Arrange — twenty-five minutes
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/things', 200, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: true, userid: 7, username: 'bob', usertype: 10 },
+                    credential: 'accessToken',
+                    source: 'accessToken header',
+                    token: { format: 'jwt', claims: { sub: 'u7' }, expires_at: Math.floor(Date.now() / 1000) + 1500 },
+                },
+            },
+        }));
+
+        // Act
+        openTab(dom, 'auth');
+
+        // Assert
+        assert.match(dom.byId['pdb-panel'].innerHTML, /Valid for another <strong>2[45]m/);
+    });
+
+    /**
+     * An opaque credential is reported as such rather than as an empty claims
+     * table — a random string looked up in a table is a perfectly good token.
+     */
+    test('an opaque token says there is nothing inside it', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/things', 200, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: true, userid: 3, username: 'carol', usertype: 1 },
+                    credential: 'accessToken',
+                    source: 'accessToken header',
+                    token: { format: 'opaque' },
+                },
+            },
+        }));
+
+        // Act
+        openTab(dom, 'auth');
+
+        // Assert
+        assert.match(dom.byId['pdb-panel'].innerHTML, /nothing inside it/);
+    });
+
+    /**
+     * A SPA gets no DevPanel link, because there is no DevPanel behind it.
+     *
+     * It is a server-rendered page requiring MVC routing and an admin session;
+     * a SPA project's server answers JSON and `/devpanel` is a 404. A link to
+     * nothing is worse than no link — it reads as a feature that is broken
+     * rather than one that is not there.
+     */
+    test('no DevPanel link is offered in a SPA', async () => {
+        // Arrange & Act
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/status', 200, payload());
+
+        // Assert
+        assert.equal(dom.byId['pramnos-debugbar'].innerHTML.includes('pdb-devpanel'), false);
+    });
+
+    /**
+     * A login reports the identity it *created*, not the anonymous one it was
+     * made with — and describes the token it just handed out.
+     *
+     * `/account/login` carries no credential: the token is issued *by* that
+     * call. Reporting the state it arrived in meant the panel said "anonymous"
+     * at the exact moment somebody signed in, and only caught up on the next
+     * request — which for a SPA that takes the user from the login response may
+     * never come.
+     */
+    test('a login shows who signed in, and how long the new token lasts', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+
+        // Act — the login response, as the server now reports it
+        record('POST', '/api/1.0/account/login', 200, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: true, userid: 2, username: 'admin', usertype: 90 },
+                    credential: 'password',
+                    source: 'this request signed in',
+                    token: {
+                        format: 'jwt',
+                        claims: { iss: 'http://localhost/api/' },
+                        expires_at: Math.floor(Date.now() / 1000) + 3600,
+                    },
+                },
+            },
+        }));
+
+        // Assert — without a refresh, and with the countdown
+        openTab(dom, 'auth');
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /admin/);
+        assert.match(html, /password/);
+        assert.match(html, /Valid for another/);
+    });
+
+    /**
+     * A logout reports the state it leaves behind.
+     *
+     * The call itself is authenticated — it has to be, to revoke anything — so
+     * reporting the state it arrived in showed "signed in as admin" immediately
+     * after signing out, which reads as a logout that did not work.
+     */
+    test('a logout shows that nobody is signed in any more', async () => {
+        // Arrange — signed in first
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/me', 200, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: true, userid: 2, username: 'admin', usertype: 90 },
+                    credential: 'accessToken',
+                    source: 'accessToken header',
+                    token: { format: 'jwt', claims: {}, expires_at: Math.floor(Date.now() / 1000) + 3600 },
+                },
+            },
+        }));
+
+        // Act
+        record('POST', '/api/1.0/account/logout', 200, payload({
+            extraKeys: {
+                auth: {
+                    user: { authenticated: false },
+                    credential: 'none',
+                    source: 'this request signed out',
+                    token: null,
+                },
+            },
+        }));
+
+        // Assert
+        openTab(dom, 'auth');
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /Anonymous/);
+        assert.match(html, /signed out/);
+        assert.equal(html.includes('Valid for another'), false, 'no countdown for a credential that is gone');
+    });
 });
