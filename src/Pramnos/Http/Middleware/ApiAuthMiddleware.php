@@ -36,8 +36,14 @@ use Pramnos\Http\Request;
  * ## Session side-effects
  *
  * When a valid `HTTP_ACCESSTOKEN` JWT is presented, the middleware sets:
- * - `$_SESSION['logged'] = true`
- * - `$_SESSION['user']   = <User instance>`
+ * - `Application::$currentUser` — the identity of *this request*, and nothing
+ *   longer-lived. {@see \Pramnos\User\User::getCurrentUser()} reads it first.
+ *
+ * It deliberately writes **no session**. An application that serves a website
+ * and an API from one origin shares a session cookie between them, so an API
+ * call authenticated as one user used to change who the browser's next page
+ * belonged to — and an anonymous API call used to sign the browser out, because
+ * the anonymous branch destroyed the session instead of ignoring it.
  *
  * This mirrors the behaviour of `Api::exec()` so that controllers reading
  * the session work the same way.
@@ -111,10 +117,18 @@ class ApiAuthMiddleware implements MiddlewareInterface
 
             $user->loadByToken($tkn);
             if ($user->userid > 1) {
-                $_SESSION['logged'] = true;
-                $_SESSION['user']   = $user;
+                // The identity of *this request*, and nowhere else.
+                //
+                // This used to write $_SESSION['logged'] and ['user'], which in
+                // an application serving both a website and an API from one
+                // origin is a cross-wire: the two share a session cookie, so an
+                // API call authenticated as one user changed who the browser's
+                // next page belonged to. User::getCurrentUser() now reads this
+                // first, so a token identifies its own request without touching
+                // anything the website relies on.
+                $this->setRequestUser($user);
             } else {
-                $_SESSION['user'] = null;
+                $this->setRequestUser(null);
                 return $this->error(403, 'InvalidAccessToken', 'Invalid Access Token.');
             }
 
@@ -124,15 +138,23 @@ class ApiAuthMiddleware implements MiddlewareInterface
             if (isset($_SESSION['logged'], $_SESSION['auth'], $_SESSION['uid'])
                 && $_SESSION['logged'] === true
                 && $_SESSION['auth'] === $_SERVER['HTTP_USERAUTH']) {
-                $user = $this->resolveUser($_SESSION['uid']);
-                $_SESSION['user'] = $user;
+                // Reads the session — that is what this deprecated header is —
+                // but still publishes the result as the request's identity
+                // rather than writing back into it.
+                $this->setRequestUser($this->resolveUser($_SESSION['uid']), 'userAuth');
             }
         } else {
-            // No access token (and no legacy user-auth) presented. The REST API is
-            // stateless: a request without a token is ANONYMOUS. Clear any ambient
-            // session identity (e.g. a same-domain web-login cookie) so it can never
-            // authenticate an API call — only a valid accessToken does.
-            unset($_SESSION['user'], $_SESSION['logged'], $_SESSION['uid']);
+            // No access token (and no legacy user-auth) presented. The REST API
+            // is stateless: a request without a token is ANONYMOUS, and a
+            // same-domain web-login cookie must never authenticate it.
+            //
+            // That is achieved by leaving this request without an identity —
+            // *not* by destroying the session, which is what used to happen. In
+            // an application that serves a website from the same origin, a
+            // single anonymous API call (a widget polling, an unauthenticated
+            // status check) signed the user out of the website. The session is
+            // the browser's; the API only declines to read it.
+            $this->setRequestUser(null);
         }
 
         return $next($request);
@@ -213,4 +235,28 @@ class ApiAuthMiddleware implements MiddlewareInterface
             default => 'Error',
         };
     }
+    /**
+     * Publish the identity of this request.
+     *
+     * Request-scoped by design: `Application::$currentUser` lives as long as the
+     * request does, so nothing here outlives the call it describes.
+     *
+     * @param mixed $user A User instance, or null for anonymous
+     */
+    protected function setRequestUser(mixed $user, string $via = 'accessToken'): void
+    {
+        $user = is_object($user) ? $user : null;
+
+        // Sealed, not merely set. Setting says "this is the user"; sealing also
+        // says "and no cookie may answer instead" — which is the part that makes
+        // an anonymous API call anonymous even when the same browser is signed
+        // in to the website on the same domain.
+        \Pramnos\Http\RequestIdentity::seal($user, $via);
+
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = $user;
+        }
+    }
+
 }

@@ -732,10 +732,10 @@ class UserAPI extends \Pramnos\Application\Controller
      */
     public function display()
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) $user->userid < 2) {
             return array('status' => 401);
         }
-        $user = $_SESSION['user'];
         if ($user->userid < 2) {
             return array('status' => 401);
         }
@@ -775,10 +775,10 @@ class UserAPI extends \Pramnos\Application\Controller
      */
     public function readUser($userid)
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) $user->userid < 2) {
             return array('status' => 401);
         }
-        $user = $_SESSION['user'];
         if ($user->userid < 2) {
             return array('status' => 401);
         }
@@ -808,10 +808,10 @@ class UserAPI extends \Pramnos\Application\Controller
      */
     public function createUser()
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) $user->userid < 2) {
             return array('status' => 401);
         }
-        $user = $_SESSION['user'];
         
         $model = new \MyApp\Models\User($this);
 
@@ -840,10 +840,10 @@ class UserAPI extends \Pramnos\Application\Controller
      */
     public function updateUser($userid)
     {
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) $user->userid < 2) {
             return array('status' => 401);
         }
-        $user = $_SESSION['user'];
         
         $model = new \MyApp\Models\User($this);
         $model->load((int) $userid);

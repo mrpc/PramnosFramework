@@ -206,21 +206,64 @@ try {
 ### API Authentication with JWT
 
 ```php
-// In API controllers, JWT is automatically handled
+// In API controllers, JWT is validated by the auth middleware before the
+// controller runs. Ask who the request is — never read $_SESSION.
 class ApiController extends \Pramnos\Application\Controller
 {
     public function secureEndpoint()
     {
-        // JWT token is validated automatically if present in HTTP_ACCESSTOKEN header
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) $user->userid < 2) {
             return ['status' => 401, 'message' => 'Authentication required'];
         }
-        
-        $user = $_SESSION['user'];
+
         return ['status' => 200, 'data' => 'Protected data for user ' . $user->userid];
     }
 }
 ```
+
+!!! warning "Do not read `$_SESSION` in an API controller"
+    An application that serves a website and an API from one origin shares a
+    session cookie between them. `$_SESSION['user']` therefore answers with
+    *whoever is signed in to the website*, which is not the caller — a request
+    that presented no credential at all would be authenticated, and `logout`
+    could not work, because revoking the token would leave the cookie answering.
+
+    `User::getCurrentUser()` asks the request instead: an API request seals its
+    own identity (see below), and a sealed answer — including "nobody" — stops
+    the session being consulted at all.
+
+### Where a request's identity comes from
+
+The framework keeps two ideas apart, and the separation is what makes a hybrid
+application safe:
+
+| | website | API |
+|---|---|---|
+| credential | session cookie | token on the call |
+| established by | login, stored in the session | auth middleware, per request |
+| read with | `User::getCurrentUser()` | `User::getCurrentUser()` |
+| may write the session | yes | **no** |
+
+`Pramnos\Http\RequestIdentity` is how a middleware says "this call is user X, or
+nobody, and nothing else may answer":
+
+```php
+RequestIdentity::seal($user, 'accessToken');   // this request is $user
+RequestIdentity::seal(null);                   // this request is anonymous
+```
+
+Both `ApiAuthMiddleware` and `UnifiedAuthMiddleware` do this for you. Sealing is
+request-scoped and writes nothing that outlives the call, so an API request can
+never change who the browser's next page belongs to — and an anonymous API call
+can never sign the browser out, which is what used to happen when the API
+"cleared" the ambient session to protect itself.
+
+**An API that genuinely needs both** — an authserver whose own web UI calls its
+own endpoints — should use `UnifiedAuthMiddleware`, which accepts a Bearer token
+*or* a session cookie **plus an `X-CSRF-Token` header**. The CSRF token is not
+optional there: a cookie is sent by the browser automatically, so without it any
+site could make authenticated calls on the user's behalf.
 
 ## Token Management
 
@@ -534,12 +577,13 @@ class ApiController extends \Pramnos\Application\Controller
     
     public function list()
     {
-        // Check if user is authenticated via JWT or session
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
+        // Who this request is — established by whatever authenticated it, and
+        // not by a session cookie the caller never meant as a credential.
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) $user->userid < 2) {
             return ['status' => 401, 'error' => 'Authentication required'];
         }
-        
-        $user = $_SESSION['user'];
+
         // Return data specific to the authenticated user
         return ['status' => 200, 'data' => $this->getUserData($user->userid)];
     }
@@ -564,6 +608,24 @@ Tracks failed login attempts per scope+identifier pair. Three scopes are support
 | 10+ | 3600 s (1 hour) |
 
 A **sliding window** of 900 seconds applies: if the gap between the previous failure and the current attempt exceeds the window, the counter resets to 1. This prevents indefinite accumulation from past brute-force campaigns.
+
+#### Lifting a lockout while developing
+
+The lockout is doing its job when it locks somebody out — and that is no help
+when you have mistyped a fixture password three times and cannot test the login
+flow you are working on:
+
+```bash
+php pramnos auth:unlock admin                # this identifier, every scope
+php pramnos auth:unlock 2 --scope=user       # by user id
+php pramnos auth:unlock --list               # who is locked, and for how long
+php pramnos auth:unlock --all                # everything (development only)
+```
+
+It clears the failure counter and nothing else — a wrong password is still a
+wrong password afterwards. `--all` refuses to run outside development: "clear
+every lockout on this server" is precisely what somebody working through a
+password list would want.
 
 #### Usage
 

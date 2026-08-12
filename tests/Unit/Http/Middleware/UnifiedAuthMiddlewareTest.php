@@ -501,12 +501,19 @@ class UnifiedAuthMiddlewareTest extends TestCase
             // Act
             $result = $mw->handle($this->request, $this->nextOk());
 
-            // Assert — pipeline continued and the session was authenticated
+            // Assert — pipeline continued and the request has an identity.
+            //
+            // The identity, not the session. A bearer token authenticates the
+            // call it arrived on; writing the session would make it authenticate
+            // the browser's next page too, in any application serving a website
+            // from the same origin.
             $this->assertSame('OK', $result,
                 'A valid Bearer token backed by an active DB row must pass');
-            $this->assertTrue($_SESSION['logged'] ?? false);
-            $this->assertSame(661, (int) ($_SESSION['user']->userid ?? 0),
-                'The matched user must be stored in the session');
+            $this->assertSame('bearer', \Pramnos\Http\RequestIdentity::via());
+            $this->assertSame(661, (int) (\Pramnos\Http\RequestIdentity::user()->userid ?? 0),
+                'The matched user must be this request\'s identity');
+            $this->assertArrayNotHasKey('logged', $_SESSION,
+                'a token must not sign the browser in');
         } finally {
             // Cleanup — remove the rows and session state we created
             $db->query("DELETE FROM `usertokens` WHERE `userid` = 661");

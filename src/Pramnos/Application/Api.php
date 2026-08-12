@@ -175,9 +175,17 @@ class Api extends Application
     {
         $doc = &\Pramnos\Framework\Factory::getDocument('raw');
 
+        // Who this request is, from whatever authenticated it — a token for an
+        // API call, a cookie for a page. Reading $_SESSION here would let a
+        // browser's website login answer for an API call that presented no
+        // credential of its own, in any application serving both from one
+        // origin.
+        $currentUser = \Pramnos\User\User::getCurrentUser();
+        $currentUser = is_object($currentUser) ? $currentUser : null;
+
         $userdata = [];
-        $userdata['username'] = ($_SESSION['user'] ?? null)?->username ?? 'guest';
-        $userdata['userid']   = ($_SESSION['user'] ?? null)?->userid ?? null;
+        $userdata['username'] = $currentUser?->username ?? 'guest';
+        $userdata['userid']   = $currentUser?->userid ?? null;
 
         try {
             $this->database->setTrackingInfo(

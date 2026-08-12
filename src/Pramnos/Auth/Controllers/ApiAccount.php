@@ -151,13 +151,34 @@ class ApiAccount extends Controller
      */
     protected function tokenResponse(User $user): mixed
     {
+        // This request *did* authenticate somebody — with a password rather than
+        // a token, which is the only reason it did not look like it. Saying so
+        // is what lets the debug toolbar show the login at the moment it
+        // happens, instead of only on whatever call comes next; and it means
+        // anything reading the current user during this response (activity logs,
+        // tracking) sees who it was for.
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = $user;
+        }
+
         $token = $this->issueToken($user);
         if ($token === null) {
+            \Pramnos\Http\RequestIdentity::seal($user, 'password');
+
             return Response::json(
                 ['error' => 'token_unavailable', 'error_description' => 'The API signing key is not configured.'],
                 500
             );
         }
+
+        // Sealed after the token exists, so the toolbar can describe what was
+        // just issued — how long it lasts, and what is in it — at the moment it
+        // is handed over. Before this, a login showed "signed in" and the expiry
+        // only appeared on the next request, which is the one moment nobody is
+        // looking. The token's *value* still never enters the payload; the
+        // response beside it already carries that to the client that asked.
+        \Pramnos\Http\RequestIdentity::seal($user, 'password', $token);
 
         return Response::json([
             'status'       => 'success',
@@ -203,6 +224,20 @@ class ApiAccount extends Controller
         $token = \Pramnos\Http\Request::accessToken();
         if ($token !== null) {
             $this->revokeToken($token);
+        }
+
+        // This request arrived authenticated and leaves nobody behind it, and
+        // the second half is the part worth reporting: the toolbar's Auth tab
+        // describes the state as it stands, so a logout that still said
+        // "signed in as admin" — true of the call, false of everything after it
+        // — read as a logout that had not worked.
+        //
+        // Symmetric with login(), which reports the identity it *created* rather
+        // than the anonymous one it was made with.
+        \Pramnos\Http\RequestIdentity::seal(null, 'signed-out');
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = null;
         }
 
         return Response::json(['status' => 'ok']);
