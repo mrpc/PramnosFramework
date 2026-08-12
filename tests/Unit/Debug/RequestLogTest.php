@@ -245,6 +245,140 @@ class RequestLogTest extends TestCase
         $this->assertSame([], RequestLog::forRequest($unused));
     }
 
+
+    /**
+     * A line belonging to another request, in the same file, is stepped over.
+     *
+     * The cheap `strpos` rejection before the JSON decode is what makes reading
+     * a busy log affordable, and it has to reject rather than mis-attribute:
+     * most lines in a shared file belong to somebody else's request.
+     */
+    public function testLinesFromOtherRequestsAreSkippedNotDecoded(): void
+    {
+        // Arrange — one line of ours between two of theirs
+        $file = 'reqlog-test-skip';
+        RequestId::activate();
+        $theirs = RequestId::current();
+        Logger::log('theirs: before', $file);
+
+        RequestId::reset();
+        RequestId::activate();
+        $mine = RequestId::current();
+        Logger::log('mine', $file);
+
+        RequestId::reset();
+        RequestId::activate();
+        Logger::log('theirs: after', $file);
+
+        // Act
+        $lines = RequestLog::forRequest($mine);
+
+        // Assert
+        $this->assertCount(1, $lines);
+        $this->assertSame('mine', $lines[0]['message']);
+        $this->assertNotSame($mine, $theirs);
+    }
+
+    /**
+     * The cap is honoured, so one request that logged thousands of lines cannot
+     * turn a debugging aid into a response nobody can render.
+     */
+    public function testTheNumberOfLinesReturnedIsCapped(): void
+    {
+        // Arrange
+        $file = 'reqlog-test-cap';
+        RequestId::activate();
+        $id = RequestId::current();
+        for ($i = 0; $i < 12; $i++) {
+            Logger::log('line ' . $i, $file);
+        }
+
+        // Act
+        $lines = RequestLog::forRequest($id, 5);
+
+        // Assert
+        $this->assertCount(5, $lines);
+        $this->assertSame('line 0', $lines[0]['message'], 'oldest first, cut at the end');
+    }
+
+    /**
+     * A log larger than the tail window is read from its end.
+     *
+     * The request being asked about has just happened, so its lines are at the
+     * end of the file. Reading a 400MB log from the front to find eight lines
+     * written a second ago is how a debugging aid becomes an outage — and the
+     * first line of the window is dropped on purpose, because it is almost
+     * certainly cut in half.
+     */
+    public function testOnlyTheTailOfALargeFileIsRead(): void
+    {
+        // Arrange — an ancient line, then 2MB of other traffic on top of it
+        $file = 'reqlog-test-tail';
+        $path = $this->logPath($file);
+        file_put_contents(
+            $path,
+            '{"timestamp":"x","message":"ancient","request":"0000000000000000"}' . "\n"
+            . str_repeat('{"timestamp":"x","message":"filler","request":"1111111111111111"}' . "\n", 40000)
+        );
+        $this->assertGreaterThan(2097152, (int) filesize($path), 'the file exceeds the tail window');
+
+        RequestId::activate();
+        $id = RequestId::current();
+        Logger::log('at the very end', $file);
+
+        // Act & Assert — a request that has just happened is found
+        $lines = RequestLog::forRequest($id);
+        $this->assertCount(1, $lines);
+        $this->assertSame('at the very end', $lines[0]['message']);
+
+        // And one whose line is older than the window is not — the honest
+        // answer, rather than a slow one. Anything older than a couple of
+        // megabytes of traffic is not what somebody is debugging right now.
+        $this->assertSame([], RequestLog::forRequest('0000000000000000'));
+    }
+
+    /**
+     * An empty log file contributes nothing and raises nothing.
+     */
+    public function testAnEmptyLogFileIsHarmless(): void
+    {
+        // Arrange
+        touch($this->logPath('reqlog-test-empty'));
+        RequestId::activate();
+
+        // Act & Assert
+        $this->assertSame([], RequestLog::forRequest(RequestId::current()));
+    }
+
+
+    /**
+     * A line that merely *mentions* an id is not a line belonging to it.
+     *
+     * The cheap `strpos` rejection exists so a busy log is affordable to scan,
+     * but it cannot be the decision: an application that logs "retrying request
+     * abc123…" would otherwise have that line handed to whoever asks about
+     * abc123, attributing somebody else's work to them. The decode settles it.
+     */
+    public function testALineThatOnlyMentionsAnIdDoesNotBelongToIt(): void
+    {
+        // Arrange — request A logs a message containing request B's id
+        $file = 'reqlog-test-mention';
+        RequestId::activate();
+        $wanted = RequestId::current();
+        Logger::log('genuinely mine', $file);
+
+        RequestId::reset();
+        RequestId::activate();
+        Logger::log('gave up waiting for ' . $wanted, $file);
+
+        // Act
+        $lines = RequestLog::forRequest($wanted);
+
+        // Assert — only the line the request actually wrote
+        $this->assertCount(1, $lines);
+        $this->assertSame('genuinely mine', $lines[0]['message']);
+    }
+
     /**
      * The full path of a log file for this test.
      */

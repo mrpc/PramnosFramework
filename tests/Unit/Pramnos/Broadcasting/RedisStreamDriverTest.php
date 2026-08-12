@@ -272,4 +272,182 @@ class RedisStreamDriverTest extends TestCase
         // Act
         $driver->subscribe([], static fn (): bool => true);
     }
+
+    /**
+     * The driver names itself, so a manager can tell which backplane is in use.
+     *
+     * `redis` and `redis-stream` differ in exactly the property that matters —
+     * whether an event survives having no subscriber — so telling them apart in
+     * a log line or a config dump is not cosmetic.
+     */
+    public function testItNamesItselfDistinctlyFromPubSub(): void
+    {
+        // Arrange & Act
+        $driver = new RedisStreamDriver([], static fn (): object => new FakeRedisStream());
+
+        // Assert
+        $this->assertSame('redis-stream', $driver->name());
+    }
+
+    /**
+     * A read that throws is reported and treated as an idle tick.
+     *
+     * Some clients surface a blocked read that timed out as an exception, and a
+     * transient network error looks identical from here. Either way the loop
+     * must tick and carry on rather than end the stream — a consumer that dies
+     * on the first hiccup is worse than no keep-alive at all.
+     */
+    public function testAReadThatThrowsIsReportedAndBecomesAnIdleTick(): void
+    {
+        // Arrange
+        $redis = new class extends FakeRedisStream {
+            public function xRead(array $cursors, int $count = 0, int $blockMs = 0): mixed
+            {
+                $this->reads++;
+                throw new \RuntimeException('read timed out');
+            }
+        };
+        $driver = new RedisStreamDriver([], static fn (): object => $redis);
+
+        $errors = 0;
+        $ticks  = 0;
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static fn (): bool => true,
+            new SubscriptionOptions(
+                readTimeout: 1,
+                onIdle: static function () use (&$ticks): bool {
+                    $ticks++;
+                    return $ticks < 2;
+                },
+                onError: static function (\Throwable $e) use (&$errors): void {
+                    $errors++;
+                },
+            ),
+        );
+
+        // Assert — the caller heard about it, and the loop kept its cadence
+        $this->assertSame(2, $errors);
+        $this->assertSame(2, $ticks);
+    }
+
+    /**
+     * The runtime ceiling ends the loop even while entries are still arriving.
+     *
+     * `maxRuntime` exists to close the stream before an edge proxy does, and a
+     * busy channel must not be able to hold the connection open past it.
+     */
+    public function testTheRuntimeCeilingStopsALoopThatKeepsReceiving(): void
+    {
+        // Arrange — the deadline has already passed when subscribe() is called
+        $envelope = ['envelope' => json_encode(['event' => 'e', 'payload' => [], 'timestamp' => 1])];
+        $redis = new FakeRedisStream([
+            ['stream:chat' => ['1-1' => $envelope, '1-2' => $envelope]],
+            ['stream:chat' => ['1-3' => $envelope]],
+        ]);
+        $driver = new RedisStreamDriver([], static fn (): object => $redis);
+
+        $seen = 0;
+
+        // Act — a one-second ceiling, and time() is already past it after the
+        // first delivery
+        $driver->subscribe(
+            ['chat'],
+            static function () use (&$seen): bool {
+                $seen++;
+                sleep(1);   // push past the deadline mid-batch
+                return true;
+            },
+            new SubscriptionOptions(readTimeout: 1, maxRuntime: 1),
+        );
+
+        // Assert — it stopped inside the batch rather than draining it
+        $this->assertSame(1, $seen);
+    }
+
+    /**
+     * A password in the config is accepted rather than ignored.
+     *
+     * Not behaviour worth a test on its own, except that the branch decides
+     * whether a production Redis is reachable at all, and a driver that silently
+     * drops the password fails at the worst possible moment.
+     */
+    public function testAPasswordIsAccepted(): void
+    {
+        // Arrange & Act
+        $driver = new RedisStreamDriver(
+            ['password' => 'secret', 'prefix' => 'x:'],
+            static fn (): object => new FakeRedisStream()
+        );
+
+        // Assert — it constructs and still works; the password reaches the
+        // connection factory, which a live server exercises
+        $driver->broadcast('chat', 'e', []);
+        $this->assertSame('redis-stream', $driver->name());
+    }
+
+    /**
+     * A quiet stream stops at the runtime ceiling too.
+     *
+     * Nothing arrives, the block times out, and the loop has to end itself —
+     * `maxRuntime` is there to close the stream before an edge proxy does.
+     */
+    public function testAQuietStreamStopsAtTheRuntimeCeiling(): void
+    {
+        // Arrange — a read that blocks for its timeout and returns nothing
+        $redis = new class extends FakeRedisStream {
+            public function xRead(array $cursors, int $count = 0, int $blockMs = 0): mixed
+            {
+                $this->cursorsSeen[] = $cursors;
+                $this->reads++;
+                usleep(1100 * 1000);   // the block, as a real server would
+                return null;
+            }
+        };
+        $driver = new RedisStreamDriver([], static fn (): object => $redis);
+
+        $start = time();
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static fn (): bool => true,
+            new SubscriptionOptions(readTimeout: 1, maxRuntime: 1),
+        );
+
+        // Assert
+        $this->assertLessThan(4, time() - $start);
+        $this->assertGreaterThan(0, $redis->reads);
+    }
+
+    /**
+     * A connection that throws while closing does not become the caller's
+     * problem.
+     *
+     * The stream is over either way; a Redis that has already gone away and
+     * complains about it must not turn a finished SSE response into a fatal
+     * error on the way out.
+     */
+    public function testAConnectionThatThrowsOnCloseIsIgnored(): void
+    {
+        // Arrange
+        $redis = new class extends FakeRedisStream {
+            public function close(): void
+            {
+                throw new \RuntimeException('already gone');
+            }
+        };
+        $driver = new RedisStreamDriver([], static fn (): object => $redis);
+
+        // Act & Assert — reaching the end without throwing is the assertion
+        $driver->subscribe(
+            ['chat'],
+            static fn (): bool => true,
+            new SubscriptionOptions(readTimeout: 1, onIdle: static fn (): bool => false),
+        );
+
+        $this->assertGreaterThan(0, $redis->reads);
+    }
 }

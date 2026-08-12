@@ -188,7 +188,13 @@ HTML;
         try {
             $name = (string) (\Pramnos\Application\Settings::getSetting('title') ?: '');
         } catch (\Throwable $e) {
+            // @codeCoverageIgnoreStart — Settings swallows its own database
+            // failures and returns the default, so this catch is the second line
+            // of a two-line defence. It stays because the first line is not this
+            // class's to guarantee: a future Settings that lets an exception out
+            // must not take the toolbar's own response with it.
             $name = '';
+            // @codeCoverageIgnoreEnd
         }
 
         if ($name === '' && defined('TITLE')) {
