@@ -194,6 +194,9 @@ class ApiCrudControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        // Request-scoped state is process-wide in a test run: one test's caller
+        // must not answer for the next one's.
+        \Pramnos\Http\RequestIdentity::reset();
         $_SESSION = $this->originalSession;
         parent::tearDown();
     }
@@ -205,6 +208,14 @@ class ApiCrudControllerTest extends TestCase
     {
         $user = new \stdClass();
         $user->userid = $userid;
+
+        // Sealed as this request's identity, which is how an API request is
+        // identified now: by the credential it presented, not by whatever
+        // session cookie the browser happens to be carrying. Setting
+        // $_SESSION['user'] used to be enough and is exactly what stopped
+        // working — an API call could be authenticated by a website login on the
+        // same domain, which is why `logout` could not work.
+        \Pramnos\Http\RequestIdentity::seal($user);
         $_SESSION['user'] = $user;
     }
 
@@ -390,7 +401,9 @@ class ApiCrudControllerTest extends TestCase
     public function testTheApplicationsOwnPermissionSchemeIsHonoured(): void
     {
         // Arrange — this user may view customers and nothing else
-        $_SESSION['user'] = new ApplicationUser();
+        $user = new ApplicationUser();
+        \Pramnos\Http\RequestIdentity::seal($user);
+        $_SESSION['user'] = $user;
         $controller = new CustomerCrudController();
 
         // Act + Assert
@@ -412,7 +425,9 @@ class ApiCrudControllerTest extends TestCase
     public function testAnUndeclaredResourceFallsThroughInsteadOfBeingDenied(): void
     {
         // Arrange
-        $_SESSION['user'] = new ApplicationUser();
+        $user = new ApplicationUser();
+        \Pramnos\Http\RequestIdentity::seal($user);
+        $_SESSION['user'] = $user;
         $controller = new UnknownEntityCrudController();
 
         // Act + Assert
@@ -425,7 +440,9 @@ class ApiCrudControllerTest extends TestCase
     public function testAUserWithoutAPermissionSchemeIsNotAsked(): void
     {
         // Arrange
-        $_SESSION['user'] = new PlainUser();
+        $user = new PlainUser();
+        \Pramnos\Http\RequestIdentity::seal($user);
+        $_SESSION['user'] = $user;
         $controller = new CustomerCrudController();
 
         // Act + Assert

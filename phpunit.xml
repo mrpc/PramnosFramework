@@ -11,6 +11,16 @@
          displayDetailsOnTestsThatTriggerErrors="true"
          displayDetailsOnTestsThatTriggerWarnings="true"
 >
+    <extensions>
+        <!--
+            Request-scoped state is process-wide in a test run. Without this,
+            an identity sealed by one test answers for every test after it —
+            which produced 135 failures in tests that had nothing to do with
+            authentication.
+        -->
+        <bootstrap class="Pramnos\Tests\Support\RequestIdentityIsolation"/>
+    </extensions>
+
     <testsuites>
         <testsuite name="Unit Tests">
             <directory suffix="Test.php">./tests/Unit</directory>

@@ -36,6 +36,9 @@ class ApiAuthMiddlewareTest extends TestCase
 
     protected function setUp(): void
     {
+        // The identity is request-scoped, and a test run is one process: a
+        // sealed caller from one test would answer for the next.
+        \Pramnos\Http\RequestIdentity::reset();
         unset($_SERVER['HTTP_APIKEY']);
         unset($_SERVER['HTTP_ACCESSTOKEN']);
         unset($_SERVER['HTTP_USERAUTH']);
@@ -45,6 +48,7 @@ class ApiAuthMiddlewareTest extends TestCase
 
     protected function tearDown(): void
     {
+        \Pramnos\Http\RequestIdentity::reset();
         unset($_SERVER['HTTP_APIKEY']);
         unset($_SERVER['HTTP_ACCESSTOKEN']);
         unset($_SERVER['HTTP_USERAUTH']);
@@ -139,23 +143,34 @@ class ApiAuthMiddlewareTest extends TestCase
      * (e.g. a same-domain web-login cookie) is cleared, so it can never
      * authenticate an API call. Only a valid accessToken authenticates.
      */
-    public function testNoTokenClearsAmbientSessionIdentity(): void
+    public function testNoTokenMeansAnonymousWithoutDestroyingTheSession(): void
     {
-        // Arrange — a stale web session is present, but no accessToken is sent.
+        // Arrange — a web session is present, but no accessToken is sent
         $_SERVER['HTTP_APIKEY'] = 'valid-key';
         $_SESSION['logged'] = true;
         $_SESSION['uid']    = 42;
         $_SESSION['user']   = (object) ['userid' => 42];
+        $before = $_SESSION;
+
         $mw = new ApiAuthMiddleware(fn(string $k) => true);
 
         // Act
         $result = $mw->handle(Request::create('/api/me', 'GET'), fn() => 'ok');
 
-        // Assert — the ambient identity is wiped; the request is anonymous.
+        // Assert — the request is anonymous...
         $this->assertSame('ok', $result);
-        $this->assertArrayNotHasKey('user', $_SESSION);
-        $this->assertArrayNotHasKey('logged', $_SESSION);
-        $this->assertArrayNotHasKey('uid', $_SESSION);
+        $this->assertTrue(\Pramnos\Http\RequestIdentity::isSealed());
+        $this->assertNull(\Pramnos\Http\RequestIdentity::user());
+        $this->assertFalse(\Pramnos\User\User::getCurrentUser());
+
+        // ...and the browser's session is untouched.
+        //
+        // It used to be destroyed here, to make sure a cookie could not
+        // authenticate an API call. It achieved that by signing the user out of
+        // the website: in an application serving both from one origin, a single
+        // anonymous poll from a widget logged its own reader out. Declining to
+        // read the session does the same job without the collateral.
+        $this->assertSame($before, $_SESSION);
     }
 
     /**
@@ -243,14 +258,20 @@ class ApiAuthMiddlewareTest extends TestCase
             fn() => 'controller-response'
         );
 
-        // Assert — pipeline continued and the session was populated
+        // Assert — pipeline continued and the request has an identity.
+        //
+        // The identity, not the session: a token authenticates the call it
+        // arrived on, and writing the session would make it authenticate the
+        // browser's next page too.
         $this->assertSame('controller-response', $result);
-        $this->assertTrue($_SESSION['logged']);
+        $identity = \Pramnos\Http\RequestIdentity::user();
         $this->assertInstanceOf(
             \Pramnos\Tests\Fixtures\ApiAuthApp\User::class,
-            $_SESSION['user']
+            $identity
         );
-        $this->assertSame(42, $_SESSION['user']->userid);
+        $this->assertSame(42, $identity->userid);
+        $this->assertSame('accessToken', \Pramnos\Http\RequestIdentity::via());
+        $this->assertArrayNotHasKey('logged', $_SESSION, 'the API writes no session');
         // loadByToken received the exact raw token from the header
         $this->assertSame(
             [$_SERVER['HTTP_ACCESSTOKEN']],
@@ -288,9 +309,9 @@ class ApiAuthMiddlewareTest extends TestCase
             function () use (&$called): string { $called = true; return 'ok'; }
         );
 
-        // Assert — short-circuited with the user cleared from the session
+        // Assert — short-circuited, and the request is left with nobody
         $this->assertFalse($called, '$next must not run for an unknown user');
-        $this->assertNull($_SESSION['user']);
+        $this->assertNull(\Pramnos\Http\RequestIdentity::user());
 
         $decoded = json_decode($result, true);
         $this->assertSame(403, $decoded['status']);
@@ -387,13 +408,16 @@ class ApiAuthMiddlewareTest extends TestCase
         // Act
         $result = $mw->handle(Request::create('/api/data', 'GET'), fn() => 'ok');
 
-        // Assert — user rebuilt with the session uid, pipeline continued
+        // Assert — user rebuilt from the session uid and published as this
+        // request's identity. The deprecated header *is* a session credential,
+        // so reading the session is correct here; writing it back is not.
         $this->assertSame('ok', $result);
+        $this->assertSame('userAuth', \Pramnos\Http\RequestIdentity::via());
         $this->assertInstanceOf(
             \Pramnos\Tests\Fixtures\ApiAuthApp\User::class,
-            $_SESSION['user']
+            \Pramnos\Http\RequestIdentity::user()
         );
-        $this->assertSame(7, $_SESSION['user']->userid);
+        $this->assertSame(7, \Pramnos\Http\RequestIdentity::user()->userid);
 
         unset($_SESSION['auth'], $_SESSION['uid']);
     }

@@ -150,8 +150,11 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
         $user = $this->resolveUser();
         $user->loadByToken($token);
         if ($user->userid > 1) {
-            $_SESSION['logged'] = true;
-            $_SESSION['user']   = $user;
+            // The identity of this request, and not of the browser's session.
+            // A bearer token authenticates the call it came on; writing the
+            // session here would make it authenticate the next *page* too, in
+            // any application serving a website from the same origin.
+            $this->sealIdentity($user, 'bearer');
         } else {
             return $this->error(401, 'InvalidToken', 'Token not found or expired.');
         }
@@ -202,13 +205,17 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
     private function handleSessionCookie(Request $request, callable $next): mixed
     {
         /** @var \Pramnos\User\Token $tkn */
-        $tkn = $_SESSION['usertoken'];
-        if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
-            $user = $this->resolveUser($_SESSION['uid'] ?? null);
-            if ($user->userid > 1) {
-                $_SESSION['user']   = $user;
-                $_SESSION['logged'] = true;
-            }
+        $tkn  = $_SESSION['usertoken'];
+        $user = isset($_SESSION['user']) && is_object($_SESSION['user'])
+            ? $_SESSION['user']
+            : $this->resolveUser($_SESSION['uid'] ?? null);
+
+        // This path *is* the session — it is the one the CSRF token exists to
+        // make safe — so reading it is correct here in a way it is not in the
+        // token-only middleware. What it must still not do is decide the answer
+        // for anything else: the identity is published for this request.
+        if (is_object($user) && $user->userid > 1) {
+            $this->sealIdentity($user, 'session');
         }
 
         // Wildcard scopes signal to the router that all scope checks pass.
@@ -216,6 +223,26 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
         $tkn->scope = ['*'];
 
         return $next($request);
+    }
+
+    /**
+     * Publish who this request is.
+     *
+     * Request-scoped, so nothing here outlives the call. See
+     * {@see \Pramnos\Http\RequestIdentity} for why an API must settle its own
+     * identity rather than share the browser's.
+     *
+     * @param object $user The authenticated user
+     * @param string $via  How they were authenticated: 'bearer' or 'session'
+     */
+    private function sealIdentity(object $user, string $via): void
+    {
+        \Pramnos\Http\RequestIdentity::seal($user, $via);
+
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = $user;
+        }
     }
 
     /**

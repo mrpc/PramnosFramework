@@ -58,6 +58,23 @@ class ApiCrudController extends Controller
     }
 
     /**
+     * Who this request is, as established by whatever authenticated it.
+     *
+     * Not `$_SESSION['user']`. An API request is identified by its token, and in
+     * an application that also serves a website from the same origin the two
+     * share a cookie — reading the session here meant a browser's login could
+     * answer for an API call that presented nothing.
+     *
+     * @return object|null The user, or null when the request is anonymous
+     */
+    protected function requestUser(): ?object
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        return is_object($user) ? $user : null;
+    }
+
+    /**
      * Is there a real, signed-in user on this request?
      *
      * User 1 is the anonymous/system account, so it does not count — the same
@@ -65,7 +82,7 @@ class ApiCrudController extends Controller
      */
     protected function isAuthenticated(): bool
     {
-        $user = $_SESSION['user'] ?? null;
+        $user = $this->requestUser();
 
         return is_object($user) && (int) ($user->userid ?? 0) >= 2;
     }
@@ -106,7 +123,7 @@ class ApiCrudController extends Controller
      */
     protected function permissionFor(string $action): ?bool
     {
-        $user = $_SESSION['user'] ?? null;
+        $user = $this->requestUser();
         if (!is_object($user)) {
             return null;
         }
@@ -134,7 +151,7 @@ class ApiCrudController extends Controller
      */
     protected function askPermissionStore(string $action): ?bool
     {
-        $user = $_SESSION['user'] ?? null;
+        $user = $this->requestUser();
         if (!is_object($user)) {
             return null;
         }

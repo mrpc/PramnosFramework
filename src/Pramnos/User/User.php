@@ -947,10 +947,41 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
 
     /**
      * Return the current logged user
+     *
+     * Two sources, and the order matters.
+     *
+     * **A sealed request identity comes first, and alone.** An API request
+     * authenticates with a token and nothing else — it must not read a session,
+     * and it must not write one. {@see \Pramnos\Http\RequestIdentity} is how a
+     * middleware says "this call is user X, or nobody", and a sealed answer
+     * stops the search: a browser's login cookie never speaks for an API call,
+     * which is what makes `logout` work at all.
+     *
+     * **Then the session**, unchanged — how a server-rendered page has always
+     * known who it is serving. Nothing that does not seal an identity sees any
+     * difference, which is deliberate: the sealing is opt-in by the middleware
+     * that knows it is serving an API, and everything else keeps its behaviour.
+     *
      * @return User|boolean
      */
     public static function getCurrentUser()
     {
+        // An API request settles its own identity and forbids anything else
+        // from answering — including the session cookie the same browser is
+        // carrying for the website. Without this the two contaminate each other
+        // in both directions: a website login authenticates API calls that
+        // presented no credential (so `logout` cannot work, because revoking the
+        // token leaves the cookie answering), and an API call's user becomes the
+        // browser's user on the next page.
+        if (\Pramnos\Http\RequestIdentity::isSealed()) {
+            $user = \Pramnos\Http\RequestIdentity::user();
+
+            return is_object($user) && (int) ($user->userid ?? 0) > 1 ? $user : false;
+        }
+
+        // Otherwise the session, exactly as before — that is how a
+        // server-rendered page knows who it is serving, and nothing about it
+        // changes here.
         if (\Pramnos\Http\Session::staticIsLogged() == true) {
             $app = \Pramnos\Application\Application::getInstance();
             if ($app && is_object($app->currentUser)) {
