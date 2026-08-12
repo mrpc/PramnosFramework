@@ -37,8 +37,10 @@ const ROOT = path.join(__dirname, '..', '..');
 function loadPanelScript() {
     const php = `
         require "vendor/autoload.php";
+        // No setAccessible(): it has had no effect since PHP 8.1 and is
+        // deprecated in 8.5, and the CLI writes that deprecation to STDOUT —
+        // where it lands in front of the script and is parsed as JavaScript.
         $m = new ReflectionMethod("Pramnos\\\\Debug\\\\DebugBar", "ajaxJs");
-        $m->setAccessible(true);
         echo $m->invoke(Pramnos\\Debug\\DebugBar::getInstance());
     `;
 

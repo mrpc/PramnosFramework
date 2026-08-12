@@ -132,6 +132,41 @@ class DebugBarTest extends TestCase
     }
 
     /**
+     * The hide button has something to hide, and something to bring it back.
+     *
+     * The `✕` used to toggle the panel's inline display rather than the bar's,
+     * from a starting value the stylesheet already overrode — so it did nothing
+     * at all, in the toolbar and in the SPA panel alike. The behaviour is driven
+     * in `tests/js/debugbar-hide.test.js`; what this test pins is the markup half
+     * that behaviour needs: a hide button, and a restore handle **outside** the
+     * bar, because an element inside a hidden container cannot be clicked to
+     * unhide it.
+     */
+    public function testRenderShipsAHideButtonAndARestoreHandle(): void
+    {
+        // Arrange
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo'));
+
+        // Act
+        $html = $bar->render();
+
+        // Assert
+        $this->assertStringContainsString('id="pdb-close-btn"', $html);
+        $this->assertStringContainsString('id="pdb-restore"', $html);
+        // The handle must sit after the toolbar's closing tag: nested inside it,
+        // hiding the bar would hide the only way back.
+        $barEnd = strpos($html, '<button id="pdb-restore"');
+        $this->assertGreaterThan(
+            (int) strpos($html, '</div>'),
+            (int) $barEnd,
+            'the restore handle must not be inside #pramnos-debugbar'
+        );
+        // Titles, because an unlabelled glyph is a guess for the reader.
+        $this->assertStringContainsString('title="Hide the toolbar"', $html);
+    }
+
+    /**
      * render() must not contain any onclick= attributes.
      *
      * Inline event handlers are blocked by strict CSP even with a nonce,

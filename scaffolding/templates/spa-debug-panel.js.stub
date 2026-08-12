@@ -20,11 +20,21 @@ const HISTORY = 50;
 /** Statements carried per request before the list is cut short server-side. */
 const entries = [];
 
-let root    = null;
-let rowsEl  = null;
-let tabsEl  = null;
-let panelEl = null;
-let openRow = null;
+/**
+ * Where the "I hid the bar" choice is remembered.
+ *
+ * Shared with the server-rendered toolbar on purpose: hiding it on one page of
+ * an application and having it reappear on the next reads as the button not
+ * working, which is the bug this key exists to fix.
+ */
+const HIDDEN_KEY = 'pramnos.debugbar.hidden';
+
+let root      = null;
+let rowsEl    = null;
+let tabsEl    = null;
+let panelEl   = null;
+let handleEl  = null;
+let openRow   = null;
 let activeTab = 'requests';
 
 /**
@@ -183,6 +193,8 @@ function ensurePanel() {
 .spa-dbg-s-4{color:#fab387}
 .spa-dbg-s-5,.spa-dbg-s-0{color:#f38ba8}
 #spa-dbg-close{background:none;border:none;color:#f38ba8;cursor:pointer;font:inherit;margin-left:4px}
+#spa-dbg-restore{position:fixed;right:8px;bottom:8px;z-index:2147483000;display:none;background:#1e1e2e;color:#89b4fa;border:1px solid #313244;border-radius:6px;padding:2px 7px;cursor:pointer;font:12px/1.4 ui-monospace,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+#spa-dbg-restore:hover{color:#cba6f7;border-color:#cba6f7}
 .spa-dbg-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;padding:6px;border-radius:3px;max-height:240px;overflow:auto}
 `;
 
@@ -190,11 +202,21 @@ function ensurePanel() {
     root.id = 'spa-debugbar';
     root.innerHTML = '<div id="spa-dbg-bar"><span id="spa-dbg-brand">⚙ {{ appName }}</span>'
         + '<span id="spa-dbg-tabs"></span><span id="spa-dbg-info"></span>'
-        + '<button id="spa-dbg-close" title="Hide">✕</button></div>'
+        + '<button id="spa-dbg-close" title="Hide the toolbar">✕</button></div>'
         + '<div id="spa-dbg-panel"></div>';
+
+    // Hiding the bar has to leave something to bring it back, or the button is
+    // a one-way door: the panel is only built when debug data arrives, so there
+    // is no other handle to reach for.
+    handleEl = document.createElement('button');
+    handleEl.id = 'spa-dbg-restore';
+    handleEl.title = 'Show the debug toolbar';
+    handleEl.textContent = '⚙';
+    handleEl.addEventListener('click', () => setHidden(false));
 
     document.head.append(style);
     document.body.append(root);
+    document.body.append(handleEl);
 
     tabsEl  = root.querySelector('#spa-dbg-tabs');
     panelEl = root.querySelector('#spa-dbg-panel');
@@ -202,7 +224,53 @@ function ensurePanel() {
     // One delegated listener for the whole panel: rows are redrawn constantly,
     // and per-element handlers would leak with them.
     root.addEventListener('click', onClick);
-    document.body.style.paddingBottom = '32px';
+
+    // Apply the remembered choice, which also sets the page padding for the
+    // visible case — so both states go through one code path.
+    setHidden(isHiddenStored());
+}
+
+/** Whether the bar was hidden on a previous page. */
+function isHiddenStored() {
+    try {
+        return localStorage.getItem(HIDDEN_KEY) === '1';
+    } catch {
+        // Storage can throw outright (Safari private mode, a blocked origin).
+        // A toolbar never breaks the page it measures.
+        return false;
+    }
+}
+
+/**
+ * Show or hide the whole bar, and remember which.
+ *
+ * The `✕` used to toggle the *panel* rather than the bar, and toggled it from
+ * an inline style that started empty — so the first click set `display:none` on
+ * something already hidden and the second handed it back to the stylesheet,
+ * which hid it again. The button did nothing, twice.
+ */
+function setHidden(hidden) {
+    if (!root) {
+        return;
+    }
+
+    root.style.display = hidden ? 'none' : '';
+    if (handleEl) {
+        handleEl.style.display = hidden ? 'block' : 'none';
+    }
+    // The page reclaims the strip the bar was occupying; leaving the padding
+    // behind is a gap nothing explains.
+    document.body.style.paddingBottom = hidden ? '' : '32px';
+
+    try {
+        if (hidden) {
+            localStorage.setItem(HIDDEN_KEY, '1');
+        } else {
+            localStorage.removeItem(HIDDEN_KEY);
+        }
+    } catch {
+        // Not being able to remember the choice is not a reason to ignore it.
+    }
 }
 
 /** Handle every click inside the panel. */
@@ -230,7 +298,7 @@ function onClick(event) {
     }
 
     if (event.target.closest('#spa-dbg-close')) {
-        panelEl.style.display = panelEl.style.display === 'none' ? 'block' : 'none';
+        setHidden(true);
         return;
     }
 

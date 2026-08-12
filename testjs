@@ -19,8 +19,12 @@ run_in_container() {
     if docker-compose ps "$CONTAINER" 2>/dev/null | grep -q "Up"; then
         if docker-compose exec -T "$CONTAINER" which node &>/dev/null; then
             echo "Running JS tests in Docker container..."
+            # The glob must be expanded by the container's shell, not this one:
+            # TEST_DIR is a path inside the container, so the host cannot match
+            # it and passes the pattern through literally — which node then
+            # reports as "Could not find '/var/www/html/tests/js/*.test.js'".
             docker-compose exec -T "$CONTAINER" \
-                node --test "$TEST_DIR"/*.test.js "$@"
+                sh -c 'node --test "$0"/*.test.js "$@"' "$TEST_DIR" "$@"
             return 0
         else
             echo "Warning: Container is running but has no 'node' binary." >&2
