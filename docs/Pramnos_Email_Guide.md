@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Sending an email from application code
+  - Configuring SMTP or another transport
+  - Tracking or debugging delivery
+---
+
 # Pramnos Framework - Email System Guide
 
 The Pramnos Framework includes a comprehensive email system built on top of Symfony Mailer that provides a clean, flexible API for sending emails with advanced features like tracking, templates, and multiple transport options.

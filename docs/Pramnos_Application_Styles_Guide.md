@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Choosing between an MVC, SPA or hybrid application layout
+  - Deciding whether logic belongs in a service or a model
+  - Understanding the directory layout of a Services + API + SPA project
+  - Working on a SPA front end and its JSON API
+---
+
 # Pramnos Application Styles Guide
 
 PramnosFramework supports two application styles. They are not in competition —

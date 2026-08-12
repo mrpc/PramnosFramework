@@ -11,6 +11,45 @@ to work effectively in this project without asking repetitive orientation questi
 - **Namespace:** `{{ NAMESPACE }}`
 - **CLI entry point:** `./{{ CLI_NAME }}` (wraps `bin/{{ CLI_NAME }}.php`)
 
+## The framework's own documentation is in this project
+
+Before writing framework-level code — a controller, a query, a migration, a
+policy, a worker — **read the guide for it**. The framework ships its docs inside
+the composer package:
+
+```
+vendor/mrpc/pramnosframework/docs/
+```
+
+Those docs match the framework version this project actually has installed, so
+they cannot be out of date the way a web page can.
+
+Each guide opens with `use_cases:` frontmatter saying **when you would need it**.
+Read those first to pick the page, then read the page — do not grep the whole
+directory:
+
+```bash
+head -12 vendor/mrpc/pramnosframework/docs/*.md      # what each guide is for
+```
+
+```yaml
+---
+use_cases:
+  - Converting existing raw SQL to query-builder calls
+  - Joining, grouping or paginating a query
+---
+```
+
+Two rules follow from this:
+
+- **The guides are the current state; `docs/version-history/posts/` is history.**
+  For "how does this work", read the guide. Read a post only to find out when or
+  why something changed.
+- **If the framework already provides it, use it.** A capability documented in
+  those guides is not to be reimplemented in this project — the framework's
+  version is maintained, yours is not. When something looks missing, check the
+  guide before building it.
+
 ## Running tests
 
 **Always use `./dockertest`, never `vendor/bin/phpunit` directly.**

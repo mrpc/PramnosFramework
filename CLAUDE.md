@@ -5,13 +5,22 @@
 - **Branch:** active development happens on **`main`**; all new fixes/features land there.
 - **Stack:** PHP 8.5, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
 - **Test suites:** `vendor/bin/phpunit` (framework unit/characterization/integration) and the reference application integration suite (`the application integration test suite`)
-- **Docs:** ship a dated changelog post under `docs/version-history/posts/` with each change (see rule 10). `docs/1.2-new-features.md` is a frozen v1.2 reference — never edit it.
+- **Docs:** every change ships **two** things — the guide page that owns the topic, updated to current state, and a dated changelog post under `docs/version-history/posts/` (see rules 1 and 10). `docs/1.2-new-features.md` is a frozen v1.2 reference — never edit it.
 
 ## Behaviour rules
 
-### 1. Docs travel with code
+### 1. Docs travel with code — the guide *and* the changelog post
 
-Every user-visible change or new public class/method ships with its documentation in the **same commit** — a dated changelog post under `docs/version-history/posts/` (see rule 10). Do not defer documentation to a later step.
+Every user-visible change or new public class/method ships with its documentation in the **same commit**. That means **both** of:
+
+1. **The guide page that owns the topic**, brought to current state (`docs/Pramnos_*_Guide.md`). This is the answer to "how do I use this".
+2. **A dated changelog post** under `docs/version-history/posts/` (see rule 10). This is the answer to "what changed, when, and why".
+
+Do not defer either to a later step, and do not let the post substitute for the guide.
+
+**Why both.** The posts are a chronological stream of *deltas* — 57 of them and counting. A reader (or an assistant) asking how a feature works must land on one page describing the feature as it is now, not reconstruct it from three dated entries. This has already failed once in practice: the SPA debug panel was documented only in two changelog posts, so an assistant working in a project concluded the framework did not ship one and wrote a second panel beside the working one.
+
+If no guide owns the topic yet, add a section to the closest one, or create a page — and then rule 13 applies.
 
 ### 2. Tests before refactoring internal framework classes
 
@@ -127,7 +136,7 @@ or ship a user-visible change that warrants a changelog entry:
 - **Releases:** version releases also get a curated row in `docs/releases.md`
   and a `categories: [Releases]` post.
 - **Guides:** when you edit or add a guide page under `docs/`, wire it into the `nav:` in
-  `mkdocs.yml` and keep cross-links valid.
+  `mkdocs.yml`, give it `use_cases:` frontmatter (rule 13) and keep cross-links valid.
 - **Verify the build** with `./dockerdocs build` before committing site changes; treat broken
   links / nav warnings as failures.
 
@@ -138,6 +147,45 @@ or ship a user-visible change that warrants a changelog entry:
 > `version-history/posts/` by default. Verified by isolated repro.
 
 Do this **in the same commit** as the change it documents, mirroring rule 1.
+
+### 13. Docs are a retrieval corpus, not only a website
+
+`docs/` is **not** export-ignored, so it ships inside the composer package and sits in every
+project's `vendor/`. That is deliberate: it makes the framework's documentation available to
+whoever is working in that project — including an AI assistant — and the vendored docs always
+match the vendored code, so there is no version negotiation to get wrong.
+
+For a page to be *found* rather than merely *present*, two things are required. Both are
+enforced by `tests/Unit/Docs/DocsRetrievabilityTest.php`, because neither is visible in the
+diff of a single change:
+
+**1. `use_cases:` frontmatter, at the very top of the page.**
+
+```yaml
+---
+use_cases:
+  - Writing a controller that reads or writes the database
+  - Converting existing raw SQL to query-builder calls
+  - Diagnosing a query that returns nothing or the wrong rows
+---
+```
+
+Phrase each entry as **the task the reader has in hand**, not as a description of the page.
+"Adding a column to an existing table" is findable; "Schema builder reference" is not. Three
+to five entries; each must be specific enough to match against a real question.
+
+**2. Presence in `mkdocs.yml` nav.** A page outside the nav still builds — MkDocs reports it
+as `INFO`, not a warning — so nothing fails and nobody notices. Four pages were in exactly
+that state before this rule existed.
+
+**Exemptions are enumerated in the test, never inferred**, so a new page cannot become
+silently exempt. Currently exempt: `1.2-new-features.md` (frozen) and `releases.md` (a
+release index is history, not guidance).
+
+**Keep the two corpora apart.** Guides answer *how does this work* and must describe current
+state. Changelog posts answer *what changed and why* and stay deltas. Do not turn a guide into
+a chronology, and do not leave a feature documented only in posts — see rule 1 for what that
+already cost.
 
 ---
 

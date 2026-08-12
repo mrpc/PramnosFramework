@@ -1,3 +1,12 @@
+---
+use_cases:
+  - Signing a user in or out, or checking who is signed in
+  - Creating or managing user accounts
+  - Issuing, validating or revoking JWT / bearer tokens
+  - Requiring authentication in a controller
+  - Working with sessions or authentication addons
+---
+
 # Pramnos Authentication & User Management Guide
 
 ## Overview

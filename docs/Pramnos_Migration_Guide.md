@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Writing a new migration or naming its file
+  - Running, rolling back or checking the status of migrations
+  - Understanding batching, the migration cutoff, or how migrations are discovered
+---
+
 # Pramnos Migration Guide
 
 The **Migration System** provides version control for your database schema. Migrations are PHP files that define schema changes and can be rolled back to any previous state.

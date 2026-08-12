@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Handling a file or image upload
+  - Generating thumbnails or processing images
+  - Organising stored media, or querying its schema
+---
+
 # Pramnos Framework - Media System Guide
 
 The Pramnos Framework includes a comprehensive media management system that handles file uploads, image processing, thumbnail generation, and media organization. The system provides automatic resizing, cropping, rotation, and supports various media types including images, documents, and PDFs.

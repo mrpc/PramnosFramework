@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Creating or altering a table inside a migration
+  - Choosing a column type, modifier, index or foreign key
+  - Writing DDL that must work on MySQL, PostgreSQL and TimescaleDB
+  - Guarding DDL behind a database capability check
+---
+
 # Pramnos Schema Builder Guide
 
 The **Schema Builder** (DDL — Data Definition Language) provides a programmatic interface for defining and modifying database schemas. It supports MySQL 8.0+, PostgreSQL 14+, and TimescaleDB with dialect-aware syntax.

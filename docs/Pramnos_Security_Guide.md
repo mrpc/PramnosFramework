@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Protecting a form or endpoint (CSRF, XSS, SQL injection, uploads)
+  - Hardening sessions, passwords or security headers
+  - Configuring a Content Security Policy or trusted proxies
+  - Adding a human check to a public write endpoint
+---
+
 # Pramnos Security Guide
 
 Security is a core concern in Pramnos Framework v1.2. This guide covers built-in security features and best practices.

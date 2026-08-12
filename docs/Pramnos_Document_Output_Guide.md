@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Adding CSS/JS assets or meta tags to a page
+  - Serving the same controller output as HTML, JSON or another format
+  - Working with the Document object or SEO metadata
+---
+
 # Pramnos Framework - Document & Output System Guide
 
 The Pramnos Framework includes a sophisticated document and output system that handles multiple output formats, theming, asset management, and content rendering. This guide covers the complete document system from basic usage to advanced customization.

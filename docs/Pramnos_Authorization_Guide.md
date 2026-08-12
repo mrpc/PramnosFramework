@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Deciding whether the current user may perform an action
+  - Writing a policy or a gate
+  - Enforcing authorization in a controller or on a model
+  - Handling an authorization failure
+---
+
 # Pramnos Authorization & Policies Guide
 
 The **Policy Engine** provides a flexible framework for defining and evaluating authorization rules. Policies encapsulate authorization logic for models and resources.

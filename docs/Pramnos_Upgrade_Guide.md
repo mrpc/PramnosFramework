@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Upgrading an existing application to a newer framework version
+  - Finding the breaking changes between two versions
+  - Verifying an upgrade afterwards
+---
+
 # Upgrade Guide (Version-to-Version)
 
 Step-by-step instructions for upgrading an existing application from one Pramnos

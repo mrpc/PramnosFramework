@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Explaining the account and security screens to an end user
+  - Understanding what the built-in 2FA, passkey and session UI offers
+  - Handling a GDPR data export or account deletion request
+---
+
 # Account & Security — End-User Guide
 
 ## Overview

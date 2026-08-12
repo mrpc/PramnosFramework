@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Reading from or writing to the database from a controller or model
+  - Handling a query result set
+  - Deciding between raw SQL and the fluent query builder
+  - Diagnosing a query that returns nothing or the wrong rows
+---
+
 # Pramnos Database API Guide
 
 This guide explains how to properly use the Pramnos database API for database operations in the Pramnos MVC framework.

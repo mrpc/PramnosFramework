@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Writing a test for a controller, model or HTTP endpoint
+  - Using factories or seeders to build test data
+  - Choosing a base test case, or testing without booting the application
+---
+
 # Pramnos Testing Guide
 
 Pramnos provides comprehensive testing infrastructure including HTTP testing, factory generation, and seeding.

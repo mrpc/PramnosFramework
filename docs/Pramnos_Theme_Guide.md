@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Building or modifying a theme
+  - Working with templates, widgets or menus
+  - Registering theme assets (CSS/JS) or theme settings
+---
+
 # Pramnos Framework - Theme System Guide
 
 The Pramnos Framework includes a powerful theming system that provides flexible template management, widget support, menu systems, and complete design customization. This guide covers everything from basic theme usage to advanced theme development.

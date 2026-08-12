@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Caching a value, a query result or a rendered fragment
+  - Choosing or configuring a cache backend
+  - Invalidating cached data correctly
+  - Diagnosing stale or missing cache entries
+---
+
 # Pramnos Cache System Guide
 
 ## Overview
