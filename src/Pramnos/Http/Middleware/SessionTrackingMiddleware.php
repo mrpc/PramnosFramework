@@ -60,17 +60,31 @@ class SessionTrackingMiddleware implements MiddlewareInterface
         $session  = Factory::getSession();
         $auth     = Factory::getAuth();
 
-        // 1. Purge stale session rows
-        $past = time() - 300;
-        try {
-            $database->query(
-                $database->prepareQuery(
-                    "DELETE FROM `#PREFIX#sessions` WHERE `time` < %d",
-                    $past
-                )
-            );
-        } catch (\Exception $e) {
-            \Pramnos\Logs\Logger::log($e->getMessage());
+        // 1. Purge stale session rows — occasionally, not on every request.
+        //
+        // Rows go stale five minutes after their last request, so how promptly
+        // they are removed does not matter to anything: nothing reads a stale
+        // row, and the table is a live-visitor list rather than a record. What
+        // did matter is that the DELETE ran on every request — including every
+        // XHR a page makes — so a page with ten API calls issued ten of them,
+        // each scanning the same rows to find nothing.
+        //
+        // One in `session_gc_divisor` requests does the sweep. At the default,
+        // a site with any traffic sweeps every few seconds and a quiet one
+        // sweeps when somebody arrives; both are far more often than the five
+        // minutes the data is allowed to be stale.
+        if ($this->shouldCollectGarbage()) {
+            $past = time() - 300;
+            try {
+                $database->query(
+                    $database->prepareQuery(
+                        "DELETE FROM `#PREFIX#sessions` WHERE `time` < %d",
+                        $past
+                    )
+                );
+            } catch (\Exception $e) {
+                \Pramnos\Logs\Logger::log($e->getMessage());
+            }
         }
 
         // 2. Collect request context
@@ -172,11 +186,111 @@ class SessionTrackingMiddleware implements MiddlewareInterface
             $uid = 'NULL';
         }
 
-        // 6. Force-logout check
+        // 6 + 7. Learn whether this session was kicked out, and record the
+        // visit — in one statement where the database can do it.
+        //
+        // These used to be two round trips on every request: a SELECT of the
+        // `logout` flag, and then the upsert that records the visit. The flag
+        // is almost never set, so the SELECT existed to read a zero.
+        //
+        // PostgreSQL can answer both at once. The upsert no longer clears
+        // `logout` blindly; instead it returns the value the row had, and the
+        // rare request that finds a 1 pays one extra statement to clear it.
+        // That turns the common case from two statements into one.
+        $encodedVisitor = base64_encode(hex2bin($visitorid));
+        $kickedOut      = false;
+
+        // Nothing here needs doing twice in the same minute.
+        //
+        // The row records who is online and what they are looking at. A page
+        // that loads and then calls its own API writes it twice, a second
+        // apart, with the same values but for the URL — and a page making ten
+        // XHR calls writes it ten times.
+        //
+        // The cost of skipping is that a visitor drops off the online list up
+        // to a minute later than they might have, and that a forced logout
+        // takes up to a minute to be noticed. Neither is a promise anything
+        // makes: the row is already five minutes stale before it is swept.
+        //
+        // Only a navigation says where somebody is. An XHR is the page talking
+        // to the server, not the visitor moving — and because it runs *after*
+        // the page that made it, recording its URL would leave the session row
+        // permanently showing `/users/data` for a visitor who is looking at
+        // `/users`.
+        $isNavigation = $this->isNavigation($request);
+
+        if (!$this->shouldRecordVisit($url, $isNavigation)) {
+            return;
+        }
+
+        if ($database->type === 'postgresql') {
+            try {
+                // A background call refreshes the timestamp and leaves `url`
+                // alone, so the row keeps naming the page the visitor is on.
+                $sql = $isNavigation
+                    ? $database->prepareQuery(
+                        "INSERT INTO `#PREFIX#sessions`
+                    (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+                    `userid`, `url`, `logout`, `sid`, `history`)
+                    VALUES (%s, %s, %d, %s, %d, %s, $uid, %s, %d, %s, '')
+                    ON CONFLICT (visitorid) DO UPDATE SET
+                    `uname` = %s, `time` = %d, `guest` = %d,
+                    `userid` = $uid, `url` = %s
+                    RETURNING `logout`",
+                        $encodedVisitor,
+                        $uname, time(), $remoteip, $guest, $agent, $url,
+                        0, $sid, $uname, time(), $guest, $url
+                    )
+                    : $database->prepareQuery(
+                        "INSERT INTO `#PREFIX#sessions`
+                    (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+                    `userid`, `url`, `logout`, `sid`, `history`)
+                    VALUES (%s, %s, %d, %s, %d, %s, $uid, %s, %d, %s, '')
+                    ON CONFLICT (visitorid) DO UPDATE SET
+                    `uname` = %s, `time` = %d, `guest` = %d,
+                    `userid` = $uid
+                    RETURNING `logout`",
+                        $encodedVisitor,
+                        $uname, time(), $remoteip, $guest, $agent, $url,
+                        0, $sid, $uname, time(), $guest
+                    );
+                $result = $database->query($sql);
+
+                // The row as it was before this request touched it: the upsert
+                // deliberately leaves `logout` alone, so RETURNING reports the
+                // flag rather than the zero it used to be overwritten with.
+                $kickedOut = $result && $result->numRows > 0
+                    && (string) ($result->fields['logout'] ?? '0') === '1';
+
+                if ($kickedOut) {
+                    $session->reset();
+                    $auth->logout();
+                    $guest = 1;
+                    $uname = 'Kicked Out';
+
+                    // Clear it, so the next request is a normal one. Only the
+                    // request that was actually kicked out pays for this.
+                    $database->query($database->prepareQuery(
+                        "UPDATE `#PREFIX#sessions` SET `logout` = 0, `uname` = %s,"
+                        . " `guest` = 1 WHERE `visitorid` = %s",
+                        $uname,
+                        $encodedVisitor
+                    ));
+                }
+            } catch (\Exception $e) {
+                \Pramnos\Logs\Logger::log($e->getMessage());
+                $session->reset();
+                $auth->logout();
+            }
+
+            return;
+        }
+
+        // MySQL has no RETURNING on an upsert, so it keeps the two statements.
         try {
             $checkSql = $database->prepareQuery(
                 "SELECT `logout` FROM `#PREFIX#sessions` WHERE `visitorid` = %s",
-                base64_encode(hex2bin($visitorid))
+                $encodedVisitor
             );
             $checkResult = $database->query($checkSql);
             if ($checkResult->numRows !== 0 && $checkResult->fields['logout'] == '1') {
@@ -189,40 +303,170 @@ class SessionTrackingMiddleware implements MiddlewareInterface
             \Pramnos\Logs\Logger::log($e->getMessage());
         }
 
-        // 7. Upsert session row
         try {
-            if ($database->type === 'postgresql') {
-                $sql = $database->prepareQuery(
+            $sql = $isNavigation
+                ? $database->prepareQuery(
                     "INSERT INTO `#PREFIX#sessions`
-                    (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
-                    `userid`, `url`, `logout`, `sid`, `history`)
-                    VALUES (%s, %s, %d, %s, %d, %s, $uid, %s, %d, %s, '')
-                    ON CONFLICT (visitorid) DO UPDATE SET
-                    `uname` = %s, `time` = %d, `guest` = %d,
-                    `userid` = $uid, `url` = %s, `logout` = %d",
-                    base64_encode(hex2bin($visitorid)),
+                (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+                `userid`, `url`, `logout`, `sid`, `history`)
+                VALUES (%s, %s, %d, %s, %d, %s, $uid, %s, %d, %s, '')
+                ON DUPLICATE KEY UPDATE
+                `uname` = %s, `time` = %d, `guest` = %d,
+                `userid` = $uid, `url` = %s, `logout` = %d",
+                    $encodedVisitor,
                     $uname, time(), $remoteip, $guest, $agent, $url,
                     0, $sid, $uname, time(), $guest, $url, 0
-                );
-            } else {
-                $sql = $database->prepareQuery(
+                )
+                : $database->prepareQuery(
                     "INSERT INTO `#PREFIX#sessions`
-                    (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
-                    `userid`, `url`, `logout`, `sid`, `history`)
-                    VALUES (%s, %s, %d, %s, %d, %s, $uid, %s, %d, %s, '')
-                    ON DUPLICATE KEY UPDATE
-                    `uname` = %s, `time` = %d, `guest` = %d,
-                    `userid` = $uid, `url` = %s, `logout` = %d",
-                    base64_encode(hex2bin($visitorid)),
+                (`visitorid`, `uname`, `time`, `host_addr`, `guest`, `agent`,
+                `userid`, `url`, `logout`, `sid`, `history`)
+                VALUES (%s, %s, %d, %s, %d, %s, $uid, %s, %d, %s, '')
+                ON DUPLICATE KEY UPDATE
+                `uname` = %s, `time` = %d, `guest` = %d,
+                `userid` = $uid, `logout` = %d",
+                    $encodedVisitor,
                     $uname, time(), $remoteip, $guest, $agent, $url,
-                    0, $sid, $uname, time(), $guest, $url, 0
+                    0, $sid, $uname, time(), $guest, 0
                 );
-            }
             $database->query($sql);
         } catch (\Exception $e) {
             \Pramnos\Logs\Logger::log($e->getMessage());
             $session->reset();
             $auth->logout();
         }
+    }
+
+    /**
+     * Has enough happened since the last write to be worth another one?
+     *
+     * The marker lives in the session rather than in a property, because a
+     * middleware instance lasts one request and the question spans several.
+     *
+     * Two rules:
+     *
+     * - A **navigation** to a page the row does not already name writes at
+     *   once. That is the visitor moving, and where they are is the field
+     *   somebody watches.
+     * - Anything else — an XHR, an API call, a second navigation to the same
+     *   page — writes at most once per `session_write_interval` seconds
+     *   (default 60; `0` writes every time, as this did before).
+     *
+     * A page that loads and then calls its own API therefore writes once: the
+     * navigation writes, and the XHR a second later has nothing to add. Before
+     * the split it wrote twice, and the second write — being the later one —
+     * left the row naming the XHR's URL rather than the page's.
+     *
+     * @param  string $url          The URL of this request
+     * @param  bool   $isNavigation Whether the visitor navigated here
+     * @return bool
+     */
+    protected function shouldRecordVisit(string $url, bool $isNavigation = true): bool
+    {
+        $interval = \Pramnos\Application\Settings::getSetting('session_write_interval');
+        $interval = is_numeric($interval) ? (int) $interval : 60;
+
+        if ($interval <= 0) {
+            return true;
+        }
+
+        $last    = $_SESSION['_session_written'] ?? null;
+        $lastAt  = is_array($last) ? (int) ($last['at'] ?? 0) : 0;
+        $lastUrl = is_array($last) ? ($last['url'] ?? null) : null;
+
+        // The visitor moved to a page the row does not name yet.
+        if ($isNavigation && $lastUrl !== $url) {
+            $_SESSION['_session_written'] = ['at' => time(), 'url' => $url];
+
+            return true;
+        }
+
+        if ((time() - $lastAt) >= $interval) {
+            // A background call refreshes the clock without claiming to be the
+            // page the visitor is on — so the recorded URL is left as it was.
+            $_SESSION['_session_written'] = [
+                'at'  => time(),
+                'url' => $isNavigation ? $url : $lastUrl,
+            ];
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Did the visitor navigate here, or is this the page talking to the server?
+     *
+     * `Sec-Fetch-Dest` is the reliable answer and every current browser sends
+     * it: `document` for a navigation, `empty` for a fetch or XHR. The two
+     * fallbacks are for older clients and for anything that is not a browser —
+     * `X-Requested-With`, which jQuery and DataTables set, and the `Accept`
+     * header, since a navigation asks for HTML and an API call does not.
+     *
+     * The default when nothing says otherwise is *navigation*, so a client that
+     * sends none of these keeps the old behaviour rather than quietly dropping
+     * out of the online list.
+     *
+     * @param  Request $request
+     * @return bool
+     */
+    protected function isNavigation(Request $request): bool
+    {
+        $dest = $_SERVER['HTTP_SEC_FETCH_DEST'] ?? '';
+
+        if (is_string($dest) && $dest !== '') {
+            return $dest === 'document' || $dest === 'iframe';
+        }
+
+        $requestedWith = $_SERVER['HTTP_X_REQUESTED_WITH'] ?? '';
+
+        if (is_string($requestedWith)
+            && strcasecmp($requestedWith, 'XMLHttpRequest') === 0) {
+            return false;
+        }
+
+        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+
+        if (is_string($accept) && $accept !== '' && !str_contains($accept, '*/*')) {
+            return str_contains($accept, 'text/html')
+                || str_contains($accept, 'application/xhtml');
+        }
+
+        return true;
+    }
+
+    /**
+     * Should this request sweep the stale session rows?
+     *
+     * One request in `session_gc_divisor` does, chosen at random. The point of
+     * the divisor is not to sweep rarely — it is to stop *every* request paying
+     * for a DELETE that finds nothing, which on a page making ten API calls was
+     * ten identical scans.
+     *
+     * Rows are stale five minutes after their last request and nothing reads a
+     * stale row, so the sweep being late costs nothing at all. At the default of
+     * 100, a site with any traffic still sweeps every few seconds.
+     *
+     * Set `session_gc_divisor` to 1 to sweep on every request (the old
+     * behaviour), or to 0 to never sweep from the request path — which is the
+     * right setting when something else, a scheduled task, does it instead.
+     *
+     * @return bool
+     */
+    protected function shouldCollectGarbage(): bool
+    {
+        $divisor = \Pramnos\Application\Settings::getSetting('session_gc_divisor');
+        $divisor = is_numeric($divisor) ? (int) $divisor : 100;
+
+        if ($divisor <= 0) {
+            return false;
+        }
+
+        if ($divisor === 1) {
+            return true;
+        }
+
+        return random_int(1, $divisor) === 1;
     }
 }

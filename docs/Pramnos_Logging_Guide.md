@@ -753,6 +753,69 @@ class EncryptedLogger extends Logger
 }
 ```
 
+## The visit log — how much of what a visitor does gets written down
+
+Separate from the log files above, the framework records one row per request in
+`tokenactions`: the URL, the method, the parameters, the response status and how
+long it took. It is an audit trail — who called what, when, and what came back.
+
+For an application that needs one, that is exactly right. For one that does not,
+it is a table growing by one row per request for ever, holding a copy of every
+request body that was ever posted. A page that loads and then makes ten API
+calls writes eleven rows.
+
+### Choosing
+
+```php
+// app/settings/settings.php, or the settings table
+'visit_log' => 'all',          // every request — the default
+'visit_log' => 'navigations',  // only pages a visitor actually opened
+'visit_log' => 'pages',        // every web request, including a page's own XHR
+'visit_log' => 'api',          // only the API
+'visit_log' => 'none',         // nothing
+```
+
+`true` and `false` work too, meaning `all` and `none`.
+
+| Mode | A page load | The datatable call it makes | An API call |
+|---|---|---|---|
+| `all` | ✅ | ✅ | ✅ |
+| `pages` | ✅ | ✅ | — |
+| `navigations` | ✅ | — | — |
+| `api` | — | — | ✅ |
+| `none` | — | — | — |
+
+### Which is which
+
+`pages` and `api` split on **who handled the request** — the web front
+controller or the API subsystem. That is a fact about the request rather than a
+guess, and it does not change.
+
+`navigations` is narrower than `pages`: it drops the calls a page makes after it
+has rendered, detected from `Sec-Fetch-Dest` with `X-Requested-With` and
+`Accept` as fallbacks. On a datatable-heavy admin panel that is most of the
+traffic, and none of it is a visitor going anywhere.
+
+### Two deliberate choices
+
+**The default is `all`**, which is what every installation has today. A setting
+that quietly changed the contents of an audit log would be worse than no
+setting.
+
+**An unrecognised value means `all`, not `none`.** A typo in a settings table
+must not switch off an audit log — that failure is discovered by somebody going
+to look for the one request that is missing. The obvious spellings (`off`, `no`,
+`web`, `page`, `navigation`, and any capitalisation) are accepted for the same
+reason.
+
+### What it does not change
+
+Nothing here affects authentication, rate limiting, or the token's own
+`lastused`. A request that is not written down is still authenticated, counted
+and served identically; only the audit row is skipped.
+
+---
+
 ## Troubleshooting
 
 ### Common Issues

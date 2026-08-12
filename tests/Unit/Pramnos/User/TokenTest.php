@@ -18,6 +18,12 @@ class TokenTest extends TestCase
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
 
+        // addAction() buffers its row through WriteSpool. These tests read the
+        // row back immediately, and the spool directory is shared, so a drain
+        // here would also write rows other test classes left behind. Writing
+        // straight through keeps each test looking only at what it did.
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
+
         Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         Settings::loadSettings($settingsFile);
@@ -214,11 +220,10 @@ class TokenTest extends TestCase
         // Add action
         $token->addAction();
         
-        $this->assertGreaterThan(0, $token->lastActionId);
         $this->assertEquals(1, $token->actions);
         $this->assertEquals('127.0.0.1', $token->ipaddress);
         
-        // Update action
+        // Complete it — this is the write, and it happens once
         $token->updateAction($token->lastActionId, 200, 15.5, ['response' => 'ok']);
         
         $actions = $token->getActions(10);
@@ -238,7 +243,9 @@ class TokenTest extends TestCase
         $token->save();
         
         $token->addAction();
+        $this->flushAction($token);
         $token->addAction();
+        $this->flushAction($token);
         
         $stats = $token->getStatistics();
         $this->assertEquals(2, $stats['total_actions']);
@@ -265,6 +272,30 @@ class TokenTest extends TestCase
     // =========================================================================
     // fillProperties() — deviceinfo and scope parsing branches
     // =========================================================================
+
+    /**
+     * Write the action the token is holding, and drain the spool.
+     *
+     * `addAction()` no longer inserts: it holds the row until the response is
+     * known, so that one write replaces an insert, an update and a round trip
+     * for the generated id. Tests that go on to read the row back have to do
+     * what the request lifecycle does — complete it and let the drain run.
+     *
+     * @return int The actionid of the row that was written, or 0
+     */
+    private function flushAction(\Pramnos\User\Token $token): int
+    {
+        $token->flushPendingAction();
+
+        $db  = Factory::getDatabase();
+        $row = $db->query(
+            'SELECT actionid FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid
+            . ' ORDER BY actionid DESC LIMIT 1'
+        );
+
+        return ($row && $row->numRows > 0) ? (int) $row->fields['actionid'] : 0;
+    }
 
     /**
      * fillProperties() must unserialize deviceinfo when it contains a PHP
@@ -530,7 +561,8 @@ class TokenTest extends TestCase
         $token->addAction();
 
         // Assert — action was recorded and action count incremented
-        $this->assertGreaterThan(0, $token->lastActionId,
+        $actionId = $this->flushAction($token);
+        $this->assertGreaterThan(0, $actionId,
             'addAction() with POST must create a tokenactions row');
         $this->assertSame(1, $token->actions,
             'addAction() must increment the actions counter');
@@ -538,7 +570,8 @@ class TokenTest extends TestCase
         // Verify params contain POST data
         $db = Factory::getDatabase();
         $row = $db->query(
-            "SELECT params FROM `#PREFIX#tokenactions` WHERE actionid = {$token->lastActionId}"
+            'SELECT params FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
         $params = json_decode($row->fields['params'], true);
         $this->assertSame('value123', $params['key'],
@@ -573,13 +606,15 @@ class TokenTest extends TestCase
         $token->addAction();
 
         // Assert — action recorded
-        $this->assertGreaterThan(0, $token->lastActionId,
+        $actionId = $this->flushAction($token);
+        $this->assertGreaterThan(0, $actionId,
             'addAction() with DELETE must create a tokenactions row');
 
         // Verify params contain DELETE data
         $db = Factory::getDatabase();
         $row = $db->query(
-            "SELECT params FROM `#PREFIX#tokenactions` WHERE actionid = {$token->lastActionId}"
+            'SELECT params FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
         $params = json_decode($row->fields['params'], true);
         $this->assertSame(42, $params['id'],
@@ -614,13 +649,15 @@ class TokenTest extends TestCase
         $token->addAction();
 
         // Assert — action recorded
-        $this->assertGreaterThan(0, $token->lastActionId,
+        $actionId = $this->flushAction($token);
+        $this->assertGreaterThan(0, $actionId,
             'addAction() with PUT must create a tokenactions row');
 
         // Verify params contain PUT data
         $db = Factory::getDatabase();
         $row = $db->query(
-            "SELECT params FROM `#PREFIX#tokenactions` WHERE actionid = {$token->lastActionId}"
+            'SELECT params FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
         $params = json_decode($row->fields['params'], true);
         $this->assertSame('updated', $params['name'],
@@ -709,17 +746,17 @@ class TokenTest extends TestCase
         $token->save();
 
         $token->addAction();
-        $actionId = $token->lastActionId;
         $this->assertNotNull($token->lastActionTime,
             'addAction() must set lastActionTime for auto-calculation');
 
         // Act — call updateAction with execution_time_ms=0 to trigger auto-calc
-        $token->updateAction($actionId, 200, 0, ['status' => 'done']);
+        $token->updateAction($token->lastActionId, 200, 0, ['status' => 'done']);
 
         // Assert — execution_time_ms must have been calculated and stored (> 0)
         $db  = Factory::getDatabase();
         $row = $db->query(
-            "SELECT execution_time_ms FROM `#PREFIX#tokenactions` WHERE actionid = {$actionId}"
+            'SELECT execution_time_ms FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
         $storedMs = (float) $row->fields['execution_time_ms'];
         $this->assertGreaterThanOrEqual(0, $storedMs,
@@ -748,7 +785,6 @@ class TokenTest extends TestCase
         $token->save();
 
         $token->addAction();
-        $actionId = $token->lastActionId;
 
         // Build an stdClass to pass as return_data
         $obj        = new \stdClass();
@@ -756,12 +792,13 @@ class TokenTest extends TestCase
         $obj->msg   = 'ok';
 
         // Act
-        $token->updateAction($actionId, 200, 5.0, $obj);
+        $token->updateAction($token->lastActionId, 200, 5.0, $obj);
 
         // Assert — return_data must be JSON-encoded with the object's public properties
         $db  = Factory::getDatabase();
         $row = $db->query(
-            "SELECT return_data FROM `#PREFIX#tokenactions` WHERE actionid = {$actionId}"
+            'SELECT return_data FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
         $decoded = json_decode($row->fields['return_data'], true);
         $this->assertEquals(['code' => 200, 'msg' => 'ok'], $decoded,
@@ -786,15 +823,15 @@ class TokenTest extends TestCase
         $token->save();
 
         $token->addAction();
-        $actionId = $token->lastActionId;
 
         // Act — pass a plain integer as return_data
-        $token->updateAction($actionId, 200, 1.0, 42);
+        $token->updateAction($token->lastActionId, 200, 1.0, 42);
 
         // Assert — must be wrapped in {"data": 42}
         $db  = Factory::getDatabase();
         $row = $db->query(
-            "SELECT return_data FROM `#PREFIX#tokenactions` WHERE actionid = {$actionId}"
+            'SELECT return_data FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
         $decoded = json_decode($row->fields['return_data'], true);
         $this->assertSame(['data' => 42], $decoded,
@@ -821,18 +858,277 @@ class TokenTest extends TestCase
         $token->save();
 
         $token->addAction();
-        $actionId = $token->lastActionId;
 
-        // Act — pass a negative return_status
-        $token->updateAction($actionId, -1, 5.0, ['data' => 'should not be stored']);
+        // Act — a negative status says "do not record an outcome"
+        $token->updateAction($token->lastActionId, -1, 5.0, ['data' => 'should not be stored']);
 
-        // Assert — the row must be unchanged (return_status still NULL)
+        // Assert — the call is still logged, because it happened, but carries
+        // no outcome: an audit log that omits the requests that ended badly is
+        // worse than no audit log.
         $db  = Factory::getDatabase();
         $row = $db->query(
-            "SELECT return_status FROM `#PREFIX#tokenactions` WHERE actionid = {$actionId}"
+            'SELECT return_status FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid . ' ORDER BY actionid DESC LIMIT 1'
         );
+        $this->assertSame(1, (int) $row->numRows, 'the action was still recorded');
         $this->assertNull($row->fields['return_status'],
-            'updateAction() with a negative return_status must not modify the row');
+            'a negative return_status must not be stored as an outcome');
+    }
+
+    // =========================================================================
+    // What addAction() costs the request
+    // =========================================================================
+
+    /**
+     * The URL is looked up once, however many actions are logged.
+     *
+     * This ran on every logged request: a SELECT against the url registry to
+     * turn a URL into an id. A page that keeps talking to the server asks about
+     * the same two or three URLs for as long as it is open — a datatable paging
+     * through results asks about exactly one.
+     */
+    public function testTheUrlIsResolvedOnce(): void
+    {
+        // Arrange
+        $token            = new Token();
+        $token->userid    = 1;
+        $token->tokentype = Token::TYPE_API;
+        $token->token     = 'url-cache-token-' . uniqid();
+        $token->created   = time();
+        $token->save();
+
+        $db = Factory::getDatabase();
+        $db->enableQueryLog();
+        $db->clearQueryLog();
+
+        // Act — three actions against the same URL
+        $token->addAction();
+        $token->flushPendingAction();
+        $token->addAction();
+        $token->flushPendingAction();
+        $token->addAction();
+        $token->flushPendingAction();
+
+        // Assert — the registry was consulted for the first one only
+        $lookups = 0;
+        foreach ($db->getQueryLog() as $entry) {
+            $sql = is_array($entry) ? ($entry['sql'] ?? '') : (string) $entry;
+            if (stripos($sql, 'urls') !== false && stripos($sql, 'select') !== false) {
+                $lookups++;
+            }
+        }
+
+        $this->assertLessThanOrEqual(
+            1,
+            $lookups,
+            'the url registry was read more than once for the same url'
+        );
+    }
+
+    /**
+     * One action produces one row, not an insert followed by an update.
+     *
+     * An API request logged its call and then, once the response was known,
+     * updated the row it had just made — two round trips plus a third for the
+     * generated id, all while the visitor waited. Completing the held row
+     * collapses that into a single write.
+     */
+    public function testCompletingAnActionWritesExactlyOneRow(): void
+    {
+        // Arrange
+        $token            = new Token();
+        $token->userid    = 1;
+        $token->tokentype = Token::TYPE_API;
+        $token->token     = 'single-write-token-' . uniqid();
+        $token->created   = time();
+        $token->save();
+
+        // Act
+        $token->addAction();
+        $token->updateAction($token->lastActionId, 201, 12.5, ['ok' => true]);
+
+        // Assert — one row, carrying both halves
+        $db  = Factory::getDatabase();
+        $row = $db->query(
+            'SELECT COUNT(*) AS cnt FROM `#PREFIX#tokenactions` WHERE tokenid = '
+            . (int) $token->tokenid
+        );
+        $this->assertSame(1, (int) $row->fields['cnt']);
+
+        $written = $db->query(
+            'SELECT return_status, execution_time_ms, params FROM `#PREFIX#tokenactions`'
+            . ' WHERE tokenid = ' . (int) $token->tokenid
+        );
+        $this->assertSame(201, (int) $written->fields['return_status']);
+        $this->assertEquals(12.5, (float) $written->fields['execution_time_ms']);
+        $this->assertNotNull($written->fields['params'], 'the request half survived too');
+    }
+
+    /**
+     * Completing twice does not write twice.
+     *
+     * The held row is cleared as it is written, so a caller that completes an
+     * action it has already completed — a retry, a shutdown handler running
+     * after an explicit call — does nothing rather than duplicating the entry.
+     */
+    public function testCompletingTwiceWritesOnce(): void
+    {
+        // Arrange
+        $token            = new Token();
+        $token->userid    = 1;
+        $token->tokentype = Token::TYPE_API;
+        $token->token     = 'double-flush-token-' . uniqid();
+        $token->created   = time();
+        $token->save();
+
+        // Act
+        $token->addAction();
+        $token->updateAction($token->lastActionId, 200, 1.0, []);
+        $token->updateAction($token->lastActionId, 500, 9.0, []);
+        $token->flushPendingAction();
+
+        // Assert
+        $db  = Factory::getDatabase();
+        $row = $db->query(
+            'SELECT COUNT(*) AS cnt FROM `#PREFIX#tokenactions` WHERE tokenid = '
+            . (int) $token->tokenid
+        );
+        $this->assertSame(1, (int) $row->fields['cnt']);
+    }
+
+    /**
+     * An action nobody completes is still written.
+     *
+     * The API path completes the action once it knows the response; the web
+     * path never does. Without the shutdown flush a page view would be logged
+     * by being held, and then dropped when the process ended.
+     */
+    public function testAnUncompletedActionIsStillWritten(): void
+    {
+        // Arrange
+        $token            = new Token();
+        $token->userid    = 1;
+        $token->tokentype = Token::TYPE_API;
+        $token->token     = 'never-completed-token-' . uniqid();
+        $token->created   = time();
+        $token->save();
+
+        // Act — what the shutdown handler does
+        $token->addAction();
+        $token->flushPendingAction();
+
+        // Assert
+        $db  = Factory::getDatabase();
+        $row = $db->query(
+            'SELECT COUNT(*) AS cnt FROM `#PREFIX#tokenactions` WHERE tokenid = '
+            . (int) $token->tokenid
+        );
+        $this->assertSame(1, (int) $row->fields['cnt']);
+    }
+
+    /**
+     * The token row is not rewritten on every request.
+     *
+     * `addAction()` used to call `save()`, which UPDATEs every column of the
+     * row — the token itself, the device description, the scope — in order to
+     * move `lastused` forward and add one to `actions`. A page that then calls
+     * its own API did that twice for one page view.
+     *
+     * Neither field needs to be current to the second, so the write is
+     * occasional. The counter still counts: it is the persisting that is
+     * deferred, not the counting.
+     */
+    public function testRepeatedActionsDoNotRewriteTheTokenEachTime(): void
+    {
+        // Arrange
+        $token            = new Token();
+        $token->userid    = 1;
+        $token->tokentype = Token::TYPE_API;
+        $token->token     = 'use-write-token-' . uniqid();
+        $token->created   = time();
+        $token->save();
+
+        $db = Factory::getDatabase();
+        $db->enableQueryLog();
+        $db->clearQueryLog();
+
+        // Act — five requests in the same second
+        for ($i = 0; $i < 5; $i++) {
+            $token->addAction();
+            $token->flushPendingAction();
+        }
+
+        // Assert — the counter kept counting
+        $this->assertSame(5, $token->actions);
+
+        // and the row was not rewritten five times
+        $updates = 0;
+        foreach ($db->getQueryLog() as $entry) {
+            $sql = is_array($entry) ? ($entry['sql'] ?? '') : (string) $entry;
+            if (stripos($sql, 'usertokens') !== false
+                && (stripos($sql, 'update') !== false || stripos($sql, 'insert') !== false)) {
+                $updates++;
+            }
+        }
+
+        $this->assertLessThanOrEqual(
+            1,
+            $updates,
+            'the token row was rewritten ' . $updates . ' times for five requests'
+        );
+    }
+
+    /**
+     * A request from a new address writes immediately.
+     *
+     * The address and the device are what somebody investigating a stolen token
+     * looks at; delaying those by a minute to save a write would be saving the
+     * wrong thing.
+     */
+    public function testAChangeOfAddressIsWrittenAtOnce(): void
+    {
+        // Arrange
+        $token            = new Token();
+        $token->userid    = 1;
+        $token->tokentype = Token::TYPE_API;
+        $token->token     = 'ip-change-token-' . uniqid();
+        $token->created   = time();
+        $token->save();
+
+        $originalRemote = $_SERVER['REMOTE_ADDR'] ?? null;
+
+        try {
+            $_SERVER['REMOTE_ADDR'] = '10.0.0.1';
+            $token->addAction();
+            $token->flushPendingAction();
+
+            $db = Factory::getDatabase();
+            $db->enableQueryLog();
+            $db->clearQueryLog();
+
+            // Act — the same token, from somewhere else
+            $_SERVER['REMOTE_ADDR'] = '203.0.113.9';
+            $token->addAction();
+            $token->flushPendingAction();
+
+            // Assert
+            $updates = 0;
+            foreach ($db->getQueryLog() as $entry) {
+                $sql = is_array($entry) ? ($entry['sql'] ?? '') : (string) $entry;
+                if (stripos($sql, 'usertokens') !== false && stripos($sql, 'update') !== false) {
+                    $updates++;
+                }
+            }
+
+            $this->assertGreaterThan(0, $updates, 'the new address was recorded at once');
+            $this->assertSame('203.0.113.9', $token->ipaddress);
+        } finally {
+            if ($originalRemote === null) {
+                unset($_SERVER['REMOTE_ADDR']);
+            } else {
+                $_SERVER['REMOTE_ADDR'] = $originalRemote;
+            }
+        }
     }
 
     // =========================================================================
@@ -893,8 +1189,11 @@ class TokenTest extends TestCase
         $token->save();
 
         $token->addAction();
+        $this->flushAction($token);
         $token->addAction();
+        $this->flushAction($token);
         $token->addAction();
+        $this->flushAction($token);
 
         // Act — fetch with offset=2, limit=10
         $result = $token->getActions(10, 2);
@@ -928,6 +1227,7 @@ class TokenTest extends TestCase
         \Pramnos\Http\Request::$requestMethod = 'POST';
         $_POST['search'] = 'hello';
         $token->addAction();
+        $this->flushAction($token);
         unset($_POST['search']);
         \Pramnos\Http\Request::$requestMethod = 'GET';
 

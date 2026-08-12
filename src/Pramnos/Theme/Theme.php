@@ -129,11 +129,17 @@ class Theme extends \Pramnos\Framework\Base
         $this->document = \Pramnos\Framework\Factory::getDocument();
         $this->init();
         $this->loadSettings();
-        $widgetsData = unserialize(
-            \Pramnos\Application\Settings::getSetting(
-                'theme_' . $this->theme . '_widgets'
-            )
+
+        // A theme with no stored widgets is the normal case, and getSetting()
+        // answers `false` for it. Feeding that to unserialize() raises
+        // "Error at offset 0" — a warning on every page, for a condition that
+        // is not an error at all.
+        $storedWidgets = \Pramnos\Application\Settings::getSetting(
+            'theme_' . $this->theme . '_widgets'
         );
+        $widgetsData = (is_string($storedWidgets) && $storedWidgets !== '')
+            ? @unserialize($storedWidgets)
+            : false;
         $this->widgets = is_array($widgetsData) ? $widgetsData : [];
         if ($theme != 'default'){
             $this->theme = $theme;
@@ -161,13 +167,24 @@ class Theme extends \Pramnos\Framework\Base
         self::$activeTheme = $theme;
     }
 
+    /**
+     * A hook for a theme that wants to load its own settings.
+     *
+     * This used to read `theme_<name>_settings` and then do nothing with it:
+     * the only statement inside the `if` was commented out years ago, when the
+     * settings form it fed (`pramnos_html_form`) stopped existing. So every
+     * page paid for a query whose result was discarded — and because that key
+     * is absent on most installations, the read could not even be served from
+     * the settings bulk load.
+     *
+     * The method stays, and stays called, because a theme may override it; only
+     * the query is gone. A theme that wants those settings should read them
+     * here, where it also knows what to do with them.
+     *
+     * @return $this
+     */
     protected function loadSettings()
     {
-        if (\Pramnos\Application\Settings::getSetting(
-            'theme_' . $this->theme . '_settings'
-        ) != '') {
-            #$this->_form->setValues(unserialize(pramnos_settings::baseget('theme_' . $this->theme . '_settings')));
-        }
         return $this;
     }
 

@@ -203,8 +203,14 @@ class Helpers
     public static function get_user_browser($usarAgent = '')
     {
         if ($usarAgent == '') {
-            $usarAgent = $_SERVER['HTTP_USER_AGENT'];
+            // A request with no User-Agent is ordinary — a health check, a
+            // script, a CLI run. Reading the header unguarded made every one of
+            // them raise "Undefined array key", and then pass null into
+            // preg_match(), which is deprecated on top of it.
+            $usarAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
         }
+
+        $usarAgent   = (string) $usarAgent;
         $userBrowser = '';
         if (preg_match('/MSIE/i', $usarAgent)) {
             $userBrowser = "ie";
@@ -230,9 +236,18 @@ class Helpers
      */
     public static function getBrowser($agent) {
 
-        $browserInfo = @get_browser(
-            $agent, true
-        );
+        // `get_browser()` needs the `browscap` ini directive to point at a
+        // browscap.ini file. That directive is unset by default and on most
+        // installations nobody sets it, so the call cannot succeed — it just
+        // raises a warning and returns false, on every request that logs a
+        // user agent.
+        //
+        // Asking first is cheaper than calling and recovering, and it is the
+        // difference between a log full of a warning nobody can act on and a
+        // quiet one. The user-agent parsing below is the answer either way.
+        $browserInfo = self::browscapConfigured()
+            ? @get_browser($agent, true)
+            : false;
 
         if (!$browserInfo) {
             return (object)array(
@@ -264,6 +279,23 @@ class Helpers
             'engine' => $engine
 
         );
+    }
+
+    /**
+     * Is there a browscap file for `get_browser()` to read?
+     *
+     * The directive is unset on a default PHP installation, which is why the
+     * caller checks rather than calling and recovering. `ini_get()` returns
+     * false when the directive does not exist at all and '' when it exists but
+     * is empty; both mean the same thing here.
+     *
+     * @return bool
+     */
+    protected static function browscapConfigured(): bool
+    {
+        $browscap = ini_get('browscap');
+
+        return is_string($browscap) && trim($browscap) !== '';
     }
 
 

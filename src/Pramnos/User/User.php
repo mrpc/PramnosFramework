@@ -689,10 +689,16 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         }
 
 
+        // Cached alongside the users row, in the same category and for the same
+        // ten seconds. They are read together for the same user on every
+        // request that loads one, and caching one but not the other meant every
+        // such request still paid a round trip — the saving was halved for no
+        // reason. The category is flushed wherever a user is written, so the
+        // two cannot disagree.
         $result = $database->queryBuilder()
             ->table('userdetails')
             ->where('userid', $uid)
-            ->get();
+            ->get(true, 10, 'userlist');
         while ($result->fetch()) { //This should load all special settings
             $fixname = substr($result->fields['fieldname'], 3);
             if ($fixname != 'originalOtherinfo'

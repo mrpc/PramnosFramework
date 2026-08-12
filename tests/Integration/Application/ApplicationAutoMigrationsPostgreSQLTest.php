@@ -37,6 +37,10 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
 
     protected function setUp(): void
     {
+        // The auto-migration check caches its verdict against a fingerprint of
+        // the migration files. These tests rewrite those files inside one
+        // process, so the verdict has to be forgotten between them.
+        \Pramnos\Application\Application::forgetVerifiedMigrations();
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }

@@ -258,6 +258,13 @@ class Datasource extends Base
         }
 
         /* Filtering */
+        // Whether anything narrowed the result set. When nothing did, the
+        // filtered count is by definition the unfiltered one, and asking the
+        // database the same question twice is exactly what it looks like: two
+        // identical COUNT(*) statements, back to back, on every page of every
+        // datatable that nobody has typed a search into — which is most of them.
+        $isFiltered = false;
+
         $searchTerm = $request->get('sSearch', '', 'post');
         if ($searchTerm != "") {
             $hasSearchable = false;
@@ -268,6 +275,7 @@ class Datasource extends Base
                 }
             }
             if ($hasSearchable) {
+                $isFiltered = true;
                 $qb->where(function($query) use ($fields, $searchTerm, $database) {
                     foreach ($fields as $i => $field) {
                         if (isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
@@ -295,6 +303,7 @@ class Datasource extends Base
                 }
                 
                 $column = strpos($field, '.') === false ? "a.`$field`" : $field;
+                $isFiltered = true;
                 $qb->where($column, 'LIKE', $startWildcard . $colSearch . $endWildcard);
             }
         }
@@ -312,11 +321,19 @@ class Datasource extends Base
 
         // Second count: Total records with filtering (but no limit).
         // QB::count() clones internally, so ORDER BY / LIMIT / OFFSET are stripped automatically.
-        try {
-            $totalDisplay = $qb->count();
-        } catch (\Exception $ex) {
-            \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
-            $totalDisplay = 0;
+        //
+        // Skipped entirely when nothing was filtered: the two queries would be
+        // character-for-character identical, and on a large table the count is
+        // the most expensive statement the request makes.
+        if (!$isFiltered) {
+            $totalDisplay = $total;
+        } else {
+            try {
+                $totalDisplay = $qb->count();
+            } catch (\Exception $ex) {
+                \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
+                $totalDisplay = 0;
+            }
         }
 
         if ($debug) {

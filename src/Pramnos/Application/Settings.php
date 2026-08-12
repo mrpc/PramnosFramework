@@ -28,6 +28,16 @@ class Settings extends \Pramnos\Framework\Base
     static protected $bulkLoaded = false;
 
     /**
+     * How long a settings read stays in the SQL cache, in seconds.
+     *
+     * One value for both the bulk read and the single-key read. They used to
+     * differ — 300 and 600 — which meant the same data had two lifetimes, and a
+     * per-key entry could outlive the bulk one and answer differently for the
+     * rest of its window.
+     */
+    const CACHE_TTL = 300;
+
+    /**
      * Database to access dynamic settings
      * @var \Pramnos\Database\Database
      */
@@ -209,14 +219,36 @@ class Settings extends \Pramnos\Framework\Base
                     return self::$settings[$setting];
                 }
             }
+
+            // The bulk load read *every* row in the table, so a key still
+            // missing afterwards is not there at all — and no amount of asking
+            // again will change that.
+            //
+            // Without this, a setting that does not exist costs one query on
+            // every read, on every request, for ever: the store never records
+            // the miss, so the next call repeats it. Two such lookups on the
+            // page-render path is what made this visible, but the shape of the
+            // bug is worse than the count — the cost grows with how often an
+            // absent setting is consulted, which is exactly the thing a caller
+            // has no reason to think about.
+            //
+            // A forced read still goes to the database, which is what `$force`
+            // is for.
+            if ($force == false && self::$bulkLoaded === true) {
+                return $defaultValue;
+            }
+
             try {
                 $sql = self::$database->prepareQuery(
                     "select `value` from `#PREFIX#settings` "
                     . " where `setting` = %s limit 1",
                     $setting
                 );
+                // Same TTL and category as the bulk read: two different
+                // lifetimes for the same data meant one could outlive the other
+                // and answer differently for the rest of its window.
                 $result = self::$database->query(
-                    $sql, true, 600, 'settings'
+                    $sql, true, self::CACHE_TTL, 'settings'
                 );
                 if ($result->numRows != 0) {
                     self::$settings[$setting] = $result->fields['value'];
@@ -256,7 +288,7 @@ class Settings extends \Pramnos\Framework\Base
         try {
             $result = self::$database->query(
                 "select `setting`, `value` from `#PREFIX#settings`",
-                true, 300, 'settings'
+                true, self::CACHE_TTL, 'settings'
             );
             foreach ($result->fetchAll() as $row) {
                 if (!isset($row['setting'])) {
