@@ -106,6 +106,7 @@
         { key: 'queries',    label: 'SQL' },
         { key: 'timers',     label: 'Time' },
         { key: 'route',      label: 'Route' },
+        { key: 'auth',       label: 'Auth' },
         { key: 'session',    label: 'Session' },
         { key: 'logs',       label: 'Logs' },
         { key: 'views',      label: 'Views' },
@@ -134,6 +135,15 @@
 
     /** Set once the endpoint has refused, so it is not asked again. */
     var logsUnavailable = false;
+
+    /**
+     * Did this page come from the framework's MVC pipeline?
+     *
+     * True when a data island was found, which happens only for a page the
+     * middleware rendered. A SPA shell never goes through it, and the parts of
+     * the toolbar that link to server-rendered pages have nothing to link to.
+     */
+    var hasMvcPage = false;
 
     /** @type {Object<string, Array>} Server-side log lines, by request id. */
     var serverLogs = {};
@@ -454,6 +464,18 @@
     var STREAMS = { logs: 'entries', exceptions: 'items' };
 
     /**
+     * Tabs that describe *now* rather than one request.
+     *
+     * Auth is the odd one: it is not a stream, but it is not a property of a
+     * request either. Who you are is a state, and it changes — that is the whole
+     * point of a login. Reported from the request that happened to be selected,
+     * the tab said "anonymous" for as long as the selection stayed on the call
+     * made before signing in, and only a page refresh appeared to fix it. That
+     * is the bug this list exists to prevent.
+     */
+    var STATE_TABS = { auth: true };
+
+    /**
      * Show the streams across every request?
      *
      * Only until the reader picks a request. From that point every tab, these
@@ -664,6 +686,8 @@
         + '.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;'
         + 'padding:6px;border-radius:3px;max-height:240px;overflow:auto}'
         + '.pdb-muted{color:#6c7086}'
+        + '.pdb-id-copy{opacity:0;transition:opacity .1s}'
+        + '.pdb-row:hover .pdb-id-copy{opacity:1}'
         + '.pdb-wf{margin:4px 0 0}'
         + '.pdb-wf-row{display:flex;align-items:center;gap:6px;height:14px;cursor:pointer}'
         + '.pdb-wf-row:hover{background:#1e1e2e}'
@@ -678,6 +702,39 @@
         + '.pdb-body>summary{cursor:pointer;color:#89b4fa;font-size:11px}'
         + '.pdb-body>.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;'
         + 'background:#11111b;padding:6px;border-radius:3px;max-height:260px;overflow:auto}';
+    }
+
+    /**
+     * The DevPanel link, when there is a DevPanel to link to.
+     *
+     * The DevPanel is a server-rendered page behind MVC routing — a controller,
+     * a layout, an admin session. A SPA has none of that: its shell is a static
+     * file, its server speaks JSON, and `/devpanel` is a 404 there. The link was
+     * drawn in both deliveries on the assumption that a framework route exists
+     * wherever the framework does, which is not true of a project that never
+     * boots the MVC stack.
+     *
+     * The data island is the test, and it is exact rather than a guess: an
+     * island exists only because a page went through the middleware that emits
+     * it, and that middleware is the MVC pipeline the DevPanel lives in. No
+     * island, no page — so no link, rather than a link to nothing.
+     */
+    function devPanelLink() {
+        if (!hasMvcPage) {
+            return '';
+        }
+
+        return '<a class="pdb-devpanel" href="' + escAttr(devPanelUrl())
+            + '" title="DevPanel">&#128270; DevPanel</a>';
+    }
+
+    /** Where the DevPanel lives, resolved the same way the log endpoint is. */
+    function devPanelUrl() {
+        try {
+            return new URL('devpanel', document.baseURI || location.origin).toString();
+        } catch (e) {
+            return '/devpanel';
+        }
     }
 
     /** Build the bar the first time there is something to show. */
@@ -700,9 +757,7 @@
         root.id = 'pramnos-debugbar';
         root.innerHTML = '<div id="pdb-bar"><span id="pdb-brand">&#9881; Pramnos</span>'
             + '<span id="pdb-tabs"></span><span id="pdb-info"></span>'
-            // The DevPanel is a framework route, so the link is worth having in
-            // both deliveries: reaching it otherwise means remembering the URL.
-            + '<a class="pdb-devpanel" href="/devpanel" title="DevPanel">&#128270; DevPanel</a>'
+            + devPanelLink()
             + '<button class="pdb-close" id="pdb-close-btn" title="Hide the toolbar">&#x2715;</button></div>'
             + '<div id="pdb-panel"></div>';
 
@@ -792,6 +847,13 @@
             // whole page — so one of them is worth showing even when the request
             // in view produced none of its own.
             var stream = aggregating() && STREAMS[tab.key] ? streamAcross(tab.key) : null;
+
+            // A state tab appears while any request has carried it: the one in
+            // view may predate the login that produced it.
+            if (!data && STATE_TABS[tab.key] && !userPicked) {
+                data = newestPayloadFor(tab.key);
+            }
+
             if (!data && !(stream && stream.length)) {
                 return;
             }
@@ -800,7 +862,8 @@
             // exactly like the other eight does not say so. The colour is the
             // whole point of collecting exceptions: nobody opens a tab to check
             // whether there is anything in it.
-            var alarming = tab.key === 'exceptions' && count > 0;
+            var alarming = (tab.key === 'exceptions' && count > 0)
+                || (tab.key === 'auth' && credentialExpired(data));
             html += '<button class="pdb-tab' + (activeTab === tab.key ? ' pdb-active' : '')
                 + (alarming ? ' pdb-tab-alert' : '')
                 + '" data-panel="' + tab.key + '">' + (alarming ? '⚠ ' : '') + esc(tab.label)
@@ -875,9 +938,26 @@
                 return (data.this_request || []).length || null;
             case 'session':
                 return data.active ? Object.keys(data.data || {}).length : null;
+            case 'auth':
+                // Not a count — there is nothing to count. An expired credential
+                // is the one thing worth seeing without opening the tab, because
+                // it explains every 401 above it in the list.
+                return null;
             default:
                 return null;
         }
+    }
+
+    /**
+     * Has the credential this request used already run out?
+     *
+     * Worth knowing without opening a tab, because it explains every refusal
+     * above it in the list at once — and because the alternative is reading four
+     * 401s and guessing.
+     */
+    function credentialExpired(data) {
+        var token = data && data.token;
+        return !!(token && token.expires_at && token.expires_at <= Math.floor(Date.now() / 1000));
     }
 
     /** Time, memory and route for the selected entry. */
@@ -909,6 +989,24 @@
     }
 
     /**
+     * A way to copy this request's id, without a column for it.
+     *
+     * The id is sixteen characters of noise that somebody reads once in their
+     * life — when they are pasting it into a bug report or a log search. A
+     * column would spend a sixth of a narrow table on it permanently; a button
+     * that appears on hover costs nothing until it is wanted.
+     */
+    function requestIdChip(entry) {
+        var id = requestIdOf(entry);
+        if (!id) {
+            return '';
+        }
+
+        return ' <button class="pdb-copy pdb-id-copy" title="'
+            + escAttr('Copy request id ' + id) + '" data-copy="' + escAttr(id) + '">id</button>';
+    }
+
+    /**
      * Did this request go wrong?
      *
      * Three ways, and the row is red for all of them: the status says so, the
@@ -936,7 +1034,9 @@
                 + (wentWrong(e) ? ' pdb-row-bad' : '') + '" data-entry="' + i + '">'
                 + '<td class="pdb-muted">' + clockTime(e.at) + '</td>'
                 + '<td>' + esc(e.method) + '</td>'
-                + '<td class="pdb-sql">' + esc(e.path) + (e.kind === 'page' ? ' <span class="pdb-muted">(page)</span>' : '') + '</td>'
+                + '<td class="pdb-sql">' + esc(e.path)
+                + (e.kind === 'page' ? ' <span class="pdb-muted">(page)</span>' : '')
+                + requestIdChip(e) + '</td>'
                 + '<td class="pdb-s-' + String(e.status).charAt(0) + '">' + esc(e.status) + '</td>'
                 + '<td class="pdb-time">' + (ms === null ? '—' : ms + 'ms') + '</td>'
                 + '<td class="pdb-time">' + (q === null ? '—' : q) + '</td>'
@@ -1054,6 +1154,13 @@
             return renderStream(key, entry);
         }
 
+        if (STATE_TABS[key] && !userPicked) {
+            var current = newestPayloadFor(key);
+            if (current) {
+                return renderTab_state(key, current, entry);
+            }
+        }
+
         if (entry && !entry.payload) {
             // Saying why beats an empty panel: each of these has a different
             // fix, and this is where somebody looks first.
@@ -1080,6 +1187,7 @@
             case 'queries':    return renderQueries(data);
             case 'timers':     return renderTimers(data, entry);
             case 'route':      return renderKeyValue(data);
+            case 'auth':       return renderAuth(data);
             case 'session':    return renderSession(data);
             case 'logs':       return renderLogs(data, entry);
             case 'views':      return renderViews(data);
@@ -1088,6 +1196,41 @@
             case 'exceptions': return renderExceptions(data, entry);
             default:           return '<pre class="pdb-pre">' + esc(JSON.stringify(mask(data), null, 2)) + '</pre>';
         }
+    }
+
+    /**
+     * The most recent value of a state key, whichever request carried it.
+     *
+     * Signing in changes who you are; the request that reported it is over. What
+     * a reader wants is the state now, and the newest answer is it.
+     */
+    function newestPayloadFor(key) {
+        for (var i = entries.length - 1; i >= 0; i--) {
+            var payload = entries[i].payload;
+            if (payload && payload[key]) {
+                return payload[key];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Draw a state tab, saying so when the state shown is newer than the
+     * request in view.
+     *
+     * Silently showing a different request's data would be the same mistake in
+     * the other direction: the panel would be right and unexplainable.
+     */
+    function renderTab_state(key, current, entry) {
+        var own    = entry && entry.payload ? entry.payload[key] : null;
+        var note   = '';
+
+        if (own && own !== current) {
+            note = '<p class="pdb-muted">This is the state as of the most recent request. '
+                + 'Pick a request to see what it was for that one.</p>';
+        }
+
+        return note + (key === 'auth' ? renderAuth(current) : renderTab(key, entry));
     }
 
     /** A copy button carrying the given text. */
@@ -1226,6 +1369,108 @@
                 + '</td></tr>';
         });
         return '<table class="pdb-table"><tbody>' + rows + '</tbody></table>';
+    }
+
+    /**
+     * Who this request was, and what convinced the server of it.
+     *
+     * "It worked and then it stopped" is almost always one of three things: the
+     * credential expired, the client sent a different one than it thinks, or it
+     * sent none and the server fell back to a session cookie that only exists on
+     * the developer's own machine. All three are here.
+     *
+     * The token's value is never in the payload — only its claims — so nothing
+     * on this panel can be used to authenticate as anybody.
+     */
+    function renderAuth(data) {
+        var user = data.user || {};
+        var html = '';
+
+        html += user.authenticated
+            ? '<p><strong>' + esc(user.username || ('user ' + user.userid)) + '</strong> '
+                + '<span class="pdb-muted">#' + esc(user.userid)
+                + ' · type ' + esc(user.usertype) + '</span></p>'
+            : '<p class="pdb-muted">Anonymous — the server did not identify anybody.</p>';
+
+        var credential = data.credential || 'none';
+
+        if (credential !== 'none') {
+            html += '<p>Authenticated by <strong>' + esc(credential) + '</strong>'
+                + (data.source ? ' <span class="pdb-muted">(' + esc(data.source) + ')</span>' : '')
+                + '</p>';
+        } else if (data.source) {
+            // "No credential" and "this request signed out" are both anonymous
+            // and they are not the same answer: one is a call that never carried
+            // anything, the other is a logout that worked. Dropping the second
+            // made a successful sign-out look like a request that had simply
+            // forgotten its token.
+            html += '<p class="pdb-muted">' + esc(data.source) + '.</p>';
+        } else {
+            html += '<p class="pdb-muted">No credential was presented.</p>';
+        }
+
+        var token = data.token;
+        if (!token) {
+            return html;
+        }
+
+        if (token.format !== 'jwt') {
+            return html + '<p class="pdb-muted">The token is opaque — there is nothing '
+                + 'inside it to read.</p>';
+        }
+
+        html += expiryLine(token.expires_at);
+
+        var rows = '';
+        Object.keys(token.claims || {}).forEach(function (claim) {
+            rows += '<tr><td>' + esc(claim) + '</td><td class="pdb-sql">'
+                + esc(token.claims[claim]) + '</td></tr>';
+        });
+
+        return html + '<table class="pdb-table"><thead><tr><th>Claim</th><th>Value</th></tr>'
+            + '</thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    /**
+     * How long the credential has left, as of now.
+     *
+     * Counted from the token's own absolute expiry rather than from a "seconds
+     * remaining" the server worked out: the response may have been sitting in
+     * the browser for a while before anybody opened this tab, and a countdown
+     * that started when the request was made would be reassuring and wrong.
+     */
+    function expiryLine(expiresAt) {
+        if (!expiresAt) {
+            return '<p class="pdb-muted">The token does not say when it expires.</p>';
+        }
+
+        var left = expiresAt - Math.floor(Date.now() / 1000);
+        var when = new Date(expiresAt * 1000);
+
+        if (left <= 0) {
+            return '<p style="color:#f38ba8"><strong>Expired</strong> '
+                + esc(humanDuration(-left)) + ' ago — at ' + esc(clockTime(when)) + '. '
+                + 'Every call with it will be refused from here on.</p>';
+        }
+
+        return '<p style="color:' + (left < 300 ? '#fab387' : '#a6e3a1') + '">Valid for another '
+            + '<strong>' + esc(humanDuration(left)) + '</strong> '
+            + '<span class="pdb-muted">— until ' + esc(clockTime(when)) + '</span></p>';
+    }
+
+    /** Seconds as something a person reads without counting zeros. */
+    function humanDuration(seconds) {
+        var s = Math.max(0, Math.floor(seconds));
+        if (s < 60) {
+            return s + 's';
+        }
+        if (s < 3600) {
+            return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+        }
+        if (s < 86400) {
+            return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+        }
+        return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
     }
 
     function renderSession(data) {
@@ -1893,6 +2138,8 @@
                 // one of those twice.
                 return;
             }
+
+            hasMvcPage = true;
 
             var payload = JSON.parse(island.textContent || '{}');
             record(

@@ -23,6 +23,7 @@ The difference is only how it arrives:
 | | Server-rendered page | SPA |
 |---|---|---|
 | How it gets there | `DebugBar::render()` inlines the script before `</body>` | scaffolded as `lib/debug.js`, an ES module |
+| DevPanel link | shown | absent — `/devpanel` is a server-rendered page behind MVC routing, and a SPA project's server has none |
 | First request | seeded from a hidden `<div id="pramnos-debug-data">` | the first API call |
 | Later requests | `fetch`/`XMLHttpRequest` are wrapped automatically | `lib/api.js` calls `record()` |
 
@@ -111,6 +112,44 @@ sent rather than laid out — pretty-printing means parsing, re-serialising and
 walking every key to mask it, which is nothing for two kilobytes and real work
 for eight. Masking applies at every size. The layout is computed once per request
 and reused, so a polling page does not redo it on every render.
+
+### Who this request was
+
+The **Auth** tab answers the question behind "it worked and then it stopped":
+
+- **who** — user id, username and type, or anonymous;
+- **what** — `apiKey`, `accessToken`, the deprecated `userAuth` header, or a
+  session cookie. An API call that quietly fell back to a cookie is a bug that
+  only appears on somebody else's machine;
+- **where from** — `accessToken header` or `Authorization: Bearer`, because "the
+  token" means a different header to different people and only one is being
+  sent;
+- **until when** — a countdown to the token's expiry, and the tab turns red once
+  it has passed, which explains every refusal above it in the list at once.
+
+**The token itself never travels.** Only identity claims do — `sub`, `iss`,
+`aud`, `iat`, `exp`, `nbf`, `jti`, `userid`, `username` — because this payload is
+attached to responses and lands in a browser's network log, and a live
+credential there would hand out the thing the panel exists to explain. The
+signature is dropped and the claims are read without verifying it: this reports
+what the client *sent*, and a token the server is about to reject is exactly the
+one worth looking at. Whether it was accepted is the status of the request beside
+it.
+
+Auth is **state, not history**: it follows the most recent request rather than
+the selected one, so signing in updates it without a page refresh. Pick a request
+and it shows what was true for that one, saying so.
+
+Both ends of a session are reported as the state they **leave behind**, not the
+one they arrived with — otherwise both would read as failures:
+
+- a **login** carries no credential (the token is issued *by* that call), so it
+  would say "anonymous" at the exact moment somebody signed in. It reports the
+  identity it created, and describes the token it just handed out, countdown
+  included;
+- a **logout** is authenticated (it has to be, to revoke anything), so it would
+  say "signed in as admin" immediately after signing out. It reports that nobody
+  is signed in any more.
 
 The **Exceptions** tab turns red and carries a `⚠` as soon as any request has
 raised something, so you do not have to open it to find out. A request whose
