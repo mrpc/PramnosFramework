@@ -820,7 +820,15 @@ class InitSpaScaffoldingTest extends TestCase
         // Assert — the panel exists...
         $panel = $this->read('frontend/lib/debug.js');
         $this->assertStringContainsString('export function record(', $panel);
-        $this->assertStringContainsString('if (!debug) {', $panel, 'no debug data means no panel at all');
+        // The panel exists only once a payload has arrived, and the API attaches
+        // one only in development. Asserted on the guard's meaning rather than
+        // its exact text: it now also lets a 204 through once the panel is
+        // active, since a save carries no body to put a payload in.
+        $this->assertStringContainsString(
+            'if (!debug && entries.length === 0) {',
+            $panel,
+            'no debug data, and nothing recorded yet, means no panel at all'
+        );
 
         // ...and the client feeds it every response
         $client = $this->read('frontend/lib/api.js');

@@ -75,6 +75,19 @@ class DebugBarServiceProvider extends ServiceProvider
 
         // Capture PHP errors (warnings, notices, deprecations) into ExceptionsCollector.
         set_error_handler(function (int $errno, string $errstr, string $errfile, int $errline) use ($bar): bool {
+            // Respect the `@` operator. A custom error handler is called for
+            // suppressed diagnostics too — PHP lowers `error_reporting()` for
+            // the duration of the expression rather than skipping the handler —
+            // so without this check the toolbar reports errors that the code
+            // deliberately silenced, and reports them on every request.
+            //
+            // `@get_browser()` on a server with no browscap is the standing
+            // example: the code handles the failure and moves on, and the panel
+            // was showing the warning anyway.
+            if (!(error_reporting() & $errno)) {
+                return false;
+            }
+
             $ec = $bar->getCollector('exceptions');
             if ($ec instanceof ExceptionsCollector) {
                 $ec->recordPhpError($errno, $errstr, $errfile, $errline);
@@ -90,12 +103,24 @@ class DebugBarServiceProvider extends ServiceProvider
         // Inject toolbar via output buffering — captures the full response
         // regardless of routing strategy and injects before </body>.
         ob_start(function (string $output) use ($bar, $app): string {
+            // Every response gets the headers, whatever its type. They are the
+            // only channel that works for a 204, a redirect, or an HTML
+            // fragment — the ordinary shapes of the requests a page makes after
+            // it has already rendered.
+            ApiDebugPayload::sendHeaders();
+
             // Only inject the toolbar into HTML documents. Non-HTML responses —
             // the 'raw' document the log viewer serves inside an <iframe>, JSON
             // API responses, PDFs, images, RSS, etc. — must never carry it.
             $doc = \Pramnos\Framework\Factory::getDocument();
             if (!is_object($doc) || (($doc->type ?? 'html') !== 'html')) {
-                return $output;
+                // A JSON body has no </body> to inject into, but it does have
+                // room for a `_debug` key. Doing it here rather than in the API
+                // layer catches everything: datatable endpoints, controllers
+                // that echo their own JSON, anything that never goes near
+                // Application\Api. That layer attaches its own payload first,
+                // and this leaves an existing one alone.
+                return ApiDebugPayload::attachTo($output);
             }
             $bodyPos = strripos($output, '</body>');
             if ($bodyPos === false) {
@@ -113,6 +138,14 @@ class DebugBarServiceProvider extends ServiceProvider
 
     private function isDebugEnabled(): bool
     {
+        // A signed token opens the toolbar for one browser on a server where it
+        // is otherwise off. Checked first because it is the only reason the
+        // toolbar would appear on a live installation, and because redeeming a
+        // token has to happen even when every other check would have said yes.
+        if (DebugAccess::isGranted()) {
+            return true;
+        }
+
         $envDebug = getenv('APP_DEBUG');
         if ($envDebug !== false && $envDebug !== '' && $envDebug !== '0' && $envDebug !== 'false') {
             return true;

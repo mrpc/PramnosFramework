@@ -91,12 +91,17 @@ class Application extends \Symfony\Component\Console\Application
         // Scheduled tasks (Phase 4)
         $this->add(new \Pramnos\Console\Commands\ScheduleRun());
         $this->add(new \Pramnos\Console\Commands\ScheduleList());
+        // The cron-less alternative: one long-running process that runs the
+        // same schedule, for containers and anywhere else without a crontab
+        $this->add(new \Pramnos\Console\Commands\Work());
         // Policy Engine (Phase 4)
         $this->add(new \Pramnos\Console\Commands\PolicyEngine());
         // Hypertable repair for databases that gained TimescaleDB later
         $this->add(new \Pramnos\Console\Commands\TimescaleEnsure());
         // Writes that were queued because their chunk was already compressed
         $this->add(new \Pramnos\Console\Commands\TimescaleDrain());
+        // Writes buffered out of the request path by WriteSpool
+        $this->add(new \Pramnos\Console\Commands\SpoolDrain());
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());
@@ -119,6 +124,8 @@ class Application extends \Symfony\Component\Console\Application
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
         $this->add(new \Pramnos\Console\Commands\DebugStatus());
+        // Opens the toolbar for one browser on a server where it is off
+        $this->add(new \Pramnos\Console\Commands\DebugToken());
         // Broadcasting (Phase 12)
         $this->add(new \Pramnos\Console\Commands\BroadcastServe());
         // DaemonOrchestrator is abstract — apps register their own concrete subclass
