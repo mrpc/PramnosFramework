@@ -580,6 +580,65 @@ class DebugBarTest extends TestCase
         }
     }
 
+
+    /**
+     * A phase that finished before the collectors existed can still be placed
+     * on the timeline, at the time it actually ran.
+     *
+     * Application bootstrap is the case: connecting to the database, booting
+     * providers and starting the session all happen before the toolbar exists,
+     * because registering it is one of those steps. Reported at the end with
+     * absolute times, each phase keeps its own place instead of the three of
+     * them stacking at the instant they were handed over.
+     */
+    public function testAFinishedPhaseKeepsTheTimeItActuallyRanAt(): void
+    {
+        // Arrange — an explicit start, because that is what the offsets are
+        // measured from. Left to the default it comes from REQUEST_TIME_FLOAT,
+        // which another test in a full run clears: the collector then starts
+        // "now", both phases sit before it, and collect() clamps a negative
+        // offset to zero — so the two would compare equal and the ordering this
+        // test is about would be untestable.
+        $now  = microtime(true);
+        $time = new TimeCollector($now - 1.0);
+        DebugBar::getInstance()->addCollector($time);
+
+        // Act — two phases that ran one after the other, reported together
+        DebugBar::recordSegment('db-connect', $now - 0.30, $now - 0.25);
+        DebugBar::recordSegment('providers', $now - 0.25, $now - 0.10);
+
+        // Assert — different offsets, in the order they ran
+        $named = $time->collect()['named_timers'];
+        $byName = [];
+        foreach ($named as $segment) {
+            $byName[$segment['name']] = $segment;
+        }
+
+        $this->assertArrayHasKey('db-connect', $byName);
+        $this->assertArrayHasKey('providers', $byName);
+        $this->assertLessThan(
+            $byName['providers']['offset_ms'],
+            $byName['db-connect']['offset_ms'],
+            'the connect ran before the providers, and the timeline says so'
+        );
+        // Roughly their real durations, not both ending "now"
+        $this->assertEqualsWithDelta(50, $byName['db-connect']['ms'], 5);
+        $this->assertEqualsWithDelta(150, $byName['providers']['ms'], 5);
+    }
+
+    /**
+     * With no TimeCollector — production, or a bar with nothing registered —
+     * recording a phase is a no-op rather than a fatal.
+     */
+    public function testRecordingASegmentWithoutATimeCollectorIsHarmless(): void
+    {
+        // Arrange — no collectors at all
+
+        // Act & Assert — reaching the end without throwing is the assertion
+        DebugBar::recordSegment('bootstrap', microtime(true) - 1, microtime(true));
+        $this->assertSame([], DebugBar::getInstance()->getCollectors());
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     /**

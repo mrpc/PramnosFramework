@@ -118,6 +118,27 @@ class DebugBar
     }
 
 
+    /**
+     * Record a phase of work that has already finished.
+     *
+     * For work the toolbar could not have timed as it happened — application
+     * bootstrap runs before the collectors exist, because registering them is
+     * part of it. The times are absolute (`microtime(true)`), so a caller can
+     * measure several phases and report them all at the end without them piling
+     * up at the same instant.
+     *
+     * A no-op when no TimeCollector is registered, which is every request in
+     * production.
+     *
+     * @param string $name  Label shown on the timeline.
+     * @param float  $start microtime(true) when the phase began.
+     * @param float  $end   microtime(true) when it ended.
+     */
+    public static function recordSegment(string $name, float $start, float $end): void
+    {
+        static::getInstance()->timeCollector?->addSegment($name, $start, $end);
+    }
+
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     /**

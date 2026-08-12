@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Debug;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Debug\Collectors\AuthCollector;
 use Pramnos\Debug\Collectors\ExceptionsCollector;
 use Pramnos\Debug\Collectors\LogCollector;
 use Pramnos\Debug\Collectors\MemoryCollector;
@@ -57,9 +58,14 @@ class DebugBarServiceProvider extends ServiceProvider
         }
 
         $bar->addCollector(new TimeCollector());
-        DebugBar::startTimer('boot');
+        // Named for what it is. It measures this provider registering its own
+        // collectors — useful when the toolbar itself is suspected of costing
+        // something, and misleading under any name that suggests application
+        // startup. That is `bootstrap`, measured in Application::init().
+        DebugBar::startTimer('debugbar');
         $bar->addCollector(new MemoryCollector());
         $bar->addCollector(new SessionCollector());
+        $bar->addCollector(new AuthCollector());
         $bar->addCollector(new LogCollector());
 
         // Query collector — only if DB is available
@@ -75,7 +81,7 @@ class DebugBarServiceProvider extends ServiceProvider
         $bar->addCollector(new MigrationsCollector());
         $bar->addCollector(new ExceptionsCollector());
 
-        DebugBar::stopTimer('boot');
+        DebugBar::stopTimer('debugbar');
 
         // Never open an output buffer in CLI (PHPUnit) — the unclosed level
         // would trigger "did not close its own output buffers" on every test.

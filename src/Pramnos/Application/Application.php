@@ -479,25 +479,51 @@ class Application extends Base
         if (PHP_VERSION_ID < 80100) {
             $this->showError("Pramnos Framework requires PHP 8.1.0 or greater. You are running PHP " . PHP_VERSION . ".");
         }
+        // Bootstrap is the classic invisible cost — connecting to the database,
+        // booting service providers and starting the session all happen before
+        // a single line of application code runs, and none of it was on the
+        // timeline. It cannot be timed the usual way either: the collector that
+        // would record it is registered *by* one of these phases. So each phase
+        // is measured here and handed over at the end, with absolute times, once
+        // there is something to hand them to.
+        $bootstrapStart = microtime(true);
+
         $this->settings = Settings::getInstance($settingsFile);
         $this->database = \Pramnos\Database\Database::getInstance(
             $this->settings
         );
+
+        $databaseStart = microtime(true);
         try {
             $this->database->connect();
         } catch (\Exception $ex) {
             $this->showError($ex->getMessage());
         }
+        $databaseEnd = microtime(true);
+
         \Pramnos\Application\Settings::setDatabase($this->database);
         $this->initialized = true;
         FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
+
+        $providersStart = microtime(true);
         $this->bootServiceProviders();
+        $providersEnd = microtime(true);
+
         $this->registerBuiltInHealthChecks();
         /**
          * Start Session
          */
+        $sessionStart = microtime(true);
         $this->session = \Pramnos\Http\Session::getInstance();
         $this->session->start();
+        $sessionEnd = microtime(true);
+
+        // From here the collectors exist, so the phases can be reported. Each
+        // keeps the times it actually ran at rather than being stacked at this
+        // instant.
+        \Pramnos\Debug\DebugBar::recordSegment('db-connect', $databaseStart, $databaseEnd);
+        \Pramnos\Debug\DebugBar::recordSegment('providers', $providersStart, $providersEnd);
+        \Pramnos\Debug\DebugBar::recordSegment('session', $sessionStart, $sessionEnd);
 
 
         $request = new \Pramnos\Http\Request();
@@ -528,6 +554,10 @@ class Application extends Base
         $lang = \Pramnos\Translator\Language::getInstance($this->language);
         $lang->load($this->language);
         \Pramnos\Addon\Addon::triger('AppInit', 'system');
+
+        // The whole of init(), so the timeline shows what starting up cost
+        // beside what the request itself cost.
+        \Pramnos\Debug\DebugBar::recordSegment('bootstrap', $bootstrapStart, microtime(true));
         $this->bootSessionTracking();
         $this->database->setTrackingInfo();
         $this->registerDefaultNavItems($this->applicationInfo['features'] ?? []);
