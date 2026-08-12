@@ -42,60 +42,118 @@ class SettingsTest extends TestCase
         $this->assertEquals('default', Settings::getSetting('some_key', 'default'));
     }
 
+    /**
+     * A recording stand-in for the query builder.
+     *
+     * Settings reads and writes through the builder rather than hand-built SQL
+     * — a raw statement carried MySQL backticks to PostgreSQL, silently. These
+     * tests therefore assert on the *calls*, which is also the more honest
+     * subject: what matters is that a write checks for the row and then inserts
+     * or updates it, not what the statement looked like.
+     *
+     * @param object $log      Receives ->table, ->where, ->inserted, ->updated
+     * @param bool   $exists   What exists() reports
+     * @param array  $fields   What get() returns as its single row
+     */
+    private function fakeBuilder(object $log, bool $exists = false, array $fields = []): object
+    {
+        return new class ($log, $exists, $fields) {
+            public function __construct(
+                private object $log,
+                private bool $exists,
+                private array $fields,
+            ) {
+            }
+
+            public function table($t) { $this->log->table = $t; return $this; }
+            public function from($t) { $this->log->table = $t; return $this; }
+            public function select($c) { return $this; }
+            public function limit($n) { return $this; }
+
+            public function where($col, $op = null, $val = null)
+            {
+                $this->log->where = [$col, func_num_args() === 2 ? $op : $val];
+                return $this;
+            }
+
+            public function exists(): bool { return $this->exists; }
+
+            public function insert(array $values) { $this->log->inserted = $values; return true; }
+
+            public function update(array $values) { $this->log->updated = $values; return true; }
+
+            public function get($cache = false, $ttl = 0, $category = '')
+            {
+                $fields = $this->fields;
+                return new class ($fields) {
+                    public $numRows;
+                    public $fields;
+                    public function __construct(array $fields)
+                    {
+                        $this->fields  = $fields;
+                        $this->numRows = $fields === [] ? 0 : 1;
+                    }
+                };
+            }
+        };
+    }
+
     public function testSetAndGetSettingWithDatabase()
     {
+        // Arrange — no such row yet, so the write must insert
+        $log = new \stdClass();
+        $log->inserted = null;
+
         $mockDb = $this->createMock(Database::class);
-        $mockDb->method('prepareQuery')->willReturn('MOCK QUERY');
-        
-        // setSetting checks if exists first
-        $mockResult0 = new class { public $numRows = 0; };
-        // setSetting inserts
-        $mockResultInsert = new class { public $numRows = 1; };
-        
-        $mockDb->expects($this->any())
-               ->method('query')
-               ->willReturn($mockResult0, $mockResultInsert);
-               
+        $mockDb->method('queryBuilder')->willReturnCallback(
+            fn(): object => $this->fakeBuilder($log, false)
+        );
+
+        // Act
         Settings::setDatabase($mockDb);
         Settings::setSetting('db_key', 'db_value', true);
-        
+
+        // Assert
+        $this->assertSame(['setting' => 'db_key', 'value' => 'db_value'], $log->inserted);
         $this->assertEquals('db_value', Settings::getSetting('db_key'));
     }
 
     public function testSetSettingUpdatesExistingDatabaseRecord()
     {
+        // Arrange — the row is there, so the write must update rather than add
+        $log = new \stdClass();
+        $log->updated = null;
+        $log->where   = null;
+
         $mockDb = $this->createMock(Database::class);
-        $mockDb->method('prepareQuery')->willReturn('MOCK QUERY');
-        
-        // setSetting checks if exists first
-        $mockResultExists = new class { public $numRows = 1; };
-        
-        $mockDb->expects($this->any())
-               ->method('query')
-               ->willReturn($mockResultExists);
-               
+        $mockDb->method('queryBuilder')->willReturnCallback(
+            fn(): object => $this->fakeBuilder($log, true)
+        );
+
+        // Act
         Settings::setDatabase($mockDb);
         Settings::setSetting('update_key', 'new_value', true);
+
+        // Assert
+        $this->assertSame(['value' => 'new_value'], $log->updated);
+        $this->assertSame(['setting', 'update_key'], $log->where);
         $this->assertEquals('new_value', Settings::getSetting('update_key'));
     }
 
     public function testGetSettingQueriesDatabaseIfForced()
     {
+        // Arrange
+        $log    = new \stdClass();
         $mockDb = $this->createMock(Database::class);
-        $mockDb->method('prepareQuery')->willReturn('MOCK QUERY');
-        
-        $mockResult = new class { 
-            public $numRows = 1; 
-            public $fields = ['value' => 'db_value']; 
-        };
-        
         $mockDb->expects($this->once())
-               ->method('query')
-               ->willReturn($mockResult);
-               
+               ->method('queryBuilder')
+               ->willReturnCallback(fn(): object => $this->fakeBuilder($log, true, ['value' => 'db_value']));
+        $mockDb->expects($this->never())->method('query');
+
+        // Act — force=true bypasses the in-memory store and reads the database
         Settings::setDatabase($mockDb);
-        
-        // Call getSetting with force=true so it hits the DB
+
+        // Assert
         $this->assertEquals('db_value', Settings::getSetting('force_key', false, true));
     }
 

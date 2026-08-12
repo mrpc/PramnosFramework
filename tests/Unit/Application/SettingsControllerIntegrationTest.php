@@ -88,11 +88,20 @@ class SettingsControllerIntegrationTest extends TestCase
         $dbRef = &\Pramnos\Database\Database::getInstance();
         $this->originalDb = clone $dbRef;
 
-        // Mock QueryBuilder
+        // Mock QueryBuilder. Settings reads and writes through the builder now
+        // — it used to hand-build SQL, which is how MySQL backticks reached
+        // PostgreSQL — so the chain it calls has to be stubbed here too, or the
+        // first unstubbed method returns null and the next call fatals on it.
         $this->queryBuilderMock = $this->createMock(QueryBuilder::class);
         $this->queryBuilderMock->method('table')->willReturnSelf();
         $this->queryBuilderMock->method('select')->willReturnSelf();
         $this->queryBuilderMock->method('orderBy')->willReturnSelf();
+        $this->queryBuilderMock->method('where')->willReturnSelf();
+        $this->queryBuilderMock->method('limit')->willReturnSelf();
+        $this->queryBuilderMock->method('exists')->willReturn(false);
+        $this->queryBuilderMock->method('insert')->willReturn(true);
+        $this->queryBuilderMock->method('update')->willReturn(true);
+        $this->queryBuilderMock->method('delete')->willReturn(true);
 
         // Mock Database
         $this->dbMock = $this->createMock(Database::class);
