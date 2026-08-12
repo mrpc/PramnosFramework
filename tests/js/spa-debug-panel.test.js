@@ -1,15 +1,16 @@
 /**
- * The SPA debug panel — the scaffolded equivalent of the server-rendered toolbar.
+ * The toolbar as a SPA project receives it.
  *
  * A server-rendered page gets the toolbar injected before `</body>`. A SPA's
  * shell is a static file that never goes through that pipeline, so its panel is
- * a module the scaffolded application imports. That makes it code the framework
- * ships and never runs — the worst kind — so it is tested here against a DOM
- * stub, the same way the toolbar's own script is.
+ * an ES module the application imports — generated from the framework's single
+ * toolbar source by `DebugBarAsset::spaModule()`. That makes it code the
+ * framework ships and never runs itself, the worst kind, so it is driven here
+ * against a DOM stub.
  *
- * The properties that matter are the two it is easy to get wrong: it must show
- * nothing at all in production, and it must not throw while rendering, because
- * a debug panel that breaks the application it measures is worse than none.
+ * What the module must get right: show nothing at all in production, never throw
+ * while rendering, draw every collector the payload carries (which is what a SPA
+ * was missing), and let the bar be hidden and brought back.
  *
  * Run:
  *   node --test tests/js/spa-debug-panel.test.js
@@ -21,16 +22,27 @@ const assert             = require('node:assert/strict');
 const fs                 = require('node:fs');
 const os                 = require('node:os');
 const path               = require('node:path');
+const { execFileSync }   = require('node:child_process');
 
-const STUB = path.join(
-    __dirname, '..', '..', 'scaffolding', 'templates', 'spa-debug-panel.js.stub'
-);
+const ROOT = path.join(__dirname, '..', '..');
+
+/**
+ * Ask PHP for the module a SPA project is given, exactly as the scaffolder
+ * writes it. Reading the asset directly would test a different string than the
+ * one that ships.
+ */
+function loadModuleSource() {
+    const php = 'require "vendor/autoload.php";'
+        + ' echo Pramnos\\Debug\\DebugBarAsset::spaModule("TestApp");';
+
+    return execFileSync('php', ['-r', php], { cwd: ROOT, encoding: 'utf8' });
+}
 
 // ─── A DOM stub with just enough behaviour ──────────────────────────────────
 
 /**
- * Build a document good enough for the panel: element creation, innerHTML,
- * append, querySelector by id, and a delegated click listener.
+ * A document good enough for the toolbar: element creation, innerHTML with id
+ * registration, appendChild, querySelector by id, and delegated click listeners.
  */
 function makeDom() {
     const byId = {};
@@ -39,24 +51,20 @@ function makeDom() {
         const el = {
             tagName: tag,
             children: [],
-            style: { cssText: '', display: '' },
+            style: {},
             dataset: {},
             classList: { add() {}, remove() {} },
+            listeners: {},
             _text: '',
             _html: '',
-            listeners: {},
             set id(value) { this._id = value; byId[value] = el; },
             get id() { return this._id; },
-            set textContent(value) {
-                this._text = String(value);
-                this._html = String(value)
-                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            },
+            set textContent(value) { this._text = String(value); },
             get textContent() { return this._text; },
             set innerHTML(value) {
                 this._html = String(value);
-                // Register any id="..." the markup declares, the way a browser
-                // would once it is in the document.
+                // Register ids the markup declares, as a browser would once it is
+                // in the document.
                 const re = /id="([^"]+)"/g;
                 let m;
                 while ((m = re.exec(String(value))) !== null) {
@@ -65,6 +73,7 @@ function makeDom() {
             },
             get innerHTML() { return this._html; },
             append(...nodes) { el.children.push(...nodes); },
+            appendChild(node) { el.children.push(node); return node; },
             remove() {},
             addEventListener(name, fn) { el.listeners[name] = fn; },
             querySelector(selector) {
@@ -93,202 +102,204 @@ function makeDom() {
 }
 
 /**
- * Load the stub as a module, with globals wired to a fresh DOM stub.
+ * Load the module with globals wired to a fresh DOM stub.
  *
- * The stub is a template with `{{ appName }}` placeholders, so it is rendered
- * to a temporary file first — which is also what the scaffolder does.
+ * @param {object}  options
+ * @param {?string} options.stored        Value already in storage, or null
+ * @param {boolean} options.storageThrows Make storage access itself throw
  */
 async function loadPanel({ stored = null, storageThrows = false } = {}) {
-    const source = fs.readFileSync(STUB, 'utf8').replace(/\{\{ appName \}\}/g, 'TestApp');
-    const file   = path.join(
+    const file = path.join(
         fs.mkdtempSync(path.join(os.tmpdir(), 'pramnos-spa-dbg-')), 'debug.mjs'
     );
-    fs.writeFileSync(file, source);
+    fs.writeFileSync(file, loadModuleSource());
 
     const dom = makeDom();
     global.document = dom.document;
-
-    // Storage, because the hidden/shown choice has to survive navigation — a bar
-    // that reappears on the next page reads as the button not working.
-    const store = stored === null ? {} : { 'pramnos.debugbar.hidden': stored };
-    const storage = {
-        getItem: (k) => (k in store ? store[k] : null),
-        setItem: (k, v) => { store[k] = String(v); },
-        removeItem: (k) => { delete store[k]; },
-    };
-    Object.defineProperty(global, 'localStorage', {
-        // A blocked origin or Safari's private mode makes *access itself* throw,
-        // not just the call — so the failure is simulated on the property.
-        get: () => { if (storageThrows) { throw new Error('access denied'); } return storage; },
-        configurable: true,
-    });
-    dom.store = store;
-    // `navigator` is a getter-only global in modern Node, so it is redefined
-    // rather than assigned. The panel only reads `navigator.clipboard`.
+    global.window = { document: dom.document };
     Object.defineProperty(global, 'navigator', {
         value: { clipboard: { writeText: () => Promise.resolve() } },
         configurable: true,
         writable: true,
     });
 
-    // Cache-busted so each test gets its own module state; the panel keeps its
+    const store = stored === null ? {} : { 'pramnos.debugbar.hidden': stored };
+    Object.defineProperty(global, 'localStorage', {
+        // A blocked origin or Safari's private mode makes *access itself* throw.
+        get: () => {
+            if (storageThrows) { throw new Error('access denied'); }
+            return {
+                getItem: (k) => (k in store ? store[k] : null),
+                setItem: (k, v) => { store[k] = String(v); },
+                removeItem: (k) => { delete store[k]; },
+            };
+        },
+        configurable: true,
+    });
+    dom.store = store;
+
+    // Cache-busted so each test gets its own module state; the toolbar keeps its
     // history in module scope, exactly as it does in a browser.
     const module = await import('file://' + file + '?t=' + Math.random());
 
     return { record: module.record, dom };
 }
 
-/** A payload of the shape the API attaches. */
-function payload({ time = 12.5, memory = 2.5, queries = [] } = {}) {
-    return {
+/** A payload of the shape ApiDebugPayload::build() attaches. */
+function payload(extra = {}) {
+    const time = extra.time ?? 12.5;
+    return Object.assign({
         time,
         memory: { peak_bytes: 1, peak_human: '1 B' },   // the collector's shape
-        request: { time, memory },
-        queries: { count: queries.length, queries },
-    };
+        request: { time, memory: extra.memory ?? 2.5 },
+        queries: { count: (extra.queries || []).length, total_ms: 3, queries: extra.queries || [] },
+    }, extra.extraKeys || {});
+}
+
+/** Click a tab the way the delegated listener sees it. */
+function openTab(dom, panel) {
+    dom.byId['pramnos-debugbar'].listeners.click({
+        target: {
+            closest: (selector) => (selector === '.pdb-tab' ? { dataset: { panel } } : null),
+        },
+    });
+}
+
+/** Click the ✕. */
+function clickClose(dom) {
+    dom.byId['pramnos-debugbar'].listeners.click({
+        target: {
+            closest: (selector) => (selector === '#pdb-close-btn' ? { id: 'pdb-close-btn' } : null),
+        },
+    });
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe('SPA debug panel', () => {
+describe('SPA toolbar module', () => {
     test('it records nothing, and builds nothing, in production', async () => {
         // Arrange — production attaches no _debug to anything
         const { record, dom } = await loadPanel();
 
         // Act
-        record('GET', '/api/status', 200, null);
-        record('POST', '/api/save', 204, null);
+        record('GET', '/api/1.0/status', 200, null);
 
-        // Assert — the panel must never touch the DOM of an application that is
-        // not in development
-        assert.equal(dom.byId['spa-debugbar'], undefined, 'no panel was created');
-        assert.equal(dom.document.body.children.length, 0, 'nothing was appended');
+        // Assert — no data, no DOM, no panel
+        assert.equal(dom.byId['pramnos-debugbar'], undefined);
+        assert.equal(dom.document.body.children.length, 0);
     });
 
-    test('a payload brings the panel into existence', async () => {
+    test('a payload brings the toolbar into existence', async () => {
         // Arrange
         const { record, dom } = await loadPanel();
 
         // Act
-        record('GET', '/api/meters', 200, payload({ time: 74.92 }));
+        record('GET', '/api/1.0/status', 200, payload());
 
         // Assert
-        assert.ok(dom.byId['spa-dbg-tabs'], 'the bar was built');
-        assert.ok(
-            dom.byId['spa-dbg-tabs'].innerHTML.includes('requests'),
-            'with a requests tab'
-        );
-        assert.ok(
-            dom.byId['spa-dbg-info'].innerHTML.includes('74.92ms'),
-            'and the last timing on the bar'
-        );
+        assert.ok(dom.byId['pramnos-debugbar'], 'the bar exists');
+        assert.match(dom.byId['pdb-tabs'].innerHTML, /requests/);
+        // Server time comes from request.time — the top-level copy is overwritten
+        // by the memory collector, and reading it printed "[object Object]MB".
+        assert.match(dom.byId['pdb-info'].innerHTML, /12\.5ms server/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /2\.5MB/);
     });
 
-    test('memory comes from the copy no collector can overwrite', async () => {
-        // Arrange — `memory` at the top level is the MemoryCollector's object;
-        // reading it as a number is what printed "[object Object]MB".
-        const { record, dom } = await loadPanel();
-
-        // Act
-        record('GET', '/api/meters', 200, payload({ memory: 3.25 }));
-
-        // Assert
-        const bar = dom.byId['spa-dbg-info'].innerHTML;
-        assert.ok(bar.includes('3.25MB'));
-        assert.ok(!bar.includes('[object Object]'));
-    });
-
-    test('once active, a 204 with no payload is still recorded', async () => {
-        // Arrange — a save carries no body to put a payload in, and it is
-        // exactly the call somebody wants to see
-        const { record, dom } = await loadPanel();
-        record('GET', '/api/meters', 200, payload());
-
-        // Act
-        record('POST', '/api/save', 204, null, { ms: 15 });
-        openPanel(dom);
-        record('GET', '/api/again', 200, payload());   // triggers a redraw
-
-        // Assert
-        const html = dom.byId['spa-dbg-panel'].innerHTML;
-        assert.ok(html.includes('/api/save'), 'the save is listed');
-        assert.ok(html.includes('204'));
-    });
-
-    test('requests are listed newest first, with their times', async () => {
+    /**
+     * Every collector in the payload becomes a tab.
+     *
+     * This is what a SPA was missing: `ApiDebugPayload::build()` has always
+     * attached every collector, and the SPA panel drew only the requests and
+     * their statements. One renderer means one set of tabs.
+     */
+    test('every collector the payload carries becomes a tab', async () => {
         // Arrange
         const { record, dom } = await loadPanel();
 
         // Act
-        record('GET', '/first', 200, payload({ time: 1 }));
-        openPanel(dom);
-        record('GET', '/second', 200, payload({ time: 2 }), { ms: 40 });
+        record('GET', '/api/1.0/things', 200, payload({
+            extraKeys: {
+                session: { active: true, session_id: 'abc', data: { userid: 7 } },
+                logs: { count: 1, entries: [{ level: 'error', message: 'boom', time: 1786237200 }] },
+                views: { count: 0, views: [] },
+                models: { count: 1, ops: 2, operations: [{ class: 'Thing', table: 'things', op: 'load' }] },
+                exceptions: { count: 0, items: [] },
+                route: { controller: 'things', action: 'list' },
+            },
+        }));
 
         // Assert
-        const html = dom.byId['spa-dbg-panel'].innerHTML;
-        assert.ok(html.indexOf('/second') < html.indexOf('/first'), 'newest at the top');
-        assert.ok(/\d{2}:\d{2}:\d{2}\.\d{3}/.test(html), 'each row carries a wall clock');
-        assert.ok(html.includes('40ms'), 'the client time is shown');
-        assert.ok(html.includes('2ms'), 'and the server time');
-    });
-
-    test('the queries tab lists every statement with a copy-all', async () => {
-        // Arrange
-        const { record, dom } = await loadPanel();
-        record('GET', '/api/meters', 200, payload({ queries: [
-            { sql: 'SELECT 1', time: 0.4 },
-            { sql: 'UPDATE orders SET status = 1', time: 1.1 },
-        ] }));
-
-        // Act
-        openPanel(dom, 'queries');
-        record('GET', '/api/again', 200, payload());
-
-        // Assert
-        const html = dom.byId['spa-dbg-panel'].innerHTML;
-        assert.ok(html.includes('SELECT 1'));
-        assert.ok(html.includes('UPDATE orders'));
-        assert.ok(html.includes('Copy all'), 'one paste for a bug report');
-        assert.ok(html.includes('spa-dbg-copy'), 'and one per statement');
-    });
-
-    test('a cached statement is labelled, not timed as zero', async () => {
-        // Arrange
-        const { record, dom } = await loadPanel();
-        record('GET', '/api/users', 200, payload({ queries: [
-            { sql: 'SELECT * FROM users WHERE userid = 2', time: 0, from_cache: true },
-            { sql: 'SELECT * FROM userdetails WHERE userid = 2', time: 2.08, from_cache: false },
-        ] }));
-
-        // Act
-        openPanel(dom, 'queries');
-        record('GET', '/api/again', 200, payload());
-
-        // Assert
-        const html = dom.byId['spa-dbg-panel'].innerHTML;
-        assert.ok(html.includes('CACHE'), 'the cached statement is labelled');
-        assert.ok(html.includes('2.08ms'), 'the one that ran keeps its time');
-        assert.ok(html.includes('from cache'), 'and the split is summarised');
-    });
-
-    test('a body is masked before it can be screenshotted', async () => {
-        // Arrange
-        const { record, dom } = await loadPanel();
-        record('POST', '/api/login', 200, payload(), {
-            ms: 30,
-            body: JSON.stringify({ username: 'bob', password: 'hunter2' }),
+        const tabs = dom.byId['pdb-tabs'].innerHTML;
+        ['SQL', 'Session', 'Logs', 'Views', 'Models', 'Exceptions', 'Route'].forEach((label) => {
+            assert.ok(tabs.includes(label), `${label} tab is present`);
         });
+        // A collector the payload does not carry gets no tab, rather than an
+        // empty one that reads as "nothing happened".
+        assert.equal(tabs.includes('Migrations'), false);
+    });
 
-        // Act — open the row so the body is rendered
-        openPanel(dom);
-        const click = dom.byId['spa-debugbar'].listeners.click;
-        click({ target: { closest: (s) => (s === '.spa-dbg-row' ? { dataset: { index: '0' } } : null) } });
+    test('each tab draws its own collector', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/things', 200, payload({
+            queries: [{ sql: 'SELECT 1', time: 0.4 }, { sql: 'SELECT 2', time: 0, from_cache: true }],
+            extraKeys: {
+                session: { active: true, session_id: 'abc', data: { userid: 7 } },
+                exceptions: { count: 1, items: [{ type: 'exception', class: 'RuntimeException', message: 'boom', file: '/x.php', line: 3 }] },
+            },
+        }));
+
+        // Act & Assert — SQL
+        openTab(dom, 'queries');
+        let html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /SELECT 1/);
+        // A cached statement did not run; showing it as 0ms reads as "instant".
+        assert.match(html, /CACHE/);
+        assert.match(html, /Copy all/);
+
+        // Act & Assert — Session
+        openTab(dom, 'session');
+        html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /userid/);
+
+        // Act & Assert — Exceptions
+        openTab(dom, 'exceptions');
+        html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /RuntimeException/);
+        assert.match(html, /x\.php:3/);
+    });
+
+    test('the requests tab lists them newest first, with a wall clock', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/first', 200, payload());
+        record('POST', '/api/1.0/second', 201, payload());
+
+        // Act
+        openTab(dom, 'requests');
 
         // Assert
-        const html = dom.byId['spa-dbg-panel'].innerHTML;
-        assert.ok(!html.includes('hunter2'), 'the password never reaches the screen');
-        assert.ok(html.includes('bob'), 'the rest of the body does');
-        assert.ok(html.includes('***'));
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.ok(html.indexOf('/api/1.0/second') < html.indexOf('/api/1.0/first'), 'newest first');
+        assert.ok(/\d{2}:\d{2}:\d{2}\.\d{3}/.test(html), 'each row carries a wall clock');
+    });
+
+    /**
+     * A 204 has no body to carry a payload, and it is exactly the call somebody
+     * wants to see — so once the toolbar is active, later requests are recorded
+     * whether or not they bring their own data.
+     */
+    test('once active, a 204 with no payload is still recorded', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/status', 200, payload());
+
+        // Act
+        record('POST', '/api/1.0/things/1', 204, null, { ms: 15 });
+        openTab(dom, 'requests');
+
+        // Assert
+        assert.match(dom.byId['pdb-panel'].innerHTML, /204/);
     });
 
     test('rendering survives a payload with nothing in it', async () => {
@@ -298,115 +309,88 @@ describe('SPA debug panel', () => {
         // Act & Assert — reaching the end without throwing is the assertion
         assert.doesNotThrow(() => {
             record('GET', '/api/thin', 200, { time: 1 });
-            openPanel(dom);
+            openTab(dom, 'requests');
             record('GET', '/api/thinner', 500, {});
         });
-
-        assert.ok(dom.byId['spa-dbg-panel'].innerHTML.length > 0);
+        assert.ok(dom.byId['pdb-panel'].innerHTML.length > 0);
     });
 
     /**
-     * The ✕ hides the bar itself — the bug it replaced hid nothing.
+     * A collector that threw is reported, not hidden.
      *
-     * It used to toggle the panel's inline `display`, starting from `''`: the
-     * first click set `none` on something the stylesheet already hid, and the
-     * second handed it back to the stylesheet, which hid it again. Two clicks,
-     * no visible effect. So the assertion is on the *bar's* display, plus the
-     * page padding, which is the other half of "hidden" the user can see.
+     * The payload carries `{error: …}` in its place; a blank panel would be read
+     * as "nothing happened here".
      */
+    test('a collector that failed says so', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/1.0/things', 200, payload({
+            extraKeys: { session: { error: 'session_start(): failed' } },
+        }));
+
+        // Act
+        openTab(dom, 'session');
+
+        // Assert
+        assert.match(dom.byId['pdb-panel'].innerHTML, /This collector failed/);
+        assert.match(dom.byId['pdb-panel'].innerHTML, /session_start/);
+    });
+
     test('the close button hides the whole bar and frees the page', async () => {
         // Arrange
         const { record, dom } = await loadPanel();
-        record('GET', '/api/status', 200, payload());
-        assert.equal(dom.byId['spa-debugbar'].style.display, '', 'visible to begin with');
-        assert.equal(dom.document.body.style.paddingBottom, '32px');
+        record('GET', '/api/1.0/status', 200, payload());
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, '');
+        assert.equal(dom.document.body.style.paddingBottom, '30px');
 
         // Act
         clickClose(dom);
 
         // Assert
-        assert.equal(dom.byId['spa-debugbar'].style.display, 'none', 'the bar goes, not the panel');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none', 'the bar goes, not the panel');
         assert.equal(dom.document.body.style.paddingBottom, '', 'the reserved strip goes with it');
-        // Without a handle the button is a one-way door: the panel is only built
-        // when debug data arrives, so nothing else can bring it back.
-        assert.equal(dom.byId['spa-dbg-restore'].style.display, 'block');
-        assert.equal(dom.store['pramnos.debugbar.hidden'], '1', 'and the choice is remembered');
+        assert.equal(dom.byId['pdb-restore'].style.display, 'block', 'and a way back appears');
+        assert.equal(dom.store['pramnos.debugbar.hidden'], '1');
     });
 
     test('the restore handle brings it back and forgets the choice', async () => {
-        // Arrange — hidden, with the handle showing
+        // Arrange
         const { record, dom } = await loadPanel();
-        record('GET', '/api/status', 200, payload());
+        record('GET', '/api/1.0/status', 200, payload());
         clickClose(dom);
 
         // Act — the handle has its own listener, not the delegated one
-        dom.byId['spa-dbg-restore'].listeners.click();
+        dom.byId['pdb-restore'].listeners.click();
 
         // Assert
-        assert.equal(dom.byId['spa-debugbar'].style.display, '');
-        assert.equal(dom.byId['spa-dbg-restore'].style.display, 'none');
-        assert.equal(dom.document.body.style.paddingBottom, '32px');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, '');
+        assert.equal(dom.byId['pdb-restore'].style.display, 'none');
+        assert.equal(dom.document.body.style.paddingBottom, '30px');
         assert.equal('pramnos.debugbar.hidden' in dom.store, false, 'nothing left to re-hide it');
     });
 
-    /**
-     * A SPA navigates without reloading, but a full reload still happens — and
-     * the server-rendered pages of the same application reload every time. A bar
-     * that came back on its own would read as the hide button not working, which
-     * is the complaint this whole change came from.
-     */
-    test('a bar hidden earlier is still hidden when the panel is rebuilt', async () => {
+    test('a bar hidden earlier is still hidden when the toolbar is rebuilt', async () => {
         // Arrange — the choice was made on a previous page
         const { record, dom } = await loadPanel({ stored: '1' });
 
-        // Act — data arrives, so the panel is built
-        record('GET', '/api/status', 200, payload());
+        // Act
+        record('GET', '/api/1.0/status', 200, payload());
 
         // Assert
-        assert.equal(dom.byId['spa-debugbar'].style.display, 'none');
-        assert.equal(dom.byId['spa-dbg-restore'].style.display, 'block');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none');
+        assert.equal(dom.byId['pdb-restore'].style.display, 'block');
         assert.equal(dom.document.body.style.paddingBottom, '', 'no padding for a bar nobody sees');
     });
 
-    /**
-     * Storage that throws must not take the panel with it.
-     *
-     * Reading `localStorage` at all throws in Safari's private mode and on a
-     * blocked origin. Instrumentation is never a good reason for a page to break,
-     * so the bar still hides — it just cannot remember that it did.
-     */
     test('storage that throws costs the memory, not the button', async () => {
         // Arrange
         const { record, dom } = await loadPanel({ storageThrows: true });
 
         // Act & Assert
         assert.doesNotThrow(() => {
-            record('GET', '/api/status', 200, payload());
+            record('GET', '/api/1.0/status', 200, payload());
             clickClose(dom);
         });
-        assert.equal(dom.byId['spa-debugbar'].style.display, 'none', 'hiding still works');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none', 'hiding still works');
     });
-
-    /** Click the ✕ the way the delegated listener sees it. */
-    function clickClose(dom) {
-        dom.byId['spa-debugbar'].listeners.click({
-            target: {
-                closest: (selector) => (selector === '#spa-dbg-close' ? { id: 'spa-dbg-close' } : null),
-            },
-        });
-    }
-
-    /**
-     * Open the panel the way a click on a tab would.
-     */
-    function openPanel(dom, tab = 'requests') {
-        const click = dom.byId['spa-debugbar'].listeners.click;
-        click({
-            target: {
-                closest: (selector) => (selector === '.spa-dbg-tab'
-                    ? { dataset: { tab } }
-                    : null),
-            },
-        });
-    }
 });

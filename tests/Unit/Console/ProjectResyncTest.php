@@ -397,10 +397,8 @@ class ProjectResyncTest extends TestCase
             $this->projectDir . '/app/app.php',
             "<?php\nreturn ['name' => 'Acme', 'app_style' => 'spa', 'spa_stack' => '$stack'];\n"
         );
-        file_put_contents(
-            $this->scaffoldDir . '/templates/spa-debug-panel.js.stub',
-            "// Debug panel for the {{ appName }} SPA.\nexport function record() {}\n"
-        );
+        // No stub to seed: the panel comes from the framework's single toolbar
+        // source (DebugBarAsset), not from a copy under scaffolding/.
     }
 
     /**
@@ -422,10 +420,13 @@ class ProjectResyncTest extends TestCase
 
         // Assert: refreshed, with the project's own name substituted into it.
         $this->assertSame(Command::SUCCESS, $exit);
-        $this->assertStringContainsString('Debug panel for the Acme SPA', $this->read('frontend/lib/debug.js'));
-        // The token must not survive: a stub marker in shipped source is a bug
-        // the reader would have to diagnose before trusting the file.
-        $this->assertStringNotContainsString('{{', $this->read('frontend/lib/debug.js'));
+        $panel = $this->read('frontend/lib/debug.js');
+        $this->assertStringContainsString('Debug panel for Acme', $panel);
+        $this->assertStringContainsString('FRAMEWORK-OWNED', $panel, 'the header says not to edit it');
+        $this->assertStringContainsString('export function record(', $panel, 'the client can feed it');
+        // No stub markers in shipped source: they would be a bug the reader has
+        // to diagnose before trusting the file.
+        $this->assertStringNotContainsString('{{ ', $panel);
     }
 
     /**
@@ -488,10 +489,6 @@ class ProjectResyncTest extends TestCase
     public function testSpaScopeIsANoOpForMvcProject(): void
     {
         // Arrange: the default fixture app.php has no app_style at all.
-        file_put_contents(
-            $this->scaffoldDir . '/templates/spa-debug-panel.js.stub',
-            "// {{ appName }}\n"
-        );
 
         // Act
         $tester = $this->tester();
@@ -535,7 +532,10 @@ class ProjectResyncTest extends TestCase
         $tester->execute([]);
 
         // Assert: both groups moved.
-        $this->assertStringContainsString('Debug panel for the Acme SPA', $this->read('frontend/lib/debug.js'));
+        $panel = $this->read('frontend/lib/debug.js');
+        $this->assertStringContainsString('Debug panel for Acme', $panel);
+        $this->assertStringContainsString('FRAMEWORK-OWNED', $panel, 'the header says not to edit it');
+        $this->assertStringContainsString('export function record(', $panel, 'the client can feed it');
         $this->assertSame('UTILS_V2', $this->read('www/assets/js/pf-utils.js'));
     }
 

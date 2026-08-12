@@ -825,10 +825,13 @@ class InitSpaScaffoldingTest extends TestCase
         // its exact text: it now also lets a 204 through once the panel is
         // active, since a save carries no body to put a payload in.
         $this->assertStringContainsString(
-            'if (!debug && entries.length === 0) {',
+            'if (!payload && entries.length === 0) {',
             $panel,
             'no debug data, and nothing recorded yet, means no panel at all'
         );
+        // The same source the server-rendered toolbar uses: two renderers drifted
+        // and the same bug then had to be fixed twice.
+        $this->assertStringContainsString('FRAMEWORK-OWNED', $panel);
 
         // ...and the client feeds it every response
         $client = $this->read('frontend/lib/api.js');

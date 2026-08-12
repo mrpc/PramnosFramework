@@ -1059,7 +1059,12 @@ class Init extends Command
         // The debug panel is inert unless a response carries debug data, so it
         // ships in every project rather than being a development-only file the
         // client would have to import conditionally.
-        $this->writeFile($sourceDir . '/lib/debug.js', $this->renderStub('spa-debug-panel.js', $tokens));
+        // From the framework's single toolbar source, not a SPA-only copy of it:
+        // two renderers drifted, and the same bug then had to be fixed twice.
+        $this->writeFile(
+            $sourceDir . '/lib/debug.js',
+            \Pramnos\Debug\DebugBarAsset::spaModule($appName)
+        );
         // Real URLs for every screen: without them the back button leaves the
         // application and no page can be linked to or bookmarked.
         $this->writeFile($sourceDir . '/lib/router.js', $this->renderStub('spa-router.js', $tokens));

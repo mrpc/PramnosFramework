@@ -34,7 +34,44 @@ addon's `onAuthCheck()`.
 *Done when:* remember-me login persistence is verified across new requests /
 browser restarts in a real application.
 
-## Documentation
+## Testing
+
+### The suite takes 17½ minutes, and that paces every change
+
+Measured on 2026-08-12, full suite: **17:36 for 9167 tests** (≈115ms/test average).
+Every development cycle waits on it.
+
+**Coverage is not the bottleneck.** `phpunit.xml` declares an always-on
+`<coverage>` block, so the default run instruments every line and writes
+`coverage/clover.xml` even when nobody asked — but measured against the same
+filter (243 tests) it costs only ~8%:
+
+| Run | Wall clock |
+|---|---|
+| `./dockertest --filter Init` | 2:44 |
+| `./dockertest --no-coverage --filter Init` | 2:31 |
+
+Still worth making opt-in (the container runs `xdebug.mode=coverage`, and the
+clover write is pure waste on a filtered run), but it does not explain the time.
+
+**What to measure next.** 243 tests in 150s is ~620ms each, which is far too much
+for work that is mostly in-process. Two candidates, both unverified:
+
+- **Per-test database setup.** If schema import or drop/create runs per test — or
+  per test *class* — that is the cost. Options in increasing order of work: wrap
+  each test in a transaction and roll back; import the schema once per run and
+  reset with `TRUNCATE`; on PostgreSQL, create each run's database from a template
+  (`CREATE DATABASE … TEMPLATE …`), which is close to free. **Consecutive runs
+  should not rebuild what has not changed** — the databases only need rebuilding
+  when a migration changed.
+- **Tests that scaffold whole projects on disk.** The `Init*` tests write a full
+  project per test method. That may be what this particular filter measured, in
+  which case the average is not representative and the real distribution needs a
+  `--log-junit` pass to find the slowest classes.
+
+*Done when:* a full run is under 5 minutes, and a filtered run of one class is
+under 10 seconds. Start by ranking the slowest tests (`--log-junit` plus a sort)
+rather than optimising the first suspect.
 
 ### Deduplicate the two Getting Started pages
 
