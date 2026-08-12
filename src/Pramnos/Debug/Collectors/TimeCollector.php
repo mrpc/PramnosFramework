@@ -65,6 +65,38 @@ class TimeCollector implements CollectorInterface
         $this->timers[$name] = ['start' => $start, 'end' => $end];
     }
 
+    /**
+     * Record work that has already happened, with the times it happened at.
+     *
+     * {@see addCompletedSegment()} back-calculates the start from "now minus the
+     * duration", which is right for one piece of work reported the moment it
+     * finishes and wrong for several: reported together at the end, they would
+     * all claim to have just ended and would sit on top of each other.
+     *
+     * This takes both ends, so a caller can measure several phases and hand them
+     * over later — which is what bootstrap has to do, because the collector does
+     * not exist yet while the application is starting up.
+     *
+     * @param string $name  Label shown on the timeline.
+     * @param float  $start microtime(true) when the work began.
+     * @param float  $end   microtime(true) when it finished.
+     */
+    public function addSegment(string $name, float $start, float $end): void
+    {
+        $this->timers[$name] = ['start' => $start, 'end' => $end];
+    }
+
+    /**
+     * When this request started, as this collector measures it.
+     *
+     * Exposed so a caller measuring a phase that predates the collector can tell
+     * whether its timestamps belong on the same timeline.
+     */
+    public function startedAt(): float
+    {
+        return $this->startTime;
+    }
+
     public function collect(): array
     {
         $now     = microtime(true);

@@ -124,6 +124,12 @@ you. The other tabs are never aggregated: Route and Session describe one request
 and a combined SQL table would add up statements from three different calls and
 lose which ran what.
 
+Hovering a row reveals a small **id** button that copies the request's id — the
+value to paste into a bug report or a log search, and what
+`GET /devpanel/logs?request=<id>` takes. It is not a column: sixteen characters
+of noise that somebody reads once should not have a permanent sixth of a narrow
+table.
+
 A response that carried no debug data still gets a row, with `—` where its
 numbers would be. Seeing that a call happened at all is often the finding. A row
 is **red across its whole width** when the request went wrong — a 4xx or 5xx, a
@@ -146,6 +152,27 @@ collected:
 
 Either is absent rather than zero when the number is missing: a bar claiming 0ms
 of network for a response that only carried a header would be inventing.
+
+The **segments** below them are what the server did, and they now include the
+part that happens before any application code runs:
+
+| segment | what it covers |
+|---|---|
+| `bootstrap` | the whole of `Application::init()` |
+| `db-connect`, `providers`, `session` | its phases, individually |
+| `routing`, `controller` | the MVC path |
+| `middleware`, `action` | the API path — a SPA showed one segment because these did not exist |
+| `debugbar` | the toolbar registering its own collectors, named for what it is. It used to be called `boot`, which read as application startup and was not |
+
+Bootstrap cannot be timed the usual way — the collector that would record it is
+registered *by* one of those phases — so each phase is measured as it happens and
+reported at the end with the times it actually ran at, rather than all of them
+stacked at the moment they were handed over.
+
+These also travel in `Server-Timing`, so the browser's own network panel draws
+them with no toolbar involved. Only the framework's own phases do: an application
+can name a timer anything, and that header is written to every access log between
+here and the client.
 
 The **requests** tab draws every request on **one time axis**, oldest first, the
 way a network panel does. This is the insight no per-request tab can give: three

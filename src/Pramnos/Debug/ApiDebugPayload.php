@@ -143,13 +143,50 @@ class ApiDebugPayload
         $payload = self::build();
         $parts   = [sprintf('app;dur=%s', $payload['time'])];
 
+        // The phases worth seeing in a browser's own network panel, which is
+        // where somebody looks when the toolbar is not involved at all. Only
+        // these: a request that ran twenty migrations would otherwise write a
+        // header with twenty entries in it, and headers land in every access log
+        // between here and the client.
+        foreach ($payload['timers']['named_timers'] ?? [] as $timer) {
+            $name = (string) ($timer['name'] ?? '');
+            if (in_array($name, self::TIMED_PHASES, true)) {
+                $parts[] = sprintf('%s;dur=%s', $name, $timer['ms'] ?? 0);
+            }
+        }
+
         $queryCount = $payload['queries']['count'] ?? null;
         if ($queryCount !== null) {
-            $parts[] = sprintf('db;desc="%d queries"', $queryCount);
+            $sqlMs = $payload['queries']['total_ms'] ?? null;
+            $parts[] = $sqlMs !== null
+                ? sprintf('db;dur=%s;desc="%d queries"', $sqlMs, $queryCount)
+                : sprintf('db;desc="%d queries"', $queryCount);
         }
 
         return implode(', ', $parts);
     }
+
+    /**
+     * The phases that travel in `Server-Timing`.
+     *
+     * A fixed list rather than every named timer: the header is written to
+     * access logs and proxy logs, and an application is free to name a timer
+     * anything at all — including something it would rather not have in a log
+     * file. These are the framework's own, and they are the ones that mean the
+     * same thing in every application.
+     *
+     * @var list<string>
+     */
+    private const TIMED_PHASES = [
+        'bootstrap',
+        'db-connect',
+        'providers',
+        'session',
+        'routing',
+        'middleware',
+        'action',
+        'controller',
+    ];
 
     /** The response header that carries the summary. */
     public const HEADER = 'X-Pramnos-Debug';

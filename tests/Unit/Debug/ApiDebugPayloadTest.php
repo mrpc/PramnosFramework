@@ -11,6 +11,7 @@ use Pramnos\Application\FeatureRegistry;
 use Pramnos\Debug\ApiDebugPayload;
 use Pramnos\Debug\Collectors\CollectorInterface;
 use Pramnos\Debug\Collectors\ExceptionsCollector;
+use Pramnos\Debug\Collectors\TimeCollector;
 use Pramnos\Debug\DebugBar;
 
 /**
@@ -651,5 +652,65 @@ class ApiDebugPayloadTest extends TestCase
         foreach ($headers as [$line, $replace]) {
             $this->assertStringNotContainsString('X-Request-Id', $line);
         }
+    }
+
+    /**
+     * Server-Timing carries the framework's own phases, and only those.
+     *
+     * The point of the header is the browser's own network panel — where
+     * somebody looks when the toolbar is not involved at all. The point of the
+     * *list* is that it is fixed: an application can name a timer anything,
+     * including something it would rather not have in a log file, and this
+     * header is written to every access log between here and the client.
+     */
+    public function testServerTimingCarriesTheFrameworkPhasesOnly(): void
+    {
+        // Arrange — two framework phases and one the application invented
+        $time = new TimeCollector();
+        $time->addSegment('bootstrap', microtime(true) - 0.05, microtime(true) - 0.02);
+        $time->addSegment('action', microtime(true) - 0.02, microtime(true));
+        $time->addSegment('customer-secret-lookup', microtime(true) - 0.01, microtime(true));
+        DebugBar::getInstance()->addCollector($time);
+
+        // Act
+        $timing = ApiDebugPayload::serverTiming();
+
+        // Assert
+        $this->assertStringContainsString('app;dur=', $timing);
+        $this->assertStringContainsString('bootstrap;dur=', $timing);
+        $this->assertStringContainsString('action;dur=', $timing);
+        $this->assertStringNotContainsString(
+            'customer-secret-lookup',
+            $timing,
+            'an application timer name must not be published to access logs'
+        );
+    }
+
+    /**
+     * The database's share travels as a duration, not just a count.
+     *
+     * "40 queries" says there were many; "24ms of 40ms" says whether they were
+     * the problem, and the browser draws it beside the rest.
+     */
+    public function testServerTimingCarriesTheDatabaseDuration(): void
+    {
+        // Arrange
+        // summarise() recounts from the list, so the list is what decides — a
+        // `count` that disagreed with it would be reporting the collector's
+        // arithmetic rather than the request's.
+        DebugBar::getInstance()->addCollector(new FakeCollector('queries', [
+            'total_ms' => 24.5,
+            'queries'  => [
+                ['sql' => 'SELECT 1', 'time' => 20.0],
+                ['sql' => 'SELECT 2', 'time' => 4.0],
+                ['sql' => 'SELECT 3', 'time' => 0.5],
+            ],
+        ]));
+
+        // Act
+        $timing = ApiDebugPayload::serverTiming();
+
+        // Assert
+        $this->assertStringContainsString('db;dur=24.5;desc="3 queries"', $timing);
     }
 }

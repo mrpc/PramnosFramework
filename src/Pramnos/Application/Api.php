@@ -103,6 +103,11 @@ class Api extends Application
         //  1. cors_from_db: true in applicationInfo → read from application_settings table (PF-43)
         //  2. cors_origins array in applicationInfo → use as-is
         //  3. Default: wildcard ['*']
+        // The API path had no timers at all, which is why a SPA's Time tab showed
+        // a single segment: everything it does happens here, and none of it was
+        // measured. The MVC path has had `routing` and `controller` for a while.
+        \Pramnos\Debug\DebugBar::startTimer('middleware');
+
         $pipeline = new \Pramnos\Http\MiddlewarePipeline();
         if (!empty($this->applicationInfo['cors_from_db'])) {
             $cors = \Pramnos\Http\Middleware\CorsMiddleware::fromApplicationSettings(
@@ -127,9 +132,26 @@ class Api extends Application
         $response = $pipeline->run(
             $request,
             function (\Pramnos\Http\Request $req) use ($self, $doc, $startTime): mixed {
-                return $self->_executeCore($startTime);
+                // The middleware stack is everything before this point — CORS,
+                // content type, authentication — and everything after it on the
+                // way out. Stopping here attributes the work in the middle to
+                // the action rather than to the pipeline.
+                \Pramnos\Debug\DebugBar::stopTimer('middleware');
+                \Pramnos\Debug\DebugBar::startTimer('action');
+
+                try {
+                    return $self->_executeCore($startTime);
+                } finally {
+                    \Pramnos\Debug\DebugBar::stopTimer('action');
+                }
             }
         );
+
+        // A pipeline that short-circuited — an OPTIONS preflight, or auth that
+        // refused — never reached the callback, so the timer it would have
+        // stopped is still running. Left open it would read as an action that
+        // took the whole request.
+        \Pramnos\Debug\DebugBar::stopTimer('middleware');
 
         // Pipeline short-circuited (CORS OPTIONS or auth failure) — write & return.
         if ($response !== null && $response !== '') {
