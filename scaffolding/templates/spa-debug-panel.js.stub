@@ -126,7 +126,9 @@ function allQueriesText(entry) {
         .map((q) => {
             const ms  = q.time ?? q.duration ?? '';
             const sql = q.sql || q.query || q.statement || '';
-            return `-- ${ms}ms\n${sql};`;
+            // A cached statement took no time because it did not run; "0ms"
+            // reads as instant rather than as never having happened.
+            return `-- ${q.from_cache ? 'CACHE' : ms + 'ms'}\n${sql};`;
         })
         .join('\n\n');
 }
@@ -168,6 +170,7 @@ function ensurePanel() {
 .spa-dbg-row:hover td{background:#1e1e2e}
 .spa-dbg-time{white-space:nowrap;color:#a6e3a1;min-width:50px}
 .spa-dbg-slow{color:#f38ba8}
+.spa-dbg-cached{color:#a6e3a1!important;font-size:9px;letter-spacing:.05em;font-weight:bold}
 .spa-dbg-sql{word-break:break-all}
 .spa-dbg-url{word-break:break-all;max-width:400px}
 .spa-dbg-detail td{background:#11111b;padding:6px 10px}
@@ -364,8 +367,12 @@ function renderDetail(entry) {
         for (const q of queries) {
             const sql  = q.sql || q.query || q.statement || '';
             const time = q.time ?? q.duration ?? '';
-            const slow = typeof time === 'number' && time > 100 ? ' spa-dbg-slow' : '';
-            html += `<tr><td class="spa-dbg-time${slow}">${esc(time)}ms</td>`
+            const slow = !q.from_cache && typeof time === 'number' && time > 100
+                ? ' spa-dbg-slow' : '';
+            const cell = q.from_cache
+                ? '<td class="spa-dbg-time spa-dbg-cached">CACHE</td>'
+                : `<td class="spa-dbg-time${slow}">${esc(time)}ms</td>`;
+            html += `<tr>${cell}`
                 + `<td class="spa-dbg-sql">${esc(sql)} ${copyButton(sql)}</td></tr>`;
         }
 
@@ -404,7 +411,10 @@ function renderQueries() {
         return '<p>No queries captured.</p>';
     }
 
-    let html = `<p><strong>${rows.length} queries</strong> across ${entries.length} `
+    const cached = rows.filter(({ q }) => q.from_cache).length;
+    let html = `<p><strong>${rows.length} queries</strong>`
+        + (cached ? ` (${rows.length - cached} live · ${cached} from cache)` : '')
+        + ` across ${entries.length} `
         + `request${entries.length === 1 ? '' : 's'}`
         + copyButton(everythingText(), '⎘ Copy all') + '</p>'
         + '<table class="spa-dbg-table"><thead><tr><th>Time</th><th>SQL</th><th>Request</th>'
@@ -413,8 +423,12 @@ function renderQueries() {
     for (const { entry, q } of rows) {
         const sql  = q.sql || q.query || q.statement || '';
         const time = q.time ?? q.duration ?? '';
-        const slow = typeof time === 'number' && time > 100 ? ' spa-dbg-slow' : '';
-        html += `<tr><td class="spa-dbg-time${slow}">${esc(time)}ms</td>`
+        const slow = !q.from_cache && typeof time === 'number' && time > 100
+            ? ' spa-dbg-slow' : '';
+        const cell = q.from_cache
+            ? '<td class="spa-dbg-time spa-dbg-cached">CACHE</td>'
+            : `<td class="spa-dbg-time${slow}">${esc(time)}ms</td>`;
+        html += `<tr>${cell}`
             + `<td class="spa-dbg-sql">${esc(sql)} ${copyButton(sql)}</td>`
             + `<td style="color:#6c7086">${esc(entry.method)} ${esc(entry.path)}</td></tr>`;
     }

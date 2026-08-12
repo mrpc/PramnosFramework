@@ -831,9 +831,15 @@ HTML;
       for(var j=0;j<q.length;j++){
         var r=q[j],s=r.sql||r.query||r.statement||"";
         var ms=r.time!=null?r.time:(r.duration!=null?r.duration:"");
-        all.push("-- "+ms+"ms\\n"+s+";");
+        // A cached statement took no time because it did not run. Reporting
+        // that as "0ms" reads as "instant" rather than "never happened", and
+        // the difference is the whole point of looking.
+        all.push("-- "+(r.from_cache?"CACHE":(ms+"ms"))+"\\n"+s+";");
       }
-      out+="<div style=\'margin-top:8px;color:#89b4fa\'>"+q.length+" queries "+
+      var cachedCount=0;
+      for(var c=0;c<q.length;c++){if(q[c].from_cache)cachedCount++;}
+      out+="<div style=\'margin-top:8px;color:#89b4fa\'>"+q.length+" queries"+
+        (cachedCount?(" <span style=\'color:#a6e3a1\'>("+(q.length-cachedCount)+" live · "+cachedCount+" from cache)</span>"):"")+" "+
         "<button class=\'pdb-copy pdb-copy-all\' title=\'Copy every statement, with its timing\' data-sql=\'"+
         escAttr(all.join("\\n\\n"))+"\'>⎘ Copy all</button></div>";
       out+="<table class=\'pdb-table\' style=\'margin-top:4px\'><tbody>";
@@ -841,7 +847,11 @@ HTML;
         var row=q[i];
         var sql=row.sql||row.query||row.statement||"";
         var t=row.time!=null?row.time:(row.duration!=null?row.duration:"");
-        out+="<tr><td class=\'pdb-time\'>"+esc(t)+"</td><td class=\'pdb-sql\'>"+esc(sql)+
+        var slow=(!row.from_cache&&typeof t==="number"&&t>100)?" pdb-slow":"";
+        var cell=row.from_cache
+          ? "<td class=\'pdb-time pdb-cached\'>CACHE</td>"
+          : "<td class=\'pdb-time"+slow+"\'>"+esc(t)+"ms</td>";
+        out+="<tr>"+cell+"<td class=\'pdb-sql\'>"+esc(sql)+
           " "+copyButton(sql)+"</td></tr>";
       }
       out+="</tbody></table>";

@@ -236,6 +236,25 @@ describe('SPA debug panel', () => {
         assert.ok(html.includes('spa-dbg-copy'), 'and one per statement');
     });
 
+    test('a cached statement is labelled, not timed as zero', async () => {
+        // Arrange
+        const { record, dom } = await loadPanel();
+        record('GET', '/api/users', 200, payload({ queries: [
+            { sql: 'SELECT * FROM users WHERE userid = 2', time: 0, from_cache: true },
+            { sql: 'SELECT * FROM userdetails WHERE userid = 2', time: 2.08, from_cache: false },
+        ] }));
+
+        // Act
+        openPanel(dom, 'queries');
+        record('GET', '/api/again', 200, payload());
+
+        // Assert
+        const html = dom.byId['spa-dbg-panel'].innerHTML;
+        assert.ok(html.includes('CACHE'), 'the cached statement is labelled');
+        assert.ok(html.includes('2.08ms'), 'the one that ran keeps its time');
+        assert.ok(html.includes('from cache'), 'and the split is summarised');
+    });
+
     test('a body is masked before it can be screenshotted', async () => {
         // Arrange
         const { record, dom } = await loadPanel();
