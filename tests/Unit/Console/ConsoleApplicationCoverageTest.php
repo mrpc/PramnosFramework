@@ -69,6 +69,9 @@ class ConsoleApplicationCoverageTest extends TestCase
 
         // Reset static registries so tests are isolated from each other
         Scheduler::reset();
+        // The framework registers its own periodic work whenever definitions
+        // load; these tests assert on an empty schedule, so they opt out.
+        \Pramnos\Scheduling\FrameworkSchedule::disableAll();
         HealthRegistry::reset();
     }
 

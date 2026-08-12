@@ -160,6 +160,62 @@ Pick one per command; don't mix them.
 
 ---
 
+## 1c. The schedule, and the two ways to run it
+
+The framework has periodic work of its own — buffered writes to flush, queued
+rows to write into compressed chunks, finished queue items to clear. It declares
+that itself, in `Pramnos\Scheduling\FrameworkSchedule`, so an application does
+not have to know it exists. **Either** of these runs it:
+
+**With cron** — one line, and it keeps working when a later framework version
+adds a task:
+
+```
+* * * * * cd /path/to/app && php pramnos schedule:run >> /dev/null 2>&1
+```
+
+**Without cron** — one long-running process, for containers, under systemd, or
+as an image's command:
+
+```
+php pramnos work                    # until told to stop
+php pramnos work --once             # one pass, then exit
+php pramnos work --interval=30      # check every 30 seconds
+php pramnos work --max-runtime=3600 # exit hourly for a supervisor to restart
+```
+
+`work` holds a single-instance lock and stops cooperatively, so a SIGTERM
+during a task lets that task finish.
+
+### This is not the queue worker
+
+`queue:process` runs background **jobs** — things an application dispatches and
+expects within seconds. `work` runs the **schedule** — things that happen on the
+clock. They want opposite things: a queue worker polls constantly to keep
+latency low, a scheduler sleeps a minute at a time. Run both:
+
+```
+php pramnos work &
+php pramnos queue:process --daemon &
+```
+
+### Replacing a framework task
+
+```php
+// app/schedule.php
+use Pramnos\Scheduling\FrameworkSchedule;
+use Pramnos\Scheduling\Scheduler;
+
+FrameworkSchedule::disable('spool:drain');       // or ::disableAll()
+Scheduler::command('spool:drain')->everyFiveMinutes();
+```
+
+The application's file is loaded **before** the framework registers, which is
+what makes `disable()` usable at all. An application that disables these takes
+on running them itself.
+
+---
+
 ## 2. `ProcessQueue` — the ready-made queue worker
 
 Extend it and supply your queue model; you get the daemon loop, dashboard, heartbeat,

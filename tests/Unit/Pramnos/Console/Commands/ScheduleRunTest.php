@@ -35,6 +35,10 @@ class ScheduleRunTest extends TestCase
             $_SERVER['PHP_SELF'] = 'phpunit';
         }
         Scheduler::reset();
+        // These tests assert on a scheduler holding only what they put in it.
+        // The framework registers its own periodic work on every load, which is
+        // correct in production and noise here.
+        \Pramnos\Scheduling\FrameworkSchedule::disableAll();
         $this->logFile = Logger::getLogPath('schedule', 'log');
         @unlink($this->logFile);
     }

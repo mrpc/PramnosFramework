@@ -126,15 +126,31 @@ class Scheduler
         if (static::$loaded) {
             return true;
         }
+
         $file ??= defined('ROOT')
             ? ROOT . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'schedule.php'
             : '';
-        if ($file === '' || !is_file($file)) {
-            return false;
+
+        $hasAppFile = $file !== '' && is_file($file);
+
+        // The application's file is loaded first, so that it can call
+        // FrameworkSchedule::disable() for anything it wants to replace — a
+        // decision it can only make before the framework registers.
+        if ($hasAppFile) {
+            static::$loaded = true;
+            require $file; // the file registers tasks via the static Scheduler API
         }
+
+        // The framework's own periodic work, registered whether or not the
+        // application has a schedule file at all. A framework that ships a
+        // background command and then relies on every project to remember it
+        // has shipped an obligation rather than a feature — and `app/schedule.php`
+        // is written once, at scaffold time, so a later framework version could
+        // never add to it.
+        FrameworkSchedule::register();
         static::$loaded = true;
-        require $file; // the file registers tasks via the static Scheduler API
-        return true;
+
+        return $hasAppFile;
     }
 
     // =========================================================================
@@ -150,5 +166,6 @@ class Scheduler
     {
         static::$tasks  = [];
         static::$loaded = false;
+        FrameworkSchedule::reset();
     }
 }
