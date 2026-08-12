@@ -33,10 +33,25 @@ class FakeRedisStream
     {
     }
 
+    /** The stream's last entry id, as xRevRange() will report it. */
+    public string $lastId = '';
+
     public function xAdd(string $key, string $id, array $fields, int $maxLen = 0, bool $approx = false): string
     {
         $this->added[] = ['key' => $key, 'fields' => $fields, 'maxLen' => $maxLen, 'approx' => $approx];
         return '1-' . count($this->added);
+    }
+
+    /**
+     * The newest entry, which the driver reads to turn "start from now" into a
+     * fixed id — `$` would re-anchor on every read and skip whatever was
+     * published in between.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public function xRevRange(string $key, string $end, string $start, int $count = 0): array
+    {
+        return $this->lastId === '' ? [] : [$this->lastId => ['envelope' => '{}']];
     }
 
     /**
@@ -102,15 +117,19 @@ class RedisStreamDriverTest extends TestCase
     }
 
     /**
-     * Without a cursor the driver asks for `$` — only what arrives next.
+     * Without a cursor the driver starts from the stream's newest entry —
+     * as an id, not as `$`.
      *
-     * Right for a first connection, and exactly wrong for a reconnect; the two
-     * cases are told apart by whether the caller supplies a resume point.
+     * `$` means "whatever is newest at the moment *this* read is issued", so a
+     * loop that re-reads after every timeout would silently skip anything
+     * published in between: the very gap this driver exists to close, reopened
+     * once per read timeout. A live-server test caught that; this pins it.
      */
-    public function testWithoutACursorItSubscribesFromNow(): void
+    public function testWithoutACursorItStartsFromTheStreamsNewestEntry(): void
     {
-        // Arrange
-        $redis  = new FakeRedisStream();
+        // Arrange — a stream that already has history
+        $redis = new FakeRedisStream();
+        $redis->lastId = '1699-4';
         $driver = new RedisStreamDriver(['prefix' => 'app:'], static fn (): object => $redis);
 
         // Act
@@ -120,8 +139,31 @@ class RedisStreamDriverTest extends TestCase
             new SubscriptionOptions(readTimeout: 1, onIdle: static fn (): bool => false),
         );
 
+        // Assert — a fixed point, so the next read continues rather than
+        // re-anchoring
+        $this->assertSame(['app:stream:chat.updates' => '1699-4'], $redis->cursorsSeen[0]);
+        $this->assertNotContains('$', $redis->cursorsSeen[0]);
+    }
+
+    /**
+     * An empty stream starts at `0-0`, which is correct precisely because there
+     * is no history for it to replay.
+     */
+    public function testAnEmptyStreamStartsAtZero(): void
+    {
+        // Arrange
+        $redis  = new FakeRedisStream();
+        $driver = new RedisStreamDriver([], static fn (): object => $redis);
+
+        // Act
+        $driver->subscribe(
+            ['chat'],
+            static fn (): bool => true,
+            new SubscriptionOptions(readTimeout: 1, onIdle: static fn (): bool => false),
+        );
+
         // Assert
-        $this->assertSame(['app:stream:chat.updates' => '$'], $redis->cursorsSeen[0]);
+        $this->assertSame(['stream:chat' => '0-0'], $redis->cursorsSeen[0]);
     }
 
     /**
@@ -198,7 +240,7 @@ class RedisStreamDriverTest extends TestCase
         );
 
         // Assert — the second read resumed after the first entry
-        $this->assertSame(['stream:chat' => '$'], $redis->cursorsSeen[0]);
+        $this->assertSame(['stream:chat' => '0-0'], $redis->cursorsSeen[0]);
         $this->assertSame(['stream:chat' => '5-1'], $redis->cursorsSeen[1]);
     }
 

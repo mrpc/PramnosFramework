@@ -269,6 +269,16 @@ With neither, the resume point comes from `Last-Event-ID`, then from `?since=`
 otherwise a first connection starts live rather than replaying whatever history
 happens to exist.
 
+##### A note on `$`, if you write your own driver
+
+Redis's `$` cursor means "whatever is newest **at the moment this read is
+issued**". A consume loop that re-reads after every timeout and passes `$` again
+skips anything published between the two reads — the same gap this whole section
+is about, reopened once per read timeout. `RedisStreamDriver` therefore resolves
+"start from now" to a concrete entry id before its first read, and advances it
+from there. If you implement `SubscribableDriverInterface` over another log,
+the same rule applies: a cursor has to be a fixed point, not a moving one.
+
 ##### What replay does not solve
 
 Retention is finite and deliberately so. A stream capped at 1000 entries covers
