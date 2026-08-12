@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Adding or changing a JSON API endpoint
+  - Scaffolding a REST API controller
+  - Handling API authentication, CORS, pagination or versioning
+  - Adding middleware to an API route
+---
+
 # Pramnos REST API Guide
 
 The Pramnos Framework provides comprehensive support for building REST APIs with automatic endpoint generation, request/response handling, and OAuth2 authentication.

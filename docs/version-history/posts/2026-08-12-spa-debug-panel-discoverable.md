@@ -50,15 +50,15 @@ project's own stack — `frontend/lib/debug.js` for the Vite stacks,
 `www/assets/js/lib/debug.js` for the build-less one — so the documented path is
 one that exists.
 
-## Added: `project:resync --spa`
+## Added: `project:resync --debug-panel`
 
 A project scaffolded before the panel existed had no way to obtain it. The
 framework-owned front-end files are now a resync group:
 
 ```bash
-./pramnos project:resync --spa --all      # add the panel
-./pramnos project:resync --spa            # refresh an existing one
-./pramnos project:resync --spa --dry-run  # preview
+./pramnos project:resync --debug-panel --all      # add the panel
+./pramnos project:resync --debug-panel            # refresh an existing one
+./pramnos project:resync --debug-panel --dry-run  # preview
 ```
 
 The destination is read from `app_style`/`spa_stack` in `app/app.php` rather

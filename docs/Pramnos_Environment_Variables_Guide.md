@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Reading configuration from .env or the environment
+  - Understanding how dotenv parsing and precedence behave
+  - Moving hard-coded settings out of app/app.php
+---
+
 # Environment Variables & Dotenv Support
 
 ## Overview

@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Connecting a third-party application to the auth server
+  - Implementing an OAuth2 Authorization Code + PKCE flow against it
+  - Reading a user's permissions from another application
+  - Reacting to instant invalidation webhooks
+---
+
 # Third-Party Integration Guide (Auth Server)
 
 ## Overview

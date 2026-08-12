@@ -1,3 +1,12 @@
+---
+use_cases:
+  - Registering a route, a route group or a REST resource
+  - Using #[Route] attribute routing on a controller
+  - Attaching middleware to routes
+  - Binding a model to a route parameter
+  - Generating OpenAPI documentation from route attributes
+---
+
 # Pramnos Modern Routing Guide
 
 The **Routing Engine** in Pramnos v1.2 supports both attribute-based and fluent API routing with parameter binding, groups, and middleware support.

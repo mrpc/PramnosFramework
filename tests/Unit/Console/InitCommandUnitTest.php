@@ -154,6 +154,42 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * The scaffolded CLAUDE.md points at the framework's own guides, in vendor.
+     *
+     * The docs ship inside the composer package, so every project already holds
+     * documentation that matches its installed framework version — but an
+     * assistant that is not told where it is will not go looking, and will
+     * reimplement what the framework already provides. That has happened: the
+     * SPA debug panel was rebuilt beside the working one. The pointer, the
+     * `use_cases:` selection mechanism, the guides-versus-history distinction,
+     * and the "do not reimplement" instruction are therefore all asserted.
+     */
+    public function testClaudeMdPointsAtTheFrameworkGuidesInVendor(): void
+    {
+        // Act
+        $result = $this->command->renderStub('CLAUDE.md', [
+            'APP_NAME'      => 'MyApp',
+            'NAMESPACE'     => 'MyApp',
+            'CLI_NAME'      => 'myapp',
+            'DB_TYPE'       => 'postgresql',
+            'DB_TYPE_LABEL' => 'PostgreSQL',
+            'FEATURES_LIST' => '- `auth`',
+        ]);
+
+        // Assert
+        $this->assertStringContainsString('vendor/mrpc/pramnosframework/docs/', $result,
+            'the assistant must be told where the framework guides are');
+        $this->assertStringContainsString('use_cases:', $result,
+            'and how to pick a guide without reading all of them');
+        // Without this, "how does X work" gets answered from a dated post
+        // describing a delta rather than from the guide describing the feature.
+        $this->assertStringContainsString('version-history/posts/', $result,
+            'the guides/history distinction must be stated');
+        $this->assertStringContainsString('not to be reimplemented', $result,
+            'the conclusion the pointer exists to produce');
+    }
+
+    /**
      * renderStub('mcp.json') substitutes {{ APP_SLUG }} — producing a valid JSON
      * structure where the server name is the app slug and the command is the
      * framework's built-in MCP server (`php ./bin/pramnos mcp:serve`).

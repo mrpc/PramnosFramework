@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Writing a long-running worker or daemon
+  - Scheduling recurring work
+  - Supervising background processes in production
+  - Choosing between CommandBase, ProcessQueue and a standalone script
+---
+
 # Workers & Daemons Guide
 
 Everything for **console commands, long-running workers, and the daemon supervisor** —

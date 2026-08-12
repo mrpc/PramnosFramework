@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Configuring the Redis connection manager
+  - Sharing one Redis connection across cache, queue and broadcasting
+  - Checking Redis health or key prefixing
+---
+
 # Pramnos Redis Guide
 
 Redis is used across the framework as the backend of several capabilities — the

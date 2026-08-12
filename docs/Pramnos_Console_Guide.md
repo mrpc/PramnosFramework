@@ -1,3 +1,13 @@
+---
+use_cases:
+  - Running a built-in console command
+  - Generating a model, controller, view, API or full CRUD set
+  - Writing a new console command
+  - Refreshing framework-owned files in an existing project (project:resync)
+  - Finding out what `init` scaffolds, including the files aimed at AI assistants
+  - Starting the development server
+---
+
 # Pramnos Console Commands Guide
 
 ## Overview
@@ -108,6 +118,41 @@ get Chart.js is simply `php bin/pramnos project:install`.
 After enabling a feature, run its migrations (`php bin/pramnos migrate`) and, if it ships
 views, publish them (`php bin/pramnos project:publish-views --list` then `--group=<name>`).
 
+#### `project:resync` — refresh framework-owned files
+
+Some scaffolded files stay the framework's: it keeps improving them, and an existing project
+keeps its stale copy forever unless something re-copies it. `project:resync` is that
+something.
+
+```bash
+php bin/pramnos project:resync                # refresh every framework-owned file present
+php bin/pramnos project:resync --dry-run      # preview, write nothing
+php bin/pramnos project:resync --all          # also copy files not in the project yet
+
+php bin/pramnos project:resync --js           # only the pf-*.js CSP-safe UI hooks
+php bin/pramnos project:resync --scripts      # only the API-docs tooling
+php bin/pramnos project:resync --debug-panel  # only the SPA debug panel (lib/debug.js)
+```
+
+**By default it only refreshes what is already there.** A file the project never had is
+reported as skipped, so the command never adds tooling nobody opted into; `--all` is the
+explicit "yes, add it" switch.
+
+The three groups:
+
+| Flag | What it owns |
+|------|--------------|
+| `--js` | `www/assets/js/pf-*.js` — the CSP-safe UI hook scripts |
+| `--scripts` | `scripts/apidoc-to-openapi.cjs`, `scripts/doc.sh`, plus the API-docs npm scripts merged into `package.json` and the framework endpoints merged into `src/Api/openapi-overrides.json` |
+| `--debug-panel` | `lib/debug.js` — the SPA debug panel, in `frontend/lib/` or `www/assets/js/lib/` depending on this project's stack (read from `app_style`/`spa_stack`, not guessed) |
+
+Merges preserve what the project declared: user-added npm scripts, extra OpenAPI paths and
+schemas survive. What is **not** rewritten is `lib/api.js` — it is the project's own file and
+gets edited, so if it never calls `recordDebug` the command says so and prints the two lines
+to add rather than regenerating it. See the
+[Debugging guide](Pramnos_Debugging_Guide.md#in-a-single-page-application) for why the debug
+panel is framework-owned.
+
 ### Operational & diagnostic commands
 
 ```bash
@@ -152,6 +197,36 @@ php bin/pramnos create:provider MyProvider   # a service provider
 php bin/pramnos create:policy MyPolicy       # an authorization policy skeleton
 php bin/pramnos create:test MySubject        # a PHPUnit test class
 ```
+
+### What `init` writes for AI assistants
+
+Every scaffolded project gets two files aimed at coding assistants:
+
+- **`CLAUDE.md`** — the project's own conventions: stack, namespace, how to run tests, where
+  the front end lives, and **where the framework's guides are**. The docs directory ships
+  inside the composer package, so it is present in the project:
+
+  ```
+  vendor/mrpc/pramnosframework/docs/
+  ```
+
+  Those guides match the installed framework version — they cannot drift from the code the
+  way an external web page can. Each opens with `use_cases:` frontmatter naming the tasks it
+  covers, so the right page can be chosen without reading the directory:
+
+  ```bash
+  head -12 vendor/mrpc/pramnosframework/docs/*.md
+  ```
+
+  The generated `CLAUDE.md` states the two consequences explicitly: the guides describe
+  current state while `docs/version-history/posts/` is history, and a capability documented in
+  a guide is not to be reimplemented in the project. That instruction exists because the
+  opposite happened — the SPA debug panel was rebuilt in a project beside the framework's
+  working one, which had been documented only in changelog posts at the time.
+
+- **`.mcp.json`** — registers the framework's own MCP server (`mcp:serve`), which exposes this
+  application's tables, schema, migrations, models and routes to an assistant instead of
+  requiring a separate database MCP server.
 
 ### Favicons & branding
 

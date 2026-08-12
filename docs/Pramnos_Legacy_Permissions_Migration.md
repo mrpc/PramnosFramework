@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Moving a legacy permissions table into the current schema
+  - Working out which permission store answers a check
+  - Verifying a permissions migration
+---
+
 # Moving the legacy permissions table into the new schema
 
 `Pramnos\Auth\Permissions` keeps its API. What changed is **where it reads and

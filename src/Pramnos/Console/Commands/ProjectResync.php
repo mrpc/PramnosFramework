@@ -42,7 +42,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   ./pramnos project:resync --all          # also copy files not present yet
  *   ./pramnos project:resync --js           # only the pf-*.js UI hooks
  *   ./pramnos project:resync --scripts      # only the docs tooling scripts
- *   ./pramnos project:resync --spa --all    # add/refresh the SPA debug panel
+ *   ./pramnos project:resync --debug-panel --all    # add/refresh the SPA debug panel
  */
 class ProjectResync extends Command
 {
@@ -72,7 +72,7 @@ class ProjectResync extends Command
             ->addOption('all', null, InputOption::VALUE_NONE, 'Also copy framework files that are not present in the project yet')
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
-            ->addOption('spa', null, InputOption::VALUE_NONE, 'Only sync the SPA front-end files the framework owns (lib/debug.js)');
+            ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA debug panel (lib/debug.js)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -105,16 +105,16 @@ class ProjectResync extends Command
         $copyAll = (bool) $input->getOption('all');
         $onlyJs  = (bool) $input->getOption('js');
         $onlyScr = (bool) $input->getOption('scripts');
-        $onlySpa = (bool) $input->getOption('spa');
+        $onlyPanel = (bool) $input->getOption('debug-panel');
         // No scope flag → sync every group.
-        $allGroups = !$onlyJs && !$onlyScr && !$onlySpa;
+        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel;
         $doJs      = $onlyJs || $allGroups;
         $doScripts = $onlyScr || $allGroups;
-        $doSpa     = $onlySpa || $allGroups;
+        $doPanel     = $onlyPanel || $allGroups;
 
         $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts);
-        if ($doSpa) {
-            $files = array_merge($files, $this->collectSpaFiles($scaffoldingDir, $base));
+        if ($doPanel) {
+            $files = array_merge($files, $this->collectPanelFiles($scaffoldingDir, $base));
         }
 
         // package.json is a merge (not a copy): fold in the API-docs npm scripts +
@@ -157,7 +157,7 @@ class ProjectResync extends Command
             }
         }
 
-        if ($doSpa) {
+        if ($doPanel) {
             $this->warnIfPanelNotWired($base, $output);
         }
 
@@ -274,7 +274,7 @@ class ProjectResync extends Command
      *
      * @return list<array{content: string, dest: string, exec: bool}>
      */
-    private function collectSpaFiles(string $scaffoldingDir, string $base): array
+    private function collectPanelFiles(string $scaffoldingDir, string $base): array
     {
         $sourceDir = $this->spaSourceDir($base);
         if ($sourceDir === '') {

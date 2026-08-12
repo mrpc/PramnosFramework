@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Writing a log entry, structured or plain
+  - Choosing a PSR-3 log level
+  - Reading, rotating or migrating log files
+  - Using the log viewer or the log console commands
+---
+
 # Pramnos Framework - Logging System Guide
 
 The Pramnos Framework includes a comprehensive logging system with structured logging support, log analytics, file management, and advanced viewing capabilities. This guide covers all aspects of the logging system from basic usage to advanced features.

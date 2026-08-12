@@ -1,3 +1,12 @@
+---
+use_cases:
+  - Building a SELECT, INSERT, UPDATE or DELETE with the fluent builder
+  - Converting existing raw SQL to query-builder calls
+  - Joining, grouping or paginating a query
+  - Processing a large result set in batches
+  - Inspecting the SQL a builder chain produces
+---
+
 # Pramnos QueryBuilder Guide
 
 The **QueryBuilder** provides a fluent, dialect-aware interface for constructing SQL queries programmatically. It automatically handles dialect differences between MySQL, PostgreSQL, and TimescaleDB, and supports advanced features like window functions, subqueries, and set operations.

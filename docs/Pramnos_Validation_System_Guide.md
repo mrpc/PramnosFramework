@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Validating request input in a controller or API endpoint
+  - Choosing a validation rule or writing a custom one
+  - Showing validation errors back in a view, or returning them from an API
+  - Understanding flash validation state between requests
+---
+
 # Pramnos Validation System Guide
 
 The Pramnos Framework includes a lightweight validation system for validating incoming data in a centralized and reusable way.

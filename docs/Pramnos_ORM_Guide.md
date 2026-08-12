@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Defining a model, its relationships or its casts
+  - Using scopes, accessors, mutators or model events
+  - Enabling soft deletes or automatic timestamps
+---
+
 # Pramnos ORM Guide
 
 The **ORM** (Object-Relational Mapping) layer provides an elegant way to work with database tables as PHP objects. Models encapsulate table definitions, relationships, scopes, and casting logic.

@@ -1,3 +1,11 @@
+---
+use_cases:
+  - Declaring a TimescaleDB hypertable
+  - Repairing a database whose hypertables were never created
+  - Writing late-arriving data into a compressed chunk
+  - Checking hypertable state from code
+---
+
 # Hypertables: declaring them, and repairing them later
 
 The framework keeps seven tables as TimescaleDB hypertables where the extension

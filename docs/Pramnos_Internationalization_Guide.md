@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Translating strings or adding a language
+  - Choosing between the translation helper functions
+  - Discovering untranslated strings in the codebase
+---
+
 # Pramnos Framework - Internationalization (i18n) Guide
 
 The Pramnos Framework includes a comprehensive internationalization system that enables applications to support multiple languages and locales. The system provides translation management, language switching, and localization features.

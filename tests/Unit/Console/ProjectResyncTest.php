@@ -404,7 +404,7 @@ class ProjectResyncTest extends TestCase
     }
 
     /**
-     * --spa refreshes a stale debug panel in place.
+     * --debug-panel refreshes a stale panel in place.
      *
      * The panel is the framework's own renderer living in the project; when the
      * framework improves it, an existing project must have a way to receive that
@@ -418,7 +418,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $exit = $tester->execute(['--spa' => true]);
+        $exit = $tester->execute(['--debug-panel' => true]);
 
         // Assert: refreshed, with the project's own name substituted into it.
         $this->assertSame(Command::SUCCESS, $exit);
@@ -441,7 +441,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true, '--all' => true]);
+        $tester->execute(['--debug-panel' => true, '--all' => true]);
 
         // Assert
         $this->assertFileExists($this->projectDir . '/frontend/lib/debug.js');
@@ -456,7 +456,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true]);
+        $tester->execute(['--debug-panel' => true]);
 
         // Assert
         $this->assertFileDoesNotExist($this->projectDir . '/frontend/lib/debug.js');
@@ -477,7 +477,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true, '--all' => true]);
+        $tester->execute(['--debug-panel' => true, '--all' => true]);
 
         // Assert
         $this->assertFileExists($this->projectDir . '/www/assets/js/lib/debug.js');
@@ -495,7 +495,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $exit = $tester->execute(['--spa' => true, '--all' => true]);
+        $exit = $tester->execute(['--debug-panel' => true, '--all' => true]);
 
         // Assert: nothing written, nothing claimed.
         $this->assertSame(Command::SUCCESS, $exit);
@@ -503,7 +503,7 @@ class ProjectResyncTest extends TestCase
         $this->assertFileDoesNotExist($this->projectDir . '/frontend/lib/debug.js');
     }
 
-    /** --spa is a scope: the pf-*.js hooks and docs tooling stay untouched. */
+    /** --debug-panel is a scope: the pf-*.js hooks and docs tooling stay untouched. */
     public function testSpaScopeLeavesOtherGroupsAlone(): void
     {
         // Arrange
@@ -514,11 +514,11 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true]);
+        $tester->execute(['--debug-panel' => true]);
 
         // Assert
-        $this->assertSame('UTILS_V1', $this->read('www/assets/js/pf-utils.js'), '--spa must not touch the UI hooks');
-        $this->assertSame('GEN_V1', $this->read('scripts/apidoc-to-openapi.js'), '--spa must not touch the docs tooling');
+        $this->assertSame('UTILS_V1', $this->read('www/assets/js/pf-utils.js'), '--debug-panel must not touch the UI hooks');
+        $this->assertSame('GEN_V1', $this->read('scripts/apidoc-to-openapi.js'), '--debug-panel must not touch the docs tooling');
         $this->assertStringNotContainsString('OLD PANEL', $this->read('frontend/lib/debug.js'));
     }
 
@@ -555,7 +555,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true]);
+        $tester->execute(['--debug-panel' => true]);
 
         // Assert
         $this->assertStringContainsString('does not feed the debug panel', $tester->getDisplay());
@@ -574,7 +574,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true]);
+        $tester->execute(['--debug-panel' => true]);
 
         // Assert
         $this->assertStringNotContainsString('does not feed the debug panel', $tester->getDisplay());
@@ -592,7 +592,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true]);
+        $tester->execute(['--debug-panel' => true]);
 
         // Assert
         $this->assertStringNotContainsString('does not feed the debug panel', $tester->getDisplay());
@@ -607,7 +607,7 @@ class ProjectResyncTest extends TestCase
 
         // Act
         $tester = $this->tester();
-        $tester->execute(['--spa' => true, '--dry-run' => true]);
+        $tester->execute(['--debug-panel' => true, '--dry-run' => true]);
 
         // Assert
         $this->assertSame('// OLD PANEL', $this->read('frontend/lib/debug.js'));

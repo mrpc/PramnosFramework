@@ -1,3 +1,12 @@
+---
+use_cases:
+  - Writing or changing a controller
+  - Rendering a view or passing data into a template
+  - Understanding how a request becomes a response (middleware pipeline, Response object)
+  - Handling errors or registering an exception handler
+  - Reading application configuration in app/app.php
+---
+
 # Pramnos Framework Guide
 
 Pramnos is a PHP MVC framework designed for building robust web applications with a focus on security, modularity, and clean code architecture. This guide covers the framework's structure, conventions, and best practices.

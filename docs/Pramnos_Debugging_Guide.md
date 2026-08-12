@@ -1,3 +1,12 @@
+---
+use_cases:
+  - Finding out what queries, timings or exceptions a request produced
+  - Debugging the requests a page makes after it renders (XHR/fetch)
+  - Debugging a single-page application, where the HTML toolbar cannot be injected
+  - Opening the toolbar for one browser on a live server
+  - Attaching debug data to your own JSON responses
+---
+
 # Debugging: the toolbar, the requests after it, and live servers
 
 The debug toolbar collects what one request did — its queries, timings, views,
@@ -17,6 +26,18 @@ debug=true             # application setting
 
 Or list `debug` in the application's `features`. The toolbar then appears on
 every HTML page, and API responses carry their debug data as a `_debug` key.
+
+## Getting it out of the way
+
+Clicking a tab opens its panel; clicking the same tab again closes it. The `✕` at
+the right-hand end hides the **whole bar**, leaving a small `⚙` handle in the
+bottom-right corner to bring it back. The page's bottom padding is released with
+the bar, so nothing leaves a gap behind.
+
+The choice is remembered in `localStorage` under `pramnos.debugbar.hidden`, and
+is shared by the server-rendered toolbar and the SPA panel — hiding it on one
+page and having it return on the next is indistinguishable from a button that
+does not work.
 
 ## Requests made after the page renders
 
@@ -122,9 +143,9 @@ Projects scaffolded before the panel existed have no `lib/debug.js`. Copy it in
 from the framework rather than by hand:
 
 ```bash
-./pramnos project:resync --spa --all     # add it
-./pramnos project:resync --spa           # refresh an existing one
-./pramnos project:resync --spa --dry-run # preview
+./pramnos project:resync --debug-panel --all     # add it
+./pramnos project:resync --debug-panel           # refresh an existing one
+./pramnos project:resync --debug-panel --dry-run # preview
 ```
 
 The command reads `app_style`/`spa_stack` from `app/app.php`, so the file lands

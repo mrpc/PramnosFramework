@@ -4856,7 +4856,7 @@ PHP;
         $lines[] = '  Nothing about the rendering is application-specific. If the panel is missing';
         $lines[] = '  a field, add it *there*, or report it upstream to the framework.';
         $lines[] = '- If `lib/debug.js` is absent (project scaffolded before it existed), get it';
-        $lines[] = '  with `./' . $cliName . ' project:resync --spa --all` — never by hand.';
+        $lines[] = '  with `./' . $cliName . ' project:resync --debug-panel --all` — never by hand.';
         $lines[] = '- Nothing is attached in production, so the file is inert there: no data, no';
         $lines[] = '  DOM, no panel. That is why it ships unconditionally instead of being';
         $lines[] = '  imported behind a flag.';
@@ -5000,7 +5000,7 @@ PHP;
             . "`lib/api.js` — draws it as a toolbar along the bottom: requests, queries,\n"
             . "timings, exceptions. It is the framework's HTML toolbar for a SPA, so there is\n"
             . "no reason to build another one. Inert in production (nothing is attached, so\n"
-            . "no panel appears). Missing from an older project? `project:resync --spa --all`.\n";
+            . "no panel appears). Missing from an older project? `project:resync --debug-panel --all`.\n";
     }
 
     /**

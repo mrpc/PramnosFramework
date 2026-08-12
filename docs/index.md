@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Installing the framework for the first time
+  - Starting a new project and choosing between create-project and composer require
+  - Finding out what a scaffolded project directory contains
+---
+
 # Getting Started with Pramnos Framework
 
 Welcome to the Pramnos Framework! This guide will help you set up a new project from scratch using our command-line tools.

@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Pushing an event to a connected browser
+  - Choosing between SSE and WebSockets
+  - Configuring the broadcasting backplane or driver
+---
+
 # Pramnos Realtime Guide (SSE & WebSockets)
 
 The **Realtime** stack lets an application push live events to browsers and pick

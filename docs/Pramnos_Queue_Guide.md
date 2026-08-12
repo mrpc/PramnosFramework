@@ -1,3 +1,10 @@
+---
+use_cases:
+  - Dispatching work to a queue, immediately or delayed
+  - Choosing a queue driver
+  - Running or supervising a queue worker
+---
+
 # Pramnos Queue Guide
 
 The framework ships **two sibling queue capabilities**, each fit to a different

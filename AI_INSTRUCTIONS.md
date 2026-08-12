@@ -20,6 +20,13 @@ TimescaleDB), caching layers (Redis/Memcached/File), and a full migration system
 5. **Always run tests via `./dockertest`**, never `vendor/bin/phpunit` directly. The
    Docker environment provides PHP 8.5, the correct extensions, and all three database
    backends.
+6. **Documentation is part of the change, in two places.** The guide page under `docs/`
+   that owns the topic (current state) *and* a dated post under
+   `docs/version-history/posts/` (the delta). A new or edited guide needs `use_cases:`
+   frontmatter and a `nav:` entry in `mkdocs.yml` — `docs/` ships inside the composer
+   package and is the corpus an assistant in a downstream project reads from, so a page
+   without those can be read but not found. Enforced by
+   `tests/Unit/Docs/DocsRetrievabilityTest.php`. Full rules: `CLAUDE.md` rules 1, 10, 13.
 
 ## Source Layout
 ```

@@ -75,6 +75,7 @@ nav:
     - Roadmap & Open Items: Roadmap.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md
+    - Application Styles (MVC / SPA / hybrid): Pramnos_Application_Styles_Guide.md
     - Routing: Pramnos_Routing_Guide.md
     - Validation: Pramnos_Validation_System_Guide.md
     - Theming: Pramnos_Theme_Guide.md
@@ -89,6 +90,7 @@ nav:
     - Migrations: Pramnos_Migration_Guide.md
     - Hypertables (TimescaleDB): Pramnos_Hypertable_Guide.md
     - Caching: Pramnos_Cache_Guide.md
+    - Redis: Pramnos_Redis_Guide.md
   - Security & Identity:
     - Authentication: Pramnos_Authentication_Guide.md
     - Authorization: Pramnos_Authorization_Guide.md
@@ -98,6 +100,7 @@ nav:
   - APIs & Integrations:
     - API Guide: Pramnos_API_Guide.md
     - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
+    - Queues: Pramnos_Queue_Guide.md
     - Email: Pramnos_Email_Guide.md
     - Media: Pramnos_Media_Guide.md
     - Logging: Pramnos_Logging_Guide.md

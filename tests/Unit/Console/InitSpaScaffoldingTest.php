@@ -858,7 +858,7 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertStringContainsString('Do not write your own debug panel', $claude);
         // An older project has no panel at all; without the command the only way
         // to get one is by hand, which is how a rewrite starts.
-        $this->assertStringContainsString('project:resync --spa --all', $claude);
+        $this->assertStringContainsString('project:resync --debug-panel --all', $claude);
         // Why the HTML toolbar is not an option here — stated so the reader does
         // not "fix" the shell by booting the framework in it.
         $this->assertStringContainsString('does not boot', $claude);
