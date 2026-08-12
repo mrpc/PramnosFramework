@@ -239,17 +239,15 @@ class Settings extends \Pramnos\Framework\Base
             }
 
             try {
-                $sql = self::$database->prepareQuery(
-                    "select `value` from `#PREFIX#settings` "
-                    . " where `setting` = %s limit 1",
-                    $setting
-                );
                 // Same TTL and category as the bulk read: two different
                 // lifetimes for the same data meant one could outlive the other
                 // and answer differently for the rest of its window.
-                $result = self::$database->query(
-                    $sql, true, self::CACHE_TTL, 'settings'
-                );
+                $result = self::$database->queryBuilder()
+                    ->table('#PREFIX#settings')
+                    ->select(['value'])
+                    ->where('setting', $setting)
+                    ->limit(1)
+                    ->get(true, self::CACHE_TTL, 'settings');
                 if ($result->numRows != 0) {
                     self::$settings[$setting] = $result->fields['value'];
                     return self::$settings[$setting];
@@ -286,10 +284,20 @@ class Settings extends \Pramnos\Framework\Base
             return;
         }
         try {
-            $result = self::$database->query(
-                "select `setting`, `value` from `#PREFIX#settings`",
-                true, self::CACHE_TTL, 'settings'
-            );
+            // Query builder, not a raw string: this went straight to query()
+            // without passing through prepareQuery(), so the MySQL backticks
+            // reached PostgreSQL untranslated and every request logged
+            //
+            //   syntax error at or near "," … select `setting`, `value` …
+            //
+            // The catch below then swallowed it, so the bulk read silently did
+            // nothing and every lookup fell back to a query of its own — the
+            // exact N round-trips this method exists to replace. A failure that
+            // only costs performance is the kind that survives for months.
+            $result = self::$database->queryBuilder()
+                ->table('#PREFIX#settings')
+                ->select(['setting', 'value'])
+                ->get(true, self::CACHE_TTL, 'settings');
             foreach ($result->fetchAll() as $row) {
                 if (!isset($row['setting'])) {
                     continue;
@@ -316,26 +324,27 @@ class Settings extends \Pramnos\Framework\Base
     {
         self::$settings[$setting] = $value;
         if ($writeToDatabase == true && is_object(self::$database)) {
-            $sql = self::$database->prepareQuery(
-                "select * from `#PREFIX#settings` where `setting` = %s limit 1",
-                $setting
-            );
-            $num = self::$database->query($sql);
-            if ($num->numRows != 0) {
-                $sql = self::$database->prepareQuery(
-                    "update `#PREFIX#settings` set `value` = %s "
-                    . " where `setting` = %s",
-                    $value, $setting
-                );
-                $return = self::$database->query($sql);
+            // The builder is the only layer that knows the dialect: it resolves
+            // the table's prefix, quotes identifiers per driver and binds the
+            // values instead of interpolating them. The hand-written version of
+            // these three statements is what put MySQL backticks in front of
+            // PostgreSQL.
+            $exists = self::$database->queryBuilder()
+                ->table('#PREFIX#settings')
+                ->where('setting', $setting)
+                ->exists();
+
+            if ($exists) {
+                self::$database->queryBuilder()
+                    ->table('#PREFIX#settings')
+                    ->where('setting', $setting)
+                    ->update(['value' => $value]);
+            } else {
+                self::$database->queryBuilder()
+                    ->table('#PREFIX#settings')
+                    ->insert(['setting' => $setting, 'value' => $value]);
             }
-            else {
-                $sql = self::$database->prepareQuery(
-                    "insert into `#PREFIX#settings` (`setting`, `value`) values (%s, %s)",
-                    $setting, $value
-                );
-                $return = self::$database->query($sql);
-            }
+
             self::invalidateCache();
         }
     }
