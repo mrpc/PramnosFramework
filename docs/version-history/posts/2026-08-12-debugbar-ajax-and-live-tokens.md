@@ -96,6 +96,15 @@ the XHR calls, which is what makes the ajax tab work on a live server at all.
 errors are shown to the browser. One person gets to watch; nobody gets a stack
 trace on a public page.
 
+## Also
+
+A statement served from cache is labelled `CACHE` in the ajax panel, as it
+already was in the main queries panel — and in the text the copy button
+produces. Showing it as `0ms` reads as "instant" rather than "did not run", and
+the difference between those two is the reason for looking at the panel at all.
+The per-request header says how many of its statements were live and how many
+came from cache.
+
 ## Documentation
 
 New guide: [Debugging](../../Pramnos_Debugging_Guide.md) — the ajax tab, both

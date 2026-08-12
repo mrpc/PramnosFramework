@@ -313,7 +313,11 @@ class Datasource extends Base
         if ($join != '') $totalQb->joinRaw($join);
         if ($where != '') $totalQb->whereRaw($where);
         try {
-            $total = $totalQb->count();
+            // Cached on the same terms as the rows it counts. A caller that
+            // asked for caching got its page of results from cache and then
+            // paid for a full COUNT(*) anyway — which on a large table is the
+            // expensive half of the request.
+            $total = $totalQb->count($cache, $cachetime, $cachecategory);
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error in Datasource total count: ' . $ex->getMessage());
             $total = 0;
@@ -329,7 +333,7 @@ class Datasource extends Base
             $totalDisplay = $total;
         } else {
             try {
-                $totalDisplay = $qb->count();
+                $totalDisplay = $qb->count($cache, $cachetime, $cachecategory);
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
                 $totalDisplay = 0;

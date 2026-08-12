@@ -94,6 +94,11 @@ goes stale. The cost is that a visitor leaves the online list up to a minute
 later than they might, and a forced logout is noticed up to a minute later; set
 the interval to `0` for the old behaviour.
 
+**A datatable's count is cached on the same terms as its rows.** `count()` took
+no caching parameters, so it could not be cached at all: a datatable that asked
+for caching served its page from cache and then ran a full `COUNT(*)` anyway, on
+every request, for a number that changes far less often than the rows do.
+
 **A datatable no longer counts the same rows twice.** The unfiltered and
 filtered counts were both issued unconditionally, and with no search typed they
 are character-for-character identical — on a large table the most expensive

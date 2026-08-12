@@ -526,6 +526,48 @@ describe('debug toolbar ajax panel', () => {
         );
     });
 
+    test('a cached statement is labelled, not timed as zero', async () => {
+        // Arrange — one statement that ran, one served from cache
+        const payload = JSON.stringify({
+            _debug: {
+                time: 5, request: { time: 5, memory: 1 },
+                queries: { count: 2, cached: 1, queries: [
+                    { sql: 'SELECT * FROM users WHERE userid = 2', time: 0, from_cache: true },
+                    { sql: 'SELECT * FROM userdetails WHERE userid = 2', time: 2.08, from_cache: false },
+                ] },
+            },
+        });
+        const response = {
+            status: 200,
+            headers: { get: (n) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) },
+            clone: () => ({ text: () => Promise.resolve(payload) }),
+        };
+        const { sandbox, dom } = runPanel(script, {
+            fetch: () => Promise.resolve(response),
+            XMLHttpRequest: null,
+        });
+
+        // Act
+        await sandbox.fetch('/users/data');
+        await settle();
+        await settle();
+        dom.listeners.click({
+            target: { closest: (s) => (s === '.pdb-ajax-row' ? { getAttribute: () => '0' } : null) },
+        });
+
+        // Assert — "0ms" reads as instant; the statement did not run at all
+        const html = dom.elements['pdb-ajax-rows'].innerHTML;
+        assert.ok(html.includes('CACHE'), 'the cached statement is labelled');
+        assert.ok(html.includes('2.08ms'), 'the one that ran keeps its time');
+        assert.ok(html.includes('1 live · 1 from cache'), 'and the split is summarised');
+
+        // ...and the copy payload says so too, since that is what gets pasted
+        const match = /class='pdb-copy pdb-copy-all'[^>]*data-sql='([^']*)'/.exec(html);
+        assert.ok(match, 'the copy-all button is there');
+        assert.ok(match[1].includes('-- CACHE'), 'the paste distinguishes them');
+        assert.ok(match[1].includes('-- 2.08ms'));
+    });
+
     test('the newest request is at the top', async () => {
         // Arrange
         const response = { status: 200, headers: { get: () => null } };

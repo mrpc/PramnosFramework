@@ -1115,12 +1115,16 @@ class QueryBuilder
      *
      * @return int
      */
-    public function count(): int
+    public function count(bool $cache = false, int $cachetime = 60, string $category = ''): int
     {
         $counter = clone $this;
         $counter->select(['COUNT(*) AS aggregate'])
                 ->clearOrderingAndPaging();
-        $result = $counter->get();
+        // The count takes the same caching as the query it counts. Without the
+        // parameters it could not be cached at all, so a caller that cached its
+        // page of results still paid for a full COUNT(*) on every request — and
+        // on a large table that count is the expensive half.
+        $result = $counter->get($cache, $cachetime, $category);
         return (int) ($result->fields['aggregate'] ?? 0);
     }
 
