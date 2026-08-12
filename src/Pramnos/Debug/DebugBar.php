@@ -641,7 +641,8 @@ HTML;
     // Give the page back the strip the bar occupied; a gap under a hidden bar
     // is a layout bug nothing on screen explains.
     document.body.style.paddingBottom=hidden?"":"36px";
-    try{hidden?localStorage.setItem(PDB_HIDDEN,"1"):localStorage.removeItem(PDB_HIDDEN);}catch(e){}
+    // Not being able to remember the choice is no reason to ignore it.
+    try{hidden?localStorage.setItem(PDB_HIDDEN,"1"):localStorage.removeItem(PDB_HIDDEN);}catch(e){/* storage unavailable */}
   }
   var closeBtn=document.getElementById("pdb-close-btn");
   if(closeBtn){closeBtn.addEventListener("click",function(){pdbSetHidden(true);});}

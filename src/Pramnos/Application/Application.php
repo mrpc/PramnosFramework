@@ -274,6 +274,33 @@ class Application extends Base
     }
 
     /**
+     * The application's service container, created on first use.
+     *
+     * Service providers bind into `$app->container` and commands read from it,
+     * but nothing ever created it: `container` is a magic property, so it read
+     * back as `null` and every one of those call sites died with "Call to a
+     * member function on null" — `mcp:serve` on launch, and `init()` itself for
+     * any application that enabled the `mcp` or `webhook` feature.
+     *
+     * Created lazily rather than in `init()` because the console reaches the
+     * application without initialising it, which is exactly the path that
+     * crashed. The instance is stored back on `$this->container`, so the
+     * existing `$app->container->…` call sites keep working unchanged.
+     */
+    public function getContainer(): Container
+    {
+        $existing = $this->container;
+        if ($existing instanceof Container) {
+            return $existing;
+        }
+
+        $container = new Container();
+        $this->container = $container;
+
+        return $container;
+    }
+
+    /**
      * Instantiates providers from enabled FeatureRegistry features, merges
      * them with any manually-added providers, then runs register() on all
      * followed by boot() on all.

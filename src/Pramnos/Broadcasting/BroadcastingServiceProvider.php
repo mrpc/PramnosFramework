@@ -48,7 +48,7 @@ use Pramnos\Broadcasting\Drivers\RedisDriver;
  * any class (including the Broadcastable trait) can resolve it:
  *
  * ```php
- * $manager = $app->container->get('broadcasting');
+ * $manager = $app->getContainer()->get('broadcasting');
  * $manager->broadcast('channel', 'event', ['key' => 'value']);
  * ```
  *
@@ -59,7 +59,7 @@ class BroadcastingServiceProvider extends ServiceProvider
     {
         $app = $this->app;
 
-        $app->container->singleton('broadcasting', function () use ($app): BroadcastingManager {
+        $app->getContainer()->singleton('broadcasting', function () use ($app): BroadcastingManager {
             $config  = $app->applicationInfo['broadcasting'] ?? [];
             $default = $config['default'] ?? 'null';
 
@@ -112,7 +112,7 @@ class BroadcastingServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Nothing to boot at framework level.
-        // Application providers can call $app->container->get('broadcasting')
+        // Application providers can call $app->getContainer()->get('broadcasting')
         // to add custom drivers after register() has run.
     }
 }

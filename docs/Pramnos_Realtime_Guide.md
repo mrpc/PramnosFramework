@@ -77,7 +77,7 @@ serves browsers over SSE.
 Resolve the manager from the container and publish:
 
 ```php
-$broadcasting = $app->container->get('broadcasting'); // Pramnos\Broadcasting\BroadcastingManager
+$broadcasting = $app->getContainer()->get('broadcasting'); // Pramnos\Broadcasting\BroadcastingManager
 
 $broadcasting->broadcast(
     channel: 'chat.updates',

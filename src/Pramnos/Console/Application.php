@@ -75,6 +75,10 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\Make\MakePolicy());
         $this->add(new \Pramnos\Console\Commands\Make\MakeTest());
         $this->add(new \Pramnos\Console\Commands\Serve());
+        // The front-end half of `serve`, for projects with a SPA: the two things
+        // done daily were npm commands with no presence in `pramnos list`.
+        $this->add(new \Pramnos\Console\Commands\SpaDev());
+        $this->add(new \Pramnos\Console\Commands\SpaBuild());
         $this->add(new \Pramnos\Console\Commands\Tinker());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
         // Migration CLI commands (Phase 4)

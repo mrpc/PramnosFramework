@@ -134,8 +134,13 @@ trait Broadcastable
     {
         try {
             $app = \Pramnos\Application\Application::getInstance();
-            if ($app->container->has('broadcasting')) {
-                return $app->container->get('broadcasting');
+            // getContainer(), not ->container: `container` is a magic property
+            // nothing ever assigned, so this read was null and the call below it
+            // threw — swallowed by the catch, which turned a wiring bug into
+            // "broadcasting is not configured".
+            $container = $app->getContainer();
+            if ($container->has('broadcasting')) {
+                return $container->get('broadcasting');
             }
         } catch (\Throwable) {
             // Broadcasting is a side effect of the action, never its purpose:

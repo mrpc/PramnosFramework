@@ -986,16 +986,25 @@ class InitSpaScaffoldingTest extends TestCase
     /**
      * The final summary has to tell the developer how to build, develop and
      * test the front end — the scaffold is otherwise invisible.
+     *
+     * It names the project's **own CLI** for building and serving, because that
+     * is where every other command in the project lives: sending the reader to
+     * `./dockernpm run dev` for this one workflow meant it never appeared in
+     * `pramnos list` and had to be remembered from the docs. npm is still named
+     * once, for the scripts the two shortcuts do not wrap.
      */
     public function testSummaryExplainsTheFrontEndWorkflow(): void
     {
-        // Act
+        // Act — the CLI name is what the shortcuts are printed under
         $tester = $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
 
         // Assert
         $display = $tester->getDisplay();
         $this->assertStringContainsString('SPA front end', $display);
-        $this->assertStringContainsString('./dockernpm run dev', $display);
+        $this->assertStringContainsString('spa:dev', $display);
+        $this->assertStringContainsString('spa:build', $display);
+        $this->assertStringContainsString('./dockernpm run build|dev', $display,
+            'the npm escape hatch stays named');
         $this->assertStringContainsString('./testjs', $display);
     }
 

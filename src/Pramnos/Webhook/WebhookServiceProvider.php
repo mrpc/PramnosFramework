@@ -31,7 +31,9 @@ class WebhookServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $container = $this->app->container;
+        // getContainer(), not ->container: nothing creates the container, so
+        // ->container is null and enabling this feature killed init() outright.
+        $container = $this->app->getContainer();
 
         $container->bind('webhook', function () {
             $secret   = (string) (Settings::getSetting('webhook.secret') ?? '');

@@ -43,8 +43,10 @@ class McpServiceProviderTest extends TestCase
         
         $container = new Container();
         $app = $this->createMock(Application::class);
-        $app->method('__isset')->willReturnCallback(fn($name) => $name === 'container');
-        $app->method('__get')->willReturnCallback(fn($name) => $name === 'container' ? $container : null);
+        // getContainer(), not the magic property: nothing ever assigned
+        // ->container, so register() died on null the moment this feature was
+        // enabled. The application creates the container on demand now.
+        $app->method('getContainer')->willReturn($container);
 
         $provider = new McpServiceProvider($app);
 
@@ -79,8 +81,10 @@ class McpServiceProviderTest extends TestCase
         $app = $this->createMock(Application::class);
         // Directly assign the database property because it is a declared public property
         $app->database = $db;
-        $app->method('__isset')->willReturnCallback(fn($name) => $name === 'container');
-        $app->method('__get')->willReturnCallback(fn($name) => $name === 'container' ? $container : null);
+        // getContainer(), not the magic property: nothing ever assigned
+        // ->container, so register() died on null the moment this feature was
+        // enabled. The application creates the container on demand now.
+        $app->method('getContainer')->willReturn($container);
 
         $provider = new McpServiceProvider($app);
 
@@ -114,8 +118,10 @@ class McpServiceProviderTest extends TestCase
         // Arrange
         $container = new Container(); // Empty container, no 'mcp.server'
         $app = $this->createMock(Application::class);
-        $app->method('__isset')->willReturnCallback(fn($name) => $name === 'container');
-        $app->method('__get')->willReturnCallback(fn($name) => $name === 'container' ? $container : null);
+        // getContainer(), not the magic property: nothing ever assigned
+        // ->container, so register() died on null the moment this feature was
+        // enabled. The application creates the container on demand now.
+        $app->method('getContainer')->willReturn($container);
 
         $provider = new McpServiceProvider($app);
 
