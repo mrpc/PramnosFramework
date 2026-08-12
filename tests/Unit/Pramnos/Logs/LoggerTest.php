@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Pramnos\Logs;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Pramnos\Debug\RequestId;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Logs\Logger;
 use Pramnos\Logs\PsrLogger;
@@ -24,6 +25,10 @@ class LoggerTest extends TestCase
 
     protected function setUp(): void
     {
+        // Request ids are process-wide and change Logger's output shape while
+        // active. A test that activated them must not decide how another test's
+        // log lines are written — which is exactly what happened once.
+        RequestId::reset();
         // Create a unique temp directory; Logger writes to LOG_PATH/DS/logs/
         $this->logDir = sys_get_temp_dir() . '/pramnos_logger_test_' . bin2hex(random_bytes(4));
         @mkdir($this->logDir, 0777, true);
@@ -36,6 +41,7 @@ class LoggerTest extends TestCase
 
     protected function tearDown(): void
     {
+        RequestId::reset();
         // Remove all files created under $logDir/logs/
         $logsDir = $this->logDir . DIRECTORY_SEPARATOR . 'logs';
         if (is_dir($logsDir)) {
@@ -438,8 +444,14 @@ class LoggerTest extends TestCase
         Logger::log('simple plain message', 'test_format_plain');
 
         // Assert — must start with '[DD/MM/YYYY HH:MM:SS]'
+        //
+        // The *last* line, not the whole file: Logger appends, and LOG_PATH is a
+        // `define()` that the first test in a run fixes for all of them, so the
+        // file survives between runs. Asserting on the file's opening character
+        // asserted on whatever some earlier run happened to leave there.
         $path    = Logger::getLogPath('test_format_plain');
-        $content = trim(file_get_contents($path));
+        $lines   = array_values(array_filter(explode("\n", (string) file_get_contents($path)), 'strlen'));
+        $content = trim((string) end($lines));
         $this->assertStringStartsWith('[', $content,
             'Plain log entry must start with a bracketed timestamp');
     }

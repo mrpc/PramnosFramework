@@ -1,15 +1,28 @@
 /**
- * The debug toolbar's ajax panel — the JavaScript half.
+ * The toolbar as a server-rendered page receives it.
  *
- * This exists because of a real failure: a column was added to the table
+ * `DebugBar::render()` emits two things: a hidden `<div id="pramnos-debug-data">`
+ * holding the request's collector data, and the framework's one toolbar source.
+ * Everything drawn from that data is covered by `spa-debug-panel.test.js`, which
+ * drives the same source through its module delivery. What is only true *here*
+ * is the delivery itself, and this file tests that:
+ *
+ *   - the script boots from the data island, so the page's own request is the
+ *     first entry and every collector it carries becomes a tab;
+ *   - `fetch` and `XMLHttpRequest` are wrapped, so what the page does *after* it
+ *     renders is recorded too — a datatable paging, a form saving, a widget
+ *     polling. Those requests ran queries nobody was watching;
+ *   - the application's own response is never disturbed: same object back, body
+ *     unread, read only through `clone()`;
+ *   - the `<style>` the toolbar injects carries the script's CSP nonce, or a
+ *     strict policy leaves the toolbar as an unreadable column of text.
+ *
+ * This file exists because of a real failure: a column was added to the row
  * markup and the field that fills it was not, so every row threw while being
- * rendered. The whole panel is wrapped in try/catch — instrumentation must
- * never break the page it measures — which meant the panel simply went blank
- * with nothing anywhere saying why.
- *
- * PHP tests cannot catch that: they assert the script is emitted, not that it
- * runs. So the script is extracted from DebugBar::ajaxJs() and executed here,
- * against stub globals, with fetch and XMLHttpRequest actually driven.
+ * drawn. The whole panel is wrapped in try/catch — instrumentation must never
+ * break the page it measures — so it simply went blank with nothing saying why.
+ * A PHP test cannot catch that; it asserts the script is emitted, not that it
+ * runs.
  *
  * Run:
  *   node --test tests/js/debugbar-ajax.test.js
@@ -18,629 +31,664 @@
  */
 'use strict';
 
-const { test, describe }   = require('node:test');
-const assert               = require('node:assert/strict');
-const vm                   = require('node:vm');
-const path                 = require('node:path');
-const { execFileSync }     = require('node:child_process');
+const { test, describe } = require('node:test');
+const assert             = require('node:assert/strict');
 
-const ROOT = path.join(__dirname, '..', '..');
+const { loadToolbar, makeResponse, clickInBar, settle } = require('./support/toolbar-dom');
 
-// ─── Extract the script from the PHP that emits it ──────────────────────────
-
-/**
- * Ask PHP for the panel's JavaScript, exactly as a page would receive it.
- *
- * Reading it out of the PHP source with a regex would test a copy; this tests
- * what ships.
- */
-function loadPanelScript() {
-    const php = `
-        require "vendor/autoload.php";
-        // No setAccessible(): it has had no effect since PHP 8.1 and is
-        // deprecated in 8.5, and the CLI writes that deprecation to STDOUT —
-        // where it lands in front of the script and is parsed as JavaScript.
-        $m = new ReflectionMethod("Pramnos\\\\Debug\\\\DebugBar", "ajaxJs");
-        echo $m->invoke(Pramnos\\Debug\\DebugBar::getInstance());
-    `;
-
-    return execFileSync('php', ['-r', php], { cwd: ROOT, encoding: 'utf8' });
+/** An island payload of the shape `DebugBar::render()` writes. */
+function island(extra = {}) {
+    return Object.assign({
+        time: 12.5,
+        memory: { peak_bytes: 1, peak_human: '1 B' },   // the collector's shape
+        request: { time: 12.5, memory: 2.5 },
+        queries: { count: 1, total_ms: 3, queries: [{ sql: 'SELECT 1', time: 3 }] },
+        request_method: 'GET',
+        request_path: '/dashboard',
+        status_code: 200,
+    }, extra);
 }
 
-// ─── A DOM small enough to run the panel against ────────────────────────────
+/** The `_debug` envelope an API response carries. */
+function body(payload) {
+    return JSON.stringify({ data: [1, 2], _debug: payload });
+}
 
-/**
- * The handful of DOM behaviours the panel uses: getElementById, innerHTML,
- * createElement().textContent for escaping, and a document click listener.
- */
-function makeDom() {
-    const elements = {};
-    const listeners = {};
+/** Open one of the toolbar's tabs. */
+function openTab(dom, panel) {
+    clickInBar(dom, '.pdb-tab', { dataset: { panel } });
+}
 
-    const makeElement = (id) => ({
-        id,
-        innerHTML: '',
-        textContent: '',
-        style: {},
-        setAttribute() {},
-        getAttribute() { return null; },
-        addEventListener() {},
-        closest() { return null; },
+/** Pick a request from the requests list, by the index it was recorded at. */
+function selectRequest(dom, index) {
+    clickInBar(dom, '.pdb-row', { dataset: { entry: String(index) } });
+}
+
+describe('the server-rendered toolbar', () => {
+    test('it boots from the data island, and the page is the first request', () => {
+        // Arrange & Act — loading the script is the act; boot() runs on load
+        const { dom } = loadToolbar({ payload: island() });
+
+        // Assert
+        assert.ok(dom.byId['pramnos-debugbar'], 'the bar was built');
+        // Server time comes from request.time: the top-level copy is overwritten
+        // by the memory collector, and reading it printed "[object Object]MB".
+        assert.match(dom.byId['pdb-info'].innerHTML, /12\.5ms server/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /GET \/dashboard/);
+
+        openTab(dom, 'requests');
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /\/dashboard/);
+        // Marked as the page itself, so it is not mistaken for an API call.
+        assert.match(html, /\(page\)/);
     });
 
-    for (const id of ['pdb-ajax-rows', 'pdb-ajax-table', 'pdb-ajax-empty', 'pdb-ajax-tab']) {
-        elements[id] = makeElement(id);
-    }
+    /**
+     * The tabs a server-rendered page used to be missing.
+     *
+     * Before the two renderers became one, the PHP half drew its own tabs and
+     * the JavaScript half drew others. Now every collector in the island becomes
+     * a tab, and a collector that is absent gets none — an empty tab reads as
+     * "nothing happened", which is a different claim.
+     */
+    test('every collector the island carries becomes a tab', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({
+            payload: island({
+                session: { active: true, session_id: 'abc', data: { userid: 7 } },
+                logs: { count: 1, entries: [{ level: 'error', message: 'boom', time: 1786237200 }] },
+                models: { count: 1, ops: 2, operations: [{ class: 'Thing', table: 'things', op: 'load' }] },
+                route: { controller: 'dashboard', action: 'index' },
+            }),
+        });
 
-    return {
-        elements,
-        listeners,
-        document: {
-            getElementById: (id) => elements[id] || null,
-            createElement: (tag) => {
-                const el = makeElement(tag);
-                Object.defineProperty(el, 'textContent', {
-                    set(value) { el.innerHTML = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
-                    get() { return el.innerHTML; },
-                });
-                return el;
-            },
-            addEventListener: (name, fn) => { listeners[name] = fn; },
-            querySelectorAll: () => [],
-        },
-    };
-}
-
-/**
- * Reach the panel's private helpers.
- *
- * They live inside an IIFE, which is right for a script injected into somebody
- * else's page and inconvenient for a test. Appending one line inside that scope
- * exposes them without changing what ships.
- */
-function withHelpersExposed(script) {
-    return script.replace(
-        '})();',
-        'globalThis.__formatBody=formatBody;globalThis.__maskSecrets=maskSecrets;'
-        + 'globalThis.__sizeOf=sizeOf;globalThis.__captureBody=captureBody;})();'
-    );
-}
-
-/**
- * Run the panel script in a sandbox and return the sandbox.
- *
- * @param {object} extras Globals to add (fetch, XMLHttpRequest, ...)
- */
-function runPanel(script, extras = {}) {
-    const dom = makeDom();
-    const sandbox = {
-        document: dom.document,
-        window: {},
-        location: { origin: 'http://localhost:8082' },
-        performance: { now: () => 0 },
-        console,
-        setTimeout,
-        Date,
-        Math,
-        JSON,
-        String,
-        Number,
-        parseFloat,
-        RegExp,
-        ...extras,
-    };
-    sandbox.window = sandbox;
-    sandbox.globalThis = sandbox;
-
-    vm.createContext(sandbox);
-    vm.runInContext(script, sandbox);
-
-    return { sandbox, dom };
-}
-
-/** Wait for pending promise callbacks to run. */
-const settle = () => new Promise((resolve) => setImmediate(resolve));
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
-describe('debug toolbar ajax panel', () => {
-    const script = loadPanelScript();
-
-    test('the emitted script is syntactically valid', () => {
-        // A parse error would take the whole inline <script> with it, including
-        // anything the toolbar emitted after it.
-        assert.doesNotThrow(() => new vm.Script(script));
+        // Assert
+        const tabs = dom.byId['pdb-tabs'].innerHTML;
+        ['SQL', 'Session', 'Logs', 'Models', 'Route'].forEach((label) => {
+            assert.ok(tabs.includes(label), `${label} tab is present`);
+        });
+        assert.equal(tabs.includes('Migrations'), false, 'no tab for a collector with no data');
     });
 
-    test('it wraps fetch and leaves the response untouched', async () => {
+    test('a fetch made after the page rendered is recorded with its statements', async () => {
         // Arrange
-        const original = { status: 200, headers: { get: () => null }, marker: 'the real response' };
-        let calledWith = null;
-        const nativeFetch = (...args) => { calledWith = args; return Promise.resolve(original); };
-
-        const { sandbox } = runPanel(script, { fetch: nativeFetch, XMLHttpRequest: null });
+        const page = () => Promise.resolve(makeResponse({
+            status: 200,
+            body: body({
+                request: { time: 40, memory: 3 },
+                queries: { count: 2, total_ms: 9, queries: [
+                    { sql: 'SELECT a', time: 4 },
+                    { sql: 'SELECT b', time: 5 },
+                ] },
+            }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: page });
 
         // Act
-        const returned = await sandbox.fetch('/users/data', { method: 'POST' });
+        await sandbox.fetch('/api/1.0/things');
+        await settle();
 
-        // Assert — the caller must get back exactly what the server sent
-        assert.equal(returned, original, 'the original response object is returned');
-        assert.equal(calledWith[0], '/users/data', 'the original arguments are passed through');
-        assert.equal(calledWith[1].method, 'POST');
+        // Assert — the request is listed, newest first
+        openTab(dom, 'requests');
+        const list = dom.byId['pdb-panel'].innerHTML;
+        assert.ok(
+            list.indexOf('/api/1.0/things') < list.indexOf('/dashboard'),
+            'the newest request is at the top'
+        );
+        assert.match(list, /40ms/, 'its server time came from the _debug payload');
+
+        // Assert — its statements are one click away, once it is picked
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+        assert.match(dom.byId['pdb-panel'].innerHTML, /SELECT b/);
     });
 
-    test('a completed request is rendered as a row with a timestamp', async () => {
-        // Arrange
-        const response = {
+    /**
+     * The tabs must stay on the page's own request until the reader says
+     * otherwise.
+     *
+     * A datatable fetches its rows the moment it renders. When the newest
+     * request was selected automatically, opening the toolbar on such a page
+     * showed that JSON call's numbers — `Views 0` on a page that had rendered a
+     * template, true of a request nobody had asked about.
+     */
+    test('the tabs stay on the page until a request is picked', async () => {
+        // Arrange — a page whose own request rendered a template
+        const datatable = () => Promise.resolve(makeResponse({
             status: 200,
-            headers: {
-                get: (name) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
-            },
-            clone: () => ({ text: () => Promise.resolve('{"data":[],"_debug":{"request":{"time":74.92,"memory":2.5}}}') }),
-        };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
+            body: body({ request: { time: 40 }, views: { count: 0, views: [] } }),
+        }));
+        const { dom, sandbox } = loadToolbar({
+            payload: island({ views: { count: 1, cached: 0, views: [{ view: 'users', template: 'users.html.php', render_ms: 4 }] } }),
+            fetch: datatable,
         });
+
+        // Act — the page fetches, as a datatable does
+        await sandbox.fetch('/users/data', { method: 'POST' });
+        await settle();
+
+        // Assert — the bar still describes the page
+        assert.match(dom.byId['pdb-info'].innerHTML, /GET \/dashboard/);
+        openTab(dom, 'views');
+        assert.match(dom.byId['pdb-panel'].innerHTML, /users\.html\.php/);
+
+        // Act — until the reader picks the fetch, which then owns every tab
+        selectRequest(dom, 1);
+        openTab(dom, 'views');
+
+        // Assert
+        assert.match(dom.byId['pdb-info'].innerHTML, /\/users\/data/);
+        assert.match(dom.byId['pdb-panel'].innerHTML, /No views rendered/);
+    });
+
+    /**
+     * A choice, once made, survives the requests that follow it.
+     *
+     * A polling widget would otherwise pull the panel out from under whoever is
+     * reading it, every few seconds.
+     */
+    test('a picked request is not replaced by later ones', async () => {
+        // Arrange
+        const later = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 9 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: later });
+
+        // Act — pick the page, then let two more requests land
+        openTab(dom, 'requests');
+        selectRequest(dom, 0);
+        await sandbox.fetch('/api/poll');
+        await sandbox.fetch('/api/poll');
+        await settle();
+
+        // Assert
+        assert.match(dom.byId['pdb-info'].innerHTML, /GET \/dashboard/);
+    });
+
+    /**
+     * Picking a request must not move the reader somewhere else.
+     *
+     * It used to jump to SQL on every pick, so comparing one tab across two
+     * requests meant navigating back to it each time — and a tab changing under
+     * a click nobody aimed at it reads as the toolbar losing its place.
+     */
+    test('picking a request leaves the open tab open', async () => {
+        // Arrange
+        const other = () => Promise.resolve(makeResponse({
+            status: 200,
+            body: body({ request: { time: 9 }, session: { active: true, session_id: 'z', data: { userid: 3 } } }),
+        }));
+        const { dom, sandbox } = loadToolbar({
+            payload: island({ session: { active: true, session_id: 'a', data: { userid: 1 } } }),
+            fetch: other,
+        });
+        await sandbox.fetch('/api/thing');
+        await settle();
+
+        // Act — reading Session, then picking a different request
+        openTab(dom, 'session');
+        selectRequest(dom, 1);
+
+        // Assert — still Session, now the other request's
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /Session ID/);
+        assert.match(html, /userid/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /\/api\/thing/);
+    });
+
+    /**
+     * A selection must be releasable, or it is a mode with no way out — and
+     * "the toolbar is showing the wrong numbers" is what that looks like from
+     * the outside. Two ways, because the row is not discoverable on its own.
+     */
+    test('a picked request can be released, both ways', async () => {
+        // Arrange
+        const other = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 9 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: other });
+        await sandbox.fetch('/api/thing');
+        await settle();
+
+        // Act — pick the fetch, then click its row again
+        openTab(dom, 'requests');
+        selectRequest(dom, 1);
+        assert.match(dom.byId['pdb-info'].innerHTML, /\/api\/thing/);
+        selectRequest(dom, 1);
+
+        // Assert — back to the page, and the chip is no longer a button
+        assert.match(dom.byId['pdb-info'].innerHTML, /GET \/dashboard/);
+        assert.equal(dom.byId['pdb-info'].innerHTML.includes('pdb-unpick'), false);
+
+        // Act — pick again, and use the chip in the info strip this time
+        selectRequest(dom, 1);
+        assert.match(dom.byId['pdb-info'].innerHTML, /pdb-unpick/);
+        clickInBar(dom, '.pdb-unpick');
+
+        // Assert
+        assert.match(dom.byId['pdb-info'].innerHTML, /GET \/dashboard/);
+    });
+
+    /**
+     * A failed request is found by scanning the list, so the whole row carries
+     * the colour — including a 200 that raised something, which nobody would go
+     * looking for.
+     */
+    test('a request that went wrong is red across the whole row', async () => {
+        // Arrange — one fetch, answering by URL: replacing sandbox.fetch after
+        // load would hand back the unwrapped original, and nothing would record.
+        const server = (url) => Promise.resolve(
+            String(url).indexOf('/users/data') > -1
+                ? makeResponse({ status: 500, body: 'nope' })
+                : makeResponse({
+                    status: 200,
+                    body: body({
+                        request: { time: 5 },
+                        exceptions: { count: 1, items: [{ type: 'php_error', class: 'E_WARNING', message: 'Undefined key', file: '/x.php', line: 9 }] },
+                    }),
+                })
+        );
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
 
         // Act
         await sandbox.fetch('/users/data', { method: 'POST' });
+        await sandbox.fetch('/api/ok');
         await settle();
-        await settle();
+        openTab(dom, 'requests');
 
-        // Assert — this is the regression: a missing field made every row throw,
-        // and the panel rendered nothing at all.
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.length > 0, 'the row was rendered');
-        assert.ok(html.includes('POST'), 'the method is shown');
-        assert.ok(html.includes('/users/data'), 'the url is shown');
-        assert.ok(/\d{2}:\d{2}:\d{2}\.\d{3}/.test(html), 'the time of the request is shown');
-        assert.ok(!html.includes('row 0:'), 'no row reported an error: ' + html);
+        // Assert — two bad rows: the 500, and the 200 that raised a warning
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.equal((html.match(/pdb-row-bad/g) || []).length, 2);
+        // The page's own request is untouched
+        assert.match(html, /<tr class="pdb-row[^"]*" data-entry="0"/);
     });
 
-    test('the server time comes from the payload, not the client clock', async () => {
-        // Arrange
-        const response = {
-            status: 200,
-            headers: { get: (n) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) },
-            clone: () => ({ text: () => Promise.resolve('{"_debug":{"time":74.92,"request":{"time":74.92,"memory":2.5}}}') }),
-        };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
+    /**
+     * Logs and exceptions are streams: an entry happens at a moment, and which
+     * request produced it is a detail of it. Until a request is picked, both tabs
+     * answer for the whole page — otherwise an error logged by a background call
+     * is invisible while the page's own request is in view.
+     */
+    test('logs and exceptions are aggregated until a request is picked', async () => {
+        // Arrange — the page logged one line; the fetch logged another and threw
+        const failing = () => Promise.resolve(makeResponse({
+            status: 500,
+            body: body({
+                request: { time: 12 },
+                logs: { count: 1, entries: [{ level: 'error', message: 'from the ajax call', time: 1786237201 }] },
+                exceptions: { count: 1, items: [{ type: 'exception', class: 'RuntimeException', message: 'kaboom', file: '/x.php', line: 3 }] },
+            }),
+        }));
+        const { dom, sandbox } = loadToolbar({
+            payload: island({
+                logs: { count: 1, entries: [{ level: 'info', message: 'from the page', time: 1786237200 }] },
+            }),
+            fetch: failing,
         });
 
         // Act
-        await sandbox.fetch('/users/data');
+        await sandbox.fetch('/api/1.0/boom');
         await settle();
-        await settle();
+        openTab(dom, 'logs');
+
+        // Assert — both lines, each naming the request it came from
+        const logs = dom.byId['pdb-panel'].innerHTML;
+        assert.match(logs, /from the page/);
+        assert.match(logs, /from the ajax call/);
+        assert.match(logs, /\/api\/1\.0\/boom/, 'each row says which request logged it');
+
+        // Assert — an exception raised by another request is still reachable,
+        // even though the selected request had none of its own
+        openTab(dom, 'exceptions');
+        assert.match(dom.byId['pdb-panel'].innerHTML, /RuntimeException/);
+
+        // Act — picking a request narrows both back to it
+        selectRequest(dom, 0);
+        openTab(dom, 'logs');
 
         // Assert
-        assert.ok(dom.elements['pdb-ajax-rows'].innerHTML.includes('74.92ms'));
+        const pageOnly = dom.byId['pdb-panel'].innerHTML;
+        assert.match(pageOnly, /from the page/);
+        assert.equal(pageOnly.includes('from the ajax call'), false);
     });
 
-    test('memory is never rendered as [object Object]', async () => {
-        // Arrange — the payload shape that caused it: a collector named `memory`
-        // overwrites the scalar with its own object.
-        const body = JSON.stringify({
-            _debug: {
-                time: 10,
-                memory: { peak_bytes: 123, peak_human: '2 MB' },
-                request: { time: 10, memory: 2.5 },
-            },
-        });
-        const response = {
-            status: 200,
-            headers: { get: (n) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) },
-            clone: () => ({ text: () => Promise.resolve(body) }),
-        };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
-        });
-
-        // Act — open the row so the detail, which prints memory, is rendered
-        await sandbox.fetch('/users/data');
-        await settle();
-        await settle();
-
-        // Assert
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(!html.includes('[object Object]'), 'no object stringified into the output');
-    });
-
-    test('a response with no debug data still produces a row', async () => {
-        // Arrange — a plain 204, the shape of a save
-        const response = { status: 204, headers: { get: () => null } };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
-        });
-
-        // Act
-        await sandbox.fetch('/orders/save', { method: 'POST' });
-        await settle();
-
-        // Assert — the request happened, so it must be visible even with nothing
-        // attached to it
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('204'), 'the status is shown');
-        assert.ok(!html.includes('row 0:'), 'and it did not fail to render');
-    });
-
-    test('a rejected fetch is recorded and the rejection still propagates', async () => {
+    /**
+     * A response with no body to carry a payload still has a header.
+     *
+     * A 204 from a save, a redirect, an HTML fragment — ordinary shapes for the
+     * requests a page makes after it renders, and none of them has anywhere to
+     * put a `_debug` key. `X-Pramnos-Debug` is a JSON summary; counts and
+     * timings only, because a header lands in every access log on the way.
+     */
+    test('a bodiless response is read from the X-Pramnos-Debug header', async () => {
         // Arrange
-        const failure = new Error('network down');
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.reject(failure),
-            XMLHttpRequest: null,
-        });
+        const save = () => Promise.resolve(makeResponse({
+            status: 204,
+            body: '',
+            headers: { 'X-Pramnos-Debug': JSON.stringify({ time: 91.5, memory: 4, queries: 12 }) },
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: save });
 
         // Act
-        let caught = null;
-        try {
-            await sandbox.fetch('/users/data');
-        } catch (error) {
-            caught = error;
-        }
+        await sandbox.fetch('/api/1.0/things/1', { method: 'POST' });
         await settle();
+        openTab(dom, 'requests');
 
-        // Assert — the caller's error handling must not be swallowed by the panel
-        assert.equal(caught, failure, 'the rejection reached the caller');
-        assert.ok(dom.elements['pdb-ajax-rows'].innerHTML.length > 0, 'and the attempt was recorded');
+        // Assert — the row that would otherwise have said "—" twice
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /204/);
+        assert.match(html, /91\.5ms/, 'server time survived a response with no body');
+        assert.match(html, /12/, 'and so did the query count');
     });
 
-    test('XMLHttpRequest is wrapped and its send() still runs', async () => {
-        // Arrange — a minimal XHR whose send() fires loadend synchronously
-        class FakeXhr {
-            constructor() { this.status = 200; this.responseType = ''; this.responseText = '{}'; this._handlers = []; this.sent = false; }
-            open() {}
-            send() { this.sent = true; this._handlers.forEach((fn) => fn()); }
-            addEventListener(name, fn) { if (name === 'loadend') this._handlers.push(fn); }
-            getResponseHeader() { return null; }
-        }
-        FakeXhr.prototype.open = FakeXhr.prototype.open;
-
-        const { sandbox, dom } = runPanel(script, { fetch: null, XMLHttpRequest: FakeXhr });
-
-        // Act
+    /**
+     * The XHR path must read the debug headers too.
+     *
+     * It did not, and every datatable is XHR: a call that returned anything but
+     * a JSON object — an error page, a 204, an HTML fragment — reported "—" for
+     * server time and query count, while the identical call through `fetch`
+     * reported both.
+     */
+    test('an XHR with no JSON body still reads its debug headers', async () => {
+        // Arrange
+        const { dom, sandbox } = loadToolbar({ payload: island() });
         const xhr = new sandbox.XMLHttpRequest();
-        xhr.open('GET', '/api/meters');
+        xhr.headers = {
+            'X-Pramnos-Debug': JSON.stringify({ time: 44.5, memory: 3, queries: 2, errors: 1 }),
+        };
+        xhr.getResponseHeader = (name) => xhr.headers[name] ?? null;
+
+        // Act — an error page, which is what an uncaught exception produces
+        xhr.open('POST', '/users/data');
         xhr.send();
+        xhr.respond(500, '<html><body>Something went wrong</body></html>');
         await settle();
 
         // Assert
-        assert.ok(xhr.sent, 'the original send() ran');
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('/api/meters'), 'the request was recorded');
+        openTab(dom, 'requests');
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /44\.5ms/, 'server time came from the header');
+        assert.match(html, /500/);
+
+        // Assert — and the request is known to have raised something, even
+        // though a header can never carry the message itself
+        selectRequest(dom, 1);
+        openTab(dom, 'exceptions');
+        const panel = dom.byId['pdb-panel'].innerHTML;
+        assert.match(panel, /1 exception/);
+        assert.match(panel, /only the header summary/);
     });
 
-    test('the request body is captured and shown', async () => {
-        // Arrange — a datatables POST, opened so the detail renders
-        const body = JSON.stringify({ draw: 1, start: 0, length: 50 });
-        const response = { status: 200, headers: { get: () => null } };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
-            URLSearchParams: global.URLSearchParams,
-        });
+    /**
+     * An exception must be visible before anybody goes looking for it.
+     *
+     * Two things this pins, both reported from a real page: the Exceptions tab
+     * counts what *any* request raised while nothing is picked — including a
+     * request whose response could only carry the header summary, where the
+     * count arrives with no items — and it is drawn as an alarm rather than as
+     * the ninth identical tab.
+     */
+    test('an exception in any request colours the tab and is counted', async () => {
+        // Arrange — the page was fine; the call that followed it was not
+        const failing = () => Promise.resolve(makeResponse({
+            status: 500,
+            body: 'not json',
+            headers: { 'X-Pramnos-Debug': JSON.stringify({ time: 8, errors: 1 }) },
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: failing });
 
-        // Act
-        await sandbox.fetch('/users/data', { method: 'POST', body });
+        // Act — nothing is picked; the page's request is still the one in view
+        await sandbox.fetch('/users/data', { method: 'POST' });
         await settle();
-        dom.document.addEventListener; // listener registered by the panel
-        // Open row 0 the way a click would
-        sandbox.__openRow ? sandbox.__openRow(0) : null;
-        await settle();
 
-        // Assert — the body is in the captured entry even before the row opens
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('/users/data'));
-        assert.ok(!html.includes('row 0:'), 'the row rendered cleanly');
+        // Assert — the tab says so, in red, without anything being clicked
+        const tabs = dom.byId['pdb-tabs'].innerHTML;
+        assert.match(tabs, /pdb-tab-alert/, 'the tab is drawn as an alarm');
+        assert.match(tabs, /Exceptions<span class="pdb-tab-count">1</, 'and counts the one raised');
+
+        // Assert — and opening it names the request, and says why there is no
+        // message: a header cannot carry one
+        openTab(dom, 'exceptions');
+        const panel = dom.byId['pdb-panel'].innerHTML;
+        assert.match(panel, /\/users\/data/);
+        assert.match(panel, /error log/);
     });
 
-    test('secrets in a body are masked before display', () => {
-        // Arrange
-        const { sandbox } = runPanel(withHelpersExposed(script), {
-            fetch: null, XMLHttpRequest: null,
-        });
-
-        // Act
-        const json  = sandbox.__maskSecrets('{"username":"bob","password":"hunter2"}');
-        const query = sandbox.__maskSecrets('user=bob&api_key=abc123&page=2');
-
-        // Assert — the panel gets screenshotted and pasted into bug reports
-        assert.ok(!json.includes('hunter2'), 'the password is gone');
-        assert.ok(json.includes('bob'), 'and the rest survives');
-        assert.ok(!query.includes('abc123'), 'the key is gone from the query string');
-        assert.ok(query.includes('page=2'), 'and the rest of it survives');
-    });
-
-    test('a form-urlencoded body is decoded into its structure', () => {
-        // Arrange — a real datatables body, which is what made this necessary:
-        // as raw text it is two kilobytes of double-escaped column metadata.
-        const body = 'draw=1&columns%5B0%5D%5Bdata%5D=0&columns%5B0%5D%5Bsearchable%5D=true'
-            + '&order%5B0%5D%5Bdir%5D=desc&start=0&length=50&search%5Bvalue%5D=';
-        const { sandbox } = runPanel(withHelpersExposed(script), {
-            fetch: null, XMLHttpRequest: null,
-        });
-
-        // Act
-        const formatted = sandbox.__formatBody(body);
-        const parsed    = JSON.parse(formatted);
-
-        // Assert
-        assert.equal(parsed.draw, '1');
-        assert.equal(parsed.columns['0'].data, '0', 'the nesting is rebuilt');
-        assert.equal(parsed.columns['0'].searchable, 'true');
-        assert.equal(parsed.order['0'].dir, 'desc');
-        assert.equal(parsed.length, '50');
-        assert.ok(!formatted.includes('%5B'), 'nothing is left percent-encoded');
-    });
-
-    test('a JSON body is pretty-printed and anything else is left alone', () => {
-        // Arrange
-        const { sandbox } = runPanel(withHelpersExposed(script), {
-            fetch: null, XMLHttpRequest: null,
-        });
-
-        // Act
-        const json  = sandbox.__formatBody('{"a":1,"b":{"c":2}}');
-        const plain = sandbox.__formatBody('just some text');
-
-        // Assert
-        assert.ok(json.includes('\n'), 'the JSON was indented');
-        assert.equal(plain, 'just some text', 'a plain body is untouched');
-    });
-
-    test('the body is described rather than decoded when it is binary', () => {
-        // Arrange — reading a Blob is asynchronous, and the object belongs to
-        // the application; describing it is the honest answer.
-        const { sandbox } = runPanel(withHelpersExposed(script), {
-            fetch: null, XMLHttpRequest: null, Blob: class FakeBlob { constructor() { this.size = 42; } },
-        });
-
-        // Act
-        const described = sandbox.__captureBody(new sandbox.Blob());
-        const nothing   = sandbox.__captureBody(null);
-
-        // Assert
-        assert.ok(described.includes('42 bytes'));
-        assert.equal(nothing, null);
-    });
-
-    test('the body starts collapsed', async () => {
-        // Arrange — a big body, the case the collapse exists for
-        const body = 'a=1&' + 'x%5B0%5D%5By%5D=1&'.repeat(200);
-        const response = { status: 200, headers: { get: () => null } };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
-        });
-
-        // Act
-        await sandbox.fetch('/users/data', { method: 'POST', body });
-        await settle();
-        dom.listeners.click({
-            target: {
-                closest: (s) => (s === '.pdb-ajax-row' ? { getAttribute: () => '0' } : null),
-            },
-        });
-
-        // Assert — <details> without `open` is collapsed, and the size is on the
-        // summary so it can be judged before opening
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('<details>'), 'the body is behind a disclosure');
-        assert.ok(!html.includes('<details open'), 'and it starts closed');
-        assert.ok(/Request body · [\d.]+ (B|KB)/.test(html), 'with its size shown: ' + html.slice(0, 400));
-    });
-
-    test('a copy button is rendered for every query', async () => {
-        // Arrange — a response carrying two queries
-        const payload = JSON.stringify({
-            _debug: {
-                time: 5,
-                request: { time: 5, memory: 1 },
-                queries: { count: 2, queries: [
-                    { sql: "SELECT * FROM users WHERE name = 'o''brien'", time: 0.4 },
-                    { sql: 'UPDATE orders SET status = 1', time: 1.1 },
-                ] },
-            },
-        });
-        const response = {
-            status: 200,
-            headers: { get: (n) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) },
-            clone: () => ({ text: () => Promise.resolve(payload) }),
+    /**
+     * A request that reported an exception it could not describe is chased
+     * automatically, and the answer lands on that request's own row.
+     *
+     * The toolbar already knows which request raised it — the count came back on
+     * that response. Making somebody find it in a list and press a button to ask
+     * about it is a step with no decision in it.
+     */
+    test('a missing exception detail is fetched by itself, onto the right row', async () => {
+        // Arrange — the page is fine; the call after it dies with only a header
+        const server = (url) => {
+            if (String(url).indexOf('/devpanel/logs') > -1) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: { get: () => null },
+                    clone: () => ({ text: () => Promise.resolve('{}') }),
+                    json: () => Promise.resolve({
+                        lines: [
+                            { timestamp: '12/08/2026 19:35:43', level: 'error', message: 'Deliberate failure in users/data\\nFile: /x.php → 38', file: 'app.log' },
+                            { timestamp: '12/08/2026 19:35:43', level: 'info', message: 'not an error', file: 'app.log' },
+                        ],
+                    }),
+                });
+            }
+            return Promise.resolve(makeResponse({
+                status: 500,
+                body: 'error page',
+                headers: { 'X-Pramnos-Debug': JSON.stringify({ time: 8, errors: 1, id: 'ffee0011aabb2233' }) },
+            }));
         };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
+        const { dom, sandbox } = loadToolbar({
+            payload: island({ logs_url: '/devpanel/logs' }),
+            fetch: server,
         });
 
-        // Act — capture, then open the row through the panel's own click handler
-        await sandbox.fetch('/users/data');
+        // Act — open Exceptions; nothing else is clicked
+        await sandbox.fetch('/users/data', { method: 'POST' });
+        await settle();
+        openTab(dom, 'exceptions');
         await settle();
         await settle();
 
-        const clickHandler = dom.listeners.click;
-        assert.ok(clickHandler, 'the panel registered a click handler');
-        clickHandler({
-            target: {
-                closest: (selector) => (selector === '.pdb-ajax-row'
-                    ? { getAttribute: () => '0' }
-                    : null),
-            },
-        });
-
-        // Assert
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('pdb-copy'), 'a copy button was rendered');
-        assert.ok(html.includes('data-sql='), 'carrying the statement to copy');
-        assert.ok(html.includes('UPDATE orders'), 'the second query is there too');
-        // The delegated handler in the toolbar's other script reads data-sql, so
-        // a quote that escaped the attribute would break the copy silently.
-        assert.ok(!/data-sql='[^']*'[^>]*'/.test(html), 'no unescaped quote broke the attribute');
+        // Assert — the real message, on the row of the request that raised it,
+        // in place of the "could not carry the details" placeholder
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /Deliberate failure in users\/data/);
+        assert.match(html, /\/users\/data/, 'attributed to the failing request');
+        assert.equal(html.includes('could not carry'), false, 'the placeholder is gone');
+        // Only the error levels are promoted onto rows; the rest stays in the
+        // server-log table below.
+        assert.equal((html.match(/not an error/g) || []).length, 1);
     });
 
-    test('one button copies every statement, annotated and in order', async () => {
+    /**
+     * The one thing a response cannot bring back: the log of a request that died.
+     *
+     * The toolbar asks the endpoint for it, by request id — and it must ask
+     * through the *unwrapped* fetch, or the act of looking becomes one more
+     * request to look at, and every look adds another row.
+     */
+    test('the server can be asked for a request\'s own log lines', async () => {
         // Arrange
-        const payload = JSON.stringify({
-            _debug: {
-                time: 5, request: { time: 5, memory: 1 },
-                queries: { count: 2, queries: [
-                    { sql: 'SELECT 1', time: 0.4 },
-                    { sql: 'UPDATE orders SET status = 1', time: 1.1 },
-                ] },
-            },
-        });
-        const response = {
-            status: 200,
-            headers: { get: (n) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) },
-            clone: () => ({ text: () => Promise.resolve(payload) }),
+        const asked = [];
+        const server = (url) => {
+            asked.push(String(url));
+            if (String(url).indexOf('/devpanel/logs') > -1) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: { get: () => null },
+                    clone: () => ({ text: () => Promise.resolve('{}') }),
+                    json: () => Promise.resolve({
+                        request: 'aabbccddeeff0011',
+                        count: 1,
+                        lines: [{ timestamp: '12/08/2026 19:35:43', level: 'error', message: 'the real reason', file: 'app.log' }],
+                    }),
+                });
+            }
+            return Promise.resolve(makeResponse({ status: 500, body: 'not json' }));
         };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
+        const { dom, sandbox } = loadToolbar({
+            payload: island({
+                request: { time: 12.5, memory: 2.5, id: 'aabbccddeeff0011' },
+                logs_url: '/devpanel/logs',
+                logs: { count: 0, entries: [] },
+            }),
+            fetch: server,
         });
 
-        // Act
-        await sandbox.fetch('/users/data');
+        // Act — the offer is drawn because the payload carried a URL and an id
+        openTab(dom, 'logs');
+        assert.match(dom.byId['pdb-panel'].innerHTML, /Ask the server/);
+        clickInBar(dom, '.pdb-fetch-logs', { dataset: { request: 'aabbccddeeff0011' }, textContent: '', disabled: false });
         await settle();
         await settle();
-        dom.listeners.click({
-            target: { closest: (s) => (s === '.pdb-ajax-row' ? { getAttribute: () => '0' } : null) },
-        });
 
-        // Assert — the payload of the "copy all" button carries both statements
-        // with their timings, which is the form somebody pastes into a report
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('pdb-copy-all'), 'the button is rendered');
-        assert.ok(html.includes('Copy all'));
+        // Assert — the lines are shown, attributed to the server's log
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /From the server/);
+        assert.match(html, /the real reason/);
+        assert.match(asked.join(' '), /\/devpanel\/logs\?request=aabbccddeeff0011/);
 
-        const match = /class='pdb-copy pdb-copy-all'[^>]*data-sql='([^']*)'/.exec(html);
-        assert.ok(match, 'the button carries a payload: ' + html.slice(0, 300));
-        assert.ok(match[1].includes('SELECT 1'), 'the first statement');
-        assert.ok(match[1].includes('UPDATE orders'), 'and the second');
-        assert.ok(match[1].includes('0.4ms'), 'with its timing');
-        assert.ok(
-            match[1].indexOf('SELECT 1') < match[1].indexOf('UPDATE orders'),
-            'in the order they ran'
+        // Assert — and the toolbar's own call did not become a row
+        openTab(dom, 'requests');
+        assert.equal(
+            dom.byId['pdb-panel'].innerHTML.includes('/devpanel/logs'),
+            false,
+            'looking must not add something to look at'
         );
     });
 
-    test('a cached statement is labelled, not timed as zero', async () => {
-        // Arrange — one statement that ran, one served from cache
-        const payload = JSON.stringify({
-            _debug: {
-                time: 5, request: { time: 5, memory: 1 },
-                queries: { count: 2, cached: 1, queries: [
-                    { sql: 'SELECT * FROM users WHERE userid = 2', time: 0, from_cache: true },
-                    { sql: 'SELECT * FROM userdetails WHERE userid = 2', time: 2.08, from_cache: false },
-                ] },
-            },
+    /**
+     * Picking a request that died must not empty the bar.
+     *
+     * It did: with no payload there were no tabs, one line of panel text, and no
+     * way to see anything — at the exact moment somebody clicked a red row
+     * *because* it had gone wrong.
+     */
+    test('a request that carried nothing keeps the streams and says why', async () => {
+        // Arrange — the page logged something; the failing call carried nothing
+        const dead = () => Promise.resolve(makeResponse({ status: 500, body: 'not json' }));
+        const { dom, sandbox } = loadToolbar({
+            payload: island({
+                logs: { count: 1, entries: [{ level: 'error', message: 'from the page', time: 1786237200 }] },
+            }),
+            fetch: dead,
         });
-        const response = {
-            status: 200,
-            headers: { get: (n) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) },
-            clone: () => ({ text: () => Promise.resolve(payload) }),
-        };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
+
+        // Act — with a tab already open, which stays open across the pick
+        await sandbox.fetch('/users/data', { method: 'POST' });
+        await settle();
+        openTab(dom, 'queries');
+        selectRequest(dom, 1);
+
+        // Assert — the panel explains itself rather than saying nothing
+        assert.match(dom.byId['pdb-panel'].innerHTML, /carried no debug data/);
+        // And the streams stay reachable: they are where the reason can still be
+        assert.match(dom.byId['pdb-tabs'].innerHTML, /Logs/);
+        openTab(dom, 'logs');
+        assert.match(dom.byId['pdb-panel'].innerHTML, /from the page/);
+    });
+
+    test('the application still gets its own response, unread', async () => {
+        // Arrange
+        const original = makeResponse({ status: 200, body: body({ request: { time: 5 } }) });
+        const { sandbox } = loadToolbar({
+            payload: island(),
+            fetch: () => Promise.resolve(original),
         });
 
         // Act
-        await sandbox.fetch('/users/data');
-        await settle();
-        await settle();
-        dom.listeners.click({
-            target: { closest: (s) => (s === '.pdb-ajax-row' ? { getAttribute: () => '0' } : null) },
-        });
-
-        // Assert — "0ms" reads as instant; the statement did not run at all
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('CACHE'), 'the cached statement is labelled');
-        assert.ok(html.includes('2.08ms'), 'the one that ran keeps its time');
-        assert.ok(html.includes('1 live · 1 from cache'), 'and the split is summarised');
-
-        // ...and the copy payload says so too, since that is what gets pasted
-        const match = /class='pdb-copy pdb-copy-all'[^>]*data-sql='([^']*)'/.exec(html);
-        assert.ok(match, 'the copy-all button is there');
-        assert.ok(match[1].includes('-- CACHE'), 'the paste distinguishes them');
-        assert.ok(match[1].includes('-- 2.08ms'));
-    });
-
-    test('the newest request is at the top', async () => {
-        // Arrange
-        const response = { status: 200, headers: { get: () => null } };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
-        });
-
-        // Act — three requests, in order
-        await sandbox.fetch('/first');
-        await sandbox.fetch('/second');
-        await sandbox.fetch('/third');
+        const returned = await sandbox.fetch('/api/1.0/things');
         await settle();
 
-        // Assert — the one you just triggered is the one you are looking for,
-        // and at the bottom of a growing list it scrolls away
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(
-            html.indexOf('/third') < html.indexOf('/second'),
-            'the newest row is rendered first'
-        );
-        assert.ok(html.indexOf('/second') < html.indexOf('/first'));
+        // Assert — the same object, with its body still there to be read
+        assert.equal(returned, original, 'the response is passed through unchanged');
+        assert.equal(original.consumed, false, 'the toolbar read a clone, not the body');
+        assert.equal(await returned.text(), body({ request: { time: 5 } }));
     });
 
-    test('opening a row still opens the row that was clicked', async () => {
-        // Arrange — reversing the display must not reverse the identity: the
-        // click handler works against capture order, not draw order.
-        const withQueries = (n) => ({
-            status: 200,
-            headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/json' : null) },
-            clone: () => ({ text: () => Promise.resolve(JSON.stringify({
-                _debug: { time: n, request: { time: n, memory: 1 },
-                          queries: { count: 1, queries: [{ sql: 'SELECT ' + n, time: 0.1 }] } },
-            })) }),
-        });
-        let call = 0;
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(withQueries(++call)),
-            XMLHttpRequest: null,
-        });
-
-        await sandbox.fetch('/first');
-        await settle(); await settle();
-        await sandbox.fetch('/second');
-        await settle(); await settle();
-
-        // Act — open index 0, which is /first and is drawn last
-        dom.listeners.click({
-            target: { closest: (s) => (s === '.pdb-ajax-row' ? { getAttribute: () => '0' } : null) },
-        });
-
-        // Assert
-        const html = dom.elements['pdb-ajax-rows'].innerHTML;
-        assert.ok(html.includes('SELECT 1'), 'the first request opened');
-        assert.ok(!html.includes('SELECT 2'), 'and not the second');
-    });
-
-    test('the tab shows how many requests were captured', async () => {
-        // Arrange
-        const response = { status: 200, headers: { get: () => null } };
-        const { sandbox, dom } = runPanel(script, {
-            fetch: () => Promise.resolve(response),
-            XMLHttpRequest: null,
-        });
+    test('an XMLHttpRequest is recorded too', async () => {
+        // Arrange — jQuery, datatables and every legacy page still use this
+        const { dom, sandbox } = loadToolbar({ payload: island() });
+        const xhr = new sandbox.XMLHttpRequest();
 
         // Act
-        await sandbox.fetch('/a');
-        await sandbox.fetch('/b');
+        xhr.open('POST', '/admin/datatable');
+        xhr.send('draw=1');
+        xhr.respond(200, body({
+            request: { time: 77 },
+            queries: { count: 3, queries: [{ sql: 'SELECT c', time: 1 }] },
+        }));
         await settle();
 
         // Assert
-        assert.ok(dom.elements['pdb-ajax-tab'].innerHTML.includes('2'), 'the count is on the tab');
+        openTab(dom, 'requests');
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /\/admin\/datatable/);
+        assert.match(html, /77ms/);
+        // The original send still ran: wrapping must never swallow the request.
+        assert.equal(xhr.sentBody, 'draw=1');
+    });
+
+    /**
+     * A page with no island is a SPA shell, and its API client records for
+     * itself. Wrapping fetch as well would record every call twice.
+     */
+    test('with no island, nothing is built and no transport is wrapped', () => {
+        // Arrange
+        const page = () => Promise.resolve(makeResponse({}));
+
+        // Act
+        const { dom, sandbox } = loadToolbar({ payload: null, fetch: page });
+
+        // Assert
+        assert.equal(dom.byId['pramnos-debugbar'], undefined, 'no toolbar');
+        assert.equal(dom.document.body.children.length, 0, 'nothing added to the page');
+        assert.equal(sandbox.fetch, page, 'fetch is exactly what it was');
+    });
+
+    /**
+     * The stylesheet is created by script, and a strict `style-src` blocks an
+     * injected `<style>` just as it would an inline one. The nonce is taken from
+     * the script element, which the server already had to nonce for any of this
+     * to be running.
+     */
+    test('the injected stylesheet carries the script tag\'s CSP nonce', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island(), nonce: 'abc123testNonce' });
+
+        // Assert — the style element is the first thing appended to <head>
+        const style = dom.document.head.children[0];
+        assert.ok(style, 'a stylesheet was injected');
+        assert.equal(style.getAttribute('nonce'), 'abc123testNonce');
+        assert.match(style.textContent, /#pramnos-debugbar/);
+    });
+
+    test('with no nonce on the page, the stylesheet simply has none', () => {
+        // Arrange & Act — the ordinary development case, no CSP configured
+        const { dom } = loadToolbar({ payload: island() });
+
+        // Assert
+        assert.equal(dom.document.head.children[0].getAttribute('nonce'), null);
+    });
+
+    /**
+     * A payload missing the keys the toolbar reads must cost a value, not the
+     * panel: everything here is instrumentation, and instrumentation that throws
+     * takes the page's own scripts with it.
+     */
+    test('an island with almost nothing in it still renders', () => {
+        // Arrange & Act
+        assert.doesNotThrow(() => {
+            const { dom } = loadToolbar({ payload: { request_path: '/thin' } });
+            openTab(dom, 'requests');
+            assert.ok(dom.byId['pdb-panel'].innerHTML.length > 0);
+        });
     });
 });

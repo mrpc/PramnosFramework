@@ -1,16 +1,16 @@
 /**
- * The debug toolbar's hide button — the JavaScript half.
+ * The debug toolbar's hide button, on a server-rendered page.
  *
  * This exists because of a real failure, reported from two applications at once:
  * the `✕` did nothing at all. It toggled the *panel's* inline `display` starting
  * from `''`, while the stylesheet already hid the panel — so the first click set
  * `display:none` on something invisible, and the second handed it back to the
  * stylesheet, which hid it again. Two clicks, no effect, in both the
- * server-rendered toolbar and the SPA panel.
+ * server-rendered toolbar and the SPA panel: one mistake written twice, which is
+ * why there is now one source and this file drives what ships.
  *
- * A PHP test cannot catch that: it can assert the button is emitted, not that
- * clicking it does anything. So the script is extracted from `DebugBar::js()`
- * and executed here, with the buttons actually clicked.
+ * A PHP test cannot catch that. It can assert the button is emitted, not that
+ * clicking it does anything.
  *
  * Run:
  *   node --test tests/js/debugbar-hide.test.js
@@ -19,222 +19,105 @@
  */
 'use strict';
 
-const { test, describe }   = require('node:test');
-const assert               = require('node:assert/strict');
-const vm                   = require('node:vm');
-const path                 = require('node:path');
-const { execFileSync }     = require('node:child_process');
+const { test, describe } = require('node:test');
+const assert             = require('node:assert/strict');
 
-const ROOT = path.join(__dirname, '..', '..');
+const { loadToolbar, clickInBar } = require('./support/toolbar-dom');
 
-/**
- * Ask PHP for the toolbar's JavaScript, exactly as a page would receive it.
- *
- * Reading it out of the PHP source with a regex would test a copy; this tests
- * what ships — including the ajax half, which `js()` appends.
- */
-function loadToolbarScript() {
-    const php = `
-        require "vendor/autoload.php";
-        // No setAccessible(): it has had no effect since PHP 8.1 and is
-        // deprecated in 8.5, and the CLI writes that deprecation to STDOUT —
-        // where it lands in front of the script and is parsed as JavaScript.
-        $m = new ReflectionMethod("Pramnos\\\\Debug\\\\DebugBar", "js");
-        echo $m->invoke(Pramnos\\Debug\\DebugBar::getInstance());
-    `;
-
-    return execFileSync('php', ['-r', php], { cwd: ROOT, encoding: 'utf8' });
-}
-
-/**
- * A DOM with the elements the toolbar's markup provides, and click listeners
- * that can be fired.
- */
-function makeDom() {
-    const elements = {};
-
-    const makeElement = (id) => ({
-        id,
-        innerHTML: '',
-        textContent: '',
-        style: {},
-        dataset: {},
-        classList: { add() {}, remove() {} },
-        listeners: {},
-        setAttribute() {},
-        getAttribute() { return null; },
-        addEventListener(name, fn) { this.listeners[name] = fn; },
-        closest() { return null; },
-    });
-
-    for (const id of [
-        'pramnos-debugbar', 'pdb-restore', 'pdb-close-btn', 'pdb-panels',
-        'pdb-ajax-rows', 'pdb-ajax-table', 'pdb-ajax-empty', 'pdb-ajax-tab',
-    ]) {
-        elements[id] = makeElement(id);
-    }
-
-    const body = makeElement('body');
-
+/** The data island a rendered page carries. */
+function island() {
     return {
-        elements,
-        body,
-        document: {
-            body,
-            getElementById: (id) => elements[id] || null,
-            createElement: (tag) => makeElement(tag),
-            addEventListener() {},
-            // The tab wiring iterates this; no tabs is enough for the hide path.
-            querySelectorAll: () => [],
-        },
+        request: { time: 12.5, memory: 2.5 },
+        queries: { count: 0, total_ms: 0, queries: [] },
+        request_method: 'GET',
+        request_path: '/dashboard',
+        status_code: 200,
     };
 }
 
-/**
- * Run the toolbar script in a sandbox.
- *
- * @param {object}      options.stored        Value already in storage, or null.
- * @param {boolean}     options.storageThrows Make storage access itself throw.
- */
-function runToolbar(script, { stored = null, storageThrows = false } = {}) {
-    const dom   = makeDom();
-    const store = stored === null ? {} : { 'pramnos.debugbar.hidden': stored };
-
-    const storage = {
-        getItem: (k) => (k in store ? store[k] : null),
-        setItem: (k, v) => { store[k] = String(v); },
-        removeItem: (k) => { delete store[k]; },
-    };
-
-    const sandbox = {
-        document: dom.document,
-        location: { origin: 'http://localhost:8082' },
-        performance: { now: () => 0 },
-        // The ajax half wraps these; it must find something to wrap.
-        fetch: () => Promise.resolve({ status: 200, headers: { get: () => null } }),
-        XMLHttpRequest: function XHR() { this.open = () => {}; this.send = () => {}; },
-        navigator: {},
-        console,
-        setTimeout,
-        Date,
-        Math,
-        JSON,
-        String,
-        Number,
-        parseFloat,
-        RegExp,
-        Error,
-    };
-    Object.defineProperty(sandbox, 'localStorage', {
-        get: () => { if (storageThrows) { throw new Error('access denied'); } return storage; },
-        configurable: true,
-    });
-    sandbox.window = sandbox;
-    sandbox.globalThis = sandbox;
-
-    vm.createContext(sandbox);
-    vm.runInContext(script, sandbox);
-
-    return { sandbox, dom, store };
+/** Click the ✕. */
+function clickClose(dom) {
+    clickInBar(dom, '#pdb-close-btn');
 }
 
-/** Fire the click listener a button registered, as a real click would. */
-const click = (element) => element.listeners.click({ target: element });
-
-describe('debug toolbar hide button', () => {
-    const script = loadToolbarScript();
-
-    test('the emitted script is syntactically valid', () => {
-        // A parse error takes the whole inline <script> with it — every handler
-        // in the toolbar, not just this one.
-        assert.doesNotThrow(() => new vm.Script(script));
-    });
-
-    /**
-     * The bar starts visible, with the page padded to clear it.
-     *
-     * The padding used to be set by a separate inline script before the markup.
-     * It is now part of the same code path that hides the bar, so the two cannot
-     * disagree — which is what would leave a 36px gap under a hidden toolbar.
-     */
-    test('on load the bar is shown and the page is padded for it', () => {
-        // Act
-        const { dom } = runToolbar(script);
-
-        // Assert
-        assert.equal(dom.elements['pramnos-debugbar'].style.display, '');
-        assert.equal(dom.elements['pdb-restore'].style.display, 'none');
-        assert.equal(dom.body.style.paddingBottom, '36px');
-    });
-
-    /**
-     * Clicking ✕ hides the bar — the whole bar, which is what the button claims.
-     *
-     * Asserting on `#pramnos-debugbar` rather than `#pdb-panels` is the point:
-     * the old handler moved the panel, which the stylesheet had already hidden,
-     * so nothing on screen changed.
-     */
-    test('the close button hides the bar and frees the page', () => {
+describe('the toolbar’s hide button', () => {
+    test('it hides the whole bar and gives the page its strip back', () => {
         // Arrange
-        const { dom, store } = runToolbar(script);
+        const { dom, store } = loadToolbar({ payload: island() });
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, '');
+        assert.equal(dom.document.body.style.paddingBottom, '30px');
 
         // Act
-        click(dom.elements['pdb-close-btn']);
+        clickClose(dom);
 
-        // Assert
-        assert.equal(dom.elements['pramnos-debugbar'].style.display, 'none');
-        assert.equal(dom.body.style.paddingBottom, '', 'the reserved strip goes too');
-        assert.equal(dom.elements['pdb-restore'].style.display, 'block', 'and a way back appears');
-        assert.equal(store['pramnos.debugbar.hidden'], '1');
+        // Assert — the bar goes, not just the panel; that was the whole bug
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none');
+        // A hidden bar that still reserves 30px is a gap nothing on screen
+        // explains, which is how the two used to drift apart.
+        assert.equal(dom.document.body.style.paddingBottom, '');
+        assert.equal(dom.byId['pdb-restore'].style.display, 'block', 'a way back appears');
+        assert.equal(store['pramnos.debugbar.hidden'], '1', 'and the choice is remembered');
     });
 
     test('the restore handle brings it back and forgets the choice', () => {
-        // Arrange — hidden
-        const { dom, store } = runToolbar(script);
-        click(dom.elements['pdb-close-btn']);
+        // Arrange
+        const { dom, store } = loadToolbar({ payload: island() });
+        clickClose(dom);
 
-        // Act
-        click(dom.elements['pdb-restore']);
+        // Act — the handle lives outside the bar and has its own listener: nested
+        // inside, hiding the bar would hide the only way back.
+        dom.byId['pdb-restore'].listeners.click();
 
         // Assert
-        assert.equal(dom.elements['pramnos-debugbar'].style.display, '');
-        assert.equal(dom.elements['pdb-restore'].style.display, 'none');
-        assert.equal(dom.body.style.paddingBottom, '36px');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, '');
+        assert.equal(dom.byId['pdb-restore'].style.display, 'none');
+        assert.equal(dom.document.body.style.paddingBottom, '30px');
         assert.equal('pramnos.debugbar.hidden' in store, false, 'nothing left to re-hide it');
     });
 
     /**
-     * The choice survives navigation.
-     *
-     * Every server-rendered page injects a fresh toolbar. A bar that came back on
-     * the next page would read as the button not working — the same complaint,
-     * one step later.
+     * Hiding it on one page and having it return on the next reads as the button
+     * not working — which is exactly what was reported.
      */
     test('a bar hidden on an earlier page loads hidden', () => {
-        // Act
-        const { dom } = runToolbar(script, { stored: '1' });
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island(), stored: '1' });
 
         // Assert
-        assert.equal(dom.elements['pramnos-debugbar'].style.display, 'none');
-        assert.equal(dom.elements['pdb-restore'].style.display, 'block');
-        assert.equal(dom.body.style.paddingBottom, '', 'no gap under a bar nobody sees');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none');
+        assert.equal(dom.byId['pdb-restore'].style.display, 'block');
+        assert.equal(dom.document.body.style.paddingBottom, '', 'no strip for a bar nobody sees');
     });
 
     /**
-     * Storage that throws costs the memory, not the button.
-     *
-     * Reading `localStorage` at all throws in Safari's private mode and on a
-     * blocked origin. Instrumentation is never a good reason for a page to break.
+     * Clicking the open tab closes the panel and leaves the bar — the ✕ is for
+     * the bar. Two controls, two jobs; conflating them is what produced a hide
+     * button that hid nothing.
      */
-    test('storage that throws does not take the toolbar with it', () => {
-        // Arrange & Act
-        let dom;
-        assert.doesNotThrow(() => {
-            dom = runToolbar(script, { storageThrows: true }).dom;
-            click(dom.elements['pdb-close-btn']);
-        });
+    test('a tab closes its own panel without hiding the bar', () => {
+        // Arrange
+        const { dom } = loadToolbar({ payload: island() });
 
-        // Assert — it still hides; it just cannot remember that it did
-        assert.equal(dom.elements['pramnos-debugbar'].style.display, 'none');
+        // Act — open, then click the same tab again
+        clickInBar(dom, '.pdb-tab', { dataset: { panel: 'requests' } });
+        assert.equal(dom.byId['pdb-panel'].style.display, 'block');
+        clickInBar(dom, '.pdb-tab', { dataset: { panel: 'requests' } });
+
+        // Assert
+        assert.equal(dom.byId['pdb-panel'].style.display, 'none', 'the panel closed');
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, '', 'the bar stayed');
+    });
+
+    /**
+     * Storage access throws outright in Safari's private mode and on a blocked
+     * origin. Not being able to remember the choice is no reason to ignore it.
+     */
+    test('storage that throws costs the memory, not the button', () => {
+        // Arrange
+        const { dom } = loadToolbar({ payload: island(), storageThrows: true });
+
+        // Act & Assert
+        assert.doesNotThrow(() => clickClose(dom));
+        assert.equal(dom.byId['pramnos-debugbar'].style.display, 'none', 'hiding still works');
     });
 });

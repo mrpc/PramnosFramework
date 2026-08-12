@@ -42,6 +42,20 @@ class DebugBarServiceProvider extends ServiceProvider
 
         $bar = DebugBar::getInstance();
 
+        // Name this request before anything can log against it. From here every
+        // log line carries the id, the response announces it, and the toolbar can
+        // ask for the lines a dead request could not send back with it.
+        //
+        // HTTP only. A console command is not a request: there is no response to
+        // announce an id on and no toolbar to ask for anything, so all an id
+        // would do is change the shape of every line the command logs. It did
+        // exactly that to the test suite, which runs under CLI — three
+        // characterization tests asserting the plain log format started failing
+        // because of a toolbar that was not even rendering.
+        if (PHP_SAPI !== 'cli') {
+            RequestId::activate();
+        }
+
         $bar->addCollector(new TimeCollector());
         DebugBar::startTimer('boot');
         $bar->addCollector(new MemoryCollector());

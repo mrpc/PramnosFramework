@@ -5,14 +5,29 @@ use_cases:
   - Debugging a single-page application, where the HTML toolbar cannot be injected
   - Opening the toolbar for one browser on a live server
   - Attaching debug data to your own JSON responses
+  - Finding out why a request failed when its response carried nothing back
 ---
 
 # Debugging: the toolbar, the requests after it, and live servers
 
-The debug toolbar collects what one request did — its queries, timings, views,
+The debug toolbar collects what a request did — its queries, timings, views,
 logs, session and route — and shows it at the foot of the page. This guide
 covers the two things that are not obvious: how to see the requests a page makes
 *after* it has rendered, and how to open the toolbar on a server where it is off.
+
+**One toolbar, two deliveries.** A server-rendered page and a single-page
+application get the same toolbar, from one source
+(`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`).
+The difference is only how it arrives:
+
+| | Server-rendered page | SPA |
+|---|---|---|
+| How it gets there | `DebugBar::render()` inlines the script before `</body>` | scaffolded as `lib/debug.js`, an ES module |
+| First request | seeded from a hidden `<div id="pramnos-debug-data">` | the first API call |
+| Later requests | `fetch`/`XMLHttpRequest` are wrapped automatically | `lib/api.js` calls `record()` |
+
+Everything below the delivery — the tabs, the request list, hiding the bar — is
+the same code and behaves identically.
 
 ## Turning it on in development
 
@@ -41,25 +56,59 @@ does not work.
 
 ## Requests made after the page renders
 
-Everything in the toolbar's other tabs describes a single request: the one that
-built the page. But most pages are not finished when they render. A datatable
-pages and sorts, a form saves, a widget polls, a single-page application does
-nothing *but* talk to the server after the first load — and those requests were
-invisible.
+Most pages are not finished when they render. A datatable pages and sorts, a
+form saves, a widget polls, a single-page application does nothing *but* talk to
+the server after the first load — and those requests were invisible.
 
-The **ajax** tab shows them. It needs no setup: the toolbar wraps `fetch` and
-`XMLHttpRequest`, and every call the page makes appears as a row with its
-method, URL, status, server time and query count. Click a row to see the
-queries.
+The **requests** tab is the list of everything this page has done, the page's own
+request included, newest first. It needs no setup on a server-rendered page: the
+toolbar wraps `fetch` and `XMLHttpRequest` as it boots.
 
 ```
-ajax 12
- ▸ GET   /api/meters?page=2   200   82ms   9
- ▾ POST  /orders/save         204   15ms   2
-     client 21ms · server 15ms · 1.8MB · orders/save
-     0.4ms   SELECT * FROM orders WHERE id = ?
-     1.1ms   UPDATE orders SET status = ? WHERE id = ?
+requests 12   SQL 9   Time   Route   Session   Logs        82ms server · 1.8MB
+ 13:42:07.918  GET   /api/meters?page=2   200   82ms   9
+ 13:42:03.114  POST  /orders/save         204   15ms   2
+ 13:41:58.002  GET   /dashboard (page)    200   61ms   7
 ```
+
+Clicking a request **switches every other tab to it**, leaving the tab you have
+open where it is. That is the part worth knowing: the tabs are not "the page" and
+"the ajax calls" — they are whichever request is selected. Open SQL, then click
+through the requests, and you are reading the same tab for each of them in turn.
+
+Clicking the selected request again releases it, as does the `✕` on the chip
+naming it in the info strip — either way the toolbar goes back to its default.
+
+**Before you pick anything**, the toolbar shows:
+
+- on a server-rendered page, **the page's own request** — not the newest one. A
+  datatable fetches its rows the moment it renders, and following the newest
+  request meant a page that had just rendered a template reported `Views 0`,
+  which was true of a JSON call nobody had asked about;
+- in a SPA, **the newest request**, because there is no page request to show;
+- in **Logs** and **Exceptions**, everything across every request so far, with a
+  column naming the request each line came from. Those two are streams — a log
+  line happens at a moment, and which request produced it is a detail of it. An
+  error logged by a background call would otherwise be invisible while some other
+  request was in view.
+
+The **Exceptions** tab turns red and carries a `⚠` as soon as any request has
+raised something, so you do not have to open it to find out. A request whose
+response could not carry the details — an error page is not a JSON object — still
+contributes its count, and the row says the messages are in the application error
+log rather than drawing an empty table.
+
+Once you pick a request, all of it — the streams included — narrows to that
+request and stays there. A polling widget will not pull the panel out from under
+you. The other tabs are never aggregated: Route and Session describe one request,
+and a combined SQL table would add up statements from three different calls and
+lose which ran what.
+
+A response that carried no debug data still gets a row, with `—` where its
+numbers would be. Seeing that a call happened at all is often the finding. A row
+is **red across its whole width** when the request went wrong — a 4xx or 5xx, a
+network failure with no status at all, or a 200 that quietly raised something,
+which is the one nobody would go looking for.
 
 ### How the data gets there
 
@@ -70,10 +119,17 @@ Two channels, because one is not enough:
   attached centrally, so it covers API endpoints, datatable endpoints and
   controllers that echo their own JSON alike.
 - **`X-Pramnos-Debug` and `Server-Timing` headers.** A `204`, a redirect, an
-  HTML fragment and a top-level JSON array have nowhere to put a `_debug` key.
-  The headers carry a summary — time, memory, query *count*, route — for exactly
-  those. `Server-Timing` also shows up in the browser's own network panel with
-  no toolbar involved.
+  HTML fragment and a top-level JSON array have nowhere to put a `_debug` key —
+  and neither does an error page, which is what an uncaught exception produces.
+  The headers carry a summary — time, memory, query *count*, route, and how many
+  errors were raised — for exactly those. `Server-Timing` also shows up in the
+  browser's own network panel with no toolbar involved.
+
+A request that **died** is the case where this matters most, and the honest
+limit is worth stating: the summary can say *that* something was raised, never
+*what*. Messages in a header would be written to every access log between here
+and the browser. The count is what sends you to the
+application error log — or to the button that fetches it, described below.
 
 The headers never carry query text. A header is written to the web server's
 access log and to every proxy in front of it, and statements there would put
@@ -91,6 +147,62 @@ original `fetch`/`XMLHttpRequest` is always called and its result returned
 unchanged, response bodies are only read through `clone()` so your code still
 gets to consume them, and every part of it is wrapped in `try`/`catch`. A
 toolbar that breaks the page it is measuring is worse than no toolbar.
+
+### What a rendered page actually carries
+
+`DebugBar::render()` emits two things and no markup of its own:
+
+```html
+<div id="pramnos-debug-data" hidden>{"time":61.2,"queries":{…},"request_method":"GET",…}</div>
+<script nonce="…">/* the framework's one toolbar source */</script>
+```
+
+The script reads the island as its first request, then wraps the transports. A
+`<div hidden>` rather than a `<script type="application/json">` because a data
+island inside a script element is a grey area under a strict
+Content-Security-Policy, and this has to work on every install.
+
+Under a strict CSP, pass the request's nonce — `DebugBarServiceProvider` already
+does, from `Application::$cspNonce`:
+
+```php
+echo $bar->render($nonce);
+```
+
+One nonce covers both: the script copies it onto the `<style>` element it
+injects, so `style-src` is satisfied without a second value to thread through.
+
+### Asking the server for what the response could not carry
+
+Everything above travels *with* the response. A request that **died** has no
+response to put anything in: an error page is not a JSON object, so there is no
+`_debug` key, and the header that still gets through has room for a count but
+never for a message.
+
+So every request gets a name while the toolbar is running:
+
+- `RequestId` issues a 16-character id, and the response announces it in
+  `X-Request-Id` and inside the debug summary;
+- `Logger` writes that id on every line it logs during the request;
+- `GET /devpanel/logs?request=<id>` hands those lines back, as JSON.
+
+In the **Logs** and **Exceptions** tabs, a request that has an id gets a button —
+*Ask the server for this request's log lines* — and what comes back is shown
+under "From the server's log". The toolbar asks through the unwrapped `fetch`,
+so looking never adds another row to the list you are looking at.
+
+**By id, never by time.** "Everything logged between the request and its
+response" would be the obvious implementation and it is the wrong one: on a live
+server the toolbar is open for one browser, by grant, while every other visitor
+writes into the same seconds. Their lines are not yours to read. A line qualifies
+only by carrying the id.
+
+The endpoint requires the DevPanel feature, and accepts either an admin user or
+the same signed `debug:token` grant that opened the toolbar — the developer
+holding a token on a live server is usually not an admin user. It replies
+`no-store`, and reads only the application's own log directory. Ids are issued
+only while the toolbar is active, so a production installation issues none and
+its log format is untouched.
 
 ### From your own code
 
@@ -110,12 +222,12 @@ ApiDebugPayload::sendHeaders();             // Server-Timing + X-Pramnos-Debug
 
 ## In a single-page application
 
-A SPA does not get the HTML toolbar, and the reason is worth stating precisely,
-because the usual guess is wrong. It is not that the numbers would freeze on the
-shell: the `ajax` tab wraps `fetch`/`XMLHttpRequest` and keeps updating for as
-long as the page lives. It is that **the SPA shell does not boot the framework**
-— `www/spa.php` requires only the autoloader, so no middleware ever sees its
-HTML and there is nothing to inject into.
+A SPA does not get the toolbar injected into its HTML, and the reason is worth
+stating precisely, because the usual guess is wrong. It is not that the numbers
+would freeze on the shell: the toolbar keeps recording for as long as the page
+lives. It is that **the SPA shell does not boot the framework** — `www/spa.php`
+requires only the autoloader, so no middleware ever sees its HTML and there is
+nothing to inject into.
 
 **The framework ships the panel for that case too.** `php pramnos init` with a
 SPA style writes `lib/debug.js` into the front-end sources (`frontend/lib/` for
@@ -133,16 +245,15 @@ It is the same toolbar — literally. Both are generated from one source
 project gets it as an ES module with `record()` exported. There is no second
 renderer to drift, which is what produced a `✕` that had to be fixed twice.
 
-So the SPA panel draws **every collector the response carries**, not just the
-requests and their statements: SQL, Time, Route, Session, Logs, Views, Models,
-Migrations, Exceptions. `ApiDebugPayload::build()` has always attached all of
-them; only the drawing was missing. A collector the payload does not carry gets
-no tab, rather than an empty one that reads as "nothing happened".
+So both deliveries draw **every collector the payload carries** — SQL, Time,
+Route, Session, Logs, Views, Models, Migrations, Exceptions — and a collector the
+payload does not carry gets no tab, rather than an empty one that reads as
+"nothing happened".
 
-Selecting a request in the **requests** tab switches every other tab to that
-request. Nothing in the panel is application-specific, so **do not write your
-own** — if a field is missing, add it to the framework's source or report it
-upstream.
+Nothing in the panel is application-specific, so **do not write your own** — if a
+field is missing, add it to the framework's source or report it upstream. A
+second panel beside the working one has already happened once, because the SPA
+panel was documented only in changelog posts.
 
 In production nothing attaches `_debug`, so `record()` never has anything to
 show: no data, no DOM, no panel. That is why the file ships unconditionally
