@@ -130,6 +130,30 @@ is **red across its whole width** when the request went wrong — a 4xx or 5xx, 
 network failure with no status at all, or a 200 that quietly raised something,
 which is the one nobody would go looking for.
 
+### Where the time went
+
+The **Time** tab does two subtractions nobody does by hand, from numbers already
+collected:
+
+- **client versus server**, as one bar and one sentence:
+  `client 210ms = server 42ms + 168ms elsewhere`. The browser measured the call,
+  the server reported its own share, and the difference is network, queueing and
+  the browser's own work. A call that spends 40ms in PHP and 210ms in the air is
+  not a slow endpoint, and optimising the endpoint is the wrong afternoon.
+- **SQL as a share of server time**, from the query collector's `total_ms` —
+  "24ms of 40ms was the database" is the difference between an indexing problem
+  and an application one. It turns red above half.
+
+Either is absent rather than zero when the number is missing: a bar claiming 0ms
+of network for a response that only carried a header would be inventing.
+
+The **requests** tab draws every request on **one time axis**, oldest first, the
+way a network panel does. This is the insight no per-request tab can give: three
+calls of 200ms each are a 200ms page if they overlap and a 600ms page if they do
+not, and a tab showing each of them separately cannot tell you which you have. A
+polling loop looks like a comb; a staircase is a chain of calls waiting on each
+other. Failed requests are red there too, and clicking a bar picks that request.
+
 ### How the data gets there
 
 Two channels, because one is not enough:

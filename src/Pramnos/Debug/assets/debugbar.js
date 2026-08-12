@@ -664,6 +664,16 @@
         + '.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;'
         + 'padding:6px;border-radius:3px;max-height:240px;overflow:auto}'
         + '.pdb-muted{color:#6c7086}'
+        + '.pdb-wf{margin:4px 0 0}'
+        + '.pdb-wf-row{display:flex;align-items:center;gap:6px;height:14px;cursor:pointer}'
+        + '.pdb-wf-row:hover{background:#1e1e2e}'
+        + '.pdb-wf-label{flex:0 0 200px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+        + '.pdb-wf-track{position:relative;flex:1;height:8px;background:#181825;border-radius:2px}'
+        + '.pdb-wf-bar{position:absolute;top:0;height:100%;border-radius:2px;min-width:2px}'
+        + '.pdb-wf-mark{opacity:.5}'
+        + '.pdb-split{display:flex;height:14px;border-radius:3px;overflow:hidden;background:#45475a;margin:4px 0 0}'
+        + '.pdb-split-server{background:#89b4fa}'
+        + '.pdb-split-away{background:#45475a;flex:1}'
         + '.pdb-body{margin:0 0 8px}'
         + '.pdb-body>summary{cursor:pointer;color:#89b4fa;font-size:11px}'
         + '.pdb-body>.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;'
@@ -934,8 +944,70 @@
         }
 
         return '<p class="pdb-muted">Click a request to see what it did.</p>'
+            + waterfall()
             + '<table class="pdb-table"><thead><tr><th>At</th><th>Method</th><th>Path</th>'
             + '<th>Status</th><th>Server</th><th>SQL</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    /**
+     * Every request on one time axis.
+     *
+     * This is the SPA-specific insight no per-request tab can give, and it is
+     * why the requests list is a list rather than a stack of unrelated numbers:
+     * three calls that each take 200ms are a 200ms page if they overlap and a
+     * 600ms page if they do not, and the tab that shows each of them separately
+     * cannot tell you which you have. A polling loop looks like a comb; a
+     * waterfall of stairs is a chain of calls waiting on each other, and both
+     * are invisible one request at a time.
+     *
+     * Drawn from what is already recorded: when each request started, and how
+     * long the browser saw it take. Requests with no client duration — the page
+     * itself, or a response that only carried a header — are drawn as marks
+     * rather than bars, because a width would be a guess.
+     */
+    function waterfall() {
+        if (entries.length < 2) {
+            return '';
+        }
+
+        var first = entries[0].at.getTime();
+        var last  = first;
+
+        entries.forEach(function (e) {
+            var end = e.at.getTime() + (typeof e.ms === 'number' ? e.ms : 0);
+            if (end > last) {
+                last = end;
+            }
+        });
+
+        var span = Math.max(1, last - first);
+        var bars = '';
+
+        entries.forEach(function (e, i) {
+            var offset = ((e.at.getTime() - first) / span) * 100;
+            var known  = typeof e.ms === 'number' && e.ms > 0;
+            var width  = known ? Math.max(0.6, (e.ms / span) * 100) : 0.6;
+            var colour = wentWrong(e) ? '#f38ba8' : PALETTE[i % PALETTE.length];
+
+            bars += '<div class="pdb-wf-row" data-entry="' + i + '">'
+                + '<span class="pdb-wf-label pdb-muted">' + esc(shortPath(e.path)) + '</span>'
+                + '<span class="pdb-wf-track">'
+                + '<span class="pdb-wf-bar' + (known ? '' : ' pdb-wf-mark') + '" style="left:'
+                + Math.min(99.4, offset).toFixed(2) + '%;width:' + width.toFixed(2) + '%;'
+                + 'background:' + colour + '" title="'
+                + escAttr(e.method + ' ' + e.path + (known ? ' — ' + e.ms + 'ms' : ''))
+                + '"></span></span></div>';
+        });
+
+        return '<div class="pdb-wf">' + bars + '</div>'
+            + '<p class="pdb-muted" style="margin:2px 0 8px">'
+            + Math.round(span) + 'ms from the first request to the last</p>';
+    }
+
+    /** The tail of a path, which is the part that identifies it in a narrow column. */
+    function shortPath(path) {
+        var text = String(path).replace(/^https?:\/\/[^/]+/, '');
+        return text.length > 28 ? '…' + text.slice(-27) : text;
     }
 
     /**
@@ -1006,7 +1078,7 @@
 
         switch (key) {
             case 'queries':    return renderQueries(data);
-            case 'timers':     return renderTimers(data);
+            case 'timers':     return renderTimers(data, entry);
             case 'route':      return renderKeyValue(data);
             case 'session':    return renderSession(data);
             case 'logs':       return renderLogs(data, entry);
@@ -1058,11 +1130,12 @@
             + rows + '</tbody></table>';
     }
 
-    function renderTimers(data) {
+    function renderTimers(data, entry) {
         var total = Number(data.request_ms || 0);
         var named = data.named_timers || [];
         var html = '<p><strong>Request:</strong> ' + total + 'ms '
-            + '<span class="pdb-muted">started ' + esc(data.start_time || '') + '</span></p>';
+            + '<span class="pdb-muted">started ' + esc(data.start_time || '') + '</span></p>'
+            + whereTheTimeWent(entry, total);
 
         if (!named.length) {
             return html;
@@ -1088,6 +1161,60 @@
 
         return html + '<table class="pdb-table" style="margin-top:8px"><thead><tr><th>Phase</th>'
             + '<th>Duration</th><th>%</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    /**
+     * Where a request's time actually went, from numbers already collected.
+     *
+     * Two subtractions nobody does by hand, and both change what you look at
+     * next:
+     *
+     *  - **client versus server.** The toolbar knows both — the browser measured
+     *    the call, the server reported its own share — and the difference is
+     *    network, queueing and the browser's own work. A call that spends 40ms
+     *    in PHP and 210ms in the air is not a slow endpoint, and optimising the
+     *    endpoint is the wrong afternoon.
+     *  - **SQL as a share of server time.** `total_ms` is right there in the
+     *    query collector, and "42ms of 61ms was the database" is the difference
+     *    between an indexing problem and an application one.
+     *
+     * Absent rather than zeroed when a number is missing: a bar claiming 0ms of
+     * network for a response that only carried a header would be inventing.
+     */
+    function whereTheTimeWent(entry, serverMsTotal) {
+        if (!entry) {
+            return '';
+        }
+
+        var client = entry.ms;
+        var server = serverMsTotal > 0 ? serverMsTotal : serverMs(entry);
+        var rows = '';
+
+        if (typeof client === 'number' && typeof server === 'number' && client > 0) {
+            var elsewhere = Math.max(0, Math.round((client - server) * 10) / 10);
+            var serverPct = Math.max(0, Math.min(100, (server / client) * 100));
+
+            rows += '<div class="pdb-split">'
+                + '<div class="pdb-split-server" style="width:' + serverPct.toFixed(2) + '%"'
+                + ' title="' + escAttr('server ' + server + 'ms') + '"></div>'
+                + '<div class="pdb-split-away" title="'
+                + escAttr('network and browser ' + elsewhere + 'ms') + '"></div>'
+                + '</div>'
+                + '<p class="pdb-muted" style="margin:2px 0 8px">client ' + client + 'ms = '
+                + '<span style="color:#89b4fa">server ' + server + 'ms</span> + '
+                + elsewhere + 'ms elsewhere</p>';
+        }
+
+        var queries = (entry.payload || {}).queries;
+        var sqlMs = queries && typeof queries.total_ms === 'number' ? queries.total_ms : null;
+        if (sqlMs !== null && typeof server === 'number' && server > 0) {
+            var sqlPct = Math.round((sqlMs / server) * 1000) / 10;
+            rows += '<p class="pdb-muted" style="margin:0 0 8px">SQL ' + sqlMs + 'ms — '
+                + '<strong style="color:' + (sqlPct > 50 ? '#f38ba8' : '#a6e3a1') + '">'
+                + sqlPct + '%</strong> of server time</p>';
+        }
+
+        return rows;
     }
 
     function renderKeyValue(data) {
@@ -1474,7 +1601,7 @@
                 return;
             }
 
-            var row = event.target.closest('.pdb-row');
+            var row = event.target.closest('.pdb-row') || event.target.closest('.pdb-wf-row');
             if (row) {
                 // Clicking the row that is already selected releases it, the way
                 // clicking the open tab closes the panel.
