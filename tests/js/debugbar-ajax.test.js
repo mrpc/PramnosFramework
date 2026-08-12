@@ -758,4 +758,210 @@ describe('the server-rendered toolbar', () => {
         await settle();
         assert.equal(calls, 1, 'a refusal is not re-asked on every render');
     });
+
+    /**
+     * What the page sent is shown back to whoever sent it.
+     *
+     * "What did I send" is the first question when a call comes back wrong, and
+     * the answer never left the browser — nothing is added to the request and
+     * nothing is transmitted anywhere to produce it.
+     */
+    test('a request body is captured and shown, collapsed', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act
+        await sandbox.fetch('/api/things', { method: 'POST', body: '{"name":"a thing"}' });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+
+        // Assert — collapsed, sized, and readable
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /<details class="pdb-body">/);
+        assert.match(html, /Request body · 18 B/);
+        assert.match(html, /a thing/);
+    });
+
+    /**
+     * A datatables body is nested keys written flat and percent-escaped. As raw
+     * text it is unreadable, which is the same as not being shown — decoding it
+     * is the whole reason the old panel did.
+     */
+    test('a form-urlencoded body is decoded into its structure', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act — the shape a datatable actually sends
+        await sandbox.fetch('/users/data', {
+            method: 'POST',
+            body: 'draw=1&columns%5B0%5D%5Bdata%5D=userid&columns%5B0%5D%5Bsearchable%5D=true&start=0',
+        });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+
+        // Assert — the nesting is visible, not the percent-escaping
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /"columns"/);
+        assert.match(html, /"userid"/);
+        assert.equal(html.includes('%5B0%5D'), false, 'the escaping is decoded away');
+    });
+
+    /**
+     * A password in a screenshot is a password that has to be changed. The body
+     * never leaves the browser, but this panel gets screenshotted and shared.
+     */
+    test('secrets in a body are masked before they can be read', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act
+        await sandbox.fetch('/account/login', {
+            method: 'POST',
+            body: '{"username":"alice","password":"hunter2","api_token":"abc123"}',
+        });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+
+        // Assert — the username is readable, the secrets are not
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /alice/);
+        assert.equal(html.includes('hunter2'), false, 'the password is masked');
+        assert.equal(html.includes('abc123'), false, 'so is the token');
+    });
+
+    /**
+     * A body the toolbar cannot read synchronously is described rather than
+     * decoded: reading a Blob is asynchronous, and the object belongs to the
+     * application.
+     */
+    test('a body that cannot be read synchronously is described', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act — an ArrayBuffer-shaped body, as an upload sends
+        await sandbox.fetch('/upload', { method: 'POST', body: { byteLength: 4096 } });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+
+        // Assert
+        assert.match(dom.byId['pdb-panel'].innerHTML, /\[binary, 4096 bytes\]/);
+    });
+
+    /**
+     * A GET has no body, and the section is absent rather than empty — an empty
+     * "Request body" heading reads as a body that was lost.
+     */
+    test('a request with no body shows no body section', async () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island() });
+        openTab(dom, 'queries');
+
+        // Assert
+        assert.equal(dom.byId['pdb-panel'].innerHTML.includes('pdb-body'), false);
+    });
+
+    /**
+     * A body larger than the cap is cut, and says it was.
+     *
+     * A file upload or a bulk import is not what this panel is for, and holding
+     * fifty of them is how a debugging aid becomes the reason a tab runs out of
+     * memory. A body that looks complete and is not would be worse than one that
+     * admits where it stops.
+     */
+    test('an oversized body is capped and says so', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act — 40KB, five times the cap
+        await sandbox.fetch('/import', { method: 'POST', body: 'x'.repeat(40000) });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+
+        // Assert — kept, but bounded, and the cut is visible
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.match(html, /truncated/);
+        assert.ok(html.length < 20000, `the panel stayed bounded (was ${html.length})`);
+    });
+
+    /**
+     * Past a size, a body is shown as it was sent rather than laid out.
+     *
+     * Pretty-printing means parsing, re-serialising and walking every key to
+     * mask it — nothing for two kilobytes, real work for eight, and it would run
+     * on the render path that must never be why a page feels slow.
+     */
+    test('a large body is shown unformatted, but still masked', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // A JSON body over the formatting limit, with a secret in it
+        const big = JSON.stringify({ padding: 'y'.repeat(3000), password: 'hunter2' });
+
+        // Act
+        await sandbox.fetch('/account/bulk', { method: 'POST', body: big });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+
+        // Assert — not indented (no layout pass), and the secret is gone anyway
+        const html = dom.byId['pdb-panel'].innerHTML;
+        assert.equal(html.includes('hunter2'), false, 'masking is not optional at any size');
+        assert.equal(html.includes('\n  "padding"'), false, 'no pretty-printing at this size');
+    });
+
+    /**
+     * The body is laid out once, not on every render.
+     *
+     * render() runs for every recorded request — a polling page calls it every
+     * few seconds — and reformatting the same body each time is work nobody
+     * asked for.
+     */
+    test('the formatted body is computed once and reused', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+
+        // Act
+        await sandbox.fetch('/api/things', { method: 'POST', body: '{"a":1}' });
+        await settle();
+        selectRequest(dom, 1);
+        openTab(dom, 'queries');
+        const first = dom.byId['pdb-panel'].innerHTML;
+
+        // ...and more requests arrive, each one re-rendering the panel
+        await sandbox.fetch('/api/poll');
+        await sandbox.fetch('/api/poll');
+        await settle();
+
+        // Assert — still there after the re-renders, without being rebuilt. (No
+        // second click: the selection is already this request, and clicking it
+        // again would release it.)
+        assert.match(first, /"a"/);
+        assert.match(dom.byId['pdb-panel'].innerHTML, /"a"/);
+    });
 });

@@ -44,6 +44,29 @@
     /** How many requests are kept. Enough to see a pattern, not to hoard. */
     var HISTORY = 50;
 
+    /**
+     * How much of a request body is kept, in characters.
+     *
+     * A datatables request is a couple of kilobytes of column metadata and fits
+     * comfortably; a file upload never will, and is described rather than kept
+     * anyway. What is dropped is said out loud in the panel rather than quietly
+     * cut, because a body that looks complete and is not is worse than one that
+     * admits it stops.
+     */
+    var BODY_LIMIT = 8192;
+
+    /**
+     * Above this, a body is shown as it was sent rather than laid out.
+     *
+     * Pretty-printing means parsing, re-serialising and walking every key to
+     * mask it. That is nothing for two kilobytes and real work for eight, and it
+     * would run on the toolbar's own render path — the one that must never be
+     * the reason a page feels slow. The browser's own network panel draws the
+     * same line somewhere: past a point it stops formatting and hands you the
+     * text.
+     */
+    var BODY_FORMAT_LIMIT = 2048;
+
     /** Where the "I hid the bar" choice lives, shared by both deliveries. */
     var HIDDEN_KEY = 'pramnos.debugbar.hidden';
 
@@ -186,6 +209,159 @@
             return null;
         }
         return typeof q.count === 'number' ? q.count : queriesOf(entry).length;
+    }
+
+    /**
+     * Whatever the caller passed as a request body, as text.
+     *
+     * Read synchronously and without consuming anything: a string is already
+     * text, URLSearchParams and FormData can be walked, and everything else is
+     * described rather than decoded — reading a Blob is asynchronous, and the
+     * object belongs to the application.
+     *
+     * The body never leaves the browser. It is what this page just sent, shown
+     * back to the person who sent it; nothing is added to the request and
+     * nothing is transmitted anywhere.
+     */
+    function captureBody(body) {
+        try {
+            if (body === null || body === undefined) {
+                return null;
+            }
+            if (typeof body === 'string') {
+                return body.length > BODY_LIMIT
+                    ? body.slice(0, BODY_LIMIT) + '\n… truncated'
+                    : body;
+            }
+            if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+                return body.toString();
+            }
+            if (typeof FormData !== 'undefined' && body instanceof FormData) {
+                var parts = [];
+                body.forEach(function (value, key) {
+                    parts.push(key + '=' + (typeof value === 'string' ? value : '[file]'));
+                });
+                return parts.join('&');
+            }
+            if (typeof Blob !== 'undefined' && body instanceof Blob) {
+                return '[Blob, ' + body.size + ' bytes]';
+            }
+            if (body.byteLength !== undefined && body.byteLength !== null) {
+                return '[binary, ' + body.byteLength + ' bytes]';
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Turn a form-urlencoded body into the structure it encodes.
+     *
+     * `columns%5B0%5D%5Bdata%5D=0` is a nested value written flat and then
+     * percent-escaped. A datatables request is fifty of those, and as raw text
+     * it is unreadable — which is the same as not being shown.
+     */
+    function decodeForm(text) {
+        var out = {};
+
+        String(text).split('&').forEach(function (pair) {
+            if (pair === '') {
+                return;
+            }
+
+            var eq = pair.indexOf('=');
+            var rawKey = eq < 0 ? pair : pair.slice(0, eq);
+            var rawVal = eq < 0 ? '' : pair.slice(eq + 1);
+            var key;
+            var value;
+
+            try {
+                key = decodeURIComponent(rawKey.replace(/\+/g, ' '));
+            } catch (e) {
+                key = rawKey;
+            }
+            try {
+                value = decodeURIComponent(rawVal.replace(/\+/g, ' '));
+            } catch (e) {
+                value = rawVal;
+            }
+
+            // name[a][b] → ['name', 'a', 'b']
+            var path = [];
+            var head = /^([^[]*)/.exec(key);
+            if (head) {
+                path.push(head[1]);
+            }
+            var re = /\[([^\]]*)\]/g;
+            var part;
+            while ((part = re.exec(key)) !== null) {
+                path.push(part[1]);
+            }
+
+            var node = out;
+            for (var i = 0; i < path.length; i++) {
+                var seg = path[i] === '' ? String(Object.keys(node).length) : path[i];
+                if (i === path.length - 1) {
+                    node[seg] = value;
+                } else {
+                    if (typeof node[seg] !== 'object' || node[seg] === null) {
+                        node[seg] = {};
+                    }
+                    node = node[seg];
+                }
+            }
+        });
+
+        return out;
+    }
+
+    /** Pretty-print JSON and form bodies; leave anything else as it is. */
+    function formatBody(text) {
+        if (String(text).length > BODY_FORMAT_LIMIT) {
+            // Too big to lay out on a render path. Masked, because that is not
+            // optional, and shown as it was sent.
+            return maskFlat(text);
+        }
+
+        try {
+            var trimmed = String(text).trim();
+            if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
+                return JSON.stringify(mask(JSON.parse(trimmed)), null, 2);
+            }
+            // A form body: has pairs, and does not start like JSON.
+            if (trimmed.indexOf('=') > -1) {
+                return JSON.stringify(mask(decodeForm(trimmed)), null, 2);
+            }
+        } catch (e) {
+            /* a body that will not parse is not a body that can be laid out */
+        }
+
+        return maskFlat(text);
+    }
+
+    /**
+     * Mask secret-looking values in text that could not be parsed.
+     *
+     * The structured path goes through {@see mask}, which works on keys. This is
+     * the fallback for a raw string, and it is deliberately simple: a JSON
+     * string value, and a query-string value. A masker nobody can read is a
+     * masker nobody trusts.
+     */
+    function maskFlat(text) {
+        try {
+            return String(text)
+                .replace(/("[^"]*(?:pass|secret|token|apikey|api_key|authorization|cvv)[^"]*"\s*:\s*)"[^"]*"/gi, '$1"***"')
+                .replace(/([?&][^=&]*(?:pass|secret|token|apikey|api_key|authorization|cvv)[^=&]*=)[^&]*/gi, '$1***');
+        } catch (e) {
+            return text;
+        }
+    }
+
+    /** A human size for the collapsed summary line. */
+    function sizeOf(text) {
+        var n = String(text).length;
+        return n < 1024 ? (n + ' B') : ((n / 1024).toFixed(1) + ' KB');
     }
 
     /** Local wall clock to the millisecond, to line up against a server log. */
@@ -487,7 +663,11 @@
         + '.pdb-level-warning{color:#fab387}'
         + '.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;'
         + 'padding:6px;border-radius:3px;max-height:240px;overflow:auto}'
-        + '.pdb-muted{color:#6c7086}';
+        + '.pdb-muted{color:#6c7086}'
+        + '.pdb-body{margin:0 0 8px}'
+        + '.pdb-body>summary{cursor:pointer;color:#89b4fa;font-size:11px}'
+        + '.pdb-body>.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;'
+        + 'background:#11111b;padding:6px;border-radius:3px;max-height:260px;overflow:auto}';
     }
 
     /** Build the bar the first time there is something to show. */
@@ -629,7 +809,45 @@
         panelEl.style.display = 'block';
         panelEl.innerHTML = activeTab === 'requests'
             ? renderRequests()
-            : renderTab(activeTab, entry);
+            : requestBodySection(entry) + renderTab(activeTab, entry);
+    }
+
+    /**
+     * What the page sent with this request, if anything.
+     *
+     * Shown above whichever tab is open, because it belongs to the request
+     * rather than to a collector — and because "what did I send" is the first
+     * question when a call comes back wrong.
+     *
+     * Collapsed by default: a datatables body is two kilobytes of column
+     * metadata, and expanded it would push everything worth reading off the
+     * screen. `<details>` keeps it one click away with no script of its own.
+     *
+     * The body never left the browser — it is what this page just sent — but
+     * secrets are masked anyway, because this panel gets screenshotted and a
+     * password in a bug report is a password that has to be changed.
+     */
+    function requestBodySection(entry) {
+        if (!entry || !entry.body) {
+            return '';
+        }
+
+        // Computed once per request and kept on the entry. render() runs on
+        // every recorded request — a polling page calls it every few seconds —
+        // and re-laying-out the same body each time is work nobody asked for.
+        if (entry.bodyHtml === undefined) {
+            var shown = formatBody(entry.body);
+            var note  = String(entry.body).indexOf('… truncated') > -1
+                ? ' <span class="pdb-muted">(truncated)</span>'
+                : '';
+
+            entry.bodyHtml = '<details class="pdb-body"><summary>Request body · '
+                + esc(sizeOf(entry.body)) + note + '</summary>'
+                + '<div style="margin:4px 0 0">' + copyButton(shown) + '</div>'
+                + '<pre class="pdb-pre">' + esc(shown) + '</pre></details>';
+        }
+
+        return entry.bodyHtml;
     }
 
     /** The number worth putting on a tab, or null when a count means nothing. */
@@ -1343,11 +1561,15 @@
                 var started = now();
                 var method = (init && init.method) || (input && input.method) || 'GET';
                 var url = typeof input === 'string' ? input : (input && input.url) || '';
+                // Only the init object's body. A Request instance owns its own,
+                // and reading it would consume the stream the application is
+                // about to send.
+                var body = captureBody(init && init.body);
                 var result = nativeFetch.apply(this, arguments);
 
                 try {
                     return result.then(function (response) {
-                        harvest(method, url, response, Math.round(now() - started));
+                        harvest(method, url, response, Math.round(now() - started), body);
                         return response;
                     });
                 } catch (e) {
@@ -1371,9 +1593,10 @@
                 return open.apply(this, arguments);
             };
 
-            NativeXhr.prototype.send = function () {
+            NativeXhr.prototype.send = function (sendBody) {
                 var xhr = this;
                 var started = now();
+                var body = captureBody(sendBody);
                 try {
                     xhr.addEventListener('load', function () {
                         try {
@@ -1391,7 +1614,7 @@
                                 });
                             }
                             record(xhr.__pdbMethod || 'GET', xhr.__pdbUrl || '', xhr.status,
-                                payload, { ms: Math.round(now() - started) });
+                                payload, { ms: Math.round(now() - started), body: body });
                         } catch (e) {
                             /* see above */
                         }
@@ -1417,7 +1640,7 @@
      * Only through `clone()`: the application still has to be able to read its
      * own response.
      */
-    function harvest(method, url, response, ms) {
+    function harvest(method, url, response, ms, body) {
         try {
             var get = function (name) {
                 return response.headers && response.headers.get
@@ -1431,9 +1654,9 @@
                 // — never statements, because headers land in access logs and
                 // every proxy in between.
                 var payload = fromText(text) || headerPayload(get);
-                record(method, url, response.status, payload, { ms: ms });
+                record(method, url, response.status, payload, { ms: ms, body: body });
             }, function () {
-                record(method, url, response.status, headerPayload(get), { ms: ms });
+                record(method, url, response.status, headerPayload(get), { ms: ms, body: body });
             });
         } catch (e) {
             /* never interfere with the response */
