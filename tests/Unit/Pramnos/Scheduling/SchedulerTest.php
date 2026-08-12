@@ -71,7 +71,16 @@ class SchedulerTest extends TestCase
         // Assert
         $this->assertTrue($first);
         $this->assertTrue($second);
-        $this->assertCount(1, Scheduler::all(), 'loadDefinitions must be idempotent within a process');
+
+        // The application's task appears once, however many times definitions
+        // are loaded. The count is of that task specifically rather than of the
+        // whole schedule, because the framework registers its own periodic work
+        // alongside it — and the point of this test is the guard, not the total.
+        $appTasks = array_filter(
+            Scheduler::all(),
+            static fn($task): bool => $task->getSummary()['handler'] === 'cache:clear'
+        );
+        $this->assertCount(1, $appTasks, 'loadDefinitions must be idempotent within a process');
     }
 
     /**
@@ -83,9 +92,19 @@ class SchedulerTest extends TestCase
         // Act
         $result = Scheduler::loadDefinitions(sys_get_temp_dir() . '/pramnos_no_such_schedule.php');
 
-        // Assert
+        // Assert — false means "there was no application file", which is not
+        // the same as "nothing was registered": the framework's own periodic
+        // work is registered whether or not the application has a schedule at
+        // all, because a framework that ships a background command cannot rely
+        // on every project remembering to run it.
         $this->assertFalse($result);
-        $this->assertSame([], Scheduler::all());
+
+        $handlers = array_map(
+            static fn($task): string => $task->getSummary()['handler'],
+            Scheduler::all()
+        );
+        $this->assertSame([], array_diff($handlers, \Pramnos\Scheduling\FrameworkSchedule::commands()),
+            'only the framework tasks were registered');
     }
 
     // =========================================================================
