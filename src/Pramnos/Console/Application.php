@@ -130,6 +130,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\DebugStatus());
         // Opens the toolbar for one browser on a server where it is off
         $this->add(new \Pramnos\Console\Commands\DebugToken());
+        // Lifts a brute-force lockout, so testing a login does not mean waiting
+        $this->add(new \Pramnos\Console\Commands\AuthUnlock());
         // Broadcasting (Phase 12)
         $this->add(new \Pramnos\Console\Commands\BroadcastServe());
         // DaemonOrchestrator is abstract — apps register their own concrete subclass
