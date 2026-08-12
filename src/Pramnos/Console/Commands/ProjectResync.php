@@ -27,6 +27,12 @@ use Symfony\Component\Console\Output\OutputInterface;
  *     inherited endpoints appear in the docs. Both merges preserve whatever the
  *     project already declared.
  *
+ * A SPA project additionally owns the debug panel (lib/debug.js): the framework
+ * both produces the `_debug` payload and draws it, so the renderer is framework
+ * code that happens to live in the project. Without a way to refresh it, a
+ * project scaffolded before it existed has no panel and no route to one — which
+ * is how hand-rolled copies get written next to it.
+ *
  * By default it only refreshes files that ALREADY exist in the project — a pure
  * "update what you have" operation that never adds tooling a project didn't opt
  * into. Pass --all to also copy files that are missing.
@@ -36,6 +42,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   ./pramnos project:resync --all          # also copy files not present yet
  *   ./pramnos project:resync --js           # only the pf-*.js UI hooks
  *   ./pramnos project:resync --scripts      # only the docs tooling scripts
+ *   ./pramnos project:resync --spa --all    # add/refresh the SPA debug panel
  */
 class ProjectResync extends Command
 {
@@ -45,15 +52,27 @@ class ProjectResync extends Command
     /** Scaffolding source dir. Overridable for testing. */
     public string $scaffoldingDir = '';
 
+    /**
+     * app/app.php, loaded at most once.
+     *
+     * `require` of an already-included file returns `true`, not the array it
+     * evaluates to — so two callers reading the config each with their own
+     * `require` would leave the second holding a boolean.
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $appConfig = null;
+
     protected function configure(): void
     {
         $this
             ->setName('project:resync')
-            ->setDescription('Re-copy framework-owned scaffolded files (pf-*.js UI hooks + docs tooling) into an existing project')
+            ->setDescription('Re-copy framework-owned scaffolded files (pf-*.js UI hooks, docs tooling, SPA debug panel) into an existing project')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show what would change without writing any files')
             ->addOption('all', null, InputOption::VALUE_NONE, 'Also copy framework files that are not present in the project yet')
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
-            ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)');
+            ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
+            ->addOption('spa', null, InputOption::VALUE_NONE, 'Only sync the SPA front-end files the framework owns (lib/debug.js)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -86,12 +105,17 @@ class ProjectResync extends Command
         $copyAll = (bool) $input->getOption('all');
         $onlyJs  = (bool) $input->getOption('js');
         $onlyScr = (bool) $input->getOption('scripts');
-        // Neither scope flag → sync both groups.
-        $both      = !$onlyJs && !$onlyScr;
-        $doJs      = $onlyJs || $both;
-        $doScripts = $onlyScr || $both;
+        $onlySpa = (bool) $input->getOption('spa');
+        // No scope flag → sync every group.
+        $allGroups = !$onlyJs && !$onlyScr && !$onlySpa;
+        $doJs      = $onlyJs || $allGroups;
+        $doScripts = $onlyScr || $allGroups;
+        $doSpa     = $onlySpa || $allGroups;
 
         $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts);
+        if ($doSpa) {
+            $files = array_merge($files, $this->collectSpaFiles($scaffoldingDir, $base));
+        }
 
         // package.json is a merge (not a copy): fold in the API-docs npm scripts +
         // dev-deps that init writes, so an old project's manifest gains docs:build
@@ -131,6 +155,10 @@ class ProjectResync extends Command
                 $action = $this->applyFile($base, 'src/Api/openapi-overrides.json', $ovContent, false, $dryRun, $copyAll, $output);
                 $tally[$action]++;
             }
+        }
+
+        if ($doSpa) {
+            $this->warnIfPanelNotWired($base, $output);
         }
 
         $output->writeln('');
@@ -199,6 +227,111 @@ class ProjectResync extends Command
     }
 
     /**
+     * The project's app/app.php, loaded once per command run.
+     *
+     * @return array<string, mixed>
+     */
+    private function appConfig(string $base): array
+    {
+        if ($this->appConfig === null) {
+            $config = require $base . '/app/app.php';
+            $this->appConfig = is_array($config) ? $config : [];
+        }
+
+        return $this->appConfig;
+    }
+
+    /**
+     * Where this project keeps its front-end sources, with a trailing slash, or
+     * '' when it has no SPA at all.
+     *
+     * Mirrors Init::scaffoldSpa(): a build stack keeps sources out of the web
+     * root, the build-less stack serves them from it. Read from app.php rather
+     * than guessed, so a project that has both (hybrid) is still resolved to the
+     * one directory its SPA actually lives in.
+     */
+    private function spaSourceDir(string $base): string
+    {
+        $config   = $this->appConfig($base);
+        $appStyle = (string) ($config['app_style'] ?? 'mvc');
+        if ($appStyle === 'mvc') {
+            return '';
+        }
+
+        $spaStack = (string) ($config['spa_stack'] ?? '');
+
+        return Init::spaNeedsNode($spaStack) ? 'frontend/' : 'www/assets/js/';
+    }
+
+    /**
+     * Framework-owned SPA front-end files: the debug panel.
+     *
+     * The panel is the framework's toolbar rewritten for a SPA — the drawing is
+     * as much framework code as the `_debug` payload it draws, and nothing in it
+     * is application-specific. It is listed here so an existing project can gain
+     * or refresh it, instead of the next person concluding the framework ships
+     * only the data and writing a second renderer.
+     *
+     * @return list<array{content: string, dest: string, exec: bool}>
+     */
+    private function collectSpaFiles(string $scaffoldingDir, string $base): array
+    {
+        $sourceDir = $this->spaSourceDir($base);
+        if ($sourceDir === '') {
+            return [];
+        }
+
+        $stub = $scaffoldingDir . '/templates/spa-debug-panel.js.stub';
+        if (!is_file($stub)) {
+            // @codeCoverageIgnoreStart — the stub ships with the framework
+            return [];
+            // @codeCoverageIgnoreEnd
+        }
+
+        $appName = (string) ($this->appConfig($base)['name'] ?? 'App');
+
+        return [[
+            'content' => str_replace('{{ appName }}', $appName, (string) file_get_contents($stub)),
+            'dest'    => $sourceDir . 'lib/debug.js',
+            'exec'    => false,
+        ]];
+    }
+
+    /**
+     * Say so when the panel is present but nothing feeds it.
+     *
+     * `lib/api.js` is the project's own file — people edit it, and rewriting it
+     * from the stub would throw those edits away. So the wiring is reported, not
+     * repaired: a panel nothing calls is silent in exactly the way a missing
+     * panel is, and that silence is what gets read as "the framework has no
+     * panel".
+     */
+    private function warnIfPanelNotWired(string $base, OutputInterface $output): void
+    {
+        $sourceDir = $this->spaSourceDir($base);
+        if ($sourceDir === '') {
+            return;
+        }
+
+        $panel = $base . '/' . $sourceDir . 'lib/debug.js';
+        $api   = $base . '/' . $sourceDir . 'lib/api.js';
+        if (!is_file($panel) || !is_file($api)) {
+            return;
+        }
+
+        if (str_contains((string) file_get_contents($api), './debug.js')) {
+            return;
+        }
+
+        $output->writeln('');
+        $output->writeln("<comment>{$sourceDir}lib/api.js does not feed the debug panel.</comment>");
+        $output->writeln('  Add the import and record each response (left as a manual edit because');
+        $output->writeln('  this file is yours):');
+        $output->writeln("    import { record as recordDebug } from './debug.js';");
+        $output->writeln('    recordDebug(method, path, response.status, payload && payload._debug);');
+    }
+
+    /**
      * Build the desired package.json content with the API-docs scripts merged in.
      *
      * Reuses Init::mergeApiDocsPackageJson() so `init` and `project:resync` write
@@ -232,8 +365,8 @@ class ProjectResync extends Command
     private function buildMergedApiOverrides(string $base): ?string
     {
         // Enabled features determine which endpoints get documented.
-        $config   = require $base . '/app/app.php';
-        $features = (is_array($config) && isset($config['features']) && is_array($config['features']))
+        $config   = $this->appConfig($base);
+        $features = (isset($config['features']) && is_array($config['features']))
             ? $config['features']
             : [];
         $hasAuth       = in_array('auth', $features, true);
@@ -242,7 +375,7 @@ class ProjectResync extends Command
             return null;
         }
 
-        $appName = (is_array($config) && isset($config['name'])) ? (string) $config['name'] : 'App';
+        $appName = isset($config['name']) ? (string) $config['name'] : 'App';
 
         // Prefer the API base URL already recorded in apidoc.json.
         $apiUrl     = 'https://api.example.com';

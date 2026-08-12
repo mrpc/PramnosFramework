@@ -4789,6 +4789,7 @@ PHP;
         $lines[] = '```';
         $lines[] = "$sourceDir" . str_repeat(' ', max(1, 20 - strlen($sourceDir))) . 'front-end sources — edit these';
         $lines[] = "  lib/api.js         API client: apiKey, tokens, errors";
+        $lines[] = "  lib/debug.js       FRAMEWORK-OWNED debug panel — do not rewrite";
         if ($spaStack === 'svelte') {
             $lines[] = '  App.svelte         root component';
             $lines[] = '  main.js            entry point (mounts App)';
@@ -4840,9 +4841,30 @@ PHP;
         $lines[] = '  already authenticated in the SPA.';
         $lines[] = '- Failures throw `ApiError` with `.status` — branch on that, not on messages.';
         $lines[] = '';
-        $lines[] = 'In development every response also carries a `_debug` key (timings, queries,';
-        $lines[] = 'exceptions) and the panel in the corner shows it — the HTML toolbar cannot be';
-        $lines[] = 'injected into JSON. Nothing is attached in production.';
+        $lines[] = '### The debug panel already exists — do not build one';
+        $lines[] = '';
+        $lines[] = 'In development every JSON response carries a `_debug` key (timings, queries,';
+        $lines[] = 'exceptions). The panel that draws it is **`' . $sourceDir . 'lib/debug.js`, shipped and';
+        $lines[] = 'maintained by the framework**, and `lib/api.js` already feeds it every response';
+        $lines[] = '(`recordDebug(...)`). It is the framework toolbar rewritten for a SPA: same bar';
+        $lines[] = 'along the bottom, same tabs, same tables, same copy buttons, last 50 requests,';
+        $lines[] = 'secrets masked.';
+        $lines[] = '';
+        $lines[] = 'So:';
+        $lines[] = '';
+        $lines[] = '- **Do not write your own debug panel, overlay or console logger for this.**';
+        $lines[] = '  Nothing about the rendering is application-specific. If the panel is missing';
+        $lines[] = '  a field, add it *there*, or report it upstream to the framework.';
+        $lines[] = '- If `lib/debug.js` is absent (project scaffolded before it existed), get it';
+        $lines[] = '  with `./' . $cliName . ' project:resync --spa --all` — never by hand.';
+        $lines[] = '- Nothing is attached in production, so the file is inert there: no data, no';
+        $lines[] = '  DOM, no panel. That is why it ships unconditionally instead of being';
+        $lines[] = '  imported behind a flag.';
+        $lines[] = '';
+        $lines[] = 'The server-rendered pages get the framework\'s HTML toolbar instead, injected';
+        $lines[] = 'before `</body>` — including an `ajax` tab that wraps `fetch`/`XMLHttpRequest`';
+        $lines[] = 'and stays live after the render. The SPA shell cannot use it: it does not boot';
+        $lines[] = 'the framework (only the autoloader), so no middleware ever sees its HTML.';
         $lines[] = '';
         $lines[] = 'Add an endpoint the way `GET ' . $apiPrefix . '/status` is built: behaviour in a';
         $lines[] = '`src/Services/*Service.php`, a thin `src/Api/Controllers/*.php` over it, and a';
@@ -4943,7 +4965,8 @@ PHP;
         if (!self::spaNeedsNode($spaStack)) {
             return "## Front end\n\n$where Sources live in `www/assets/js/` and are served as\n"
                 . "written — there is no build step. Run the tests with `./testjs`, and see\n"
-                . "[docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md) for how to write them.\n";
+                . "[docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md) for how to write them.\n\n"
+                . $this->readmeDebugPanelNote('www/assets/js/');
         }
 
         return "## Front end\n\n$where Sources live in `frontend/`; the build output in\n"
@@ -4955,7 +4978,29 @@ PHP;
             . "                          # not the Vite port, which serves no HTML\n"
             . "./testjs                  # front-end tests\n"
             . "```\n\n"
-            . "How to write those tests: [docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md).\n";
+            . "How to write those tests: [docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md).\n\n"
+            . $this->readmeDebugPanelNote('frontend/');
+    }
+
+    /**
+     * The "the debug panel is already here" note for the README front-end section.
+     *
+     * Stated in the README as well as CLAUDE.md because the panel is invisible
+     * until a request carries debug data: without being told the file exists,
+     * both people and assistants conclude the framework only ships the *data*
+     * for a SPA and hand-roll a renderer next to one that already works.
+     *
+     * @param string $sourceDir Front-end source directory, with trailing slash.
+     */
+    private function readmeDebugPanelNote(string $sourceDir): string
+    {
+        return "### Debug panel\n\n"
+            . "In development every JSON response carries a `_debug` key, and\n"
+            . "`{$sourceDir}lib/debug.js` — shipped by the framework, already wired into\n"
+            . "`lib/api.js` — draws it as a toolbar along the bottom: requests, queries,\n"
+            . "timings, exceptions. It is the framework's HTML toolbar for a SPA, so there is\n"
+            . "no reason to build another one. Inert in production (nothing is attached, so\n"
+            . "no panel appears). Missing from an older project? `project:resync --spa --all`.\n";
     }
 
     /**

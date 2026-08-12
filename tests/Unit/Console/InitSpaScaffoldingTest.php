@@ -837,6 +837,58 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * The project docs name the panel's file and forbid replacing it.
+     *
+     * This is the failure this assertion guards: the panel is invisible until a
+     * response carries debug data, so a reader who is only told that "a panel
+     * shows it" concludes the framework ships the *data* for a SPA and that the
+     * rendering is theirs to write — and writes a second panel beside the one
+     * already wired in. Naming `lib/debug.js`, marking it framework-owned, and
+     * giving the recovery command for older projects is what prevents that.
+     */
+    public function testDocsNameTheDebugPanelAndForbidRewritingIt(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — CLAUDE.md: the file, its ownership, and the recovery route.
+        $claude = $this->read('CLAUDE.md');
+        $this->assertStringContainsString('frontend/lib/debug.js', $claude, 'the panel is named, not alluded to');
+        $this->assertStringContainsString('FRAMEWORK-OWNED', $claude);
+        $this->assertStringContainsString('Do not write your own debug panel', $claude);
+        // An older project has no panel at all; without the command the only way
+        // to get one is by hand, which is how a rewrite starts.
+        $this->assertStringContainsString('project:resync --spa --all', $claude);
+        // Why the HTML toolbar is not an option here — stated so the reader does
+        // not "fix" the shell by booting the framework in it.
+        $this->assertStringContainsString('does not boot', $claude);
+
+        // Assert — README carries the same short version.
+        $readme = $this->read('README.md');
+        $this->assertStringContainsString('frontend/lib/debug.js', $readme);
+        $this->assertStringContainsString('no reason to build another one', $readme);
+    }
+
+    /**
+     * The build-less stack's docs point at its own path.
+     *
+     * A documented path that does not exist in this project is worse than none:
+     * the reader looks for `frontend/`, finds nothing, and concludes the panel
+     * was never shipped.
+     */
+    public function testDebugPanelDocsFollowTheBuildlessPath(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'vanilla']);
+
+        // Assert
+        $claude = $this->read('CLAUDE.md');
+        $this->assertStringContainsString('www/assets/js/lib/debug.js', $claude);
+        $this->assertStringNotContainsString('frontend/lib/debug.js', $claude);
+        $this->assertStringContainsString('www/assets/js/lib/debug.js', $this->read('README.md'));
+    }
+
+    /**
      * A SPA project ships a front-end testing guide.
      *
      * The scaffold provides a working test setup and real tests; without a guide

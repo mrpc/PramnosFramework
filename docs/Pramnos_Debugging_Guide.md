@@ -87,6 +87,52 @@ ApiDebugPayload::sendHeaders();             // Server-Timing + X-Pramnos-Debug
 `isEnabled()` asks the toolbar whether it has collectors, rather than re-reading
 `APP_DEBUG` — one definition of "development" instead of two that can drift.
 
+## In a single-page application
+
+A SPA does not get the HTML toolbar, and the reason is worth stating precisely,
+because the usual guess is wrong. It is not that the numbers would freeze on the
+shell: the `ajax` tab wraps `fetch`/`XMLHttpRequest` and keeps updating for as
+long as the page lives. It is that **the SPA shell does not boot the framework**
+— `www/spa.php` requires only the autoloader, so no middleware ever sees its
+HTML and there is nothing to inject into.
+
+**The framework ships the panel for that case too.** `php pramnos init` with a
+SPA style writes `lib/debug.js` into the front-end sources (`frontend/lib/` for
+the Vite stacks, `www/assets/js/lib/` for the build-less one) and wires it into
+`lib/api.js`:
+
+```js
+import { record as recordDebug } from './debug.js';
+
+recordDebug(method, path, response.status, payload && payload._debug, { ms, body });
+```
+
+It is the same toolbar: bar along the bottom, the same tabs and tables, copy
+buttons, the last 50 requests with their statements, secret-looking values
+masked. Nothing in it is application-specific, so **do not write your own** —
+if a field is missing, add it there or report it upstream.
+
+In production nothing attaches `_debug`, so `record()` never has anything to
+show: no data, no DOM, no panel. That is why the file ships unconditionally
+rather than being imported behind a development flag.
+
+### An older project without the panel
+
+Projects scaffolded before the panel existed have no `lib/debug.js`. Copy it in
+from the framework rather than by hand:
+
+```bash
+./pramnos project:resync --spa --all     # add it
+./pramnos project:resync --spa           # refresh an existing one
+./pramnos project:resync --spa --dry-run # preview
+```
+
+The command reads `app_style`/`spa_stack` from `app/app.php`, so the file lands
+in the directory this project's SPA actually loads from. If `lib/api.js` never
+calls `recordDebug`, it says so and prints the two lines to add — that file is
+yours and is not rewritten, because a panel nothing feeds is silent in exactly
+the way a missing panel is.
+
 ## Opening the toolbar on a live server
 
 The toolbar is off in production, and it should be. But the bugs that deserve a
