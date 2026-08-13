@@ -14,6 +14,22 @@ use PDO;
 abstract class BaseTestCase extends TestCase
 {
     /**
+     * How long to wait for a database that accepts a connection and then hangs.
+     *
+     * A firewalled port or a wedged server, where the socket opens and nothing comes
+     * back: without this, a test waits for the driver's own default, which is minutes.
+     *
+     * It does **not** help with a hostname that cannot be resolved. That block happens
+     * inside `getaddrinfo()` before any socket exists — measured at 8.00 seconds flat
+     * in this project's container, which is the resolver giving up, not TCP. The tests
+     * that assert which DSN was built therefore point at an **IP literal** rather than
+     * a made-up name, which skips resolution entirely and fails immediately. Worth
+     * writing down because the timeout looks like it should have fixed those, and it
+     * did not.
+     */
+    private const CONNECT_TIMEOUT = 1;
+
+    /**
      * PDO database connection instance.
      * @var PDO|null
      */
@@ -157,19 +173,76 @@ abstract class BaseTestCase extends TestCase
         }
 
         try {
-            if ($type === 'postgresql' || $type === 'pgsql') {
-                $dsn = "pgsql:host=$host;dbname=$dbName";
-                if ($port) $dsn .= ";port=$port";
-            } else {
-                $dsn = "mysql:host=$host;dbname=$dbName";
-                if ($port) $dsn .= ";port=$port";
-            }
+            $dsn = $this->buildDsn($type, $host, $dbName, $port);
 
-            $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+            $pdo = new PDO($dsn, $user, $pass, [
+                PDO::ATTR_ERRMODE   => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_TIMEOUT   => self::CONNECT_TIMEOUT,
+            ]);
             return $pdo;
         } catch (\PDOException $e) {
             throw new \RuntimeException("Database connection failed: " . $e->getMessage());
         }
+    }
+
+    /**
+     * The DSN this configuration produces.
+     *
+     * Extracted so it can be asserted on directly. The tests that cover it used to
+     * attempt a connection and read the host out of the failure message, which meant
+     * three of the slowest tests in the suite were waiting **8.00 seconds each** for a
+     * resolver to give up on a hostname that was never going to exist — to prove
+     * something visible here without a socket at all.
+     *
+     * A DSN is a string built from configuration. Asserting on the string is both
+     * faster and a closer statement of what is being claimed.
+     *
+     * @param  string      $type   mysql, postgresql or pgsql
+     * @param  string      $host   Already Docker-substituted by the caller
+     * @param  string      $dbName
+     * @param  int|string|null $port
+     * @return string
+     */
+    protected function buildDsn(string $type, string $host, string $dbName, $port = null): string
+    {
+        if ($type === 'postgresql' || $type === 'pgsql') {
+            $dsn = "pgsql:host=$host;dbname=$dbName";
+            if ($port) {
+                $dsn .= ";port=$port";
+            }
+            // PostgreSQL takes its connect timeout in the DSN rather than as a driver
+            // attribute; see CONNECT_TIMEOUT for what it does and does not cover.
+            return $dsn . ';connect_timeout=' . self::CONNECT_TIMEOUT;
+        }
+
+        $dsn = "mysql:host=$host;dbname=$dbName";
+        if ($port) {
+            $dsn .= ";port=$port";
+        }
+
+        return $dsn;
+    }
+
+    /**
+     * The database host this configuration resolves to, Docker substitution included.
+     *
+     * The substitution is the interesting part — inside a container `localhost` is the
+     * container, not the database — and it was previously only observable by failing to
+     * connect.
+     *
+     * @return string
+     */
+    protected function resolvedHost(): string
+    {
+        $config = (array) self::$dbConfig;
+        $host   = (string) ($config['hostname'] ?? 'localhost');
+        $type   = (string) ($config['type'] ?? 'mysql');
+
+        if ($host === 'localhost' && $this->isDocker()) {
+            return ($type === 'postgresql' || $type === 'pgsql') ? 'postgres' : 'mysql';
+        }
+
+        return $host;
     }
 
     /**
