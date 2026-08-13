@@ -692,6 +692,14 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertStringContainsString('--color-primary', $script);
         $this->assertStringContainsString(':root:root', $script, 'must beat daisyUI on specificity');
 
+        // ...and it warns when it falls back, rather than logging the fallback in
+        // the same voice as a success. A project whose theme lives elsewhere built
+        // cleanly and shipped in the framework's brand colour, with a line that
+        // read exactly like the working case.
+        $this->assertStringContainsString('console.warn', $script);
+        $this->assertStringContainsString('not this project\'s', $script);
+        $this->assertStringContainsString('Looked in:', $script, 'names the path it tried');
+
         // ...npm runs it before every build and every dev-server start...
         $pkg = json_decode($this->read('package.json'), true);
         $this->assertSame('node scripts/build-theme.mjs', $pkg['scripts']['prebuild']);
@@ -869,6 +877,27 @@ class InitSpaScaffoldingTest extends TestCase
         // in a project whose router.js predates this
         $shell = $this->read('www/app.php');
         $this->assertStringContainsString("'routerBase' => '/app'", $shell);
+    }
+
+    /**
+     * The Vite build never copies the site into its own output directory.
+     *
+     * Vite's default `publicDir` is `<root>/public`, and the config lives at the
+     * project root — so in an application whose web root *is* `public/` a build
+     * copies the entire site (legacy pages, every upload) into `outDir`. Nothing
+     * warns: the build succeeds and the output directory quietly grows by the size
+     * of the site. Reported by a project with exactly that layout.
+     */
+    public function testTheViteConfigPinsPublicDir(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $config = $this->read('vite.config.js');
+        $this->assertStringContainsString("publicDir: 'frontend/static'", $config);
+        // And the reason, because the default is a footgun rather than a preference
+        $this->assertStringContainsString('copy all of it into outDir', $config);
     }
 
     /**
