@@ -312,7 +312,7 @@ cheap alternative:
 
 | Habit | Cost measured | Instead |
 | --- | --- | --- |
-| Connecting to a host that cannot answer, with no timeout | **8.00 s per test** | Pass a connect timeout (`PDO::ATTR_TIMEOUT => 1`, or `connect_timeout=1` in a PostgreSQL DSN) |
+| Connecting to a hostname that does not resolve | **8.00 s per test** | Assert on the DSN string if that is what you mean; use an IP literal (`127.0.0.1:9`) if you want a *failure*. A connect timeout does **not** help — the 8 s is `getaddrinfo()`, before any socket exists |
 | Building an expensive fixture in `setUp()` — a scaffolded project, a real JPEG | 1–2 s per test | Build it once in `setUpBeforeClass()` when the tests only read it |
 | Creating and dropping schema per test | ≈300 ms per test | Schema once per class; wrap each test in a transaction and roll it back |
 
@@ -326,6 +326,44 @@ place in the distribution:
 ```bash
 ./dockertest --no-coverage --log-junit /var/www/html/var/junit.xml --filter YourTest
 ```
+
+## Isolating process-wide state
+
+Two framework singletons are **per-request in production and process-wide in a test
+run**. A test run is thousands of "requests" in one PHP process, so state one test
+establishes answers for every test after it.
+
+Both are registered in `phpunit.xml`, and a project scaffolded by `pramnos init` gets
+them already:
+
+```xml
+<extensions>
+    <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
+    <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
+</extensions>
+```
+
+| Extension | What leaks without it |
+| --- | --- |
+| `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. |
+| `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — **three failures**, each of which appeared only in a full run. |
+
+Both reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
+deliberately seals an identity or configures a document still gets exactly what it asked
+for. There is nothing to opt out of and nothing to call.
+
+**Why extensions rather than `setUp()`.** Both are reached indirectly: a controller calls
+a middleware, which seals an identity; a controller asks the Factory, which asks the
+Document. So any list of "the tests that need to reset this" is a list that goes out of
+date the moment somebody adds a test — silently, and with the failure appearing somewhere
+else. This is also why they are worth knowing about even if you never touch them: **a
+failure that only happens in a full run is almost never a bug in the test that failed.**
+
+If you hit one anyway — a full-run-only failure involving state you did not set — the fix
+is a third extension of the same shape, not a `setUp()` in the test that noticed.
+
+Existing projects that predate this: see
+[the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
 
 ## Reference
 
