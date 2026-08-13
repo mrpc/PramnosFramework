@@ -67,6 +67,35 @@ It is the same shape as the two singleton leaks fixed earlier in this work — s
 behind by whatever ran first, and a failure that names the wrong test. This one just used a
 table instead of a static.
 
+## So the same question was asked of every suite
+
+If one suite could not run alone, the others were worth checking. `Integration Tests` failed
+too — **all seven tests of `QueueControllerMySQLTest`**, with
+`RuntimeException: No such file or directory` from a MySQL connect that had been given no host
+at all.
+
+That error is worth recognising: a filesystem message from a database call means mysqli fell
+back to a socket path, because it was handed nothing. Here, `parent::setUp()` boots the
+application, which builds the Factory's **database singleton before the class loads the
+fixture settings** — so the cached handle points at nothing. The class passed for as long as
+some earlier class had already built a correct singleton.
+
+```php
+Settings::loadSettings($settingsFile);
+
+$singleton = &Factory::getDatabase();   // discard what parent::setUp() built
+$singleton = null;
+
+$this->db = Factory::getDatabase();
+```
+
+Every other class that boots this way already did exactly that; this one had never needed to.
+
+**All three testsuites now pass on their own.**
+
+*(The first attempt at this blamed a missing `CONFIG` constant. It made no difference, and the
+guard was removed again rather than left in as noise.)*
+
 ## Where the suite stands
 
 **481 s delivered.** `./dockertest` is **6:58** against 17:02 at the start, and
@@ -77,3 +106,5 @@ table instead of a static.
 - `UserTokenManagementCharacterizationTest` builds its schema once per class.
 - `ApikeyCharacterizationTest` drops `applications` before creating it, so
   `--testsuite 'Characterization Tests'` passes on its own.
+- `QueueControllerMySQLTest` discards the database singleton `parent::setUp()` built before
+  its settings were loaded, so `--testsuite 'Integration Tests'` passes on its own.
