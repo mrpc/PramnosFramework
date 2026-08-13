@@ -259,7 +259,7 @@ notices.
 **Do not do this to a database you would miss.** The settings trade crash safety for
 speed, which is only free because this data is disposable.
 
-### 3b. Schema per class, rows per test — **started, 23.5 s from three classes**
+### 3b. Schema per class, rows per test — **in progress, 46 s from five classes**
 
 `Pramnos\Framework\Testing\DatabaseTestCase` now implements the split, and the first three
 classes are on it:
@@ -285,19 +285,49 @@ PostgreSQL class had the same bug waiting.
 `resetAutoIncrement()` exists for classes that genuinely assert on the sequence, and is off
 by default: the reset costs about 9 ms per table against 0.11 ms for the `DELETE` alone.
 
+#### Two classes that could not use the base class, and a new finding
+
+`TokenTest` (15.8 s / 33 tests) and `UsersControllerTest` (10.65 s / 17 tests) reach the
+database through `Factory::getDatabase()`, because that is what the code under test does.
+`DatabaseTestCase` owns its own handle, so these two got the *pattern* by hand rather than
+the base class — schema in `setUpBeforeClass()`, `DELETE` in `setUp()`.
+
+That took `TokenTest` from 15.8 s to 6.0 s. The remaining 180 ms per test led somewhere
+useful:
+
+| Per call | |
+| --- | --- |
+| `Settings::clearSettings()` + `loadSettings()` | 0.01 ms |
+| `Application::getInstance()` | 0.00 ms |
+| Drop the singleton, reconnect | 0.45 ms |
+| **`$db->cacheflush()`** | **84.77 ms** |
+
+**`cacheflush()` costs 85 ms** — it is a file-cache directory scan, not a flag. `TokenTest`
+called it once per test (2.8 s of its runtime) and `UsersControllerTest` called it **three**
+times per test (255 ms per test, 4.3 s of its 10.65 s), in classes where no `query()` call
+opts into the SQL cache at all — `$cache` defaults to `false`. It is a defence against
+whatever an *earlier class* left in the cache, which one call per class handles.
+
+| Class | Before | After |
+| --- | --- | --- |
+| `TokenTest` | 15.8 s | **3.19 s** |
+| `UsersControllerTest` | 10.65 s | **0.50 s** |
+
+Only four test files call `cacheflush()`, so this is not a sweeping win — but it is worth
+knowing what the call costs before putting it in a `setUp()`.
+
 **Still to convert**, from the current measurement — the classes over 5 s that are not about
 DDL:
 
 | Class | Now |
 | --- | --- |
-| `TokenTest` | 16.9 s |
-| `UsersControllerTest` | 11.0 s |
 | `OrmRelationsMySQLTest` | 10.4 s |
 | `ModelTest` | 9.5 s |
 | `MessagingModelsMySQLTest` | 8.4 s |
 | `TokenActionMySQLTest` | 8.0 s |
 | `TwoFactorAuthTest` | 7.7 s |
 | `RbacFunctionsCharacterizationTest` | 6.5 s |
+| `MessagingModelsPostgreSQLTest` | 5.2 s |
 
 `FrameworkMigrations{MySQL,PostgreSQL}Test` (17.7 s and 14.9 s) stay as they are: for them
 the DDL **is** the subject.
@@ -395,13 +425,13 @@ cheap: a typo in an environment variable must not be able to weaken a deployment
 | 1. ~~Connect timeouts~~ — **done**, by asserting on the DSN and using an IP literal | **56 s** |
 | 2. ~~Scaffold once per class~~ — **done**, and by a different change: `--no-install` | **136 s** |
 | 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
-| 3b. Schema per class + rows per test, via `DatabaseTestCase` | **23.5 s** so far, three classes of eleven |
+| 3b. Schema per class + rows per test | **46 s** so far, five classes of twelve |
 | 4. ~~Fixture and hash cost in two classes~~ — **done**; the fixture was never the cost | **78 s** |
 
-**420 s delivered so far** — 56 + 136 + 126 + 78 + 23.5 — without removing a single test, a
+**442 s delivered so far** — 56 + 136 + 126 + 78 + 46 — without removing a single test, a
 single database or the coverage report.
 
-The full run with coverage went **17:02 → 8:06**: 536 s, more than the 420 s measured
+The full run with coverage went **17:02 → 7:46**: 556 s, more than the 442 s measured
 without it. Coverage instrumentation is a multiplier on work done, so removing work removes
 its share of the instrumentation too — the 12% figure at the top of this page is 12% of
 whatever the suite still does.

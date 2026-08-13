@@ -20,50 +20,35 @@ class UsersControllerTest extends TestCase
     private UsersController $controller;
     private $redirectUrl = null;
 
-    protected function setUp(): void
+    /**
+     * The tables this class owns.
+     *
+     * @var string[]
+     */
+    private const TABLES = ['usertokens', 'sessions', 'users'];
+
+    /**
+     * Builds the schema once for the whole class.
+     *
+     * `users` needs every column `User::_save()` inserts — a minimal schema causes silent
+     * INSERT failures and loads the wrong user on retry — which is why the DDL is verbatim
+     * what this class used to run per test.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
     {
-        if (!defined('CONFIG')) {
-            define('CONFIG', 'tests' . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
-        }
+        $db = self::bootDatabase();
 
-        if (!defined('APP_PATH')) {
-            define('APP_PATH', realpath(__DIR__ . '/../../../../fixtures/app'));
-        }
-
-        if (!defined('Pramnos\Application\INCLUDES')) {
-            define('Pramnos\Application\INCLUDES', realpath(__DIR__ . '/../../../../../../src') . DIRECTORY_SEPARATOR);
-        }
-
-        Settings::clearSettings();
-        $settingsFile = realpath(__DIR__ . '/../../../../fixtures/app/settings.php');
-        if ($settingsFile) {
-            Settings::loadSettings($settingsFile);
-        } else {
-            throw new \RuntimeException('Test settings not found');
-        }
-
-        $singleton = &Factory::getDatabase();
-        $singleton = null;
-
-        $db = Factory::getDatabase();
+        // Once per class: clears whatever an earlier class left in the SQL cache. It costs
+        // 85 ms, which is why it is not per test.
         $db->cacheflush();
 
-        $this->db = Factory::getDatabase();
-        $this->db->cacheflush(); // Flush any cached queries from previous tests
-        if (!$this->db->connected) {
-            $this->db->connect();
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $db->query('DROP TABLE IF EXISTS `' . $table . '`');
         }
-
-        // Recreate all three tables fresh so each test gets a known-good schema.
-        // `users` needs all columns that User::_save() inserts (dateformat, sex,
-        // birthdate, modified, etc.) — a minimal schema would cause silent INSERT
-        // failures and load the wrong user on retry.
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        $this->db->query('DROP TABLE IF EXISTS `users`');
-        $this->db->query('DROP TABLE IF EXISTS `sessions`');
-        $this->db->query('DROP TABLE IF EXISTS `usertokens`');
-
-        $this->db->query('
+        $db->query('
             CREATE TABLE `users` (
                 `userid` bigint NOT NULL AUTO_INCREMENT,
                 `username` varchar(255) NOT NULL DEFAULT \'\',
@@ -97,12 +82,7 @@ class UsersControllerTest extends TestCase
                 PRIMARY KEY (`userid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
-
-        // sessions schema — mirrors the framework migration
-        // (database/migrations/framework/core/*_create_sessions_table.php):
-        // the real table tracks last activity in `time`, the address in
-        // `host_addr`, the UA in `agent`, and is keyed by `visitorid`.
-        $this->db->query('
+        $db->query('
             CREATE TABLE `sessions` (
                 `visitorid` varchar(255) NOT NULL,
                 `uname` varchar(128) NOT NULL DEFAULT \'\',
@@ -118,10 +98,7 @@ class UsersControllerTest extends TestCase
                 PRIMARY KEY (`visitorid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
-
-        // usertokens with full schema including scope and removedate so User::_save()
-        // and addToken() do not fail on missing columns.
-        $this->db->query('
+        $db->query('
             CREATE TABLE `usertokens` (
                 `tokenid` int(11) NOT NULL AUTO_INCREMENT,
                 `userid` bigint NOT NULL,
@@ -144,9 +121,97 @@ class UsersControllerTest extends TestCase
                 PRIMARY KEY (`tokenid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+        $db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
 
-        $this->db->cacheflush();
+    /**
+     * Drops the class's tables so the next class builds its own.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $db = self::bootDatabase();
+
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $db->query('DROP TABLE IF EXISTS `' . $table . '`');
+        }
+        $db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    /**
+     * Loads the fixture settings and returns a connected Factory database.
+     *
+     * The controller under test reaches the database through the Factory, so the fixtures
+     * are built through the same singleton rather than a handle of our own.
+     *
+     * @return \Pramnos\Database\Database A connected handle
+     */
+    private static function bootDatabase(): \Pramnos\Database\Database
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
+        }
+
+        Settings::clearSettings();
+        $settingsFile = realpath(__DIR__ . '/../../../../fixtures/app/settings.php');
+        if (!$settingsFile) {
+            throw new \RuntimeException('Test settings not found');
+        }
+        Settings::loadSettings($settingsFile);
+
+        $db = Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        return $db;
+    }
+
+    protected function setUp(): void
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
+        }
+
+        if (!defined('APP_PATH')) {
+            define('APP_PATH', realpath(__DIR__ . '/../../../../fixtures/app'));
+        }
+
+        if (!defined('Pramnos\Application\INCLUDES')) {
+            define('Pramnos\Application\INCLUDES', realpath(__DIR__ . '/../../../../../../src') . DIRECTORY_SEPARATOR);
+        }
+
+        Settings::clearSettings();
+        $settingsFile = realpath(__DIR__ . '/../../../../fixtures/app/settings.php');
+        if ($settingsFile) {
+            Settings::loadSettings($settingsFile);
+        } else {
+            throw new \RuntimeException('Test settings not found');
+        }
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
+        $this->db = Factory::getDatabase();
+        if (!$this->db->connected) {
+            $this->db->connect();
+        }
+
+        // The schema belongs to the class (see setUpBeforeClass); this only clears the rows.
+        // Recreating three tables per test cost about 250 ms, and three cacheflush() calls
+        // cost another 255 ms — a file-cache directory scan each — in a class whose queries
+        // never opt into the SQL cache. Together that was most of this class's 10.65 s.
+        //
+        // DELETE rather than TRUNCATE, which is implicit DDL and measured slower than
+        // DROP + CREATE. The fixtures below give explicit userids, so nothing here depends
+        // on auto-increment restarting.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $this->db->query('DELETE FROM `' . $table . '`');
+        }
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
 
         // Tables are freshly created above — insert test fixtures.
         // Insert Anonymous
@@ -215,9 +280,7 @@ class UsersControllerTest extends TestCase
         // using the framework's full schema so subsequent tests (OauthCoverageTest,
         // MediaObjectTest, SessionTest, etc.) find the tables in the expected state.
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        $this->db->query('DROP TABLE IF EXISTS `users`');
-        $this->db->query('DROP TABLE IF EXISTS `sessions`');
-        $this->db->query('DROP TABLE IF EXISTS `usertokens`');
+        // The tables belong to the class; tearDownAfterClass() drops them.
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
 
         // Restore the framework schema for tables that other test suites depend on.

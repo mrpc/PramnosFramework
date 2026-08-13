@@ -110,9 +110,39 @@ the lifecycle is asserted directly, on both engines — including two tests that
 collects coverage per test and code that only runs in those hooks is executed but never
 attributed.
 
+## Two classes that could not use it, and an 85-millisecond surprise
+
+`TokenTest` and `UsersControllerTest` reach the database through `Factory::getDatabase()`,
+because that is what the code under test does — so they got the *pattern* by hand rather than
+the base class.
+
+That took `TokenTest` from 15.8 s to 6.0 s, and the remaining 180 ms per test led somewhere
+worth writing down:
+
+| Per call | |
+| --- | --- |
+| `Settings::clearSettings()` + `loadSettings()` | 0.01 ms |
+| `Application::getInstance()` | 0.00 ms |
+| Drop the database singleton, reconnect | 0.45 ms |
+| **`$db->cacheflush()`** | **84.77 ms** |
+
+`cacheflush()` is a **file-cache directory scan**, not a flag. `TokenTest` called it once per
+test; `UsersControllerTest` called it **three times** per test — 255 ms each — in classes
+where no `query()` call opts into the SQL cache at all, since `$cache` defaults to `false`.
+The call defends against what an *earlier class* left behind, which one call per class
+handles.
+
+| Class | Before | After |
+| --- | --- | --- |
+| `TokenTest` | 15.8 s | **3.19 s** |
+| `UsersControllerTest` | 10.65 s | **0.50 s** |
+
+Only four test files call `cacheflush()`, so this is not a sweeping win — but it is worth
+knowing what it costs before putting it in a `setUp()`.
+
 ## Where the suite stands
 
-**420 s delivered** — 56 + 136 + 126 + 78 + 23.5. Eight more classes over five seconds are
+**442 s delivered** — 56 + 136 + 126 + 78 + 46. Seven more classes over five seconds are
 candidates for the same treatment; the two migration classes are not, because for them the
 DDL is the subject.
 
@@ -121,6 +151,8 @@ DDL is the subject.
 - `Pramnos\Framework\Testing\DatabaseTestCase` — schema per class, rows per test, engine
   differences in one place.
 - `QueryBuilder{MySQL,PostgreSQL,TimescaleDB}Test` converted onto it.
+- `TokenTest` and `UsersControllerTest` given the same treatment by hand, since they use the
+  Factory's connection, and stripped of a `cacheflush()` that cost 85 ms per call.
 
 ## Fixed
 
