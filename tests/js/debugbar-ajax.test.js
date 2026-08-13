@@ -130,9 +130,8 @@ describe('the server-rendered toolbar', () => {
         await sandbox.fetch('/api/1.0/things');
         await settle();
 
-        // Assert — the request is listed, newest first *in the table*. The
-        // waterfall above it runs the other way, oldest first, because a time
-        // axis reads downwards — so the order is asserted where it is claimed.
+        // Assert — the request is listed, newest first. There is one list: the
+        // waterfall used to be a second one above it, running the other way.
         openTab(dom, 'requests');
         const table = dom.byId['pdb-panel'].innerHTML.split('<table')[1];
         assert.ok(
@@ -1051,15 +1050,64 @@ describe('the server-rendered toolbar', () => {
         await settle();
         openTab(dom, 'requests');
 
-        // Assert — a bar per request, oldest first, on a shared axis
+        // Assert — one bar per request, in the row that describes it
         const html = dom.byId['pdb-panel'].innerHTML;
         const bars = html.match(/pdb-wf-bar/g) || [];
         assert.equal(bars.length, 3, 'the page and both calls');
         assert.match(html, /ms from the first request to the last/);
+        // One list, newest first. The waterfall used to be a second list above
+        // this one, in the opposite order, so moving between "what did this call
+        // do" and "how do these calls relate" meant scrolling past one to reach
+        // the other — and the two disagreed about which row was which. The bar now
+        // lives in the row, and the column reads as a waterfall because every bar
+        // shares one axis.
         assert.ok(
-            html.indexOf('/api/one') < html.indexOf('/api/two'),
-            'the axis reads downwards, oldest first'
+            html.indexOf('/api/two') < html.indexOf('/api/one'),
+            'newest first, so the call just made needs no scrolling'
         );
+        // Exactly one table: the second list is gone.
+        assert.equal((html.match(/<table/g) || []).length, 1);
+    });
+
+    /**
+     * The clear button empties the list, and is not a copy button.
+     *
+     * Both halves are here because of one bug. The button was given the `pdb-copy`
+     * class for its looks, and the delegated click handler checks for a copy button
+     * **first** — so clicking "clear" copied `undefined` to the clipboard and
+     * returned, and the list stayed exactly as it was. The same mistake was in the
+     * API tab's Send button, where it meant the request was never made.
+     *
+     * The click tests could not catch it: the DOM stub's `closest()` matches only
+     * the selector a test passes, so `closest('.pdb-copy')` returned null and the
+     * button appeared to work. This asserts the markup instead — an action button
+     * must not carry the class that shadows it.
+     */
+    test('clear empties the request list, and is not styled as a copy button', async () => {
+        // Arrange
+        const server = () => Promise.resolve(makeResponse({
+            status: 200, body: body({ request: { time: 5 } }),
+        }));
+        const { dom, sandbox } = loadToolbar({ payload: island(), fetch: server });
+        await sandbox.fetch('/api/one');
+        await settle();
+        openTab(dom, 'requests');
+
+        // Assert — the button exists and does not pretend to be a copy button
+        const before = dom.byId['pdb-panel'].innerHTML;
+        assert.match(before, /id="pdb-clear"/);
+        const clearButton = before.match(/<button[^>]*id="pdb-clear"[^>]*>/)[0];
+        assert.doesNotMatch(clearButton, /pdb-copy/, 'the copy handler would shadow it');
+        assert.match(before, /\/api\/one/);
+
+        // Act
+        clickInBar(dom, '#pdb-clear');
+
+        // Assert — nothing recorded, and the bar is still there
+        const after = dom.byId['pdb-panel'].innerHTML;
+        assert.doesNotMatch(after, /\/api\/one/);
+        assert.match(dom.byId['pdb-tabs'].innerHTML, /requests<span class="pdb-tab-count">0</);
+        assert.ok(dom.byId['pramnos-debugbar'], 'the bar survives its list being cleared');
     });
 
     /**
@@ -1076,11 +1124,13 @@ describe('the server-rendered toolbar', () => {
     });
 
     /**
-     * Clicking a bar picks that request, the same as clicking its row — the
-     * waterfall is where the slow one is spotted, so it has to be where it can
-     * be opened.
+     * A bar is inside the row it describes, so the slow one is opened by clicking
+     * where it was spotted.
+     *
+     * It used to be in a separate list with its own click handler; now there is one
+     * row, and the row already knows which request it is.
      */
-    test('a waterfall bar selects its request', async () => {
+    test('the row carrying a bar selects its request', async () => {
         // Arrange
         const server = () => Promise.resolve(makeResponse({
             status: 200, body: body({ request: { time: 9 } }),
@@ -1090,8 +1140,8 @@ describe('the server-rendered toolbar', () => {
         await settle();
         openTab(dom, 'requests');
 
-        // Act — click the bar belonging to the fetch
-        clickInBar(dom, '.pdb-wf-row', { dataset: { entry: '1' } });
+        // Act — click the row the bar lives in
+        clickInBar(dom, '.pdb-row', { dataset: { entry: '1' } });
 
         // Assert
         assert.match(dom.byId['pdb-info'].innerHTML, /\/api\/interesting/);

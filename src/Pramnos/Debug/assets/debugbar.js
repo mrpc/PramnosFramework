@@ -70,6 +70,13 @@
     /** Where the "I hid the bar" choice lives, shared by both deliveries. */
     var HIDDEN_KEY = 'pramnos.debugbar.hidden';
 
+    /** Where the panel's height is remembered, the way the hidden flag is. */
+    var HEIGHT_KEY = 'pramnos.debugbar.height';
+
+    /** The panel will not be dragged smaller or larger than this, in pixels. */
+    var MIN_HEIGHT = 80;
+    var MAX_HEIGHT = 900;
+
     /** Keys whose values are replaced before they can be read or screenshotted. */
     var SECRET = /pass|secret|token|apikey|api_key|authorization|cookie|csrf/i;
 
@@ -187,10 +194,12 @@
         loading: false,
         ops: [],          // [{method, path, summary, body}]
         selected: -1,
-        path: '',         // the path, with its parameters filled in by hand
+        path: '',         // the path, with its parameters substituted in
+        params: {},       // parameter name => the value the reader typed
         body: '',
         sendToken: true,
-        result: null      // {status, ms, text}
+        sending: false,   // a call is in flight, and the panel says so
+        result: null      // {status, statusText, ms, text, url}
     };
 
     /**
@@ -237,6 +246,7 @@
     var panelEl = null;
     var infoEl = null;
     var handleEl = null;
+    var gripEl = null;
     var styleEl = null;
 
     // ── Escaping ────────────────────────────────────────────────────────────
@@ -875,9 +885,24 @@
         + 'background:#1e1e2e;color:#89b4fa;border:1px solid #313244;border-radius:6px;padding:2px 7px;'
         + 'cursor:pointer;font:12px/1.4 ui-monospace,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4)}'
         + '#pdb-restore:hover{color:#cba6f7;border-color:#cba6f7}'
-        + '#pdb-panel{max-height:320px;overflow:auto;padding:8px 12px;background:#181825;'
+        + '#pdb-panel{height:320px;overflow:auto;padding:8px 12px;background:#181825;'
         + 'border-top:1px solid #313244;display:none}'
-        + '#pdb-panel p{margin:0 0 6px}'
+        + '#pdb-grip{display:none;height:6px;cursor:ns-resize;background:#313244}'
+        + '#pdb-grip:hover{background:#89b4fa}'
+        + '#pdb-grip.pdb-dragging{background:#cba6f7}'
+        // A type scale, because without one the panel had none: an explanation, a
+        // section heading and a table cell were all 12px, so the prose shouted as
+        // loudly as the data it was describing. Reported from a screenshot.
+        + '#pdb-panel{font-size:11px;line-height:1.45}'
+        + '#pdb-panel p{margin:0 0 6px;max-width:104ch}'
+        // Prose is quieter than data, and capped in measure: a 2560px monitor
+        // otherwise gives a 300-character line, which nobody reads twice.
+        + '#pdb-panel p.pdb-muted{font-size:10px;line-height:1.5;color:#7f849c}'
+        + '.pdb-h{margin:10px 0 4px;font-size:11px;font-weight:bold;color:#89b4fa;'
+        + 'letter-spacing:.02em}'
+        + '.pdb-h:first-child{margin-top:0}'
+        // The one line that says what a tab is for, set apart from both.
+        + '.pdb-lead{font-size:10px;color:#9399b2;margin:0 0 8px;max-width:104ch}'
         + '.pdb-table{width:100%;border-collapse:collapse;font-size:11px}'
         + '.pdb-table th{background:#313244;padding:4px 8px;text-align:left;color:#89b4fa}'
         + '.pdb-table td{padding:3px 8px;border-bottom:1px solid #1e1e2e;vertical-align:top}'
@@ -901,6 +926,15 @@
         + '.pdb-copy:hover{background:#313244;color:#cba6f7;border-color:#cba6f7}'
         + '.pdb-copy.pdb-copied{color:#a6e3a1;border-color:#a6e3a1}'
         + '.pdb-copy-all{color:#cba6f7;padding:1px 6px;margin-left:6px}'
+        // An action button, not a copy button. They looked identical and were
+        // therefore written with the same class — which put them behind the
+        // copy handler, so clicking one copied nothing and did nothing.
+        + '.pdb-btn{background:none;border:1px solid #45475a;color:#cdd6f4;cursor:pointer;'
+        + 'font:10px ui-monospace,monospace;padding:0 5px;border-radius:2px;line-height:15px;'
+        + 'vertical-align:middle}'
+        + '.pdb-btn:hover{background:#313244;color:#cba6f7;border-color:#cba6f7}'
+        + '.pdb-btn-primary{color:#a6e3a1;border-color:#a6e3a1;padding:1px 8px}'
+        + '.pdb-btn-primary:hover{background:#313244;color:#cba6f7;border-color:#cba6f7}'
         + '.pdb-dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}'
         + '.pdb-dl dt{color:#6c7086}'
         + '.pdb-dl dd{margin:0}'
@@ -916,11 +950,9 @@
         + '.pdb-muted{color:#6c7086}'
         + '.pdb-id-copy{opacity:0;transition:opacity .1s}'
         + '.pdb-row:hover .pdb-id-copy{opacity:1}'
-        + '.pdb-wf{margin:4px 0 0}'
-        + '.pdb-wf-row{display:flex;align-items:center;gap:6px;height:14px;cursor:pointer}'
-        + '.pdb-wf-row:hover{background:#1e1e2e}'
-        + '.pdb-wf-label{flex:0 0 200px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
-        + '.pdb-wf-track{position:relative;flex:1;height:8px;background:#181825;border-radius:2px}'
+        + '.pdb-requests td.pdb-wf-cell{width:38%;min-width:120px;padding:3px 8px}'
+        + '.pdb-wf-track{position:relative;display:block;width:100%;height:8px;background:#181825;'
+        + 'border-radius:2px}'
         + '.pdb-wf-bar{position:absolute;top:0;height:100%;border-radius:2px;min-width:2px}'
         + '.pdb-wf-mark{opacity:.5}'
         + '.pdb-split{display:flex;height:14px;border-radius:3px;overflow:hidden;background:#45475a;margin:4px 0 0}'
@@ -987,7 +1019,8 @@
 
         root = document.createElement('div');
         root.id = 'pramnos-debugbar';
-        root.innerHTML = '<div id="pdb-bar"><span id="pdb-brand">&#9881; Pramnos</span>'
+        root.innerHTML = '<div id="pdb-grip" title="Drag to resize the panel"></div>'
+            + '<div id="pdb-bar"><span id="pdb-brand">&#9881; Pramnos</span>'
             + '<span id="pdb-tabs"></span><span id="pdb-info"></span>'
             + devPanelLink()
             + '<button class="pdb-close" id="pdb-close-btn" title="Hide the toolbar">&#x2715;</button></div>'
@@ -1011,6 +1044,10 @@
         tabsEl = root.querySelector('#pdb-tabs');
         panelEl = root.querySelector('#pdb-panel');
         infoEl = root.querySelector('#pdb-info');
+        gripEl = root.querySelector('#pdb-grip');
+
+        installResize();
+        applyStoredHeight();
 
         // One delegated listener: rows and buttons are redrawn constantly, and
         // per-element handlers would leak with them.
@@ -1054,6 +1091,96 @@
             } else {
                 localStorage.removeItem(HIDDEN_KEY);
             }
+        } catch (e) {
+            /* see isHiddenStored */
+        }
+    }
+
+    /**
+     * Let the panel be resized by dragging its top edge.
+     *
+     * 320px suits a SQL tab with four queries in it and is too short for a
+     * waterfall, a stack trace or a JSON response — and the panel is where all of
+     * those are read. The height is remembered like the hidden flag, because
+     * re-dragging it on every page load would be worse than the fixed height it
+     * replaced.
+     *
+     * Listeners go on the document rather than the grip: a pointer that leaves the
+     * 6px strip mid-drag must not end the drag, which is what makes a hand-built
+     * resize feel broken.
+     */
+    function installResize() {
+        if (!gripEl || typeof document.addEventListener !== 'function') {
+            return;
+        }
+
+        var startY = 0;
+        var startHeight = 0;
+        var dragging = false;
+
+        gripEl.addEventListener('mousedown', function (event) {
+            dragging = true;
+            startY = event.clientY || 0;
+            startHeight = panelEl.offsetHeight || currentHeight();
+            if (gripEl.classList) {
+                gripEl.classList.add('pdb-dragging');
+            }
+            if (event.preventDefault) {
+                event.preventDefault();
+            }
+        });
+
+        document.addEventListener('mousemove', function (event) {
+            if (!dragging) {
+                return;
+            }
+            // Upwards is taller: the panel grows from the bottom of the window.
+            setPanelHeight(startHeight + (startY - (event.clientY || 0)));
+        });
+
+        document.addEventListener('mouseup', function () {
+            if (!dragging) {
+                return;
+            }
+            dragging = false;
+            if (gripEl.classList) {
+                gripEl.classList.remove('pdb-dragging');
+            }
+            rememberHeight(currentHeight());
+        });
+    }
+
+    /** The panel's height as it stands, in pixels. */
+    function currentHeight() {
+        var value = parseInt(String(panelEl && panelEl.style ? panelEl.style.height : ''), 10);
+        return isNaN(value) ? 320 : value;
+    }
+
+    /** Set the panel's height, within the bounds a panel is useful at. */
+    function setPanelHeight(height) {
+        var bounded = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(height)));
+        if (panelEl && panelEl.style) {
+            panelEl.style.height = bounded + 'px';
+        }
+        return bounded;
+    }
+
+    /** Restore the height this reader last chose. */
+    function applyStoredHeight() {
+        try {
+            var stored = parseInt(String(localStorage.getItem(HEIGHT_KEY)), 10);
+            if (!isNaN(stored)) {
+                setPanelHeight(stored);
+            }
+        } catch (e) {
+            /* a height that cannot be read is a height that stays at its default */
+        }
+    }
+
+    /** Remember it for the next page. */
+    function rememberHeight(height) {
+        try {
+            localStorage.setItem(HEIGHT_KEY, String(height));
         } catch (e) {
             /* see isHiddenStored */
         }
@@ -1122,10 +1249,16 @@
 
         if (activeTab === null) {
             panelEl.style.display = 'none';
+            if (gripEl && gripEl.style) {
+                gripEl.style.display = 'none';
+            }
             return;
         }
 
         panelEl.style.display = 'block';
+        if (gripEl && gripEl.style) {
+            gripEl.style.display = 'block';
+        }
         panelEl.innerHTML = activeTab === 'requests'
             ? renderRequests()
             : requestBodySection(entry) + renderTab(activeTab, entry);
@@ -1299,7 +1432,9 @@
 
     /** The list of requests — the tab that makes the others make sense. */
     function renderRequests() {
+        var axis = timeAxis();
         var rows = '';
+
         for (var i = entries.length - 1; i >= 0; i--) {
             var e = entries[i];
             var q = queryCount(e);
@@ -1314,34 +1449,30 @@
                 + '<td class="pdb-s-' + String(e.status).charAt(0) + '">' + esc(e.status) + '</td>'
                 + '<td class="pdb-time">' + (ms === null ? '—' : ms + 'ms') + '</td>'
                 + '<td class="pdb-time">' + (q === null ? '—' : q) + '</td>'
+                + timelineCell(e, i, axis)
                 + '</tr>';
         }
 
-        return '<p class="pdb-muted">Click a request to see what it did.</p>'
-            + waterfall()
-            + '<table class="pdb-table"><thead><tr><th>At</th><th>Method</th><th>Path</th>'
-            + '<th>Status</th><th>Server</th><th>SQL</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        return '<p class="pdb-muted">Click a request to see what it did.'
+            + (entries.length > 1
+                ? ' The bars share one axis — ' + Math.round(axis.span) + 'ms from the first '
+                    + 'request to the last — so calls that overlap look overlapped.'
+                : '')
+            + ' <button class="pdb-btn" id="pdb-clear">clear the list</button></p>'
+            + '<table class="pdb-table pdb-requests"><thead><tr><th>At</th><th>Method</th>'
+            + '<th>Path</th><th>Status</th><th>Server</th><th>SQL</th>'
+            + '<th>' + (entries.length > 1 ? 'Timeline' : '') + '</th></tr></thead><tbody>'
+            + rows + '</tbody></table>';
     }
 
     /**
-     * Every request on one time axis.
+     * The shared time axis every row's bar is drawn against.
      *
-     * This is the SPA-specific insight no per-request tab can give, and it is
-     * why the requests list is a list rather than a stack of unrelated numbers:
-     * three calls that each take 200ms are a 200ms page if they overlap and a
-     * 600ms page if they do not, and the tab that shows each of them separately
-     * cannot tell you which you have. A polling loop looks like a comb; a
-     * waterfall of stairs is a chain of calls waiting on each other, and both
-     * are invisible one request at a time.
-     *
-     * Drawn from what is already recorded: when each request started, and how
-     * long the browser saw it take. Requests with no client duration — the page
-     * itself, or a response that only carried a header — are drawn as marks
-     * rather than bars, because a width would be a guess.
+     * @returns {{first: number, span: number}}
      */
-    function waterfall() {
-        if (entries.length < 2) {
-            return '';
+    function timeAxis() {
+        if (entries.length === 0) {
+            return { first: 0, span: 1 };
         }
 
         var first = entries[0].at.getTime();
@@ -1354,28 +1485,58 @@
             }
         });
 
-        var span = Math.max(1, last - first);
-        var bars = '';
+        return { first: first, span: Math.max(1, last - first) };
+    }
 
-        entries.forEach(function (e, i) {
-            var offset = ((e.at.getTime() - first) / span) * 100;
-            var known  = typeof e.ms === 'number' && e.ms > 0;
-            var width  = known ? Math.max(0.6, (e.ms / span) * 100) : 0.6;
-            var colour = wentWrong(e) ? '#f38ba8' : PALETTE[i % PALETTE.length];
+    /**
+     * One request's bar, in the row that describes it.
+     *
+     * The waterfall used to be a second list above this one: the same requests
+     * again, in the opposite order — the table newest-first, the waterfall
+     * oldest-first — so moving between "what did this call do" and "how do these
+     * calls relate" meant scrolling past one to reach the other, and the two
+     * disagreed about which row was which. Drawing the bar in the row it belongs
+     * to removes the second list, and the column reads as a waterfall because
+     * every bar shares one axis.
+     *
+     * Requests with no client duration — the page itself, or a response that only
+     * carried a header — are drawn as a mark rather than a bar, because a width
+     * would be a guess.
+     */
+    function timelineCell(entry, index, axis) {
+        if (entries.length < 2) {
+            return '<td></td>';
+        }
 
-            bars += '<div class="pdb-wf-row" data-entry="' + i + '">'
-                + '<span class="pdb-wf-label pdb-muted">' + esc(shortPath(e.path)) + '</span>'
-                + '<span class="pdb-wf-track">'
-                + '<span class="pdb-wf-bar' + (known ? '' : ' pdb-wf-mark') + '" style="left:'
-                + Math.min(99.4, offset).toFixed(2) + '%;width:' + width.toFixed(2) + '%;'
-                + 'background:' + colour + '" title="'
-                + escAttr(e.method + ' ' + e.path + (known ? ' — ' + e.ms + 'ms' : ''))
-                + '"></span></span></div>';
-        });
+        var known  = typeof entry.ms === 'number' && entry.ms > 0;
+        var offset = ((entry.at.getTime() - axis.first) / axis.span) * 100;
+        var width  = known ? Math.max(0.6, (entry.ms / axis.span) * 100) : 0.6;
+        var colour = wentWrong(entry) ? '#f38ba8' : PALETTE[index % PALETTE.length];
 
-        return '<div class="pdb-wf">' + bars + '</div>'
-            + '<p class="pdb-muted" style="margin:2px 0 8px">'
-            + Math.round(span) + 'ms from the first request to the last</p>';
+        return '<td class="pdb-wf-cell"><span class="pdb-wf-track">'
+            + '<span class="pdb-wf-bar' + (known ? '' : ' pdb-wf-mark') + '" style="left:'
+            + Math.min(99.4, Math.max(0, offset)).toFixed(2) + '%;width:' + width.toFixed(2) + '%;'
+            + 'background:' + colour + '" title="'
+            + escAttr(entry.method + ' ' + entry.path + (known ? ' — ' + entry.ms + 'ms' : ''))
+            + '"></span></span></td>';
+    }
+
+    /**
+     * Forget every request recorded so far, and keep the bar.
+     *
+     * A polling SPA fills this list until the call somebody is looking for has
+     * scrolled away, and there was no way to say "start from here". Clearing is
+     * therefore about attention rather than memory: the next request repopulates
+     * the list, and the panel says plainly that nothing is recorded rather than
+     * pretending the page has done nothing.
+     */
+    function clearEntries() {
+        entries = [];
+        serverLogs = {};
+        clientErrors = [];
+        selected = -1;
+        userPicked = false;
+        render();
     }
 
     /** The tail of a path, which is the part that identifies it in a narrow column. */
@@ -2025,7 +2186,8 @@
                 + '<td>' + esc(op.op || '') + '</td><td>' + esc(op.key === undefined || op.key === null ? '—' : op.key)
                 + '</td></tr>';
         });
-        return '<p><strong>' + (data.count || 0) + ' model class(es)</strong> — '
+        return heading('Models')
+            + '<p class="pdb-muted">' + (data.count || 0) + ' class(es), '
             + (data.ops || 0) + ' operation(s)</p>'
             + '<table class="pdb-table"><thead><tr><th>Class</th><th>Table</th><th>Op</th><th>Key</th></tr>'
             + '</thead><tbody>' + (rows || '<tr><td colspan="4" class="pdb-muted">No model operations</td></tr>')
@@ -2042,7 +2204,8 @@
      */
     function renderServices(data) {
         var used = data.services || [];
-        var head = '<p><strong>' + (data.count || 0) + ' service(s)</strong> — '
+        var head = heading('Services')
+            + '<p class="pdb-muted">' + (data.count || 0) + ' service(s), '
             + (data.ops || 0) + ' measured call(s)</p>';
 
         if (!used.length) {
@@ -2211,40 +2374,74 @@
     }
 
     /**
-     * What the browser thinks the world is: configuration, URL, storage.
+     * A section heading inside the panel.
      *
-     * Three sections in one tab because they are one question asked three ways.
-     * "Why does my deep link 404" is answered by the router base against the
-     * current path; "why am I suddenly signed out" is answered by a stale token
-     * in storage; and both start with what the shell actually injected, which is
-     * the thing nobody can see by reading the source.
+     * One place, because these were written as `<p><strong>…</strong></p>` at each
+     * site and therefore had no size of their own: a heading, an explanation and a
+     * table cell all came out at the same size, which is a panel with no hierarchy.
+     *
+     * @param {string} text
      */
-    function renderClientState() {
-        return runtimeSection() + routerSection() + storageSection();
+    function heading(text) {
+        return '<p class="pdb-h">' + esc(text) + '</p>';
     }
 
     /**
-     * `window.__PRAMNOS__`, as injected — masked.
+     * What the browser knows about this application.
      *
-     * The application's own API key lives in here. It is not a secret in the
-     * strict sense (a browser has to be given it), but this panel is
-     * screenshotted into bug reports, and a key in a bug report is a key that has
-     * to be rotated.
+     * Three sections, and a lead that says so — because the tab used to open on
+     * three boxes with no statement of what they were for. Reported plainly: "I do
+     * not understand what this does, especially in an MVC app." In an MVC
+     * application two of the three are *not applicable* rather than empty, and
+     * saying "the page injected no window.__PRAMNOS__" answered a question nobody
+     * had asked, in the name of a variable that is the framework's business.
+     */
+    function renderClientState() {
+        return '<p class="pdb-lead">What the browser knows about this application: '
+            + 'what the server told it, where it thinks it is, and what it has '
+            + 'stored.</p>'
+            + runtimeSection() + routerSection() + storageSection();
+    }
+
+    /**
+     * The configuration the server handed the browser, masked.
+     *
+     * A single-page application is given its API address, its key and its feature
+     * flags before any of its code runs, and that hand-off is invisible in the
+     * source of either side. It is the first thing to check when calls go to the
+     * wrong place.
+     *
+     * A server-rendered page hands the browser nothing, because it has no reason
+     * to: it renders the pages itself. That is why the absence is read differently
+     * depending on where we are — the data island is the fact that settles it, and
+     * it exists only on a page the framework rendered.
      */
     function runtimeSection() {
         var runtime = window.__PRAMNOS__;
+        var lead = heading('What the server told the browser');
+
         if (!runtime || typeof runtime !== 'object') {
-            return '<p><strong>Runtime configuration</strong></p>'
-                + '<p class="pdb-muted">The page injected no <code>window.__PRAMNOS__</code>. '
-                + 'On a server-rendered page there is none to inject; in a SPA it '
-                + 'means the shell did not run, and the API client is falling back '
-                + 'to its built-in defaults.</p>';
+            if (hasMvcPage) {
+                return lead + '<p class="pdb-muted">This page was rendered by the '
+                    + 'server, so the browser was given no configuration of its own — '
+                    + 'nothing to show here, and nothing wrong. This section is for a '
+                    + 'single-page application, where the server hands the front end '
+                    + 'its API address and key before any code runs.</p>';
+            }
+
+            return lead + '<p style="color:#fab387">The front end was given no '
+                + 'configuration.</p><p class="pdb-muted">In a single-page '
+                + 'application the server\'s shell normally hands it the API address '
+                + 'and key before any code runs. Without that, the API client falls '
+                + 'back to its <strong>built-in defaults</strong> — a common reason '
+                + 'for calls going to the wrong path, or being refused for want of a '
+                + 'key.</p>';
         }
 
-        return '<p><strong>Runtime configuration</strong> '
-            + '<span class="pdb-muted">— <code>window.__PRAMNOS__</code>, as the shell '
-            + 'injected it</span></p>'
-            + '<pre class="pdb-pre">' + esc(JSON.stringify(mask(runtime), null, 2)) + '</pre>';
+        return lead
+            + '<pre class="pdb-pre">' + esc(JSON.stringify(mask(runtime), null, 2)) + '</pre>'
+            + '<p class="pdb-muted">Secrets are masked. In the page source this is '
+            + '<code>window.__PRAMNOS__</code>.</p>';
     }
 
     /**
@@ -2275,12 +2472,19 @@
             rows += row('Since', clockTime(clientRoute.at));
         }
 
-        var note = clientRoute
-            ? ''
-            : '<p class="pdb-muted">No router has reported a route. A SPA router can '
-                + 'call <code>reportRoute(name, { base })</code> from '
-                + '<code>lib/debug.js</code>; without it, the URL above is all this '
-                + 'panel can know.</p>';
+        var note = '';
+        if (!clientRoute) {
+            note = hasMvcPage
+                ? '<p class="pdb-muted">The server decided which page this URL is, so '
+                    + 'there is no client-side route to report — see the '
+                    + '<strong>Route</strong> tab for the controller and action it '
+                    + 'chose. This section fills in for a single-page application, '
+                    + 'where the routing happens in the browser.</p>'
+                : '<p class="pdb-muted">No router has reported a route, so the URL '
+                    + 'above is all this panel knows. A router can say where it '
+                    + 'arrived by calling <code>reportRoute(name, { base })</code> '
+                    + 'from <code>lib/debug.js</code> — the scaffolded one does.</p>';
+        }
 
         // The mismatch worth naming, since it is the reported failure: a path that
         // does not start with the base cannot resolve to anything but the fallback.
@@ -2290,7 +2494,7 @@
                 + '"404s" and quietly lands on the home screen instead.</p>';
         }
 
-        return '<p style="margin-top:8px"><strong>Router</strong></p>'
+        return heading('Where the application thinks it is')
             + '<table class="pdb-table"><tbody>' + rows + '</tbody></table>' + note;
     }
 
@@ -2314,8 +2518,11 @@
      * to empty the tab.
      */
     function storageSection() {
-        return '<p style="margin-top:8px"><strong>Storage</strong> '
-            + '<span class="pdb-muted">— secrets masked by key name</span></p>'
+        return heading('What the browser has stored')
+            + '<p class="pdb-muted">Where a stale sign-in token shows up: it survives a '
+            + 'deploy, the server signs with a new key, and every call then fails in a '
+            + 'way that looks like a server problem. Secret-looking values are masked '
+            + 'by key name.</p>'
             + storageTable('localStorage')
             + storageTable('sessionStorage');
     }
@@ -2391,12 +2598,12 @@
         }
 
         if (pg.error) {
-            return '<p><strong>API playground</strong></p>'
+            return heading('API playground')
                 + '<p style="color:#f38ba8">' + esc(pg.error) + '</p>'
                 + '<p class="pdb-muted">The endpoint list comes from the project\'s '
                 + 'OpenAPI document. Generate it with <code>npm run docs:build</code> '
                 + '(or <code>./dockernpm run docs:build</code>), then '
-                + '<button class="pdb-copy pdb-pg-reload">try again</button>.</p>';
+                + '<button class="pdb-btn pdb-pg-reload">try again</button>.</p>';
         }
 
         if (!pg.doc) {
@@ -2406,12 +2613,14 @@
             return '<p class="pdb-muted">Reading the OpenAPI document…</p>';
         }
 
-        return '<p><strong>API playground</strong> <span class="pdb-muted">— '
-            + pg.ops.length + ' documented endpoint(s), against <code>'
-            + esc(apiBase() || '(same origin)') + '</code></span></p>'
-            + playgroundList()
+        return heading('API playground')
+            + '<p class="pdb-lead">' + pg.ops.length + ' documented endpoint(s), called '
+            + 'against <code>' + esc(apiBase() || '(same origin)') + '</code>. The call is '
+            + 'real: it is recorded in the requests list like any other, so every tab '
+            + 'answers for it.</p>'
             + playgroundForm()
-            + playgroundResult();
+            + playgroundResult()
+            + playgroundList();
     }
 
     /** The endpoints, as clickable rows. */
@@ -2433,22 +2642,45 @@
             + '<th>Summary</th></tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
-    /** The request being composed, once an endpoint is picked. */
+    /**
+     * The request being composed, once an endpoint is picked.
+     *
+     * The parameters the document declares are fields, because editing `{braces}`
+     * inside a path string is not a form — and query parameters were not offered at
+     * all, so the only way to send one was to type it into the path by hand.
+     */
     function playgroundForm() {
         if (pg.selected < 0 || !pg.ops[pg.selected]) {
-            return '<p class="pdb-muted" style="margin-top:6px">Pick an endpoint to call it.</p>';
+            return '<p class="pdb-muted" style="margin-top:6px">Pick an endpoint above '
+                + 'to call it.</p>';
         }
 
         var op = pg.ops[pg.selected];
         var token = storedToken();
 
+        var fields = '';
+        (op.params || []).forEach(function (param, index) {
+            fields += '<tr><td style="color:#89b4fa;white-space:nowrap">' + esc(param.name)
+                + (param.required ? ' <span style="color:#f38ba8">*</span>' : '')
+                + '</td>'
+                + '<td class="pdb-muted" style="white-space:nowrap">' + esc(param.in) + '</td>'
+                + '<td><input class="pdb-pg-input pdb-pg-param" id="pdb-pg-p' + index + '" '
+                + 'value="' + escAttr(pg.params[param.name] === undefined ? '' : pg.params[param.name])
+                + '" placeholder="' + escAttr(param.description || param.name) + '"></td></tr>';
+        });
+
         return '<div style="margin-top:8px">'
-            + '<p><strong>' + esc(op.method) + '</strong> '
+            + heading('Request')
+            + (fields !== ''
+                ? '<table class="pdb-table"><thead><tr><th>Parameter</th><th>In</th>'
+                    + '<th>Value</th></tr></thead><tbody>' + fields + '</tbody></table>'
+                : '')
+            + '<p style="margin-top:6px"><strong>' + esc(op.method) + '</strong> '
             + '<input id="pdb-pg-path" class="pdb-pg-input" value="' + escAttr(pg.path) + '">'
-            + ' <button class="pdb-copy pdb-copy-all" id="pdb-pg-send">Send</button></p>'
-            + (op.path.indexOf('{') > -1
-                ? '<p class="pdb-muted">This path has parameters — replace the '
-                    + '<code>{braces}</code> above with real values.</p>'
+            + ' <button class="pdb-btn pdb-btn-primary" id="pdb-pg-send">Send</button></p>'
+            + (op.path.indexOf('{') > -1 && (op.params || []).length === 0
+                ? '<p class="pdb-muted">This path has parameters the document does not '
+                    + 'declare — replace the <code>{braces}</code> above by hand.</p>'
                 : '')
             + (op.body !== null
                 ? '<textarea id="pdb-pg-body" class="pdb-pg-input" rows="5">'
@@ -2457,27 +2689,105 @@
             + '<p class="pdb-muted">'
             + (token
                 ? 'Sending the stored token from <code>' + esc(token.key) + '</code>'
-                    + ' <button class="pdb-copy pdb-pg-token">'
+                    + ' <button class="pdb-btn pdb-pg-token">'
                     + (pg.sendToken ? 'don\'t' : 'do') + '</button>'
                 : 'No stored token was found, so this call is anonymous unless a '
                     + 'session cookie authenticates it.')
             + '</p></div>';
     }
 
-    /** What came back, if anything has been sent. */
+    /**
+     * What came back, directly under the button that asked for it.
+     *
+     * Reported: "when I press send, where do I see the result?" — it was rendered
+     * below the endpoint list, which on a full document meant somewhere off the
+     * bottom of the panel. It is now the first thing after the form, the status is
+     * announced in words as well as a number, and while a call is in flight the
+     * panel says so rather than looking unchanged.
+     */
     function playgroundResult() {
+        if (pg.sending) {
+            return heading('Response')
+                + '<p class="pdb-muted">Sending…</p>';
+        }
+
         if (!pg.result) {
             return '';
         }
 
         var r = pg.result;
-        var colour = r.status >= 200 && r.status < 300 ? '#a6e3a1' : '#f38ba8';
+        var ok = r.status >= 200 && r.status < 300;
+        var colour = ok ? '#a6e3a1' : '#f38ba8';
 
-        return '<p style="margin-top:8px"><strong style="color:' + colour + '">'
-            + esc(r.status || 'failed') + '</strong> '
-            + '<span class="pdb-muted">in ' + esc(r.ms) + 'ms — the call is in the '
-            + 'requests list too, with everything the server recorded for it.</span></p>'
-            + '<pre class="pdb-pre">' + esc(maskFlat(formatBody(r.text))) + '</pre>';
+        var shown = withoutDebugKey(r.text);
+
+        return heading('Response')
+            + '<p><strong style="color:' + colour + '">'
+            + esc(r.status || 'failed') + (r.statusText ? ' ' + esc(r.statusText) : '')
+            + '</strong> <span class="pdb-muted">in ' + esc(r.ms) + 'ms'
+            + (r.url ? ' — ' + esc(r.url) : '') + '</span></p>'
+            + '<pre class="pdb-pre">' + esc(maskFlat(formatBody(shown.text))) + '</pre>'
+            + '<p class="pdb-muted">'
+            + (shown.stripped
+                ? 'The response\'s own <code>_debug</code> payload is left out of this '
+                    + 'view — it is what every other tab is already showing for this '
+                    + 'call. '
+                : '')
+            + 'This call is in the <strong>requests</strong> list too, so Time, SQL and '
+            + 'Logs answer for it like any other request.</p>';
+    }
+
+    /**
+     * The response body without the debug payload it carries.
+     *
+     * In development every JSON response carries a `_debug` key, and here it is
+     * pure noise: it is an order of magnitude larger than most answers, and it is
+     * the same data every other tab of this toolbar is already showing for this
+     * exact call. Left in, it pushed `{"user":{…}}` — the thing the reader pressed
+     * Send to see — off the top of a 240px box.
+     *
+     * Anything that is not a JSON object is returned untouched, and a failure to
+     * parse costs nothing: the raw text is what gets shown.
+     *
+     * @param  {string} text
+     * @returns {{text: string, stripped: boolean}}
+     */
+    function withoutDebugKey(text) {
+        try {
+            var parsed = JSON.parse(text);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+                || parsed._debug === undefined) {
+                return { text: text, stripped: false };
+            }
+            delete parsed._debug;
+
+            return { text: JSON.stringify(parsed), stripped: true };
+        } catch (e) {
+            return { text: text, stripped: false };
+        }
+    }
+
+    /**
+     * The word that goes with a status code.
+     *
+     * "404" and "404 Not Found" carry the same information and are not equally
+     * quick to read, and this panel is read while something is already going wrong.
+     * Only the codes an API actually answers with — a full table would be a table.
+     *
+     * @param {number} status
+     */
+    function statusPhrase(status) {
+        var phrases = {
+            200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content',
+            301: 'Moved Permanently', 302: 'Found', 304: 'Not Modified',
+            400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden',
+            404: 'Not Found', 405: 'Method Not Allowed', 409: 'Conflict',
+            410: 'Gone', 422: 'Unprocessable Content', 429: 'Too Many Requests',
+            500: 'Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable',
+            504: 'Gateway Timeout'
+        };
+
+        return phrases[status] || '';
     }
 
     /**
@@ -2571,12 +2881,55 @@
                     method: method.toUpperCase(),
                     path: String(path).replace(/\/{2,}/g, '/'),
                     summary: op.summary || op.operationId || '',
-                    body: bodySampleOf(op)
+                    body: bodySampleOf(op),
+                    // Path- and query-level parameters both, since a document may
+                    // declare them on the path item rather than on the operation.
+                    params: parametersOf(item.parameters, op.parameters)
                 });
             });
         });
 
         return ops;
+    }
+
+    /**
+     * The parameters an operation declares, as fields the reader can fill in.
+     *
+     * Reported: "how do I define parameters?" — and the honest answer was that you
+     * edited `{braces}` inside a path string, which is not a form and does not
+     * mention the query parameters at all. The document already declares both, so
+     * they become inputs: path parameters substituted into the path, query
+     * parameters appended.
+     *
+     * @param  {Array} onPath      Parameters declared on the path item
+     * @param  {Array} onOperation Parameters declared on the operation
+     * @returns {Array<{name: string, in: string, required: boolean, description: string}>}
+     */
+    function parametersOf(onPath, onOperation) {
+        var seen = {};
+        var out = [];
+
+        [onPath || [], onOperation || []].forEach(function (list) {
+            (list || []).forEach(function (spec) {
+                if (!spec || !spec.name || seen[spec.in + ':' + spec.name]) {
+                    return;
+                }
+                if (spec.in !== 'path' && spec.in !== 'query') {
+                    // A header or cookie parameter is the credential machinery,
+                    // which this tab handles itself rather than asking about.
+                    return;
+                }
+                seen[spec.in + ':' + spec.name] = true;
+                out.push({
+                    name: String(spec.name),
+                    in: String(spec.in),
+                    required: !!spec.required,
+                    description: String(spec.description || '')
+                });
+            });
+        });
+
+        return out;
     }
 
     /**
@@ -2654,9 +3007,47 @@
             if (bodyEl && typeof bodyEl.value === 'string') {
                 pg.body = bodyEl.value;
             }
+
+            var op = pg.ops[pg.selected];
+            ((op && op.params) || []).forEach(function (param, index) {
+                var el = panelEl && panelEl.querySelector('#pdb-pg-p' + index);
+                if (el && typeof el.value === 'string') {
+                    pg.params[param.name] = el.value;
+                }
+            });
         } catch (e) {
             /* an input that cannot be read leaves the last known value in place */
         }
+    }
+
+    /**
+     * The path and query string this call is being sent to.
+     *
+     * Path parameters are substituted where the document said they go; query
+     * parameters are appended. A parameter left blank is left out rather than sent
+     * empty — `?status=` and "no status filter" are different requests, and the
+     * second is what an empty box means.
+     *
+     * @returns {string}
+     */
+    function playgroundTarget() {
+        var op = pg.ops[pg.selected];
+        var path = pg.path;
+        var query = [];
+
+        ((op && op.params) || []).forEach(function (param) {
+            var value = pg.params[param.name];
+            if (value === undefined || String(value) === '') {
+                return;
+            }
+            if (param.in === 'path') {
+                path = path.split('{' + param.name + '}').join(encodeURIComponent(value));
+            } else {
+                query.push(encodeURIComponent(param.name) + '=' + encodeURIComponent(value));
+            }
+        });
+
+        return path + (query.length ? (path.indexOf('?') > -1 ? '&' : '?') + query.join('&') : '');
     }
 
     /** Pick an endpoint, and start composing a call to it. */
@@ -2667,6 +3058,7 @@
         }
         pg.selected = index;
         pg.path = op.path;
+        pg.params = {};
         pg.body = op.body === null ? '' : op.body;
         pg.result = null;
         render();
@@ -2709,10 +3101,13 @@
             body = pg.body;
         }
 
-        var url = (apiBase() + pg.path).replace(/([^:])\/{2,}/g, '$1/');
+        var target = playgroundTarget();
+        var url = (apiBase() + target).replace(/([^:])\/{2,}/g, '$1/');
         var started = now();
 
         pg.result = null;
+        pg.sending = true;
+        render();
 
         send(url, {
             method: op.method,
@@ -2725,21 +3120,31 @@
             });
         }).then(function (answer) {
             var ms = Math.round(now() - started);
-            pg.result = { status: answer.status, ms: ms, text: answer.text };
+            pg.sending = false;
+            pg.result = {
+                status: answer.status,
+                statusText: statusPhrase(answer.status),
+                ms: ms,
+                text: answer.text,
+                url: target
+            };
             // Recorded like any other call, so the reader can open Time, SQL or
             // Logs for the request they just made.
-            record(op.method, pg.path, answer.status, fromText(answer.text), {
+            record(op.method, target, answer.status, fromText(answer.text), {
                 ms: ms,
                 body: body,
                 kind: 'playground'
             });
             render();
         }).catch(function (e) {
+            pg.sending = false;
             pg.result = {
                 status: 0,
+                statusText: 'no response',
                 ms: Math.round(now() - started),
                 text: 'The request failed before a response arrived: '
-                    + ((e && e.message) || 'unknown error')
+                    + ((e && e.message) || 'unknown error'),
+                url: target
             };
             render();
         });
@@ -2768,6 +3173,12 @@
 
             if (event.target.closest('#pdb-close-btn')) {
                 setHidden(true);
+                return;
+            }
+
+            if (event.target.closest('#pdb-clear')) {
+                event.stopPropagation();
+                clearEntries();
                 return;
             }
 
@@ -2815,7 +3226,7 @@
                 return;
             }
 
-            var row = event.target.closest('.pdb-row') || event.target.closest('.pdb-wf-row');
+            var row = event.target.closest('.pdb-row');
             if (row) {
                 // Clicking the row that is already selected releases it, the way
                 // clicking the open tab closes the panel.

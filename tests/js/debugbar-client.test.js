@@ -73,7 +73,7 @@ describe('the Client tab', () => {
         const html = clientPanel(loaded);
 
         // Assert
-        assert.match(html, /Runtime configuration/);
+        assert.match(html, /What the server told the browser/);
         assert.match(html, /apiPrefix/);
         assert.match(html, /Acme/);
         // The key is not a deep secret — a browser has to be given it — but a key
@@ -81,27 +81,84 @@ describe('the Client tab', () => {
         assert.doesNotMatch(html, /066146dfa45ccb5ffbae7714501da0ed/);
     });
 
-    test('a page with no injected configuration says what that means', () => {
-        // Arrange & Act
+    test('on a server-rendered page, no configuration is not a finding', () => {
+        // Arrange — a data island means the page came from the server, which is
+        // the one fact that settles this: the browser was handed nothing because
+        // there was nothing to hand it.
         const html = clientPanel(loadToolbar({ payload: island() }));
 
-        // Assert — the two readings are different and both actionable
-        assert.match(html, /injected no <code>window\.__PRAMNOS__<\/code>/);
-        assert.match(html, /the shell did not run/);
+        // Assert — said in the reader's terms, and not as a fault. The panel used
+        // to report "the page injected no window.__PRAMNOS__", which names an
+        // internal variable, describes a non-event, and reads like a defect.
+        assert.match(html, /rendered by the server/);
+        assert.match(html, /nothing wrong/);
+        assert.doesNotMatch(html, /the shell did not run/, 'that is the SPA reading');
     });
 
-    test('the URL is always shown, even with no router reporting', () => {
-        // Arrange
-        const loaded = loadToolbar({ payload: island() });
-        loaded.sandbox.location = { pathname: '/app/things/42', search: '?page=2', hash: '' };
+    test('in a SPA, missing configuration is a finding, and says what it breaks', () => {
+        // Arrange — no data island: the shell is a static file, so this is a SPA
+        const loaded = loadToolbar({ payload: null });
+        // A recorded call is what brings the bar into existence in a SPA.
+        loaded.sandbox.window.__pramnosDebugBar.record('GET', '/api/1.0/status', 200, {
+            request: { time: 4, memory: 1 },
+            queries: { count: 0, queries: [] },
+        });
 
         // Act
         const html = clientPanel(loaded);
 
-        // Assert
-        assert.match(html, /\/app\/things\/42\?page=2/);
-        assert.match(html, /No router has reported a route/);
-        assert.match(html, /reportRoute/, 'and how to make it report one');
+        // Assert — the consequence, not the variable name
+        assert.match(html, /built-in defaults/);
+        assert.match(html, /wrong (path|address)/);
+    });
+
+    test('the tab says what it is for, without naming internals', () => {
+        // Arrange
+        const loaded = loadToolbar({ payload: island() });
+        loaded.sandbox.window.__PRAMNOS__ = { appName: 'Acme', apiPrefix: '/api/1.0' };
+
+        // Act
+        const html = clientPanel(loaded);
+
+        // Assert — a lead that answers "what does this tab do", in terms of the
+        // application rather than of the framework's plumbing
+        assert.match(html, /What the server told the browser/);
+        // The variable is findable for somebody who wants it in the page source,
+        // but it is not what the section is *about*.
+        assert.ok(
+            html.indexOf('What the server told the browser') < html.indexOf('__PRAMNOS__'),
+            'the explanation comes before the internal name'
+        );
+    });
+
+    test('the URL is always shown, and the reading depends on the delivery', () => {
+        // Arrange — a server-rendered page (it has a data island)
+        const mvc = loadToolbar({ payload: island() });
+        mvc.sandbox.location = { pathname: '/app/things/42', search: '?page=2', hash: '' };
+
+        // Act
+        const mvcHtml = clientPanel(mvc);
+
+        // Assert — the URL, and no complaint about a router that has no business
+        // existing here. It used to say "No router has reported a route" and name a
+        // framework function, which reads as something missing.
+        assert.match(mvcHtml, /\/app\/things\/42\?page=2/);
+        assert.match(mvcHtml, /The server decided which page this URL is/);
+        assert.match(mvcHtml, /<strong>Route<\/strong> tab/, 'points at where the answer is');
+        assert.doesNotMatch(mvcHtml, /reportRoute/, 'not a SPA, not its problem');
+
+        // Arrange — a SPA: no island, and the bar built by a recorded call
+        const spa = loadToolbar({ payload: null });
+        spa.sandbox.window.__pramnosDebugBar.record('GET', '/api/1.0/status', 200, {
+            request: { time: 4, memory: 1 },
+            queries: { count: 0, queries: [] },
+        });
+
+        // Act & Assert — here a silent router *is* worth reporting, with the call
+        // that would fix it
+        const spaHtml = clientPanel(spa);
+        assert.match(spaHtml, /No router has reported a route/);
+        assert.match(spaHtml, /reportRoute/);
     });
 
     test('a router that reports gets its route, base and params printed', () => {
@@ -209,7 +266,7 @@ describe('the Client tab', () => {
         assert.match(html, /cannot be read here/);
         // The rest of the tab is still there, which is the whole point: one
         // refusing section used to be enough to leave the panel half-drawn.
-        assert.match(html, /Runtime configuration/);
+        assert.match(html, /What the server told the browser/);
         assert.match(html, /Acme/);
         assert.match(html, /sessionStorage/);
     });
