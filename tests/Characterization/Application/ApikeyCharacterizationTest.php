@@ -54,6 +54,21 @@ class ApikeyCharacterizationTest extends TestCase
      */
     private function ensureApplicationsTableExists(): void
     {
+        // `applications` is a shared table name — several classes across this suite create
+        // their own version of it, with different columns. `CREATE TABLE IF NOT EXISTS`
+        // therefore keeps whichever schema got there first, and this class then inserts
+        // into a table missing the columns it needs.
+        //
+        // That is not hypothetical: running `--testsuite 'Characterization Tests'` on its
+        // own failed four tests here, while the full run passed, because in a full run
+        // something else had already left the table in a shape these tests could live with.
+        // A suite that only passes in one order is a suite nobody can bisect.
+        //
+        // Dropping first makes this class's schema the one it gets, always.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        $this->db->query('DROP TABLE IF EXISTS `applications`');
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+
         // Act
         $this->db->query(
             'CREATE TABLE IF NOT EXISTS `applications` ('
