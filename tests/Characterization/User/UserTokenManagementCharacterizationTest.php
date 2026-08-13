@@ -25,6 +25,56 @@ class UserTokenManagementCharacterizationTest extends TestCase
     /** @var int[] */
     private array $createdUserIds = [];
 
+    /**
+     * Builds the user schema once for the whole class.
+     *
+     * Dropping five tables and running `User::setupDb()` per test was most of this class's
+     * 395 ms per test, and these 13 tests assert what token management does with rows.
+     * `tearDown()` already cleans up by row, so nothing about the schema needs to be per
+     * test.
+     *
+     * The explicit drop before `setupDb()` is kept for the reason the original comment
+     * gives: `setupDb()` uses `CREATE TABLE IF NOT EXISTS`, so a table left by an earlier
+     * class with a stale schema would be silently kept and then fail on INSERT.
+     * `FOREIGN_KEY_CHECKS` stays 0 across the whole drop-and-create — cycling it between
+     * the drop and the create produces InnoDB's "Failed to open the referenced table".
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $db = self::bootDatabase();
+
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (['usertokens', 'userstogroups', 'userdetails', 'users', 'usergroups'] as $t) {
+            $db->query("DROP TABLE IF EXISTS `{$t}`");
+        }
+        User::setupDb();
+        $db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    /**
+     * Loads the fixture settings and returns a connected Factory database.
+     *
+     * @return \Pramnos\Database\Database A connected handle
+     */
+    private static function bootDatabase(): \Pramnos\Database\Database
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
+        }
+
+        Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+        Application::getInstance();
+
+        $db = Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        return $db;
+    }
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
@@ -39,24 +89,6 @@ class UserTokenManagementCharacterizationTest extends TestCase
             $this->db->connect();
         }
 
-        // Drop tables before (re)creating them with User::setupDb().
-        // User::setupDb() uses CREATE TABLE IF NOT EXISTS, so it silently skips
-        // table creation when the table already exists. If a previous test run left
-        // a table with a stale schema (e.g. missing a column that was added later),
-        // subsequent INSERT statements would fail with "Field ... doesn't have a
-        // default value" or "Unknown column" errors.
-        // Explicitly dropping ensures every setUp starts with the canonical schema.
-        //
-        // FK_CHECKS=0 is held through User::setupDb() so InnoDB does not attempt
-        // FK validation mid-creation. Re-enabling after all tables exist avoids the
-        // "Failed to open the referenced table" InnoDB error that arises when FK_CHECKS
-        // is cycled between the drop and the subsequent create.
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['usertokens', 'userstogroups', 'userdetails', 'users', 'usergroups'] as $t) {
-            $this->db->query("DROP TABLE IF EXISTS `{$t}`");
-        }
-        User::setupDb();
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     protected function tearDown(): void

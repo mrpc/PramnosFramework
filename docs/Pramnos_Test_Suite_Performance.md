@@ -478,8 +478,9 @@ cheap: a typo in an environment variable must not be able to weaken a deployment
 | 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
 | 3b. Schema per class + rows per test | **81 s**, ten classes |
 | 4. ~~Fixture and hash cost in two classes~~ — **done**; the fixture was never the cost | **78 s** |
+| 5. `tests/Characterization` — one class converted, one order dependency fixed | **4 s**, and a suite that runs alone |
 
-**477 s delivered** — 56 + 136 + 126 + 78 + 81 — without removing a single test, a single
+**481 s delivered** — 56 + 136 + 126 + 78 + 81 + 4 — without removing a single test, a single
 database or the coverage report.
 
 The full run with coverage went **17:02 → 6:58**: 604 s, more than the 477 s measured
@@ -489,6 +490,47 @@ whatever the suite still does.
 
 Two of those three came from a profiler contradicting a written plan. Items 3b and 4 are
 still estimates, and should be treated as such until something measures them.
+
+### 5. `tests/Characterization` — the directory nobody had looked at
+
+17% of the run for 8.5% of the tests, and untouched by everything above. Measured on its own:
+**36.2 s across 55 classes**, of which the remaining 45 classes are 8.1 s for 681 tests —
+12 ms each, already fine. The cost is in the top ten.
+
+| Class | Before | After |
+| --- | --- | --- |
+| `UserTokenManagementCharacterizationTest` | 5.14 s | **1.31 s** |
+
+It dropped five tables and ran `User::setupDb()` per test, while its `tearDown()` already
+cleaned up by row. Schema moved to `setUpBeforeClass()`; nothing else changed.
+
+**`UserAdminCreationMySQLCharacterizationTest` (4.01 s / 5 tests, the worst per-test in the
+directory) was deliberately left alone.** It asserts on generated key *values* — that the
+first admin lands on `userid = 1`, that a scaffolded admin gets `userid = 2` because 1 is
+reserved for the anonymous identity. The schema and its `AUTO_INCREMENT` behaviour are the
+subject, which is the documented "when not to use this" case. Converting it would have meant
+resetting the counter per test, at which point most of the saving is gone anyway.
+
+#### And a suite that only passed in one order
+
+Running `./dockertest --testsuite 'Characterization Tests'` on its own **failed four tests**
+in `ApikeyCharacterizationTest`, while the full run passed. Pre-existing — confirmed by
+checking out the pre-work version of `tests/` and reproducing it.
+
+The cause is a trap already described in another class's comments, met from the other side:
+
+```php
+$this->db->query('CREATE TABLE IF NOT EXISTS `applications` (...)');
+```
+
+`applications` is a **shared table name** — several classes create their own version with
+different columns. `IF NOT EXISTS` keeps whichever schema arrived first, and this class then
+inserts into a table missing the columns it needs. In a full run something else had already
+left the table in a shape these tests could live with; alone, nothing had.
+
+Fixed by dropping before creating, so the class always gets its own schema. **A suite that
+only passes in one order is a suite nobody can bisect**, which makes this worth more than the
+time it saves.
 
 ## Is `paratest` the next step? Measured, and the answer is "not yet"
 
@@ -548,8 +590,8 @@ What is left that is cheaper, from the distribution above:
 
 - **625 tests at ≥ 100 ms are 75% of the run.** That is a shallow, wide tail — no single
   target, but the same `setUp()` patterns already documented here.
-- `Characterization` is now **17% of the time for 8.5% of the tests** (49 ms each), and has
-  not been looked at once during this work.
+- `Characterization` was **17% of the time for 8.5% of the tests**; item 5 took the largest
+  class in it and left the rest, which is 12 ms per test and not worth touching.
 - `FrameworkMigrations{MySQL,PostgreSQL,TimescaleDB}Test` are 37.2 s between them, the three
   largest classes left. Their DDL is the subject, but *how many times* they build it may not
   be.
