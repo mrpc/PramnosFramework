@@ -115,11 +115,44 @@
         // data would break every front end already reading it.
         { key: 'models',     label: 'Domain' },
         { key: 'migrations', label: 'Migrations' },
-        { key: 'exceptions', label: 'Exceptions' }
+        { key: 'exceptions', label: 'Exceptions' },
+        // Last, and the only tab whose data never came from the server: what the
+        // browser itself threw. It sits beside Exceptions on purpose — the two
+        // halves of "something went wrong" belong next to each other.
+        { key: 'errors',     label: 'Errors' }
     ];
+
+    /**
+     * Tabs drawn from what this script observed, not from a response payload.
+     *
+     * The tab loop reads `entry.payload[key]` for everything else, and there is
+     * no payload key for an error raised in the browser three seconds after the
+     * response arrived.
+     */
+    var CLIENT_TABS = { errors: true };
 
     /** @type {Array<Object>} One per request, oldest first. */
     var entries = [];
+
+    /**
+     * Errors raised in the browser, oldest first, deduplicated.
+     *
+     * @type {Array<{kind: string, message: string, stack: string, at: Date,
+     *               times: number, during: ?Object}>}
+     */
+    var clientErrors = [];
+
+    /**
+     * How many distinct browser errors are kept.
+     *
+     * Small, because identical ones collapse into a count: a render loop that
+     * throws does so thousands of times, and fifty *different* failures is
+     * already far past the point where anybody is reading them one by one.
+     */
+    var ERROR_HISTORY = 50;
+
+    /** Stack traces are truncated to this many characters before display. */
+    var STACK_LIMIT = 4096;
 
     /**
      * The framework route that hands back one request's log lines.
@@ -452,6 +485,131 @@
         } catch (e) {
             /* instrumentation never breaks the page */
         }
+    }
+
+    /**
+     * Note something the browser threw.
+     *
+     * Public, because the interesting failures are the ones somebody caught. An
+     * `ApiError` a screen handles properly never reaches `unhandledrejection`,
+     * and a component failure caught by `<svelte:boundary>` never reaches
+     * `window.onerror` — both are exactly what a reader is looking for when a
+     * screen shows an error message and the network tab looks fine. So the
+     * automatic handlers below catch what nobody caught, and this is how
+     * application code hands over what it did catch.
+     *
+     * Collected even when there is no toolbar on screen yet: in a SPA the bar
+     * appears with the first response that carries debug data, and an error
+     * thrown before that is often the reason there wasn't one. Nothing is drawn
+     * until the bar exists, so in production this stays a short array in memory
+     * and never touches the DOM.
+     *
+     * @param {Error|string} error     The failure, or a message
+     * @param {Object}       [context] { kind, request } — `kind` labels the row,
+     *                                 `request` overrides the correlated request
+     */
+    function reportError(error, context) {
+        try {
+            context = context || {};
+
+            var message = error && error.message ? String(error.message) : String(error);
+            var stack = error && error.stack ? String(error.stack).slice(0, STACK_LIMIT) : '';
+            var kind = context.kind || (error && error.name ? String(error.name) : 'error');
+            var status = error && typeof error.status === 'number' ? error.status : null;
+
+            // The same failure twice is one finding with a counter, not two rows.
+            // Identity is the label plus the message plus where it came from: a
+            // stack is often absent (a cross-origin script reports none at all),
+            // so it cannot be part of the key.
+            var key = kind + '\n' + message;
+            var seen = null;
+            clientErrors.forEach(function (item) {
+                if (item.key === key) {
+                    seen = item;
+                }
+            });
+
+            if (seen) {
+                seen.times++;
+                seen.at = new Date();
+            } else {
+                clientErrors.push({
+                    key: key,
+                    kind: kind,
+                    message: message,
+                    stack: stack,
+                    status: status,
+                    at: new Date(),
+                    times: 1,
+                    during: context.request || duringRequest()
+                });
+                if (clientErrors.length > ERROR_HISTORY) {
+                    clientErrors.shift();
+                }
+            }
+
+            // Only if there is already a bar. Creating one because the page threw
+            // would put a toolbar on a production site.
+            if (root) {
+                render();
+            }
+        } catch (e) {
+            /* the error reporter is the last thing that may throw */
+        }
+    }
+
+    /**
+     * The request an error most likely belongs to: the most recent one.
+     *
+     * A heuristic, and labelled as one in the panel ("after"). Correlating
+     * properly would mean the browser knowing which fetch a stack frame came
+     * from, which it does not — but "the call that had just come back" is right
+     * nearly every time, because that is what the code that threw was reacting
+     * to. An explicit `request` in the context beats it whenever the caller
+     * knows better, which an API client does.
+     */
+    function duringRequest() {
+        var entry = entries[entries.length - 1];
+        if (!entry) {
+            return null;
+        }
+        return {
+            method: entry.method,
+            path: entry.path,
+            status: entry.status,
+            id: requestIdOf(entry)
+        };
+    }
+
+    /**
+     * Listen for what nobody caught.
+     *
+     * Both listeners are passive — they never call `preventDefault()`, so the
+     * browser still logs to the console and any other handler still runs. A
+     * debug panel that swallowed errors would be worse than one that missed them.
+     */
+    function watchForErrors() {
+        if (typeof window.addEventListener !== 'function') {
+            return;
+        }
+
+        window.addEventListener('error', function (event) {
+            // A failed <img> or <script> fires this too, with no `error` object.
+            // Worth showing — a 404 on a bundle is a real finding — but it has to
+            // be described rather than read off an Error that is not there.
+            if (event && event.error) {
+                reportError(event.error, { kind: 'uncaught' });
+                return;
+            }
+            if (event && event.message) {
+                reportError(event.message, { kind: 'uncaught' });
+            }
+        });
+
+        window.addEventListener('unhandledrejection', function (event) {
+            var reason = event && event.reason !== undefined ? event.reason : 'unknown';
+            reportError(reason, { kind: 'unhandled rejection' });
+        });
     }
 
     /**
@@ -857,6 +1015,13 @@
                 data = newestPayloadFor(tab.key);
             }
 
+            // A client-side tab answers from what this script saw, and appears
+            // only once it has something — an Errors tab reading 0 on every page
+            // would train the eye to ignore the one time it does not.
+            if (CLIENT_TABS[tab.key]) {
+                data = clientErrors.length ? { count: clientErrors.length } : null;
+            }
+
             if (!data && !(stream && stream.length)) {
                 return;
             }
@@ -866,6 +1031,7 @@
             // whole point of collecting exceptions: nobody opens a tab to check
             // whether there is anything in it.
             var alarming = (tab.key === 'exceptions' && count > 0)
+                || (tab.key === 'errors' && count > 0)
                 || (tab.key === 'auth' && credentialExpired(data));
             html += '<button class="pdb-tab' + (activeTab === tab.key ? ' pdb-active' : '')
                 + (alarming ? ' pdb-tab-alert' : '')
@@ -943,6 +1109,10 @@
     /** The number worth putting on a tab, or null when a count means nothing. */
     function tabCount(key, data, entry) {
         switch (key) {
+            case 'errors':
+                // Distinct failures, not occurrences: a loop that throws the same
+                // thing 4000 times is one problem, and the row says 4000.
+                return clientErrors.length;
             case 'queries':
                 return typeof data.count === 'number' ? data.count : (data.queries || []).length;
             case 'logs':
@@ -1168,6 +1338,13 @@
     function renderTab(key, entry) {
         if (key === 'exceptions') {
             fetchMissingExceptionDetail();
+        }
+
+        // Before every payload check below: this tab's data never travelled in a
+        // response, and the request in view may well be the one that carried
+        // nothing back because the browser broke while handling it.
+        if (key === 'errors') {
+            return renderClientErrors();
         }
 
         // Checked before the payload: a stream tab answers for every request
@@ -1891,6 +2068,58 @@
             + '</tbody></table>';
     }
 
+    /**
+     * What the browser threw, oldest first.
+     *
+     * The server's Exceptions tab and this one are deliberately separate: they
+     * have different fields (a PHP file and line versus a JavaScript stack),
+     * different lifetimes (one request versus the whole page), and mixing them
+     * would make "where did this come from" ambiguous in the one table somebody
+     * reads while something is broken.
+     *
+     * Each row names the request it happened after, which is the correlation the
+     * roadmap asked for — the request is a fact about the error, printed on it,
+     * rather than a filter the reader has to apply.
+     */
+    function renderClientErrors() {
+        if (!clientErrors.length) {
+            return '<p class="pdb-muted">Nothing has been thrown in the browser.</p>';
+        }
+
+        var rows = '';
+        clientErrors.forEach(function (item) {
+            var during = item.during;
+            rows += '<tr>'
+                + '<td class="pdb-time">' + esc(clockTime(item.at)) + '</td>'
+                + '<td style="color:#fab387;white-space:nowrap">' + esc(item.kind)
+                + (item.status ? ' ' + esc(item.status) : '')
+                + (item.times > 1
+                    ? ' <span class="pdb-muted">×' + item.times + '</span>'
+                    : '')
+                + '</td>'
+                + '<td class="pdb-sql">' + esc(item.message)
+                + (item.stack
+                    ? '<details class="pdb-body"><summary>stack</summary>'
+                        + '<pre class="pdb-pre">' + esc(maskFlat(item.stack)) + '</pre></details>'
+                    : '')
+                + '</td>'
+                + '<td class="pdb-muted pdb-sql">'
+                + (during
+                    ? 'after ' + esc(during.method || '') + ' ' + esc(shortPath(during.path || ''))
+                        + (during.status ? ' · ' + esc(during.status) : '')
+                    : '—')
+                + '</td>'
+                + '</tr>';
+        });
+
+        return '<p><strong>' + clientErrors.length + ' browser error(s)</strong> '
+            + '<span class="pdb-muted">— raised by this page, not by the server. '
+            + 'The server\'s own are in <strong>Exceptions</strong>.</span></p>'
+            + '<table class="pdb-table"><thead><tr><th>Time</th><th>Kind</th>'
+            + '<th>Message</th><th>Request</th></tr></thead><tbody>'
+            + rows + '</tbody></table>';
+    }
+
     // ── Interaction ─────────────────────────────────────────────────────────
 
     /** Handle every click inside the bar. */
@@ -2212,6 +2441,11 @@
      */
     function boot() {
         try {
+            // Before the island check, and therefore in a SPA too: the first
+            // thing worth catching is often the error that stopped the
+            // application from ever making a request.
+            watchForErrors();
+
             var island = document.getElementById('pramnos-debug-data');
             if (!island) {
                 // No island means a SPA: its shell never went through the
@@ -2238,7 +2472,7 @@
         }
     }
 
-    window.__pramnosDebugBar = { record: record, boot: boot };
+    window.__pramnosDebugBar = { record: record, boot: boot, reportError: reportError };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);

@@ -40,17 +40,11 @@ The toolbar has one renderer
 (`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`),
 and both deliveries use it: `DebugBar::render()` emits a data island plus that
 script, and draws nothing itself. The Time tab, the cross-request waterfall, the
-Auth tab and the Domain tab have all landed; what is left is what a SPA developer
-still cannot see from the browser's side.
+Auth tab, the Domain tab and the Errors tab have all landed; what is left is what
+a SPA developer still cannot see from the browser's side.
 
-### Errors raised in the browser
-
-`window.onerror`, `unhandledrejection` and every `ApiError`, tied to the request
-that produced them, plus component failures caught through `<svelte:boundary>`.
-Component *state* stays the job of Svelte DevTools and the `$inspect` rune;
-correlation is ours. This completes the server-side Exceptions tab: today an
-error thrown in the front end after a successful response leaves no trace in the
-panel at all.
+Component *state* is deliberately not on this list: that is the job of Svelte
+DevTools and the `$inspect` rune. Correlation is ours, state is theirs.
 
 ### Runtime config and router
 

@@ -236,6 +236,11 @@ function loadToolbar({
 
     const Xhr = makeXhrClass();
 
+    // Window-level listeners, kept so a test can fire the events the browser
+    // would: `error` and `unhandledrejection` have no other way in, and asserting
+    // that the toolbar listens at all is half of what those tests are for.
+    const listeners = {};
+
     const sandbox = {
         document: dom.document,
         navigator: { clipboard: { writeText: () => Promise.resolve() } },
@@ -244,6 +249,10 @@ function loadToolbar({
         clearTimeout,
         console,
         XMLHttpRequest: Xhr,
+        __listeners: listeners,
+        addEventListener(name, fn) {
+            (listeners[name] = listeners[name] || []).push(fn);
+        },
     };
 
     Object.defineProperty(sandbox, 'localStorage', {

@@ -61,6 +61,26 @@ class DebugBarAssetTest extends TestCase
     }
 
     /**
+     * The module also exports `reportError`, and it delegates the same way.
+     *
+     * This is the half of the Errors tab that application code has to reach: the
+     * global handlers catch what nobody caught, while an `ApiError` a screen
+     * handled and a `<svelte:boundary>` failure are handed over explicitly. A
+     * missing export means the generated API client fails to import — at build
+     * time, which is at least loud, but it means no project gets those rows.
+     */
+    public function testSpaModuleExportsReportErrorAndDelegates(): void
+    {
+        // Act
+        $module = DebugBarAsset::spaModule('Acme');
+
+        // Assert
+        $this->assertStringContainsString('export function reportError(', $module);
+        $this->assertStringContainsString('bar.reportError(error, context)', $module,
+            'the export forwards rather than duplicating');
+    }
+
+    /**
      * The generated file tells whoever opens it not to edit it.
      *
      * It is framework code that happens to live in the project: an edit here is

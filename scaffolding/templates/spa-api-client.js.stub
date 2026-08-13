@@ -19,7 +19,7 @@
  * to 401 (sign in again) or 422 (field errors) instead of parsing messages.
  */
 
-import { record as recordDebug } from './debug.js';
+import { record as recordDebug, reportError as reportDebugError } from './debug.js';
 
 /** Fallback prefix, used when the shell injected no configuration. */
 const DEFAULT_PREFIX = '{{ apiPrefix }}';
@@ -133,13 +133,27 @@ export async function request(path, { method = 'GET', body = null, headers = {},
     const startedAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const encodedBody = body === null ? null : JSON.stringify(body);
 
-    const response = await fetch(apiPrefix + path, {
-        method,
-        headers: requestHeaders,
-        // Sends the session cookie, which the API accepts as a credential.
-        credentials: 'same-origin',
-        body: encodedBody,
-    });
+    let response;
+    try {
+        response = await fetch(apiPrefix + path, {
+            method,
+            headers: requestHeaders,
+            // Sends the session cookie, which the API accepts as a credential.
+            credentials: 'same-origin',
+            body: encodedBody,
+        });
+    } catch (error) {
+        // A network failure produces no response, so nothing else records it —
+        // there is no status, no `_debug`, and the request tab would show
+        // nothing at all. This is the one failure mode where the panel would
+        // otherwise be empty precisely because something went badly wrong.
+        reportDebugError(error, {
+            kind: 'network',
+            request: { method, path, status: 0 },
+        });
+
+        throw error;
+    }
     const elapsedMs = Math.round(
         (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
     );
@@ -178,7 +192,22 @@ export async function request(path, { method = 'GET', body = null, headers = {},
         }
 
         const detail = payload && payload.message ? `: ${payload.message}` : '';
-        throw new ApiError(`${method} ${path} failed (${response.status})${detail}`, response.status, payload);
+        const failure = new ApiError(
+            `${method} ${path} failed (${response.status})${detail}`,
+            response.status,
+            payload
+        );
+
+        // Reported here rather than left to a global handler: a screen that
+        // handles its own 422 never lets this reach `unhandledrejection`, and a
+        // handled failure is still a failure worth seeing in the panel next to
+        // the request that produced it.
+        reportDebugError(failure, {
+            kind: 'ApiError',
+            request: { method, path, status: response.status },
+        });
+
+        throw failure;
     }
 
     return payload;
