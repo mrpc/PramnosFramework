@@ -570,6 +570,46 @@ of running one is to narrow down a failure, and narrowing must not change the an
 *(A first attempt blamed a missing `CONFIG` constant and was wrong — the constant made no
 difference, and the guard was removed again rather than left in as noise.)*
 
+### 6. `FrameworkMigrations*` — measured, and there is no room
+
+The three migration classes are the largest left: 17.5 s, 15.0 s and 4.7 s, **37.2 s
+between them**. Their DDL is the subject, but that only settles *what* they build, not how
+many times. So it was profiled rather than assumed.
+
+The profile of two tests looked like an obvious win:
+
+```
+ 59%  dropAllTestTables()      ← 4 calls (setUp + tearDown, per test)
+ 24%  the migrations under test (up() / down())
+```
+
+`dropAllTestTables()` issues about **82 `DROP` statements** — every table, view and trigger
+the framework schema could contain — twice per test, to clean up after a test that creates
+one table. A no-op `DROP` measures 0.2 ms and one `information_schema` query listing
+everything measures 0.35 ms, so replacing 82 blind drops with "drop exactly what this test
+created" looked like it should be most of that 59%.
+
+It was implemented, and it works, and it is **stricter** than the blanket list — it catches
+tables the hand-maintained list has never heard of. Then it was measured:
+
+| | Run 1 | Run 2 | Average |
+| --- | --- | --- | --- |
+| Snapshot-and-diff | 16.98 s | 15.40 s | 16.2 s |
+| Unchanged | 16.99 s | 16.92 s | 17.0 s |
+
+**Within noise.** Single runs during development had ranged from 15.5 s to 20.1 s for the
+*same* code, which is the width of the effect being chased.
+
+**Reverted.** These are the most delicate tests in the suite — characterization of what every
+framework migration builds — and adding a schema-diffing teardown to them for a change that
+measurement cannot distinguish from noise is a bad trade. The likely explanation is that
+`information_schema` against a database holding the entire framework schema costs about what
+the 82 drops cost, so the work moved rather than disappeared.
+
+**This is the fifth time on this page that a written hypothesis lost to a measurement**, and
+the only one where the answer was "do nothing". That is a result too: 37.2 s of the remaining
+run is now known to be genuine work rather than unexamined overhead.
+
 ## Is `paratest` the next step? Measured, and the answer is "not yet"
 
 The original page said parallelism was the right *second* lever. It is time to answer it with
@@ -630,9 +670,8 @@ What is left that is cheaper, from the distribution above:
   target, but the same `setUp()` patterns already documented here.
 - `Characterization` was **17% of the time for 8.5% of the tests**; item 5 took the largest
   class in it and left the rest, which is 12 ms per test and not worth touching.
-- `FrameworkMigrations{MySQL,PostgreSQL,TimescaleDB}Test` are 37.2 s between them, the three
-  largest classes left. Their DDL is the subject, but *how many times* they build it may not
-  be.
+- ~~`FrameworkMigrations{MySQL,PostgreSQL,TimescaleDB}Test`~~ — profiled and left alone; see
+  item 6. Their 37.2 s is genuine work.
 
 Revisit parallelism when those are done and the suite is around two minutes, or immediately if
 CI wall-clock becomes the binding constraint rather than a developer's patience. The
