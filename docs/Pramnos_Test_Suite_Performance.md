@@ -278,16 +278,77 @@ shape, because for them the DDL is the subject.
 
 **Estimated saving 40–60 s**, down from 150 before the container was fixed.
 
-### 4. Two specific classes worth reading before optimising
+### 4. A fixture that was not the problem, and a hash that was — **done, 78 s**
 
-- **`MediaObjectTest`, 84.5 s / 86 tests.** It creates real JPEGs with `imagecreatetruecolor()`
-  and `imagejpeg()`, and copies them around. Some of that is the point (the class
-  manipulates images); some of it is probably one fixture image being regenerated 86
-  times, which `setUpBeforeClass()` would fix.
-- **`TwoFactorAuthService{MySQL,PostgreSQL}Test`, 55 s combined**, with single tests at
-  3.6–5.3 s. Backup codes are hashed, and a default-cost hash is deliberately slow.
-  Lowering the cost *for the test environment only* is the standard move; the algorithm
-  under test is unchanged.
+Two classes, and the item as originally written was half wrong. Again.
+
+#### `MediaObjectTest` — 46.8 s / 86 tests
+
+The study guessed "one fixture image being regenerated 86 times". The images are 10×10
+JPEGs and cost nothing. Reading `setUp()` was enough:
+
+```php
+foreach (['usertokens', 'userstogroups', 'userdetails', 'users', 'usergroups'] as $t) {
+    $this->db->query("DROP TABLE IF EXISTS `{$t}`");
+}
+User::setupDb();
+// ... then DROP + CREATE for media and mediause
+```
+
+**Seven drops and seven creates per test**, for a class where not one of the 86 tests
+asserts anything about the schema. They assert what `MediaObject` does with rows and files.
+
+The schema moved to `setUpBeforeClass()`; `setUp()` now empties the tables. Which raised a
+question worth measuring rather than assuming:
+
+| Per cycle, two tables | |
+| --- | --- |
+| `DROP` + `CREATE` | 128.6 ms |
+| `TRUNCATE` | **159.5 ms** |
+| `DELETE` + `ALTER … AUTO_INCREMENT = 1` | 18.7 ms |
+| `DELETE` | **0.22 ms** |
+
+**`TRUNCATE` is slower than dropping and recreating the table** — it is an implicit DDL
+statement, not the fast path it looks like. And the auto-increment reset costs 18 ms of the
+18.7, which this class does not need: every id assertion in it is `assertGreaterThan(0)` or
+a comparison against another id, never a literal `1`. So: plain `DELETE`.
+
+**46.8 s → 7.2 s.** Same 86 tests, same 223 assertions.
+
+The drop-and-recreate with `FOREIGN_KEY_CHECKS = 0` was kept in `setUpBeforeClass()`,
+because the reason it was written still holds: another class may have dropped `users`
+before this one runs, and InnoDB then refuses to create a table whose foreign key points at
+a table that is not there. Classes run sequentially, so once per class is as safe as 86
+times.
+
+#### `TwoFactorAuthService{,MySQL,PostgreSQL}Test` — 46.8 s combined
+
+This half of the item was right: bcrypt. On PHP 8.5, `PASSWORD_DEFAULT` is bcrypt at cost
+12 — **142.9 ms per hash** — and enabling 2FA hashes **ten** backup codes, so one call cost
+1.43 s. That is exactly the runtime of `testCompleteSetupInsertsNewRowOnSuccess`.
+
+```
+cost  4:   0.71 ms
+cost  8:   9.05 ms
+cost 12: 142.9 ms   ← the default
+```
+
+The framework's three `password_hash()` call sites now go through
+`Pramnos\Auth\PasswordHash::make()`, which reads `PRAMNOS_BCRYPT_COST` and otherwise
+behaves exactly as the bare call it replaced. `tests/bootstrap.php` sets `4`.
+
+| Class | Before | After |
+| --- | --- | --- |
+| `TwoFactorAuthServiceMySQLTest` | 21.2 s | **4.2 s** |
+| `TwoFactorAuthServicePostgreSQLTest` | 21.3 s | **4.2 s** |
+| `TwoFactorAuthServiceTest` | 4.3 s | **0.03 s** |
+
+**The algorithm under test does not change** — cost is a bcrypt parameter, so a hash made
+at cost 4 is verified by the same `password_verify()` that ships. `PasswordHashTest` asserts
+that, and asserts that every invalid cost falls back to the default rather than to something
+cheap: a typo in an environment variable must not be able to weaken a deployment.
+
+**78 s**, against an estimate of 40–80.
 
 ## What not to do
 
@@ -311,12 +372,12 @@ shape, because for them the DDL is the subject.
 | 2. ~~Scaffold once per class~~ — **done**, and by a different change: `--no-install` | **136 s** |
 | 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
 | 3b. Schema per class + transaction per test, for what remains | 40–60 s |
-| 4. Fixture and hash cost in two classes | 40–80 s |
+| 4. ~~Fixture and hash cost in two classes~~ — **done**; the fixture was never the cost | **78 s** |
 
-**318 s delivered so far** — 56 + 136 + 126 — without removing a single test, a single
+**396 s delivered so far** — 56 + 136 + 126 + 78 — without removing a single test, a single
 database or the coverage report.
 
-The full run with coverage went **17:02 → 10:15**: 407 s, more than the 318 s measured
+The full run with coverage went **17:02 → 8:27**: 515 s, more than the 396 s measured
 without it. Coverage instrumentation is a multiplier on work done, so removing work removes
 its share of the instrumentation too — the 12% figure at the top of this page is 12% of
 whatever the suite still does.

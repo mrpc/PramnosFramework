@@ -314,11 +314,27 @@ cheap alternative:
 | --- | --- | --- |
 | Connecting to a hostname that does not resolve | **8.00 s per test** | Assert on the DSN string if that is what you mean; use an IP literal (`127.0.0.1:9`) if you want a *failure*. A connect timeout does **not** help — the 8 s is `getaddrinfo()`, before any socket exists |
 | Building an expensive fixture in `setUp()` — a scaffolded project, a real JPEG | 1–2 s per test | Build it once in `setUpBeforeClass()` when the tests only read it |
+| Hashing a password at the default cost | **143 ms per hash** — and 2FA setup hashes ten | Nothing: the suite already sets `PRAMNOS_BCRYPT_COST=4` in `tests/bootstrap.php`. Use `PasswordHash::make()` rather than `password_hash()` directly, so your code obeys it |
 | Creating and dropping schema per test | ≈300 ms per test | Schema once per class; wrap each test in a transaction and roll it back |
 | Letting the code under test shell out or reach the network | **1.9 s per test**, and variable | Skip it with the flag the command already has, or should have — `init` gained `--no-install` for exactly this. A unit test that depends on composer or on HTTP is slow *and* flaky |
 
 DDL is not transactional in MySQL, which is why the split is *schema per class, data per
 test* rather than everything in one transaction.
+
+**Empty tables with `DELETE`, not `TRUNCATE`.** Measured on this project's MySQL container,
+for two tables:
+
+| | |
+| --- | --- |
+| `DROP` + `CREATE` | 128.6 ms |
+| `TRUNCATE` | **159.5 ms** |
+| `DELETE` + `ALTER … AUTO_INCREMENT = 1` | 18.7 ms |
+| `DELETE` | **0.22 ms** |
+
+`TRUNCATE` looks like the fast path and is slower than recreating the table — it is an
+implicit DDL statement. The auto-increment reset is 18 ms of the 18.7, so only pay it if an
+assertion actually depends on the first row being id 1; prefer `assertGreaterThan(0, $id)`
+and you never need to.
 
 The full measurement, and what is planned from it, is in
 [Test suite performance](Pramnos_Test_Suite_Performance.md). To check your own test's

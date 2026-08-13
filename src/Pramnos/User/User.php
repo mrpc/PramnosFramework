@@ -336,7 +336,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 \Pramnos\Application\Settings::getSetting('securitySalt')
                 . $this->userid
             );
-            $this->password = password_hash($pwd, PASSWORD_DEFAULT);
+            $this->password = \Pramnos\Auth\PasswordHash::make($pwd);
             $this->_pendingPlainPassword = null;
         } else {
             // userid not yet assigned — store MD5 as placeholder and keep the
