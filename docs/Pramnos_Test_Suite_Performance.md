@@ -21,6 +21,11 @@ standing hypothesis.
 
 Coverage instrumentation costs **≈124 s, about 12%**. Real, and not the lever.
 
+> **Where it ended up**, for a reader arriving at this page later: `--no-coverage` is now
+> **4:01** and the default run **6:58**, for 9398 tests. Every number in the
+> sections below is the measurement that was true when that item was worked on; the totals at
+> the end are current.
+
 ## The distribution is the finding
 
 From the JUnit log of the `--no-coverage` run (891 s of measured test time):
@@ -46,6 +51,35 @@ By directory:
 | `tests/Characterization` | 67.6 s (8%) | 801 | 84 ms |
 
 `tests/Feature` is declared in `phpunit.xml` and contains **no tests**.
+
+### And the same distribution after the work
+
+Measured the same way, at the end of the items below (228.3 s of measured test time):
+
+| Threshold | Tests | Share of count | Time | Share of time |
+| --- | --- | --- | --- | --- |
+| ≥ 1000 ms | 19 | 0.2% | 27.2 s | 11.9% |
+| ≥ 500 ms | 66 | 0.7% | 57.8 s | 25.3% |
+| ≥ 100 ms | 625 | 6.9% | 171.4 s | **75.0%** |
+| ≥ 50 ms | 1147 | 12.7% | 210.2 s | 92.1% |
+
+| | Time | Tests | Per test |
+| --- | --- | --- | --- |
+| `tests/Integration` | 126.9 s (55.6%) | 1161 | **109 ms** |
+| `tests/Unit` | 63.9 s (28.0%) | 7436 | 9 ms |
+| `tests/Characterization` | 38.9 s (17.0%) | 801 | 49 ms |
+
+**The shape of the problem has inverted.** It began concentrated — 203 tests were 46% of the
+run — and is now shallow and wide: the `≥ 1000 ms` bucket is down from 405.7 s to 27.2 s, and
+what remains sits in 625 tests at ≥ 100 ms. `tests/Unit` went from 60 ms per test to 9 ms.
+There is no longer a small set of classes to fix, which is what makes the parallelism question
+below worth answering with numbers.
+
+Also worth noting: **wall clock is now 4:01 against 228.3 s of measured test time** — about
+13 s of everything else. There is no meaningful fixed overhead left to remove.
+
+`tests/Characterization` is the one directory this work never touched: 17% of the time for
+8.5% of the tests.
 
 ## What the standing hypothesis got wrong
 
@@ -259,7 +293,7 @@ notices.
 **Do not do this to a database you would miss.** The settings trade crash safety for
 speed, which is only free because this data is disposable.
 
-### 3b. Schema per class, rows per test — **in progress, 46 s from five classes**
+### 3b. Schema per class, rows per test — **done, 81 s from ten classes**
 
 `Pramnos\Framework\Testing\DatabaseTestCase` now implements the split, and the first three
 classes are on it:
@@ -316,21 +350,38 @@ whatever an *earlier class* left in the cache, which one call per class handles.
 Only four test files call `cacheflush()`, so this is not a sweeping win — but it is worth
 knowing what the call costs before putting it in a `setUp()`.
 
-**Still to convert**, from the current measurement — the classes over 5 s that are not about
-DDL:
+#### The rest of the conversions, and one that had to be undone
 
-| Class | Now |
-| --- | --- |
-| `OrmRelationsMySQLTest` | 10.4 s |
-| `ModelTest` | 9.5 s |
-| `MessagingModelsMySQLTest` | 8.4 s |
-| `TokenActionMySQLTest` | 8.0 s |
-| `TwoFactorAuthTest` | 7.7 s |
-| `RbacFunctionsCharacterizationTest` | 6.5 s |
-| `MessagingModelsPostgreSQLTest` | 5.2 s |
+| Class | Before | After |
+| --- | --- | --- |
+| `OrmRelationsMySQLTest` | 10.20 s | **0.91 s** |
+| `ModelTest` | 9.05 s | **2.27 s** |
+| `MessagingModelsMySQLTest` | 8.38 s | **1.38 s** |
+| `TokenActionMySQLTest` | 8.06 s | **1.02 s** |
+| `TwoFactorAuthTest` | 5.57 s | **0.90 s** |
 
-`FrameworkMigrations{MySQL,PostgreSQL}Test` (17.7 s and 14.9 s) stay as they are: for them
-the DDL **is** the subject.
+`MessagingModelsMySQLTest` and `TokenActionMySQLTest` were rebuilding their schema by
+**running the framework migrations on every test**. `TwoFactorAuthTest` called
+`User::setupDb()` and three migrations per test. `OrmRelationsMySQLTest` dropped and created
+six tables per test. In every case the class asserts what a *model* or a *controller* does.
+
+**`MessagingModelsPostgreSQLTest` was converted and then reverted.** The identical change
+that took its MySQL sibling from 8.38 s to 1.38 s made the PostgreSQL class **slower**:
+
+| | Before | After the conversion |
+| --- | --- | --- |
+| `MessagingModelsPostgreSQLTest` | 5.71 s | **7.34 s** |
+
+Measured twice, reproducible, and reverted. The cause was not chased further — what matters
+for anyone repeating this work is the rule it implies: **the conversion pays where DDL is
+expensive, and PostgreSQL DDL is not.** The engine comparison at the top of item 3 already
+said so — 36 ms against 279.6 ms for the same drop-and-create — so on PostgreSQL the per-class
+machinery can cost more than the DDL it avoids. `RbacFunctionsCharacterizationTest` (5.95 s,
+also PostgreSQL) was left alone on the same evidence rather than converted and measured, which
+is a judgement call and marked here as one.
+
+**Left as they are on purpose:** `FrameworkMigrations{MySQL,PostgreSQL}Test` (17.7 s and
+14.9 s). For them the DDL **is** the subject.
 
 ### 4. A fixture that was not the problem, and a hash that was — **done, 78 s**
 
@@ -425,19 +476,88 @@ cheap: a typo in an environment variable must not be able to weaken a deployment
 | 1. ~~Connect timeouts~~ — **done**, by asserting on the DSN and using an IP literal | **56 s** |
 | 2. ~~Scaffold once per class~~ — **done**, and by a different change: `--no-install` | **136 s** |
 | 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
-| 3b. Schema per class + rows per test | **46 s** so far, five classes of twelve |
+| 3b. Schema per class + rows per test | **81 s**, ten classes |
 | 4. ~~Fixture and hash cost in two classes~~ — **done**; the fixture was never the cost | **78 s** |
 
-**442 s delivered so far** — 56 + 136 + 126 + 78 + 46 — without removing a single test, a
-single database or the coverage report.
+**477 s delivered** — 56 + 136 + 126 + 78 + 81 — without removing a single test, a single
+database or the coverage report.
 
-The full run with coverage went **17:02 → 7:46**: 556 s, more than the 442 s measured
+The full run with coverage went **17:02 → 6:58**: 604 s, more than the 477 s measured
 without it. Coverage instrumentation is a multiplier on work done, so removing work removes
 its share of the instrumentation too — the 12% figure at the top of this page is 12% of
 whatever the suite still does.
 
 Two of those three came from a profiler contradicting a written plan. Items 3b and 4 are
 still estimates, and should be treated as such until something measures them.
+
+## Is `paratest` the next step? Measured, and the answer is "not yet"
+
+The original page said parallelism was the right *second* lever. It is time to answer it with
+the numbers rather than the intuition, because both sides of the trade have moved.
+
+### What it would buy
+
+547 test classes, 229.7 s of measured test time, largest class 17.5 s. Modelling
+longest-processing-time bin-packing by class, on this 10-core machine:
+
+| Workers | Makespan | Speed-up |
+| --- | --- | --- |
+| 2 | 114.8 s | 2.0× |
+| 4 | 57.4 s | 4.0× |
+| 8 | **28.7 s** | 8.0× |
+| 12 | 19.1 s | 12.0× |
+
+Scaling is essentially ideal to 8 workers — no class is large enough to become the tail. The
+ceiling is 13×, set by `FrameworkMigrationsMySQLTest` at 17.5 s, and that class stays as it is
+because its DDL is the subject.
+
+So: a `--nocoverage` run of **4:01 could plausibly become about 45–60 s** at 8 workers, once
+per-worker overhead and the ~13 s of non-test wall clock are added back.
+
+### What it would cost
+
+**Every worker needs its own database.** This is not a configuration flag, it is the whole
+job. The integration classes share one `pramnos_test` and, worse, share *table names* —
+`users`, `usertokens`, `applications`, `messages` and more are dropped and created by several
+classes each. Two workers running concurrently would drop each other's tables, and the
+failures would be non-deterministic.
+
+Concretely:
+
+1. Read paratest's `TEST_TOKEN` and derive a database name per worker.
+2. Create those databases up front, on **three** engines — MySQL, PostgreSQL and TimescaleDB.
+3. Route every connection through it. `tests/fixtures/app/settings.php` is one place;
+   **38 test files name `pramnos_test` themselves** and would each need to go through a helper.
+4. Merge coverage across workers.
+
+Step 3 is the real work, and `DatabaseTestCase` has already made it smaller: classes on the
+base class declare their connection in one method, so a single change to
+`connectionConfig()`'s default would carry all of them.
+
+### The recommendation
+
+**Not yet — finish the cheaper work first, and re-measure before committing to it.**
+
+The reasoning is that the ROI has moved underneath the question. When this page was written,
+parallelism promised to take ~15 minutes to ~4. Today it promises to take **4 minutes to
+about 1**. The implementation cost is unchanged; the prize is a quarter of what it was, and it
+buys a permanent increase in how hard the suite is to reason about — a failure that only
+appears under a particular worker split is a bad afternoon.
+
+What is left that is cheaper, from the distribution above:
+
+- **625 tests at ≥ 100 ms are 75% of the run.** That is a shallow, wide tail — no single
+  target, but the same `setUp()` patterns already documented here.
+- `Characterization` is now **17% of the time for 8.5% of the tests** (49 ms each), and has
+  not been looked at once during this work.
+- `FrameworkMigrations{MySQL,PostgreSQL,TimescaleDB}Test` are 37.2 s between them, the three
+  largest classes left. Their DDL is the subject, but *how many times* they build it may not
+  be.
+
+Revisit parallelism when those are done and the suite is around two minutes, or immediately if
+CI wall-clock becomes the binding constraint rather than a developer's patience. The
+groundwork — one place per class that says where its schema lives — is the thing worth
+continuing either way, and it is worth doing for its own sake.
 
 ## How to measure it again
 

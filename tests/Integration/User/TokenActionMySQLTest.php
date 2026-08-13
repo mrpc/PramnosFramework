@@ -65,14 +65,76 @@ class TokenActionMySQLTest extends TestCase
         // (Token::load() caches for 3600 s) cannot contaminate our fresh rows.
         $this->db->cacheflush();
 
-        $this->dropTestTables();
-        $this->runMigrations();
+        // Rows only. The schema belongs to the class (see setUpBeforeClass): dropping three
+        // tables and running the framework migrations per test was most of this class's
+        // 537 ms per test, and these tests assert what updateAction() does with rows.
+        //
+        // DELETE rather than TRUNCATE, which is implicit DDL and measured slower than
+        // DROP + CREATE. Auto-increment keeps counting up, which nothing here depends on:
+        // seedRows() reads every id back with getInsertId().
+        $this->emptyTestTables();
         $this->seedRows();
     }
 
     protected function tearDown(): void
     {
-        $this->dropTestTables();
+        // The tables belong to the class; tearDownAfterClass() drops them.
+    }
+
+    /**
+     * Builds the schema once for the whole class, by running the framework migrations.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $test = new static('setUpBeforeClass');
+        $test->bootForFixtures();
+        $test->dropTestTables();
+        $test->runMigrations();
+    }
+
+    /**
+     * Drops the class's tables so the next class starts from nothing.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $test = new static('tearDownAfterClass');
+        $test->bootForFixtures();
+        $test->dropTestTables();
+    }
+
+    /**
+     * Loads the fixture settings and connects through the Factory.
+     *
+     * @return void
+     */
+    protected function bootForFixtures(): void
+    {
+        Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
+
+        $this->db = Factory::getDatabase();
+        if (!$this->db->connected) {
+            $this->db->connect(true);
+        }
+
+        $this->migrationsBase = ROOT . \DS . 'database' . \DS . 'migrations' . \DS . 'framework';
+    }
+
+    /**
+     * Removes every row, leaving the schema alone.
+     *
+     * @return void
+     */
+    protected function emptyTestTables(): void
+    {
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (['tokenactions', 'urls', 'usertokens'] as $table) {
+            $this->db->query('DELETE FROM `#PREFIX#' . $table . '`');
+        }
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     // -------------------------------------------------------------------------

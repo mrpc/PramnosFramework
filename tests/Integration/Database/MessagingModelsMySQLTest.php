@@ -39,6 +39,19 @@ class MessagingModelsMySQLTest extends TestCase
     // Lifecycle
     // -------------------------------------------------------------------------
 
+    /**
+     * The tables this class owns, children first.
+     *
+     * @var string[]
+     */
+    protected const TABLES = [
+        'massmessagerecipients',
+        'massmessages',
+        'mailtemplates',
+        'mails',
+        'messages',
+    ];
+
     protected function setUp(): void
     {
         if (!defined('LOG_PATH')) {
@@ -74,13 +87,89 @@ class MessagingModelsMySQLTest extends TestCase
             ->disableOriginalConstructor()
             ->getMock();
 
-        $this->dropAllTestTables();
-        $this->createMessagingTables();
+        // Rows only. The schema belongs to the class (see setUpBeforeClass): these tests
+        // assert what the messaging *models* do, and rebuilding their tables per test meant
+        // running the framework migrations 14 times for nothing.
+        //
+        // DELETE rather than TRUNCATE, which is implicit DDL and measured slower than
+        // DROP + CREATE. Auto-increment keeps counting up, which nothing here depends on:
+        // every id these tests use comes back from the save() they just made.
+        $this->emptyTestTables();
     }
 
     protected function tearDown(): void
     {
-        $this->dropAllTestTables();
+        // The tables belong to the class; tearDownAfterClass() drops them.
+    }
+
+    /**
+     * Builds the schema once for the whole class, by running the framework migrations.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $test = new static('setUpBeforeClass');
+        $test->bootForFixtures();
+        $test->dropAllTestTables();
+        $test->createMessagingTables();
+    }
+
+    /**
+     * Drops the class's tables so the next class starts from nothing.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $test = new static('tearDownAfterClass');
+        $test->bootForFixtures();
+        $test->dropAllTestTables();
+    }
+
+    /**
+     * Connects and builds the collaborators the schema helpers need.
+     *
+     * `createMessagingTables()` runs real migration classes, which want an Application
+     * carrying a database — so the class hooks have to build the same context `setUp()`
+     * does, minus everything only a test body uses.
+     *
+     * @return void
+     */
+    protected function bootForFixtures(): void
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . \DS . 'fixtures' . \DS . 'app');
+        }
+
+        Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
+        Application::getInstance();
+
+        $this->db = Database::getInstance();
+        if (!$this->db->connected) {
+            $this->db->connect();
+        }
+
+        $this->app = $this->getMockBuilder(Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $this->app->database = $this->db;
+
+        $this->migrationsBase = dirname(__DIR__, 3) . '/database/migrations/framework';
+    }
+
+    /**
+     * Removes every row, leaving the schema alone.
+     *
+     * @return void
+     */
+    protected function emptyTestTables(): void
+    {
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
+        foreach (self::TABLES as $t) {
+            $this->db->query("DELETE FROM `{$t}`");
+        }
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
     }
 
     // -------------------------------------------------------------------------
@@ -717,7 +806,7 @@ class MessagingModelsMySQLTest extends TestCase
     protected function dropAllTestTables(): void
     {
         $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
-        foreach (['massmessagerecipients', 'massmessages', 'mailtemplates', 'mails', 'messages'] as $t) {
+        foreach (self::TABLES as $t) {
             $this->db->query("DROP TABLE IF EXISTS `{$t}`");
         }
         $this->db->query("SET FOREIGN_KEY_CHECKS = 1");

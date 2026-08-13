@@ -66,6 +66,100 @@ class TwoFactorAuthTest extends BaseTestCase
 {
     private TestableTwoFactorAuth $controller;
 
+    /**
+     * The 2FA tables this class owns.
+     *
+     * `#PREFIX#users` is deliberately absent: it is shared state that other tables carry
+     * foreign keys into, and this class owns only its single fixture row in it.
+     *
+     * @var string[]
+     */
+    private const TWOFACTOR_TABLES = [
+        'authserver_user_twofactor',
+        'authserver_twofactor_setup',
+        'authserver_twofactor_attempts',
+    ];
+
+    /**
+     * Builds the schema once for the whole class.
+     *
+     * The 2FA tables come from the real migrations — the single source of truth — rather
+     * than hand-rolled DDL that can drift from production. `#PREFIX#users` is built
+     * idempotently by `User::setupDb()` for the reason the original comment gives: dropping
+     * and recreating a stripped-down stub left the test database inconsistent for every
+     * class that ran afterwards, with failures whose location depended purely on execution
+     * order.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $test = new static('setUpBeforeClass');
+        $db   = $test->bootDatabase();
+
+        $db->query("SET FOREIGN_KEY_CHECKS=0");
+        $db->query("CREATE SCHEMA IF NOT EXISTS `authserver`");
+
+        \Pramnos\User\User::setupDb();
+
+        foreach (self::TWOFACTOR_TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `{$table}`");
+        }
+        $test->runMigrations([
+            \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorSetupTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorAttemptsTable::class,
+        ], $db);
+        $db->query("SET FOREIGN_KEY_CHECKS=1");
+    }
+
+    /**
+     * Drops the 2FA tables and the fixture row, leaving shared state as it was found.
+     *
+     * `#PREFIX#users` itself is not dropped: this class did not create it, and other
+     * classes have foreign keys into it.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $test = new static('tearDownAfterClass');
+        $db   = $test->bootDatabase();
+
+        $db->query("SET FOREIGN_KEY_CHECKS=0");
+        foreach (self::TWOFACTOR_TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `{$table}`");
+        }
+        $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 2");
+        $db->query("SET FOREIGN_KEY_CHECKS=1");
+    }
+
+    /**
+     * Loads the fixture settings and returns a connected Factory database.
+     *
+     * The controller under test reaches the database through the Factory, so the fixtures
+     * are built through the same singleton rather than a handle of our own.
+     *
+     * @return \Pramnos\Database\Database A connected handle
+     */
+    protected function bootDatabase(): \Pramnos\Database\Database
+    {
+        \Pramnos\Application\Settings::clearSettings();
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php'
+        );
+
+        $singleton = &\Pramnos\Framework\Factory::getDatabase();
+        $singleton = null;
+
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        return $db;
+    }
+
     protected function setUp(): void
     {
         // Intentionally NOT calling parent::setUp(): BaseTestCase::setUp() runs a
@@ -87,33 +181,21 @@ class TwoFactorAuthTest extends BaseTestCase
             session_start();
         }
 
+        // Rows only. The schema belongs to the class (see setUpBeforeClass): User::setupDb()
+        // plus three drops and three migrations per test was most of this class's 223 ms per
+        // test, and these tests assert what the controller does, not what the migrations
+        // build.
+        //
+        // DELETE rather than TRUNCATE, which is implicit DDL and measured slower than
+        // DROP + CREATE. Auto-increment is irrelevant here: the fixture row states its own
+        // userid.
         $db->query("SET FOREIGN_KEY_CHECKS=0");
-        $db->query("CREATE SCHEMA IF NOT EXISTS `authserver`");
-
-        // #PREFIX#users is SHARED state: userstogroups / usertokens carry foreign
-        // keys pointing at it. Dropping and re-creating a stripped-down stub here
-        // left the test database inconsistent for every test that ran afterwards
-        // (missing parent table behind live FKs → "referenced table users doesn't
-        // exist" / "already exists" failures whose location depended purely on
-        // execution order). Instead we build the real schema idempotently via
-        // User::setupDb() and only own our single fixture row (userid 2).
-        \Pramnos\User\User::setupDb();
+        foreach (self::TWOFACTOR_TABLES as $table) {
+            $db->query("DELETE FROM `{$table}`");
+        }
         $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 2");
-
-        // Build the 2FA schema from the real migrations (the single source of
-        // truth) rather than hand-rolled DDL that can drift from production.
-        // DROP first so the idempotent up() recreates a fresh table.
-        $db->query("DROP TABLE IF EXISTS `authserver_user_twofactor`");
-        $db->query("DROP TABLE IF EXISTS `authserver_twofactor_setup`");
-        $db->query("DROP TABLE IF EXISTS `authserver_twofactor_attempts`");
-        $this->runMigrations([
-            \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
-            \Pramnos\Framework\Migrations\Auth\CreateTwofactorSetupTable::class,
-            \Pramnos\Framework\Migrations\Auth\CreateTwofactorAttemptsTable::class,
-        ], $db);
-
-        // Row 2 was deleted above, so this insert always starts from a clean slate.
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (2, 'testuser', 'test@test.com')");
+        $db->query("SET FOREIGN_KEY_CHECKS=1");
 
         $app = \Pramnos\Application\Application::getInstance();
         if (!$app) {
