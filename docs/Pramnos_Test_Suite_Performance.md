@@ -82,10 +82,10 @@ The ten most expensive classes, from the same log:
 
 ## Four changes, in order of return
 
-### 1. Seven tests wait exactly 8.00 seconds for a hostname that must not resolve — 56 s
+### 1. Seven tests waited exactly 8.00 seconds for a hostname that must not resolve — **done, 56 s**
 
-The slowest individual tests in the whole suite are these, and every one of them takes
-**8.00 s to the hundredth**:
+The slowest individual tests in the whole suite were these, and every one took **8.00 s
+to the hundredth**:
 
 ```
 8.00s  BaseTestCaseTest::test_docker_hostname_switching
@@ -100,12 +100,34 @@ The slowest individual tests in the whole suite are these, and every one of them
 A round 8.00 s is not work, it is a timeout. These tests construct a `PDO` against
 hostnames such as `testhost` and `pghost` — deliberately unresolvable, because what is
 being asserted is *which DSN was built*, proven by the failure message naming the host.
-The suite then waits for TCP/DNS to give up.
 
-**Change:** pass a connect timeout at those call sites — `PDO::ATTR_TIMEOUT => 1` for
-MySQL, `connect_timeout=1` in the DSN for PostgreSQL. The assertion is unchanged: the
-exception still names the host. **Saving ≈49 s (5.5% of the run) for a one-line change
-in four places**, and it is the cheapest item on this list by a wide margin.
+**The first attempt at fixing it was wrong, and the way it was wrong is worth keeping.**
+A connect timeout (`PDO::ATTR_TIMEOUT`, `connect_timeout` in the DSN) looked like the
+obvious answer and changed nothing: still 8.00 s. Measured directly,
+
+```
+php -r 'gethostbyname("testhost");'   →  8.00s
+```
+
+The block is in **`getaddrinfo()`** — DNS, before any socket exists — so no socket
+option can reach it. A connect timeout guards a different failure: a host that accepts a
+connection and then hangs.
+
+What worked, and made the tests better rather than only faster:
+
+- the three tests that asserted *which DSN was built* now assert on the DSN. `buildDsn()`
+  and `resolvedHost()` were extracted for them, so a string built from configuration is
+  checked as a string instead of being inferred from a connection error;
+- the tests that assert a *failure* point at `127.0.0.1:9` — an IP literal skips the
+  resolver entirely and the discard port refuses immediately.
+
+| | Before | After |
+| --- | --- | --- |
+| `BaseTestCaseTest` | 32.0 s | **0.28 s** |
+| `TestEnvironmentTest` | 28.3 s | **4.4 s** |
+
+**56 s**, against an estimate of 49. The connect timeouts stayed in as well, documented
+for what they actually cover.
 
 ### 2. `InitCommandUnitTest` scaffolds a whole project per test — 114 s
 
@@ -167,7 +189,7 @@ their current shape, because for them the DDL is the subject.
 
 | Change | Saving |
 | --- | --- |
-| 1. Connect timeouts | ≈49 s |
+| 1. ~~Connect timeouts~~ — **done**, by asserting on the DSN and using an IP literal | **56 s** |
 | 2. Scaffold once per class | 80–130 s |
 | 3. Schema per class + transaction per test | up to 150 s |
 | 4. Fixture and hash cost in two classes | 40–80 s |

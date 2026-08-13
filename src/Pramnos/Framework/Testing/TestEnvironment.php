@@ -14,6 +14,15 @@ use RuntimeException;
 class TestEnvironment
 {
     /**
+     * How long to wait for a database that accepts a connection and then hangs.
+     *
+     * Not for an unresolvable hostname: that blocks in `getaddrinfo()` before a socket
+     * exists — 8.00 seconds flat in this project's container. See
+     * BaseTestCase::CONNECT_TIMEOUT.
+     */
+    private const CONNECT_TIMEOUT = 1;
+
+    /**
      * Directory for the bootstrap lock file.
      * @var string|null
      */
@@ -142,8 +151,12 @@ class TestEnvironment
      */
     protected static function setupPostgres($host, $port, $dbName, $user, $pass, $schemaPath)
     {
-        $dsn = "pgsql:host=$host;port=" . ($port ?? 5432) . ";dbname=postgres";
-        $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $dsn = "pgsql:host=$host;port=" . ($port ?? 5432) . ";dbname=postgres"
+            . ';connect_timeout=' . self::CONNECT_TIMEOUT;
+        $pdo = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT,
+        ]);
 
         // Clean existing sessions and drop DB
         $pdo->exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName'");
@@ -173,7 +186,10 @@ class TestEnvironment
     protected static function setupMysql($host, $port, $dbName, $user, $pass, $schemaPath)
     {
         $dsn = "mysql:host=$host;port=" . ($port ?? 3306);
-        $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $pdo = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT,
+        ]);
 
         $pdo->exec("DROP DATABASE IF EXISTS `$dbName` ");
         $pdo->exec("CREATE DATABASE `$dbName`");

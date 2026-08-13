@@ -10,6 +10,8 @@ class DummyBaseTestCase extends BaseTestCase {
     public $mockedIsDocker = false;
     public function isDocker(): bool { return $this->mockedIsDocker; }
     public function publicGetConnection() { return $this->getConnection(); }
+    /** The Docker-substituted host, so the substitution can be asserted without a socket. */
+    public function publicResolvedHost() { return $this->resolvedHost(); }
 }
 
 /**
@@ -46,58 +48,57 @@ class BaseTestCaseTest extends BaseTestCase
         $this->assertEquals($token, $retrieved);
     }
 
+    /**
+     * The MySQL DSN carries the configured host, database and port.
+     *
+     * Asserted on the string rather than inferred from a connection failure. The old
+     * shape pointed at a hostname that could not resolve and read the host out of the
+     * error — which meant this was one of the three slowest tests in the suite, at
+     * **8.00 seconds**, all of it spent in `getaddrinfo()` giving up.
+     */
     public function test_it_builds_correct_dsn()
     {
-        // Use reflection to set static dbConfig
-        $reflection = new \ReflectionClass(BaseTestCase::class);
-        $prop = $reflection->getProperty('dbConfig');
-        $prop->setValue(null, [
-            'hostname' => 'testhost',
-            'database' => 'testdb',
-            'user' => 'testuser',
-            'password' => 'testpass',
-            'type' => 'mysql',
-            'port' => 3306
-        ]);
+        // Arrange & Act
+        $dsn = $this->buildDsn('mysql', 'testhost', 'testdb', 3306);
 
-        try {
-            $this->getConnection();
-        } catch (\PDOException $e) {
-            // Check that it tried to connect to our specific test host
-            $this->assertStringContainsString('testhost', $e->getMessage());
-        } catch (\Exception $e) {
-            $this->assertTrue(true);
-        }
+        // Assert
+        $this->assertStringContainsString('mysql:host=testhost', $dsn);
+        $this->assertStringContainsString('dbname=testdb', $dsn);
+        $this->assertStringContainsString('port=3306', $dsn);
     }
 
+    /**
+     * The PostgreSQL DSN uses the pgsql driver and carries a connect timeout.
+     *
+     * PostgreSQL takes the timeout in the DSN rather than as a driver attribute, so a
+     * missing one here is invisible until something hangs.
+     */
     public function test_it_builds_postgres_dsn()
     {
-        // Use reflection to set static dbConfig
-        $reflection = new \ReflectionClass(BaseTestCase::class);
-        $prop = $reflection->getProperty('dbConfig');
-        $prop->setValue(null, [
-            'hostname' => 'pghost',
-            'database' => 'pgdb',
-            'user' => 'pguser',
-            'password' => 'pgpass',
-            'type' => 'postgresql'
-        ]);
+        // Arrange & Act
+        $dsn = $this->buildDsn('postgresql', 'pghost', 'pgdb', null);
 
-        try {
-            $this->getConnection();
-        } catch (\PDOException $e) {
-            $this->assertStringContainsString('pghost', $e->getMessage());
-        } catch (\Exception $e) {
-            $this->assertTrue(true);
-        }
+        // Assert
+        $this->assertStringContainsString('pgsql:host=pghost', $dsn);
+        $this->assertStringContainsString('dbname=pgdb', $dsn);
+        $this->assertStringNotContainsString('port=', $dsn, 'no port was configured');
+        $this->assertStringContainsString('connect_timeout=', $dsn);
     }
 
+    /**
+     * Inside a container, `localhost` is not the database.
+     *
+     * The substitution is the whole behaviour: `localhost` in a container means the
+     * container itself, so the config is rewritten to the service name. It used to be
+     * observable only by failing to connect — 8.00 seconds of resolver timeout to
+     * discover a string substitution.
+     */
     public function test_docker_hostname_switching()
     {
-        // Use concrete class instead of mock to avoid deprecations
+        // Arrange — a case whose answer differs inside and outside Docker
         $dockTestCase = new DummyBaseTestCase('test');
         $dockTestCase->mockedIsDocker = true;
-        
+
         $reflection = new \ReflectionClass(BaseTestCase::class);
         $prop = $reflection->getProperty('dbConfig');
         $prop->setValue(null, [
@@ -108,15 +109,12 @@ class BaseTestCaseTest extends BaseTestCase
             'type' => 'mysql'
         ]);
 
-        try {
-            $dockTestCase->publicGetConnection();
-        } catch (\PDOException $e) {
-            // Should mention 'mysql' as hostname, not 'localhost'
-            $this->assertStringContainsString('mysql', $e->getMessage());
-            $this->assertStringNotContainsString('localhost', $e->getMessage());
-        } catch (\Exception $e) {
-            $this->assertTrue(true);
-        }
+        // Act
+        $host = $dockTestCase->publicResolvedHost();
+
+        // Assert
+        $this->assertSame('mysql', $host);
+        $this->assertNotSame('localhost', $host);
     }
 
     public function test_database_assertions()
@@ -218,7 +216,9 @@ class BaseTestCaseTest extends BaseTestCase
         $prop = $reflection->getProperty('dbConfig');
         $prop->setValue(null, [
             'type' => 'invalid',
-            'hostname' => 'invalid',
+            // An IP literal: a made-up hostname costs 8.00s in getaddrinfo() here, and
+            // what this test asserts is the exception, not the resolver.
+            'hostname' => '127.0.0.1',
             'database' => 'invalid',
             'user' => 'root',
             'password' => ''

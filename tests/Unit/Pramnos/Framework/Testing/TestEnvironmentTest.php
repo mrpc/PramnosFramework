@@ -70,7 +70,7 @@ class TestEnvironmentTest extends TestCase
     public function test_it_handles_database_initialization_logic()
     {
         $settingsPath = $this->tempDir . '/testsettings.php';
-        $content = "<?php return ['database' => ['type' => 'mysql', 'hostname' => 'localhost', 'database' => 'testdb', 'user' => 'root', 'password' => 'pass']];";
+        $content = "<?php return ['database' => ['type' => 'mysql', 'hostname' => '127.0.0.1', 'port' => 9, 'database' => 'testdb', 'user' => 'root', 'password' => 'pass']];";
         file_put_contents($settingsPath, $content);
 
         $reflection = new \ReflectionClass(TestEnvironment::class);
@@ -124,7 +124,7 @@ class TestEnvironmentTest extends TestCase
     {
         $settingsPath = $this->tempDir . '/app/config/testsettings.php';
         mkdir(dirname($settingsPath), 0777, true);
-        $content = "<?php return ['database' => ['type' => 'mysql', 'hostname' => 'localhost', 'database' => 'testdb', 'user' => 'root', 'password' => 'pass']];";
+        $content = "<?php return ['database' => ['type' => 'mysql', 'hostname' => '127.0.0.1', 'port' => 9, 'database' => 'testdb', 'user' => 'root', 'password' => 'pass']];";
         file_put_contents($settingsPath, $content);
 
         // Define ROOT if not already defined for the test context
@@ -149,7 +149,7 @@ class TestEnvironmentTest extends TestCase
     public function test_initialize_database_docker_switching()
     {
         $settingsPath = $this->tempDir . '/dockertest.php';
-        $content = "<?php return ['database' => ['type' => 'postgresql', 'hostname' => 'localhost', 'database' => 'testdb', 'user' => 'u', 'password' => 'p']];";
+        $content = "<?php return ['database' => ['type' => 'postgresql', 'hostname' => '127.0.0.1', 'port' => 9, 'database' => 'testdb', 'user' => 'u', 'password' => 'p']];";
         file_put_contents($settingsPath, $content);
 
         $reflection = new \ReflectionClass(TestEnvironment::class);

@@ -21,6 +21,25 @@ class Document extends \Pramnos\Framework\Base
 
     public $content = '';
     public static $type = 'html';
+
+    /**
+     * One document object per type, for the life of the process.
+     *
+     * A property rather than a `static` local inside {@see getInstance()}, so that
+     * {@see reset()} can clear it. In production the difference is invisible: a
+     * request builds a document and the process ends. In a test run thousands of
+     * "requests" share one process, and a document is *mutable* — code and tests
+     * both write to `->type` and `->themeObject` — so one test's document answered
+     * for every test after it.
+     *
+     * That is not hypothetical: three separate failures in one working session
+     * appeared only in a full run, because an earlier test had left the shared HTML
+     * document reporting itself as `raw` or `json`, and the toolbar then declined to
+     * inject into a page that was HTML all along.
+     *
+     * @var array<string, object>
+     */
+    private static array $instances = [];
     private static $buffer = '';
     public $usetheme = true;
     public $header;
@@ -270,6 +289,22 @@ class Document extends \Pramnos\Framework\Base
 
 
     /**
+     * Forget every document built so far, and the default type.
+     *
+     * For a test run, and for a worker that serves more than one request in a single
+     * PHP lifetime — the second is why this is not test-only code. A document carries
+     * a theme, a type and its accumulated output; handing the next request the
+     * previous one's is a bug waiting for someone to write a worker.
+     *
+     * @return void
+     */
+    public static function reset(): void
+    {
+        self::$instances = [];
+        self::$type      = 'html';
+    }
+
+    /**
      * Factory function for document
      * @staticpublic array $instances
      * @param string $type Type of the document
@@ -278,10 +313,7 @@ class Document extends \Pramnos\Framework\Base
      */
     public static function &getInstance($type = '', $setDefault = true)
     {
-        static $instances;
-        if (!isset($instances)) {
-            $instances = array();
-        }
+        $instances = &self::$instances;
 
         $type = (string)($type ?? '');
         if ($type === '') {

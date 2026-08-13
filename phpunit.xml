@@ -19,6 +19,13 @@
             authentication.
         -->
         <bootstrap class="Pramnos\Tests\Support\RequestIdentityIsolation"/>
+        <!--
+            The document is a mutable per-type singleton, and both code and tests
+            write to it. Three failures in one session appeared only in a full run,
+            because an earlier test had left the shared HTML document calling itself
+            `raw` — and the fix each time looked like a bug in the test that failed.
+        -->
+        <bootstrap class="Pramnos\Tests\Support\DocumentIsolation"/>
     </extensions>
 
     <testsuites>
