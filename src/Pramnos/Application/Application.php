@@ -1425,7 +1425,22 @@ class Application extends Base
         $this->redirect(); //Redirect if it's needed
         $this->sendCspHeader();
         $doc = \Pramnos\Framework\Factory::getDocument();
-        return $doc->render();
+
+        // The debug toolbar goes in here, on the response the framework itself
+        // built, rather than through a process-wide output buffer. That buffer was
+        // removed because booting the toolbar added an output-buffer level, and code
+        // that cleared "its" buffer cleared ours with the page inside it — an empty
+        // 200 with every header saying the request had succeeded. Injecting into the
+        // response is what Laravel's debugbar and Symfony's profiler do.
+        //
+        // This is also why an application needs no pipeline to get a toolbar: every
+        // MVC application ends its request with `echo $app->render()`. A no-op
+        // outside development, and idempotent, so a pipeline that also runs
+        // DebugBarMiddleware cannot produce two.
+        return \Pramnos\Debug\DebugBar::getInstance()->injectInto(
+            (string) $doc->render(),
+            $this->cspNonce ?? ''
+        );
     }
 
     /**

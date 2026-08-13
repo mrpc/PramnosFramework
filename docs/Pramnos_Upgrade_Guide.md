@@ -56,6 +56,64 @@ The same disciplined loop applies to every version bump:
 
 ---
 
+## The debug toolbar no longer uses an output buffer
+
+**Applies to:** any application that enables the debug toolbar and produces part of
+its response with a raw `echo` rather than through the framework.
+
+**What changed.** The toolbar used to be injected by a process-wide `ob_start()`
+installed when the debug provider booted. It is now injected into the **response** —
+`DebugBar::injectInto()`, reached from `Application::render()` and from
+`DebugBarMiddleware`, which is what Laravel's debugbar and Symfony's profiler do.
+
+**Why.** The buffer added an output-buffer level to every request. Code that cleared
+"its" buffer — a bare `ob_get_clean()`, or the `while (ob_get_level())
+{ ob_end_clean(); }` loop a kernel uses to drop stray output — cleared the
+framework's, with the response inside it. The result was `200` with an **empty body**
+while every header said the request had succeeded, nothing in any log, and the same
+code working perfectly with the toolbar off. Two applications hit it; one lost a day
+and switched `APP_DEBUG` off.
+
+**What you get for free.** Every application that ends its request the scaffolded way
+keeps its toolbar with no changes at all:
+
+```php
+echo $app->render();                    // covered
+echo $pipeline->run($request, fn() => $app->render());   // covered
+```
+
+**What needs action.** A response the framework never sees no longer receives a
+toolbar. The common shape is a kernel that ends an unmatched request by including a
+page file:
+
+```php
+// Before — the toolbar arrived via the output buffer
+require PUBLIC_PATH . '/spa.php';
+```
+
+Give the framework the response instead, and it is injected into:
+
+```php
+// After — the same page, through the response
+ob_start();
+require PUBLIC_PATH . '/spa.php';
+echo \Pramnos\Debug\DebugBar::getInstance()->injectInto((string) ob_get_clean());
+```
+
+or, if the file can be made to return its markup rather than echo it, hand that
+string over directly. Either way **your** buffer is one you opened and can safely
+clear, which is the property the framework can no longer provide for you.
+
+JSON responses are unaffected: `Application\Api` attaches `_debug` itself, and an
+attribute-routed application adds `\Pramnos\Debug\ApiDebugMiddleware` to its
+pipeline (see the [Debugging Guide](Pramnos_Debugging_Guide.md)).
+
+**While migrating**, a page with no toolbar and a complete body is the expected
+intermediate state. It is the right way round: a missing toolbar is a bug report, a
+missing page is a phone call.
+
+---
+
 ## v1.1 → v1.2
 
 v1.2 is a large release (replicas, query/schema builders, migration system

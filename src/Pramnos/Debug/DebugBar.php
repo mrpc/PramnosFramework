@@ -61,6 +61,7 @@ class DebugBar
     public static function reset(): void
     {
         static::$instance = null;
+        static::$injected = false;
     }
 
     // ── Collector Registration ────────────────────────────────────────────────
@@ -191,6 +192,94 @@ class DebugBar
 <div id="pramnos-debug-data" hidden>{$json}</div>
 <script{$na}>{$script}</script>
 HTML;
+    }
+
+    /**
+     * Put the toolbar into a response, and send the debug headers with it.
+     *
+     * **The one place injection happens.** Every delivery goes through here — the
+     * document `Application::render()` builds, a string a middleware returns, a
+     * `Response` body — so there is one definition of "which responses carry the
+     * toolbar" and one definition of "once".
+     *
+     * It replaced a process-wide `ob_start()`. That buffer caught output from any
+     * code path, including an application that simply echoes, and the price was
+     * structural: booting the toolbar added an output-buffer level, so code that
+     * cleared "its" buffer cleared ours with the response inside it, and the client
+     * got `200` with an empty body while every header said the request had
+     * succeeded. It happened twice in one application. Laravel's debugbar and
+     * Symfony's profiler both inject through the response object and never install
+     * such a buffer; this now does the same.
+     *
+     * Consequences, stated plainly: a response the framework never sees — raw
+     * `echo`, or a `require` of a page file — no longer receives a toolbar. That is
+     * the trade, and the Upgrade Guide says how to route such a response through the
+     * framework instead.
+     *
+     * Idempotent per request, which is why the "toolbar twice in one page" class of
+     * bug cannot come back: a second attempt returns the body untouched.
+     *
+     * Nothing here can cost the response. Anything thrown gives the body back
+     * exactly as it arrived, and a shorter result is discarded — delivering the page
+     * is the job, decorating it is not.
+     *
+     * @param  string $body  The response body as the application produced it
+     * @param  string $nonce Per-request CSP nonce, or '' where CSP is not configured
+     * @return string
+     */
+    public function injectInto(string $body, string $nonce = ''): string
+    {
+        if ($this->collectors === [] || self::$injected || $body === '') {
+            return $body;
+        }
+
+        try {
+            ApiDebugPayload::sendHeaders();
+
+            // Only an HTML document gets a toolbar. The log viewer serves a `raw`
+            // document inside an `<iframe>`, and a `</body>` in *that* is part of
+            // the text being displayed rather than a place to inject a script.
+            $document = \Pramnos\Framework\Factory::getDocument();
+            $isHtml   = !is_object($document) || (($document->type ?? 'html') === 'html');
+
+            $position = $isHtml ? strripos($body, '</body>') : false;
+            if ($position === false) {
+                // Nowhere to put a toolbar. A JSON object still has room for a
+                // `_debug` key, and that rule lives in one place.
+                return ApiDebugPayload::attachTo($body);
+            }
+
+            $widget = $this->render($nonce);
+            if ($widget === '') {
+                return $body;
+            }
+
+            self::$injected = true;
+
+            return substr($body, 0, $position) . $widget . substr($body, $position);
+        } catch (\Throwable) {
+            return $body;
+        }
+    }
+
+    /**
+     * Whether this request's response has already been given the toolbar.
+     *
+     * @var bool
+     */
+    private static bool $injected = false;
+
+    /**
+     * Forget that a response was injected into.
+     *
+     * For tests, and for a worker that serves more than one request in a single PHP
+     * lifetime.
+     *
+     * @return void
+     */
+    public static function resetInjection(): void
+    {
+        self::$injected = false;
     }
 
     /**

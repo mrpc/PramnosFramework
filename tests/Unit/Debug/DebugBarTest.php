@@ -452,7 +452,14 @@ class DebugBarTest extends TestCase
      */
     public function testMiddlewareInjectsWidgetBeforeClosingBody(): void
     {
-        // Arrange
+        // Arrange — the document type is stated rather than assumed. It is a
+        // process-wide singleton and injection now consults it (a `raw` document
+        // must not be injected into), so in a full run an earlier test leaves it as
+        // something else and this asserted the wrong branch's behaviour.
+        $document       = \Pramnos\Framework\Factory::getDocument();
+        $originalType   = $document->type ?? 'html';
+        $document->type = 'html';
+
         $bar = DebugBar::getInstance();
         $bar->addCollector($this->makeMockCollector('test'));
 
@@ -462,6 +469,7 @@ class DebugBarTest extends TestCase
 
         // Act
         $result = $middleware->handle($request, fn() => $html);
+        $document->type = $originalType;
 
         // Assert — widget injected before </body>
         $this->assertStringContainsString('pramnos-debugbar', $result);
@@ -502,330 +510,130 @@ class DebugBarTest extends TestCase
     }
 
     /**
-     * A decoration that shortened the response is discarded.
+     * The one place injection happens, on the response the framework built.
      *
-     * The second line of the same rule, for a failure that produces a wrong
-     * answer rather than an exception: whatever went wrong, less than arrived is
-     * never the right thing to send.
+     * `Application::render()` and `DebugBarMiddleware` both reach this, which is
+     * what lets an application with a pipeline and one without behave identically.
+     * It replaced a process-wide `ob_start()`: booting the toolbar added an
+     * output-buffer level, so code that cleared "its" buffer cleared ours with the
+     * response inside it — `200` with an empty body and every header saying the
+     * request had succeeded. Measured off the socket in a real application: 523
+     * header bytes, zero body bytes. Laravel and Symfony both inject through the
+     * response instead, and now so does this.
      */
-    public function testDecorationNeverReturnsLessThanItWasGiven(): void
-    {
-        // Arrange — the buffered-output path, with a bar that fails on render.
-        // This is the exact code that ran at shutdown and produced an empty 200.
-        $bar  = ThrowingDebugBar::make();
-        $html = '<html><body><p>The page the user asked for</p></body></html>';
-
-        // Act
-        $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($html, $bar);
-
-        // Assert — byte-for-byte what arrived
-        $this->assertSame($html, $result);
-    }
-
-    /**
-     * A bar with no collectors renders nothing, and the page passes through.
-     *
-     * The production path: outside development no collector is registered, so
-     * this runs on every response of every live installation and must be exactly
-     * a no-op.
-     */
-    public function testDecorationOfAPageWithNoCollectorsChangesNothing(): void
+    public function testInjectIntoPutsTheToolbarInTheDocument(): void
     {
         // Arrange
-        $bar  = DebugBar::getInstance();
-        $html = '<html><body><p>Hello</p></body></html>';
-
-        // Act
-        $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($html, $bar);
-
-        // Assert
-        $this->assertSame($html, $result);
-    }
-
-    /**
-     * The buffered-output path injects the same widget the middleware does.
-     *
-     * `boot()` registers this as an `ob_start()` callback, which runs at shutdown
-     * where no test can reach it — so the decision it makes lives in a method of
-     * its own and is driven directly. Without that, the code that decides whether
-     * a page is delivered at all had no test.
-     */
-    public function testDecorateInjectsTheWidgetIntoAnHtmlResponse(): void
-    {
-        // Arrange — the document type is stated rather than assumed. It is a
-        // process-wide singleton, so in a full run an earlier test can leave it
-        // as `json` or `raw`, and this test would then be asserting the JSON
-        // branch's behaviour while claiming to test the HTML one.
         $document       = \Pramnos\Framework\Factory::getDocument();
         $original       = $document->type ?? 'html';
         $document->type = 'html';
 
         $bar = DebugBar::getInstance();
         $bar->addCollector($this->makeMockCollector('test'));
-        $html = '<html><body><p>Hello</p></body></html>';
 
         try {
             // Act
-            $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($html, $bar);
+            $result = $bar->injectInto('<html><body><p>Hello</p></body></html>');
 
-            // Assert — and the page's own content survives, which is the point
+            // Assert
             $this->assertStringContainsString('pramnos-debugbar', $result);
             $this->assertStringContainsString('<p>Hello</p>', $result);
             $this->assertLessThan(strpos($result, '</body>'), strpos($result, 'pramnos-debugbar'));
         } finally {
-            // Cleanup
             $document->type = $original;
         }
     }
 
     /**
-     * A page thrown out of the buffer by somebody else is re-sent at shutdown.
+     * A second attempt returns the body untouched.
      *
-     * The second way a toolbar can cost you the page, and the one the earlier fix
-     * could not reach. Booting the provider adds an output-buffer level, so an
-     * application that clears "its" buffer — a bare `ob_get_clean()`, or the classic
-     * `while (ob_get_level()) { ob_end_clean(); }` loop a kernel uses to drop stray
-     * output before responding — discards **ours**, with the page inside it. The
-     * client gets 200 and zero bytes; the headers all say the request succeeded;
-     * nothing is logged; and with the toolbar off the same code works, because then
-     * there is no extra level to destroy.
-     *
-     * Measured against a real server, not deduced: with `output_buffering` on in
-     * php.ini and the provider booted there are two levels, and either idiom emptied
-     * a 9KB document to nothing. After this, both deliver the document.
-     *
-     * By the time PHP calls the handler the content is already condemned, so the
-     * only place left to put it is shutdown — which is also the only moment an
-     * `echo` reaches the client directly.
+     * This is what makes "the toolbar twice in one page" impossible rather than
+     * unlikely. It used to be possible two ways: a bootstrap that constructed the
+     * provider by hand *and* called init() installed two buffers, and a pipeline
+     * running the middleware on a response render() had already decorated would
+     * have injected again. Measured before the guard: a 9KB document came back at
+     * 281KB.
      */
-    public function testAPageDiscardedFromTheBufferIsResentAtShutdown(): void
+    public function testInjectingTwiceDoesNothingTheSecondTime(): void
     {
         // Arrange
-        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
-        $page = "<!DOCTYPE html>\n<html><body><p>the page</p></body></html>";
-
-        // Act — what PHP does when somebody cleans the buffer
-        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-            $page,
-            PHP_OUTPUT_HANDLER_CLEAN | PHP_OUTPUT_HANDLER_FINAL,
-            DebugBar::getInstance()
-        );
-
-        ob_start();
-        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
-        $sent = (string) ob_get_clean();
-
-        // Assert
-        $this->assertSame($page, $sent);
-    }
-
-    /**
-     * A discarded fragment is left discarded.
-     *
-     * A partial, a JSON body being replaced, a snippet somebody was buffering on
-     * purpose: those discards meant what they said. Only a whole document reaching
-     * that point means the *page* was thrown away, which is never intended — so the
-     * rescue is deliberately narrow rather than clever.
-     */
-    public function testADiscardedFragmentIsNotResent(): void
-    {
-        // Arrange
-        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
-
-        // Act
-        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-            '<tr><td>one row</td></tr>',
-            PHP_OUTPUT_HANDLER_CLEAN,
-            DebugBar::getInstance()
-        );
-
-        ob_start();
-        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
-        $sent = (string) ob_get_clean();
-
-        // Assert
-        $this->assertSame('', $sent);
-    }
-
-    /**
-     * Nothing is re-sent when the response already reached the client.
-     *
-     * Otherwise a page that was delivered and *then* had a later buffer cleaned
-     * would be sent twice — one broken response traded for another.
-     */
-    public function testNothingIsResentAfterTheResponseWasDelivered(): void
-    {
-        // Arrange
-        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
-        $bar = DebugBar::getInstance();
-
-        // Act — a normal flush carrying the response, then a clean of something else
-        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-            '<!DOCTYPE html><html><body>delivered</body></html>',
-            PHP_OUTPUT_HANDLER_FINAL,
-            $bar
-        );
-        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-            '<!DOCTYPE html><html><body>stale</body></html>',
-            PHP_OUTPUT_HANDLER_CLEAN,
-            $bar
-        );
-
-        ob_start();
-        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
-        $sent = (string) ob_get_clean();
-
-        // Assert
-        $this->assertSame('', $sent);
-    }
-
-    /**
-     * An empty buffer being cleaned is not an event.
-     *
-     * `ob_get_clean()` on a buffer nothing has written to is ordinary, and treating
-     * it as a lost page would log a warning on requests where nothing went wrong.
-     */
-    public function testCleaningAnEmptyBufferIsIgnored(): void
-    {
-        // Arrange
-        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
-
-        // Act
-        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-            "\n  \n",
-            PHP_OUTPUT_HANDLER_CLEAN,
-            DebugBar::getInstance()
-        );
-
-        ob_start();
-        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
-
-        // Assert
-        $this->assertSame('', (string) ob_get_clean());
-    }
-
-    /**
-     * The rescue fires once, so a re-entrant shutdown cannot double the page.
-     */
-    public function testTheRescueOnlyFiresOnce(): void
-    {
-        // Arrange
-        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
-        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-            '<!DOCTYPE html><html><body>once</body></html>',
-            PHP_OUTPUT_HANDLER_CLEAN,
-            DebugBar::getInstance()
-        );
-
-        // Act
-        ob_start();
-        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
-        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
-        $sent = (string) ob_get_clean();
-
-        // Assert — one copy
-        $this->assertSame(1, substr_count($sent, '<!DOCTYPE html>'));
-    }
-
-    /**
-     * A normal flush is still decorated, which is the ordinary path.
-     *
-     * Asserted alongside the rescue so a future change cannot make the buffer safe
-     * by making it useless.
-     */
-    public function testANormalFlushIsStillDecorated(): void
-    {
-        // Arrange
-        $document       = \Pramnos\Framework\Factory::getDocument();
-        $original       = $document->type ?? 'html';
-        $document->type = 'html';
-        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
-
-        $bar = DebugBar::getInstance();
-        $bar->addCollector($this->makeMockCollector('test'));
-
-        try {
-            // Act
-            $result = \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
-                '<html><body><p>Hello</p></body></html>',
-                PHP_OUTPUT_HANDLER_FINAL,
-                $bar
-            );
-
-            // Assert
-            $this->assertStringContainsString('pramnos-debugbar', $result);
-            $this->assertStringContainsString('<p>Hello</p>', $result);
-        } finally {
-            $document->type = $original;
-        }
-    }
-
-    /**
-     * A JSON response gets the payload, not the toolbar.
-     *
-     * There is no `</body>` in a JSON body, but there is room for a `_debug` key —
-     * and doing it on this path catches everything a SPA calls: datatable
-     * endpoints, controllers that echo their own JSON, anything that never goes
-     * near `Application\Api`. Injecting a `<script>` into one instead would
-     * corrupt the response, which is the failure mode this branch exists to
-     * avoid.
-     */
-    public function testDecorateAttachesTheDebugKeyToAJsonResponse(): void
-    {
-        // Arrange
-        $document = \Pramnos\Framework\Factory::getDocument();
-        $original = $document->type ?? 'html';
-        $document->type = 'json';
-
-        $bar = DebugBar::getInstance();
-        $bar->addCollector($this->makeMockCollector('demo', ['count' => 2]));
-
-        try {
-            // Act
-            $result = \Pramnos\Debug\DebugBarServiceProvider::decorate('{"status":"ok"}', $bar);
-
-            // Assert — the body still decodes, and now carries the payload
-            $decoded = json_decode($result, true);
-            $this->assertSame('ok', $decoded['status'], 'the response itself is intact');
-            $this->assertArrayHasKey('_debug', $decoded);
-            $this->assertSame(2, $decoded['_debug']['demo']['count']);
-            // And no toolbar markup anywhere near it
-            $this->assertStringNotContainsString('<script', $result);
-        } finally {
-            // Cleanup — the document is a singleton the rest of the suite shares
-            $document->type = $original;
-        }
-    }
-
-    /**
-     * A response with no `</body>` has nowhere to put a toolbar, and is untouched.
-     *
-     * An HTML fragment from an AJAX call is the ordinary case here — it is HTML,
-     * it is not a document, and a toolbar appended to it would land inside
-     * whatever element the page dropped the fragment into.
-     */
-    public function testDecorateLeavesAFragmentAlone(): void
-    {
-        // Arrange — an HTML document, so this is the fragment branch and not the
-        // JSON one answering by accident (the document type is process-wide)
         $document       = \Pramnos\Framework\Factory::getDocument();
         $original       = $document->type ?? 'html';
         $document->type = 'html';
 
         $bar = DebugBar::getInstance();
         $bar->addCollector($this->makeMockCollector('test'));
-        $fragment = '<tr><td>one row</td></tr>';
 
         try {
             // Act
-            $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($fragment, $bar);
+            $once  = $bar->injectInto('<html><body>page</body></html>');
+            $twice = $bar->injectInto($once);
 
             // Assert
-            $this->assertSame($fragment, $result);
+            $this->assertSame($once, $twice);
+            // Counted on a marker the toolbar source mentions exactly once. The
+            // island's own id appears in the script's docblock too, which is a
+            // false positive that has already misled one investigation.
+            $this->assertSame(1, substr_count($twice, 'window.__pramnosDebugBar = {'));
         } finally {
-            // Cleanup
             $document->type = $original;
         }
+    }
+
+    /**
+     * A rendering failure costs the toolbar, not the page.
+     *
+     * Rendering reads collectors, the session, the container and an asset from
+     * disk. None of that has anything to do with the page that is ready to be sent.
+     */
+    public function testInjectIntoReturnsThePageWhenRenderingThrows(): void
+    {
+        // Arrange
+        $bar  = ThrowingDebugBar::make();
+        $html = '<html><body><p>The page the user asked for</p></body></html>';
+
+        // Act
+        $result = $bar->injectInto($html);
+
+        // Assert — byte for byte what arrived
+        $this->assertSame($html, $result);
+    }
+
+    /**
+     * A `raw` document is left alone, `</body>` and all.
+     *
+     * The log viewer serves one inside an `<iframe>`: a `</body>` in *that* is part
+     * of the text being displayed, not a place to inject a script.
+     */
+    public function testARawDocumentIsNotInjectedInto(): void
+    {
+        // Arrange
+        $document       = \Pramnos\Framework\Factory::getDocument();
+        $original       = $document->type ?? 'html';
+        $document->type = 'raw';
+
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('test'));
+        $raw = "a log line mentioning </body> in passing";
+
+        try {
+            // Act & Assert
+            $this->assertSame($raw, $bar->injectInto($raw));
+        } finally {
+            $document->type = $original;
+        }
+    }
+
+    /**
+     * With no collectors — production — the response is untouched.
+     */
+    public function testInjectIntoIsANoOpWithoutCollectors(): void
+    {
+        // Arrange
+        $html = '<html><body>Hello</body></html>';
+
+        // Act & Assert
+        $this->assertSame($html, DebugBar::getInstance()->injectInto($html));
     }
 
     /**
