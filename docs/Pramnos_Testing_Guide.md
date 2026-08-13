@@ -433,6 +433,7 @@ them already:
 <extensions>
     <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
     <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
+    <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
 </extensions>
 ```
 
@@ -440,6 +441,7 @@ them already:
 | --- | --- |
 | `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. |
 | `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — **three failures**, each of which appeared only in a full run. |
+| `GateIsolation` | `Gate` keeps abilities, policies and hooks in statics. A `Gate::before(fn () => true)` registered by one test would allow everything for every test after it — and the failure lands in a test asserting that an ordinary user is *refused*. Written **with** the feature rather than after the failures. |
 
 Both reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
 deliberately seals an identity or configures a document still gets exactly what it asked
