@@ -599,6 +599,79 @@ class ProjectResyncTest extends TestCase
     }
 
     /** --dry-run covers the SPA group too: reported, not written. */
+    /**
+     * "Nothing to sync" says why, and an MVC project is told it is MVC.
+     *
+     * The sentence used to be identical for a project with no SPA and for one whose
+     * sources are somewhere this command does not look — and the second reading is
+     * the one that sends somebody hunting in the wrong place. It cost a reviewer
+     * exactly that, and the fix they made was a repo-wide rename they would otherwise
+     * not have made.
+     */
+    public function testAnEmptyResyncExplainsItself(): void
+    {
+        // Arrange — a project with nothing of ours in it, and no SPA declared
+        $tester = $this->tester();
+
+        // Act — only the SPA group, which an MVC project has nothing in
+        $tester->execute(['--debug-panel' => true]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Nothing to sync', $display);
+        $this->assertStringContainsString('app_style', $display);
+        $this->assertStringContainsString('no SPA front end', $display);
+    }
+
+    /**
+     * A SPA project is told where it looked, and how to point it elsewhere.
+     *
+     * Without this the only route was renaming the directory to the one the
+     * framework assumes.
+     */
+    public function testAnEmptyResyncNamesTheDirectoryItLookedIn(): void
+    {
+        // Arrange — a SPA project whose sources are not where the stack implies
+        file_put_contents(
+            $this->projectDir . '/app/app.php',
+            "<?php\nreturn ['name' => 'App', 'app_style' => 'spa', 'spa_stack' => 'svelte'];\n"
+        );
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--debug-panel' => true]);
+
+        // Assert — the path it tried, and the setting that changes it
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('frontend/', $display);
+        $this->assertStringContainsString('spa_source_dir', $display);
+        $this->assertStringContainsString('rather than renaming', $display);
+    }
+
+    /**
+     * `spa_source_dir` is honoured, so a project keeps its own layout.
+     */
+    public function testAConfiguredSourceDirectoryIsUsed(): void
+    {
+        // Arrange — sources under admin-ui/, declared in app.php
+        file_put_contents(
+            $this->projectDir . '/app/app.php',
+            "<?php\nreturn ['name' => 'App', 'app_style' => 'spa', 'spa_stack' => 'svelte',"
+            . " 'spa_source_dir' => 'admin-ui/'];\n"
+        );
+        $this->seed('admin-ui/lib/debug.js', 'OLD PANEL');
+        $this->seed('admin-ui/lib/api.js', "import { record } from './debug.js';");
+
+        // Act
+        $tester = $this->tester();
+        $exit = $tester->execute(['--debug-panel' => true]);
+
+        // Assert — the panel was refreshed where the project actually keeps it
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertStringContainsString('admin-ui/lib/debug.js', $tester->getDisplay());
+        $this->assertNotSame('OLD PANEL', $this->read('admin-ui/lib/debug.js'));
+    }
+
     public function testSpaDryRunWritesNothing(): void
     {
         // Arrange

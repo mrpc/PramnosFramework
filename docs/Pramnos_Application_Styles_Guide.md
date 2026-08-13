@@ -200,6 +200,42 @@ so the host needs no toolchain at all:
 ./testjs                   # front-end tests (Vitest, or node --test)
 ```
 
+### Adding a SPA to an application that already exists
+
+`init` scaffolds a whole project and **refuses to run** where one already is. For an
+existing application there is a separate command:
+
+```bash
+php pramnos scaffold:spa --spa-stack=svelte          # at the site root
+php pramnos scaffold:spa --app-style=hybrid          # mounted under /app
+php pramnos scaffold:spa --dry-run                   # report, write nothing
+```
+
+It writes the same files from the same stubs as `init --app-style=spa`, because it
+calls the same method — there is no second implementation to drift.
+
+**Nothing you already have is overwritten.** A file the project already has is left
+byte-for-byte and reported as `kept (yours)`, so running it twice does nothing the
+second time and running it when you are unsure is safe. `--force` overwrites, if that
+is genuinely what you want.
+
+It also records `app_style` and `spa_stack` in `app/app.php`. That matters more than
+it looks: `spa:dev`, `spa:build` and `project:resync` all read those keys, and without
+them the front end exists while every command that should help with it reports that
+the project has none. A project that already declares a style keeps it.
+
+**If your front end lives somewhere else**, say so rather than renaming the
+directory:
+
+```php
+// app/app.php
+'spa_source_dir' => 'admin-ui/',
+```
+
+`project:resync` reads it, and when it finds nothing it now says *where it looked* and
+how to change that — the message used to be the same sentence for "this project has no
+SPA" and "your sources are not where I assumed".
+
 ### Developing with HMR — keep browsing the app URL
 
 Do **not** open the Vite port: there is no `index.html` there, so it answers 404.

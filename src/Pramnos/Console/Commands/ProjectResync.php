@@ -128,6 +128,7 @@ class ProjectResync extends Command
 
         if ($files === [] && !$syncPkg) {
             $output->writeln('<comment>Nothing to sync (no framework-owned source files found).</comment>');
+            $this->explainEmptyResync($base, $output);
             return Command::SUCCESS;
         }
 
@@ -159,6 +160,16 @@ class ProjectResync extends Command
 
         if ($doPanel) {
             $this->warnIfPanelNotWired($base, $output);
+        }
+
+        // Everything skipped is the other shape of "nothing happened", and it is the
+        // one a project whose front end lives elsewhere actually hits: the file is
+        // named, reported as absent, and nothing says that the *directory* is the
+        // assumption rather than the file.
+        if ($tally['skipped'] > 0
+            && ($tally['created'] + $tally['updated'] + $tally['unchanged']) === 0
+        ) {
+            $this->explainEmptyResync($base, $output);
         }
 
         $output->writeln('');
@@ -258,6 +269,15 @@ class ProjectResync extends Command
             return '';
         }
 
+        // An explicit setting wins, so a project whose front end lives somewhere
+        // else can be helped without a repo-wide rename. Reported by one that had
+        // to move `admin-ui/` to `frontend/` to receive a file — the right move for
+        // other reasons, but not something a resync should require.
+        $configured = trim((string) ($config['spa_source_dir'] ?? ''));
+        if ($configured !== '') {
+            return rtrim($configured, '/') . '/';
+        }
+
         $spaStack = (string) ($config['spa_stack'] ?? '');
 
         return Init::spaNeedsNode($spaStack) ? 'frontend/' : 'www/assets/js/';
@@ -296,6 +316,49 @@ class ProjectResync extends Command
             'dest'    => $sourceDir . 'lib/debug.js',
             'exec'    => false,
         ]];
+    }
+
+    /**
+     * Say *why* nothing was found, when nothing was.
+     *
+     * "Nothing to sync" is the same sentence for a project with no SPA and for a
+     * project whose SPA sources are somewhere this command does not look — and the
+     * second reading is the one that sends somebody hunting in the wrong place. It
+     * cost a reviewer exactly that, and the fix was a repo-wide rename they would
+     * otherwise not have made.
+     *
+     * @param  string          $base
+     * @param  OutputInterface $output
+     * @return void
+     */
+    private function explainEmptyResync(string $base, OutputInterface $output): void
+    {
+        $config   = $this->appConfig($base);
+        $appStyle = (string) ($config['app_style'] ?? 'mvc');
+
+        if ($appStyle === 'mvc') {
+            $output->writeln('  <comment>app_style</comment> is <comment>mvc</comment> in '
+                . 'app/app.php, so there is no SPA front end to sync.');
+            return;
+        }
+
+        $sourceDir  = $this->spaSourceDir($base);
+        $configured = trim((string) ($config['spa_source_dir'] ?? ''));
+
+        $output->writeln('  Looked for the front end in <comment>' . $sourceDir . '</comment>'
+            . ($configured !== ''
+                ? ' (from <comment>spa_source_dir</comment> in app/app.php).'
+                : ' (derived from <comment>spa_stack</comment>).'));
+
+        if (!is_dir($base . '/' . rtrim($sourceDir, '/'))) {
+            $output->writeln('  That directory does not exist.');
+        }
+
+        if ($configured === '') {
+            $output->writeln('  If this project keeps its front end elsewhere, add '
+                . "<comment>'spa_source_dir' => 'your-dir/'</comment> to app/app.php "
+                . 'rather than renaming the directory.');
+        }
     }
 
     /**

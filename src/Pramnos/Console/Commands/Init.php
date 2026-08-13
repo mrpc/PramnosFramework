@@ -126,6 +126,45 @@ class Init extends Command
     private bool $dryRun = false;
 
     /**
+     * Leave a file alone when the project already has one.
+     *
+     * Set by `scaffold:spa`, which adds a front end to an application that exists.
+     * `init` never sets it: a fresh scaffold writes everything.
+     *
+     * @var bool
+     */
+    public bool $skipExisting = false;
+
+    /**
+     * Paths left alone because the project already had them.
+     *
+     * @var array<string, true>
+     */
+    private array $keptFiles = [];
+
+    /**
+     * Paths actually written.
+     *
+     * @var array<string, true>
+     */
+    private array $writtenFiles = [];
+
+    /**
+     * What the last run wrote and what it left alone.
+     *
+     * @return array{written: list<string>, kept: list<string>}
+     */
+    public function report(): array
+    {
+        $written = array_keys($this->writtenFiles);
+        $kept    = array_keys($this->keptFiles);
+        sort($written);
+        sort($kept);
+
+        return ['written' => $written, 'kept' => $kept];
+    }
+
+    /**
      * Paths a dry run would have written, and whether each already exists.
      *
      * @var array<string, bool> Relative path => it exists today
@@ -1124,7 +1163,18 @@ class Init extends Command
      * @param list<string> $features Enabled framework features, so the routing
      *                               rules keep every scaffolded MVC area reachable
      */
-    private function scaffoldSpa(
+    /**
+     * Write the SPA front end into this project.
+     *
+     * Public because it is the whole of `scaffold:spa`, which exists for the case
+     * `init` cannot serve: an application that already exists and wants a front end.
+     * Copying fifteen stubs by hand with the right token substitutions was the
+     * documented path, and a reviewer did exactly that.
+     *
+     * Paired with {@see $skipExisting}, which is what makes calling this on a live
+     * project safe.
+     */
+    public function scaffoldSpa(
         string $appName,
         string $spaStack,
         string $appStyle,
@@ -5382,6 +5432,11 @@ PHP;
      */
     private function skipWrite(string $path): bool
     {
+        if ($this->skipExisting && is_file($this->targetBaseDir . '/' . ltrim($path, '/'))) {
+            $this->keptFiles[$path] = true;
+            return true;
+        }
+
         if (!$this->dryRun) {
             return false;
         }
@@ -5411,6 +5466,16 @@ PHP;
             $this->plannedWrites[$path] = is_file($this->targetBaseDir . '/' . $path);
             return;
         }
+
+        // Adding a front end to a project that already exists must never overwrite
+        // one of its files. Enforced here rather than at each call site, so a stub
+        // added later cannot forget it.
+        if ($this->skipExisting && is_file($this->targetBaseDir . '/' . $path)) {
+            $this->keptFiles[$path] = true;
+            return;
+        }
+
+        $this->writtenFiles[$path] = true;
 
         $full = $this->targetBaseDir . '/' . $path;
         // Ensure the parent directory exists. During a full init the tree is
