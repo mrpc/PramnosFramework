@@ -53,29 +53,6 @@ Two things are deliberately *not* planned:
   proxy that only wraps *some* services would report a domain layer that is
   partly missing, which is worse than one that is visibly opt-in.
 
-## A guide to *using* the debug toolbar, linked from the toolbar
-
-Everything written about the toolbar so far documents how it works and what each tab
-means to somebody reading the framework. There is no page that reads as "here is how
-to use this while you are debugging something" — the tabs are described where they
-were added, in the guide that owns the mechanism and in a dated post per change.
-
-**Planned:**
-
-- A task-shaped page: *the request came back wrong — where do I look*, *the page is
-  slow*, *it worked and then stopped*, *the deep link 404s*. Each answers with the
-  tab and the number to read, rather than describing the tab.
-- A **button in the bar** that opens it, in a new tab: the toolbar is the one place
-  somebody is standing when they need it, and the published site is where the page
-  lives. The DevPanel link is already conditional on the delivery, so the pattern
-  exists; this one is unconditional, because the docs are not per-installation.
-- The link has to survive being vendored: the toolbar ships inside `vendor/`, so it
-  points at the published GitHub Pages URL rather than at anything local.
-
-*Done when:* a developer who has never opened the toolbar can go from "something is
-wrong" to the right tab without reading the framework's source, and can get there
-from the bar itself.
-
 ## Testing
 
 ### The suite takes 15 minutes, and that paces every change

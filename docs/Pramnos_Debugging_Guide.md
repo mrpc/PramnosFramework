@@ -10,6 +10,11 @@ use_cases:
 
 # Debugging: the toolbar, the requests after it, and live servers
 
+> **Looking for how to *use* it?** [Using the debug toolbar](Pramnos_Debug_Toolbar_Usage.md)
+> is organised by what has gone wrong — the request came back wrong, it is slow, it worked
+> and then stopped, the deep link 404s. The `?` in the bar opens it. This page is how the
+> toolbar works and how to switch it on.
+
 The debug toolbar collects what a request did — its queries, timings, views,
 logs, session and route — and shows it at the foot of the page. This guide
 covers the two things that are not obvious: how to see the requests a page makes

@@ -1070,6 +1070,28 @@ describe('the server-rendered toolbar', () => {
     });
 
     /**
+     * The bar carries a link to its own instructions.
+     *
+     * A toolbar is where somebody is standing when they need to be told what it does,
+     * and the alternative was knowing that a documentation site exists and which page of
+     * it to look for. It opens in a new tab — losing the page you are debugging in order
+     * to read about the tool would be its own joke — and points at the published site,
+     * because this script ships inside vendor/ where a relative path means nothing.
+     */
+    test('the bar links to the usage guide, in a new tab', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({ payload: island() });
+
+        // Assert
+        const bar = dom.byId['pramnos-debugbar'].innerHTML;
+        assert.match(bar, /class="pdb-help"/);
+        assert.match(bar, /https:\/\/mrpc\.github\.io\/PramnosFramework\/Pramnos_Debug_Toolbar_Usage/);
+        assert.match(bar, /target="_blank"/);
+        // rel matters on a target=_blank link in a page the toolbar does not own
+        assert.match(bar, /rel="noopener noreferrer"/);
+    });
+
+    /**
      * The clear button empties the list, and is not a copy button.
      *
      * Both halves are here because of one bug. The button was given the `pdb-copy`
