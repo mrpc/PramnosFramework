@@ -43,6 +43,47 @@ debug=true             # application setting
 Or list `debug` in the application's `features`. The toolbar then appears on
 every HTML page, and API responses carry their debug data as a `_debug` key.
 
+`Application::isDebugMode()` answers the same question for your own code — use it
+rather than re-implementing the four checks, which is how two definitions of
+"development" drift apart. It deliberately excludes a debug-access token: a token
+opens the toolbar for one browser on a live server and must not turn that server
+into a development one. For that question there is `DebugAccess::isGranted()`.
+
+### An application that does not run `Application::init()`
+
+The features array is read by `bootServiceProviders()`, which `init()` calls. An
+application that deliberately skips the MVC boot — a console-safe bootstrap, or an
+HTTP kernel of its own — therefore gets **no collectors**, while looking fully
+configured. Nothing errors; no response ever carries a payload.
+
+Opt in with one call:
+
+```php
+$app = \Pramnos\Application\Application::getInstance();
+$app->bootFeatureProviders();   // registers what the features array declares
+```
+
+Once only. A bootstrap that also calls `init()` must not call this as well, or every
+provider registers twice.
+
+### An application that does not use the API layer
+
+`Application\Api` attaches `_debug` and sends the debug headers itself. An
+application that routes `#[Route]` attributes to controllers returning
+`Response::json()` never goes near that class — so add the middleware, which covers
+every routing style:
+
+```php
+$pipeline->add(new \Pramnos\Debug\ApiDebugMiddleware());
+```
+
+It handles both shapes a controller returns (a `Response` and a bare string), sends
+the headers for every response including the ones with no body, and returns the same
+instance untouched when there is nothing to attach. Which bodies can carry the key is
+decided in one place — `ApiDebugPayload::attachTo()` — and a top-level JSON **array**
+is not one of them: there is nowhere in `[1,2,3]` to put a key, and wrapping the
+response would change the contract the client is coded against.
+
 ## Getting it out of the way
 
 Clicking a tab opens its panel; clicking the same tab again closes it. The `✕` at

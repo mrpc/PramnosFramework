@@ -470,18 +470,13 @@ class Api extends Application
      */
     protected function _attachDebugPayload($body)
     {
-        if (!\Pramnos\Debug\ApiDebugPayload::isEnabled()) {
-            return $body;
-        }
-
-        $decoded = json_decode((string) $body, true);
-        if (!is_array($decoded) || array_is_list($decoded)) {
-            return $body;
-        }
-
-        $decoded['_debug'] = \Pramnos\Debug\ApiDebugPayload::build();
-
-        return json_encode($decoded);
+        // Delegated rather than reimplemented. The rule about which bodies can
+        // carry the key — not a top-level array, not a non-object, not one that
+        // already has a `_debug` — belongs in one place, because an application
+        // routing with #[Route] attributes reaches it through
+        // {@see \Pramnos\Debug\ApiDebugMiddleware} instead of through this class,
+        // and two copies of that rule would eventually disagree.
+        return \Pramnos\Debug\ApiDebugPayload::attachTo((string) $body);
     }
 
     /**

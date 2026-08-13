@@ -301,6 +301,27 @@ class Application extends Base
     }
 
     /**
+     * Register and boot the providers this application's features declare.
+     *
+     * Public, and the reason is a reported dead end: this is called from
+     * {@see init()}, so an application that deliberately does not run the MVC boot —
+     * a console-safe bootstrap, an attribute-routed HTTP kernel of its own — got **no
+     * providers at all**, while looking fully configured. Listing `debug` in
+     * `app.php`'s features array was necessary and not sufficient, and nothing said
+     * so: the symptom is that everything looks right and no response ever carries a
+     * debug payload. Such an application can now opt in with one call.
+     *
+     * Safe to call once. Calling it twice would register every provider twice, so a
+     * bootstrap that also calls `init()` should not call this as well.
+     *
+     * @return void
+     */
+    public function bootFeatureProviders(): void
+    {
+        $this->bootServiceProviders();
+    }
+
+    /**
      * Instantiates providers from enabled FeatureRegistry features, merges
      * them with any manually-added providers, then runs register() on all
      * followed by boot() on all.
@@ -340,12 +361,6 @@ class Application extends Base
         }
     }
 
-    /**
-     * Returns true when the application is running in debug / development mode.
-     *
-     * Checks (in order): APP_DEBUG env var, DEVELOPMENT constant, 'debug'
-     * setting, 'development' setting.
-     */
     /**
      * Load the theme named in the application configuration, if there is one.
      *
@@ -446,7 +461,25 @@ class Application extends Base
         return !in_array($type, ['json', 'raw', 'rss', 'png'], true);
     }
 
-    private function isDebugMode(): bool
+    /**
+     * Is this application running in debug / development mode?
+     *
+     * Checked in order: the `APP_DEBUG` environment variable, the `DEVELOPMENT`
+     * constant, the `debug` setting, the `development` setting.
+     *
+     * Public because an application has the same question and had no way to ask it:
+     * re-implementing this four-way check is precisely how two definitions of
+     * "development" drift apart, and one of them then decides something the other
+     * one would not have.
+     *
+     * Note what it deliberately does **not** include: a debug-access token. A token
+     * opens the toolbar for one browser on a live server, and must not turn that
+     * server into a development one — this method also governs whether errors are
+     * shown. See {@see \Pramnos\Debug\DebugAccess::isGranted()} for that question.
+     *
+     * @return bool
+     */
+    public function isDebugMode(): bool
     {
         $env = getenv('APP_DEBUG');
         if ($env !== false && $env !== '' && $env !== '0' && $env !== 'false') {
