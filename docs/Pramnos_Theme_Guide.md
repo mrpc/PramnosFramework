@@ -302,56 +302,23 @@ class MyTheme extends \Pramnos\Theme\Theme
 </div>
 ```
 
-### Custom Widget Development
+### Custom widget development — not implemented
 
-```php
-// Create custom widget
-class CustomWidget extends \Pramnos\Theme\Widget
-{
-    public function __construct()
-    {
-        parent::__construct(
-            'custom_widget',           // Widget ID
-            'Custom Widget',           // Widget Name
-            ['description' => 'A custom widget for my theme']
-        );
-    }
-    
-    public function widget($args, $instance)
-    {
-        echo $args['before_widget'];
-        
-        if (!empty($instance['title'])) {
-            echo $args['before_title'] . $instance['title'] . $args['after_title'];
-        }
-        
-        echo '<p>' . $instance['content'] . '</p>';
-        
-        echo $args['after_widget'];
-    }
-    
-    public function form($instance)
-    {
-        $title = !empty($instance['title']) ? $instance['title'] : '';
-        $content = !empty($instance['content']) ? $instance['content'] : '';
-        
-        return '
-        <p>
-            <label for="widget_title">Title:</label>
-            <input type="text" name="title" value="' . $title . '" />
-        </p>
-        <p>
-            <label for="widget_content">Content:</label>
-            <textarea name="content">' . $content . '</textarea>
-        </p>';
-    }
-}
+**There is no `Pramnos\Theme\Widget` base class**, and until 2026-08-14 this section
+documented one, together with a constructor signature and a `display()` method. None of it
+has ever existed.
 
-// Register widget
-add_action('widgets_init', function() {
-    register_widget('CustomWidget');
-});
-```
+What is real is the area, not the widget. `registerWidgetArea()` and `hasWidgetAreas()` work
+as described above — you can declare where widgets would go, and ask whether any areas exist.
+But `renderWidgetArea()` returns an **empty string**: the loop that would render each widget
+is commented out in `Theme.php` and refers to a `pramnos_theme_widget` class that is not in
+the framework.
+
+So a theme can declare widget areas today, and nothing will appear in them. That is worth
+knowing before designing a layout around them.
+
+If widgets are what you need now, render the content directly in the theme template or through
+a view — the template system above is complete and does not depend on any of this.
 
 ## Menu System
 
@@ -417,40 +384,16 @@ register_nav_menus([
 <?php endif; ?>
 ```
 
-### Custom Menu Walker
+### Custom menu walker — not implemented
 
-```php
-// Create custom menu walker for advanced menu styling
-class CustomMenuWalker extends \Pramnos\Theme\MenuWalker
-{
-    public function start_lvl(&$output, $depth = 0, $args = null)
-    {
-        $output .= '<ul class="sub-menu level-' . $depth . '">';
-    }
-    
-    public function start_el(&$output, $item, $depth = 0, $args = null, $id = 0)
-    {
-        $classes = ['menu-item'];
-        
-        if ($item->hasChildren) {
-            $classes[] = 'has-dropdown';
-        }
-        
-        if ($item->isActive) {
-            $classes[] = 'active';
-        }
-        
-        $output .= '<li class="' . implode(' ', $classes) . '">';
-        $output .= '<a href="' . $item->url . '">' . $item->title . '</a>';
-    }
-}
+**There is no `Pramnos\Theme\MenuWalker`.** Until 2026-08-14 this section documented one with
+`start_lvl()`, `end_lvl()` and `start_el()` — which is WordPress's `Walker_Nav_Menu` API,
+documented here by mistake and never built.
 
-// Use custom walker
-wp_nav_menu([
-    'theme_location' => 'primary',
-    'walker' => new CustomMenuWalker()
-]);
-```
+Menu **areas** are real: `register_nav_menu()`, `hasMenuAreas()`, `getMenuAreas()` and
+`removeMenuArea()` all work as described above. What is missing is the rendering extension
+point, so markup for a menu is produced by your own template rather than by subclassing
+anything.
 
 ## Theme Settings
 

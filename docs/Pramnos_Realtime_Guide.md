@@ -91,7 +91,7 @@ Models can broadcast their own lifecycle events with the `Broadcastable` trait:
 ```php
 use Pramnos\Broadcasting\Broadcastable;
 
-class Message extends \Pramnos\Database\OrmModel
+class Message extends \Pramnos\Application\OrmModel
 {
     use Broadcastable;
     protected string $broadcastChannel = 'chat.updates';

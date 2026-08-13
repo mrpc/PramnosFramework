@@ -1264,7 +1264,7 @@ The console application is configured in `src/Pramnos/Console/Application.php`:
 ```php
 protected function registerCommands()
 {
-    $this->add(new \Pramnos\Console\Commands\Create());
+    $this->add(new \Pramnos\Console\Commands\Make\MakeController());
     $this->add(new \Pramnos\Console\Commands\Serve());
     $this->add(new \Pramnos\Console\Commands\MigrateLogs());
     
