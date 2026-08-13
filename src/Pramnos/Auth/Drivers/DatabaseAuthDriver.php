@@ -97,7 +97,7 @@ class DatabaseAuthDriver implements AuthDriverInterface
         // Path 2: legacy MD5 comparison + optional auto-upgrade
         if ($legacyMd5 && !$encryptedPassword && md5($password) === $row['password']) {
             if ($autoUpgrade) {
-                $newHash = password_hash($pwd, PASSWORD_DEFAULT);
+                $newHash = \Pramnos\Auth\PasswordHash::make($pwd);
                 $updateSql = $database->prepareQuery(
                     "UPDATE `#PREFIX#users` SET `password` = %s WHERE `userid` = %d",
                     $newHash,

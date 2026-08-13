@@ -241,15 +241,16 @@ class TOTPHelper
     /**
      * Hash a backup code for secure storage.
      *
-     * Uses password_hash() with PASSWORD_DEFAULT so the hash is automatically
-     * upgraded as PHP's recommended algorithm changes.
+     * Uses {@see PasswordHash::make()}, so the hash is automatically upgraded as PHP's
+     * recommended algorithm changes and a single environment variable can lower the cost
+     * where 143 ms per code is the wrong trade — enabling 2FA hashes ten of them.
      *
      * @param string $code Plain-text backup code (as returned by generateBackupCodes())
      * @return string bcrypt/argon hash of the uppercased code
      */
     public static function hashBackupCode(string $code): string
     {
-        return password_hash(strtoupper($code), PASSWORD_DEFAULT);
+        return PasswordHash::make(strtoupper($code));
     }
 
     /**

@@ -77,3 +77,19 @@ require __DIR__ . '/stubs/storage_shadows.php';
 require __DIR__ . '/stubs/console_shadows.php';
 require __DIR__ . '/stubs/console_test_shadows.php';
 require __DIR__ . '/stubs/log_controller_shadows.php';
+
+/*
+ * Hash at bcrypt's cheapest cost for the duration of the test run.
+ *
+ * PASSWORD_DEFAULT on PHP 8.5 is bcrypt at cost 12 — 143 ms per hash, deliberately, and
+ * correct everywhere except here. Enabling 2FA hashes ten backup codes, so a single call
+ * cost 1.4 s, and the two TwoFactorAuthService integration classes spent 42 s between them
+ * inside bcrypt. What those tests assert is replay protection, consumption and storage;
+ * none of it is a property of the cost.
+ *
+ * Cost 4 is 0.71 ms. The algorithm is unchanged, so a hash made here is still verified by
+ * the same password_verify() call the application uses — see Pramnos\Auth\PasswordHash.
+ */
+if (getenv(\Pramnos\Auth\PasswordHash::COST_ENV) === false) {
+    putenv(\Pramnos\Auth\PasswordHash::COST_ENV . '=4');
+}

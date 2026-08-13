@@ -140,14 +140,40 @@ Always hash passwords before storing:
 // DO NOT store plain passwords
 $plainPassword = $_POST['password'];
 
-// Hash using secure algorithm (bcrypt/scrypt)
-$hashedPassword = password_hash($plainPassword, PASSWORD_BCRYPT);
-
-// OR use PHP 8.1+ modern syntax
-$hashedPassword = password_hash($plainPassword, PASSWORD_DEFAULT);
+// The framework's own call. Equivalent to password_hash($p, PASSWORD_DEFAULT),
+// with one place to configure the cost.
+$hashedPassword = \Pramnos\Auth\PasswordHash::make($plainPassword);
 
 // Store $hashedPassword in database
 ```
+
+`PasswordHash::make()` is what `User`, the database auth driver and the 2FA backup codes
+use. It is a thin wrapper over `password_hash($plain, PASSWORD_DEFAULT)` — same algorithm,
+same portable hash format, verified by the same `password_verify()` — that exists so the
+cost is configurable in one place instead of four.
+
+#### The cost, and why you should leave it alone
+
+On PHP 8.5 `PASSWORD_DEFAULT` is bcrypt at **cost 12**, about **143 ms per hash**. That
+slowness is the feature: it is what makes an offline attack on a stolen hash expensive.
+
+`PRAMNOS_BCRYPT_COST` overrides it. **A production deployment should leave it unset.**
+
+```
+cost  4:   0.71 ms
+cost  8:   9.05 ms
+cost 12: 142.9 ms   ← the default
+```
+
+The one environment where lowering it is right is a test suite, and the reason is
+instructive: enabling 2FA hashes ten backup codes, so a single call cost 1.4 s, and this
+framework's two `TwoFactorAuthService` integration classes spent **42 s** between them
+inside bcrypt — testing replay protection and storage, none of which is a property of the
+cost. The framework's `tests/bootstrap.php` sets `4`.
+
+Anything outside bcrypt's range of 4–31, or not a number, is **ignored** and the default
+applies: a typo in an environment variable cannot weaken hashing, and cannot raise an error
+that stops people logging in either.
 
 ### Password Verification
 

@@ -37,46 +37,13 @@ class MediaObjectTest extends TestCase
      *
      * @return void
      */
-    protected function setUp(): void
-    {
-        if (!defined('CONFIG')) {
-            define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
-        }
-
-        if (!defined('UNITTESTING')) {
-            define('UNITTESTING', true);
-        }
-
-        \Pramnos\Application\Settings::clearSettings();
-        $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
-        \Pramnos\Application\Settings::loadSettings($settingsFile);
-        \Pramnos\Application\Application::getInstance();
-
-        $singleton = &Factory::getDatabase();
-        $singleton = null;
-
-        $this->db = Factory::getDatabase();
-        if (!$this->db->connected) {
-            $this->db->connect();
-        }
-
-        // Ensure user tables exist.  Drop and recreate with FK_CHECKS=0 so that
-        // InnoDB does not fail with "Failed to open the referenced table" when
-        // another test class previously dropped the users table (e.g.
-        // UserAdminCreationMySQLCharacterizationTest).
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['usertokens', 'userstogroups', 'userdetails', 'users', 'usergroups'] as $t) {
-            $this->db->query("DROP TABLE IF EXISTS `{$t}`");
-        }
-        User::setupDb();
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
-
-        // Drop and recreate media & mediause tables for a clean state
-        $this->db->query('DROP TABLE IF EXISTS `media`');
-        $this->db->query('DROP TABLE IF EXISTS `mediause`');
-
-        $this->db->query('
-            CREATE TABLE `media` (
+    /**
+     * DDL for the `media` table, verbatim from what this class created per test before.
+     *
+     * @var string
+     */
+    private const MEDIA_TABLE_DDL = <<<'SQL'
+CREATE TABLE `media` (
                 `mediaid` int(11) NOT NULL AUTO_INCREMENT,
                 `mediatype` int(11) NOT NULL DEFAULT 0,
                 `userid` int(11) NOT NULL DEFAULT 0,
@@ -102,10 +69,15 @@ class MediaObjectTest extends TestCase
                 `extrainfo` text,
                 PRIMARY KEY (`mediaid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+SQL;
 
-        $this->db->query('
-            CREATE TABLE `mediause` (
+    /**
+     * DDL for the `mediause` table.
+     *
+     * @var string
+     */
+    private const MEDIAUSE_TABLE_DDL = <<<'SQL'
+CREATE TABLE `mediause` (
                 `usageid` int(11) NOT NULL AUTO_INCREMENT,
                 `mediaid` int(11) NOT NULL DEFAULT 0,
                 `module` varchar(255) NOT NULL DEFAULT "",
@@ -117,7 +89,148 @@ class MediaObjectTest extends TestCase
                 `order` int(11) NOT NULL DEFAULT 0,
                 PRIMARY KEY (`usageid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+SQL;
+
+    /**
+     * Every table this class owns, in an order safe to create and empty.
+     *
+     * @var string[]
+     */
+    private const TABLES = [
+        'mediause',
+        'media',
+        'usertokens',
+        'userstogroups',
+        'userdetails',
+        'users',
+        'usergroups',
+    ];
+
+    /**
+     * Builds the schema once for the whole class.
+     *
+     * MySQL DDL is the expensive part of this class by a wide margin, and none of these
+     * 86 tests asserts anything about the schema — they assert what MediaObject does with
+     * rows and files. So the tables are created here and merely emptied per test.
+     *
+     * The drop-then-create with `FOREIGN_KEY_CHECKS = 0` is kept for the reason it was
+     * written: another class may have dropped `users` before this one ran (the User
+     * characterization classes do), and InnoDB then refuses to create a table whose
+     * foreign key points at a table that is not there. Test classes run sequentially, so
+     * doing this once per class is as safe as doing it 86 times.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
+        }
+        if (!defined('UNITTESTING')) {
+            define('UNITTESTING', true);
+        }
+
+        \Pramnos\Application\Settings::clearSettings();
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php'
+        );
+        \Pramnos\Application\Application::getInstance();
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
+        $db = Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `{$table}`");
+        }
+        User::setupDb();
+        $db->query('SET FOREIGN_KEY_CHECKS = 1');
+
+        $db->query(self::MEDIA_TABLE_DDL);
+        $db->query(self::MEDIAUSE_TABLE_DDL);
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+        \Pramnos\Application\Settings::clearSettings();
+    }
+
+    /**
+     * Removes the class's tables so the next class starts from nothing.
+     *
+     * Left behind, `media` and `mediause` would be somebody else's surprise — and a table
+     * that outlives the class that created it is how a suite acquires order dependence.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        // The per-test tearDown() clears the settings and drops the database singleton,
+        // so by the time this runs there is no connection to reuse and nothing telling
+        // the framework where the server is. Load them again rather than leaving the
+        // tables behind.
+        \Pramnos\Application\Settings::clearSettings();
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php'
+        );
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
+        $db = Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+        $db->query('DROP TABLE IF EXISTS `media`');
+        $db->query('DROP TABLE IF EXISTS `mediause`');
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+        \Pramnos\Application\Settings::clearSettings();
+    }
+
+    protected function setUp(): void
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
+        }
+
+        if (!defined('UNITTESTING')) {
+            define('UNITTESTING', true);
+        }
+
+        \Pramnos\Application\Settings::clearSettings();
+        $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
+        \Pramnos\Application\Settings::loadSettings($settingsFile);
+        \Pramnos\Application\Application::getInstance();
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
+        $this->db = Factory::getDatabase();
+        if (!$this->db->connected) {
+            $this->db->connect();
+        }
+
+        // Empty the tables rather than recreating them. The schema is built once per
+        // class (see setUpBeforeClass) because MySQL DDL is expensive: 7 DROP + 7 CREATE
+        // per test cost ~450 ms, against 0.22 ms for the DELETEs that replace them. This
+        // class was 46.8 s for 86 tests, and almost none of it was the images it makes.
+        //
+        // DELETE, not TRUNCATE: TRUNCATE is an implicit DDL statement and measured
+        // *slower* than DROP + CREATE here (159 ms against 128 ms for two tables).
+        // Auto-increment therefore keeps counting up across tests, which no assertion in
+        // this class depends on — every id is checked with assertGreaterThan(0) or
+        // against another id, never against a literal 1.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $this->db->query("DELETE FROM `{$table}`");
+        }
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
 
         // Clear superglobals to prevent cross-test leakage
         $_SESSION = [];
@@ -157,9 +270,8 @@ class MediaObjectTest extends TestCase
             $this->removeDirectoryRecursive($yearDir);
         }
 
-        // Drop tables
-        $this->db->query('DROP TABLE IF EXISTS `media`');
-        $this->db->query('DROP TABLE IF EXISTS `mediause`');
+        // The tables are not dropped here: they belong to the class, and
+        // tearDownAfterClass() removes them once everything has run.
 
         // Reset database singleton to avoid leaks to other test classes
         $singleton = &Factory::getDatabase();
