@@ -108,4 +108,5 @@ nav:
     - Console Commands: Pramnos_Console_Guide.md
     - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
     - Testing: Pramnos_Testing_Guide.md
+    - Test suite performance: Pramnos_Test_Suite_Performance.md
     - Debugging: Pramnos_Debugging_Guide.md

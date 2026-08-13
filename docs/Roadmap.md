@@ -78,42 +78,47 @@ from the bar itself.
 
 ## Testing
 
-### The suite takes 17½ minutes, and that paces every change
+### The suite takes 15 minutes, and that paces every change
 
-Measured on 2026-08-12, full suite: **17:36 for 9167 tests** (≈115ms/test average).
-Every development cycle waits on it.
+**Measured, and it contradicted the standing hypothesis.** Full analysis with the
+numbers: [Test suite performance](Pramnos_Test_Suite_Performance.md). From a
+JUnit-logged run on 2026-08-13 (`1471dc9a`):
 
-**Coverage is not the bottleneck.** `phpunit.xml` declares an always-on
-`<coverage>` block, so the default run instruments every line and writes
-`coverage/clover.xml` even when nobody asked — but measured against the same
-filter (243 tests) it costs only ~8%:
+- `./dockertest` 17:02 with coverage, **14:58 without** — instrumentation is ~12%, real
+  but not the lever;
+- **`tests/bootstrap.php` touches no database at all**, so there is no fixed setup cost
+  to remove. The suspicion that database setup dominates does not survive contact;
+- **203 tests (2.2%) account for 46% of the run.** The other 7646 cost eleven seconds
+  more than those 203 do, together — which is what makes this tractable;
+- `tests/Unit` is 49% of the time at 60ms/test; `tests/Integration` is 43% at
+  **303ms/test**; `tests/Feature` is declared and empty.
 
-| Run | Wall clock |
-|---|---|
-| `./dockertest --filter Init` | 2:44 |
-| `./dockertest --no-coverage --filter Init` | 2:31 |
+**Planned, in order of return:**
 
-Still worth making opt-in (the container runs `xdebug.mode=coverage`, and the
-clover write is pure waste on a filtered run), but it does not explain the time.
+1. **Connect timeouts.** Seven tests wait exactly **8.00 s** each for a hostname that is
+   *supposed* not to resolve — `BaseTestCaseTest` and `TestEnvironmentTest` assert which
+   DSN was built, proven by the failure naming the host, then wait for TCP to give up.
+   One line in four places, ≈49 s.
+2. **`InitCommandUnitTest` scaffolds a whole project per test** — 61 tests × 1877 ms.
+   Scaffold once per class for the read-only assertions, keep per-test only where the
+   test changes the project. 80–130 s.
+3. **Integration tests create their schema per test.** Schema per class in
+   `setUpBeforeClass()`, data per test inside a transaction rolled back afterwards — the
+   split that fits a database, since DDL is not transactional in MySQL. Needs one shared
+   base class rather than fifty copies. Up to 150 s.
+4. **Two specific classes**: `MediaObjectTest` builds real JPEGs 86 times;
+   `TwoFactorAuthService*` hashes backup codes at default cost. 40–80 s.
 
-**What to measure next.** 243 tests in 150s is ~620ms each, which is far too much
-for work that is mostly in-process. Two candidates, both unverified:
+Together ≈5–6 minutes, without removing a test, a database or the coverage report.
 
-- **Per-test database setup.** If schema import or drop/create runs per test — or
-  per test *class* — that is the cost. Options in increasing order of work: wrap
-  each test in a transaction and roll back; import the schema once per run and
-  reset with `TRUNCATE`; on PostgreSQL, create each run's database from a template
-  (`CREATE DATABASE … TEMPLATE …`), which is close to free. **Consecutive runs
-  should not rebuild what has not changed** — the databases only need rebuilding
-  when a migration changed.
-- **Tests that scaffold whole projects on disk.** The `Init*` tests write a full
-  project per test method. That may be what this particular filter measured, in
-  which case the average is not representative and the real distribution needs a
-  `--log-junit` pass to find the slowest classes.
+**Not to be done:** dropping a database from the matrix (the query-builder bugs this
+framework has shipped were dialect-specific — a `?` only MySQL tolerated, a backtick only
+MySQL accepts) or making coverage opt-in (12%, and `--no-coverage` already exists).
+Parallelism is the *next* step and becomes cheaper once item 3 has moved schema creation
+into one place, since each worker then needs its own schema.
 
-*Done when:* a full run is under 5 minutes, and a filtered run of one class is
-under 10 seconds. Start by ranking the slowest tests (`--log-junit` plus a sort)
-rather than optimising the first suspect.
+*Done when:* the "≥ 1000 ms" row of the distribution has moved. A change that does not
+move it has not moved the suite.
 
 ### Deduplicate the two Getting Started pages
 

@@ -304,9 +304,33 @@ class UserApiTest extends \Pramnos\Testing\HttpTest
 }
 ```
 
+## Writing a test that does not slow the suite down
+
+The suite's cost is concentrated, not spread: **203 tests out of 9364 account for 46% of
+the run**, measured. Three habits are what put a test in that group, and all three have a
+cheap alternative:
+
+| Habit | Cost measured | Instead |
+| --- | --- | --- |
+| Connecting to a host that cannot answer, with no timeout | **8.00 s per test** | Pass a connect timeout (`PDO::ATTR_TIMEOUT => 1`, or `connect_timeout=1` in a PostgreSQL DSN) |
+| Building an expensive fixture in `setUp()` — a scaffolded project, a real JPEG | 1–2 s per test | Build it once in `setUpBeforeClass()` when the tests only read it |
+| Creating and dropping schema per test | ≈300 ms per test | Schema once per class; wrap each test in a transaction and roll it back |
+
+DDL is not transactional in MySQL, which is why the split is *schema per class, data per
+test* rather than everything in one transaction.
+
+The full measurement, and what is planned from it, is in
+[Test suite performance](Pramnos_Test_Suite_Performance.md). To check your own test's
+place in the distribution:
+
+```bash
+./dockertest --no-coverage --log-junit /var/www/html/var/junit.xml --filter YourTest
+```
+
 ## Reference
 
 **Related Guides:**
+- [Pramnos_Test_Suite_Performance.md](Pramnos_Test_Suite_Performance.md) — where the suite's time goes, measured
 - [Pramnos_Migration_Guide.md](Pramnos_Migration_Guide.md) — Running migrations in tests
 - [Pramnos_Console_Guide.md](Pramnos_Console_Guide.md) — `db:seed` command and Seeder base class
 - [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, Response Object
