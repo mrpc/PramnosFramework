@@ -56,6 +56,50 @@ The same disciplined loop applies to every version bump:
 
 ---
 
+## Test isolation extensions, for existing projects
+
+**Applies to:** every project with a test suite that was scaffolded before this change.
+It is a two-line edit and there is no code to change.
+
+The framework has two singletons that are per-request in production and **process-wide in
+a test run**. Without a reset between tests, state one test establishes answers for every
+test after it. In the framework's own suite that cost 135 failures once and three on
+another occasion — and in both cases the failures appeared in tests that had nothing to do
+with the state involved, so they looked like bugs in the tests that failed.
+
+`pramnos init` now writes the registration into `phpunit.xml`. Add it to yours:
+
+```xml
+<phpunit ...>
+    <extensions>
+        <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
+        <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
+    </extensions>
+
+    <testsuites>
+        ...
+```
+
+`<extensions>` goes before `<testsuites>`. Nothing else changes.
+
+**What to expect after adding them.** Usually nothing — a green suite stays green and gets
+slightly less mysterious. Two things can happen, and both are the point:
+
+- **A test starts failing.** It was passing on state left behind by a test that ran before
+  it. Give it what it needs in its own `setUp()`; it was never testing what it claimed to.
+- **A test starts passing.** It was the victim.
+
+If a test *depends* on ordering in a way you cannot remove immediately, establish the state
+in that test's `setUp()` rather than removing the extension: the reset runs at
+`PreparationStarted`, which is before `setUp()`, so anything the test sets for itself
+survives.
+
+Both classes ship in `src/` (`Pramnos\Framework\Testing`), so they exist in `vendor/` and
+need no autoload configuration. See
+[Isolating process-wide state](Pramnos_Testing_Guide.md#isolating-process-wide-state).
+
+---
+
 ## The debug toolbar no longer uses an output buffer
 
 **Applies to:** any application that enables the debug toolbar and produces part of

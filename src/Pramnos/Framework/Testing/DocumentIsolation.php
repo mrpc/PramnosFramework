@@ -2,18 +2,26 @@
 
 declare(strict_types=1);
 
-namespace Pramnos\Tests\Support;
+namespace Pramnos\Framework\Testing;
 
 use PHPUnit\Event\Test\PreparationStarted;
 use PHPUnit\Event\Test\PreparationStartedSubscriber;
 use PHPUnit\Runner\Extension\Extension;
 use PHPUnit\Runner\Extension\Facade;
 use PHPUnit\Runner\Extension\ParameterCollection;
-use Pramnos\Document\Document;
 use PHPUnit\TextUI\Configuration\Configuration;
+use Pramnos\Document\Document;
 
 /**
  * Gives every test its own document.
+ *
+ * Register it in `phpunit.xml`:
+ *
+ * ```xml
+ * <extensions>
+ *     <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
+ * </extensions>
+ * ```
  *
  * {@see Document} is per-request by design: a request builds one, renders through it
  * and the process ends. A test run is where that assumption fails — thousands of
@@ -35,18 +43,32 @@ use PHPUnit\TextUI\Configuration\Configuration;
  * It runs at `PreparationStarted`, which is before `setUp()`, so a test that
  * deliberately configures a document still gets what it asked for.
  */
-final class DocumentIsolation implements Extension
+final class DocumentIsolation implements Extension, PreparationStartedSubscriber
 {
+    /**
+     * Subscribes to the start of every test.
+     *
+     * @param Configuration     $configuration PHPUnit's resolved configuration (unused)
+     * @param Facade            $facade        Where subscribers are registered
+     * @param ParameterCollection $parameters   Parameters from the XML element (unused)
+     * @return void
+     */
     public function bootstrap(
         Configuration $configuration,
         Facade $facade,
         ParameterCollection $parameters
     ): void {
-        $facade->registerSubscriber(new class implements PreparationStartedSubscriber {
-            public function notify(PreparationStarted $event): void
-            {
-                Document::reset();
-            }
-        });
+        $facade->registerSubscriber($this);
+    }
+
+    /**
+     * Discards every cached document before the test that is about to run.
+     *
+     * @param PreparationStarted $event The event, whose payload is not needed here
+     * @return void
+     */
+    public function notify(PreparationStarted $event): void
+    {
+        Document::reset();
     }
 }
