@@ -34,6 +34,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `key:` | Secret/key management | `key:generate` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
+| `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
 | `health:` / `debug:` | Diagnostics | `health:check`, `debug:status` |
 | *(top-level)* | Entry-point & REPL | `init`, `serve`, `tinker` |
 
@@ -78,7 +79,9 @@ pair either: a "dry" run that changes the working tree would be a trap rather th
 preview.
 
 To add pieces to a project that already exists, use the `project:` commands
-(`project:reconfigure`, `project:install`, `project:resync`) rather than `init`.
+(`project:reconfigure`, `project:install`, `project:resync`) rather than `init` — and
+`scaffold:spa` to add a front end, which writes what `init --app-style=spa` writes
+without touching a file the project already has.
 
 ### Code Generation Commands
 

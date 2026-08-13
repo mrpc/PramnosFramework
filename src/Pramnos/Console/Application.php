@@ -79,6 +79,9 @@ class Application extends \Symfony\Component\Console\Application
         // done daily were npm commands with no presence in `pramnos list`.
         $this->add(new \Pramnos\Console\Commands\SpaDev());
         $this->add(new \Pramnos\Console\Commands\SpaBuild());
+        // Adds a front end to a project that already exists — the case init cannot
+        // serve, since it refuses to run where an application is.
+        $this->add(new \Pramnos\Console\Commands\ScaffoldSpa());
         $this->add(new \Pramnos\Console\Commands\Tinker());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
         // Migration CLI commands (Phase 4)
