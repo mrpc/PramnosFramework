@@ -465,7 +465,7 @@ class QueryBuilder
 
         $this->wheres[] = [
             'type' => 'Raw',
-            'sql' => $sql,
+            'sql' => $this->bindRawPlaceholders($sql, $bindings, 'whereRaw'),
             'boolean' => $boolean
         ];
 
@@ -474,6 +474,161 @@ class QueryBuilder
         }
 
         return $this;
+    }
+
+    /**
+     * Add a raw where clause joined with OR.
+     *
+     * Was missing, which is a gap rather than a decision: `orWhere()`,
+     * `orWhereIn()` and `orWhereNull()` all exist, and the raw one is the case
+     * where an application has no alternative but to write the SQL. Without it the
+     * only route was `whereRaw($sql, $bindings, 'or')`, which reads as an internal
+     * detail because the third parameter is one.
+     *
+     * @param  string $sql
+     * @param  array  $bindings
+     * @return $this
+     */
+    public function orWhereRaw($sql, array $bindings = [])
+    {
+        return $this->whereRaw($sql, $bindings, 'or');
+    }
+
+    /**
+     * Add a raw having clause joined with OR.
+     *
+     * @param  string $sql
+     * @param  array  $bindings
+     * @return $this
+     */
+    public function orHavingRaw($sql, array $bindings = [])
+    {
+        return $this->havingRaw($sql, $bindings, 'or');
+    }
+
+    /**
+     * Put this builder's own placeholders where a raw fragment wrote `?`.
+     *
+     * **This builder does not use `?`.** It emits the framework's typed
+     * placeholders — `%s`, `%i`, `%d`, `%b` — which `Database::prepare()`
+     * substitutes positionally. A raw fragment is emitted verbatim, so a `?` in one
+     * stayed a literal `?` in the statement while its value was still appended to
+     * the binding list: one more value than there were placeholders, and every
+     * binding after the fragment shifted by one.
+     *
+     * The cost of that was in how it failed. The statement could not execute,
+     * `first()` returned **`false`** rather than raising, nothing was logged, and
+     * the symptom was `Attempt to read property "fields" on false` in the calling
+     * code, several lines from the cause. An application rewrote the query as a
+     * prepared statement rather than spend longer on it.
+     *
+     * So each `?` becomes the placeholder its own binding's type needs, in the
+     * position it was written — which is what makes the ordering come out right,
+     * since the fragment already sits in the correct place in the clause. Two
+     * things are deliberately left alone:
+     *
+     * - **A fragment with no bindings.** `whereRaw('enabled = TRUE')` is used
+     *   across the framework itself, and a `?` with nothing to bind may be a
+     *   PostgreSQL `jsonb ? key` operator or a literal. Rewriting it would be a
+     *   guess.
+     * - **A `?` inside a quoted string.** `label = 'why?'` means what it says.
+     *
+     * A count that does not match throws **here**, in the caller's own file, which
+     * is the other half of the fix: the alternative is a false three layers away.
+     *
+     * @param  string $sql      The raw fragment as written
+     * @param  array  $bindings Its values, in order
+     * @param  string $method   Named in the exception, so the message points at the call
+     * @return string The fragment with placeholders this builder can bind
+     * @throws \InvalidArgumentException When the placeholder count and the binding
+     *                                   count disagree.
+     */
+    protected function bindRawPlaceholders($sql, array $bindings, $method = 'whereRaw')
+    {
+        if (empty($bindings)) {
+            return $sql;
+        }
+
+        $out      = '';
+        $quote    = null;   // the quote character we are inside, or null
+        $consumed = 0;      // how many bindings have been given a placeholder
+        $unbound  = 0;      // `?` markers left with no binding to fill them
+        $length   = strlen($sql);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $sql[$i];
+
+            if ($quote !== null) {
+                // Inside a literal: copy through, and leave on the closing quote.
+                // A doubled quote ('' or "") is an escaped one and does not close.
+                if ($char === $quote) {
+                    if (($i + 1) < $length && $sql[$i + 1] === $quote) {
+                        $out .= $char . $quote;
+                        $i++;
+                        continue;
+                    }
+                    $quote = null;
+                }
+                $out .= $char;
+                continue;
+            }
+
+            if ($char === "'" || $char === '"') {
+                $quote = $char;
+                $out  .= $char;
+                continue;
+            }
+
+            if ($char === '?') {
+                if (array_key_exists($consumed, $bindings)) {
+                    $out .= $this->grammar->getPlaceholder($bindings[$consumed]);
+                    $consumed++;
+                    continue;
+                }
+                // A marker with nothing left to fill it. Counted rather than
+                // rewritten, so the check below can say so.
+                $unbound++;
+                $out .= $char;
+                continue;
+            }
+
+            $out .= $char;
+        }
+
+        // A fragment written the framework's own way — `status = %i` — is already
+        // correct and counts towards the total, as does any `?` left over.
+        $existing = $this->countOwnPlaceholders($out) - $consumed;
+        $total    = $consumed + max(0, $existing) + $unbound;
+
+        if ($total !== count($bindings)) {
+            throw new \InvalidArgumentException(sprintf(
+                '%s() was given %d binding(s) for %d placeholder(s) in: %s. '
+                . 'Use ? or the framework placeholders (%%s, %%i, %%d, %%b) once per binding.',
+                $method,
+                count($bindings),
+                $total,
+                $sql
+            ));
+        }
+
+        return $out;
+    }
+
+    /**
+     * How many of this framework's placeholders a fragment carries.
+     *
+     * `%%` is an escaped percent sign, not a placeholder, so it is removed before
+     * counting — otherwise a `LIKE '%%foo%%'` would be read as two bindings.
+     *
+     * @param  string $sql
+     * @return int
+     */
+    private function countOwnPlaceholders($sql)
+    {
+        $withoutEscapes = str_replace('%%', '', $sql);
+        preg_match_all('/%[sidb]/', $withoutEscapes, $matches);
+
+        return count($matches[0]);
     }
 
     /**
@@ -671,7 +826,7 @@ class QueryBuilder
     {
         $this->havings[] = [
             'type' => 'Raw',
-            'sql' => $sql,
+            'sql' => $this->bindRawPlaceholders($sql, $bindings, 'havingRaw'),
             'boolean' => $boolean
         ];
 
