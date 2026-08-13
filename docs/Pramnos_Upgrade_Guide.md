@@ -61,11 +61,12 @@ The same disciplined loop applies to every version bump:
 **Applies to:** every project with a test suite that was scaffolded before this change.
 It is a two-line edit and there is no code to change.
 
-The framework has two singletons that are per-request in production and **process-wide in
+The framework has three registries that are per-request in production and **process-wide in
 a test run**. Without a reset between tests, state one test establishes answers for every
 test after it. In the framework's own suite that cost 135 failures once and three on
 another occasion — and in both cases the failures appeared in tests that had nothing to do
-with the state involved, so they looked like bugs in the tests that failed.
+with the state involved, so they looked like bugs in the tests that failed. `GateIsolation`
+is the third, and was written with the gate rather than after an incident.
 
 `pramnos init` now writes the registration into `phpunit.xml`. Add it to yours:
 
@@ -74,6 +75,7 @@ with the state involved, so they looked like bugs in the tests that failed.
     <extensions>
         <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
         <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
+        <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
     </extensions>
 
     <testsuites>
@@ -94,8 +96,8 @@ in that test's `setUp()` rather than removing the extension: the reset runs at
 `PreparationStarted`, which is before `setUp()`, so anything the test sets for itself
 survives.
 
-Both classes ship in `src/` (`Pramnos\Framework\Testing`), so they exist in `vendor/` and
-need no autoload configuration. See
+All three ship in `src/` (`Pramnos\Framework\Testing`), so they exist in `vendor/` and need
+no autoload configuration. See
 [Isolating process-wide state](Pramnos_Testing_Guide.md#isolating-process-wide-state).
 
 ---

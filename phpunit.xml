@@ -30,6 +30,13 @@
             `raw` — and the fix each time looked like a bug in the test that failed.
         -->
         <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
+        <!--
+            The gate registry is static: abilities, policies and before/after hooks
+            registered by one test would answer for every test after it. Written with
+            the feature rather than after the failures, which is what the other two
+            paid for.
+        -->
+        <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
     </extensions>
 
     <testsuites>

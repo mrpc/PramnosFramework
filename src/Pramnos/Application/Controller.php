@@ -30,6 +30,45 @@ class Controller extends \Pramnos\Framework\Base
     protected $user_permissions = array();
 
     /**
+     * Whether the current user may do something.
+     *
+     * A short form of `\Pramnos\Auth\Gate::allows()` for the place it is asked most —
+     * inside an action, about the thing the action is holding.
+     *
+     * ```php
+     * if (!$this->can('update-post', $post)) {
+     *     return $this->redirect('/posts');
+     * }
+     * ```
+     *
+     * This is the *rule* layer. `auth()` on this class is the older, data-driven check
+     * against `$actions_auth` and `$action_permissions`, and the two are complementary
+     * rather than alternatives — see the Authorization guide.
+     *
+     * @param string $ability      The ability name
+     * @param mixed  ...$arguments Passed to the rule after the user
+     * @return bool True when allowed
+     */
+    public function can(string $ability, mixed ...$arguments): bool
+    {
+        return \Pramnos\Auth\Gate::allows($ability, ...$arguments);
+    }
+
+    /**
+     * Whether the current user may **not** do something.
+     *
+     * The inverse of {@see can()}, for the guard-clause shape that reads better negated.
+     *
+     * @param string $ability      The ability name
+     * @param mixed  ...$arguments Passed to the rule after the user
+     * @return bool True when refused
+     */
+    public function cannot(string $ability, mixed ...$arguments): bool
+    {
+        return !$this->can($ability, ...$arguments);
+    }
+
+    /**
      * Controller Title
      * @var string
      */

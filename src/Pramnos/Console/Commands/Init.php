@@ -3863,6 +3863,7 @@ PHP;
         -->
         <bootstrap class="Pramnos\\Framework\\Testing\\RequestIdentityIsolation"/>
         <bootstrap class="Pramnos\\Framework\\Testing\\DocumentIsolation"/>
+        <bootstrap class="Pramnos\\Framework\\Testing\\GateIsolation"/>
     </extensions>
 
     <testsuites>

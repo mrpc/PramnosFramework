@@ -127,10 +127,21 @@ class Router extends Base implements RouterInterface
         if ($route) {
             // Check permissions before executing
             if (!$this->hasPermissions($route, $userPermissions)) {
+                // AuthorizationException extends \Exception with code 403, so every
+                // existing `catch (\Exception $e)` and `getCode() === 403` check keeps
+                // working. What it adds is a failure a handler can recognise without
+                // matching on a message string.
                 if ($this->_invalidScope !== null) {
-                    throw new \Exception('Insufficient permissions to access this route. Missing scope: ' . $this->_invalidScope, 403);
+                    throw new \Pramnos\Auth\AuthorizationException(
+                        'route',
+                        'Insufficient permissions to access this route. Missing scope: '
+                        . $this->_invalidScope
+                    );
                 }
-                throw new \Exception('Insufficient permissions to access this route', 403);
+                throw new \Pramnos\Auth\AuthorizationException(
+                    'route',
+                    'Insufficient permissions to access this route'
+                );
             }
 
             $allMiddlewares = array_merge($this->globalMiddlewares, $route->getMiddleware());

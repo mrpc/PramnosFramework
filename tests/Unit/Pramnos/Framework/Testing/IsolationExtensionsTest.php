@@ -21,12 +21,14 @@ use PHPUnit\Event\EventFacadeIsSealedException;
 use PHPUnit\Runner\Extension\Facade;
 use PHPUnit\Runner\Extension\ParameterCollection;
 use Pramnos\Document\Document;
+use Pramnos\Auth\Gate;
 use Pramnos\Framework\Testing\DocumentIsolation;
+use Pramnos\Framework\Testing\GateIsolation;
 use Pramnos\Framework\Testing\RequestIdentityIsolation;
 use Pramnos\Http\RequestIdentity;
 
 /**
- * The two PHPUnit extensions that keep process-wide singletons from leaking
+ * The three PHPUnit extensions that keep process-wide singletons from leaking
  * between tests.
  *
  * These are the least self-testing pieces of code in the framework: their whole
@@ -162,6 +164,31 @@ class IsolationExtensionsTest extends TestCase
     }
 
     /**
+     * The gate extension forgets abilities registered by an earlier test.
+     *
+     * A `Gate::before(fn () => true)` left behind by one test would allow everything for
+     * every test after it — and the failure would land in a test asserting that an ordinary
+     * user is *refused*, which is the assertion nobody expects an unrelated file to affect.
+     *
+     * This extension was written **with** the feature rather than after the failures, which
+     * is the only reason there is no incident to cite here.
+     */
+    public function testGateIsolationForgetsRegisteredAbilities(): void
+    {
+        // Arrange — an earlier test's rule, and a hook that would answer for everyone
+        Gate::define('leaked-ability', static fn () => true);
+        Gate::before(static fn () => true);
+        $this->assertTrue(Gate::has('leaked-ability'), 'Precondition: the leak must be reproducible.');
+
+        // Act
+        (new GateIsolation())->notify($this->makeEvent());
+
+        // Assert — nothing survives, including the hook that would have allowed anything
+        $this->assertFalse(Gate::has('leaked-ability'));
+        $this->assertFalse(Gate::allows('leaked-ability'));
+    }
+
+    /**
      * Both extensions attempt a real subscription, and subscribe *themselves*.
      *
      * A reset method nobody calls is the failure mode with no symptom: the suite
@@ -179,9 +206,9 @@ class IsolationExtensionsTest extends TestCase
      *
      * @return void
      */
-    public function testBothExtensionsRegisterThemselvesAsSubscribers(): void
+    public function testEveryExtensionRegistersItselfAsASubscriber(): void
     {
-        foreach ([new RequestIdentityIsolation(), new DocumentIsolation()] as $extension) {
+        foreach ([new RequestIdentityIsolation(), new DocumentIsolation(), new GateIsolation()] as $extension) {
             // Arrange
             $configuration = (new \PHPUnit\TextUI\Configuration\Builder())->build([]);
             $sealed        = false;
