@@ -40,22 +40,11 @@ The toolbar has one renderer
 (`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`),
 and both deliveries use it: `DebugBar::render()` emits a data island plus that
 script, and draws nothing itself. The Time tab, the cross-request waterfall, the
-Auth tab, the Domain tab and the Errors tab have all landed; what is left is what
-a SPA developer still cannot see from the browser's side.
+Auth tab, the Domain tab, the Errors tab and the Client tab (runtime config,
+router, storage) have all landed. One item is left.
 
 Component *state* is deliberately not on this list: that is the job of Svelte
 DevTools and the `$inspect` rune. Correlation is ours, state is theirs.
-
-### Runtime config and router
-
-`window.__PRAMNOS__`, the router base, the current route and params. This is the
-"why does my deep link 404" class of question.
-
-### Storage inspector
-
-The keys the application owns, with secrets masked. A stale token in
-`localStorage` is already documented as a trap in the generated
-`FRONTEND_TESTING.md`.
 
 ### API playground
 

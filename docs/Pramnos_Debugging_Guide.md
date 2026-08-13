@@ -175,6 +175,47 @@ is **red across its whole width** when the request went wrong — a 4xx or 5xx, 
 network failure with no status at all, or a 200 that quietly raised something,
 which is the one nobody would go looking for.
 
+### What the browser thinks the world is
+
+The **Client** tab is three sections answering one question three ways, and it is
+the only tab that is present on every page — for every other tab, no data means no
+tab, but here *absence is the finding*.
+
+**Runtime configuration** — `window.__PRAMNOS__` exactly as the shell injected
+it, with secrets masked by key name. This is the thing nobody can see by reading
+the source. A page with none says so, and says what that means: on a
+server-rendered page there is nothing to inject, while in a SPA it means the shell
+did not run and the API client is falling back to its built-in defaults.
+
+**Router** — the current URL, the router base, the route the application resolved
+to, and its params. The base is printed next to the path because that pair *is*
+the deep-link failure: an application served under `/app` whose router base is
+empty resolves every deep link to its home screen, and nothing on screen says why.
+When the path does not start with the base, the panel says so in as many words
+rather than leaving two values side by side to be compared.
+
+The route name is the application's to know, so the router reports it. A
+scaffolded `lib/router.js` already does, on every navigation:
+
+```js
+import { reportRoute } from './debug.js';
+
+reportRoute(name, { base: BASE });
+```
+
+Without that, the URL and the injected base are still shown — the route *name* is
+the only part that goes missing. The shell publishes `routerBase` too, so the
+comparison works in a project whose `router.js` predates this.
+
+**Storage** — every key in `localStorage` and `sessionStorage`, with values masked
+by key name (`token`, `secret`, `apiKey`, …) and long values truncated. A masked
+value still reports its length, because "there is a token and it is 900 characters
+long" is usually the whole finding: a stale token survives a deploy, the server
+signs with a new key, and every call then fails in a way that looks like a server
+problem. A storage area that refuses to be read — private mode, a blocked origin —
+costs its own section and nothing else; one that is not there at all is reported
+as absent rather than as broken, because those are different findings.
+
 ### What the browser threw
 
 The **Exceptions** tab is the server's. Everything after the response arrives —
@@ -463,8 +504,8 @@ project gets it as an ES module with `record()` exported. There is no second
 renderer to drift, which is what produced a `✕` that had to be fixed twice.
 
 So both deliveries draw **every collector the payload carries** — SQL, Time,
-Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — plus the
-**Errors** tab, which comes from what this script observed in the browser rather
+Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — plus **Errors**
+and **Client**, which come from what this script observed in the browser rather
 than from any payload. A collector the payload does not carry gets no tab, rather
 than an empty one that reads as "nothing happened".
 

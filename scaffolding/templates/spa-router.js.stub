@@ -11,6 +11,7 @@
  * `create:crud` gets its URL without anyone editing this file.
  */
 import { screens } from '../screens/registry.js';
+import { reportRoute } from './debug.js';
 
 /** Where the application is mounted ('' at the site root, '/app' in hybrid). */
 export const BASE = '{{ routerBase }}';
@@ -55,8 +56,19 @@ export function routeFor(pathname) {
  * @param {(name: string) => void} onChange Called with the new route name
  */
 export function createRouter(onChange) {
-    /** Announce wherever we are now. */
-    const announce = () => onChange(routeFor(window.location.pathname));
+    /**
+     * Announce wherever we are now — to the application, and to the debug panel.
+     *
+     * The panel cannot work the route out for itself: the route table is this
+     * file's, and a base that does not match the URL is precisely the failure
+     * worth showing ("the deep link that 404s"). reportRoute is inert in
+     * production, like the rest of lib/debug.js.
+     */
+    const announce = () => {
+        const name = routeFor(window.location.pathname);
+        reportRoute(name, { base: BASE });
+        onChange(name);
+    };
 
     window.addEventListener('popstate', announce);
 
@@ -75,6 +87,7 @@ export function createRouter(onChange) {
             if (window.location.pathname !== path) {
                 window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
             }
+            reportRoute(name, { base: BASE });
             onChange(name);
         },
 

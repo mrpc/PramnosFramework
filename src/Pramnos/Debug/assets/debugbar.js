@@ -116,10 +116,12 @@
         { key: 'models',     label: 'Domain' },
         { key: 'migrations', label: 'Migrations' },
         { key: 'exceptions', label: 'Exceptions' },
-        // Last, and the only tab whose data never came from the server: what the
-        // browser itself threw. It sits beside Exceptions on purpose — the two
-        // halves of "something went wrong" belong next to each other.
-        { key: 'errors',     label: 'Errors' }
+        // Last, and the only two tabs whose data never came from the server:
+        // what the browser itself threw, and what it thinks the world is.
+        // Errors sits beside Exceptions on purpose — the two halves of
+        // "something went wrong" belong next to each other.
+        { key: 'errors',     label: 'Errors' },
+        { key: 'client',     label: 'Client' }
     ];
 
     /**
@@ -129,7 +131,7 @@
      * no payload key for an error raised in the browser three seconds after the
      * response arrived.
      */
-    var CLIENT_TABS = { errors: true };
+    var CLIENT_TABS = { errors: true, client: true };
 
     /** @type {Array<Object>} One per request, oldest first. */
     var entries = [];
@@ -153,6 +155,20 @@
 
     /** Stack traces are truncated to this many characters before display. */
     var STACK_LIMIT = 4096;
+
+    /**
+     * Where the client-side router thinks it is, as it last said.
+     *
+     * Reported by the application's router rather than worked out here: the route
+     * table is the application's, and guessing at it would produce a panel that
+     * is confidently wrong about the one thing this tab exists to settle.
+     *
+     * @type {?{name: string, base: ?string, params: ?Object, at: Date}}
+     */
+    var clientRoute = null;
+
+    /** A storage value longer than this is shown truncated. */
+    var VALUE_LIMIT = 200;
 
     /**
      * The framework route that hands back one request's log lines.
@@ -613,6 +629,34 @@
     }
 
     /**
+     * Note where the client-side router has arrived.
+     *
+     * Called by the application's router on every navigation. Optional: with no
+     * router reporting, the Client tab still shows the URL and the configuration,
+     * which is most of the answer — the route *name* is the part only the
+     * application knows.
+     *
+     * @param {string} name      The route the application resolved to
+     * @param {Object} [detail]  { base, params }
+     */
+    function reportRoute(name, detail) {
+        try {
+            detail = detail || {};
+            clientRoute = {
+                name: String(name),
+                base: detail.base === undefined ? null : detail.base,
+                params: detail.params || null,
+                at: new Date()
+            };
+            if (root && activeTab === 'client') {
+                render();
+            }
+        } catch (e) {
+            /* a router that cannot be observed still has to route */
+        }
+    }
+
+    /**
      * The two tabs that read as a stream over the page, not as one request's state.
      *
      * A log line and an exception happen *at a moment*; which request produced
@@ -1018,8 +1062,14 @@
             // A client-side tab answers from what this script saw, and appears
             // only once it has something — an Errors tab reading 0 on every page
             // would train the eye to ignore the one time it does not.
-            if (CLIENT_TABS[tab.key]) {
+            if (tab.key === 'errors') {
                 data = clientErrors.length ? { count: clientErrors.length } : null;
+            }
+            // The Client tab is the exception to "no tab without data": there is
+            // always a URL and always a configuration, and its whole purpose is
+            // to be looked at when something is *missing* from them.
+            if (tab.key === 'client') {
+                data = { count: null };
             }
 
             if (!data && !(stream && stream.length)) {
@@ -1113,6 +1163,9 @@
                 // Distinct failures, not occurrences: a loop that throws the same
                 // thing 4000 times is one problem, and the row says 4000.
                 return clientErrors.length;
+            case 'client':
+                // Nothing to count — a configuration is not a quantity.
+                return null;
             case 'queries':
                 return typeof data.count === 'number' ? data.count : (data.queries || []).length;
             case 'logs':
@@ -1345,6 +1398,10 @@
         // nothing back because the browser broke while handling it.
         if (key === 'errors') {
             return renderClientErrors();
+        }
+
+        if (key === 'client') {
+            return renderClientState();
         }
 
         // Checked before the payload: a stream tab answers for every request
@@ -2120,6 +2177,164 @@
             + rows + '</tbody></table>';
     }
 
+    /**
+     * What the browser thinks the world is: configuration, URL, storage.
+     *
+     * Three sections in one tab because they are one question asked three ways.
+     * "Why does my deep link 404" is answered by the router base against the
+     * current path; "why am I suddenly signed out" is answered by a stale token
+     * in storage; and both start with what the shell actually injected, which is
+     * the thing nobody can see by reading the source.
+     */
+    function renderClientState() {
+        return runtimeSection() + routerSection() + storageSection();
+    }
+
+    /**
+     * `window.__PRAMNOS__`, as injected — masked.
+     *
+     * The application's own API key lives in here. It is not a secret in the
+     * strict sense (a browser has to be given it), but this panel is
+     * screenshotted into bug reports, and a key in a bug report is a key that has
+     * to be rotated.
+     */
+    function runtimeSection() {
+        var runtime = window.__PRAMNOS__;
+        if (!runtime || typeof runtime !== 'object') {
+            return '<p><strong>Runtime configuration</strong></p>'
+                + '<p class="pdb-muted">The page injected no <code>window.__PRAMNOS__</code>. '
+                + 'On a server-rendered page there is none to inject; in a SPA it '
+                + 'means the shell did not run, and the API client is falling back '
+                + 'to its built-in defaults.</p>';
+        }
+
+        return '<p><strong>Runtime configuration</strong> '
+            + '<span class="pdb-muted">— <code>window.__PRAMNOS__</code>, as the shell '
+            + 'injected it</span></p>'
+            + '<pre class="pdb-pre">' + esc(JSON.stringify(mask(runtime), null, 2)) + '</pre>';
+    }
+
+    /**
+     * The URL, and where the router says it is inside it.
+     *
+     * The base is printed next to the path because that pair is the whole
+     * deep-link failure: an application mounted at `/app` whose router has an
+     * empty base resolves every deep link to its home screen, and nothing on
+     * screen says why.
+     */
+    function routerSection() {
+        var loc = typeof location === 'undefined' ? {} : location;
+        var base = clientRoute && clientRoute.base !== null && clientRoute.base !== undefined
+            ? clientRoute.base
+            : ((window.__PRAMNOS__ || {}).routerBase);
+
+        var rows = ''
+            + row('URL', (loc.pathname || '') + (loc.search || '') + (loc.hash || ''))
+            + (base === undefined || base === null
+                ? ''
+                : row('Router base', base === '' ? '(site root)' : base));
+
+        if (clientRoute) {
+            rows += row('Route', clientRoute.name);
+            if (clientRoute.params) {
+                rows += row('Params', JSON.stringify(mask(clientRoute.params)));
+            }
+            rows += row('Since', clockTime(clientRoute.at));
+        }
+
+        var note = clientRoute
+            ? ''
+            : '<p class="pdb-muted">No router has reported a route. A SPA router can '
+                + 'call <code>reportRoute(name, { base })</code> from '
+                + '<code>lib/debug.js</code>; without it, the URL above is all this '
+                + 'panel can know.</p>';
+
+        // The mismatch worth naming, since it is the reported failure: a path that
+        // does not start with the base cannot resolve to anything but the fallback.
+        if (base && loc.pathname && loc.pathname.indexOf(base) !== 0) {
+            note += '<p style="color:#fab387">The current path does not start with the '
+                + 'router base, so no route can match it — this is the deep link that '
+                + '"404s" and quietly lands on the home screen instead.</p>';
+        }
+
+        return '<p style="margin-top:8px"><strong>Router</strong></p>'
+            + '<table class="pdb-table"><tbody>' + rows + '</tbody></table>' + note;
+    }
+
+    /** One label/value row, for the small tables in this tab. */
+    function row(label, value) {
+        return '<tr><td style="color:#89b4fa;white-space:nowrap">' + esc(label) + '</td>'
+            + '<td class="pdb-sql">' + esc(value) + '</td></tr>';
+    }
+
+    /**
+     * Everything in `localStorage` and `sessionStorage`, with secrets masked.
+     *
+     * A stale token in `localStorage` is already documented as a trap in the
+     * generated front-end testing guide: it survives a deploy, the server signs
+     * with a new key, and every call fails in a way that looks like a server
+     * problem. Being able to *see* the key is the difference between that and an
+     * afternoon.
+     *
+     * Values are masked by key name and truncated. Access itself can throw —
+     * private mode, a blocked origin — and that is reported rather than allowed
+     * to empty the tab.
+     */
+    function storageSection() {
+        return '<p style="margin-top:8px"><strong>Storage</strong> '
+            + '<span class="pdb-muted">— secrets masked by key name</span></p>'
+            + storageTable('localStorage')
+            + storageTable('sessionStorage');
+    }
+
+    /**
+     * One storage area as a table, or the reason it could not be read.
+     *
+     * Everything is inside one `try`, because storage refuses in more than one
+     * place: a blocked origin throws on *access* to the object, and a hostile or
+     * exotic implementation can throw on `length` or `getItem` instead. Only the
+     * first of those was ever guarded, which is how a private-mode browser could
+     * have got a half-drawn panel.
+     */
+    function storageTable(which) {
+        try {
+            // Bare globals, not `window[which]`: reading storage through `window`
+            // misses a host that exposes it only as a global, and the rest of this
+            // file already reads `localStorage` directly for the hidden flag.
+            var store = which === 'sessionStorage'
+                ? (typeof sessionStorage === 'undefined' ? null : sessionStorage)
+                : (typeof localStorage === 'undefined' ? null : localStorage);
+
+            if (!store) {
+                return '<p class="pdb-muted">' + esc(which) + ' is unavailable here.</p>';
+            }
+
+            var rows = '';
+            for (var i = 0; i < store.length; i++) {
+                var name = store.key(i);
+                var value = String(store.getItem(name));
+                // Masked by key name, and the length kept: "there is a token and
+                // it is 900 characters long" is the whole finding, and printing
+                // the token would put a credential in a screenshot.
+                var shown = SECRET.test(name)
+                    ? '••••••••  ' + value.length + ' chars'
+                    : (value.length > VALUE_LIMIT
+                        ? value.slice(0, VALUE_LIMIT) + '… (' + value.length + ' chars)'
+                        : value);
+                rows += '<tr><td style="color:#89b4fa;white-space:nowrap">' + esc(name) + '</td>'
+                    + '<td class="pdb-sql">' + esc(shown) + '</td></tr>';
+            }
+
+            return '<table class="pdb-table"><thead><tr><th>' + esc(which) + '</th><th>Value</th>'
+                + '</tr></thead><tbody>'
+                + (rows || '<tr><td colspan="2" class="pdb-muted">empty</td></tr>')
+                + '</tbody></table>';
+        } catch (e) {
+            return '<p class="pdb-muted">' + esc(which) + ' cannot be read here '
+                + '(private mode, or a blocked origin).</p>';
+        }
+    }
+
     // ── Interaction ─────────────────────────────────────────────────────────
 
     /** Handle every click inside the bar. */
@@ -2472,7 +2687,12 @@
         }
     }
 
-    window.__pramnosDebugBar = { record: record, boot: boot, reportError: reportError };
+    window.__pramnosDebugBar = {
+        record: record,
+        boot: boot,
+        reportError: reportError,
+        reportRoute: reportRoute
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);

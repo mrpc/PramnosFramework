@@ -847,6 +847,31 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * The panel can say where the router thinks it is, and where it is mounted.
+     *
+     * Neither is knowable from the framework's side: the route table lives in the
+     * project's `lib/router.js` and the mount point is baked into it at scaffold
+     * time. Together they are the "why does my deep link 404" failure — an
+     * application served under `/app` whose router base is empty resolves every
+     * deep link to its home screen and says nothing at all.
+     */
+    public function testTheRouterAndTheShellTellThePanelWhereTheApplicationIs(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'hybrid', '--spa-stack' => 'svelte']);
+
+        // Assert — the router reports every navigation, with its base
+        $router = $this->read('frontend/lib/router.js');
+        $this->assertStringContainsString("import { reportRoute } from './debug.js';", $router);
+        $this->assertStringContainsString('reportRoute(name, { base: BASE });', $router);
+
+        // ...and the shell publishes the mount point, so the tab is useful even
+        // in a project whose router.js predates this
+        $shell = $this->read('www/app.php');
+        $this->assertStringContainsString("'routerBase' => '/app'", $shell);
+    }
+
+    /**
      * Failures the application handles itself still reach the Errors tab.
      *
      * The global `error` / `unhandledrejection` handlers in the panel only see
