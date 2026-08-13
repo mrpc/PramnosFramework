@@ -2,7 +2,7 @@
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\DatabaseTestCase;
 use Pramnos\Database\Database;
 
 /**
@@ -20,26 +20,45 @@ use Pramnos\Database\Database;
  *   qb_products  (id SERIAL, name, category, price, stock, active, notes)
  *   qb_tags      (id SERIAL, product_id, tag)
  */
-class QueryBuilderPostgreSQLTest extends TestCase
+class QueryBuilderPostgreSQLTest extends DatabaseTestCase
 {
-    protected Database $db;
-
-    protected function setUp(): void
+    /**
+     * PostgreSQL, in the timescaledb container.
+     *
+     * @return array<string, mixed> Connection properties
+     */
+    protected static function connectionConfig(): array
     {
-        $this->db = new Database();
-        $this->db->type     = 'postgresql';
-        $this->db->server   = 'timescaledb';
-        $this->db->user     = 'postgres';
-        $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
-        $this->db->port     = 5432;
-        $this->db->schema   = 'public';
-        $this->db->connect(true);
+        return [
+            'type'     => 'postgresql',
+            'server'   => 'timescaledb',
+            'user'     => 'postgres',
+            'password' => 'secret',
+            'database' => 'pramnos_test',
+            'port'     => 5432,
+            'schema'   => 'public',
+        ];
+    }
 
-        $this->db->execute("DROP TABLE IF EXISTS qb_tags");
-        $this->db->execute("DROP TABLE IF EXISTS qb_products");
-        $this->db->execute("DROP TABLE IF EXISTS qb_events");
-        $this->db->execute("CREATE TABLE qb_products (
+    /**
+     * The three tables these tests query, children first.
+     *
+     * @return string[] Table names
+     */
+    protected static function ownedTables(): array
+    {
+        return ['qb_tags', 'qb_products', 'qb_events'];
+    }
+
+    /**
+     * The schema, built once per class by {@see DatabaseTestCase}.
+     *
+     * @return string[] DDL statements
+     */
+    protected static function schemaStatements(): array
+    {
+        return [
+            "CREATE TABLE qb_products (
             id       SERIAL PRIMARY KEY,
             name     VARCHAR(255)   NOT NULL,
             category VARCHAR(50)    DEFAULT NULL,
@@ -47,25 +66,18 @@ class QueryBuilderPostgreSQLTest extends TestCase
             stock    INTEGER        DEFAULT 0,
             active   BOOLEAN        DEFAULT true,
             notes    TEXT           DEFAULT NULL
-        )");
-        $this->db->execute("CREATE TABLE qb_tags (
+        )",
+            "CREATE TABLE qb_tags (
             id         SERIAL PRIMARY KEY,
             product_id INTEGER    NOT NULL,
             tag        VARCHAR(50) NOT NULL
-        )");
-        $this->db->execute("CREATE TABLE qb_events (
+        )",
+            "CREATE TABLE qb_events (
             id         SERIAL PRIMARY KEY,
             name       VARCHAR(100)  NOT NULL,
             event_time TIMESTAMPTZ   NOT NULL
-        )");
-    }
-
-    protected function tearDown(): void
-    {
-        $this->db->execute("DROP TABLE IF EXISTS qb_tags");
-        $this->db->execute("DROP TABLE IF EXISTS qb_products");
-        $this->db->execute("DROP TABLE IF EXISTS qb_events");
-        $this->db->close();
+        )",
+        ];
     }
 
     // -------------------------------------------------------------------------
@@ -83,13 +95,39 @@ class QueryBuilderPostgreSQLTest extends TestCase
         ");
     }
 
+    /**
+     * Tags for Apple, Carrot and Elderberry.
+     *
+     * The product ids are looked up by name rather than written as 1, 3 and 5. They were
+     * literals while the schema was rebuilt per test and the sequence therefore restarted
+     * every time; with the schema built once per class it does not, and five join tests
+     * began returning nothing because the tags pointed at products that did not exist.
+     * Looking the ids up is what the literals meant.
+     *
+     * @return void
+     */
     private function seedTags(): void
     {
-        $this->db->execute("INSERT INTO qb_tags (product_id, tag) VALUES
-            (1, 'popular'), (1, 'sweet'),
-            (3, 'healthy'), (3, 'organic'),
-            (5, 'rare')
-        ");
+        $rows = [
+            'Apple'      => ['popular', 'sweet'],
+            'Carrot'     => ['healthy', 'organic'],
+            'Elderberry' => ['rare'],
+        ];
+
+        foreach ($rows as $product => $tags) {
+            $result = $this->db->queryBuilder()
+                ->select('id')
+                ->from('qb_products')
+                ->where('name', $product)
+                ->first();
+
+            foreach ($tags as $tag) {
+                $this->db->queryBuilder()->table('qb_tags')->insert([
+                    'product_id' => (int) $result->fields['id'],
+                    'tag'        => $tag,
+                ]);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

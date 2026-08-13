@@ -2,7 +2,7 @@
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\DatabaseTestCase;
 use Pramnos\Database\Database;
 
 /**
@@ -15,30 +15,48 @@ use Pramnos\Database\Database;
  *   qb_products  (id, name, category, price, stock, active, notes)
  *   qb_tags      (id, product_id, tag)
  */
-class QueryBuilderMySQLTest extends TestCase
+class QueryBuilderMySQLTest extends DatabaseTestCase
 {
-    protected Database $db;
-
-    protected function setUp(): void
+    /**
+     * MySQL, in the project's own container.
+     *
+     * @return array<string, mixed> Connection properties
+     */
+    protected static function connectionConfig(): array
     {
-        $this->db = new Database();
-        $this->db->type     = 'mysql';
-        $this->db->server   = 'db';
-        $this->db->user     = 'root';
-        $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
-        $this->db->port     = 3306;
-        $this->db->connect(true);
+        return [
+            'type'     => 'mysql',
+            'server'   => 'db',
+            'user'     => 'root',
+            'password' => 'secret',
+            'database' => 'pramnos_test',
+            'port'     => 3306,
+        ];
+    }
 
-        // Disable FK checks for the duration of DROP so the order of drops does
-        // not matter even if future schema changes introduce cross-table constraints.
-        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
-        $this->db->query("DROP TABLE IF EXISTS `qb_tags`");
-        $this->db->query("DROP TABLE IF EXISTS `qb_products`");
-        $this->db->query("DROP TABLE IF EXISTS `qb_events`");
-        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
+    /**
+     * The three tables these tests query, children first.
+     *
+     * @return string[] Table names
+     */
+    protected static function ownedTables(): array
+    {
+        return ['qb_tags', 'qb_products', 'qb_events'];
+    }
 
-        $this->db->query("CREATE TABLE `qb_products` (
+    /**
+     * The schema, built once per class by {@see DatabaseTestCase}.
+     *
+     * These 92 tests assert what the query builder emits and what comes back, never
+     * anything about the schema — so rebuilding it per test bought nothing and cost
+     * 170 ms of the 183 ms each test took.
+     *
+     * @return string[] DDL statements
+     */
+    protected static function schemaStatements(): array
+    {
+        return [
+            "CREATE TABLE `qb_products` (
             id       INT AUTO_INCREMENT PRIMARY KEY,
             name     VARCHAR(255)    NOT NULL,
             category VARCHAR(50)     DEFAULT NULL,
@@ -46,27 +64,18 @@ class QueryBuilderMySQLTest extends TestCase
             stock    INT             DEFAULT 0,
             active   TINYINT(1)      DEFAULT 1,
             notes    TEXT            DEFAULT NULL
-        )");
-        $this->db->query("CREATE TABLE `qb_tags` (
+        )",
+            "CREATE TABLE `qb_tags` (
             id         INT AUTO_INCREMENT PRIMARY KEY,
             product_id INT         NOT NULL,
             tag        VARCHAR(50) NOT NULL
-        )");
-        $this->db->query("CREATE TABLE `qb_events` (
+        )",
+            "CREATE TABLE `qb_events` (
             id         INT AUTO_INCREMENT PRIMARY KEY,
             name       VARCHAR(100) NOT NULL,
             event_time DATETIME NOT NULL
-        )");
-    }
-
-    protected function tearDown(): void
-    {
-        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
-        $this->db->query("DROP TABLE IF EXISTS `qb_tags`");
-        $this->db->query("DROP TABLE IF EXISTS `qb_products`");
-        $this->db->query("DROP TABLE IF EXISTS `qb_events`");
-        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
-        $this->db->close();
+        )",
+        ];
     }
 
     // -------------------------------------------------------------------------
@@ -84,14 +93,39 @@ class QueryBuilderMySQLTest extends TestCase
         ");
     }
 
+    /**
+     * Tags for Apple, Carrot and Elderberry.
+     *
+     * The product ids are looked up by name rather than written as 1, 3 and 5. They were
+     * literals until the schema moved to setUpBeforeClass(), at which point auto-increment
+     * stopped restarting at 1 for every test and six join tests began returning nothing —
+     * the tags were pointing at products that did not exist. Looking them up is what the
+     * literals meant, and it does not care what the ids are.
+     *
+     * @return void
+     */
     private function seedTags(): void
     {
-        // product 1 = Apple, product 3 = Carrot
-        $this->db->query("INSERT INTO `qb_tags` (product_id, tag) VALUES
-            (1, 'popular'), (1, 'sweet'),
-            (3, 'healthy'), (3, 'organic'),
-            (5, 'rare')
-        ");
+        $rows = [
+            'Apple'      => ['popular', 'sweet'],
+            'Carrot'     => ['healthy', 'organic'],
+            'Elderberry' => ['rare'],
+        ];
+
+        foreach ($rows as $product => $tags) {
+            $result = $this->db->queryBuilder()
+                ->select('id')
+                ->from('qb_products')
+                ->where('name', $product)
+                ->first();
+
+            foreach ($tags as $tag) {
+                $this->db->queryBuilder()->table('qb_tags')->insert([
+                    'product_id' => (int) $result->fields['id'],
+                    'tag'        => $tag,
+                ]);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
