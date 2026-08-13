@@ -579,6 +579,188 @@ class DebugBarTest extends TestCase
     }
 
     /**
+     * A page thrown out of the buffer by somebody else is re-sent at shutdown.
+     *
+     * The second way a toolbar can cost you the page, and the one the earlier fix
+     * could not reach. Booting the provider adds an output-buffer level, so an
+     * application that clears "its" buffer — a bare `ob_get_clean()`, or the classic
+     * `while (ob_get_level()) { ob_end_clean(); }` loop a kernel uses to drop stray
+     * output before responding — discards **ours**, with the page inside it. The
+     * client gets 200 and zero bytes; the headers all say the request succeeded;
+     * nothing is logged; and with the toolbar off the same code works, because then
+     * there is no extra level to destroy.
+     *
+     * Measured against a real server, not deduced: with `output_buffering` on in
+     * php.ini and the provider booted there are two levels, and either idiom emptied
+     * a 9KB document to nothing. After this, both deliver the document.
+     *
+     * By the time PHP calls the handler the content is already condemned, so the
+     * only place left to put it is shutdown — which is also the only moment an
+     * `echo` reaches the client directly.
+     */
+    public function testAPageDiscardedFromTheBufferIsResentAtShutdown(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
+        $page = "<!DOCTYPE html>\n<html><body><p>the page</p></body></html>";
+
+        // Act — what PHP does when somebody cleans the buffer
+        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+            $page,
+            PHP_OUTPUT_HANDLER_CLEAN | PHP_OUTPUT_HANDLER_FINAL,
+            DebugBar::getInstance()
+        );
+
+        ob_start();
+        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
+        $sent = (string) ob_get_clean();
+
+        // Assert
+        $this->assertSame($page, $sent);
+    }
+
+    /**
+     * A discarded fragment is left discarded.
+     *
+     * A partial, a JSON body being replaced, a snippet somebody was buffering on
+     * purpose: those discards meant what they said. Only a whole document reaching
+     * that point means the *page* was thrown away, which is never intended — so the
+     * rescue is deliberately narrow rather than clever.
+     */
+    public function testADiscardedFragmentIsNotResent(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
+
+        // Act
+        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+            '<tr><td>one row</td></tr>',
+            PHP_OUTPUT_HANDLER_CLEAN,
+            DebugBar::getInstance()
+        );
+
+        ob_start();
+        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
+        $sent = (string) ob_get_clean();
+
+        // Assert
+        $this->assertSame('', $sent);
+    }
+
+    /**
+     * Nothing is re-sent when the response already reached the client.
+     *
+     * Otherwise a page that was delivered and *then* had a later buffer cleaned
+     * would be sent twice — one broken response traded for another.
+     */
+    public function testNothingIsResentAfterTheResponseWasDelivered(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
+        $bar = DebugBar::getInstance();
+
+        // Act — a normal flush carrying the response, then a clean of something else
+        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+            '<!DOCTYPE html><html><body>delivered</body></html>',
+            PHP_OUTPUT_HANDLER_FINAL,
+            $bar
+        );
+        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+            '<!DOCTYPE html><html><body>stale</body></html>',
+            PHP_OUTPUT_HANDLER_CLEAN,
+            $bar
+        );
+
+        ob_start();
+        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
+        $sent = (string) ob_get_clean();
+
+        // Assert
+        $this->assertSame('', $sent);
+    }
+
+    /**
+     * An empty buffer being cleaned is not an event.
+     *
+     * `ob_get_clean()` on a buffer nothing has written to is ordinary, and treating
+     * it as a lost page would log a warning on requests where nothing went wrong.
+     */
+    public function testCleaningAnEmptyBufferIsIgnored(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
+
+        // Act
+        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+            "\n  \n",
+            PHP_OUTPUT_HANDLER_CLEAN,
+            DebugBar::getInstance()
+        );
+
+        ob_start();
+        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
+
+        // Assert
+        $this->assertSame('', (string) ob_get_clean());
+    }
+
+    /**
+     * The rescue fires once, so a re-entrant shutdown cannot double the page.
+     */
+    public function testTheRescueOnlyFiresOnce(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
+        \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+            '<!DOCTYPE html><html><body>once</body></html>',
+            PHP_OUTPUT_HANDLER_CLEAN,
+            DebugBar::getInstance()
+        );
+
+        // Act
+        ob_start();
+        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
+        \Pramnos\Debug\DebugBarServiceProvider::rescueDiscardedOutput();
+        $sent = (string) ob_get_clean();
+
+        // Assert — one copy
+        $this->assertSame(1, substr_count($sent, '<!DOCTYPE html>'));
+    }
+
+    /**
+     * A normal flush is still decorated, which is the ordinary path.
+     *
+     * Asserted alongside the rescue so a future change cannot make the buffer safe
+     * by making it useless.
+     */
+    public function testANormalFlushIsStillDecorated(): void
+    {
+        // Arrange
+        $document       = \Pramnos\Framework\Factory::getDocument();
+        $original       = $document->type ?? 'html';
+        $document->type = 'html';
+        \Pramnos\Debug\DebugBarServiceProvider::resetOutputState();
+
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('test'));
+
+        try {
+            // Act
+            $result = \Pramnos\Debug\DebugBarServiceProvider::handleBuffer(
+                '<html><body><p>Hello</p></body></html>',
+                PHP_OUTPUT_HANDLER_FINAL,
+                $bar
+            );
+
+            // Assert
+            $this->assertStringContainsString('pramnos-debugbar', $result);
+            $this->assertStringContainsString('<p>Hello</p>', $result);
+        } finally {
+            $document->type = $original;
+        }
+    }
+
+    /**
      * A JSON response gets the payload, not the toolbar.
      *
      * There is no `</body>` in a JSON body, but there is room for a `_debug` key —
