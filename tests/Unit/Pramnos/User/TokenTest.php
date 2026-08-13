@@ -12,44 +12,123 @@ use Pramnos\Framework\Factory;
 
 class TokenTest extends TestCase
 {
-    protected function setUp(): void
+    /**
+     * The tables this class owns, children first.
+     *
+     * @var string[]
+     */
+    private const TABLES = ['tokenactions', 'urls', 'usertokens', 'applications', 'users'];
+
+    /**
+     * Builds the schema once for the whole class.
+     *
+     * This ran per test until it was measured: four drops and five creates in `setUp()`
+     * plus four more drops in `tearDown()` — thirteen DDL statements for every one of these
+     * 33 tests, in a class that asserts what `Token` does with rows and never anything
+     * about a schema. **15.8 s → see the changelog.** `setUp()` now empties the tables.
+     *
+     * The drops still come first, and with `FOREIGN_KEY_CHECKS = 0`: integration tests
+     * elsewhere leave behind tables of these names carrying foreign keys, and `applications`
+     * in particular exists with a different schema in `ScopesMySQLIntegrationTest`. Test
+     * classes run sequentially, so doing this once per class is as safe as doing it 33
+     * times.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $db = self::bootDatabase();
+
+        $db->query("SET FOREIGN_KEY_CHECKS = 0");
+        $db->cacheflush();
+        foreach (self::TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `" . $db->prefix . $table . "`");
+        }
+        $db->query("SET FOREIGN_KEY_CHECKS = 1");
+
+        foreach (self::schemaStatements($db) as $statement) {
+            $db->query($statement);
+        }
+
+        self::releaseDatabase();
+    }
+
+    /**
+     * Drops the class's tables so the next class builds its own.
+     *
+     * `ScopesMySQLIntegrationTest` needs `applications` with an `apikey` column, so leaving
+     * this class's version behind would hand it the wrong schema.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $db = self::bootDatabase();
+
+        $db->query("SET FOREIGN_KEY_CHECKS = 0");
+        foreach (self::TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `" . $db->prefix . $table . "`");
+        }
+        $db->query("SET FOREIGN_KEY_CHECKS = 1");
+        $db->cacheflush();
+
+        self::releaseDatabase();
+    }
+
+    /**
+     * Loads the fixture settings and returns a connected Factory database.
+     *
+     * The code under test reaches the database through the Factory, so the fixtures have to
+     * be built through the same singleton rather than through a handle of our own.
+     *
+     * @return \Pramnos\Database\Database A connected handle
+     */
+    private static function bootDatabase(): \Pramnos\Database\Database
     {
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
 
-        // addAction() buffers its row through WriteSpool. These tests read the
-        // row back immediately, and the spool directory is shared, so a drain
-        // here would also write rows other test classes left behind. Writing
-        // straight through keeps each test looking only at what it did.
-        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
-
         Settings::clearSettings();
-        $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
-        Settings::loadSettings($settingsFile);
+        Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         Application::getInstance();
-        
+
         $singleton = &Factory::getDatabase();
         $singleton = null;
-        
+
         $db = Factory::getDatabase();
         if (!$db->connected) {
             $db->connect();
         }
-        
-        // Drop test tables first (with FK checks off to avoid ordering issues
-        // when integration tests leave behind tables with FK constraints).
-        $db->query("SET FOREIGN_KEY_CHECKS = 0");
-        $db->cacheflush();
-        $db->query("DROP TABLE IF EXISTS " . $db->prefix . "tokenactions");
-        $db->query("DROP TABLE IF EXISTS " . $db->prefix . "urls");
-        $db->query("DROP TABLE IF EXISTS " . $db->prefix . "usertokens");
-        $db->query("SET FOREIGN_KEY_CHECKS = 1");
 
-        // Ensure the users table exists (Token::getDetails() JOINs against it).
-        // Create it directly rather than via User::setupDb() to avoid also
-        // creating the FK-constrained usertokens schema that setupDb generates.
-        $db->query(
+        return $db;
+    }
+
+    /**
+     * Drops the Factory's database singleton and the settings it was built from.
+     *
+     * @return void
+     */
+    private static function releaseDatabase(): void
+    {
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+        Settings::clearSettings();
+    }
+
+    /**
+     * The schema, verbatim from what this class used to create per test.
+     *
+     * `users` and `applications` are stubs that `Token::getDetails()` joins against; the
+     * token tables carry no foreign keys on purpose, so a test can insert an arbitrary
+     * `userid` without a matching user.
+     *
+     * @param \Pramnos\Database\Database $db A connected handle, for its table prefix
+     * @return string[] DDL statements, in dependency order
+     */
+    private static function schemaStatements(\Pramnos\Database\Database $db): array
+    {
+        return [
             "CREATE TABLE IF NOT EXISTS `" . $db->prefix . "users` (
                 `userid` bigint(20) NOT NULL AUTO_INCREMENT,
                 `username` varchar(50) NOT NULL DEFAULT '',
@@ -57,15 +136,7 @@ class TokenTest extends TestCase
                 `firstname` varchar(128) NOT NULL DEFAULT '',
                 `lastname` varchar(128) NOT NULL DEFAULT '',
                 PRIMARY KEY (`userid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-        );
-
-        // Create lightweight test versions of the token tables (no FK constraints
-        // so tests can insert arbitrary userids without needing real users rows).
-        // Use IF NOT EXISTS to guard against unexpected state left by prior tests
-        // or a partially-failed setUp — every table is dropped at the start of
-        // this method, so IF NOT EXISTS is just a safety net.
-        $db->query(
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
             "CREATE TABLE IF NOT EXISTS `" . $db->prefix . "usertokens` (
                 `tokenid` INT AUTO_INCREMENT PRIMARY KEY,
                 `userid` INT,
@@ -85,18 +156,12 @@ class TokenTest extends TestCase
                 `ipaddress` VARCHAR(45) NULL,
                 `code_challenge` VARCHAR(128) NULL,
                 `code_challenge_method` VARCHAR(10) NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-        );
-
-        $db->query(
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
             "CREATE TABLE IF NOT EXISTS `" . $db->prefix . "urls` (
                 `urlid` INT AUTO_INCREMENT PRIMARY KEY,
                 `url` TEXT,
                 `hash` BIGINT
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-        );
-
-        $db->query(
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
             "CREATE TABLE IF NOT EXISTS `" . $db->prefix . "tokenactions` (
                 `actionid` INT AUTO_INCREMENT PRIMARY KEY,
                 `tokenid` INT,
@@ -108,14 +173,7 @@ class TokenTest extends TestCase
                 `execution_time_ms` DECIMAL(10,3),
                 `return_data` JSON,
                 `action_time` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-        );
-
-        // Stub applications table required by Token::getDetails() LEFT JOIN.
-        // Drop first so we always get the schema this test needs (previous tests
-        // may have left a different schema; ScopesMySQLIntegrationTest needs apikey).
-        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "applications`");
-        $db->query(
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
             "CREATE TABLE `" . $db->prefix . "applications` (
                 `appid` INT NOT NULL AUTO_INCREMENT,
                 `name` VARCHAR(255) NOT NULL DEFAULT '',
@@ -127,8 +185,38 @@ class TokenTest extends TestCase
                 `public_key` TEXT DEFAULT NULL,
                 `systemuser` INT DEFAULT NULL,
                 PRIMARY KEY (`appid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-        );
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
+        ];
+    }
+
+    protected function setUp(): void
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
+        }
+
+        // addAction() buffers its row through WriteSpool. These tests read the
+        // row back immediately, and the spool directory is shared, so a drain
+        // here would also write rows other test classes left behind. Writing
+        // straight through keeps each test looking only at what it did.
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
+
+        $db = self::bootDatabase();
+
+        // Empty the tables; the schema belongs to the class. DELETE rather than TRUNCATE —
+        // TRUNCATE is implicit DDL and measured slower than DROP + CREATE. Auto-increment
+        // therefore keeps counting up, which nothing here depends on: the one literal
+        // `tokenid => 1` in this class is an in-memory Token, never a row.
+        // No cacheflush() here. It costs 85 ms — a file-cache directory scan — which was
+        // 2.8 s of this class's runtime across 33 tests, and nothing in this class reads
+        // through the SQL cache: every query() call leaves $cache at its default false.
+        // The flush stays in setUpBeforeClass(), where it clears whatever an earlier class
+        // left behind, once.
+        $db->query("SET FOREIGN_KEY_CHECKS = 0");
+        foreach (self::TABLES as $table) {
+            $db->query("DELETE FROM `" . $db->prefix . $table . "`");
+        }
+        $db->query("SET FOREIGN_KEY_CHECKS = 1");
 
         // Mock request context for actions
         $_SERVER['REQUEST_URI'] = '/test-url';
@@ -151,22 +239,8 @@ class TokenTest extends TestCase
         unset($_SERVER['HTTP_CF_CONNECTING_IP']);
         $_POST = [];
 
-        // Drop test tables so the next test's setUp gets a clean slate.
-        // Always attempt regardless of $db->connected status; if the connection
-        // is lost the query will reconnect internally.
-        $db = Factory::getDatabase();
-        if (!$db->connected) {
-            $db->connect();
-        }
-        $db->query("SET FOREIGN_KEY_CHECKS = 0");
-        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "tokenactions`");
-        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "urls`");
-        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "usertokens`");
-        // Drop applications too so ScopesMySQLIntegrationTest creates it fresh
-        // with the schema it needs (including apikey).
-        $db->query("DROP TABLE IF EXISTS `" . $db->prefix . "applications`");
-        $db->query("SET FOREIGN_KEY_CHECKS = 1");
-        $db->cacheflush();
+        // The tables are not dropped here: they belong to the class, and
+        // tearDownAfterClass() removes them once every test has run.
     }
 
     public function testTokenCreationAndSave(): void
