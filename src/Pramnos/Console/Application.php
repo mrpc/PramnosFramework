@@ -82,6 +82,9 @@ class Application extends \Symfony\Component\Console\Application
         // Adds a front end to a project that already exists — the case init cannot
         // serve, since it refuses to run where an application is.
         $this->add(new \Pramnos\Console\Commands\ScaffoldSpa());
+        // Endpoint functions from the OpenAPI document: the screens stop writing
+        // path strings and field names by hand.
+        $this->add(new \Pramnos\Console\Commands\Make\MakeApiClient());
         $this->add(new \Pramnos\Console\Commands\Tinker());
         $this->add(new \Pramnos\Console\Commands\MigrateLogs());
         // Migration CLI commands (Phase 4)

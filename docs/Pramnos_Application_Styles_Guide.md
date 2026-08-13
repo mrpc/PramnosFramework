@@ -254,6 +254,46 @@ Every stack ships with tests for the API client (cookie auth, Bearer auth, JSON
 encoding, `204`, error statuses) and, for Svelte, component tests for the root
 screen. They are meant to be extended, not deleted.
 
+### Typed endpoints from the OpenAPI document
+
+Screens hand-write path strings and field names, while the OpenAPI document in the same
+repository knows both — so a rename in the backend is found in the browser, one screen
+at a time.
+
+```bash
+php pramnos create:api-client          # → lib/endpoints.js + lib/endpoints.d.ts
+php pramnos create:api-client --dry-run
+```
+
+One function per documented operation, and the types an editor reads:
+
+```js
+import { listThings, readThing, createThing } from './lib/endpoints.js';
+
+const page  = await listThings({ page: 2, search: 'ada' });   // query params, blanks omitted
+const thing = await readThing(42);                            // path params, encoded
+await createThing({ label: 'new' });                          // body, typed from the schema
+```
+
+Four things worth knowing:
+
+- **It sits on top of `lib/api.js`, not instead of it.** The `apiKey` header, the bearer
+  token, the session cookie, the `ApiError`, the two-factor flow and the debug-panel
+  recording all live there — none of it is derivable from a document. The generated
+  functions delegate the call.
+- **JSDoc and a `.d.ts`, not TypeScript.** A scaffolded project is plain JavaScript;
+  this gives the editor the same checking without adding a compiler to the build.
+- **Both files are regenerated.** Staying in step with the backend means being
+  rewritten from the document, so do not edit them — re-run the command after changing
+  the API. (The opposite of `scaffold:spa`, which never overwrites: that one adds *your*
+  files, this one owns its own.)
+- **Where the document is silent, the type is `any`.** A generated type that is
+  confidently wrong is worse than one that admits it does not know, because the first is
+  trusted.
+
+Generate the document first — `npm run docs:build` in a project with the docs tooling,
+or `php pramnos api:docs` for an attribute-routed one.
+
 ### Adding a feature: `create:crud`
 
 The generator reads `app_style` from `app.php`, so one command produces the
