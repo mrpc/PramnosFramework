@@ -94,6 +94,127 @@ class Init extends Command
         $this->addOption('app-style',     null, InputOption::VALUE_OPTIONAL, 'Application style (mvc, spa, hybrid)');
         $this->addOption('spa-stack',     null, InputOption::VALUE_OPTIONAL, 'SPA front-end stack (svelte, vanilla-vite, vanilla)');
         $this->addOption('spa-dev-port',  null, InputOption::VALUE_OPTIONAL, 'Port for the Vite dev server');
+        $this->addOption('force',         null, InputOption::VALUE_NONE,     'Initialise even though this directory already holds an application');
+        $this->addOption('dry-run',       null, InputOption::VALUE_NONE,     'Report every file that would be written, and write none of them');
+    }
+
+    /**
+     * Files an init writes unconditionally, which an existing project cannot lose.
+     *
+     * Not the full list — that runs to hundreds — but the ones whose loss is
+     * unrecoverable without version control, and enough to make the refusal
+     * concrete. `app/app.php` is the marker itself: a directory that has one has
+     * been initialised.
+     *
+     * @var list<string>
+     */
+    private const OVERWRITES = [
+        'app/app.php',
+        'composer.json',
+        'CLAUDE.md',
+        'README.md',
+        'Dockerfile',
+        'docker-compose.yml',
+        'phpunit.xml',
+    ];
+
+    /**
+     * Whether this run may write anything at all.
+     *
+     * @var bool
+     */
+    private bool $dryRun = false;
+
+    /**
+     * Paths a dry run would have written, and whether each already exists.
+     *
+     * @var array<string, bool> Relative path => it exists today
+     */
+    private array $plannedWrites = [];
+
+    /**
+     * Refuse to scaffold over an application that is already here.
+     *
+     * `init` writes `app/app.php`, `composer.json`, `CLAUDE.md`, `README.md`, the
+     * Docker files, `phpunit.xml` and `src/Console.php` unconditionally, and drops
+     * ~18 stock MVC controllers into `src/Controllers/` — which in an
+     * attribute-routed application become **live routes**, because the loader
+     * takes whatever is in that directory. None of it is recoverable without git,
+     * and a scaffolding tool is exactly what somebody runs optimistically in the
+     * wrong directory.
+     *
+     * Three things here were already non-destructive by design — the `.gitignore`
+     * append, the `package.json` merge, the screens-registry edit — so the intent
+     * existed; it was simply not applied to the rest.
+     *
+     * @param  OutputInterface $output
+     * @param  bool            $force Proceed anyway (`--force`)
+     * @return bool True when it is safe to continue.
+     */
+    private function refuseToOverwriteExistingProject(OutputInterface $output, bool $force): bool
+    {
+        $marker = $this->targetBaseDir . '/app/app.php';
+        if (!is_file($marker)) {
+            return true;
+        }
+
+        if ($force) {
+            $output->writeln('<comment>This directory already holds an application; --force was given, '
+                . 'so it will be overwritten.</comment>');
+            $output->writeln('');
+            return true;
+        }
+
+        $output->writeln('');
+        $output->writeln('<error>This directory already holds an application.</error>');
+        $output->writeln('  Found: <comment>app/app.php</comment>');
+        $output->writeln('');
+        $output->writeln('  Running init here would overwrite files including:');
+        foreach (self::OVERWRITES as $path) {
+            $exists = is_file($this->targetBaseDir . '/' . $path);
+            $output->writeln('    ' . ($exists ? '<comment>' . $path . '</comment>' : $path));
+        }
+        $output->writeln('  …and add stock controllers to <comment>src/Controllers/</comment>, which in an');
+        $output->writeln('  attribute-routed application become live routes.');
+        $output->writeln('');
+        $output->writeln('  <info>--dry-run</info> lists everything that would be written, and writes nothing.');
+        $output->writeln('  <info>--force</info>   proceeds anyway.');
+        $output->writeln('');
+
+        return false;
+    }
+
+    /**
+     * Print what a dry run would have done.
+     *
+     * @param  OutputInterface $output
+     * @return void
+     */
+    private function reportDryRun(OutputInterface $output): void
+    {
+        $created   = array_keys(array_filter($this->plannedWrites, fn($exists) => !$exists));
+        $overwrite = array_keys(array_filter($this->plannedWrites, fn($exists) => $exists));
+        sort($created);
+        sort($overwrite);
+
+        $output->writeln('');
+        $output->writeln('<info>Dry run — nothing was written.</info>');
+        $output->writeln('');
+
+        if ($overwrite !== []) {
+            $output->writeln('<comment>Would overwrite ' . count($overwrite) . ' existing file(s):</comment>');
+            foreach ($overwrite as $path) {
+                $output->writeln('  <comment>' . $path . '</comment>');
+            }
+            $output->writeln('');
+        }
+
+        $output->writeln('Would create ' . count($created) . ' file(s):');
+        foreach ($created as $path) {
+            $output->writeln('  ' . $path);
+        }
+        $output->writeln('');
+        $output->writeln('External steps (composer, Docker, migrations, asset downloads) were skipped.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -109,6 +230,21 @@ class Init extends Command
         if ($this->brandDir === '') {
             // brand/ is a sibling of scaffolding/ inside the framework package.
             $this->brandDir = dirname($this->scaffoldingDir) . '/brand';
+        }
+
+        $this->dryRun        = (bool) $input->getOption('dry-run');
+        $this->plannedWrites = [];
+
+        // Before anything is written, and before any question is asked: the one
+        // failure this command can cause that a person cannot undo.
+        if (!$this->dryRun
+            && !$this->refuseToOverwriteExistingProject($output, (bool) $input->getOption('force'))
+        ) {
+            return Command::FAILURE;
+        }
+
+        if ($this->dryRun) {
+            $output->writeln('<comment>Dry run — no file will be written and no external command will run.</comment>');
         }
 
         $helper = $this->getHelper('question');
@@ -524,6 +660,14 @@ class Init extends Command
                 $this->buildSpa('sh -lc', $output);
                 // @codeCoverageIgnoreEnd
             }
+        }
+
+        if ($this->dryRun) {
+            // The usual summary tells you how to start the application that now
+            // exists. Nothing exists, so it would be a lie; the plan is the answer.
+            $this->reportDryRun($output);
+
+            return 0;
         }
 
         $this->printSummary(
@@ -1197,7 +1341,9 @@ class Init extends Command
             "export const screens = [\n    { name: 'admin', label: 'Admin', component: Admin, admin: true },\n",
             $contents
         );
-        file_put_contents($registry, $contents);
+        if (!$this->skipWrite('frontend/screens/registry.js')) {
+            file_put_contents($registry, $contents);
+        }
     }
 
     /**
@@ -1433,7 +1579,7 @@ class Init extends Command
 
         $path = $this->targetBaseDir . '/.gitignore';
         $existing = file_exists($path) ? (string) file_get_contents($path) : '';
-        if (!str_contains($existing, 'node_modules/')) {
+        if (!str_contains($existing, 'node_modules/') && !$this->skipWrite('.gitignore')) {
             file_put_contents($path, $lines, FILE_APPEND);
         }
     }
@@ -1478,7 +1624,9 @@ CSS;
             : ['name' => strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $tokens['appName'])), 'version' => '1.0.0', 'private' => true];
 
         $pkg = self::mergeSpaPackageJson($pkg, $spaStack);
-        file_put_contents($path, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        if (!$this->skipWrite('package.json')) {
+            file_put_contents($path, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        }
     }
 
     /**
@@ -1658,7 +1806,7 @@ CSS;
         $gitignorePath = $this->targetBaseDir . '/.gitignore';
         if (file_exists($gitignorePath)) {
             $existing = (string) file_get_contents($gitignorePath);
-            if (!str_contains($existing, 'www/api/docs')) {
+            if (!str_contains($existing, 'www/api/docs') && !$this->skipWrite('.gitignore')) {
                 file_put_contents($gitignorePath, "\n# API documentation output\nwww/api/openapi*.json\nwww/api/docs/\n", FILE_APPEND);
             }
         }
@@ -2040,7 +2188,9 @@ CSS;
             ];
         }
         $pkg = self::mergeApiDocsPackageJson($pkg);
-        file_put_contents($pkgPath, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        if (!$this->skipWrite('package.json')) {
+            file_put_contents($pkgPath, json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        }
     }
 
     /**
@@ -2127,7 +2277,7 @@ PHP;
             // .env.example is not scaffolded into the temp dir during tests, so
             // this branch is never entered in the unit test suite.
             $envContents = (string) file_get_contents($envExample);
-            if (!str_contains($envContents, 'WEBHOOK_SECRET')) {
+            if (!str_contains($envContents, 'WEBHOOK_SECRET') && !$this->skipWrite('.env.example')) {
                 file_put_contents($envExample, "\n# Git webhook HMAC secret\nWEBHOOK_SECRET=\n", FILE_APPEND);
             }
             // @codeCoverageIgnoreEnd
@@ -2669,11 +2819,14 @@ HTML,
         // Sized app icons → subdir. favicon.ico stays at the web root.
         $this->mkdir('www/' . $this->faviconSubdir);
         foreach (glob($src . '/*.png') ?: [] as $file) {
-            copy($file, $this->targetBaseDir . '/www/' . $this->faviconSubdir . '/' . basename($file));
+            $target = 'www/' . $this->faviconSubdir . '/' . basename($file);
+            if (!$this->skipWrite($target)) {
+                copy($file, $this->targetBaseDir . '/' . $target);
+            }
         }
 
         $ico = $src . '/favicon.ico';
-        if (file_exists($ico)) {
+        if (file_exists($ico) && !$this->skipWrite('www/favicon.ico')) {
             copy($ico, $this->targetBaseDir . '/www/favicon.ico');
         }
 
@@ -2786,7 +2939,7 @@ HTML,
             'pramnos-logo-wide-inverse.png' => 'logo-inverse.png',
         ];
         foreach ($variants as $from => $to) {
-            if (file_exists($src . '/' . $from)) {
+            if (file_exists($src . '/' . $from) && !$this->skipWrite('www/assets/img/' . $to)) {
                 copy($src . '/' . $from, $this->targetBaseDir . '/www/assets/img/' . $to);
             }
         }
@@ -2943,14 +3096,14 @@ HTML,
         foreach ($lib['css'] as $filename) {
             $src  = $sourceBase . DIRECTORY_SEPARATOR . $filename;
             $dest = $localBase . '/' . $filename;
-            if (file_exists($src) && @copy($src, $dest)) {
+            if (!$this->dryRun && file_exists($src) && @copy($src, $dest)) {
                 $copiedCss[] = $lib['local_path'] . '/' . $filename;
             }
         }
         foreach ($lib['js'] as $filename) {
             $src  = $sourceBase . DIRECTORY_SEPARATOR . $filename;
             $dest = $localBase . '/' . $filename;
-            if (file_exists($src) && @copy($src, $dest)) {
+            if (!$this->dryRun && file_exists($src) && @copy($src, $dest)) {
                 $copiedJs[] = $lib['local_path'] . '/' . $filename;
             }
         }
@@ -2961,6 +3114,12 @@ HTML,
 
     private function downloadFile(string $url, string $dest): bool
     {
+        // A dry run must not reach the network. Recorded by the caller, which knows
+        // the project-relative path; here only the write is refused.
+        if ($this->dryRun) {
+            return true;
+        }
+
         if (defined('PRAMNOS_TESTING') && PRAMNOS_TESTING) {
             return file_put_contents($dest, "/* mocked download of $url */\n") !== false;
         }
@@ -3868,7 +4027,9 @@ PHP;
                 . "# (vendor/, node_modules/, var/logs) belong to you and not to root.\n"
             : "\n# Host user ids for docker-compose build args.\n";
 
-        file_put_contents($path, $existing . $header . $append);
+        if (!$this->skipWrite('.env')) {
+            file_put_contents($path, $existing . $header . $append);
+        }
     }
 
     private function detectFrameworkDevVolume(): string
@@ -4093,7 +4254,9 @@ BASH;
             unset($composer['scripts']);
         }
 
-        file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        if (!$this->skipWrite('composer.json')) {
+            file_put_contents($composerPath, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
     }
 
     /**
@@ -4683,6 +4846,10 @@ PHP;
 
         $content = implode("\n", $lines) . "\n";
 
+        if ($this->skipWrite('.gitignore')) {
+            return;
+        }
+
         if (file_exists($path)) {
             // @codeCoverageIgnoreStart
             // .gitignore does not exist in the fresh temp dir at the point when
@@ -5040,6 +5207,14 @@ PHP;
      */
     private function generateOAuth2KeyPair(OutputInterface $output): void
     {
+        // A dry run must not write a private key. Recorded so the plan still says
+        // the keys would appear, which is worth knowing before a real run.
+        if ($this->dryRun) {
+            $this->skipWrite('app/keys/private.key');
+            $this->skipWrite('app/keys/public.key');
+            return;
+        }
+
         $keysDir     = $this->targetBaseDir . '/app/keys';
         $privatePath = $keysDir . '/private.key';
         $publicPath  = $keysDir . '/public.key';
@@ -5192,8 +5367,35 @@ PHP;
         return implode('', $chars);
     }
 
+    /**
+     * Is this run forbidden from touching the filesystem?
+     *
+     * Used at the write sites that do not go through {@see writeFile()} — the
+     * appends and merges into files the project already owns (`.gitignore`,
+     * `package.json`, `composer.json`), the image copies, and the asset downloads.
+     * A flag that stopped the templates but still appended to `.gitignore` and
+     * pulled assets over the network would be worse than no flag at all: a "dry"
+     * run that changes the working tree is a trap, not a preview.
+     *
+     * @param  string $path Recorded in the plan; relative to the project root.
+     * @return bool True when the caller must not write.
+     */
+    private function skipWrite(string $path): bool
+    {
+        if (!$this->dryRun) {
+            return false;
+        }
+
+        $this->plannedWrites[$path] = is_file($this->targetBaseDir . '/' . ltrim($path, '/'));
+
+        return true;
+    }
+
     private function mkdir(string $path): void
     {
+        if ($this->dryRun) {
+            return;
+        }
         $fullPath = $this->targetBaseDir . '/' . $path;
         if (!is_dir($fullPath)) {
             @mkdir($fullPath, 0777, true);
@@ -5202,6 +5404,14 @@ PHP;
 
     private function writeFile(string $path, string $content): void
     {
+        // A dry run records what it would have done and touches nothing. Recorded
+        // here, in the one place every scaffolded file passes through, so the
+        // report cannot drift from what a real run writes.
+        if ($this->dryRun) {
+            $this->plannedWrites[$path] = is_file($this->targetBaseDir . '/' . $path);
+            return;
+        }
+
         $full = $this->targetBaseDir . '/' . $path;
         // Ensure the parent directory exists. During a full init the tree is
         // pre-created, but installUiFramework() can be called standalone (e.g.
@@ -5347,6 +5557,15 @@ PHP;
 
     protected function runProcessWithSpinner(string $command, string $message, OutputInterface $output, bool $alwaysShowOutput = false): int
     {
+        // Every external step goes through here — composer, docker-compose,
+        // migrations, the docs build — so this is the one place a dry run has to
+        // stop. Reported rather than silently skipped: "it did not run composer"
+        // is part of what the reader is checking.
+        if ($this->dryRun) {
+            $output->writeln('  would run: <comment>' . $command . '</comment>');
+            return 0;
+        }
+
         $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
 
         // Always strip the 2>/dev/null redirect so we can capture stderr for error display
