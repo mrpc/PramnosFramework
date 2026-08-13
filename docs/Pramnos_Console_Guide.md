@@ -301,6 +301,12 @@ Every scaffolded project gets two files aimed at coding assistants:
   application's tables, schema, migrations, models and routes to an assistant instead of
   requiring a separate database MCP server.
 
+  The server reports **`app/app.php`'s `name`** as its own, so a client that lists
+  several projects can tell them apart. It reads the configuration file rather than a
+  database-stored setting: the name is right there, no connection is involved, and a
+  project whose settings load fails for any reason would otherwise have shown the
+  framework's generic default for every one of its servers.
+
 ### Favicons & branding
 
 `init` scaffolds a complete favicon / PWA-icon set into every new project, copied from the

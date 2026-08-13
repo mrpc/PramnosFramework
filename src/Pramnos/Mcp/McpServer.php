@@ -37,6 +37,20 @@ class McpServer
         private readonly string $appVersion = '1.0.0',
     ) {}
 
+    /**
+     * The name this server reports in `serverInfo`.
+     *
+     * A client lists its servers by it, so it is the one string that has to identify
+     * *this* project rather than the framework — and a reader (or a test) needs to be
+     * able to ask what it ended up as.
+     *
+     * @return string
+     */
+    public function getName(): string
+    {
+        return $this->appName;
+    }
+
     // ── Tool / Resource Registration ─────────────────────────────────────────
 
     public function addTool(McpToolInterface $tool): static

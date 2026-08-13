@@ -120,6 +120,37 @@ class McpServe extends Command
             : null;
     }
 
+    /**
+     * What to call this application, in the one place a client shows a name.
+     *
+     * `app/app.php`'s `name` first. An MCP client lists its servers by this string,
+     * so "Pramnos App" for every project means a picker in which no two projects can
+     * be told apart — and the name is right there in a file the console already
+     * reads, with no database involved.
+     *
+     * That ordering matters on PostgreSQL in particular: a database-stored title is
+     * reachable only through `Settings`, and a project whose settings load fails for
+     * any reason fell all the way through to the constant. The configuration file
+     * cannot fail that way.
+     *
+     * @param  object|null $app
+     * @return string
+     */
+    private static function applicationName(?object $app): string
+    {
+        $configured = $app->applicationInfo['name'] ?? null;
+        if (is_string($configured) && trim($configured) !== '') {
+            return trim($configured);
+        }
+
+        $title = \Pramnos\Application\Settings::getSetting('title');
+        if (is_string($title) && trim($title) !== '') {
+            return trim($title);
+        }
+
+        return defined('TITLE') && TITLE !== '' ? (string) TITLE : 'Pramnos App';
+    }
+
     private function resolveServer(?\Pramnos\Application\Application $app): McpServer
     {
         // Prefer the container-bound server (has app-specific tools registered
@@ -137,8 +168,7 @@ class McpServe extends Command
         }
 
         // Fallback: build a default server with the five built-in tools
-        $appName = (string) (\Pramnos\Application\Settings::getSetting('title')
-                    ?: (defined('TITLE') ? TITLE : 'Pramnos App'));
+        $appName = self::applicationName($app);
         $appVersion = defined('VERSION') ? VERSION : '1.0.0';
 
         $server = new McpServer($appName, $appVersion);
