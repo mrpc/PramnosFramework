@@ -35,6 +35,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
+| `create:api-client` | Typed endpoint functions from the OpenAPI document | *(regenerated, never edited)* |
 | `health:` / `debug:` | Diagnostics | `health:check`, `debug:status` |
 | *(top-level)* | Entry-point & REPL | `init`, `serve`, `tinker` |
 
