@@ -471,6 +471,182 @@ class DebugBarTest extends TestCase
     }
 
     /**
+     * A toolbar that throws while rendering costs the toolbar, not the page.
+     *
+     * This is the guard for the worst-shaped failure this project has produced: a
+     * 200 with an empty body. The response headers said the request had
+     * succeeded, nothing was logged (the injection runs at shutdown), every
+     * uptime check passed, and it read to a person like a broken front-end build.
+     * One development environment lost a day to it and switched the toolbar off.
+     *
+     * Rendering reads collectors, the session and the container, any of which can
+     * fail for reasons that have nothing to do with the page that is ready to be
+     * sent. Delivering the page is the job; decorating it is not.
+     */
+    public function testMiddlewareReturnsThePageWhenRenderingThrows(): void
+    {
+        // Arrange — a bar that fails while rendering. A collector that throws is
+        // already handled (ApiDebugPayload reports it as an error entry), so the
+        // failure has to come from the rendering itself, which is what a broken
+        // session, container or asset does.
+        $bar        = ThrowingDebugBar::make();
+        $middleware = new DebugBarMiddleware($bar);
+        $request    = $this->createMock(\Pramnos\Http\Request::class);
+        $html       = '<html><body><p>The page the user asked for</p></body></html>';
+
+        // Act
+        $result = $middleware->handle($request, fn() => $html);
+
+        // Assert — the page, whole, with no toolbar
+        $this->assertSame($html, $result);
+    }
+
+    /**
+     * A decoration that shortened the response is discarded.
+     *
+     * The second line of the same rule, for a failure that produces a wrong
+     * answer rather than an exception: whatever went wrong, less than arrived is
+     * never the right thing to send.
+     */
+    public function testDecorationNeverReturnsLessThanItWasGiven(): void
+    {
+        // Arrange — the buffered-output path, with a bar that fails on render.
+        // This is the exact code that ran at shutdown and produced an empty 200.
+        $bar  = ThrowingDebugBar::make();
+        $html = '<html><body><p>The page the user asked for</p></body></html>';
+
+        // Act
+        $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($html, $bar);
+
+        // Assert — byte-for-byte what arrived
+        $this->assertSame($html, $result);
+    }
+
+    /**
+     * A bar with no collectors renders nothing, and the page passes through.
+     *
+     * The production path: outside development no collector is registered, so
+     * this runs on every response of every live installation and must be exactly
+     * a no-op.
+     */
+    public function testDecorationOfAPageWithNoCollectorsChangesNothing(): void
+    {
+        // Arrange
+        $bar  = DebugBar::getInstance();
+        $html = '<html><body><p>Hello</p></body></html>';
+
+        // Act
+        $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($html, $bar);
+
+        // Assert
+        $this->assertSame($html, $result);
+    }
+
+    /**
+     * The buffered-output path injects the same widget the middleware does.
+     *
+     * `boot()` registers this as an `ob_start()` callback, which runs at shutdown
+     * where no test can reach it — so the decision it makes lives in a method of
+     * its own and is driven directly. Without that, the code that decides whether
+     * a page is delivered at all had no test.
+     */
+    public function testDecorateInjectsTheWidgetIntoAnHtmlResponse(): void
+    {
+        // Arrange — the document type is stated rather than assumed. It is a
+        // process-wide singleton, so in a full run an earlier test can leave it
+        // as `json` or `raw`, and this test would then be asserting the JSON
+        // branch's behaviour while claiming to test the HTML one.
+        $document       = \Pramnos\Framework\Factory::getDocument();
+        $original       = $document->type ?? 'html';
+        $document->type = 'html';
+
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('test'));
+        $html = '<html><body><p>Hello</p></body></html>';
+
+        try {
+            // Act
+            $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($html, $bar);
+
+            // Assert — and the page's own content survives, which is the point
+            $this->assertStringContainsString('pramnos-debugbar', $result);
+            $this->assertStringContainsString('<p>Hello</p>', $result);
+            $this->assertLessThan(strpos($result, '</body>'), strpos($result, 'pramnos-debugbar'));
+        } finally {
+            // Cleanup
+            $document->type = $original;
+        }
+    }
+
+    /**
+     * A JSON response gets the payload, not the toolbar.
+     *
+     * There is no `</body>` in a JSON body, but there is room for a `_debug` key —
+     * and doing it on this path catches everything a SPA calls: datatable
+     * endpoints, controllers that echo their own JSON, anything that never goes
+     * near `Application\Api`. Injecting a `<script>` into one instead would
+     * corrupt the response, which is the failure mode this branch exists to
+     * avoid.
+     */
+    public function testDecorateAttachesTheDebugKeyToAJsonResponse(): void
+    {
+        // Arrange
+        $document = \Pramnos\Framework\Factory::getDocument();
+        $original = $document->type ?? 'html';
+        $document->type = 'json';
+
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('demo', ['count' => 2]));
+
+        try {
+            // Act
+            $result = \Pramnos\Debug\DebugBarServiceProvider::decorate('{"status":"ok"}', $bar);
+
+            // Assert — the body still decodes, and now carries the payload
+            $decoded = json_decode($result, true);
+            $this->assertSame('ok', $decoded['status'], 'the response itself is intact');
+            $this->assertArrayHasKey('_debug', $decoded);
+            $this->assertSame(2, $decoded['_debug']['demo']['count']);
+            // And no toolbar markup anywhere near it
+            $this->assertStringNotContainsString('<script', $result);
+        } finally {
+            // Cleanup — the document is a singleton the rest of the suite shares
+            $document->type = $original;
+        }
+    }
+
+    /**
+     * A response with no `</body>` has nowhere to put a toolbar, and is untouched.
+     *
+     * An HTML fragment from an AJAX call is the ordinary case here — it is HTML,
+     * it is not a document, and a toolbar appended to it would land inside
+     * whatever element the page dropped the fragment into.
+     */
+    public function testDecorateLeavesAFragmentAlone(): void
+    {
+        // Arrange — an HTML document, so this is the fragment branch and not the
+        // JSON one answering by accident (the document type is process-wide)
+        $document       = \Pramnos\Framework\Factory::getDocument();
+        $original       = $document->type ?? 'html';
+        $document->type = 'html';
+
+        $bar = DebugBar::getInstance();
+        $bar->addCollector($this->makeMockCollector('test'));
+        $fragment = '<tr><td>one row</td></tr>';
+
+        try {
+            // Act
+            $result = \Pramnos\Debug\DebugBarServiceProvider::decorate($fragment, $bar);
+
+            // Assert
+            $this->assertSame($fragment, $result);
+        } finally {
+            // Cleanup
+            $document->type = $original;
+        }
+    }
+
+    /**
      * DebugBarMiddleware must pass non-HTML responses through unchanged.
      *
      * JSON API responses must not have the toolbar injected.
@@ -672,5 +848,49 @@ class DebugBarTest extends TestCase
         $col->method('name')->willReturn($name);
         $col->method('collect')->willReturn($collectResult ?: [$name => 'data']);
         return $col;
+    }
+}
+
+/**
+ * A DebugBar that fails while rendering.
+ *
+ * The failure this stands in for is not hypothetical: with the toolbar booted, a
+ * plain HTML response reached the client as 200 with `Content-Length: 0`. The
+ * page had been produced — 37KB of it — and was then discarded, because PHP
+ * throws away an output buffer when its callback raises. The response headers
+ * said the request had succeeded, nothing was logged (the callback runs at
+ * shutdown), and every uptime check passed.
+ *
+ * Rendering is where that risk lives: it reads collectors, the session, the
+ * container and an asset from disk. A subclass is the honest way to reproduce it,
+ * because a *collector* that throws is already handled — ApiDebugPayload reports
+ * it as an error entry — so a test built on one would prove the wrong thing.
+ */
+class ThrowingDebugBar extends DebugBar
+{
+    /**
+     * Build one without going through the singleton's private constructor.
+     *
+     * DebugBar is a singleton by construction, which is right for production and
+     * leaves a subclass no way in. Reflection is the narrow exception rather than
+     * a reason to widen the constructor for the sake of a test.
+     *
+     * @return self
+     */
+    public static function make(): self
+    {
+        return (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
+    }
+
+    /**
+     * Fail the way a broken dependency does: at the moment of use.
+     *
+     * @param  string $nonce
+     * @return string
+     * @throws \RuntimeException Always.
+     */
+    public function render(string $nonce = ''): string
+    {
+        throw new \RuntimeException('the toolbar could not be rendered');
     }
 }

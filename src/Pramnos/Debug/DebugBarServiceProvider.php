@@ -124,38 +124,99 @@ class DebugBarServiceProvider extends ServiceProvider
 
         // Inject toolbar via output buffering — captures the full response
         // regardless of routing strategy and injects before </body>.
+        //
+        // The whole callback is guarded, because of how PHP treats a failure in
+        // one: an exception thrown inside an output-buffer callback discards the
+        // buffer. The client then gets 200 with an empty body while the response
+        // headers — Server-Timing, X-Pramnos-Debug — say the request succeeded,
+        // and nothing is logged, because this runs at shutdown. That failure has
+        // happened, in a real development environment, and it cost a day: an
+        // empty 200 passes every uptime check and reads like a broken front-end
+        // build.
+        //
+        // Delivering the page is the job. Decorating it is not.
         ob_start(function (string $output) use ($bar, $app): string {
-            // Every response gets the headers, whatever its type. They are the
-            // only channel that works for a 204, a redirect, or an HTML
-            // fragment — the ordinary shapes of the requests a page makes after
-            // it has already rendered.
-            ApiDebugPayload::sendHeaders();
-
-            // Only inject the toolbar into HTML documents. Non-HTML responses —
-            // the 'raw' document the log viewer serves inside an <iframe>, JSON
-            // API responses, PDFs, images, RSS, etc. — must never carry it.
-            $doc = \Pramnos\Framework\Factory::getDocument();
-            if (!is_object($doc) || (($doc->type ?? 'html') !== 'html')) {
-                // A JSON body has no </body> to inject into, but it does have
-                // room for a `_debug` key. Doing it here rather than in the API
-                // layer catches everything: datatable endpoints, controllers
-                // that echo their own JSON, anything that never goes near
-                // Application\Api. That layer attaches its own payload first,
-                // and this leaves an existing one alone.
-                return ApiDebugPayload::attachTo($output);
-            }
-            $bodyPos = strripos($output, '</body>');
-            if ($bodyPos === false) {
-                return $output;
-            }
-            $nonce  = $app->cspNonce ?? '';
-            $widget = $bar->render($nonce);
-            if ($widget === '') {
-                return $output;
-            }
-            return substr($output, 0, $bodyPos) . $widget . substr($output, $bodyPos);
+            return self::decorate($output, $bar, $app);
         });
         // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * The response, with whatever debug data belongs in it.
+     *
+     * Extracted from the output-buffer callback so it can be driven by tests: a
+     * closure registered with `ob_start()` during `boot()` runs at shutdown, in a
+     * context no test can reproduce, and this is the code that decides whether a
+     * page is delivered.
+     *
+     * Nothing that happens in here can cost the page. Anything thrown gives the
+     * response back untouched, and a result shorter than what arrived is
+     * discarded — a decoration that shortened the body has failed, whatever it
+     * thinks, and the un-decorated page is always the better answer.
+     *
+     * @param  string      $output The response body as buffered
+     * @param  DebugBar    $bar
+     * @param  object|null $app    The application, for its per-request CSP nonce
+     * @return string
+     */
+    public static function decorate(string $output, DebugBar $bar, ?object $app = null): string
+    {
+        try {
+            $decorated = self::inject($output, $bar, $app);
+        } catch (\Throwable) {
+            // Rendering reads collectors, the session and the container, any of
+            // which can fail for reasons that have nothing to do with the page
+            // that is ready to be sent.
+            return $output;
+        }
+
+        // The second half of the same rule, for a failure that returns a wrong
+        // answer rather than raising one. Injection can only ever lengthen the
+        // body today, so this is a guard against a future change rather than a
+        // known path — and it is one line for the failure that cost a day.
+        return strlen($decorated) >= strlen($output) ? $decorated : $output;
+    }
+
+    /**
+     * Put the toolbar (or the JSON payload) into a response.
+     *
+     * @param  string      $output
+     * @param  DebugBar    $bar
+     * @param  object|null $app
+     * @return string
+     */
+    private static function inject(string $output, DebugBar $bar, ?object $app): string
+    {
+        // Every response gets the headers, whatever its type. They are the only
+        // channel that works for a 204, a redirect, or an HTML fragment — the
+        // ordinary shapes of the requests a page makes after it has rendered.
+        ApiDebugPayload::sendHeaders();
+
+        // Only inject the toolbar into HTML documents. Non-HTML responses — the
+        // 'raw' document the log viewer serves inside an <iframe>, JSON API
+        // responses, PDFs, images, RSS, etc. — must never carry it.
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        if (!is_object($doc) || (($doc->type ?? 'html') !== 'html')) {
+            // A JSON body has no </body> to inject into, but it does have room
+            // for a `_debug` key. Doing it here rather than in the API layer
+            // catches everything: datatable endpoints, controllers that echo
+            // their own JSON, anything that never goes near Application\Api.
+            // That layer attaches its own payload first, and this leaves an
+            // existing one alone.
+            return ApiDebugPayload::attachTo($output);
+        }
+
+        $bodyPos = strripos($output, '</body>');
+        if ($bodyPos === false) {
+            return $output;
+        }
+
+        $widget = $bar->render($app->cspNonce ?? '');
+        if ($widget === '') {
+            return $output;
+        }
+
+        return substr($output, 0, $bodyPos) . $widget . substr($output, $bodyPos);
     }
 
     private function isDebugEnabled(): bool
