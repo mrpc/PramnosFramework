@@ -344,6 +344,81 @@ place in the distribution:
 ./dockertest --no-coverage --log-junit /var/www/html/var/junit.xml --filter YourTest
 ```
 
+## Owning a schema without paying for it per test
+
+`Pramnos\Framework\Testing\DatabaseTestCase` is for integration tests that need their own
+tables. Declare three things and the lifecycle is handled:
+
+```php
+use Pramnos\Framework\Testing\DatabaseTestCase;
+
+class WidgetsMySQLTest extends DatabaseTestCase
+{
+    protected static function connectionConfig(): array
+    {
+        return ['type' => 'mysql', 'server' => 'db', 'user' => 'root',
+                'password' => 'secret', 'database' => 'pramnos_test', 'port' => 3306];
+    }
+
+    protected static function ownedTables(): array
+    {
+        return ['widget_parts', 'widgets'];   // children first
+    }
+
+    protected static function schemaStatements(): array
+    {
+        return ['CREATE TABLE `widgets` (...)', 'CREATE TABLE `widget_parts` (...)'];
+    }
+
+    public function testSomething(): void
+    {
+        $this->db->query('INSERT INTO `widgets` ...');   // $this->db is connected
+    }
+}
+```
+
+| When | What happens |
+| --- | --- |
+| `setUpBeforeClass()` | Drops the owned tables, then runs the DDL |
+| `setUp()` | Connects, and `DELETE`s every owned table |
+| `tearDown()` | Closes the connection |
+| `tearDownAfterClass()` | Drops the owned tables |
+
+Foreign keys between owned tables are handled: the drops and deletes run with
+`FOREIGN_KEY_CHECKS = 0` on MySQL, and `ownedTables()` is ordered so PostgreSQL is satisfied
+without disabling anything. Override `setUp()`/`tearDown()` freely — just call `parent::`.
+
+**Why it is worth converting a class.** `QueryBuilderMySQLTest` went from **16.8 s to
+0.56 s** for its 92 tests, with no assertion changed. Recreating three tables per test cost
+170 ms of the 183 ms each test took, in a class that never asserts anything about a schema.
+
+### The one thing that will bite you
+
+**Auto-increment counters no longer restart between tests.** A fixture that writes a
+hardcoded foreign key —
+
+```php
+// product 1 = Apple, product 3 = Carrot
+$this->db->query("INSERT INTO qb_tags (product_id, tag) VALUES (1, 'popular'), (3, 'healthy')");
+```
+
+— worked only because the table restarted at 1 every time. After converting, it points at
+rows that do not exist, and the failure appears in the *join* tests rather than in the
+fixture. Look the ids up instead, which is what the literals meant:
+
+```php
+$id = $this->db->queryBuilder()->select('id')->from('qb_products')
+    ->where('name', 'Apple')->first()->fields['id'];
+```
+
+If a class genuinely asserts on the sequence, override `resetAutoIncrement()` to return
+`true` — it costs about 9 ms per table, against 0.11 ms for the `DELETE` alone.
+
+### When not to use it
+
+When the DDL **is** the subject. The framework's migration and schema-builder tests keep
+building their schema per test, because that is the behaviour they are asserting.
+
 ## Isolating process-wide state
 
 Two framework singletons are **per-request in production and process-wide in a test

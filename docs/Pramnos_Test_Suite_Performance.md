@@ -259,24 +259,48 @@ notices.
 **Do not do this to a database you would miss.** The settings trade crash safety for
 speed, which is only free because this data is disposable.
 
-### 3b. Schema per class, data per transaction — what is left of it
+### 3b. Schema per class, rows per test — **started, 23.5 s from three classes**
 
-Still worth doing, and now worth less. After the config change, MySQL DDL is 113 ms per
-drop-and-create cycle, so a class like `QueryBuilderMySQLTest` (16.7 s / 92 tests, 181 ms
-each) is still mostly paying for schema it recreates 92 times.
+`Pramnos\Framework\Testing\DatabaseTestCase` now implements the split, and the first three
+classes are on it:
 
-**Change:** a base class (`Pramnos\Framework\Testing\DatabaseTestCase`) doing the split
-that fits a database:
+| Class | Before | After |
+| --- | --- | --- |
+| `QueryBuilderMySQLTest` | 16.8 s | **0.56 s** |
+| `QueryBuilderPostgreSQLTest` | 5.1 s | **1.47 s** |
+| `QueryBuilderTimescaleDBTest` | 5.1 s | **1.49 s** |
 
-- **schema per class** in `setUpBeforeClass()` — DDL is not transactional in MySQL, so it
-  cannot be rolled back and must not be per-test;
-- **data per test inside a transaction**, rolled back in `tearDown()` — fast, and stronger
-  than deleting rows because it cannot leave anything behind.
+A subclass declares three things — the connection, the tables it owns, the DDL — and gets
+the schema built in `setUpBeforeClass()`, the rows removed with `DELETE` in `setUp()`, and
+the tables dropped after the class. `$this->db` is a connected handle per test.
 
-Tests that assert *on* DDL — the migration and schema-builder classes — keep their current
-shape, because for them the DDL is the subject.
+**The auto-increment trap is real and it is worth knowing before you convert anything.**
+Counters no longer restart between tests, and six join tests in the first class converted
+began returning zero rows: the tag fixture wrote `product_id` values of `1`, `3` and `5`
+because the products table had restarted at 1 every time. The comment above it even said
+`// product 1 = Apple`. Looking the ids up by name is what those literals meant, so the fix
+made the fixture correct rather than merely compatible — and the same fixture in the
+PostgreSQL class had the same bug waiting.
 
-**Estimated saving 40–60 s**, down from 150 before the container was fixed.
+`resetAutoIncrement()` exists for classes that genuinely assert on the sequence, and is off
+by default: the reset costs about 9 ms per table against 0.11 ms for the `DELETE` alone.
+
+**Still to convert**, from the current measurement — the classes over 5 s that are not about
+DDL:
+
+| Class | Now |
+| --- | --- |
+| `TokenTest` | 16.9 s |
+| `UsersControllerTest` | 11.0 s |
+| `OrmRelationsMySQLTest` | 10.4 s |
+| `ModelTest` | 9.5 s |
+| `MessagingModelsMySQLTest` | 8.4 s |
+| `TokenActionMySQLTest` | 8.0 s |
+| `TwoFactorAuthTest` | 7.7 s |
+| `RbacFunctionsCharacterizationTest` | 6.5 s |
+
+`FrameworkMigrations{MySQL,PostgreSQL}Test` (17.7 s and 14.9 s) stay as they are: for them
+the DDL **is** the subject.
 
 ### 4. A fixture that was not the problem, and a hash that was — **done, 78 s**
 
@@ -371,13 +395,13 @@ cheap: a typo in an environment variable must not be able to weaken a deployment
 | 1. ~~Connect timeouts~~ — **done**, by asserting on the DSN and using an IP literal | **56 s** |
 | 2. ~~Scaffold once per class~~ — **done**, and by a different change: `--no-install` | **136 s** |
 | 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
-| 3b. Schema per class + transaction per test, for what remains | 40–60 s |
+| 3b. Schema per class + rows per test, via `DatabaseTestCase` | **23.5 s** so far, three classes of eleven |
 | 4. ~~Fixture and hash cost in two classes~~ — **done**; the fixture was never the cost | **78 s** |
 
-**396 s delivered so far** — 56 + 136 + 126 + 78 — without removing a single test, a single
-database or the coverage report.
+**420 s delivered so far** — 56 + 136 + 126 + 78 + 23.5 — without removing a single test, a
+single database or the coverage report.
 
-The full run with coverage went **17:02 → 8:27**: 515 s, more than the 396 s measured
+The full run with coverage went **17:02 → 8:06**: 536 s, more than the 420 s measured
 without it. Coverage instrumentation is a multiplier on work done, so removing work removes
 its share of the instrumentation too — the 12% figure at the top of this page is 12% of
 whatever the suite still does.
