@@ -189,22 +189,94 @@ reason as this diagnosis: both were reasoned from what the code *looks* like it 
 on. A profile takes two minutes and would have said `usleep` and `file_get_contents` before
 any of it was written.
 
-### 3. Integration tests create their schema per test, not per class — up to 150 s
+### 3. The MySQL container was configured for crash durability — **done, 126 s**
 
-303 ms per test, and the classes are shaped like `FrameworkMigrationsMySQLTest` (69.9 s /
-50 tests): `setUp()` drops and creates tables, the test writes a few rows, `tearDown()`
-drops them again. Every test pays the DDL.
+The plan here was a base class: schema per class, data per test in a rolled-back
+transaction. It is still the right plan, and it is now worth much less, because a profile
+found something cheaper first.
 
-**Change:** the split that actually fits a database:
+**The clue was in the original table and nobody read it.** The same assertions, against
+different engines:
+
+| | Per test | |
+| --- | --- | --- |
+| `QueryBuilderMySQLTest` | **401 ms** | 92 tests |
+| `QueryBuilderPostgreSQLTest` | 67 ms | 83 tests |
+| `FrameworkMigrationsMySQLTest` | **1398 ms** | 50 tests |
+| `FrameworkMigrationsPostgreSQLTest` | 269 ms | 59 tests |
+
+Both classes in each pair do the same thing — `setUp()` drops and creates tables, the test
+writes rows, `tearDown()` drops them. A 5–6× difference is not "MySQL is slower at SQL". So
+the two engines were measured directly, in their own containers:
+
+| | MySQL | PostgreSQL |
+| --- | --- | --- |
+| Connect | 2.3 ms | 5.1 ms |
+| 2 × `DROP` + 2 × `CREATE TABLE` | 279.6 ms | 36.0 ms |
+| 5 × `INSERT` | **77.0 ms** | 22.0 ms |
+| Transaction + `ROLLBACK` | 7.5 ms | 0.6 ms |
+
+15 ms per single-row `INSERT` is not query execution, it is **two `fsync` calls per
+commit** — the InnoDB redo log and the binary log. The MySQL container was running with
+`innodb_flush_log_at_trx_commit=1`, `sync_binlog=1`, `log_bin=ON` and the doublewrite
+buffer on: full crash durability, for a database whose entire purpose is to be dropped.
+`dockertest --resetdb` drops it on request and every integration test creates its own
+tables.
+
+**The change is [`docker/mysql/my.cnf`](https://github.com/mrpc/PramnosFramework/blob/main/docker/mysql/my.cnf)
+— no test was touched.**
+
+| | Before | After |
+| --- | --- | --- |
+| 5 × `INSERT` | 77.0 ms | **2.1 ms** |
+| 2 × `DROP` + 2 × `CREATE TABLE` | 279.6 ms | **112.8 ms** |
+| Transaction + `ROLLBACK` | 7.5 ms | **1.1 ms** |
+
+And in the suite, on the nine MySQL classes that cost more than five seconds:
+
+| Class | Before | After |
+| --- | --- | --- |
+| `FrameworkMigrationsMySQLTest` | 69.9 s | **21.8 s** |
+| `QueryBuilderMySQLTest` | 36.8 s | **16.7 s** |
+| `TokenActionMySQLTest` | 20.4 s | **6.6 s** |
+| `SchemaBuilderMySQLTest` | 13.9 s | **2.4 s** |
+| `TwoFactorAuthServiceMySQLTest` | 31.7 s | **21.2 s** |
+| *(nine classes, total)* | 223.2 s | **97.1 s** |
+
+**126 s**, and all 685 MySQL tests still pass.
+
+**Rebuild after pulling this**, or you keep the old settings and the old timings:
+
+```bash
+docker-compose build db && docker-compose up -d db
+```
+
+`dockertest` checks `innodb_flush_log_at_trx_commit` on every run and prints that command
+if the container is still durable — a container built before the config existed passes
+every test and is silently two minutes slower, which is precisely the kind of thing nobody
+notices.
+
+**Do not do this to a database you would miss.** The settings trade crash safety for
+speed, which is only free because this data is disposable.
+
+### 3b. Schema per class, data per transaction — what is left of it
+
+Still worth doing, and now worth less. After the config change, MySQL DDL is 113 ms per
+drop-and-create cycle, so a class like `QueryBuilderMySQLTest` (16.7 s / 92 tests, 181 ms
+each) is still mostly paying for schema it recreates 92 times.
+
+**Change:** a base class (`Pramnos\Framework\Testing\DatabaseTestCase`) doing the split
+that fits a database:
 
 - **schema per class** in `setUpBeforeClass()` — DDL is not transactional in MySQL, so it
   cannot be rolled back and must not be per-test;
-- **data per test inside a transaction**, rolled back in `tearDown()` — which is fast,
-  and stronger than deleting rows because it cannot leave anything behind.
+- **data per test inside a transaction**, rolled back in `tearDown()` — fast, and stronger
+  than deleting rows because it cannot leave anything behind.
 
-This needs a base class (`Pramnos\Tests\Support\DatabaseTestCase`) so it is one
-implementation rather than fifty. Tests that assert *on* DDL — the migration tests — keep
-their current shape, because for them the DDL is the subject.
+Tests that assert *on* DDL — the migration and schema-builder classes — keep their current
+shape, because for them the DDL is the subject.
+
+**Estimated saving 40–60 s**, down from 150 before the container was fixed.
 
 ### 4. Two specific classes worth reading before optimising
 
@@ -237,12 +309,20 @@ their current shape, because for them the DDL is the subject.
 | --- | --- |
 | 1. ~~Connect timeouts~~ — **done**, by asserting on the DSN and using an IP literal | **56 s** |
 | 2. ~~Scaffold once per class~~ — **done**, and by a different change: `--no-install` | **136 s** |
-| 3. Schema per class + transaction per test | up to 150 s |
+| 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
+| 3b. Schema per class + transaction per test, for what remains | 40–60 s |
 | 4. Fixture and hash cost in two classes | 40–80 s |
 
-Around **five to six minutes off a fifteen-minute run**, without removing a single test,
-a single database or the coverage report. The remaining nine minutes would be genuine
-work, at which point parallelism is the next lever.
+**318 s delivered so far** — 56 + 136 + 126 — without removing a single test, a single
+database or the coverage report.
+
+The full run with coverage went **17:02 → 10:15**: 407 s, more than the 318 s measured
+without it. Coverage instrumentation is a multiplier on work done, so removing work removes
+its share of the instrumentation too — the 12% figure at the top of this page is 12% of
+whatever the suite still does.
+
+Two of those three came from a profiler contradicting a written plan. Items 3b and 4 are
+still estimates, and should be treated as such until something measures them.
 
 ## How to measure it again
 
@@ -252,3 +332,15 @@ work, at which point parallelism is the next lever.
 
 Then read the XML: total per suite, time per class, and the distribution above. A change
 that does not move the "≥ 1000 ms" row has not moved the suite.
+
+And when a class is slow, **profile it before writing the plan**. Twice on this page a
+plausible diagnosis was wrong, and both times two minutes of measurement said so:
+
+```bash
+docker-compose exec php-apache-environment sh -c \
+  'mkdir -p /tmp/prof && php -d xdebug.mode=profile -d xdebug.output_dir=/tmp/prof \
+   -d xdebug.start_with_request=yes your-script.php'
+```
+
+The third item did not need a profiler at all — only reading the table that was already on
+this page, where the same tests were 5× slower on one engine than another.

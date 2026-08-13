@@ -206,6 +206,24 @@ if ! grep -q "pramnos_php.*Up" <<<"$ps_out"; then
     fi
 fi
 
+# The MySQL container carries durability settings appropriate to a database that
+# exists to be dropped (docker/mysql/my.cnf) — worth 126 s of a 15-minute suite,
+# measured. A container built before those settings existed still runs, still
+# passes, and is silently two minutes slower, which is exactly the kind of thing
+# nobody notices. So: say it, once, and say what to do about it.
+#
+# Best-effort and never fatal: this is an optimisation, not a requirement, and a
+# db container that is not answering yet is the resetdb block's problem, not ours.
+flush_setting=$(timeout -k 3 15 docker-compose exec -T db \
+    mysql -uroot -psecret -N -B \
+    -e "SHOW VARIABLES LIKE 'innodb_flush_log_at_trx_commit'" 2>/dev/null \
+    | awk '{print $2}')
+if [[ -n "$flush_setting" && "$flush_setting" != "0" ]]; then
+    echo "NOTE: the MySQL container is running with full crash durability," >&2
+    echo "      which makes the integration tests about 126s slower. Rebuild it:" >&2
+    echo "        docker-compose build db && docker-compose up -d db" >&2
+fi
+
 # Optionally reset test databases to a clean slate (drops all accumulated tables
 # from previous runs, then recreates empty databases).
 if [[ "$resetdb" == true ]]; then
