@@ -231,7 +231,7 @@ return $this->json(['error' => 'Internal error'], 500);
 ### Response Objects
 
 ```php
-use Pramnos\Application\Response;
+use Pramnos\Http\Response;
 
 $response = new Response();
 $response->setStatus(200);

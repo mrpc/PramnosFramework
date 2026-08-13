@@ -11,106 +11,81 @@ Pramnos provides comprehensive testing infrastructure including HTTP testing, fa
 
 ## HTTP Testing
 
-### Making HTTP Requests
+Requests go through `Pramnos\Testing\TestClient`, which boots the application and returns a
+`Pramnos\Testing\TestResponse` to assert against.
 
 ```php
-use Pramnos\Testing\HttpTest;
+use Pramnos\Framework\Testing\BaseTestCase;
+use Pramnos\Testing\TestClient;
 
-class UserApiTest extends HttpTest
+class UserApiTest extends BaseTestCase
 {
-    public function testGetUsers()
+    public function testGetUsers(): void
     {
-        $response = $this->get('/api/v1/users');
-        
+        $client   = new TestClient();
+        $response = $client->get('/api/v1/users');
+
         $response->assertStatus(200);
         $response->assertJsonPath('data.0.username', 'john_doe');
-    }
-    
-    public function testCreateUser()
-    {
-        $response = $this->post('/api/v1/users', [
-            'username' => 'jane_doe',
-            'email'    => 'jane@example.com',
-            'password' => 'secret123',
-        ]);
-        
-        $response->assertStatus(201);
-        $response->assertJsonPath('data.userid', $expect = null);
-    }
-    
-    public function testUpdateUser()
-    {
-        $response = $this->patch('/api/v1/users/1', [
-            'email' => 'newemail@example.com',
-        ]);
-        
-        $response->assertStatus(200);
-    }
-    
-    public function testDeleteUser()
-    {
-        $response = $this->delete('/api/v1/users/1');
-        
-        $response->assertStatus(204);
     }
 }
 ```
 
-### Available HTTP Methods
+> Until 2026-08-14 this section showed a `Pramnos\Testing\HttpTest` base class with the
+> request methods on `$this`. **It has never existed.** The capability is real; the class was
+> not. If you have code extending it, it is `BaseTestCase` plus a `TestClient` — the methods
+> below are the same ones, on the client rather than on the test.
+
+### Available request methods
 
 ```php
-$this->get('/path');
-$this->post('/path', $data);
-$this->patch('/path', $data);
-$this->put('/path', $data);
-$this->delete('/path');
-$this->head('/path');
+$client->get('/path', $headers);
+$client->post('/path', $data, $headers);
+$client->put('/path', $data, $headers);
+$client->delete('/path', $data, $headers);
+$client->call('POST', '/path', $parameters, $headers);
+$client->submitForm('Save', $data);          // finds the form, fills it, posts it
 ```
 
-### Request Headers & Auth
+Headers are an array, which is also how authentication is passed:
 
 ```php
-// Add headers
-$this->withHeader('Authorization', 'Bearer token_here')
-    ->post('/api/users');
-
-// With Bearer token
-$this->withToken('token_here')
-    ->post('/api/users');
-
-// With basic auth
-$this->withBasicAuth('user', 'password')
-    ->get('/protected');
-
-// JSON content
-$this->json('POST', '/api/users', $data);
+$client->get('/api/v1/profile', ['Authorization' => 'Bearer ' . $token]);
 ```
 
-### Response Assertions
+### Response assertions
+
+Every assertion returns the response, so they chain:
 
 ```php
-$response = $this->post('/api/users', [...]);
+$response
+    ->assertStatus(201)
+    ->assertJsonPath('data.id', 42)
+    ->assertSee('User created')
+    ->assertDontSee('Error');
+```
 
-// Status codes
-$response->assertStatus(201);
-$response->assertCreated();
-$response->assertOk();
-$response->assertNotFound();
-$response->assertUnauthorized();
-$response->assertForbidden();
+| Assertion | Checks |
+| --- | --- |
+| `assertStatus(int)` / `assertSuccessful()` | the status code |
+| `assertJson(array)` | the body contains this structure |
+| `assertJsonPath(string, mixed)` | one value, by dotted path |
+| `assertSee(string)` / `assertDontSee(string)` | raw body content |
+| `assertSeeText(string)` | body content with tags stripped |
+| `assertSelectorExists(string)` | a CSS selector matches |
+| `assertSelectorContains(string, string)` | a selector's text |
+| `assertSelectorAttribute(string, string, string)` | a selector's attribute |
 
-// Headers
-$response->assertHeader('Content-Type', 'application/json');
+`getResponse()` returns the underlying `Pramnos\Http\Response` when you need something the
+assertions do not cover.
 
-// JSON assertions
-$response->assertJson(['success' => true]);
-$response->assertJsonPath('data.id', 42);
-$response->assertJsonCount(10, 'data');
-$response->assertJsonStructure(['data' => ['id', 'name', 'email']]);
+### Database assertions
 
-// Content
-$response->assertSee('User created');
-$response->assertDontSee('Error');
+These are on `BaseTestCase` itself, because they ask the database rather than a response:
+
+```php
+$this->assertDatabaseHas('users', ['email' => 'john@example.com']);
+$this->assertDatabaseMissing('users', ['email' => 'deleted@example.com']);
 ```
 
 ## Factories
@@ -206,9 +181,9 @@ public function setUp(): void
 ### Setup & Teardown
 
 ```php
-use Pramnos\Testing\TestCase;
+use Pramnos\Framework\Testing\BaseTestCase;
 
-class UserControllerTest extends TestCase
+class UserControllerTest extends BaseTestCase
 {
     protected function setUp(): void
     {
@@ -262,7 +237,7 @@ $this->assertEquals(42, \App\Models\User::count());
 ## Complete Example
 
 ```php
-class UserApiTest extends \Pramnos\Testing\HttpTest
+class UserApiTest extends \Pramnos\Framework\Testing\BaseTestCase
 {
     protected $user;
     

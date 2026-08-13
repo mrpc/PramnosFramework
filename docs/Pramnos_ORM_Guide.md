@@ -9,7 +9,7 @@ use_cases:
 
 The **ORM** (Object-Relational Mapping) layer provides an elegant way to work with database tables as PHP objects. Models encapsulate table definitions, relationships, scopes, and casting logic.
 
-**Base Class:** `Pramnos\Database\Model`
+**Base Class:** `Pramnos\Application\OrmModel`
 
 ## Getting Started
 
@@ -19,7 +19,7 @@ The **ORM** (Object-Relational Mapping) layer provides an elegant way to work wi
 <?php
 namespace App\Models;
 
-use Pramnos\Database\Model;
+use Pramnos\Application\OrmModel;
 
 class User extends Model
 {
@@ -241,28 +241,29 @@ protected $casts = [
 ];
 ```
 
-### Custom Casts
+### The casts that exist
 
-```php
-use Pramnos\Database\Casts\Castable;
+`$casts` takes a **string type**, and this is the whole list:
 
-class AddressCast implements Castable
-{
-    public function get($value)
-    {
-        return json_decode($value, true);
-    }
-    
-    public function set($value)
-    {
-        return json_encode($value);
-    }
-}
+| Cast | Turns a stored value into |
+| --- | --- |
+| `int`, `integer` | `int` |
+| `float`, `double` | `float` |
+| `bool`, `boolean` | `bool` |
+| `string` | `string` |
+| `array`, `json` | an array, JSON-decoded when the value is a string |
+| `datetime`, `date` | a `DateTimeImmutable` |
+| `timestamp` | a Unix timestamp as `int` |
 
-protected $casts = [
-    'address' => AddressCast::class,
-];
-```
+**There is no custom-cast interface.** A cast class name is not recognised, and — this is the
+part worth knowing — it does not fail either: an unrecognised cast falls through to the
+`default` arm and the value is returned **unchanged**. So `'address' => AddressCast::class`
+looks like it works, and silently does nothing.
+
+Until 2026-08-14 this section documented `Pramnos\Database\Casts\Castable`, which has never
+existed. For a transformation the list above cannot express, use an
+[accessor and mutator](#accessors--mutators) below — they are called for exactly this, and
+they are real.
 
 ## Accessors & Mutators
 

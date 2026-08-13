@@ -231,7 +231,7 @@ graceful stop (SIGTERM/SIGINT/`.stop`), DB-reconnect and git-deploy handling for
 
 ```php
 use Pramnos\Console\Commands\ProcessQueue;
-use Pramnos\Application\Worker;
+use Pramnos\Queue\Worker;
 
 class MyQueue extends ProcessQueue
 {
