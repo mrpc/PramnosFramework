@@ -476,6 +476,49 @@ report; a missing page is a phone call. If the toolbar ever disappears from a pa
 that is otherwise fine, that is this guard doing its job, and the reason will be
 in the application error log rather than on screen.
 
+#### If your kernel clears output buffers
+
+There is a second way to lose the page, and it comes from **your** side of the
+line. Booting the toolbar adds an output-buffer level. Code that clears "its"
+buffer therefore clears **ours**, with the response inside it:
+
+```php
+ob_get_clean();                                  // one level — maybe not yours
+while (ob_get_level()) { ob_end_clean(); }       // every level, certainly not yours
+```
+
+Both are common in a kernel that drops stray output before responding. With
+`output_buffering` on in php.ini and the toolbar booted there are two levels, and
+either idiom empties the response to nothing: `200`, zero bytes, every header saying
+the request succeeded. With the toolbar off the same code works, because then there
+is no extra level to destroy — which is what makes it look like the toolbar
+*corrupts* responses rather than merely being caught in the crossfire.
+
+By the time PHP calls the buffer handler the content is already condemned, so the
+framework cannot refuse the clean. What it does instead:
+
+- **logs it**, naming the byte count and both idioms, so the cause is in the error
+  log rather than nowhere;
+- **re-sends the response at shutdown**, once every buffer is out of the way — but
+  only when nothing was delivered through the buffer and what was dropped is a whole
+  HTML document. A fragment or a JSON body being replaced is a discard that meant
+  what it said.
+
+The page comes back; the toolbar does not, because it was in the buffer that went.
+The fix on your side is to clear only what you opened:
+
+```php
+$level = ob_get_level();
+ob_start();
+// …
+if (ob_get_level() > $level) { ob_end_clean(); }
+```
+
+**Boot the provider once.** Constructing it by hand *and* calling
+`Application::init()` boots it twice, which means two buffer levels and the toolbar
+twice in the page. The framework now ignores the second boot, but a bootstrap that
+does both is worth tidying anyway.
+
 An annotated response also declares `Vary: Cookie`, and `Cache-Control:
 no-store, private` whenever the grant came from a token. On a live server the
 toolbar is open for one browser while every other visitor gets the same URLs,
