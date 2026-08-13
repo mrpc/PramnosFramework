@@ -261,6 +261,53 @@ class McpServeTest extends TestCase
     }
 
     /**
+     * The server names the application, so a client can tell two projects apart.
+     *
+     * An MCP client lists its servers by this string. Reported from a project where
+     * every one of them said "Pramnos App": the name was read from a database-stored
+     * setting and a constant, while `app/app.php` — which the console already reads,
+     * with no database involved — has it.
+     */
+    public function testTheServerIsNamedAfterTheApplication(): void
+    {
+        // Arrange — an application whose app.php declares a name
+        $container = new \Pramnos\Application\Container();
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        $app->applicationInfo = ['name' => 'Radio Chat Box'];
+        $app->method('getContainer')->willReturn($container);
+
+        $command = new McpServe();
+
+        // Act
+        $server = (new \ReflectionMethod($command, 'resolveServer'))->invoke($command, $app);
+
+        // Assert
+        $this->assertSame('Radio Chat Box', $server->getName());
+    }
+
+    /**
+     * With no configured name it falls back, rather than shipping an empty one.
+     *
+     * A blank name in a client's picker is worse than a generic one.
+     */
+    public function testTheServerNameFallsBackWhenNothingDeclaresOne(): void
+    {
+        // Arrange — no name in app.php
+        $container = new \Pramnos\Application\Container();
+        $app = $this->createMock(\Pramnos\Application\Application::class);
+        $app->applicationInfo = [];
+        $app->method('getContainer')->willReturn($container);
+
+        $command = new McpServe();
+
+        // Act
+        $server = (new \ReflectionMethod($command, 'resolveServer'))->invoke($command, $app);
+
+        // Assert — something non-empty, and not a stray blank
+        $this->assertNotSame('', $server->getName());
+    }
+
+    /**
      * resolveServer() with an app that has no 'mcp.server' binding must build
      * the default server containing all five built-in tools. With a database
      * available, ListTablesTool and QuerySchemaTool are included too; the
