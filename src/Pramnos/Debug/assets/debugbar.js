@@ -879,6 +879,9 @@
         + 'button.pdb-unpick:hover{color:#f38ba8;border-color:#f38ba8}'
         + '.pdb-devpanel{color:#a6e3a1;text-decoration:none;padding:2px 8px;font:inherit;flex-shrink:0;margin-left:6px}'
         + '.pdb-devpanel:hover{color:#cba6f7}'
+        + '.pdb-help{color:#89b4fa;text-decoration:none;font:inherit;font-weight:bold;'
+        + 'padding:2px 7px;flex-shrink:0;margin-left:4px}'
+        + '.pdb-help:hover{color:#cba6f7}'
         + '.pdb-close{background:none;border:none;color:#f38ba8;cursor:pointer;margin-left:4px;'
         + 'font:inherit;flex-shrink:0}'
         + '#pdb-restore{position:fixed;right:8px;bottom:8px;z-index:2147483000;display:none;'
@@ -992,6 +995,31 @@
             + '" title="DevPanel">&#128270; DevPanel</a>';
     }
 
+    /**
+     * Where the toolbar's own instructions are.
+     *
+     * The published documentation site, not anything local. This script ships inside
+     * `vendor/`, so a relative link would point at a file the project does not have —
+     * and the docs are the framework's, not per-installation.
+     *
+     * Unconditional, unlike the DevPanel link: there is no delivery in which the page
+     * explaining the toolbar does not exist.
+     */
+    var HELP_URL = 'https://mrpc.github.io/PramnosFramework/Pramnos_Debug_Toolbar_Usage/';
+
+    /**
+     * The `?` that opens the usage guide in a new tab.
+     *
+     * A toolbar is where somebody is standing when they need to be told what it does,
+     * and the alternative was knowing that a documentation site exists and which page
+     * of it to look for.
+     */
+    function helpLink() {
+        return '<a class="pdb-help" href="' + escAttr(HELP_URL) + '" '
+            + 'target="_blank" rel="noopener noreferrer" '
+            + 'title="How to use this toolbar (opens the documentation)">?</a>';
+    }
+
     /** Where the DevPanel lives, resolved the same way the log endpoint is. */
     function devPanelUrl() {
         try {
@@ -1023,6 +1051,7 @@
             + '<div id="pdb-bar"><span id="pdb-brand">&#9881; Pramnos</span>'
             + '<span id="pdb-tabs"></span><span id="pdb-info"></span>'
             + devPanelLink()
+            + helpLink()
             + '<button class="pdb-close" id="pdb-close-btn" title="Hide the toolbar">&#x2715;</button></div>'
             + '<div id="pdb-panel"></div>';
 
