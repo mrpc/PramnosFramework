@@ -36,39 +36,14 @@ class DebugBarMiddleware implements MiddlewareInterface
             return $response;
         }
 
-        try {
-            $decorated = $this->inject($response);
-        } catch (\Throwable) {
-            // Rendering the toolbar reads collectors, the session and the
-            // container — all of which can throw for reasons that have nothing
-            // to do with the page that is ready to be sent.
-            return $response;
-        }
+        // One place decides which responses carry the toolbar, and decides "once".
+        // This middleware and Application::render() both reach it, so an
+        // application with a pipeline and one without behave identically, and a
+        // response cannot be given the toolbar twice.
+        $decorated = $this->debugBar->injectInto($response);
 
         // Never hand back less than arrived. A decoration that produced an empty
         // or truncated body is a decoration that failed, whatever it thinks.
         return strlen($decorated) >= strlen($response) ? $decorated : $response;
-    }
-
-    /**
-     * The response with the widget in it, or unchanged when there is nowhere to
-     * put it.
-     *
-     * @param  string $response
-     * @return string
-     */
-    private function inject(string $response): string
-    {
-        $bodyPos = strripos($response, '</body>');
-        if ($bodyPos === false) {
-            return $response;
-        }
-
-        $widget = $this->debugBar->render();
-        if ($widget === '') {
-            return $response;
-        }
-
-        return substr($response, 0, $bodyPos) . $widget . substr($response, $bodyPos);
     }
 }
