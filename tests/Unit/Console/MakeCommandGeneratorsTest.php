@@ -338,7 +338,11 @@ class MakeCommandGeneratorsTest extends TestCase
         // Namespace ends in \Services (the app prefix depends on the run context).
         $this->assertMatchesRegularExpression('/namespace \S+\\\\Services;/', $contents);
         $this->assertStringContainsString('class TestThingService', $contents);
-        $this->assertStringContainsString('Factory::getDatabase()', $contents);
+        // The generated service extends the framework base rather than wiring a
+        // Database by hand. That inheritance is what makes it appear in the debug
+        // toolbar's Domain tab — a plain class has no seam to record from.
+        $this->assertStringContainsString('use Pramnos\Application\Service;', $contents);
+        $this->assertStringContainsString('extends Service', $contents);
         // The best-effort table guess strips "Service" and snake_cases the rest.
         $this->assertStringContainsString("'test_thing'", $contents);
     }

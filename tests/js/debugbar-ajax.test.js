@@ -104,7 +104,9 @@ describe('the server-rendered toolbar', () => {
 
         // Assert
         const tabs = dom.byId['pdb-tabs'].innerHTML;
-        ['SQL', 'Session', 'Logs', 'Models', 'Route'].forEach((label) => {
+        // `models` is the payload key; Domain is the tab it draws, because that
+        // tab shows the services of the request too.
+        ['SQL', 'Session', 'Logs', 'Domain', 'Route'].forEach((label) => {
             assert.ok(tabs.includes(label), `${label} tab is present`);
         });
         assert.equal(tabs.includes('Migrations'), false, 'no tab for a collector with no data');

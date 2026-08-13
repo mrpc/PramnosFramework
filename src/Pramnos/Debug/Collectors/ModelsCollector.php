@@ -7,9 +7,14 @@ namespace Pramnos\Debug\Collectors;
 /**
  * Collects Model load/save/delete operations during the current request.
  *
- * Model::_load() and Model::_save() call record() via the static bridge
- * DebugBar::recordModel(). Distinct model classes are counted separately
- * so the tab badge shows unique model types, not total DB round-trips.
+ * Model::_load() and Model::_save() look this collector up on the DebugBar and
+ * call record(). Distinct model classes are counted separately so the tab badge
+ * shows unique model types, not total DB round-trips.
+ *
+ * Its data shares a tab with {@see ServicesCollector} — the toolbar's **Domain**
+ * tab — because both answer "what did this request do to the domain layer", and
+ * an application built either way then has one place to look. The payload key
+ * stays `models` so anything already reading it is unaffected.
  *
  */
 class ModelsCollector implements CollectorInterface

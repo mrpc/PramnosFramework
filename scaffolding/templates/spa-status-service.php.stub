@@ -3,15 +3,20 @@ declare(strict_types=1);
 
 namespace {{ namespace }}\Services;
 
+use Pramnos\Application\Service;
+
 /**
  * Application status — the first service of a Services + API + SPA project.
  *
  * It exists for two reasons: the SPA needs something real to call on its first
- * screen, and this is the shape every other service should follow — plain class,
- * no framework base class, intention-revealing method, all data access inside.
- * Replace or delete it once the app has services of its own.
+ * screen, and this is the shape every other service should follow — extend the
+ * framework's Service base, one intention-revealing method, all data access
+ * inside. Replace or delete it once the app has services of its own.
+ *
+ * The base class is what makes this service appear in the debug toolbar's Domain
+ * tab, and `measure()` is what puts a duration next to the call.
  */
-class StatusService
+class StatusService extends Service
 {
     /**
      * A snapshot of what the backend can tell an anonymous caller.
@@ -24,12 +29,12 @@ class StatusService
      */
     public function snapshot(): array
     {
-        return [
+        return $this->measure('snapshot', fn(): array => [
             'application' => '{{ appName }}',
             'status'      => 'ok',
             'database'    => $this->databaseIsReachable() ? 'up' : 'down',
             'time'        => gmdate('c'),
-        ];
+        ]);
     }
 
     /**
@@ -41,8 +46,7 @@ class StatusService
     private function databaseIsReachable(): bool
     {
         try {
-            $database = \Pramnos\Database\Database::getInstance();
-            $database->query('SELECT 1');
+            $this->database()->query('SELECT 1');
             return true;
         } catch (\Throwable) {
             return false;

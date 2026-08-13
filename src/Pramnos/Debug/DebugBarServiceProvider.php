@@ -11,6 +11,7 @@ use Pramnos\Debug\Collectors\LogCollector;
 use Pramnos\Debug\Collectors\MemoryCollector;
 use Pramnos\Debug\Collectors\MigrationsCollector;
 use Pramnos\Debug\Collectors\ModelsCollector;
+use Pramnos\Debug\Collectors\ServicesCollector;
 use Pramnos\Debug\Collectors\QueryCollector;
 use Pramnos\Debug\Collectors\RouteCollector;
 use Pramnos\Debug\Collectors\SessionCollector;
@@ -78,6 +79,7 @@ class DebugBarServiceProvider extends ServiceProvider
         $bar->addCollector(new RouteCollector());
         $bar->addCollector(new ViewsCollector());
         $bar->addCollector(new ModelsCollector());
+        $bar->addCollector(new ServicesCollector());
         $bar->addCollector(new MigrationsCollector());
         $bar->addCollector(new ExceptionsCollector());
 

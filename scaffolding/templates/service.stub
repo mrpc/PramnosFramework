@@ -2,8 +2,7 @@
 
 namespace {{ namespace }};
 
-use Pramnos\Database\Database;
-use Pramnos\Framework\Factory;
+use Pramnos\Application\Service;
 
 /**
  * {{ class }} — application service.
@@ -14,24 +13,21 @@ use Pramnos\Framework\Factory;
  * putting behaviour on ActiveRecord models — the queries live here, behind
  * intention-revealing methods, and the framework QueryBuilder does the SQL.
  *
- * The database connection is injectable so the service is easy to unit-test.
+ * Extending Pramnos\Application\Service gives you three things and asks for
+ * nothing: an injectable database resolved on first use (so a unit test that
+ * never queries never connects), $this->queryBuilder() as the shortest path to
+ * that connection, and $this->measure() to make a call show up in the debug
+ * toolbar's Domain tab. The service appears there as soon as it runs; a call
+ * appears with a duration once it is wrapped in measure().
  */
-class {{ class }}
+class {{ class }} extends Service
 {
-    protected Database $database;
-
-    public function __construct(?Database $database = null)
-    {
-        $this->database = $database ?? Factory::getDatabase();
-    }
-
     // Add your service methods here, e.g.:
     //
     // public function findActive(): array
     // {
-    //     return $this->database->queryBuilder()
-    //         ->from('{{ table }}')
+    //     return $this->measure('findActive', fn() => $this->queryBuilder('{{ table }}')
     //         ->where('active', '=', true)
-    //         ->getAll();
+    //         ->getAll());
     // }
 }

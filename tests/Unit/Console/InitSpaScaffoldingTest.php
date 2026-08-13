@@ -426,6 +426,10 @@ class InitSpaScaffoldingTest extends TestCase
         $service = $this->read('src/Services/StatusService.php');
         $this->assertStringContainsString('namespace SpaApp\Services;', $service);
         $this->assertStringContainsString('function snapshot(', $service);
+        // ...and it extends the framework base, which is the only reason the
+        // request's service work shows up in the toolbar's Domain tab.
+        $this->assertStringContainsString('extends Service', $service);
+        $this->assertStringContainsString("measure('snapshot'", $service);
 
         // ...the controller is thin and asks the service...
         $controller = $this->read('src/Api/Controllers/Status.php');
