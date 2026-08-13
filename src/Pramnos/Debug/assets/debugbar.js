@@ -121,7 +121,10 @@
         // Errors sits beside Exceptions on purpose — the two halves of
         // "something went wrong" belong next to each other.
         { key: 'errors',     label: 'Errors' },
-        { key: 'client',     label: 'Client' }
+        { key: 'client',     label: 'Client' },
+        // Not a report at all — the one tab you use rather than read. Last,
+        // because it is the only one that changes the application's state.
+        { key: 'api',        label: 'API' }
     ];
 
     /**
@@ -131,7 +134,7 @@
      * no payload key for an error raised in the browser three seconds after the
      * response arrived.
      */
-    var CLIENT_TABS = { errors: true, client: true };
+    var CLIENT_TABS = { errors: true, client: true, api: true };
 
     /** @type {Array<Object>} One per request, oldest first. */
     var entries = [];
@@ -169,6 +172,26 @@
 
     /** A storage value longer than this is shown truncated. */
     var VALUE_LIMIT = 200;
+
+    /**
+     * The API playground's state.
+     *
+     * Kept here rather than in the DOM because the panel is re-rendered whenever
+     * a request is recorded — including the request the playground itself just
+     * made. State in the markup would be wiped by the very call the reader was
+     * making.
+     */
+    var pg = {
+        doc: null,        // the parsed OpenAPI document
+        error: null,      // why it could not be loaded
+        loading: false,
+        ops: [],          // [{method, path, summary, body}]
+        selected: -1,
+        path: '',         // the path, with its parameters filled in by hand
+        body: '',
+        sendToken: true,
+        result: null      // {status, ms, text}
+    };
 
     /**
      * The framework route that hands back one request's log lines.
@@ -903,6 +926,10 @@
         + '.pdb-split{display:flex;height:14px;border-radius:3px;overflow:hidden;background:#45475a;margin:4px 0 0}'
         + '.pdb-split-server{background:#89b4fa}'
         + '.pdb-split-away{background:#45475a;flex:1}'
+        + '.pdb-pg-input{background:#11111b;color:#cdd6f4;border:1px solid #45475a;'
+        + 'border-radius:3px;font:inherit;padding:2px 5px;width:60%;max-width:100%}'
+        + 'textarea.pdb-pg-input{width:100%;margin-top:4px;resize:vertical}'
+        + '.pdb-pg-input:focus{outline:none;border-color:#89b4fa}'
         + '.pdb-body{margin:0 0 8px}'
         + '.pdb-body>summary{cursor:pointer;color:#89b4fa;font-size:11px}'
         + '.pdb-body>.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;'
@@ -1065,10 +1092,10 @@
             if (tab.key === 'errors') {
                 data = clientErrors.length ? { count: clientErrors.length } : null;
             }
-            // The Client tab is the exception to "no tab without data": there is
-            // always a URL and always a configuration, and its whole purpose is
-            // to be looked at when something is *missing* from them.
-            if (tab.key === 'client') {
+            // The Client and API tabs are the exception to "no tab without
+            // data": there is always a URL and always a configuration, and their
+            // whole purpose is to be opened when something is *missing*.
+            if (tab.key === 'client' || tab.key === 'api') {
                 data = { count: null };
             }
 
@@ -1164,7 +1191,9 @@
                 // thing 4000 times is one problem, and the row says 4000.
                 return clientErrors.length;
             case 'client':
-                // Nothing to count — a configuration is not a quantity.
+            case 'api':
+                // Nothing to count — a configuration is not a quantity, and
+                // neither is a tool.
                 return null;
             case 'queries':
                 return typeof data.count === 'number' ? data.count : (data.queries || []).length;
@@ -1402,6 +1431,10 @@
 
         if (key === 'client') {
             return renderClientState();
+        }
+
+        if (key === 'api') {
+            return renderPlayground();
         }
 
         // Checked before the payload: a stream tab answers for every request
@@ -2335,6 +2368,383 @@
         }
     }
 
+    // ── API playground ──────────────────────────────────────────────────────
+
+    /**
+     * Call the application's own API, from the toolbar, and read the answer with
+     * its `_debug` attached.
+     *
+     * The endpoint list comes from the OpenAPI document the project already
+     * generates, so this costs nothing to keep current: an endpoint appears here
+     * because it is documented, and one that is missing is a documentation bug
+     * worth knowing about too.
+     *
+     * The request is a real one. It goes through the same server, the same
+     * middleware and the same authentication as the application's, is recorded
+     * in the requests list like any other, and can therefore be read in every
+     * other tab — which is the point. A playground that stubbed the call would
+     * answer a question nobody asked.
+     */
+    function renderPlayground() {
+        if (pg.loading) {
+            return '<p class="pdb-muted">Reading the OpenAPI document…</p>';
+        }
+
+        if (pg.error) {
+            return '<p><strong>API playground</strong></p>'
+                + '<p style="color:#f38ba8">' + esc(pg.error) + '</p>'
+                + '<p class="pdb-muted">The endpoint list comes from the project\'s '
+                + 'OpenAPI document. Generate it with <code>npm run docs:build</code> '
+                + '(or <code>./dockernpm run docs:build</code>), then '
+                + '<button class="pdb-copy pdb-pg-reload">try again</button>.</p>';
+        }
+
+        if (!pg.doc) {
+            // First open. The fetch is started here rather than on boot: a
+            // document nobody looked at should not cost a request on every page.
+            loadOpenApi();
+            return '<p class="pdb-muted">Reading the OpenAPI document…</p>';
+        }
+
+        return '<p><strong>API playground</strong> <span class="pdb-muted">— '
+            + pg.ops.length + ' documented endpoint(s), against <code>'
+            + esc(apiBase() || '(same origin)') + '</code></span></p>'
+            + playgroundList()
+            + playgroundForm()
+            + playgroundResult();
+    }
+
+    /** The endpoints, as clickable rows. */
+    function playgroundList() {
+        var rows = '';
+        pg.ops.forEach(function (op, index) {
+            rows += '<tr class="pdb-row pdb-pg-op' + (index === pg.selected ? ' pdb-selected' : '')
+                + '" data-op="' + index + '">'
+                + '<td style="color:#89b4fa;white-space:nowrap">' + esc(op.method) + '</td>'
+                + '<td class="pdb-sql">' + esc(op.path) + '</td>'
+                + '<td class="pdb-muted">' + esc(op.summary || '') + '</td></tr>';
+        });
+
+        if (!rows) {
+            return '<p class="pdb-muted">The document lists no paths.</p>';
+        }
+
+        return '<table class="pdb-table"><thead><tr><th>Method</th><th>Path</th>'
+            + '<th>Summary</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    /** The request being composed, once an endpoint is picked. */
+    function playgroundForm() {
+        if (pg.selected < 0 || !pg.ops[pg.selected]) {
+            return '<p class="pdb-muted" style="margin-top:6px">Pick an endpoint to call it.</p>';
+        }
+
+        var op = pg.ops[pg.selected];
+        var token = storedToken();
+
+        return '<div style="margin-top:8px">'
+            + '<p><strong>' + esc(op.method) + '</strong> '
+            + '<input id="pdb-pg-path" class="pdb-pg-input" value="' + escAttr(pg.path) + '">'
+            + ' <button class="pdb-copy pdb-copy-all" id="pdb-pg-send">Send</button></p>'
+            + (op.path.indexOf('{') > -1
+                ? '<p class="pdb-muted">This path has parameters — replace the '
+                    + '<code>{braces}</code> above with real values.</p>'
+                : '')
+            + (op.body !== null
+                ? '<textarea id="pdb-pg-body" class="pdb-pg-input" rows="5">'
+                    + esc(pg.body) + '</textarea>'
+                : '')
+            + '<p class="pdb-muted">'
+            + (token
+                ? 'Sending the stored token from <code>' + esc(token.key) + '</code>'
+                    + ' <button class="pdb-copy pdb-pg-token">'
+                    + (pg.sendToken ? 'don\'t' : 'do') + '</button>'
+                : 'No stored token was found, so this call is anonymous unless a '
+                    + 'session cookie authenticates it.')
+            + '</p></div>';
+    }
+
+    /** What came back, if anything has been sent. */
+    function playgroundResult() {
+        if (!pg.result) {
+            return '';
+        }
+
+        var r = pg.result;
+        var colour = r.status >= 200 && r.status < 300 ? '#a6e3a1' : '#f38ba8';
+
+        return '<p style="margin-top:8px"><strong style="color:' + colour + '">'
+            + esc(r.status || 'failed') + '</strong> '
+            + '<span class="pdb-muted">in ' + esc(r.ms) + 'ms — the call is in the '
+            + 'requests list too, with everything the server recorded for it.</span></p>'
+            + '<pre class="pdb-pre">' + esc(maskFlat(formatBody(r.text))) + '</pre>';
+    }
+
+    /**
+     * Where the OpenAPI document is, from the browser's point of view.
+     *
+     * Derived from the API prefix the shell injected: the generator writes
+     * `www/api/openapi.json`, which is one level above the versioned prefix the
+     * client calls (`/api/1.0`). Falling back to `/api/openapi.json` covers a
+     * server-rendered page, which has no injected configuration at all.
+     */
+    function openApiUrl() {
+        var prefix = (window.__PRAMNOS__ || {}).apiPrefix;
+        if (typeof prefix !== 'string' || prefix === '') {
+            return '/api/openapi.json';
+        }
+        // Drop the trailing version segment: /api/1.0 → /api
+        var trimmed = prefix.replace(/\/+$/, '').replace(/\/[^/]*$/, '');
+        return (trimmed || '/api') + '/openapi.json';
+    }
+
+    /**
+     * The base every playground call is sent against.
+     *
+     * The injected prefix wins over the document's own `servers` list: a
+     * generated document names production URLs, and sending a development call
+     * to production because a list happened to be ordered that way is the one
+     * mistake this tab must not make.
+     */
+    function apiBase() {
+        var prefix = (window.__PRAMNOS__ || {}).apiPrefix;
+        if (typeof prefix === 'string' && prefix !== '') {
+            return prefix.replace(/\/+$/, '');
+        }
+        var servers = (pg.doc && pg.doc.servers) || [];
+        var url = servers.length && servers[0] && servers[0].url ? String(servers[0].url) : '';
+        // Only a same-origin server. A document's production URL is not somewhere
+        // a debug toolbar should be sending anything.
+        return url.indexOf('http') === 0 ? '' : url.replace(/\/+$/, '');
+    }
+
+    /** Read the document once, then draw. */
+    function loadOpenApi() {
+        var send = rawFetch || (typeof window.fetch === 'function' ? window.fetch : null);
+        if (!send) {
+            pg.error = 'This browser has no fetch, so the document cannot be read.';
+            return;
+        }
+
+        pg.loading = true;
+        var url = openApiUrl();
+
+        send(url, { credentials: 'same-origin' }).then(function (response) {
+            if (!response || response.status !== 200) {
+                throw new Error('The document at ' + url + ' answered '
+                    + ((response && response.status) || 'nothing') + '.');
+            }
+            return response.text();
+        }).then(function (text) {
+            pg.doc = JSON.parse(text);
+            pg.ops = operationsOf(pg.doc);
+            pg.loading = false;
+            pg.error = null;
+            render();
+        }).catch(function (e) {
+            pg.loading = false;
+            pg.error = e && e.message ? e.message : 'The OpenAPI document could not be read.';
+            render();
+        });
+    }
+
+    /**
+     * Flatten an OpenAPI document into one row per operation.
+     *
+     * Paths are normalised on the way through: a generated document can carry a
+     * doubled slash (`//status`) when a prefix and a path are joined without
+     * care, and a playground that sent that verbatim would produce a 404 that
+     * looks like a routing bug in the application.
+     */
+    function operationsOf(doc) {
+        var ops = [];
+        var paths = (doc && doc.paths) || {};
+
+        Object.keys(paths).forEach(function (path) {
+            var item = paths[path] || {};
+            Object.keys(item).forEach(function (method) {
+                if (['get', 'post', 'put', 'patch', 'delete'].indexOf(method) === -1) {
+                    return;
+                }
+                var op = item[method] || {};
+                ops.push({
+                    method: method.toUpperCase(),
+                    path: String(path).replace(/\/{2,}/g, '/'),
+                    summary: op.summary || op.operationId || '',
+                    body: bodySampleOf(op)
+                });
+            });
+        });
+
+        return ops;
+    }
+
+    /**
+     * A starting point for the request body, or null when the operation takes none.
+     *
+     * An example from the document is used as it is; otherwise the schema's
+     * properties become a skeleton with their types as placeholders. One level
+     * deep on purpose — a generated skeleton of a deeply nested schema is harder
+     * to correct than an empty object is to fill.
+     */
+    function bodySampleOf(op) {
+        var content = op && op.requestBody && op.requestBody.content;
+        if (!content) {
+            return null;
+        }
+
+        var json = content['application/json'];
+        if (!json) {
+            return '{}';
+        }
+        if (json.example !== undefined) {
+            return JSON.stringify(json.example, null, 2);
+        }
+
+        var properties = (json.schema && json.schema.properties) || null;
+        if (!properties) {
+            return '{}';
+        }
+
+        var sample = {};
+        Object.keys(properties).forEach(function (name) {
+            var spec = properties[name] || {};
+            sample[name] = spec.example !== undefined ? spec.example : ('<' + (spec.type || 'value') + '>');
+        });
+
+        return JSON.stringify(sample, null, 2);
+    }
+
+    /**
+     * A bearer token the page has stored, if there is one.
+     *
+     * Found by key name, because the key is the application's to choose (the
+     * scaffold uses `<app>-token`). The value is never shown — only which key it
+     * came from, which is what a reader needs in order to distrust it.
+     */
+    function storedToken() {
+        try {
+            var store = typeof localStorage === 'undefined' ? null : localStorage;
+            if (!store) {
+                return null;
+            }
+            for (var i = 0; i < store.length; i++) {
+                var key = store.key(i);
+                if (/token/i.test(key)) {
+                    var value = store.getItem(key);
+                    if (value) {
+                        return { key: key, value: value };
+                    }
+                }
+            }
+        } catch (e) {
+            /* storage that refuses is the same as storage with no token in it */
+        }
+        return null;
+    }
+
+    /** Take whatever the reader has typed out of the DOM and into state. */
+    function capturePlaygroundInputs() {
+        try {
+            var pathEl = panelEl && panelEl.querySelector('#pdb-pg-path');
+            if (pathEl && typeof pathEl.value === 'string') {
+                pg.path = pathEl.value;
+            }
+            var bodyEl = panelEl && panelEl.querySelector('#pdb-pg-body');
+            if (bodyEl && typeof bodyEl.value === 'string') {
+                pg.body = bodyEl.value;
+            }
+        } catch (e) {
+            /* an input that cannot be read leaves the last known value in place */
+        }
+    }
+
+    /** Pick an endpoint, and start composing a call to it. */
+    function selectOperation(index) {
+        var op = pg.ops[index];
+        if (!op) {
+            return;
+        }
+        pg.selected = index;
+        pg.path = op.path;
+        pg.body = op.body === null ? '' : op.body;
+        pg.result = null;
+        render();
+    }
+
+    /**
+     * Send the composed request.
+     *
+     * Recorded explicitly rather than left to the transport wrapper: a SPA has no
+     * wrapper (its API client reports its own calls), and on a server-rendered
+     * page the unwrapped `rawFetch` is used precisely so that this records once
+     * rather than twice.
+     */
+    function playgroundSend() {
+        capturePlaygroundInputs();
+
+        var op = pg.ops[pg.selected];
+        if (!op) {
+            return;
+        }
+
+        var send = rawFetch || (typeof window.fetch === 'function' ? window.fetch : null);
+        if (!send) {
+            return;
+        }
+
+        var headers = { Accept: 'application/json' };
+        var runtime = window.__PRAMNOS__ || {};
+        if (runtime.apiKey) {
+            headers.apiKey = runtime.apiKey;
+        }
+        var token = pg.sendToken ? storedToken() : null;
+        if (token) {
+            headers.accessToken = token.value;
+        }
+
+        var body = null;
+        if (op.body !== null && pg.body.trim() !== '') {
+            headers['Content-Type'] = 'application/json';
+            body = pg.body;
+        }
+
+        var url = (apiBase() + pg.path).replace(/([^:])\/{2,}/g, '$1/');
+        var started = now();
+
+        pg.result = null;
+
+        send(url, {
+            method: op.method,
+            headers: headers,
+            credentials: 'same-origin',
+            body: body
+        }).then(function (response) {
+            return response.text().then(function (text) {
+                return { status: response.status, text: text };
+            });
+        }).then(function (answer) {
+            var ms = Math.round(now() - started);
+            pg.result = { status: answer.status, ms: ms, text: answer.text };
+            // Recorded like any other call, so the reader can open Time, SQL or
+            // Logs for the request they just made.
+            record(op.method, pg.path, answer.status, fromText(answer.text), {
+                ms: ms,
+                body: body,
+                kind: 'playground'
+            });
+            render();
+        }).catch(function (e) {
+            pg.result = {
+                status: 0,
+                ms: Math.round(now() - started),
+                text: 'The request failed before a response arrived: '
+                    + ((e && e.message) || 'unknown error')
+            };
+            render();
+        });
+    }
+
     // ── Interaction ─────────────────────────────────────────────────────────
 
     /** Handle every click inside the bar. */
@@ -2370,6 +2780,38 @@
 
             if (event.target.closest('.pdb-unpick')) {
                 clearPick();
+                return;
+            }
+
+            // The playground's own controls, before the generic row handler: its
+            // endpoint rows carry `pdb-row` for the hover and selection styling,
+            // and must not be read as "the reader picked a request".
+            if (event.target.closest('#pdb-pg-send')) {
+                event.stopPropagation();
+                playgroundSend();
+                return;
+            }
+
+            if (event.target.closest('.pdb-pg-reload')) {
+                event.stopPropagation();
+                pg.error = null;
+                loadOpenApi();
+                render();
+                return;
+            }
+
+            if (event.target.closest('.pdb-pg-token')) {
+                event.stopPropagation();
+                capturePlaygroundInputs();
+                pg.sendToken = !pg.sendToken;
+                render();
+                return;
+            }
+
+            var operation = event.target.closest('.pdb-pg-op');
+            if (operation) {
+                event.stopPropagation();
+                selectOperation(Number(operation.dataset.op));
                 return;
             }
 

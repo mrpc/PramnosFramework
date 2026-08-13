@@ -36,24 +36,22 @@ browser restarts in a real application.
 
 ## Debug toolbar
 
-The toolbar has one renderer
-(`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`),
-and both deliveries use it: `DebugBar::render()` emits a data island plus that
-script, and draws nothing itself. The Time tab, the cross-request waterfall, the
-Auth tab, the Domain tab, the Errors tab and the Client tab (runtime config,
-router, storage) have all landed. One item is left.
+Everything the toolbar was planned to do, it does: one renderer
+(`src/Pramnos/Debug/assets/debugbar.js`, owned by `Pramnos\Debug\DebugBarAsset`)
+serving both deliveries, and the same answers on a server-rendered page and in a
+SPA — requests, time, SQL, route, auth, session, logs, views, the domain layer,
+migrations, server exceptions, browser errors, the client's own state, and a
+playground that calls the documented API for real.
 
-Component *state* is deliberately not on this list: that is the job of Svelte
-DevTools and the `$inspect` rune. Correlation is ours, state is theirs.
+Two things are deliberately *not* planned:
 
-### API playground
-
-Endpoints from the OpenAPI document, called with parameters, response shown with
-its own `_debug`. Cheap for us because the OpenAPI document already exists.
-
-*Done when:* the same toolbar, from the same source, answers "what did this request
-do" identically on a server-rendered page and in a SPA — including its logs, its
-domain-layer calls and where its time went.
+- **Component state** is the job of Svelte DevTools and the `$inspect` rune.
+  Correlation is ours, state is theirs.
+- **A container-resolved timing proxy for services**, which would make
+  `Service::measure()` unnecessary, waits until services are actually resolved
+  through the container. Until then the explicit call is the honest option: a
+  proxy that only wraps *some* services would report a domain layer that is
+  partly missing, which is worse than one that is visibly opt-in.
 
 ## Testing
 

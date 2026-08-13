@@ -175,6 +175,39 @@ is **red across its whole width** when the request went wrong — a 4xx or 5xx, 
 network failure with no status at all, or a 200 that quietly raised something,
 which is the one nobody would go looking for.
 
+### Calling the API from the toolbar
+
+The **API** tab lists the endpoints in the project's own OpenAPI document, calls
+one with the parameters you give it, and shows the answer. Nothing about it is
+simulated: the request goes through the same server, the same middleware and the
+same authentication as the application's own calls, and it is **recorded in the
+requests list like any other** — so Time, SQL, Logs and Domain answer for the call
+you just made. A playground that stubbed the request would answer a question
+nobody asked.
+
+The endpoint list is free of maintenance because it is not a list: it is the
+OpenAPI document (`www/api/openapi.json`, from `npm run docs:build`). An endpoint
+appears here because it is documented — and one that is missing from the tab is a
+documentation gap the tab has just told you about.
+
+- **Where it sends** — the API prefix the shell injected (`/api/1.0`). The
+  document's own `servers` list is deliberately *not* preferred: a generated
+  document names production URLs, and sending a development call there because a
+  list happened to be ordered that way is the one mistake this tab must not make.
+  An absolute URL in that list is ignored for the same reason.
+- **Parameters** — the path is an editable field, pre-filled from the document.
+  A path with `{braces}` says so; you replace them in place.
+- **Bodies** — an operation with a request body gets a textarea, pre-filled from
+  the document's `example` when it has one and otherwise from the schema's
+  properties, one level deep. A skeleton of a deeply nested schema is harder to
+  correct than an empty object is to fill.
+- **Credentials** — the application's `apiKey` from the injected configuration,
+  cookies (`same-origin`, so a signed-in browser session authenticates the call),
+  and a bearer token if the page has stored one. The token is found by key name
+  and the panel names **the key, never the value**; one click refuses it, which is
+  how "is this endpoint actually public?" gets answered.
+- **A request that never arrives** says so, rather than showing an empty result.
+
 ### What the browser thinks the world is
 
 The **Client** tab is three sections answering one question three ways, and it is
@@ -381,6 +414,27 @@ The headers never carry query text. A header is written to the web server's
 access log and to every proxy in front of it, and statements there would put
 customer data in files nobody treats as sensitive.
 
+#### The page outranks the toolbar
+
+Injection is wrapped so that **nothing the toolbar does can cost you the
+response**. Anything thrown while rendering gives the body back exactly as it
+arrived, and a decorated body shorter than the original is discarded. Both the
+middleware and the output-buffer path enforce this.
+
+The rule is written down because of the failure that produced it. With the
+toolbar booted, a plain HTML response reached the browser as **200 with
+`Content-Length: 0`**: PHP discards an output buffer when its callback throws, so
+a 37KB page was produced and then dropped. The response headers said the request
+had succeeded — `Server-Timing`, `X-Pramnos-Debug`, a request id — nothing was
+logged, because the callback runs at shutdown, and every uptime check passed. To
+a person it looked like a broken front-end build. One development environment
+lost a day and switched `APP_DEBUG` off.
+
+An empty 200 is the worst shape a failure can take. A missing toolbar is a bug
+report; a missing page is a phone call. If the toolbar ever disappears from a page
+that is otherwise fine, that is this guard doing its job, and the reason will be
+in the application error log rather than on screen.
+
 An annotated response also declares `Vary: Cookie`, and `Cache-Control:
 no-store, private` whenever the grant came from a token. On a live server the
 toolbar is open for one browser while every other visitor gets the same URLs,
@@ -504,10 +558,10 @@ project gets it as an ES module with `record()` exported. There is no second
 renderer to drift, which is what produced a `✕` that had to be fixed twice.
 
 So both deliveries draw **every collector the payload carries** — SQL, Time,
-Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — plus **Errors**
-and **Client**, which come from what this script observed in the browser rather
-than from any payload. A collector the payload does not carry gets no tab, rather
-than an empty one that reads as "nothing happened".
+Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — plus **Errors**,
+**Client** and **API**, which come from the browser rather than from any payload. A
+collector the payload does not carry gets no tab, rather than an empty one that
+reads as "nothing happened".
 
 Nothing in the panel is application-specific, so **do not write your own** — if a
 field is missing, add it to the framework's source or report it upstream. A
