@@ -357,6 +357,37 @@ $qb->whereRaw("ST_DWithin(geom, ST_MakePoint(%s, %s)::geography, 1000)", [23.72,
 $qb->whereRaw("created_at > NOW() - INTERVAL '7 days'");
 ```
 
+**Placeholders: `?` or `%s`, one per binding.** This builder's own placeholders are
+typed — `%s` string, `%i` integer, `%d` float, `%b` boolean — and a raw fragment may
+use them directly. A `?` is also accepted and is replaced with the placeholder its
+binding's type calls for, at the position it was written:
+
+```php
+$qb->whereRaw('channel_id IN (SELECT id FROM channels WHERE station_id = ?)', [$id]);
+// compiles to … station_id = %i, bound in this clause's own position
+```
+
+A `?` inside a quoted string (`label = 'why?'`) is left alone, and a fragment with
+**no** bindings is never rewritten — `whereRaw('enabled = TRUE')` and PostgreSQL's
+`jsonb ? key` operator both mean what they say.
+
+**A count mismatch throws immediately**, from the `whereRaw()` call itself:
+
+```php
+$qb->whereRaw('a = ?', [1, 2]);
+// InvalidArgumentException: whereRaw() was given 2 binding(s) for 1 placeholder(s) in: a = ?
+```
+
+That is deliberate, and it replaces a silent failure worth knowing about: a
+mismatch used to leave a literal `?` in the statement with one binding too many, the
+server rejected it, `get()`/`first()` returned **`false`**, and the only symptom was
+`Attempt to read property "fields" on false` in the *calling* code, several lines
+from the cause. A statement that cannot be prepared is now also written to the
+application error log with its SQL, so the false always has a trail.
+
+`orWhereRaw()` and `orHavingRaw()` exist for the OR forms; `havingRaw()` behaves
+identically for HAVING.
+
 #### `whereExists(Closure $callback): static`
 
 EXISTS subquery condition.

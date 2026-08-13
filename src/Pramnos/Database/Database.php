@@ -1394,6 +1394,32 @@ class Database extends \Pramnos\Framework\Base
      * @param mixed $arguments
      * @return Result
      */
+    /**
+     * Write a line naming a statement that could not be prepared.
+     *
+     * Static and self-contained: this runs on a failure path where the connection
+     * is already suspect, so it must not need anything of the instance, and it must
+     * not be able to throw on its own — a logger that fails while reporting a
+     * database error would replace the report with something even harder to read.
+     *
+     * @param  string $sql   The statement, as given
+     * @param  string $error The driver's message, when there was one
+     * @return void
+     */
+    private static function logFailedStatement(string $sql, string $error): void
+    {
+        try {
+            \Pramnos\Logs\Logger::logError(
+                'Statement could not be prepared'
+                . ($error !== '' ? ': ' . $error : '')
+                . ' — SQL: ' . $sql,
+                null
+            );
+        } catch (\Throwable) {
+            // Reporting is best-effort. The caller still gets its false.
+        }
+    }
+
     public function execute($sql, &...$arguments)
     {
         $free = false;
@@ -1426,6 +1452,19 @@ class Database extends \Pramnos\Framework\Base
                     is_string($sql) ? $sql : ''
                 );
             }
+
+            // Outside strict mode the caller gets `false`, and that is where a
+            // whole class of bug report comes from: the query builder's `first()`
+            // hands that false on, the calling code does `->first()->fields`, and
+            // the only symptom is "Attempt to read property on false" pointing at
+            // the consumer, several lines from the cause. Nothing was logged, so
+            // there was nothing to find. Naming the statement here turns that into
+            // a two-minute fix without changing what is returned.
+            self::logFailedStatement(
+                is_string($sql) ? $sql : '(prepared statement object)',
+                $this->error_text
+            );
+
             return false;
         }
 
