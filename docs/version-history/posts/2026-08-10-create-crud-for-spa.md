@@ -33,12 +33,21 @@ the generator follows it. `--target=mvc|spa|both` overrides one run.
 | `hybrid` | both, over **one** model: a single domain object, two controllers |
 
 ```
-src/Models/Thing.php               the model, with getApiList()
-src/Api/Controllers/Thing.php      list / read / create / update / delete
-src/Api/routes.php                 the routes, inside the version group
-frontend/screens/Thing.svelte      table + paging + search + form + delete
-frontend/screens/registry.js       the entry that puts it in the navigation
+src/Models/Thing.php               the model, with getApiList()          (created)
+src/Api/Controllers/Thing.php      list / read / create / update / delete (created)
+src/Api/routes.php                 the routes, inside the version group   (edited)
+frontend/screens/Thing.svelte      table + paging + search + form + delete (created)
+frontend/screens/registry.js       the entry that puts it in the navigation (edited)
 ```
+
+The last two are **edited, not written**: an existing file gains a line. And
+`src/Api/routes.php` is edited *when it can be* — a project without that file, or
+one whose routes carry no version-group marker to insert into, is left alone and the
+routes have to be added by hand.
+
+*(Clarified 2026-08-14: this list did not distinguish the files created from the
+files edited, and did not mention that the routes edit is skipped silently when
+there is nowhere to make it.)*
 
 The screen uses the model's `getApiList()` pipeline, so paging and search happen
 on the server — it never loads a table into the browser to filter it there. The
