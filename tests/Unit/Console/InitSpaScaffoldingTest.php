@@ -73,6 +73,11 @@ class InitSpaScaffoldingTest extends TestCase
 
         $tester->execute(array_merge([
             '--app-name'     => 'SpaApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'    => 'SpaApp',
             '--features'     => 'auth',
             '--ui-system'    => 'plain-css',
@@ -89,7 +94,6 @@ class InitSpaScaffoldingTest extends TestCase
             '--db-prefix'    => '',
             '--api-docs'     => 'n',
             '--webhook'      => 'n',
-            '--no-download'  => true,
             '--no-migrations' => true,
         ], $options), ['interactive' => false]);
 

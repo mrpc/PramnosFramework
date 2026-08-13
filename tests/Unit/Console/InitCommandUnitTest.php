@@ -247,6 +247,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'TestApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -292,6 +297,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'TestApp',
             '--features'  => 'auth,authserver',
             '--ui-system' => 'plain-css',
@@ -394,6 +404,11 @@ class InitCommandUnitTest extends TestCase
         // Act — Docker on (the Step-6 lifecycle is skipped via skipDockerRun).
         $tester->execute([
             '--app-name'    => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'   => 'TestApp',
             '--features'    => 'auth,authserver',
             '--ui-system'   => 'plain-css',
@@ -434,6 +449,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'TestApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -474,6 +494,11 @@ class InitCommandUnitTest extends TestCase
         // Act — REST API + API docs on, but no features
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'TestApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -518,6 +543,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'TestApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -558,6 +588,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyVendor',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -595,6 +630,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => 'auth,queue',
             '--ui-system' => 'plain-css',
@@ -629,6 +669,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'     => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'    => 'MyApp',
             '--features'     => '',
             '--ui-system'    => 'plain-css',
@@ -663,6 +708,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => '',
             '--ui-system' => 'bootstrap',
@@ -704,6 +754,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => '',
             '--ui-system' => 'tailwind',
@@ -753,6 +808,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -817,6 +877,11 @@ class InitCommandUnitTest extends TestCase
         // Act — plain-css has a white navbar
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -859,6 +924,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => '',
             '--ui-system' => 'bootstrap',
@@ -891,6 +961,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'MyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -925,6 +1000,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'   => 'DockerApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'  => 'DockerApp',
             '--features'   => '',
             '--ui-system'  => 'plain-css',
@@ -976,6 +1056,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'   => 'DockerMysqlApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'  => 'DockerMysqlApp',
             '--features'   => '',
             '--ui-system'  => 'plain-css',
@@ -1012,6 +1097,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'    => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'   => 'TestApp',
             '--features'    => '',
             '--ui-system'   => 'plain-css',
@@ -1050,12 +1140,16 @@ class InitCommandUnitTest extends TestCase
         // Act
         $exit = $tester->execute([
             '--app-name'   => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'  => 'TestApp',
             '--features'   => '',
             '--ui-system'  => 'plain-css',
             '--docker'     => 'n',
             '--libraries'  => 'jquery',
-            '--no-download'=> true,
             '--db-type'    => 'mysql',
             '--db-host'    => 'localhost',
             '--db-name'    => 'testapp_db',
@@ -1096,6 +1190,11 @@ class InitCommandUnitTest extends TestCase
         // Act — enable authserver which triggers key generation
         $tester->execute([
             '--app-name'  => 'KeyTestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'KeyTestApp',
             '--features'  => 'auth,authserver',
             '--ui-system' => 'plain-css',
@@ -1161,6 +1260,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'IdempotentApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'IdempotentApp',
             '--features'  => 'authserver',
             '--ui-system' => 'plain-css',
@@ -1198,6 +1302,11 @@ class InitCommandUnitTest extends TestCase
         // Act — only 'auth', no 'authserver'
         $tester->execute([
             '--app-name'  => 'NoAuthserverApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'NoAuthserverApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -1237,6 +1346,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'GitignoreApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'GitignoreApp',
             '--features'  => 'authserver',
             '--ui-system' => 'plain-css',
@@ -1274,6 +1388,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no authserver
         $tester->execute([
             '--app-name'  => 'NoKeyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'NoKeyApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -1322,6 +1441,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'ApiApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'ApiApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -1383,6 +1507,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'ApiApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MyVendor',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -1444,6 +1573,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'ApiApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'ApiApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -1493,6 +1627,11 @@ class InitCommandUnitTest extends TestCase
         // Act — explicitly opt out of REST API scaffolding
         $tester->execute([
             '--app-name'  => 'NoApiApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'NoApiApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -1541,6 +1680,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -1594,6 +1738,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features
         $tester->execute([
             '--app-name'  => 'PlainApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'PlainApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -1632,6 +1781,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -1689,6 +1843,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -1733,6 +1892,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -1784,6 +1948,11 @@ class InitCommandUnitTest extends TestCase
         // Act — bootstrap UI with auth feature
         $tester->execute([
             '--app-name'  => 'AuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp',
             '--features'  => 'auth',
             '--ui-system' => 'bootstrap',
@@ -1838,6 +2007,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features, bootstrap UI
         $tester->execute([
             '--app-name'  => 'PlainApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'PlainApp',
             '--features'  => '',
             '--ui-system' => 'bootstrap',
@@ -1877,6 +2051,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features selected
         $tester->execute([
             '--app-name'  => 'PlainApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'PlainApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -1923,6 +2102,11 @@ class InitCommandUnitTest extends TestCase
         // Act — enable both auth (required for authserver) and authserver
         $tester->execute([
             '--app-name'  => 'OAuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'OAuthApp',
             '--features'  => 'auth,authserver',
             '--ui-system' => 'plain-css',
@@ -1964,6 +2148,11 @@ class InitCommandUnitTest extends TestCase
         // Act — auth only, no authserver
         $tester->execute([
             '--app-name'  => 'AuthOnlyApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthOnlyApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -2004,6 +2193,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'OAuthApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'OAuthApp',
             '--features'  => 'auth,authserver',
             '--ui-system' => 'bootstrap',
@@ -2050,6 +2244,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features, plain-css
         $tester->execute([
             '--app-name'  => 'MinimalApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MinimalApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2096,6 +2295,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features (health controller is unconditional)
         $tester->execute([
             '--app-name'  => 'MinimalApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MinimalApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2142,6 +2346,11 @@ class InitCommandUnitTest extends TestCase
         // Act — request webhook generation
         $tester->execute([
             '--app-name'  => 'MinimalApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MinimalApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2190,6 +2399,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no webhook option
         $tester->execute([
             '--app-name'  => 'MinimalApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MinimalApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2231,6 +2445,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features, bootstrap
         $tester->execute([
             '--app-name'  => 'MinimalApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'MinimalApp',
             '--features'  => '',
             '--ui-system' => 'bootstrap',
@@ -2276,6 +2495,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features, minimal scaffold
         $tester->execute([
             '--app-name'  => 'AdminApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AdminApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2315,6 +2539,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AdminApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AdminApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2356,6 +2585,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'TestApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'TestApp',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -2411,6 +2645,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features
         $tester->execute([
             '--app-name'  => 'PlainApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'PlainApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2458,6 +2697,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features
         $tester->execute([
             '--app-name'  => 'SvcApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'SvcApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2498,6 +2742,11 @@ class InitCommandUnitTest extends TestCase
         // Act — no features, so only universally-scaffolded controllers appear
         $tester->execute([
             '--app-name'  => 'AdminApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AdminApp',
             '--features'  => '',
             '--ui-system' => 'plain-css',
@@ -2540,6 +2789,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AuthApp3',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp3',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',
@@ -2586,6 +2840,11 @@ class InitCommandUnitTest extends TestCase
         // Act
         $tester->execute([
             '--app-name'  => 'AuthApp2',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'AuthApp2',
             '--features'  => 'auth',
             '--ui-system' => 'plain-css',

@@ -86,6 +86,7 @@ class Init extends Command
         $this->addOption('libraries',     null, InputOption::VALUE_OPTIONAL, 'Comma-separated extra library list');
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
         $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
+        $this->addOption('no-install',    null, InputOption::VALUE_NONE,     'Skip composer update / dump-autoload (scaffold files only)');
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
         $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (OpenAPI + RapiDoc) (y/n)');
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
@@ -124,6 +125,24 @@ class Init extends Command
      * @var bool
      */
     private bool $dryRun = false;
+
+    /**
+     * Whether to skip installing dependencies (`--no-install`).
+     *
+     * Scaffolding files and installing dependencies are separate jobs, and there are
+     * several reasons to want only the first: a CI job that scaffolds a project and
+     * installs from a lockfile of its own, a machine with no network, a project whose
+     * `vendor/` is committed, and this framework's own test suite — which scaffolded
+     * 61 projects per run and therefore ran `composer update` 61 times, for **85% of
+     * that suite's runtime** and a dependency on the network inside a unit test.
+     *
+     * The skip is reported rather than silent, for the same reason `--dry-run` reports
+     * what it would have done: "no autoloader was generated" is something the reader
+     * needs to know before wondering why the app does not boot.
+     *
+     * @var bool
+     */
+    private bool $skipInstall = false;
 
     /**
      * Leave a file alone when the project already has one.
@@ -272,6 +291,7 @@ class Init extends Command
         }
 
         $this->dryRun        = (bool) $input->getOption('dry-run');
+        $this->skipInstall   = (bool) $input->getOption('no-install');
         $this->plannedWrites = [];
 
         // Before anything is written, and before any question is asked: the one
@@ -630,14 +650,20 @@ class Init extends Command
                     $output
                 );
 
-                $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
-                $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
+                if ($this->skipInstall) {
+                    $this->reportSkippedInstall($output);
+                } else {
+                    $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
+                    $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
 
-                if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
-                    $this->autoloadSuccess = false;
+                    if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
+                        $this->autoloadSuccess = false;
+                    }
                 }
 
-                if ($this->autoloadSuccess && !$input->getOption('no-migrations')) {
+                // Migrations run the new application's own CLI, which needs the
+                // autoloader that --no-install just declined to generate.
+                if ($this->autoloadSuccess && !$this->skipInstall && !$input->getOption('no-migrations')) {
                     $migStatus = $this->runProcessWithSpinner(
                         "docker-compose exec -T -u www-data app php $cliName.php migrate --scope=framework 2>/dev/null",
                         'Running framework migrations',
@@ -678,11 +704,15 @@ class Init extends Command
             }
             // @codeCoverageIgnoreEnd
         } elseif (!$useDocker) {
-            $syncStatus         = $this->runProcessWithSpinner('composer update --no-interaction --ignore-platform-reqs 2>/dev/null', 'Syncing dependencies',      $output);
-            $syncAutoloadStatus = $this->runProcessWithSpinner('composer dump-autoload --no-interaction 2>/dev/null',                 'Regenerating autoloader',   $output);
+            if ($this->skipInstall) {
+                $this->reportSkippedInstall($output);
+            } else {
+                $syncStatus         = $this->runProcessWithSpinner('composer update --no-interaction --ignore-platform-reqs 2>/dev/null', 'Syncing dependencies',      $output);
+                $syncAutoloadStatus = $this->runProcessWithSpinner('composer dump-autoload --no-interaction 2>/dev/null',                 'Regenerating autoloader',   $output);
 
-            if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
-                $this->autoloadSuccess = false; // @codeCoverageIgnore — composer sync always exits 0 in the test environment
+                if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
+                    $this->autoloadSuccess = false; // @codeCoverageIgnore — composer sync always exits 0 in the test environment
+                }
             }
 
             // Generate the API documentation on the host (best-effort; requires a
@@ -4447,7 +4477,10 @@ BASH;
             }
         }
 
-        if (!$this->autoloadSuccess) {
+        if ($this->skipInstall) {
+            $steps[] = "<comment>Dependencies were not installed (--no-install).</comment> Run "
+                . "<comment>composer install</comment> — the application cannot boot without an autoloader.";
+        } elseif (!$this->autoloadSuccess) {
             $steps[] = "<comment>Warning: autoloader sync failed.</comment> Run <comment>composer dump-autoload</comment> manually.";
         }
 
@@ -5633,6 +5666,22 @@ PHP;
             return $seconds . 's';
         }
         return sprintf('%dm%02ds', intdiv($seconds, 60), $seconds % 60);
+    }
+
+    /**
+     * Says that dependencies were not installed, and what to run.
+     *
+     * A silent skip is the wrong shape here: the next thing that happens is somebody
+     * pointing a browser at the new application and getting a fatal about a missing
+     * autoloader. Naming the command turns that into a one-line fix.
+     *
+     * @param OutputInterface $output Where to report
+     * @return void
+     */
+    private function reportSkippedInstall(OutputInterface $output): void
+    {
+        $output->writeln('  <comment>Skipped installing dependencies (--no-install).</comment>');
+        $output->writeln('  Run <info>composer install</info> before serving the application.');
     }
 
     protected function runProcessWithSpinner(string $command, string $message, OutputInterface $output, bool $alwaysShowOutput = false): int

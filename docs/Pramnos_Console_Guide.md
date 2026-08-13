@@ -79,6 +79,48 @@ to `.gitignore`, merge `package.json`, copy brand images or generate an RSA key
 pair either: a "dry" run that changes the working tree would be a trap rather than a
 preview.
 
+### Scaffolding without installing — `--no-install`
+
+`init` finishes by running `composer update` and `composer dump-autoload`, because an
+application that cannot boot is not a finished scaffold. `--no-install` writes every
+file and skips that step:
+
+```bash
+php bin/pramnos init --no-install
+```
+
+```
+  Skipped installing dependencies (--no-install).
+  Run composer install before serving the application.
+```
+
+It is reported twice — where the step would have happened, and again in the closing
+next-steps list — because the alternative is a fatal about a missing autoloader with
+nothing to connect it to.
+
+Reach for it when installing is somebody else's job:
+
+- **CI that installs from its own lockfile**, or with different flags than `init` uses;
+- **no network**, or a slow one — `init` also fetches front-end assets, which
+  `--no-download` skips separately;
+- **a project whose `vendor/` is committed**, where `composer update` would be an
+  unwanted change;
+- **tests that scaffold**. This framework's own suite scaffolded 61 projects per run and
+  therefore ran `composer update` 61 times — [85% of that class's
+  runtime](Pramnos_Test_Suite_Performance.md), and a dependency on the network from
+  inside a unit test.
+
+With Docker (`--docker=y`), `--no-install` also skips the framework migrations that
+follow, since those run the new application's own CLI and need the autoloader that was
+not generated.
+
+| Flag | Skips |
+| --- | --- |
+| `--no-install` | `composer update` and `dump-autoload` (and, under Docker, the migrations that need them) |
+| `--no-download` | Fetching front-end library assets over HTTP |
+| `--no-migrations` | `migrate --scope=framework` after Docker startup |
+| `--dry-run` | Everything, including all file writes |
+
 To add pieces to a project that already exists, use the `project:` commands
 (`project:reconfigure`, `project:install`, `project:resync`) rather than `init` — and
 `scaffold:spa` to add a front end, which writes what `init --app-style=spa` writes

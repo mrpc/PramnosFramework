@@ -73,6 +73,11 @@ class InitOverwriteGuardTest extends TestCase
 
         $tester->execute(array_merge([
             '--app-name'      => 'GuardApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'     => 'GuardApp',
             '--features'      => '',
             '--ui-system'     => 'plain-css',
@@ -89,7 +94,6 @@ class InitOverwriteGuardTest extends TestCase
             '--api-docs'      => 'n',
             '--webhook'       => 'n',
             '--app-style'     => 'mvc',
-            '--no-download'   => true,
             '--no-migrations' => true,
         ], $options));
 
@@ -262,8 +266,14 @@ class InitOverwriteGuardTest extends TestCase
      */
     public function testDryRunNamesTheExternalStepsItSkipped(): void
     {
-        // Act
-        $tester = $this->runInit(['--dry-run' => true, '--docker' => 'n']);
+        // Act — the external steps are the subject here, so this is the one test in
+        // the class that does not opt out of them. It costs nothing: a dry run prints
+        // the commands instead of running them.
+        $tester = $this->runInit([
+            '--dry-run'    => true,
+            '--docker'     => 'n',
+            '--no-install' => false,
+        ]);
 
         // Assert
         $display = $tester->getDisplay();
