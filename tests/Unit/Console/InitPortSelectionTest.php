@@ -198,6 +198,11 @@ class InitPortSelectionTest extends TestCase
             // Act
             $tester->execute([
                 '--app-name'    => 'PortApp',
+                // Scaffolding is the subject here; installing dependencies and
+                // fetching assets over the network are not. See the test suite
+                // performance guide: they were 85% of this class's runtime.
+                '--no-install'  => true,
+                '--no-download' => true,
                 '--namespace'   => 'PortApp',
                 '--features'    => '',
                 '--ui-system'   => 'plain-css',

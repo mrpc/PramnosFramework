@@ -129,19 +129,65 @@ What worked, and made the tests better rather than only faster:
 **56 s**, against an estimate of 49. The connect timeouts stayed in as well, documented
 for what they actually cover.
 
-### 2. `InitCommandUnitTest` scaffolds a whole project per test — 114 s
+### 2. Every scaffolding test ran `composer update` and downloaded assets — **done, 133 s**
 
-61 tests at 1877 ms each. Each one runs `init` into a fresh temporary directory: several
-hundred file writes, template rendering, JSON merges. Most of them then assert something
-read-only about the result — that a file exists, that a string appears in it.
+**The diagnosis in the first version of this page was wrong, and the way it was wrong is
+the useful part.** It said: 61 tests at 1877 ms each, each scaffolding a project — several
+hundred file writes, template rendering, JSON merges — so scaffold once per class and have
+the read-only tests share the tree.
 
-**Change:** scaffold once per class in `setUpBeforeClass()` and have the read-only tests
-assert against that tree; keep a per-test scaffold only where the test *changes* the
-project (the `--force`, `--dry-run` and guard tests, which are a handful). Same coverage,
-one scaffold instead of 61.
+Two measurements killed it. First, a shared scaffold does not fit: those 61 tests use **42
+distinct option-sets**, because what most of them assert is what a *different* set of
+answers produces. Second, and decisively:
 
-**Estimated saving 80–100 s.** The same pattern applies to `InitCommandTest` (19.0 s) and
-`InitSpaScaffoldingTest`, for perhaps another 30 s.
+| | Time |
+| --- | --- |
+| `init` into an empty directory | 1.9 s |
+| `cp -a` of the finished tree (2556 entries) | **0.078 s** |
+
+Producing the files is **25× cheaper than the run that produces them**. So the scaffold was
+never the cost. A profile said where the cost was:
+
+```
+ 85%  php::usleep          ← runProcessWithSpinner, polling two child processes
+ 12%  php::file_get_contents (15 calls)   ← downloading library assets, over the network
+< 3%  everything that writes a file
+```
+
+`init` runs **`composer update` and `composer dump-autoload`** as real subprocesses, and
+**downloads front-end assets over HTTP**. Every one of the 61 tests did both. So the class
+was not merely slow: a unit-test suite depended on the network and on composer resolving a
+throwaway `composer.json` — which is also why individual timings wandered between runs.
+
+**The fix is a flag that was missing anyway.** Scaffolding files and installing
+dependencies are separate jobs, and wanting only the first is a normal thing to want: a CI
+job that installs from its own lockfile, a machine with no network, a project whose
+`vendor/` is committed. `init` now takes **`--no-install`**, reported rather than silent —
+see the [Console Guide](Pramnos_Console_Guide.md). The tests pass `--no-install` and
+`--no-download`, except where those steps are the subject: one test asserts the flag's own
+behaviour, one asserts a dry run still *names* the commands it would run, and
+`InitNoInstallTest` keeps one real install so the default is covered.
+
+| Class | Before | After |
+| --- | --- | --- |
+| `InitCommandUnitTest` | 114.5 s | **0.56 s** |
+| `InitCommandTest` | 19.0 s | **0.42 s** |
+| `InitOverwriteGuardTest` | 5.3 s | **0.02 s** |
+
+**136 s net**, after subtracting the 2.1 s of `InitNoInstallTest`, which is new — against an
+estimate of 80–130 s for a change that would not have worked.
+
+`InitSpaScaffoldingTest` (3.8 s / 51 tests) did not move, and that is the check on the
+diagnosis: it already passed `--no-download` and never reached the composer branch, so there
+was nothing there to save. What remains in the Init family is honest work:
+`InitSpinnerTest` (3.1 s) tests the spinner's escalation by running a genuinely slow
+command, and `InitNoInstallTest` installs once, on purpose, so the default path stays
+covered.
+
+**The lesson, since this is twice on one page.** Item 1's first fix was wrong for the same
+reason as this diagnosis: both were reasoned from what the code *looks* like it spends time
+on. A profile takes two minutes and would have said `usleep` and `file_get_contents` before
+any of it was written.
 
 ### 3. Integration tests create their schema per test, not per class — up to 150 s
 
@@ -190,7 +236,7 @@ their current shape, because for them the DDL is the subject.
 | Change | Saving |
 | --- | --- |
 | 1. ~~Connect timeouts~~ — **done**, by asserting on the DSN and using an IP literal | **56 s** |
-| 2. Scaffold once per class | 80–130 s |
+| 2. ~~Scaffold once per class~~ — **done**, and by a different change: `--no-install` | **136 s** |
 | 3. Schema per class + transaction per test | up to 150 s |
 | 4. Fixture and hash cost in two classes | 40–80 s |
 

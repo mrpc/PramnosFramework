@@ -88,7 +88,9 @@ class InitCommandTest extends TestCase
             'test@example.com' // Author Email
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $output = $commandTester->getDisplay();
         $this->assertStringContainsString('Project initialized successfully', $output);
@@ -141,7 +143,9 @@ class InitCommandTest extends TestCase
             'docker@example.com'
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $this->assertFileExists($this->tempDir . '/docker-compose.yml');
         $this->assertFileExists($this->tempDir . '/Dockerfile');
@@ -189,7 +193,9 @@ class InitCommandTest extends TestCase
             'min@example.com'
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $this->assertFileExists($this->tempDir . '/app/app.php');
         $this->assertFileDoesNotExist($this->tempDir . '/docker-compose.yml');
@@ -243,7 +249,9 @@ class InitCommandTest extends TestCase
             'scripts' => ['post-create-project-cmd' => ['@php vendor/bin/pramnos init']]
         ]));
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $composeContent = file_get_contents($this->tempDir . '/docker-compose.yml');
         $this->assertStringContainsString('image: postgres:latest', $composeContent);
@@ -327,7 +335,9 @@ class InitCommandTest extends TestCase
             'nocache@example.com'
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $composeContent = file_get_contents($this->tempDir . '/docker-compose.yml');
         $this->assertStringNotContainsString('redis', $composeContent);
@@ -376,7 +386,9 @@ class InitCommandTest extends TestCase
             ''              // Author Email (ENTER)
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $settings = include($specificDir . '/app/config/settings.php');
         $this->assertEquals('postgresql', $settings['database']['type']);
@@ -439,7 +451,9 @@ class InitCommandTest extends TestCase
             'timescale@example.com'
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $composeContent = file_get_contents($this->tempDir . '/docker-compose.yml');
         $this->assertStringContainsString('image: timescale/timescaledb:latest-pg17', $composeContent);
@@ -486,7 +500,9 @@ class InitCommandTest extends TestCase
             'theme@example.com'
         ]);
 
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $themeDir = $this->tempDir . '/app/themes/default';
         $this->assertDirectoryExists($themeDir);
@@ -547,7 +563,9 @@ class InitCommandTest extends TestCase
         ]);
 
         // Act
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         // Assert — PHP CLI entry point
         $this->assertFileExists($this->tempDir . '/mycliapp.php');
@@ -594,6 +612,11 @@ class InitCommandTest extends TestCase
         // Arrange
         $commandTester->execute([
             '--app-name'       => 'Sig App',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'      => 'SigApp',
             '--docker'         => 'n',
             '--db-type'        => 'mysql',
@@ -634,13 +657,17 @@ class InitCommandTest extends TestCase
         // Arrange — select jquery + datatables (datatables depends on jquery)
         $commandTester->execute([
             '--app-name'       => 'Lib App',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace'      => 'LibApp',
             '--docker'         => 'n',
             '--db-type'        => 'mysql',
             '--features'       => '',
             '--ui-system'      => 'plain-css',
             '--libraries'      => 'jquery,datatables',
-            '--no-download'    => true,
             '--no-interaction' => true,
         ]);
 
@@ -705,7 +732,9 @@ class InitCommandTest extends TestCase
         ]);
 
         // Act
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
         $output = $commandTester->getDisplay();
 
         // Assert — correct command name in summary
@@ -744,7 +773,9 @@ class InitCommandTest extends TestCase
         ]);
 
         // Act
-        $commandTester->execute([]);
+        // The prompt sequence is the subject here, not composer: --no-install is a
+        // flag, so it changes nothing about the questions asked or answered.
+        $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         // Assert — no CDN references in any theme file
         $themeDir  = $this->tempDir . '/app/themes/default';
@@ -796,6 +827,11 @@ class InitCommandTest extends TestCase
         // Run with options and NO input sequence
         $commandTester->execute([
             '--app-name' => 'CliApp',
+            // Scaffolding is the subject here; installing dependencies and
+            // fetching assets over the network are not. See the test suite
+            // performance guide: they were 85% of this class's runtime.
+            '--no-install'  => true,
+            '--no-download' => true,
             '--namespace' => 'CliNamespace',
             '--docker' => 'n',
             '--db-type' => 'postgresql',
