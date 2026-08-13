@@ -66,7 +66,7 @@ class LocalBroadcastServer
     private ConnectionAuthorizer $authorizer;
 
     /** Optional Redis pub/sub ingest, polled non-blocking inside the select loop. */
-    private ?RedisSubscriberSocket $redisIngest = null;
+    private ?RedisIngestInterface $redisIngest = null;
 
     /** @var callable|null Optional router mapping an ingested message to WS deliveries. */
     private $ingestRouter = null;
@@ -187,11 +187,25 @@ class LocalBroadcastServer
     // =========================================================================
 
     /**
-     * Feed this server from a Redis pub/sub subscriber. The subscriber's socket
-     * joins the select loop, so published events fan out to WS clients with no
-     * blocking, file hop or extra process. Call before run().
+     * Feed this server from Redis. The ingest's socket joins the select loop, so
+     * events fan out to WS clients with no blocking, file hop or extra process.
+     * Call before run().
+     *
+     * **Which ingest follows from which driver publishes**, and getting it wrong
+     * is silent rather than loud:
+     *
+     * - {@see Drivers\RedisDriver} publishes with `PUBLISH` → {@see RedisSubscriberSocket}
+     * - {@see Drivers\RedisStreamDriver} publishes with `XADD` → {@see RedisStreamSocket}
+     *
+     * A subscriber pointed at a stream is a healthy subscription that is never
+     * delivered anything; a stream reader also survives a restart of this daemon,
+     * because its position is a cursor rather than a subscription.
+     *
+     * @param RedisIngestInterface $ingest Either implementation; the parameter was
+     *                                    widened from RedisSubscriberSocket, so
+     *                                    every existing call still type-checks.
      */
-    public function useRedisIngest(RedisSubscriberSocket $ingest): void
+    public function useRedisIngest(RedisIngestInterface $ingest): void
     {
         $this->redisIngest = $ingest;
     }

@@ -312,9 +312,46 @@ php ./bin/pramnos broadcast:serve --port=6001
 php ./bin/pramnos broadcast:serve --port=6001 --channels="chat.updates,presence-room"
 ```
 
-With `--channels`, the server opens a **non-blocking** RESP pub/sub socket to
-Redis (`RedisSubscriberSocket`) and joins it to its own `stream_select` loop — no
-blocking client, no fork. Channels are prefixed from `broadcasting.redis.prefix`.
+With `--channels`, the server opens a **non-blocking** RESP socket to Redis and
+joins it to its own `stream_select` loop — no blocking client, no fork. Channels
+are prefixed from `broadcasting.redis.prefix`.
+
+### The ingest has to match the driver
+
+There are two ingests, and **which one is right follows from which driver
+publishes**. Getting the pair wrong is silent, not loud:
+
+| The application publishes with | The daemon reads with | Redis command |
+| --- | --- | --- |
+| `RedisDriver` | `RedisSubscriberSocket` | `SUBSCRIBE` |
+| `RedisStreamDriver` | `RedisStreamSocket` | `XREAD BLOCK 0` |
+
+`SUBSCRIBE` on a key that only ever receives `XADD` is a **perfectly healthy
+subscription that is never delivered anything** — no error, no warning, no events.
+An application that wanted SSE replay (which needs the stream driver) and a
+WebSocket daemon therefore had to publish every event twice, once with `PUBLISH`
+and once with `XADD`, putting two representations of one event on the backplane.
+That is what `RedisStreamSocket` removes.
+
+```php
+use Pramnos\Broadcasting\RedisStreamSocket;
+
+$server->useRedisIngest(new RedisStreamSocket(
+    $redisConfig,                       // host, port, password, database, count
+    ['app:chat', 'app:presence'],       // fully-qualified stream keys
+    $lastIds                            // optional: key => last id handled
+));
+```
+
+`useRedisIngest()` accepts either implementation — it takes the
+`RedisIngestInterface` they share.
+
+**A stream reader also survives a restart of the daemon.** Its position is a
+cursor, not a subscription: a worker restarted mid-deploy with `SUBSCRIBE` misses
+everything published while it was down, while one reading from its last id is
+given the gap. `cursors()` returns the position per stream — persist it, hand it
+back as the constructor's third argument, and a redeploy costs nothing. With no
+cursor supplied, reading starts at `$`: new entries only.
 
 ### Authentication
 
