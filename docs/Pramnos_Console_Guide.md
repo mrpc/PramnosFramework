@@ -42,6 +42,44 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 
 Run `php bin/pramnos list` to see every command with its description.
 
+### `init` will not scaffold over an existing application
+
+`init` writes `app/app.php`, `composer.json`, `CLAUDE.md`, `README.md`, the Docker
+files, `phpunit.xml` and `src/Console.php` unconditionally, and adds stock MVC
+controllers to `src/Controllers/` — which in an **attribute-routed** application
+become live routes, because the loader takes whatever is in that directory. None of
+that is recoverable without version control.
+
+So a directory that already contains `app/app.php` is **refused**:
+
+```
+This directory already holds an application.
+  Found: app/app.php
+
+  Running init here would overwrite files including:
+    app/app.php
+    composer.json
+    …
+  --dry-run lists everything that would be written, and writes nothing.
+  --force   proceeds anyway.
+```
+
+The exit status is non-zero, so a script notices.
+
+| Flag | What it does |
+| --- | --- |
+| `--dry-run` | Asks the same questions, writes **nothing**, and prints every file it would create or overwrite. Allowed in an existing project — a preview is exactly what is wanted there. |
+| `--force` | Proceeds, and says on stdout that it is proceeding. |
+
+A dry run also runs **no external commands** — no composer, no `docker-compose`, no
+migrations, no asset downloads — and prints each one it skipped. It does not append
+to `.gitignore`, merge `package.json`, copy brand images or generate an RSA key
+pair either: a "dry" run that changes the working tree would be a trap rather than a
+preview.
+
+To add pieces to a project that already exists, use the `project:` commands
+(`project:reconfigure`, `project:install`, `project:resync`) rather than `init`.
+
 ### Code Generation Commands
 
 The framework provides comprehensive code generation through the `create` command:
