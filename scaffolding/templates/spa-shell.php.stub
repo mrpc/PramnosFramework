@@ -36,6 +36,10 @@ $runtime = [
     'apiPrefix' => '{{ apiPrefix }}',
     'apiKey'    => md5(str_replace('/api/', '/', $siteUrl)),
     'features'  => ['auth' => {{ hasAuth }}],
+    // Published so the debug panel can print it next to the current path: a
+    // router mounted somewhere the URL does not start with resolves every deep
+    // link to the home screen, and nothing on screen says why.
+    'routerBase' => '{{ routerBase }}',
 ];
 
 /** Stamp an asset URL with the file's mtime — the build-less cache-buster. */

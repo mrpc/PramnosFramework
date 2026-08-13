@@ -220,6 +220,8 @@ function loadToolbar({
     nonce = null,
     stored = null,
     storageThrows = false,
+    hostileStorage = false,
+    noStorage = false,
     fetch = null,
 } = {}) {
     const dom = makeDom({
@@ -228,11 +230,26 @@ function loadToolbar({
     });
 
     const store = stored === null ? {} : { 'pramnos.debugbar.hidden': stored };
-    const storage = {
-        getItem: (k) => (k in store ? store[k] : null),
-        setItem: (k, v) => { store[k] = String(v); },
-        removeItem: (k) => { delete store[k]; },
-    };
+
+    /**
+     * A `Storage`, including the half the toolbar's storage inspector uses.
+     *
+     * `length` and `key(i)` are the only way to enumerate storage in a browser,
+     * so a stub without them would make the inspector report every area as
+     * unavailable and the tests would agree with each other about nothing.
+     */
+    function makeStorage(backing) {
+        return {
+            getItem: (k) => (k in backing ? backing[k] : null),
+            setItem: (k, v) => { backing[k] = String(v); },
+            removeItem: (k) => { delete backing[k]; },
+            key: (i) => Object.keys(backing)[i] ?? null,
+            get length() { return Object.keys(backing).length; },
+        };
+    }
+
+    const storage = makeStorage(store);
+    const sessionStore = {};
 
     const Xhr = makeXhrClass();
 
@@ -255,14 +272,40 @@ function loadToolbar({
         },
     };
 
-    Object.defineProperty(sandbox, 'localStorage', {
-        // A blocked origin or Safari's private mode makes *access itself* throw.
-        get: () => {
-            if (storageThrows) { throw new Error('access denied'); }
-            return storage;
-        },
-        configurable: true,
-    });
+    // A storage area that exists and refuses: a page that replaced `localStorage`,
+    // or a browser that throws while it is enumerated. Installed as a plain value
+    // because `vm` resolves the sandbox's accessors once, when the context is
+    // created — a getter that throws there leaves the global *missing*, which is a
+    // different finding and is covered by `storageThrows`.
+    if (hostileStorage) {
+        const deny = () => { throw new Error('access denied'); };
+        sandbox.localStorage = {
+            getItem: deny, setItem: deny, removeItem: deny, key: deny,
+            get length() { return deny(); },
+        };
+        sandbox.sessionStorage = makeStorage(sessionStore);
+    } else if (noStorage) {
+        // Nothing defined at all: a host with no Storage API. Stated explicitly
+        // rather than produced by a throwing getter, because how `vm` treats an
+        // accessor that throws while the context is created has varied between
+        // Node versions — and a test that means "storage is absent" should say so.
+    } else {
+        Object.defineProperty(sandbox, 'localStorage', {
+            get: () => {
+                if (storageThrows) { throw new Error('access denied'); }
+                return storage;
+            },
+            configurable: true,
+        });
+
+        Object.defineProperty(sandbox, 'sessionStorage', {
+            get: () => {
+                if (storageThrows) { throw new Error('access denied'); }
+                return makeStorage(sessionStore);
+            },
+            configurable: true,
+        });
+    }
 
     if (fetch) {
         sandbox.fetch = fetch;
@@ -274,7 +317,7 @@ function loadToolbar({
     vm.createContext(sandbox);
     vm.runInContext(loadToolbarScript(), sandbox);
 
-    return { dom, sandbox, store, Xhr, byId: dom.byId };
+    return { dom, sandbox, store, storage, Xhr, byId: dom.byId };
 }
 
 /** Click something the delegated listener will recognise by selector. */
