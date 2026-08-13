@@ -5016,7 +5016,14 @@ PHP;
             . "`lib/api.js` — draws it as a toolbar along the bottom: requests, queries,\n"
             . "timings, exceptions. It is the framework's HTML toolbar for a SPA, so there is\n"
             . "no reason to build another one. Inert in production (nothing is attached, so\n"
-            . "no panel appears). Missing from an older project? `project:resync --debug-panel --all`.\n";
+            . "no panel appears). Missing from an older project? `project:resync --debug-panel --all`.\n\n"
+            . "It also has an **Errors** tab for what the browser itself threw. Anything\n"
+            . "nobody caught arrives on its own; a failure your code handles should be handed\n"
+            . "over, which `lib/api.js` and the root component already do:\n\n"
+            . "```js\n"
+            . "import { reportError } from './lib/debug.js';\n\n"
+            . "try { … } catch (error) { reportError(error, { kind: 'import' }); throw error; }\n"
+            . "```\n";
     }
 
     /**

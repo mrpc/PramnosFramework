@@ -839,8 +839,42 @@ class InitSpaScaffoldingTest extends TestCase
 
         // ...and the client feeds it every response
         $client = $this->read('frontend/lib/api.js');
-        $this->assertStringContainsString("import { record as recordDebug } from './debug.js';", $client);
+        $this->assertStringContainsString(
+            "import { record as recordDebug, reportError as reportDebugError } from './debug.js';",
+            $client
+        );
         $this->assertStringContainsString('recordDebug(method, path, response.status', $client);
+    }
+
+    /**
+     * Failures the application handles itself still reach the Errors tab.
+     *
+     * The global `error` / `unhandledrejection` handlers in the panel only see
+     * what *nobody* caught, and the two most common front-end failures are both
+     * caught: an `ApiError` a screen turns into a message, and a component that
+     * throws inside a `<svelte:boundary>`. Without these three call sites the
+     * tab would be empty for exactly the pages that are visibly broken — and a
+     * network failure, which produces no response at all, would leave no trace
+     * anywhere in the panel.
+     */
+    public function testTheClientAndTheBoundaryHandTheirFailuresToThePanel(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert — an HTTP failure, reported with the request it belongs to
+        $client = $this->read('frontend/lib/api.js');
+        $this->assertStringContainsString("kind: 'ApiError'", $client);
+        // ...a network failure, which has no status and no payload to record
+        $this->assertStringContainsString("kind: 'network'", $client);
+        $this->assertStringContainsString('throw error;', $client, 'and it is re-thrown, not swallowed');
+
+        // Assert — a screen that throws while rendering keeps the shell, and the
+        // failure is handed over rather than only shown
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString('<svelte:boundary', $app);
+        $this->assertStringContainsString("reportError(err, { kind: 'component' })", $app);
+        $this->assertStringContainsString("import { reportError } from './lib/debug.js';", $app);
     }
 
     /**

@@ -12,6 +12,7 @@
      * have permission" to someone who simply has not signed in yet is a dead end.
      */
     import { api, ApiError, login, logout, currentUser } from './lib/api.js';
+    import { reportError } from './lib/debug.js';
     import { createRouter, pathFor } from './lib/router.js';
     import { screens } from './screens/registry.js';
 
@@ -170,7 +171,24 @@
             </div>
         {:else if screen}
             {@const Screen = screen.component}
-            <Screen />
+            <!--
+                A screen that throws while rendering takes the whole application
+                down with it in Svelte 5 unless a boundary catches it. The
+                boundary keeps the shell — header, navigation, a way out — and
+                hands the failure to the debug panel's Errors tab, where it sits
+                next to the request the screen was reacting to. In production
+                reportError is inert.
+            -->
+            <svelte:boundary onerror={(err) => reportError(err, { kind: 'component' })}>
+                <Screen />
+
+                {#snippet failed(err, reset)}
+                    <div role="alert" class="alert alert-error flex-col items-start gap-2">
+                        <span>This screen failed to render: {err?.message ?? 'unknown error'}</span>
+                        <button class="btn btn-sm" onclick={reset}>Try again</button>
+                    </div>
+                {/snippet}
+            </svelte:boundary>
         {:else}
             <div class="grid gap-6 md:grid-cols-2">
                 <div class="card bg-base-100 shadow">

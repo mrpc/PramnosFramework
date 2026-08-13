@@ -175,6 +175,61 @@ is **red across its whole width** when the request went wrong — a 4xx or 5xx, 
 network failure with no status at all, or a 200 that quietly raised something,
 which is the one nobody would go looking for.
 
+### What the browser threw
+
+The **Exceptions** tab is the server's. Everything after the response arrives —
+a screen that throws while rendering the data it just fetched, a promise nobody
+caught, an `ApiError` a screen turned into a message — used to leave the panel
+looking healthy next to a page that was visibly broken. The **Errors** tab is
+that half, and it appears (red, with a `⚠`) only once something has been thrown.
+
+Each row carries the failure's kind, its message, a folded stack, and **the
+request it happened after** — the last recorded request at that moment. That is
+a heuristic, and the column says `after GET /things` rather than claiming
+causation, but it is right nearly every time: the code that threw was reacting to
+the call that had just come back. An explicit request beats it whenever the
+caller knows better, which the API client does.
+
+Identical failures collapse into one row with a `×4` count. A render loop throws
+the same error thousands of times, and fifty copies of it would push every other
+finding off the panel.
+
+**What arrives by itself:** `window.onerror` (including a cross-origin script
+error, which reports a message and nothing else) and `unhandledrejection`. Both
+listeners are passive — they never call `preventDefault()`, so the console still
+shows the error and any other handler still runs.
+
+**What you hand over.** The interesting failures are the ones somebody caught,
+and a caught error reaches no global handler at all:
+
+```js
+import { reportError } from './lib/debug.js';
+
+try {
+    await api.post('/things', body);
+} catch (error) {
+    showMessage(error.message);
+    reportError(error, { kind: 'ApiError' });   // then handle it however you like
+    throw error;
+}
+```
+
+A scaffolded project already does this in three places: `lib/api.js` reports
+every `ApiError` with the request that produced it, and a network failure — which
+has no response, no status and no `_debug`, so nothing else records it at all —
+and `App.svelte` wraps each screen in a `<svelte:boundary>` whose `onerror` hands
+the failure over while the shell stays on screen. An older project gets the panel
+itself from `project:resync --debug-panel`, and these three call sites are a
+manual edit, because `lib/api.js` and `App.svelte` are yours.
+
+On a server-rendered page the same function is on the toolbar's own handle:
+`window.__pramnosDebugBar.reportError(error)`.
+
+Nothing is drawn until the bar exists. Errors are still collected before that —
+in a SPA the first one is often the reason no request was ever made — but a
+production page that throws gets no toolbar, because the bar is built only by a
+response that carried debug data.
+
 ### What this request did to the domain layer
 
 The **Domain** tab is one tab for both ways an application can hold its logic:
@@ -408,9 +463,10 @@ project gets it as an ES module with `record()` exported. There is no second
 renderer to drift, which is what produced a `✕` that had to be fixed twice.
 
 So both deliveries draw **every collector the payload carries** — SQL, Time,
-Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — and a
-collector the payload does not carry gets no tab, rather than an empty one that
-reads as "nothing happened".
+Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — plus the
+**Errors** tab, which comes from what this script observed in the browser rather
+than from any payload. A collector the payload does not carry gets no tab, rather
+than an empty one that reads as "nothing happened".
 
 Nothing in the panel is application-specific, so **do not write your own** — if a
 field is missing, add it to the framework's source or report it upstream. A
