@@ -98,4 +98,24 @@ body {
 `;
 
 writeFileSync(OUT, css);
-console.log(`theme: palette written to {{ themeOutput }} from ${source}`);
+
+const derived = themeExists && Object.keys(vars).length > 0;
+
+if (derived) {
+    console.log(`theme: palette written to {{ themeOutput }} from ${source}`);
+} else {
+    // A warning rather than a log line, and it says what to do. Reported by a
+    // project whose layout puts the theme elsewhere: the build succeeded, the
+    // palette fell back, and the application shipped in somebody else's brand
+    // colour — with an informational line that read exactly like the success case.
+    console.warn(
+        `\n\x1b[33m⚠ theme: no palette found — the SPA will use the framework's `
+        + `colours, not this project's.\x1b[0m\n`
+        + `  Looked in: {{ themePath }}\n`
+        + (themeExists
+            ? `  It exists but declares no \`:root\` custom properties to map.\n`
+            : `  It does not exist.\n`)
+        + `  Fix: point THEME in scripts/build-theme.mjs at this project's `
+        + `stylesheet, or declare --primary-color / --text-main / --text-muted in it.\n`
+    );
+}

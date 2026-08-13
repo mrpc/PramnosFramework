@@ -286,3 +286,20 @@ www/ (or public/)  SPA shell (spa.php) + assets + generated api/openapi.json
 
 Both styles use the same `app/`, migrations, queue, cache and broadcasting — only
 the domain/view/routing choices differ.
+
+### Two build settings worth knowing about
+
+**`publicDir` is pinned**, to `frontend/static`. Vite's default is `<root>/public`,
+and the generated `vite.config.js` lives at the project root — so in an application
+whose web root *is* `public/` a build copies **the entire site** into the SPA's output
+directory: legacy pages, uploads, everything. Nothing warns; the build succeeds and
+the output directory quietly grows by the size of the site. Put files that should be
+copied verbatim into `frontend/static`, or change the setting to wherever yours live.
+
+**The palette is derived, and says when it cannot be.** `scripts/build-theme.mjs`
+runs before every build and every dev-server start, reading the server-rendered
+theme's `:root` custom properties so the two halves of the application do not look
+like two products. When that stylesheet is missing — or exists but declares no
+custom properties — it now **warns**, names the path it tried and what to change.
+It used to report the fallback in the same voice as a success, so a project whose
+theme lives elsewhere built cleanly and shipped in the framework's brand colour.

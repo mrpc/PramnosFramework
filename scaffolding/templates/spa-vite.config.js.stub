@@ -64,6 +64,16 @@ function pramnosHotFile() {
 export default defineConfig({
     // Assets are requested from the web root, not from /
     base: '{{ assetBase }}',
+    // Pinned, and this one matters. Vite's default publicDir is `<root>/public`,
+    // and this config lives at the project root — so in an application whose web
+    // root IS `public/` (the legacy admin panel, every upload, the whole site) a
+    // build would copy all of it into outDir. Nothing warns: the build succeeds and
+    // the output directory quietly grows by the size of the site. Reported by a
+    // project where that is exactly the layout.
+    //
+    // `{{ sourceDir }}/static` is where a scaffolded project keeps files that
+    // should be copied verbatim; it need not exist.
+    publicDir: '{{ sourceDir }}/static',
     plugins: [{{ pluginList }}pramnosHotFile()],
     build: {
         outDir: '{{ outDir }}',
