@@ -16,8 +16,16 @@ namespace Pramnos\Broadcasting;
  *
  * This is deliberately minimal (SUBSCRIBE + message parsing); it is an ingest
  * path for fan-out, not a general Redis client.
+ *
+ * **This is pub/sub only, and that is a pairing rule rather than a detail.** It
+ * belongs with {@see Drivers\RedisDriver}, which publishes with `PUBLISH`. An
+ * application publishing with {@see Drivers\RedisStreamDriver} writes with `XADD`,
+ * which no subscriber is ever delivered: `SUBSCRIBE` on such a key is a perfectly
+ * healthy subscription that receives **nothing, with no error anywhere**. Use
+ * {@see RedisStreamSocket} there. One application lost a day to that silence and
+ * then published every event twice to work around it.
  */
-class RedisSubscriberSocket
+class RedisSubscriberSocket implements RedisIngestInterface
 {
     /** @var resource|null */
     private $stream = null;
