@@ -249,6 +249,60 @@ When using the framework's built-in CSP, ensure you remove any manual `Content-S
 
 ---
 
+## Reading the request body
+
+`$_POST` is filled by PHP **for POST only**. A handler that reads it under DELETE,
+PUT or PATCH finds nothing, and nothing about the code says it will. That has
+already shipped as three separate bugs in one application — banning worked and
+unbanning was impossible, an endpoint worked over POST and failed over DELETE on
+the same route, a third accepted JSON and refused the form-encoded body every
+other endpoint used. All three passed their unit tests, because a test that seeds
+`$_POST` for a DELETE constructs a state no real request can produce.
+
+**Use `body()`.** It answers for whatever method this request actually used:
+
+```php
+$request = new \Pramnos\Http\Request();
+
+$fields = $request->body();                 // the body, whatever the method
+$id     = $request->bodyValue('id');        // one field
+$reason = $request->bodyValue('reason', ''); // …with a default
+```
+
+| Method | What `body()` returns |
+| --- | --- |
+| `POST` | `$_POST` (form-encoded), or the decoded JSON body |
+| `PUT` / `DELETE` / `PATCH` | the decoded body — PHP fills nothing for these |
+| `GET` / `HEAD` | `$_GET`, because on a GET the query *is* the input |
+| anything else | the decoded body |
+
+Two things it does that `allCurrent()` does not:
+
+- **It reads the method live**, from `$_SERVER`, rather than using the one captured
+  when the singleton was built. The captured one is right in production and stale
+  anywhere the method is set afterwards — including every test, which is how a fix
+  can pass over HTTP and fail under PHPUnit.
+- **It decodes on demand**, so it still works when the object was constructed under
+  a different method.
+
+### JSON bodies
+
+A JSON body is detected from the content type, or from a body that starts with `{`
+or `[` when the header is absent (a hand-written `curl` and more than one HTTP
+client omit it), and is decoded **associatively** — arrays all the way down. A
+shallow `(array) json_decode($raw)` casts only the top level and leaves every
+nested value an `stdClass`, which makes a handler that iterates a nested list and
+checks `is_array()` reject the whole payload.
+
+A body that declares or looks like JSON and is not valid JSON yields an **empty**
+array, deliberately. It is not handed to `parse_str`, because
+`parse_str('{"id":7}', $out)` produces `['{"id":7}' => '']` — non-empty, so an
+`empty()` fallback never fires, and nonsense, so nothing reads correctly either.
+
+`Request::$putData`, `$deleteData` and `$patchData` remain public and are what
+`all('DELETE')` and friends return; `body()` is the accessor that saves you having
+to know which one applies.
+
 ## Views and Templates
 
 ### View Structure

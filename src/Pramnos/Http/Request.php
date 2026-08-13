@@ -46,8 +46,37 @@ class Request extends Base
 
     public static $requestMethod='GET';
 
+    /**
+     * The body of a PUT request, decoded.
+     *
+     * **PHP does not populate `$_POST` for anything but POST.** A handler that
+     * reads `$_POST` under PUT finds nothing, with no signal that it will — so the
+     * body is parsed here instead. Prefer {@see body()}, which picks the right
+     * store for the method the request actually used.
+     *
+     * @var array
+     */
     public static $putData = array();
+
+    /**
+     * The body of a DELETE request, decoded.
+     *
+     * Same reason as {@see $putData}, and this one has already cost three shipped
+     * bugs in one application: banning worked and unbanning was impossible,
+     * because the unban handler read `$_POST` under DELETE. All three passed their
+     * unit tests, because a test that seeds `$_POST` for a DELETE constructs a
+     * state no real request can produce.
+     *
+     * @var array
+     */
     public static $deleteData = array();
+
+    /**
+     * The body of a PATCH request, or of any other method with one.
+     *
+     * @var array
+     */
+    public static $patchData = array();
 
     /**
      * Flashed validation errors available for the current request only
@@ -104,6 +133,157 @@ class Request extends Base
             return self::$rawInput;
         }
         return file_get_contents("php://input");
+    }
+
+    /**
+     * The body of **this** request, whatever method it used.
+     *
+     * PHP populates `$_POST` for POST only. Every other method with a body — DELETE,
+     * PUT, PATCH — leaves it empty, and a handler reading `$_POST` there finds
+     * nothing with no signal that it will. That has already shipped three times in
+     * one application: banning worked and unbanning was impossible; an endpoint
+     * worked over POST and failed over DELETE on the same route; a third accepted
+     * JSON and refused the form-encoded body every other endpoint used. All three
+     * passed their unit tests, because a test that seeds `$_POST` for a DELETE
+     * constructs a state no real request can produce.
+     *
+     * Two differences from {@see allCurrent()}, and both matter:
+     *
+     * 1. **The method is read live**, from `$_SERVER`, rather than taken from
+     *    whatever it was when the singleton happened to be built. The captured one
+     *    is correct in production and stale anywhere the method is set afterwards —
+     *    including every test, which is how a fix can pass over HTTP and fail under
+     *    PHPUnit.
+     * 2. **A body is parsed on demand.** If the store for the live method is empty,
+     *    the raw input is read and decoded now, so this works even when the
+     *    constructor ran under a different method.
+     *
+     * On a GET the query string is returned: a caller asking what this request
+     * carried means the query there.
+     *
+     * @return array Field name => value
+     */
+    public function body(): array
+    {
+        switch ($this->liveRequestMethod()) {
+            case 'POST':
+                return $_POST;
+            case 'PUT':
+                if (self::$putData === array()) {
+                    self::$putData = $this->decodeBody();
+                }
+                return self::$putData;
+            case 'DELETE':
+                if (self::$deleteData === array()) {
+                    self::$deleteData = $this->decodeBody();
+                }
+                return self::$deleteData;
+            case 'PATCH':
+                if (self::$patchData === array()) {
+                    self::$patchData = $this->decodeBody();
+                }
+                return self::$patchData;
+            case 'GET':
+            case 'HEAD':
+                return $_GET;
+            default:
+                // Any other method that carried something. Decoding it beats
+                // answering from $_REQUEST, which for these is always empty.
+                return $this->decodeBody();
+        }
+    }
+
+    /**
+     * One value from {@see body()}, or a default.
+     *
+     * @param  string $name
+     * @param  mixed  $default Returned when the body has no such field.
+     * @return mixed
+     */
+    public function bodyValue(string $name, $default = null)
+    {
+        $body = $this->body();
+
+        return array_key_exists($name, $body) ? $body[$name] : $default;
+    }
+
+    /**
+     * The request method as it is now, not as it was when this object was built.
+     *
+     * @return string Upper-case, e.g. `DELETE`
+     */
+    private function liveRequestMethod(): string
+    {
+        $method = $_SERVER['REQUEST_METHOD'] ?? self::$requestMethod;
+
+        return strtoupper((string) $method);
+    }
+
+    /**
+     * Decode the raw request body into an array.
+     *
+     * JSON is detected and decoded **associatively**, which is the second half of
+     * the same class of bug. `(array) json_decode($raw)` casts only the top level,
+     * so every nested value stays an `stdClass` — and a handler iterating a nested
+     * list and checking `is_array()` rejects the whole payload. One application's
+     * import endpoint answered `200 {"success":true,"imported":0,"invalid":1}`
+     * because of it: a success status, nothing imported, and the only evidence a
+     * counter nobody reads. It had worked as a standalone script calling
+     * `json_decode($raw, true)` itself; moving it onto the framework's parsing is
+     * what broke it.
+     *
+     * A body that declares or looks like JSON and is not valid JSON yields an empty
+     * array rather than being handed to `parse_str`, which is deliberate:
+     * `parse_str('{"id":7}', $out)` produces `['{"id":7}' => '']` — **non-empty, so
+     * an `empty()` fallback never fires, and nonsense, so nothing reads correctly
+     * either**. That garbled-but-plausible array is the trap that broke every JSON
+     * caller of an endpoint inside the hour its form-encoded case was fixed.
+     *
+     * @return array
+     */
+    protected function decodeBody(): array
+    {
+        $raw = (string) $this->getRawInput();
+        if (trim($raw) === '') {
+            return array();
+        }
+
+        if ($this->bodyIsJson($raw)) {
+            $decoded = json_decode($raw, true);
+
+            // A scalar is valid JSON and carries no named values; an array is what
+            // every caller of this expects, so a scalar produces an empty one
+            // rather than a surprise shape.
+            return is_array($decoded) ? $decoded : array();
+        }
+
+        $parsed = array();
+        parse_str($raw, $parsed);
+
+        return $parsed;
+    }
+
+    /**
+     * Is this body JSON?
+     *
+     * The declared content type first, because it is the sender's own statement.
+     * The shape of the body second, because a hand-written `curl` call and more
+     * than one HTTP client omit the header, and `{`/`[` is unambiguous — no
+     * form-encoded body starts with either.
+     *
+     * @param  string $raw
+     * @return bool
+     */
+    private function bodyIsJson(string $raw): bool
+    {
+        $contentType = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? ''));
+        if (str_contains($contentType, 'json')) {
+            return true;
+        }
+
+        $first = substr(ltrim($raw), 0, 1);
+
+        return $first === '{' || $first === '[';
     }
 
     /**
@@ -209,44 +389,38 @@ class Request extends Base
             }
         }
         if (self::$requestMethod == 'PUT') {
-            $rawInput = $this->getRawInput();
-            if (\Pramnos\General\Helpers::checkJSON($rawInput)) {
-                $putArray = (array)json_decode($rawInput);
-                self::$putData = array_merge($putArray, self::$putData);
-                unset($putArray);
-            } else {
-                parse_str($rawInput, self::$putData);
-            }
+            self::$putData = array_merge($this->decodeBody(), self::$putData);
         }
 
         if (self::$requestMethod == 'DELETE') {
-            $rawInput = $this->getRawInput();
-            parse_str($rawInput, self::$deleteData);
+            self::$deleteData = array_merge($this->decodeBody(), self::$deleteData);
         }
 
-        
-        
+        if (self::$requestMethod == 'PATCH') {
+            self::$patchData = array_merge($this->decodeBody(), self::$patchData);
+        }
+
         if (self::$requestMethod == 'POST' && count($_POST) == 0) {
-            $rawInput = $this->getRawInput();
-            if (\Pramnos\General\Helpers::checkJSON($rawInput)) {
-                $postArray = (array)json_decode($rawInput);
-                $_POST = array_merge($postArray, $_POST);
-                unset($postArray);
-            }
+            // A form-encoded POST is already in $_POST; this is the JSON case,
+            // which PHP does not parse for anybody.
+            $_POST = array_merge($this->decodeBody(), $_POST);
         }
 
-        
+
         if (self::$requestMethod == 'GET') {
             if (isset($_GET['{}'])) {
                 unset($_GET['{}']);
             }
-            
+
             foreach (array_keys($_GET) as $key) {
                 if (\Pramnos\General\Helpers::checkJSON(str_replace("_", " ", $key))) {
-                    $getArray = (array)json_decode(
-                        str_replace("_", " ", $key)
+                    $getArray = json_decode(
+                        str_replace("_", " ", $key),
+                        true
                     );
-                    $_GET = array_merge($getArray, $_GET);
+                    if (is_array($getArray)) {
+                        $_GET = array_merge($getArray, $_GET);
+                    }
                     unset($getArray);
                 }
             }
@@ -429,6 +603,9 @@ class Request extends Base
                 break;
             case 'PUT':
                 $input = &self::$putData;
+                break;
+            case 'PATCH':
+                $input = &self::$patchData;
                 break;
             default:
                 $input = &$_REQUEST;
@@ -668,6 +845,8 @@ class Request extends Base
                 return self::$putData;
             case 'DELETE':
                 return self::$deleteData;
+            case 'PATCH':
+                return self::$patchData;
             case 'FILES':
                 return $_FILES;
             case 'COOKIE':
@@ -696,6 +875,8 @@ class Request extends Base
                 return self::$putData;
             case 'DELETE':
                 return self::$deleteData;
+            case 'PATCH':
+                return self::$patchData;
             case 'GET':
             default:
                 return $_GET;
