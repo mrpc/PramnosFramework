@@ -253,6 +253,106 @@ class ModelTest extends TestCase
      *
      * @return void
      */
+    /**
+     * The tables this class owns.
+     *
+     * @var string[]
+     */
+    private const TABLES = ['test_products', 'test_users', 'test_posts', 'test_profiles'];
+
+    /**
+     * Builds the schema once for the whole class.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $db = self::bootDatabase();
+
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `{$table}`");
+        }
+        $db->query('
+            CREATE TABLE `test_products` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `name` varchar(255) NOT NULL,
+                `price` decimal(10,2) NOT NULL,
+                `is_active` tinyint(1) NOT NULL DEFAULT 1,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+        $db->query('
+            CREATE TABLE `test_users` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `name` varchar(255) NOT NULL,
+                `email` varchar(255) NOT NULL,
+                `deleted_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+        $db->query('
+            CREATE TABLE `test_posts` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` int(11) NOT NULL,
+                `title` varchar(255) NOT NULL,
+                `body` text NOT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+        $db->query('
+            CREATE TABLE `test_profiles` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` int(11) NOT NULL,
+                `bio` text NOT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+        $db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    /**
+     * Drops the class's tables so the next class starts from nothing.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $db = self::bootDatabase();
+
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $db->query("DROP TABLE IF EXISTS `{$table}`");
+        }
+        $db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    /**
+     * Loads the fixture settings and returns a connected Factory database.
+     *
+     * The model under test reaches the database through the Factory, so the fixtures are
+     * built through the same singleton rather than a handle of our own.
+     *
+     * @return \Pramnos\Database\Database A connected handle
+     */
+    private static function bootDatabase(): \Pramnos\Database\Database
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DIRECTORY_SEPARATOR . 'fixtures' . DIRECTORY_SEPARATOR . 'app');
+        }
+
+        Settings::clearSettings();
+        Settings::loadSettings(ROOT . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR
+            . 'fixtures' . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'settings.php');
+
+        $db = Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        return $db;
+    }
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
@@ -276,48 +376,19 @@ class ModelTest extends TestCase
         Model::$columnCache = [];
 
         // Setup test table
-        $this->db->query('DROP TABLE IF EXISTS `test_products`');
-        $this->db->query('
-            CREATE TABLE `test_products` (
-                `id` int(11) NOT NULL AUTO_INCREMENT,
-                `name` varchar(255) NOT NULL,
-                `price` decimal(10,2) NOT NULL,
-                `is_active` tinyint(1) NOT NULL DEFAULT 1,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
-
-        $this->db->query('DROP TABLE IF EXISTS `test_users`');
-        $this->db->query('
-            CREATE TABLE `test_users` (
-                `id` int(11) NOT NULL AUTO_INCREMENT,
-                `name` varchar(255) NOT NULL,
-                `email` varchar(255) NOT NULL,
-                `deleted_at` datetime DEFAULT NULL,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
-
-        $this->db->query('DROP TABLE IF EXISTS `test_posts`');
-        $this->db->query('
-            CREATE TABLE `test_posts` (
-                `id` int(11) NOT NULL AUTO_INCREMENT,
-                `user_id` int(11) NOT NULL,
-                `title` varchar(255) NOT NULL,
-                `body` text NOT NULL,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
-
-        $this->db->query('DROP TABLE IF EXISTS `test_profiles`');
-        $this->db->query('
-            CREATE TABLE `test_profiles` (
-                `id` int(11) NOT NULL AUTO_INCREMENT,
-                `user_id` int(11) NOT NULL,
-                `bio` text NOT NULL,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // Rows only. The schema belongs to the class (see setUpBeforeClass): four drops
+        // and four creates per test, plus four more drops in tearDown(), were most of this
+        // class's 266 ms per test — and none of these 34 tests asserts anything about a
+        // schema.
+        //
+        // DELETE rather than TRUNCATE, which is implicit DDL and measured slower than
+        // DROP + CREATE. Auto-increment keeps counting up, which nothing here depends on:
+        // the only literal ids in this class are on in-memory models.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $table) {
+            $this->db->query("DELETE FROM `{$table}`");
+        }
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
 
         // Setup mock controller
         $this->controller = new class extends Controller {
@@ -351,10 +422,7 @@ class ModelTest extends TestCase
      */
     protected function tearDown(): void
     {
-        $this->db->query('DROP TABLE IF EXISTS `test_products`');
-        $this->db->query('DROP TABLE IF EXISTS `test_users`');
-        $this->db->query('DROP TABLE IF EXISTS `test_posts`');
-        $this->db->query('DROP TABLE IF EXISTS `test_profiles`');
+        // The tables belong to the class; tearDownAfterClass() drops them.
         
         $singleton = &Factory::getDatabase();
         $singleton = null;

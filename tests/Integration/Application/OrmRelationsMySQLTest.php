@@ -65,14 +65,82 @@ class OrmRelationsMySQLTest extends TestCase
 
         $this->controller = $this->makeController();
 
-        // Start from a clean slate every test
-        $this->dropTables();
-        $this->createTables();
+        // Start from a clean slate every test — rows only. The schema belongs to the
+        // class (see setUpBeforeClass): six DROP and six CREATE statements per test were
+        // most of this class's 352 ms per test, and not one of these 29 tests asserts
+        // anything about the schema.
+        //
+        // DELETE rather than TRUNCATE, which is implicit DDL and measured slower than
+        // DROP + CREATE. Auto-increment therefore keeps counting up, which nothing here
+        // depends on: the insert helpers return the generated id and callers pass it on.
+        $this->emptyTables();
     }
 
     protected function tearDown(): void
     {
-        $this->dropTables();
+        // The tables belong to the class; tearDownAfterClass() drops them.
+    }
+
+    /**
+     * Builds the schema once for the whole class.
+     *
+     * @return void
+     */
+    public static function setUpBeforeClass(): void
+    {
+        $test = new static('setUpBeforeClass');
+        $test->bootDatabase();
+        $test->dropTables();
+        $test->createTables();
+    }
+
+    /**
+     * Drops the class's tables so the next class starts from nothing.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        $test = new static('tearDownAfterClass');
+        $test->bootDatabase();
+        $test->dropTables();
+    }
+
+    /**
+     * Loads the fixture settings and connects through the Factory.
+     *
+     * The code under test reaches the database through the Factory, so the fixtures have
+     * to be built through the same singleton rather than a handle of our own.
+     *
+     * @return void
+     */
+    protected function bootDatabase(): void
+    {
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . \DS . 'fixtures' . \DS . 'app');
+        }
+
+        Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
+        Application::getInstance();
+
+        $this->db = Factory::getDatabase();
+        if (!$this->db->connected) {
+            $this->db->connect(true);
+        }
+    }
+
+    /**
+     * Removes every row, leaving the schema alone.
+     *
+     * @return void
+     */
+    protected function emptyTables(): void
+    {
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+        foreach (self::TABLES as $t) {
+            $this->db->query("DELETE FROM `{$t}`");
+        }
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     // -------------------------------------------------------------------------
@@ -899,10 +967,24 @@ class OrmRelationsMySQLTest extends TestCase
         );
     }
 
+    /**
+     * The tables this class owns, children first.
+     *
+     * @var string[]
+     */
+    protected const TABLES = [
+        'orm_test_post_tag',
+        'orm_test_tags',
+        'orm_test_posts',
+        'orm_test_profiles',
+        'orm_test_users',
+        'orm_test_items',
+    ];
+
     protected function dropTables(): void
     {
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['orm_test_post_tag', 'orm_test_tags', 'orm_test_posts', 'orm_test_profiles', 'orm_test_users', 'orm_test_items'] as $t) {
+        foreach (self::TABLES as $t) {
             $this->db->query("DROP TABLE IF EXISTS `{$t}`");
         }
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
