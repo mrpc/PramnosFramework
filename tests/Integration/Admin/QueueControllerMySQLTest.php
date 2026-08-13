@@ -69,6 +69,17 @@ class QueueControllerMySQLTest extends BaseTestCase
         $settingsFile = ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php';
         Settings::loadSettings($settingsFile);
 
+        // Discard the database singleton before asking for it. parent::setUp() boots the
+        // application, which builds one *before* the settings above are loaded — so the
+        // cached handle points at nothing and connecting reports "No such file or
+        // directory" from a socket path it was never given.
+        //
+        // This class passed for as long as another class had already built a correct
+        // singleton earlier in the run. On its own — `--testsuite 'Integration Tests'` —
+        // all seven of its tests errored.
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
         $this->db = Factory::getDatabase();
         if (!$this->db->connected) {
             $this->db->connect(true);

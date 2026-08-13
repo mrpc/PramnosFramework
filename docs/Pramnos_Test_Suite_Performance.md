@@ -478,7 +478,7 @@ cheap: a typo in an environment variable must not be able to weaken a deployment
 | 3. ~~Schema per class + transaction per test~~ — **done**, by fixing the container instead | **126 s** |
 | 3b. Schema per class + rows per test | **81 s**, ten classes |
 | 4. ~~Fixture and hash cost in two classes~~ — **done**; the fixture was never the cost | **78 s** |
-| 5. `tests/Characterization` — one class converted, one order dependency fixed | **4 s**, and a suite that runs alone |
+| 5. `tests/Characterization` — one class converted, two order dependencies fixed | **4 s**, and all three suites run alone |
 
 **481 s delivered** — 56 + 136 + 126 + 78 + 81 + 4 — without removing a single test, a single
 database or the coverage report.
@@ -531,6 +531,44 @@ left the table in a shape these tests could live with; alone, nothing had.
 Fixed by dropping before creating, so the class always gets its own schema. **A suite that
 only passes in one order is a suite nobody can bisect**, which makes this worth more than the
 time it saves.
+
+#### So the same question was asked of every suite
+
+If one suite could not run alone, the others were worth checking:
+
+```bash
+./dockertest --nocoverage --testsuite 'Unit Tests'
+./dockertest --nocoverage --testsuite 'Integration Tests'
+./dockertest --nocoverage --testsuite 'Characterization Tests'
+```
+
+`Integration Tests` failed too — **all seven tests of `QueueControllerMySQLTest`**, with
+`RuntimeException: No such file or directory` from a MySQL connect that had been given no
+host at all.
+
+The cause is worth knowing, because the shape recurs. `parent::setUp()` boots the
+application, which builds the Factory's **database singleton before this class loads the
+fixture settings**. The cached handle points at nothing, and mysqli falls back to a socket
+path it was never given — hence a filesystem error from a database call. The class passed for
+as long as some earlier class had already built a correct singleton.
+
+```php
+Settings::loadSettings($settingsFile);
+
+$singleton = &Factory::getDatabase();   // discard what parent::setUp() built
+$singleton = null;
+
+$this->db = Factory::getDatabase();
+```
+
+Every other class in the suite that boots this way already did exactly that. This one had
+simply never needed to.
+
+**All three testsuites now pass on their own**, which is the state to keep them in: the point
+of running one is to narrow down a failure, and narrowing must not change the answer.
+
+*(A first attempt blamed a missing `CONFIG` constant and was wrong — the constant made no
+difference, and the guard was removed again rather than left in as noise.)*
 
 ## Is `paratest` the next step? Measured, and the answer is "not yet"
 
