@@ -43,9 +43,17 @@ php vendor/bin/pramnos init --app-style=spa --spa-stack=svelte
 
 | `--spa-stack` | Sources | Build | Tests |
 |---|---|---|---|
-| `svelte` (default) | `frontend/` — Svelte 5 runes, Tailwind v4 + daisyUI v5 | Vite → `www/assets/spa/` | Vitest + jsdom + `@testing-library/svelte` |
+| `svelte` | `frontend/` — Svelte 5 runes, Tailwind v4 + daisyUI v5 | Vite → `www/assets/spa/` | Vitest + jsdom + `@testing-library/svelte` |
 | `vanilla-vite` | `frontend/` — plain ES modules | Vite → `www/assets/spa/` | Vitest + jsdom |
 | `vanilla` | `www/assets/js/` — served as written | none | `node --test`, zero dependencies |
+
+Svelte is what the interactive prompt offers first, and what an *invalid* value
+falls back to — but the flag has no default when it is absent: a run with
+`--app-style=spa` and no `--spa-stack` asks the question. **A non-interactive run
+must pass it explicitly.**
+
+*(Corrected 2026-08-14: this post described `svelte` as the default, which is only
+true of the invalid-value fallback.)*
 
 ### What lands in the project
 

@@ -30,9 +30,12 @@ like any `create:crud` screen. It has three tabs:
 - **Logs** — one page of a log file.
 
 The endpoints are **framework-side** (`Pramnos\Auth\Controllers\ApiAdmin`), so
-the only generated file is the screen. A thin wrapper in the project's
-`src/Api/Controllers/Admin.php` makes it overridable, the same pattern the other
-feature controllers use.
+the only generated file is the screen: `frontend/screens/Admin.svelte`. The routes
+instantiate the framework controller directly — no wrapper is generated, so
+overriding one means adding your own route ahead of it.
+
+*(Corrected 2026-08-14: this post originally described a generated
+`src/Api/Controllers/Admin.php` wrapper. No such file has ever been written.)*
 
 ## Read-only, deliberately
 
@@ -55,8 +58,8 @@ unknown name answers 404 instead of reading whatever was asked for.
 Every action goes through `ApiCrudController::guard()`, so each is authenticated
 and permission-checked separately — a project can grant `admin.users` without
 granting `admin.logs`. The screen distinguishes the answers too: a 403 reads
-"You do not have permission to see this", not "could not load", because on an
-admin screen those are different problems with different fixes.
+"This account does not have permission for this section.", not "could not load",
+because on an admin screen those are different problems with different fixes.
 
 ## The vanilla stacks
 
