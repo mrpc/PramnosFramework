@@ -455,69 +455,37 @@ The headers never carry query text. A header is written to the web server's
 access log and to every proxy in front of it, and statements there would put
 customer data in files nobody treats as sensitive.
 
-#### The page outranks the toolbar
+#### How the toolbar reaches the page
 
-Injection is wrapped so that **nothing the toolbar does can cost you the
-response**. Anything thrown while rendering gives the body back exactly as it
-arrived, and a decorated body shorter than the original is discarded. Both the
-middleware and the output-buffer path enforce this.
+Through the **response**, in one place: `DebugBar::injectInto()`, reached from
+`Application::render()` and from `DebugBarMiddleware`. So an application needs no
+middleware pipeline to get a toolbar — every MVC application ends its request with
+`echo $app->render()` — and it cannot get two, because injection is idempotent per
+request.
 
-The rule is written down because of the failure that produced it. With the
-toolbar booted, a plain HTML response reached the browser as **200 with
-`Content-Length: 0`**: PHP discards an output buffer when its callback throws, so
-a 37KB page was produced and then dropped. The response headers said the request
-had succeeded — `Server-Timing`, `X-Pramnos-Debug`, a request id — nothing was
-logged, because the callback runs at shutdown, and every uptime check passed. To
-a person it looked like a broken front-end build. One development environment
-lost a day and switched `APP_DEBUG` off.
+There used to be a process-wide `ob_start()` instead, and it was removed. It caught
+output from any code path, including an application that simply echoes, and the
+price was structural: booting the toolbar added an output-buffer level, so code that
+cleared "its" buffer — a bare `ob_get_clean()`, or the `while (ob_get_level())
+{ ob_end_clean(); }` loop a kernel uses to drop stray output — cleared **ours**, with
+the response inside it. The client got `200` with an empty body while every header
+said the request had succeeded, nothing was logged, and with the toolbar off the same
+code worked. That happened twice in one application; the second report measured it
+off the socket: 523 header bytes, zero body bytes.
 
-An empty 200 is the worst shape a failure can take. A missing toolbar is a bug
-report; a missing page is a phone call. If the toolbar ever disappears from a page
-that is otherwise fine, that is this guard doing its job, and the reason will be
-in the application error log rather than on screen.
+Laravel's debugbar and Symfony's profiler both inject through the response object and
+install no such buffer. This now does the same, and the failure mode is gone rather
+than guarded.
 
-#### If your kernel clears output buffers
+**What that costs.** A response the framework never sees gets no toolbar: a raw
+`echo`, or a kernel that ends an unmatched request by `require`-ing a page file. The
+page is delivered exactly as written — which is the point — and the
+[Upgrade Guide](Pramnos_Upgrade_Guide.md#the-debug-toolbar-no-longer-uses-an-output-buffer)
+says how to route such a response through the framework so it gets one.
 
-There is a second way to lose the page, and it comes from **your** side of the
-line. Booting the toolbar adds an output-buffer level. Code that clears "its"
-buffer therefore clears **ours**, with the response inside it:
-
-```php
-ob_get_clean();                                  // one level — maybe not yours
-while (ob_get_level()) { ob_end_clean(); }       // every level, certainly not yours
-```
-
-Both are common in a kernel that drops stray output before responding. With
-`output_buffering` on in php.ini and the toolbar booted there are two levels, and
-either idiom empties the response to nothing: `200`, zero bytes, every header saying
-the request succeeded. With the toolbar off the same code works, because then there
-is no extra level to destroy — which is what makes it look like the toolbar
-*corrupts* responses rather than merely being caught in the crossfire.
-
-By the time PHP calls the buffer handler the content is already condemned, so the
-framework cannot refuse the clean. What it does instead:
-
-- **logs it**, naming the byte count and both idioms, so the cause is in the error
-  log rather than nowhere;
-- **re-sends the response at shutdown**, once every buffer is out of the way — but
-  only when nothing was delivered through the buffer and what was dropped is a whole
-  HTML document. A fragment or a JSON body being replaced is a discard that meant
-  what it said.
-
-The page comes back; the toolbar does not, because it was in the buffer that went.
-The fix on your side is to clear only what you opened:
-
-```php
-$level = ob_get_level();
-ob_start();
-// …
-if (ob_get_level() > $level) { ob_end_clean(); }
-```
-
-**Boot the provider once.** Constructing it by hand *and* calling
-`Application::init()` boots it twice, which means two buffer levels and the toolbar
-twice in the page. The framework now ignores the second boot, but a bootstrap that
-does both is worth tidying anyway.
+**The page still outranks the toolbar.** Anything thrown while injecting returns the
+body untouched, and a result shorter than what arrived is discarded. A missing toolbar
+is a bug report; a missing page is a phone call.
 
 An annotated response also declares `Vary: Cookie`, and `Cache-Control:
 no-store, private` whenever the grant came from a token. On a live server the

@@ -126,10 +126,10 @@ describe('the Domain tab', () => {
         const html = dom.byId['pdb-panel'].innerHTML;
 
         // Assert — an application built both ways sees both, in reading order
-        assert.match(html, /1 model class\(es\)/);
+        assert.match(html, /1 class\(es\), 1 operation\(s\)/);
         assert.match(html, /1 service\(s\)/);
         assert.ok(
-            html.indexOf('model class(es)') < html.indexOf('service(s)'),
+            html.indexOf('Models') < html.indexOf('Services'),
             'models first: they are the older half of the domain layer'
         );
         assert.match(html, /invoices/);
@@ -200,7 +200,7 @@ describe('the Domain tab', () => {
         const html = dom.byId['pdb-panel'].innerHTML;
 
         // Assert — the half that worked is shown
-        assert.match(html, /1 model class\(es\)/);
+        assert.match(html, /1 class\(es\), 1 operation\(s\)/);
         assert.match(html, /invoices/);
         assert.match(html, /No services recorded/);
         // And the badge counts only what it can count, rather than throwing.
@@ -225,7 +225,7 @@ describe('the Domain tab', () => {
 
         // Assert — no crash, and the models still read
         const html = dom.byId['pdb-panel'].innerHTML;
-        assert.match(html, /1 model class\(es\)/);
+        assert.match(html, /1 class\(es\), 1 operation\(s\)/);
         assert.match(html, /No services recorded/);
     });
 });

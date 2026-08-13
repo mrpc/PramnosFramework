@@ -280,8 +280,8 @@ describe('SPA toolbar module', () => {
         // Act
         openTab(dom, 'requests');
 
-        // Assert — in the table; the waterfall above it is a time axis and runs
-        // the other way, oldest first
+        // Assert — one list, newest first (the waterfall used to be a second list
+        // above it, running the other way)
         const html  = dom.byId['pdb-panel'].innerHTML;
         const table = html.split('<table')[1];
         assert.ok(table.indexOf('/api/1.0/second') < table.indexOf('/api/1.0/first'), 'newest first');
