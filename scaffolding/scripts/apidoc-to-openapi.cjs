@@ -187,7 +187,12 @@ class ApiDocToOpenAPIConverter {
       const apiMatch = line.match(/@api\s+\{(\w+)\}\s+([\S]+)(?:\s+(.+))?/);
       if (apiMatch) {
         endpoint.method = apiMatch[1].toLowerCase();
-        endpoint.path = '/' + apiMatch[2];
+        // A leading slash is added only when the annotation lacks one. Adding it
+        // unconditionally produced `//status` for every endpoint documented as
+        // `@api {get} /status` — which is most of them — and a doubled slash is
+        // not the same path: a client that sends it verbatim gets a 404 that
+        // reads as a routing bug in the application.
+        endpoint.path = apiMatch[2].startsWith('/') ? apiMatch[2] : '/' + apiMatch[2];
         endpoint.summary = apiMatch[3] || '';
         continue;
       }
@@ -1444,6 +1449,12 @@ class ApiDocToOpenAPIConverter {
   }
 }
 
-// Run converter
-const converter = new ApiDocToOpenAPIConverter(CONFIG);
-converter.convert();
+// Run the converter when this file is the program, rather than whenever it is
+// loaded: that is what lets the parser be driven from a test without the test
+// also writing an OpenAPI document into whatever directory it ran in.
+if (require.main === module) {
+    const converter = new ApiDocToOpenAPIConverter(CONFIG);
+    converter.convert();
+}
+
+module.exports = { ApiDocToOpenAPIConverter, CONFIG };
