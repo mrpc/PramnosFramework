@@ -230,7 +230,9 @@ describe('SPA toolbar module', () => {
 
         // Assert
         const tabs = dom.byId['pdb-tabs'].innerHTML;
-        ['SQL', 'Session', 'Logs', 'Views', 'Models', 'Exceptions', 'Route'].forEach((label) => {
+        // `models` is the payload key; Domain is the tab, which also holds the
+        // request's services.
+        ['SQL', 'Session', 'Logs', 'Views', 'Domain', 'Exceptions', 'Route'].forEach((label) => {
             assert.ok(tabs.includes(label), `${label} tab is present`);
         });
         // A collector the payload does not carry gets no tab, rather than an

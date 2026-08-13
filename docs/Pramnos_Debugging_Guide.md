@@ -175,6 +175,46 @@ is **red across its whole width** when the request went wrong — a 4xx or 5xx, 
 network failure with no status at all, or a 200 that quietly raised something,
 which is the one nobody would go looking for.
 
+### What this request did to the domain layer
+
+The **Domain** tab is one tab for both ways an application can hold its logic:
+a **Models** section for `Pramnos\Application\Model` load/save/delete operations,
+and a **Services** section for classes extending `Pramnos\Application\Service`.
+The badge counts both, so it reflects what the panel contains.
+
+It is one tab rather than two because a reader asking "what did this request do"
+should not have to know which style this project uses — and because a project
+built one way would otherwise stare at a permanently empty tab named after the
+other. That is not hypothetical: the tab used to be called **Models**, and in a
+Services + API + SPA project it was empty for a request that had done all of its
+work in services.
+
+The two sections record on different terms:
+
+- **Models** are recorded automatically. `Model::_load()` and `Model::_save()`
+  are framework code, so there is nothing to opt into.
+- A **service** is recorded because it extends the base class — constructing it
+  is enough — and one of its calls gets a *duration* when the method wraps its
+  work in `measure()`:
+
+  ```php
+  public function overdue(int $days = 30): array
+  {
+      return $this->measure('overdue', fn(): array => $this->queryBuilder('invoices')
+          ->where('paid', 0)
+          ->getAll());
+  }
+  ```
+
+  Both absences are named in the panel, because the fix differs: "no services
+  recorded" means the class does not extend `Pramnos\Application\Service`, while
+  "no call was timed" means it does, and no method has called `measure()` yet.
+
+The payload key is still `models`, and `services` is its own key beside it —
+anything already reading the payload is unaffected. See the
+[Application Styles Guide](Pramnos_Application_Styles_Guide.md#the-service-base-class)
+for the base class itself.
+
 ### Where the time went
 
 The **Time** tab does two subtractions nobody does by hand, from numbers already
@@ -368,9 +408,9 @@ project gets it as an ES module with `record()` exported. There is no second
 renderer to drift, which is what produced a `✕` that had to be fixed twice.
 
 So both deliveries draw **every collector the payload carries** — SQL, Time,
-Route, Session, Logs, Views, Models, Migrations, Exceptions — and a collector the
-payload does not carry gets no tab, rather than an empty one that reads as
-"nothing happened".
+Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — and a
+collector the payload does not carry gets no tab, rather than an empty one that
+reads as "nothing happened".
 
 Nothing in the panel is application-specific, so **do not write your own** — if a
 field is missing, add it to the framework's source or report it upstream. A

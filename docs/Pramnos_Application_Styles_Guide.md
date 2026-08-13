@@ -51,8 +51,71 @@ Scaffold one with:
 php pramnos create:service BillingService
 ```
 
-which writes `src/Services/BillingService.php` (an injectable `Database`, a
-QueryBuilder example) plus a matching test stub.
+which writes `src/Services/BillingService.php` plus a matching test stub.
+
+---
+
+## The `Service` base class
+
+A service extends `Pramnos\Application\Service`. That is the whole contract —
+there is nothing to register and no method you must implement:
+
+```php
+namespace App\Services;
+
+use Pramnos\Application\Service;
+
+class BillingService extends Service
+{
+    /**
+     * Invoices past their due date and still unpaid.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function overdue(int $days = 30): array
+    {
+        return $this->measure('overdue', fn(): array => $this->queryBuilder('invoices')
+            ->where('due_at', '<', gmdate('Y-m-d', time() - $days * 86400))
+            ->where('paid', 0)
+            ->getAll());
+    }
+}
+```
+
+What the base gives you:
+
+| Member | What it does |
+| --- | --- |
+| `__construct(?Database $database = null)` | Takes the connection to use, or none. |
+| `$this->database()` | The connection, **resolved on first use** — a service constructed in a test that never queries never opens one. |
+| `$this->queryBuilder(?string $table)` | A `QueryBuilder` on that connection, with the table applied when named. |
+| `$this->measure(string $name, callable $work)` | Runs `$work`, returns its value untouched, and records how long it took. |
+
+Two things follow from inheriting, and neither costs a line of code:
+
+**The service becomes visible in the debug toolbar.** Constructing it records it
+in the **Domain** tab, next to the request's models. A `measure()` call adds the
+duration of one operation. This is why the base class exists at all: a plain
+class offers the framework nothing to observe, so in a Services project the tab
+that should describe the domain layer was empty for a request that had done all
+of its work in services. See the
+[Debugging Guide](Pramnos_Debugging_Guide.md#what-this-request-did-to-the-domain-layer).
+
+**A unit test stays a unit test.** Because the connection is lazy, `new
+BillingService()` in a test that only exercises pure logic does not reach for a
+database; and where the test does need one, inject it:
+
+```php
+$service = new BillingService($databaseDouble);
+```
+
+`measure()` re-throws whatever the callback threw, after recording the attempt —
+a failed call is the one worth seeing in the toolbar, so it is recorded, not
+swallowed.
+
+Overriding the constructor is allowed; call `parent::__construct()` if you do, or
+the service will simply not announce itself (everything else keeps working —
+instrumentation is never load-bearing).
 
 ---
 

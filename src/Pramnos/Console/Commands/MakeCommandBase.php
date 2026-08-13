@@ -242,8 +242,9 @@ abstract class MakeCommandBase extends Command
      *
      * Writes to src/Services/<Name>.php. A service encapsulates a slice of
      * application logic + its data access (the services-oriented style), so the
-     * stub wires an injectable Database and shows a QueryBuilder example. Generates
-     * a matching test stub.
+     * stub extends Pramnos\Application\Service — which carries the injectable
+     * Database and makes the service visible in the debug toolbar's Domain tab —
+     * and shows a QueryBuilder example. Generates a matching test stub.
      *
      * @param string $serviceName PascalCase class name (e.g. BillingService)
      * @return string Summary of created files

@@ -110,7 +110,10 @@
         { key: 'session',    label: 'Session' },
         { key: 'logs',       label: 'Logs' },
         { key: 'views',      label: 'Views' },
-        { key: 'models',     label: 'Models' },
+        // One tab for the domain layer, whichever way the application builds it.
+        // Its payload key stays `models` — the tab is a view, and renaming the
+        // data would break every front end already reading it.
+        { key: 'models',     label: 'Domain' },
         { key: 'migrations', label: 'Migrations' },
         { key: 'exceptions', label: 'Exceptions' }
     ];
@@ -857,7 +860,7 @@
             if (!data && !(stream && stream.length)) {
                 return;
             }
-            var count = stream ? stream.length : tabCount(tab.key, data);
+            var count = stream ? stream.length : tabCount(tab.key, data, entry);
             // Something went wrong somewhere on this page, and a tab that looks
             // exactly like the other eight does not say so. The colour is the
             // whole point of collecting exceptions: nobody opens a tab to check
@@ -923,15 +926,34 @@
         return entry.bodyHtml;
     }
 
+    /**
+     * The services payload of one request, or an empty one.
+     *
+     * Its own collector, shown inside the Domain tab rather than beside it: a
+     * reader asking "what did this request do to the domain layer" should not
+     * have to know whether this application puts that logic on models or in
+     * services, and a project built one way would otherwise stare at a
+     * permanently empty tab named after the other.
+     */
+    function servicesOf(entry) {
+        var data = entry && entry.payload ? entry.payload.services : null;
+        return data && !data.error ? data : { count: 0, ops: 0, services: [], operations: [] };
+    }
+
     /** The number worth putting on a tab, or null when a count means nothing. */
-    function tabCount(key, data) {
+    function tabCount(key, data, entry) {
         switch (key) {
             case 'queries':
                 return typeof data.count === 'number' ? data.count : (data.queries || []).length;
             case 'logs':
                 return typeof data.count === 'number' ? data.count : (data.entries || []).length;
-            case 'views':
             case 'models':
+                // Models *and* services: the badge counts what the tab contains.
+                // A services-oriented request would otherwise show 0 above a
+                // panel listing six service calls.
+                return (typeof data.count === 'number' ? data.count : 0)
+                    + (servicesOf(entry).count || 0);
+            case 'views':
             case 'exceptions':
                 return typeof data.count === 'number' ? data.count : null;
             case 'migrations':
@@ -1191,7 +1213,7 @@
             case 'session':    return renderSession(data);
             case 'logs':       return renderLogs(data, entry);
             case 'views':      return renderViews(data);
-            case 'models':     return renderModels(data);
+            case 'models':     return renderDomain(data, servicesOf(entry));
             case 'migrations': return renderMigrations(data);
             case 'exceptions': return renderExceptions(data, entry);
             default:           return '<pre class="pdb-pre">' + esc(JSON.stringify(mask(data), null, 2)) + '</pre>';
@@ -1713,6 +1735,22 @@
             + '</tbody></table>';
     }
 
+    /**
+     * The domain layer of one request: its models and its services.
+     *
+     * Both sections are drawn even when one of them is empty, and the empty one
+     * says what would have put something there. That sentence is the whole
+     * reason this tab was rewritten: a Services project saw an empty Models tab
+     * and had no way to tell "nothing happened" from "this is not where your
+     * code appears".
+     *
+     * @param {Object} models   The `models` payload
+     * @param {Object} services The `services` payload
+     */
+    function renderDomain(models, services) {
+        return renderModels(models) + renderServices(services);
+    }
+
     function renderModels(data) {
         var rows = '';
         (data.operations || []).forEach(function (op) {
@@ -1725,6 +1763,51 @@
             + '<table class="pdb-table"><thead><tr><th>Class</th><th>Table</th><th>Op</th><th>Key</th></tr>'
             + '</thead><tbody>' + (rows || '<tr><td colspan="4" class="pdb-muted">No model operations</td></tr>')
             + '</tbody></table>';
+    }
+
+    /**
+     * The services section of the Domain tab.
+     *
+     * A service appears here because it extends `Pramnos\Application\Service`;
+     * a timing appears because a method wrapped its work in `measure()`. Those
+     * are two different absences and the panel distinguishes them, because the
+     * fix is different: one is a base class, the other is one call.
+     */
+    function renderServices(data) {
+        var used = data.services || [];
+        var head = '<p><strong>' + (data.count || 0) + ' service(s)</strong> — '
+            + (data.ops || 0) + ' measured call(s)</p>';
+
+        if (!used.length) {
+            return head + '<p class="pdb-muted">No services recorded. A service is '
+                + 'recorded when it extends <code>Pramnos\\Application\\Service</code> '
+                + '— a plain class has nothing for the framework to observe.</p>';
+        }
+
+        var rows = '';
+        used.forEach(function (service) {
+            rows += '<tr><td class="pdb-time">'
+                + (service.ops ? (service.ms || 0) + 'ms' : '—')
+                + '</td><td>' + esc(service.class || '') + '</td>'
+                + '<td>' + (service.ops || 0) + '</td></tr>';
+        });
+
+        var calls = '';
+        (data.operations || []).forEach(function (op) {
+            calls += '<tr><td class="pdb-time">' + (op.ms || 0) + 'ms</td>'
+                + '<td>' + esc(op.class || '') + '</td><td>' + esc(op.op || '') + '</td></tr>';
+        });
+
+        return head
+            + '<table class="pdb-table"><thead><tr><th>Time</th><th>Service</th><th>Calls</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>'
+            + (calls
+                ? '<table class="pdb-table" style="margin-top:6px"><thead><tr><th>Time</th>'
+                    + '<th>Service</th><th>Operation</th></tr></thead><tbody>' + calls
+                    + '</tbody></table>'
+                : '<p class="pdb-muted" style="margin-top:6px">No call was timed. Wrap a '
+                    + 'method’s work in <code>$this-&gt;measure(\'name\', fn() =&gt; …)</code> '
+                    + 'to see it here.</p>');
     }
 
     function renderMigrations(data) {
