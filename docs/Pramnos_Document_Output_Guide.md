@@ -264,6 +264,66 @@ $doc->addScriptDeclaration('
 ');
 ```
 
+#### The handles a document registers for you
+
+A document constructor pre-registers a set of handles, so a template can enqueue them with
+**no source**:
+
+```php
+$doc->enqueueScript('slimbox2');   // no src — resolved from the registration
+```
+
+**An unregistered handle with no source throws** — and it throws when the queue is *processed*,
+not when `enqueueScript()` is called, so a missing registration reaches production as a broken
+page rather than a broken template. `isScriptRegistered()` and `isStyleRegistered()` answer
+before you commit to it.
+
+Registered by default: `jquery`, `jquery-ui`, the `datatables` family, `jquery-tmpl`,
+`iframe-transport`, the `jquery-fileupload` family, `bootstrap-datepicker`, `jquery-inputmask`
+(plus `-extensions` and `-date`, which the 3.3.4 bundle contains and which resolve to it),
+`slimbox2`, `thickbox`, `spectrum`, `mediamanager`, and the `Spry*` family.
+
+The last group is registered for compatibility, not on merit: Adobe Spry has been unmaintained
+since 2012 and the lightboxes are jQuery-era. They are here because templates written when they
+were current still enqueue them by handle, and a fatal in an admin panel is a worse answer than
+an old library. There is **no `jquery-inputmask-jui`** — it has never existed in this framework
+or the legacy one, and appears on migration checklists by mistake.
+
+The framework does not ship the files for any local registration, exactly as it does not ship
+`jquery-ui.min.js`. A registration is a handle-to-URL mapping; the application provides the file.
+
+#### Three defaults come from a CDN, and that is configurable
+
+`jquery`, `bootstrap-datepicker` and `jquery-inputmask` are registered against
+`cdnjs.cloudflare.com`. Everything else is local, under `sURL`.
+
+**This is a breaking change that already happened**, in April 2020, and was never written down
+until now: an application that upgraded across it silently began loading three third-party
+scripts from a third-party host. That is not only a style question —
+
+- **GDPR**, for a site with EU visitors: an IP address reaches Cloudflare before any consent is
+  collected;
+- **CSP**: a policy written for a self-hosted application does not list that origin, so the
+  scripts are blocked rather than merely remote.
+
+The default stays the CDN, because changing it would break every application that stopped
+vendoring these files on the strength of that change. To serve them yourself:
+
+```php
+// application settings
+'documentAssetSource' => 'local',
+```
+
+which registers them at the paths the legacy framework used:
+
+| Handle | `local` path |
+| --- | --- |
+| `jquery` | `media/js/jquery/jquery.min.js` |
+| `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js` |
+| `jquery-inputmask` | `plugins/input-mask/jquery.inputmask.js` |
+
+Provide those files, as you do for every other local registration.
+
 ### CSS Management
 
 ```php

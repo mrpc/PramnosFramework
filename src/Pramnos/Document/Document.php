@@ -125,13 +125,62 @@ class Document extends \Pramnos\Framework\Base
     /**
      * Object constructor. It registers all default scripts and stylesheets.
      */
+    /**
+     * Whether the three CDN-hosted default scripts come from the CDN.
+     *
+     * `jquery`, `bootstrap-datepicker` and `jquery-inputmask` are registered against
+     * `cdnjs.cloudflare.com`; everything else in this constructor is local. That was a
+     * deliberate change in April 2020 (commit `0541b22f`, *"load scripts from cdn"*) and it
+     * **was never documented as breaking**, which is the actual defect a consumer reported:
+     * an application that upgraded across it silently began loading three third-party scripts
+     * from a third-party host.
+     *
+     * That is not a style question. For a site in the EU it is a **GDPR** one — a visitor's IP
+     * reaches Cloudflare before any consent is collected — and it is a **CSP** one, because a
+     * policy written for a self-hosted application does not list that origin, so the scripts
+     * are blocked rather than merely remote.
+     *
+     * The default stays the CDN, because changing it would break every application that
+     * stopped vendoring the files on the strength of that commit. Set
+     * `documentAssetSource = 'local'` in the application settings to serve them from `sURL`
+     * instead, at the paths the legacy framework used:
+     *
+     * | Handle | `local` path |
+     * | --- | --- |
+     * | `jquery` | `media/js/jquery/jquery.min.js` |
+     * | `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js` |
+     * | `jquery-inputmask` | `plugins/input-mask/jquery.inputmask.js` |
+     *
+     * The files are the application's to provide, as they are for every other local
+     * registration here.
+     *
+     * @return bool True to use the CDN — the default
+     */
+    protected static function servesDefaultsFromCdn(): bool
+    {
+        try {
+            $configured = \Pramnos\Application\Settings::getSetting('documentAssetSource');
+        } catch (\Throwable) {
+            // A document can be built before settings are readable — during install, in a
+            // unit test, from the console. The default is what it has always been.
+            return true;
+        }
+
+        return strtolower(trim((string) $configured)) !== 'local';
+    }
+
     public function __construct()
     {
         parent::__construct();
+
+        $fromCdn = self::servesDefaultsFromCdn();
+
         //Register default scripts
         $this->registerScript(
             'jquery',
-            'https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js',
+            $fromCdn
+                ? 'https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js'
+                : sURL . 'media/js/jquery/jquery.min.js',
             array(), '', false
         ); //jQuery
         $this->registerScript(
@@ -201,21 +250,129 @@ class Document extends \Pramnos\Framework\Base
 
         //Bootstrap Date
         $this->registerScript('bootstrap-datepicker',
-            'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
-            . '1.9.0/js/bootstrap-datepicker.min.js',
+            $fromCdn
+                ? 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
+                  . '1.9.0/js/bootstrap-datepicker.min.js'
+                : sURL . 'plugins/datepicker/bootstrap-datepicker.js',
             array(), '', true
         );
 
         //jQuery InputMask
         $this->registerScript('jquery-inputmask',
-            'https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/'
-            . '3.3.4/jquery.inputmask.bundle.min.js',
+            $fromCdn
+                ? 'https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/'
+                  . '3.3.4/jquery.inputmask.bundle.min.js'
+                : sURL . 'plugins/input-mask/jquery.inputmask.js',
             array('jquery'), '', true
         );
 
+        // The 3.3.4 bundle contains the extensions that used to be separate files, so these
+        // two handles resolve to it. They were dropped in April 2020 when the bundle replaced
+        // inputmask 4.0.9 — correctly, in that there was no longer a second file to fetch, and
+        // wrongly in that a template calling enqueueScript('jquery-inputmask-date') had been
+        // relying on the handle rather than on the file. Unregistered handles throw.
+        $this->registerScript('jquery-inputmask-extensions', '',
+            array('jquery-inputmask'), '', true
+        );
+        $this->registerScript('jquery-inputmask-date', '',
+            array('jquery-inputmask-extensions'), '', true
+        );
+
+
+        // Restored 2026-08-14. These were deleted in March 2020 by a commit titled "Minor
+        // variable name changes" — 14 insertions, 90 deletions — so their absence was never a
+        // decision to drop deprecated libraries, just a casualty. A consumer's admin theme
+        // calls enqueueScript('slimbox2') with no src on every page of its panel, and an
+        // unregistered handle throws, so the port it was blocking could not begin.
+        //
+        // The URLs are the ones the legacy framework serves, verbatim. The framework does not
+        // ship these files any more than it ships jquery-ui.min.js — a registration is a
+        // handle-to-URL mapping, and the application provides the file.
+        $this->registerScript(
+            'slimbox2', sURL . 'media/js/jquery/slimbox2.js',
+            array('jquery'), '', true
+        );
+        $this->registerScript(
+            'thickbox', sURL . 'media/js/jquery/thickbox.js',
+            array('jquery')
+        );
+        $this->registerScript(
+            'spectrum', sURL . 'media/js/jquery/spectrum.js',
+            array('jquery')
+        );
+
+        //SPRY — Adobe's, unmaintained since 2012, and still enqueued by templates that
+        //predate that. Registered so those templates load rather than throw; nothing here
+        //recommends them.
+        $this->registerScript(
+            'SpryMenuBar', sURL . 'media/js/SpryAssets/SpryMenuBar.js',
+            array('jquery'), '', true
+        );
+        $this->registerScript(
+            'SpryValidationTextArea',
+            sURL . 'media/js/SpryAssets/SpryValidationTextArea.min.js',
+            array('jquery'), '', true
+        );
+        $this->registerScript(
+            'SpryValidationTextField',
+            sURL . 'media/js/SpryAssets/SpryValidationTextField.min.js',
+            array('jquery'), '', true
+        );
+        $this->registerScript(
+            'SpryValidationPassword',
+            sURL . 'media/js/SpryAssets/SpryValidationPassword.min.js',
+            array('jquery'), '', true
+        );
+        $this->registerScript(
+            'SpryValidationConfirm',
+            sURL . 'media/js/SpryAssets/SpryValidationConfirm.min.js',
+            array('jquery'), '', true
+        );
+        $this->registerScript(
+            'SpryValidationCheckbox',
+            sURL . 'media/js/SpryAssets/SpryValidationCheckbox.min.js',
+            array('jquery'), '', true
+        );
 
         //Register default stylesheets
 
+        // Restored with the scripts above, for the same reason.
+        $this->registerStyle(
+            'mediamanager', sURL . 'media/css/pramnoscms/media.css'
+        );
+        $this->registerStyle(
+            'slimbox2', sURL . 'media/css/jquery/slimbox2.css'
+        );
+        $this->registerStyle(
+            'thickbox', sURL . 'media/css/jquery/thickbox.css'
+        );
+        $this->registerStyle(
+            'spectrum', sURL . 'media/css/jquery/spectrum.css'
+        );
+        $this->registerStyle(
+            'SpryValidationTextarea',
+            sURL . 'media/css/SpryAssets/SpryValidationTextarea.css'
+        );
+        $this->registerStyle(
+            'SpryValidationTextField',
+            sURL . 'media/css/SpryAssets/SpryValidationTextField.css'
+        );
+        $this->registerStyle(
+            'SpryValidationPassword',
+            sURL . 'media/css/SpryAssets/SpryValidationPassword.css'
+        );
+        $this->registerStyle(
+            'SpryValidationConfirm',
+            sURL . 'media/css/SpryAssets/SpryValidationConfirm.css'
+        );
+        $this->registerStyle(
+            'SpryValidationCheckbox',
+            sURL . 'media/css/SpryAssets/SpryValidationCheckbox.css'
+        );
+        $this->registerStyle(
+            'SpryMenuBarHorizontal',
+            sURL . 'media/css/SpryAssets/SpryMenuBarHorizontal.css'
+        );
         $this->registerStyle(
             'jquery-ui', sURL . 'media/css/jquery/jquery-ui.css'
         );
