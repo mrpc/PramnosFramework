@@ -214,12 +214,13 @@ class LocalBroadcastServer
      * Install a router that maps each ingested Redis message to zero or more WS
      * deliveries — e.g. strip the key prefix for public channels and fan a direct
      * message out to per-recipient private channels so no client ever receives
-     * another user's payload. The router receives (channel, event, payload) and
+     * another user's payload. The router receives (channel, event, payload, id) — the id
+     * being the backplane entry id, or null when the ingest has none — and
      * returns a list of [channel, event?, payload?] triples ([] or null drops the
      * message). With no router the message is delivered verbatim on its own
      * channel (unchanged default). Call before run().
      *
-     * @param callable(string,string,mixed):(list<array{0:string,1?:string,2?:mixed}>|null) $router
+     * @param callable(string,string,mixed,?string):(list<array{0:string,1?:string,2?:mixed}>|null) $router
      */
     public function useIngestRouter(callable $router): void
     {
@@ -295,7 +296,12 @@ class LocalBroadcastServer
             }
 
             if ($this->ingestRouter !== null) {
-                foreach ((($this->ingestRouter)($msg['channel'], $event, $payload) ?? []) as $route) {
+                // The entry id is passed fourth and defaulted, so a router written before this
+                // existed keeps working — PHP does not complain about an argument a closure
+                // does not declare. A router that wants it declares it.
+                $id = isset($msg['id']) ? (string) $msg['id'] : null;
+
+                foreach ((($this->ingestRouter)($msg['channel'], $event, $payload, $id) ?? []) as $route) {
                     $this->broadcast(
                         (string) $route[0],
                         (string) ($route[1] ?? $event),
