@@ -94,6 +94,31 @@ that is not a fault.
 
 ---
 
+## It said I am not allowed
+
+**Gate.** Every authorization check the request made, and — the part nothing else can tell you —
+**which step decided**:
+
+| Step | Means |
+| --- | --- |
+| `before` | A global hook decided immediately: "an administrator may do anything" |
+| `ability` | A named `Gate::define()` rule answered |
+| `policy` | A policy method answered, and the row names it |
+| `store` | The permission store answered |
+| `default` | **Nothing claimed this ability**, so it was refused |
+| `after` | A rule answered and an `after` hook overrode it |
+
+`default` is the row to look for first. An ability nobody defined is refused, so a mistyped name
+and a deliberate deny both come back `false` — the step is the only thing that separates them,
+and the tab counts them so the badge says so before you open it.
+
+A rule is a closure in a bootstrap file: it is in no stack trace, a `before` hook that allows
+everything leaves no mark, and a decision may touch no database, so **SQL** has nothing to show
+either. This tab is the only place that answer exists.
+
+The **Auth** tab above answers the other half — who the server thinks you are. A refusal usually
+turns out to be one or the other, and they are consecutive tabs for that reason.
+
 ## Something broke in the browser
 
 **Errors**, which appears — red, with a ⚠ — only once something has been thrown. It holds

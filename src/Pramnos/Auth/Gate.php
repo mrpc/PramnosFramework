@@ -113,6 +113,35 @@ class Gate
     private static ?string $permissionFallbackType = null;
 
     /**
+     * Whether to record every decision for the debug toolbar.
+     *
+     * Off by default, exactly like {@see \Pramnos\Database\Database::enableQueryLog()}: an
+     * application that never opens the toolbar pays one boolean check per decision. The debug
+     * provider turns it on when it boots.
+     *
+     * @var bool
+     */
+    private static bool $logDecisions = false;
+
+    /**
+     * Recorded decisions, keyed for de-duplication.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private static array $decisionLog = [];
+
+    /**
+     * How many distinct decisions to keep.
+     *
+     * Rendering a permission-gated menu can check dozens of abilities, and a page that checks
+     * two hundred distinct things has a different problem than the one this log is for.
+     * Identical checks collapse into a count rather than filling it.
+     *
+     * @var int
+     */
+    private const LOG_LIMIT = 200;
+
+    /**
      * The user this gate answers for.
      *
      * @var object|null
@@ -256,6 +285,8 @@ class Gate
         self::$afterCallbacks         = [];
         self::$userResolver           = null;
         self::$permissionFallbackType = null;
+        self::$decisionLog            = [];
+        self::$logDecisions           = false;
     }
 
     /**
@@ -435,21 +466,143 @@ class Gate
      */
     private function decide(string $ability, array $arguments): ?bool
     {
-        $result = $this->runBefore($ability, $arguments);
+        $step   = 'default';
+        $detail = null;
 
-        if ($result === null) {
-            $result = $this->runAbility($ability, $arguments);
+        $result = $this->runBefore($ability, $arguments);
+        if ($result !== null) {
+            $step = 'before';
         }
 
         if ($result === null) {
-            $result = $this->runPolicy($ability, $arguments);
+            $result = $this->runAbility($ability, $arguments);
+            if ($result !== null) {
+                $step   = 'ability';
+                $detail = $ability;
+            }
+        }
+
+        if ($result === null) {
+            $result = $this->runPolicy($ability, $arguments, $detail);
+            if ($result !== null) {
+                $step = 'policy';
+            }
         }
 
         if ($result === null) {
             $result = $this->runPermissionFallback($ability);
+            if ($result !== null) {
+                $step   = 'store';
+                $detail = str_replace('.', ' → ', $ability);
+            }
         }
 
-        return $this->runAfter($ability, $result, $arguments);
+        $final = $this->runAfter($ability, $result, $arguments);
+        if ($final !== $result) {
+            $step   = 'after';
+            $detail = null;
+        }
+
+        if (self::$logDecisions) {
+            $this->record($ability, $arguments, $final, $step, $detail);
+        }
+
+        return $final;
+    }
+
+    /**
+     * Records one decision for the toolbar.
+     *
+     * **What is deliberately not recorded: the arguments.** A policy check receives whole
+     * models, and this payload is attached to the response — it sits in a browser's network
+     * log. So the subject is reduced to its class name, the user to an id, and nothing that
+     * came out of a database travels. The same rule {@see \Pramnos\Debug\Collectors\AuthCollector}
+     * applies to the credential it explains.
+     *
+     * Identical decisions collapse into a count: a menu that checks the same ability for every
+     * one of forty items should read as `×40`, not fill the panel.
+     *
+     * @param string  $ability   The ability that was checked
+     * @param mixed[] $arguments Whatever the check passed
+     * @param bool|null $result  What was decided
+     * @param string  $step      Which step decided: before|ability|policy|store|default|after
+     * @param string|null $detail What decided, when there is something to name
+     * @return void
+     */
+    private function record(
+        string $ability,
+        array $arguments,
+        ?bool $result,
+        string $step,
+        ?string $detail
+    ): void {
+        $subject = $arguments[0] ?? null;
+        $subject = is_object($subject)
+            ? $subject::class
+            : (is_string($subject) && class_exists($subject) ? $subject : null);
+
+        $entry = [
+            'ability' => $ability,
+            'subject' => $subject,
+            'user'    => $this->subjectId(),
+            'allowed' => $result === true,
+            'step'    => $step,
+            'detail'  => $detail,
+        ];
+
+        $key = implode('|', [
+            $ability,
+            (string) $subject,
+            (string) $entry['user'],
+            $entry['allowed'] ? '1' : '0',
+            $step,
+            (string) $detail,
+        ]);
+
+        if (isset(self::$decisionLog[$key])) {
+            self::$decisionLog[$key]['times']++;
+
+            return;
+        }
+
+        if (count(self::$decisionLog) >= self::LOG_LIMIT) {
+            return;
+        }
+
+        $entry['times']          = 1;
+        self::$decisionLog[$key] = $entry;
+    }
+
+    /**
+     * Starts recording decisions.
+     *
+     * Called by the debug provider. Has no effect when already on.
+     *
+     * @return void
+     */
+    public static function enableDecisionLog(): void
+    {
+        self::$logDecisions = true;
+    }
+
+    /**
+     * Every decision recorded since {@see enableDecisionLog()}, oldest first.
+     *
+     * @return list<array{ability: string, subject: string|null, user: int|string|null, allowed: bool, step: string, detail: string|null, times: int}>
+     */
+    public static function decisionLog(): array
+    {
+        return array_values(self::$decisionLog);
+    }
+
+    /**
+     * Forgets the recorded decisions without switching recording off.
+     *
+     * @return void
+     */
+    public static function clearDecisionLog(): void
+    {
+        self::$decisionLog = [];
     }
 
     /**
@@ -519,7 +672,7 @@ class Gate
      * @param mixed[] $arguments Whatever the check passed
      * @return bool|null The policy's answer, or null when no policy applies
      */
-    private function runPolicy(string $ability, array $arguments): ?bool
+    private function runPolicy(string $ability, array $arguments, ?string &$detail = null): ?bool
     {
         $subject = $arguments[0] ?? null;
 
@@ -538,6 +691,10 @@ class Gate
         if (!method_exists($policy, $method)) {
             return null;
         }
+
+        // Named for the toolbar: "PostPolicy::update" answers "which rule decided" in one
+        // line, which is the question the decision order exists to make answerable.
+        $detail = (new \ReflectionClass($policy))->getShortName() . '::' . $method;
 
         // A policy's own before() narrows the global hook to this policy's methods.
         if (method_exists($policy, 'before')) {
