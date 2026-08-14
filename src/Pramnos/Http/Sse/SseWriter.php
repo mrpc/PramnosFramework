@@ -144,6 +144,18 @@ class SseWriter
      * @param callable                    $onEvent       fn(string $channel, string $event, array $payload, SseWriter $sse): bool|void
      *                                                   Emit via $sse; return false to stop.
      * @param int                         $maxRuntime    Seconds before asking the client to reconnect (0 = unlimited).
+     *                                                   The stream ends **at** this many seconds:
+     *                                                   drivers clamp their last blocking read to
+     *                                                   the remaining time. Until 2026-08-14 they
+     *                                                   did not, so the close landed anywhere in
+     *                                                   `[maxRuntime, maxRuntime + pingInterval]`
+     *                                                   — at the bottom on a busy channel, which
+     *                                                   is where a client using the same period
+     *                                                   for its own reconnect lost the race. A
+     *                                                   client should still allow itself a margin,
+     *                                                   and does not have to guess it: the stream
+     *                                                   opens with a `stream-info` event carrying
+     *                                                   `handover_after`.
      * @param int                         $pingInterval  Idle seconds between keep-alive pings.
      * @param callable|null               $onTick        fn(SseWriter $sse): bool|void — invoked on every idle
      *                                                   tick (roughly each $pingInterval) before the keep-alive
@@ -197,6 +209,23 @@ class SseWriter
         // is that shape, and one that wants the id can take a fifth argument.
         $this->currentEventId = null;
 
+        // Tell the client when to hand over, before anything else happens.
+        //
+        // A client that overlaps its reconnect needs a period slightly under the server's
+        // ceiling, and until this frame existed it had to hard-code one — a constant it cannot
+        // see, kept in sync by hand, and wrong the moment the server's changes. `handover_after`
+        // is that number, already reduced by a margin, so the client can use it directly.
+        //
+        // Sent as its own event so it reaches only listeners that asked: EventSource dispatches
+        // by name, so a client that has never heard of `stream-info` is unaffected.
+        if ($maxRuntime > 0) {
+            $this->event('stream-info', [
+                'max_runtime'     => $maxRuntime,
+                'ping_interval'   => $pingInterval,
+                'handover_after'  => self::handoverAfter($maxRuntime),
+            ]);
+        }
+
         $driver->subscribe(
             $channels,
             function (string $channel, string $event, array $payload, ?string $id = null) use ($onEvent): bool {
@@ -220,6 +249,29 @@ class SseWriter
         if ($maxRuntime > 0 && !connection_aborted()) {
             $this->event('reconnect', ['reason' => 'max_runtime']);
         }
+    }
+
+    /**
+     * When a client should start its replacement stream.
+     *
+     * Comfortably before the server closes, because the client's clock starts at `open` —
+     * strictly after the server started its own — so equal periods mean the server always
+     * leads by however long the connection took to establish.
+     *
+     * A tenth of the runtime, bounded to 2–10 seconds: enough for a new request to reach the
+     * server and prove itself on a slow connection, small enough that two open streams overlap
+     * only briefly. On a very short runtime the margin cannot exceed half of it, or the advice
+     * would be to reconnect immediately.
+     *
+     * @param int $maxRuntime The stream's ceiling, in seconds
+     * @return int Seconds after `open` at which the client should begin its handover
+     */
+    private static function handoverAfter(int $maxRuntime): int
+    {
+        $margin = min(10, max(2, (int) ceil($maxRuntime / 10)));
+        $margin = min($margin, (int) floor($maxRuntime / 2));
+
+        return max(1, $maxRuntime - $margin);
     }
 
     /**

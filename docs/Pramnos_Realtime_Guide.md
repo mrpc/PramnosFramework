@@ -222,8 +222,8 @@ Return the `StreamedResponse` from your dispatcher exactly like a `Response`
 #### Reconnecting, and the events published during it
 
 `EventSource` reconnects on its own, and `maxRuntime: 95` makes the server end
-the stream deliberately — so every client reconnects on a schedule, roughly
-every 95 seconds. Whatever is published in the window between the close and the
+the stream deliberately — so every client reconnects on a schedule, every 95
+seconds. Whatever is published in the window between the close and the
 new subscription has to come from somewhere, or it is simply lost. Nothing
 errors; the client never sees those events. Two applications lost data this way
 before it was noticed.
@@ -241,6 +241,52 @@ $sse->stream(
     maxRuntime: 95,
 );
 ```
+
+#### `maxRuntime` is when the stream ends — and the client is told when to hand over
+
+**`maxRuntime` is a deadline, and it used to be a floor.** A driver checks it at the top of
+its loop and then blocks for `readTimeout` seconds (`readTimeout = max(1, pingInterval)`), so
+a deadline falling *during* a read was not noticed until that read returned. The stream ended
+somewhere in **`[maxRuntime, maxRuntime + pingInterval]`**:
+
+| Channel | Deadline noticed | Close landed at |
+|---|---|---|
+| Busy — an event arrives just after the deadline | on that event | ≈ `maxRuntime` |
+| Idle — nothing arrives | at the next read timeout | up to `maxRuntime + pingInterval` |
+
+That range mattered because of who has to act on it. A client doing an **overlapping
+reconnect** — open the replacement, retire the old one once the replacement proves itself —
+must hand over before the server closes, and it had only `maxRuntime` to go on. Its own clock
+starts at `open`, strictly after the server started its own, so at equal periods the server
+leads by however long the connection took to establish. It wins **exactly on the busy
+installs**, where the close lands at the bottom of the range. And the failure is quiet: the
+scheduled close arrives as a transport error, the client backs off, everything recovers, and it
+looks like an occasional network blip that gets worse under load.
+
+Two things changed:
+
+**The last read is clamped.** Drivers now block for `min(readTimeout, deadline - now)`, so the
+stream ends **at** `maxRuntime` regardless of traffic. `RedisStreamDriver`, `RedisDriver` and
+`DatabaseDriver` all do this — the clamp lives in `SubscriptionOptions::blockingWindow()`, so
+there is one implementation rather than three.
+
+**The stream says when to hand over.** A client should still leave itself a margin, and now it
+does not have to guess: the stream opens with a `stream-info` event.
+
+```js
+source.addEventListener('stream-info', (e) => {
+    const { max_runtime, ping_interval, handover_after } = JSON.parse(e.data);
+    setTimeout(() => beginHandover(), handover_after * 1000);
+});
+```
+
+`handover_after` is `maxRuntime` minus a margin — a tenth of the runtime, bounded to 2–10
+seconds — so a client can use it directly instead of hard-coding a period that has to be kept
+in sync with a server constant it cannot see. It is sent as its own event, so a client that has
+never heard of `stream-info` is unaffected: `EventSource` dispatches by name.
+
+An unlimited stream (`maxRuntime: 0`) sends no `stream-info`, because there is no handover to
+schedule.
 
 That works because the driver can replay. **Which driver you choose decides
 whether any of this happens:**

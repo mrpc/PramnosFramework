@@ -78,6 +78,38 @@ final class SubscriptionOptions
     /**
      * Fire the idle callback. Returns true when the loop should continue.
      */
+    /**
+     * How long the next blocking read may wait, given the run's deadline.
+     *
+     * A driver's loop checks the deadline at the top and then blocks for `readTimeout`
+     * seconds, so a deadline that falls *during* a read is not noticed until that read
+     * returns. The stream therefore ended somewhere in `[maxRuntime, maxRuntime + readTimeout]`
+     * — at the bottom of that window on a busy channel, where an event arrives just after the
+     * deadline, and at the top on a quiet one.
+     *
+     * That range was the whole bug. A client doing an overlapping reconnect has only
+     * `maxRuntime` to go on, its own clock starts at `open` — strictly after the server's — and
+     * so at equal periods the server leads. It wins **exactly on the busy installs**, where the
+     * close lands at the bottom of the range, and the symptom is an occasional transport error
+     * that gets worse under load.
+     *
+     * Clamping the last read to the remaining time makes the close happen at `maxRuntime`
+     * regardless of traffic, which is what the parameter always read like.
+     *
+     * @param int|null $deadline Unix time the run must end by, or null for no ceiling
+     * @return int Seconds to block, at least 1 and never past the deadline
+     */
+    public function blockingWindow(?int $deadline): int
+    {
+        if ($deadline === null) {
+            return $this->readTimeout;
+        }
+
+        // At least 1: a driver only reaches a read when the deadline is still ahead, and a
+        // zero-second block means "wait forever" to most clients — the opposite of the intent.
+        return max(1, min($this->readTimeout, $deadline - time()));
+    }
+
     public function fireIdle(): bool
     {
         if ($this->onIdle === null) {

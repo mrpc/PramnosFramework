@@ -154,6 +154,99 @@ class SseStreamTest extends TestCase
      * ping-interval / max-runtime to the subscription, and emits a reconnect event
      * when the loop ends under a runtime ceiling.
      */
+    /**
+     * The stream opens by telling the client when to hand over.
+     *
+     * A client that overlaps its reconnect needs a period slightly under the server's ceiling,
+     * and until this frame existed it had to hard-code one: a constant it cannot see, kept in
+     * sync by hand, and wrong the moment the server's changes. One consumer ran 95 seconds
+     * against `maxRuntime: 95` under a comment claiming it was *ahead of* the ceiling.
+     *
+     * `handover_after` must therefore be **strictly less** than `maxRuntime` — that is the whole
+     * point of the frame — and it is sent as its own event so that a client which has never
+     * heard of `stream-info` is unaffected: EventSource dispatches by name.
+     */
+    public function testStreamAnnouncesWhenToHandOver(): void
+    {
+        // Arrange
+        $driver = new FakeSubscribableDriver([]);
+        $sse    = new SseWriter();
+
+        // Act
+        ob_start();
+        $sse->stream(
+            $driver,
+            ['chat.updates'],
+            fn (string $c, string $e, array $p, SseWriter $w) => true,
+            maxRuntime: 95,
+            pingInterval: 20,
+        );
+        $out = (string) ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('event: stream-info', $out);
+
+        preg_match('/event: stream-info\ndata: (\{.*?\})\n/', $out, $m);
+        $info = json_decode($m[1] ?? '{}', true);
+
+        $this->assertSame(95, $info['max_runtime'] ?? null);
+        $this->assertSame(20, $info['ping_interval'] ?? null);
+        $this->assertLessThan(
+            95,
+            $info['handover_after'] ?? 95,
+            'handover_after must leave the client a margin; equal periods are the bug.'
+        );
+        $this->assertGreaterThan(0, $info['handover_after'] ?? 0);
+    }
+
+    /**
+     * An unlimited stream announces nothing.
+     *
+     * With `maxRuntime: 0` there is no ceiling and therefore no handover to schedule; sending a
+     * `handover_after` would invent a deadline that does not exist.
+     */
+    public function testAnUnlimitedStreamAnnouncesNoHandover(): void
+    {
+        // Arrange
+        $driver = new FakeSubscribableDriver([]);
+        $sse    = new SseWriter();
+
+        // Act
+        ob_start();
+        $sse->stream($driver, ['chat.updates'], fn () => true, maxRuntime: 0);
+        $out = (string) ob_get_clean();
+
+        // Assert
+        $this->assertStringNotContainsString('stream-info', $out);
+        $this->assertStringNotContainsString('event: reconnect', $out);
+    }
+
+    /**
+     * A very short runtime still leaves the client somewhere to go.
+     *
+     * The margin is capped at half the runtime, so `handover_after` never collapses to zero or
+     * advises reconnecting immediately — a 4-second stream is a strange thing to configure, but
+     * it must not produce nonsense.
+     */
+    public function testAShortRuntimeStillLeavesRoom(): void
+    {
+        // Arrange
+        $driver = new FakeSubscribableDriver([]);
+        $sse    = new SseWriter();
+
+        // Act
+        ob_start();
+        $sse->stream($driver, ['c'], fn () => true, maxRuntime: 4, pingInterval: 1);
+        $out = (string) ob_get_clean();
+
+        // Assert
+        preg_match('/event: stream-info\ndata: (\{.*?\})\n/', $out, $m);
+        $info = json_decode($m[1] ?? '{}', true);
+
+        $this->assertGreaterThanOrEqual(1, $info['handover_after'] ?? 0);
+        $this->assertLessThan(4, $info['handover_after'] ?? 4);
+    }
+
     public function testStreamPumpsBackplaneAndEmitsReconnect(): void
     {
         $driver = new FakeSubscribableDriver([

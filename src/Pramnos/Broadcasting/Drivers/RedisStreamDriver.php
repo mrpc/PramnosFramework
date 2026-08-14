@@ -159,7 +159,7 @@ class RedisStreamDriver implements SubscribableDriverInterface
                     $entries = $connection->xRead(
                         $cursors,
                         0,                                 // no count limit
-                        $options->readTimeout * 1000,      // block, in milliseconds
+                        $options->blockingWindow($deadline) * 1000, // block, in milliseconds
                     );
                 } catch (\Throwable $e) {
                     // A blocked read that timed out surfaces here on some
