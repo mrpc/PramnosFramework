@@ -109,6 +109,37 @@ database; and where the test does need one, inject it:
 $service = new BillingService($databaseDouble);
 ```
 
+### Converting an existing class: pass the connection explicitly
+
+The lazy fallback is `Factory::getDatabase()`, which is right for a service written against
+this base and **a hazard for one being moved onto it**. A class that previously reached its
+database some other way — an application-level singleton, an injected handle, a second
+connection — silently changes which database it talks to the moment its constructor is left
+defaulted. Nothing reports it. Every query still succeeds, somewhere else.
+
+```php
+// Converting: keep the handle the class already had
+class SettingsService extends Service
+{
+    public function __construct(MyDatabase $db)
+    {
+        parent::__construct($db);
+    }
+}
+```
+
+A consumer caught this before it shipped, and the numbers are why it is worth its own
+section: **59 call sites** constructed the class they were converting, and it had been built
+on an application-level `getInstance()`. Had the two resolvers differed, a conversion sold as
+observability would have repointed all 59. They passed the instance in and pinned it with a
+test.
+
+**And convert selectively.** Inheritance adds nothing to a class that runs no queries and has
+no steps to time. The shape worth converting is one with several steps, on every request, that
+is slow without anybody being able to say which step — `measure()` answers that without
+temporary `microtime()` calls that get left in the code. The same consumer converted one
+service out of sixty-five, which is about the right ratio.
+
 `measure()` re-throws whatever the callback threw, after recording the attempt —
 a failed call is the one worth seeing in the toolbar, so it is recorded, not
 swallowed.

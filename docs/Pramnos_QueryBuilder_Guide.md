@@ -608,6 +608,36 @@ answer is about to be cached. See
 [How database failures surface](Pramnos_Database_API_Guide.md#how-database-failures-surface-and-throwonerror)
 for the driver detail.
 
+#### A `try/catch` around a call that does not throw is a comment
+
+Worth naming, because it is what this looks like in code somebody already worried about:
+
+```php
+try {
+    $patterns = $db->queryBuilder()->from('url_blacklist')->getAll();
+} catch (\Throwable $e) {
+    // a membership failing open grants somebody another station's tools, so this denies
+    return self::DENY;
+}
+
+return $this->cache($patterns);   // ← an unreadable table arrives here, as []
+```
+
+`getAll()` does not throw on PostgreSQL, so the `catch` is unreachable and the failure walks
+straight into the branch that caches a miss. The author had decided the right thing and written
+it down; the decision simply could not run.
+
+A consumer found **eight** reads of this class in their application and reported that **six of
+them already had a `catch` written for exactly this failure** — one of them arguing the
+fail-closed direction explicitly, in a comment. Their summary is the useful part: *the week's
+work was less about deciding correct behaviour than about making decisions somebody had already
+taken actually run.*
+
+So when you find a `try/catch` around a convenience read, treat it as a **signal rather than a
+guard**: somebody knew this could fail and which way it should go. Check what the call actually
+does on failure, and if the answer is "returns `[]`", the fix is `getAllOrFail()` or `get()` —
+the `catch` was already the right intention.
+
 ### Advanced Features
 
 #### Window Functions
