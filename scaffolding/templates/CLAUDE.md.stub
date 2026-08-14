@@ -81,7 +81,7 @@ database/
 tests/
   Unit/         Unit tests (no DB, no network)
   Integration/  Integration tests (real DB via Docker)
-www/            Public webroot
+{{ webRoot }}/            Public webroot
 bin/            CLI entry point
 ```
 

@@ -87,11 +87,12 @@ class Init extends Command
         $this->addOption('no-download',   null, InputOption::VALUE_NONE,     'Skip asset download (record in assets.json only)');
         $this->addOption('no-migrations', null, InputOption::VALUE_NONE,     'Skip migrate --scope=framework after Docker startup');
         $this->addOption('no-install',    null, InputOption::VALUE_NONE,     'Skip composer update / dump-autoload (scaffold files only)');
+        $this->addOption('web-root',      null, InputOption::VALUE_OPTIONAL, 'Directory served as the document root (default: www)');
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
         $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (OpenAPI + RapiDoc) (y/n)');
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
         $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
-        $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate www/webhook.php git webhook receiver (y/n)');
+        $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate <web-root>/webhook.php git webhook receiver (y/n)');
         $this->addOption('app-style',     null, InputOption::VALUE_OPTIONAL, 'Application style (mvc, spa, hybrid)');
         $this->addOption('spa-stack',     null, InputOption::VALUE_OPTIONAL, 'SPA front-end stack (svelte, vanilla-vite, vanilla)');
         $this->addOption('spa-dev-port',  null, InputOption::VALUE_OPTIONAL, 'Port for the Vite dev server');
@@ -143,6 +144,24 @@ class Init extends Command
      * @var bool
      */
     private bool $skipInstall = false;
+
+    /**
+     * The directory served as the document root, without a trailing slash.
+     *
+     * `www` by convention, and hardcoded in 38 places until 2026-08-14. A consumer reported it
+     * through the one that hurt: the SPA build wrote to `www/assets/spa` whatever the project's
+     * real document root was, so a project served from anywhere else built its front end into a
+     * directory nothing serves — and the failure is a blank page rather than an error, because
+     * the manifest is simply not where the shell looks for it.
+     *
+     * Everything the scaffold writes under the document root goes through this: the directory
+     * itself, the front controller, `.htaccess`, assets, favicons, the API entry point, the SPA
+     * shell and build output, the `.gitignore` lines, and the Docker `DocumentRoot`. Setting it
+     * and having one of those still say `www` would be worse than not having it at all.
+     *
+     * @var string
+     */
+    private string $webRoot = 'www';
 
     /**
      * Leave a file alone when the project already has one.
@@ -292,6 +311,11 @@ class Init extends Command
 
         $this->dryRun        = (bool) $input->getOption('dry-run');
         $this->skipInstall   = (bool) $input->getOption('no-install');
+
+        $webRoot = trim((string) ($input->getOption('web-root') ?? ''), " \t\n\r/");
+        if ($webRoot !== '') {
+            $this->webRoot = $webRoot;
+        }
         $this->plannedWrites = [];
 
         // Before anything is written, and before any question is asked: the one
@@ -461,12 +485,12 @@ class Init extends Command
         // ── Scaffold ──────────────────────────────────────────────────────────
         $output->writeln("\n<info>Scaffolding project structure...</info>");
 
-        $this->mkdir('www');
-        $this->mkdir('www/assets');
-        $this->mkdir('www/assets/css');
-        $this->mkdir('www/assets/js');
-        $this->mkdir('www/assets/img');
-        $this->mkdir('www/assets/vendor');
+        $this->mkdir($this->webRoot);
+        $this->mkdir($this->webRoot . '/assets');
+        $this->mkdir($this->webRoot . '/assets/css');
+        $this->mkdir($this->webRoot . '/assets/js');
+        $this->mkdir($this->webRoot . '/assets/img');
+        $this->mkdir($this->webRoot . '/assets/vendor');
         $this->mkdir('src/Controllers');
         $this->mkdir('src/Models');
         $this->mkdir('src/Views/home');
@@ -487,8 +511,8 @@ class Init extends Command
         );
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('app/schedule.php', $this->getScheduleTemplate());
-        $this->writeFile('www/index.php', $this->getIndexTemplate($namespace));
-        $this->writeFile('www/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n");
+        $this->writeFile($this->webRoot . '/index.php', $this->getIndexTemplate($namespace));
+        $this->writeFile($this->webRoot . '/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n");
         $catalog = $this->loadAssetCatalog();
         $this->writeFile('src/Application.php', $this->getApplicationTemplate($namespace, $selectedLibraries, $catalog));
         $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName));
@@ -910,6 +934,11 @@ class Init extends Command
             $content = $this->getFallbackStub($stubName);
         }
 
+        // Always available, because a stub's prose names the document root as often as its
+        // code does — and a comment that names the wrong directory is the same defect as a
+        // path that points at one. Supplied here rather than at 30 call sites.
+        $tokens['webRoot'] = $tokens['webRoot'] ?? $this->webRoot;
+
         foreach ($tokens as $key => $value) {
             $content = str_replace('{{ ' . $key . ' }}', $value, $content);
         }
@@ -1221,7 +1250,7 @@ class Init extends Command
         // Where the JS sources live: a build stack keeps them out of the web
         // root (only build output is published); the build-less stack serves
         // its sources directly, so they belong under www/.
-        $sourceDir  = $needsBuild ? 'frontend' : 'www/assets/js';
+        $sourceDir  = $needsBuild ? 'frontend' : $this->webRoot . '/assets/js';
 
         $tokens = [
             'appName'       => $appName,
@@ -1236,7 +1265,7 @@ class Init extends Command
             'appUrl'        => 'http://localhost:' . $appPort . ($appStyle === 'hybrid' ? '/app' : '/'),
             'sourceDir'     => $sourceDir,
             'assetBase'     => '/' . self::SPA_BUILD_DIR . '/',
-            'outDir'        => 'www/' . self::SPA_BUILD_DIR,
+            'outDir'        => $this->webRoot . '/' . self::SPA_BUILD_DIR,
             'manifestPath'  => self::SPA_BUILD_DIR . '/.vite/manifest.json',
             // Written by the dev server while it runs (see vite.config.js).
             'hotPath'       => self::SPA_BUILD_DIR . '/.vite/hot',
@@ -1300,7 +1329,7 @@ class Init extends Command
         if (in_array('auth', $features, true)) {
             $this->scaffoldSpaAdmin($spaStack, $sourceDir, $tokens);
         }
-        $this->writeFile('www/' . $shellFile, $this->renderStub('spa-shell.php', $tokens));
+        $this->writeFile($this->webRoot . '/' . $shellFile, $this->renderStub('spa-shell.php', $tokens));
 
         if ($needsBuild) {
             $this->scaffoldSpaBuildStack($spaStack, $sourceDir, $tokens, $uiSystem);
@@ -1359,7 +1388,7 @@ class Init extends Command
             // The theme's stylesheet is published to the web root, not left in
             // app/themes/ — that is where the browser loads it from, and where
             // an author edits the palette.
-            'themePath'   => 'www/assets/css/style.css',
+            'themePath'   => $this->webRoot . '/assets/css/style.css',
             'themeOutput' => $sourceDir . '/theme.css',
             // The colour this UI framework actually paints with, for a theme
             // that declares no custom properties of its own.
@@ -1553,7 +1582,7 @@ class Init extends Command
     {
         $this->mkdir('tests/js');
         $this->writeFile($sourceDir . '/main.js', $this->renderStub('spa-vanilla-main.js', $tokens));
-        $this->writeFile('www/assets/css/app.css', $this->getSpaPlainCss());
+        $this->writeFile($this->webRoot . '/assets/css/app.css', $this->getSpaPlainCss());
         $this->writeFile('tests/js/api.test.js', $this->renderStub('spa-api-client.node-test.js', $tokens));
 
         // A package.json with no dependencies at all — it exists so Node treats
@@ -1595,7 +1624,7 @@ class Init extends Command
                 . "RewriteCond %{REQUEST_FILENAME} !-d\n"
                 . "RewriteRule ^(.*)$ $shellFile [L]\n";
 
-            $this->writeFile('www/.htaccess', $rules);
+            $this->writeFile($this->webRoot . '/.htaccess', $rules);
             return;
         }
 
@@ -1612,7 +1641,7 @@ class Init extends Command
                 . "RewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n";
         }
 
-        $this->writeFile('www/.htaccess', $rules);
+        $this->writeFile($this->webRoot . '/.htaccess', $rules);
     }
 
     /**
@@ -1654,7 +1683,7 @@ class Init extends Command
     {
         $lines = "\n# Front end\nnode_modules/\n";
         if ($needsBuild) {
-            $lines .= 'www/' . self::SPA_BUILD_DIR . "/\n";
+            $lines .= $this->webRoot . '/' . self::SPA_BUILD_DIR . "/\n";
         }
 
         $path = $this->targetBaseDir . '/.gitignore';
@@ -1792,7 +1821,7 @@ CSS;
             return in_array(strtolower($option), ['y', 'yes', '1', 'true'], true);
         }
         $output->writeln("\n<comment>Step 2c — Git webhook</comment>");
-        return $helper->ask($input, $output, new ConfirmationQuestion('Generate git webhook receiver (www/webhook.php)? [y/N] ', false));
+        return $helper->ask($input, $output, new ConfirmationQuestion('Generate git webhook receiver (' . $this->webRoot . '/webhook.php)? [y/N] ', false));
     }
 
     /**
@@ -1830,7 +1859,7 @@ CSS;
     private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, array $enabledFeatures = [], string $localServerUrl = '', string $defaultApiKey = '', string $supportEmail = ''): void
     {
         $this->mkdir('scripts');
-        $this->mkdir('www/api/docs');
+        $this->mkdir($this->webRoot . '/api/docs');
 
         $appKey = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $namespace));
 
@@ -1886,8 +1915,14 @@ CSS;
         $gitignorePath = $this->targetBaseDir . '/.gitignore';
         if (file_exists($gitignorePath)) {
             $existing = (string) file_get_contents($gitignorePath);
-            if (!str_contains($existing, 'www/api/docs') && !$this->skipWrite('.gitignore')) {
-                file_put_contents($gitignorePath, "\n# API documentation output\nwww/api/openapi*.json\nwww/api/docs/\n", FILE_APPEND);
+            if (!str_contains($existing, $this->webRoot . '/api/docs') && !$this->skipWrite('.gitignore')) {
+                file_put_contents(
+                    $gitignorePath,
+                    "\n# API documentation output\n"
+                    . $this->webRoot . "/api/openapi*.json\n"
+                    . $this->webRoot . "/api/docs/\n",
+                    FILE_APPEND
+                );
             }
         }
     }
@@ -2348,7 +2383,7 @@ require ROOT . '/vendor/autoload.php';
 \$handler->handle();
 PHP;
 
-        $this->writeFile('www/webhook.php', $content);
+        $this->writeFile($this->webRoot . '/webhook.php', $content);
 
         // Append WEBHOOK_SECRET to .env.example if it exists
         $envExample = $this->targetBaseDir . '/.env.example';
@@ -2427,15 +2462,15 @@ require ROOT . '/vendor/autoload.php';
 \$app->exec();
 echo \$app->render();
 PHP;
-        $this->mkdir('www/api');
-        $this->writeFile('www/api/index.php', $apiIndex);
+        $this->mkdir($this->webRoot . '/api');
+        $this->writeFile($this->webRoot . '/api/index.php', $apiIndex);
 
         $apiHtaccess = "RewriteEngine On\n"
             . "RewriteRule ^\$ index.php [L]\n"
             . "RewriteCond %{REQUEST_FILENAME} !-f\n"
             . "RewriteCond %{REQUEST_FILENAME} !-d\n"
             . "RewriteRule ^(.*)\$ index.php?r=\$1 [QSA,L]\n";
-        $this->writeFile('www/api/.htaccess', $apiHtaccess);
+        $this->writeFile($this->webRoot . '/api/.htaccess', $apiHtaccess);
     }
 
     /**
@@ -2650,22 +2685,22 @@ PHP;
 
         $cssFile = $themeDir . '/style.css';
         if (file_exists($cssFile)) {
-            $this->writeFile('www/assets/css/style.css', file_get_contents($cssFile));
+            $this->writeFile($this->webRoot . '/assets/css/style.css', file_get_contents($cssFile));
         }
 
         $pfUtils = $this->scaffoldingDir . '/assets/js/pf-utils.js';
         if (file_exists($pfUtils)) {
-            $this->writeFile('www/assets/js/pf-utils.js', file_get_contents($pfUtils));
+            $this->writeFile($this->webRoot . '/assets/js/pf-utils.js', file_get_contents($pfUtils));
         }
 
         $pfWebauthn = $this->scaffoldingDir . '/assets/js/pf-webauthn.js';
         if (file_exists($pfWebauthn)) {
-            $this->writeFile('www/assets/js/pf-webauthn.js', file_get_contents($pfWebauthn));
+            $this->writeFile($this->webRoot . '/assets/js/pf-webauthn.js', file_get_contents($pfWebauthn));
         }
 
         $pfAuth = $this->scaffoldingDir . '/assets/js/pf-auth.js';
         if (file_exists($pfAuth)) {
-            $this->writeFile('www/assets/js/pf-auth.js', file_get_contents($pfAuth));
+            $this->writeFile($this->webRoot . '/assets/js/pf-auth.js', file_get_contents($pfAuth));
         }
 
         if ($uiSystem === 'bootstrap') {
@@ -2897,28 +2932,28 @@ HTML,
         }
 
         // Sized app icons → subdir. favicon.ico stays at the web root.
-        $this->mkdir('www/' . $this->faviconSubdir);
+        $this->mkdir($this->webRoot . '/' . $this->faviconSubdir);
         foreach (glob($src . '/*.png') ?: [] as $file) {
-            $target = 'www/' . $this->faviconSubdir . '/' . basename($file);
+            $target = $this->webRoot . '/' . $this->faviconSubdir . '/' . basename($file);
             if (!$this->skipWrite($target)) {
                 copy($file, $this->targetBaseDir . '/' . $target);
             }
         }
 
         $ico = $src . '/favicon.ico';
-        if (file_exists($ico) && !$this->skipWrite('www/favicon.ico')) {
-            copy($ico, $this->targetBaseDir . '/www/favicon.ico');
+        if (file_exists($ico) && !$this->skipWrite($this->webRoot . '/favicon.ico')) {
+            copy($ico, $this->targetBaseDir . '/' . $this->webRoot . '/favicon.ico');
         }
 
         // Config files → web root, with their internal icon paths rewritten.
         $manifest = $src . '/manifest.json';
         if (file_exists($manifest)) {
-            $this->writeFile('www/manifest.json', $this->rewriteFaviconManifest($manifest, $appName));
+            $this->writeFile($this->webRoot . '/manifest.json', $this->rewriteFaviconManifest($manifest, $appName));
         }
 
         $browserconfig = $src . '/browserconfig.xml';
         if (file_exists($browserconfig)) {
-            $this->writeFile('www/browserconfig.xml', $this->rewriteBrowserconfig($browserconfig));
+            $this->writeFile($this->webRoot . '/browserconfig.xml', $this->rewriteBrowserconfig($browserconfig));
         }
     }
 
@@ -3013,14 +3048,14 @@ HTML,
             return; // @codeCoverageIgnore — brand/logos is always present in the test tree
         }
 
-        $this->mkdir('www/assets/img');
+        $this->mkdir($this->webRoot . '/assets/img');
         $variants = [
             'pramnos-logo-wide.png'         => 'logo.png',
             'pramnos-logo-wide-inverse.png' => 'logo-inverse.png',
         ];
         foreach ($variants as $from => $to) {
-            if (file_exists($src . '/' . $from) && !$this->skipWrite('www/assets/img/' . $to)) {
-                copy($src . '/' . $from, $this->targetBaseDir . '/www/assets/img/' . $to);
+            if (file_exists($src . '/' . $from) && !$this->skipWrite($this->webRoot . '/assets/img/' . $to)) {
+                copy($src . '/' . $from, $this->targetBaseDir . '/' . $this->webRoot . '/assets/img/' . $to);
             }
         }
     }
@@ -3088,7 +3123,7 @@ HTML,
             }
             $manifest[$key] = [
                 'version'    => $lib['version'],
-                'local_path' => str_replace('assets/', 'www/assets/', $lib['local_path']),
+                'local_path' => str_replace('assets/', $this->webRoot . '/assets/', $lib['local_path']),
                 'css'        => [],
                 'js'         => [],
             ];
@@ -3123,7 +3158,7 @@ HTML,
      */
     private function downloadLibraryAssets(string $key, array $lib, bool $verbose): array
     {
-        $localBase = $this->targetBaseDir . '/www/' . $lib['local_path'];
+        $localBase = $this->targetBaseDir . '/' . $this->webRoot . '/' . $lib['local_path'];
         if (!is_dir($localBase)) {
             @mkdir($localBase, 0777, true);
         }
@@ -3164,7 +3199,7 @@ HTML,
         // copyBundledAssets is only called from scaffoldLibraries when skipDownload=false
         // and the library has "bundled": true — tests always use skipDownload=true.
         $sourceBase = $this->scaffoldingDir . DIRECTORY_SEPARATOR . ($lib['source_path'] ?? '');
-        $localBase  = $this->targetBaseDir . '/www/' . $lib['local_path'];
+        $localBase  = $this->targetBaseDir . '/' . $this->webRoot . '/' . $lib['local_path'];
 
         if (!is_dir($localBase)) {
             @mkdir($localBase, 0777, true);
@@ -4014,7 +4049,7 @@ PHP;
         $this->ensureHostUserEnv();
 
         $phpExts  = $isPostgres ? 'pdo_pgsql pgsql' : 'pdo_mysql mysqli';
-        $docRoot  = '/var/www/html/www';
+        $docRoot  = '/var/www/html/' . $this->webRoot;
 
         $dockerfile  = "FROM php:8.5-apache\n";
         // The database command-line client matching $dbType is installed on purpose:
@@ -4385,7 +4420,8 @@ BASH;
         $lines = ["SPA front end ($stack), $where:"];
 
         if (self::spaNeedsNode($spaStack)) {
-            $lines[] = '    Sources in <comment>frontend/</comment>, build output in <comment>www/' . self::SPA_BUILD_DIR . '/</comment>';
+            $lines[] = '    Sources in <comment>frontend/</comment>, build output in <comment>'
+                . $this->webRoot . '/' . self::SPA_BUILD_DIR . '/</comment>';
             if (!$this->spaBuilt) {
                 $lines[] = '    Build it with <comment>./' . $cliName . ' spa:build</comment>';
             }
@@ -5058,8 +5094,8 @@ PHP;
         }
 
         $needsBuild = self::spaNeedsNode($spaStack);
-        $shell      = $appStyle === 'hybrid' ? 'www/app.php' : 'www/spa.php';
-        $sourceDir  = $needsBuild ? 'frontend/' : 'www/assets/js/';
+        $shell      = $appStyle === 'hybrid' ? $this->webRoot . '/app.php' : $this->webRoot . '/spa.php';
+        $sourceDir  = $needsBuild ? 'frontend/' : $this->webRoot . '/assets/js/';
 
         $lines   = [];
         $lines[] = '## Front end (SPA)';
@@ -5080,7 +5116,7 @@ PHP;
         }
         $lines[] = "$shell" . str_repeat(' ', max(1, 20 - strlen($shell))) . 'the shell — asset tags + runtime config';
         if ($needsBuild) {
-            $lines[] = 'www/assets/spa/      BUILD OUTPUT — generated, never edit, never commit';
+            $lines[] = $this->webRoot . '/assets/spa/      BUILD OUTPUT — generated, never edit, never commit';
         }
         $lines[] = '```';
         $lines[] = '';
@@ -5248,7 +5284,7 @@ PHP;
             return "## Front end\n\n$where Sources live in `www/assets/js/` and are served as\n"
                 . "written — there is no build step. Run the tests with `./testjs`, and see\n"
                 . "[docs/FRONTEND_TESTING.md](docs/FRONTEND_TESTING.md) for how to write them.\n\n"
-                . $this->readmeDebugPanelNote('www/assets/js/');
+                . $this->readmeDebugPanelNote($this->webRoot . '/assets/js/');
         }
 
         return "## Front end\n\n$where Sources live in `frontend/`; the build output in\n"

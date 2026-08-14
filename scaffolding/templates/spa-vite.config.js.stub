@@ -2,7 +2,7 @@
  * Vite build for the {{ appName }} single-page application.
  *
  * The build writes content-hashed assets plus a manifest into
- * `www/assets/spa/`, which the PHP shell (www/{{ shellFile }}) reads to emit the
+ * `{{ outDir }}/`, which the PHP shell ({{ webRoot }}/{{ shellFile }}) reads to emit the
  * right <script>/<link> tags. Nothing is served by Vite in production — Apache
  * serves the built files, so the app has no Node runtime dependency.
  *
@@ -23,7 +23,7 @@ const HOT_FILE = '{{ outDir }}/.vite/hot';
  *
  * There is no index.html to open — the page is served by Apache, and only the
  * assets come from Vite. So the dev server writes its origin into a "hot" file
- * that www/{{ shellFile }} looks for: while it exists the shell loads the Vite
+ * that {{ webRoot }}/{{ shellFile }} looks for: while it exists the shell loads the Vite
  * client and the entry module from the dev server (HMR included), and once it
  * is gone the shell falls back to the built files. Open the *application* URL,
  * not the Vite port.

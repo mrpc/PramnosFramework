@@ -114,6 +114,29 @@ With Docker (`--docker=y`), `--no-install` also skips the framework migrations t
 follow, since those run the new application's own CLI and need the autoloader that was
 not generated.
 
+### Serving from a directory other than `www` — `--web-root`
+
+The scaffold writes its document root as `www/` by convention, and that was hardcoded in 38
+places. A consumer reported it through the one that hurt: the SPA build wrote to
+`www/assets/spa` whatever the project's real document root was, so a project served from
+anywhere else built its front end into a directory nothing serves — **and the symptom is a blank
+page, not an error**, because the manifest is simply not where the shell looks for it.
+
+```bash
+php bin/pramnos init --web-root=public
+```
+
+Everything under the document root follows it: the directory, the front controller, `.htaccess`,
+assets, favicons, the API entry point, the SPA shell and build output, the `.gitignore` lines,
+the Docker `DocumentRoot`, and the prose in generated files that names the path. A half-applied
+option would be worse than none — a project that looks configured and is broken in a way the
+configuration appears to explain — so there is a test that scaffolds with a non-default root and
+asserts on the **tree**, including that nothing was left in `www/`.
+
+Slashes and whitespace are trimmed, so `--web-root=/public/` works. An empty value falls back to
+`www` rather than scaffolding a front controller into the repository root, which is easy to
+produce from a shell variable that did not expand and difficult to undo.
+
 | Flag | Skips |
 | --- | --- |
 | `--no-install` | `composer update` and `dump-autoload` (and, under Docker, the migrations that need them) |

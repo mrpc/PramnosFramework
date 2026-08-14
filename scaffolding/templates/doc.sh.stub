@@ -63,4 +63,4 @@ else
   $DC_RUN sh -c "$GEN_CMD"
 fi
 
-echo "Done. Documentation available at www/api/docs/index.html"
+echo "Done. Documentation available at {{ webRoot }}/api/docs/index.html"

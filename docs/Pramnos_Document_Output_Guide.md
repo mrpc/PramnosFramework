@@ -314,7 +314,7 @@ vendoring these files on the strength of that change. To serve them yourself:
 'documentAssetSource' => 'local',
 ```
 
-which registers them at the paths the legacy framework used:
+which registers all three at the paths the legacy framework used:
 
 | Handle | `local` path |
 | --- | --- |
@@ -322,7 +322,30 @@ which registers them at the paths the legacy framework used:
 | `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js` |
 | `jquery-inputmask` | `plugins/input-mask/jquery.inputmask.js` |
 
-Provide those files, as you do for every other local registration.
+**Check the files exist before switching.** `local` does not verify anything — it changes a URL,
+and a URL with nothing behind it is a 404 the browser reports and PHP does not:
+
+```bash
+ls media/js/jquery/jquery.min.js \
+   plugins/datepicker/bootstrap-datepicker.js \
+   plugins/input-mask/jquery.inputmask.js
+```
+
+**So it takes a list as well as `'local'`**, for the common case of having vendored some and not
+others:
+
+```php
+'documentAssetSource' => ['jquery'],   // jquery local; the other two stay on the CDN
+```
+
+That form exists because a consumer reported the all-or-nothing version within a day of it
+shipping: they had `jquery.min.js` vendored and **no `plugins/` directory at all**, so `'local'`
+would have 404'd two of the three. Their choice was between a GDPR problem they wanted to fix and
+two broken scripts, when what they needed was to fix the one they could.
+
+A comma-separated string and a JSON array are accepted too, because settings round-trip a list
+differently depending on how it was stored and three of the four spellings producing silence would
+be worse than not taking a list at all.
 
 ### CSS Management
 
