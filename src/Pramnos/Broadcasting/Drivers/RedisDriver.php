@@ -84,7 +84,12 @@ class RedisDriver implements SubscribableDriverInterface
         $prefixed = array_map(fn (string $c): string => $this->prefix . $c, array_values($channels));
         $deadline = $options->maxRuntime !== null ? time() + $options->maxRuntime : null;
 
-        $connection = $this->openSubscriber($options->readTimeout);
+        // The read timeout is a connection option here rather than a per-read argument, so the
+        // clamp has to be applied when the connection is opened and again on every reconnect.
+        // Without it the last blocking read runs past the deadline and the stream ends
+        // somewhere in [maxRuntime, maxRuntime + readTimeout] — see
+        // SubscriptionOptions::blockingWindow().
+        $connection = $this->openSubscriber($options->blockingWindow($deadline));
 
         try {
             while (true) {
@@ -121,7 +126,7 @@ class RedisDriver implements SubscribableDriverInterface
                     }
 
                     $this->closeQuietly($connection);
-                    $connection = $this->openSubscriber($options->readTimeout);
+                    $connection = $this->openSubscriber($options->blockingWindow($deadline));
                 }
             }
         } finally {

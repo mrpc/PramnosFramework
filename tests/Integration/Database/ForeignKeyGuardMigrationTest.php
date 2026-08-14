@@ -54,8 +54,38 @@ class ForeignKeyGuardMigrationTest extends TestCase
         $this->app = new Application();
         $this->app->database = $this->db;
 
+        // `users` is shared state this class only ever alters — it adds a column and a
+        // constraint to it — so it has to exist before the scenarios can run. It usually does,
+        // because an earlier class created it, which is why `--filter ForeignKeyGuardMigrationTest`
+        // alone failed with `relation "users" does not exist` while the full suite passed. A
+        // class that only works in one order cannot be used to narrow down a failure.
+        //
+        // Created only when absent, and never dropped: other classes own richer versions of this
+        // table, and replacing theirs would move the problem rather than remove it.
+        $this->ensureUsersTable();
+
         // Start from the known-clean state this file's scenarios build on.
         $this->cleanup();
+    }
+
+    /**
+     * Creates a minimal `users` table if the database has none.
+     *
+     * Just a primary key — this class asserts on a foreign key *to* `locations`, and nothing it
+     * does looks at any other column.
+     *
+     * @return void
+     */
+    private function ensureUsersTable(): void
+    {
+        if ($this->tableExists('users')) {
+            return;
+        }
+
+        $this->statement(
+            'CREATE TABLE users (userid ' . $this->autoKey() . ', username VARCHAR(100))',
+            true
+        );
     }
 
     protected function tearDown(): void

@@ -359,15 +359,18 @@ class McpToolsTest extends TestCase
     // ── RouteListTool ─────────────────────────────────────────────────────────
 
     /**
-     * RouteListTool must return an error when no router is available.
+     * With no router and no discoverable routes, the error says what was looked for.
      *
-     * The app mock has no router property, so the tool should degrade
-     * gracefully.
+     * This tool is only ever reached through `mcp:serve`, and the console kernel builds no
+     * router — routing is an HTTP concern. So `{"error": "No router available"}` was not a
+     * defensive fallback but the tool's entire behaviour on its only path. It now builds a
+     * router and discovers `#[Route]` attributes, which need no HTTP request; when that finds
+     * nothing, the answer has to be actionable rather than a dead end.
      */
-    public function testRouteListToolReturnsErrorWhenNoRouter(): void
+    public function testRouteListToolExplainsItselfWhenThereAreNoRoutes(): void
     {
         // Arrange
-        $app        = $this->createMock(\Pramnos\Application\Application::class);
+        $app         = $this->createMock(\Pramnos\Application\Application::class);
         $app->router = null;
         $tool        = new RouteListTool($app);
 
@@ -376,6 +379,119 @@ class McpToolsTest extends TestCase
 
         // Assert
         $this->assertArrayHasKey('error', $result);
+        $this->assertStringNotContainsString(
+            'No router available',
+            $result['error'],
+            'The old message named the framework’s internals rather than the reader’s problem.'
+        );
+        $this->assertArrayHasKey('searched', $result, 'It must say where it looked.');
+        $this->assertArrayHasKey('note', $result, 'And why a dispatching routes.php cannot be listed.');
+    }
+
+    /**
+     * With no router, it discovers `#[Route]` attributes from the application's own PSR-4 map.
+     *
+     * This is the path that actually runs under `mcp:serve`. The directories come from the
+     * application's `composer.json` rather than an assumed `src/Controllers`, because that map
+     * is what the autoloader uses and a project that moved its controllers would otherwise get
+     * the old dead end with extra steps.
+     */
+    public function testRouteListToolDiscoversAttributeRoutesFromComposerJson(): void
+    {
+        // Arrange — a throwaway project with one attribute-routed controller
+        $root = sys_get_temp_dir() . '/mcp_routes_' . bin2hex(random_bytes(4));
+        mkdir($root . '/src/Controllers', 0777, true);
+        file_put_contents($root . '/composer.json', json_encode([
+            'autoload' => ['psr-4' => ['McpRouteProbe\\' => 'src/']],
+        ]));
+
+        $class = 'Probe' . bin2hex(random_bytes(3));
+        file_put_contents($root . '/src/Controllers/' . $class . '.php', <<<PHP
+<?php
+namespace McpRouteProbe\Controllers;
+
+class {$class}
+{
+    #[\Pramnos\Routing\Attributes\Route('/probe', methods: ['GET'])]
+    public function index(): string
+    {
+        return 'ok';
+    }
+}
+PHP);
+
+        // APP_PATH points *inside* the project root, which is why the tool takes its dirname.
+        $app = new class extends \Pramnos\Application\Application {
+            /** Bypasses the real boot. */
+            public function __construct()
+            {
+            }
+        };
+        $app->router = null;
+
+        $tool = new class ($app, $root) extends RouteListTool {
+            /**
+             * @param \Pramnos\Application\Application $app  The application
+             * @param string                            $root Project root to search
+             */
+            public function __construct(\Pramnos\Application\Application $app, private string $root)
+            {
+                parent::__construct($app);
+            }
+
+            /**
+             * Overrides the APP_PATH-derived root, which a test cannot redefine.
+             *
+             * @return array<string, string> Namespace => directory
+             */
+            protected function projectRoot(): string
+            {
+                return $this->root;
+            }
+        };
+
+        // Act
+        $result = $tool->execute([]);
+
+        // Assert
+        $this->assertArrayNotHasKey('error', $result, 'Attribute routes must be discoverable.');
+        $uris = array_column($result, 'uri');
+        $this->assertContains('/probe', $uris);
+
+        // Cleanup
+        exec('rm -rf ' . escapeshellarg($root));
+    }
+
+    /**
+     * A router the application already built is used as it is.
+     *
+     * Under an HTTP request there is one, and rebuilding it would be both wasteful and wrong —
+     * it would miss every route registered by hand rather than by attribute.
+     */
+    public function testRouteListToolUsesAnExistingRouter(): void
+    {
+        // Arrange — a real Application, not a mock. Pramnos\Framework\Base defines __get()
+        // and __set(), and mocking the class replaces them with stubs, so `$app->router = …`
+        // is silently swallowed and reads back as null. A test written with a mock here would
+        // pass while proving the opposite of what it says.
+        $app = new class extends \Pramnos\Application\Application {
+            /** Bypasses the real boot, which wants settings and a database. */
+            public function __construct()
+            {
+            }
+        };
+
+        $router = new \Pramnos\Routing\Router($app);
+        $router->addRoute('/things', 'GET', 'Things@index');
+        $app->router = $router;
+        $tool        = new RouteListTool($app);
+
+        // Act
+        $result = $tool->execute([]);
+
+        // Assert
+        $this->assertArrayNotHasKey('error', $result);
+        $this->assertNotEmpty($result, 'A registered route must be listed.');
     }
 
     /**

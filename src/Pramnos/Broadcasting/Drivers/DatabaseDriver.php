@@ -106,7 +106,7 @@ class DatabaseDriver implements SubscribableDriverInterface
             if ($deadline !== null && time() >= $deadline) {
                 break;
             }
-            ($this->sleeper)($options->readTimeout * 1000);
+            ($this->sleeper)($options->blockingWindow($deadline) * 1000);
         }
     }
 }

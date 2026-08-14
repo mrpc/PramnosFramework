@@ -350,6 +350,24 @@ Every scaffolded project gets two files aimed at coding assistants:
   project whose settings load fails for any reason would otherwise have shown the
   framework's generic default for every one of its servers.
 
+  **The five tools, and what `route-list` can actually see.** `list-tables`,
+  `migration-status`, `model-inspect`, `query-schema` and `route-list`.
+
+  `route-list` runs under the **console** kernel, which builds no router — routing is an HTTP
+  concern. So it builds one and discovers `#[Route]` attributes, using the PSR-4 map in the
+  project's own `composer.json` rather than assuming `src/Controllers`. That means:
+
+  - **attribute-routed controllers are listed**, with methods, URIs, actions and permissions;
+  - **routes registered inside a `routes.php` that dispatches at the end cannot be** — including
+    that file would serve a request rather than describe one, and the tool says so instead of
+    returning nothing.
+
+  Until 2026-08-14 it answered `{"error": "No router available"}` on every call, and
+  `query-schema` returned PostgreSQL's `ERROR: column "conname" does not exist` — both inside
+  `content[0].text` with `isError` false, so a server advertising five working tools had two that
+  could not answer and nothing said so. Worth knowing as a shape: an MCP tool that returns an
+  error *as a result* is invisible to anything watching for failures.
+
 ### Favicons & branding
 
 `init` scaffolds a complete favicon / PWA-icon set into every new project, copied from the

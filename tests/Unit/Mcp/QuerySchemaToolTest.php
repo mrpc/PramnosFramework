@@ -415,6 +415,40 @@ class QuerySchemaToolTest extends TestCase
             'PostgreSQL FK query must filter by constraint_type = FOREIGN KEY');
     }
 
+    /**
+     * The PostgreSQL FK query must not select `conname`.
+     *
+     * `conname` is a column of `pg_constraint`; this query reads `information_schema`, so
+     * PostgreSQL answered `ERROR: column "conname" does not exist` — and the tool returned that
+     * message inside `content[0].text` with `isError` false, which is how an MCP server
+     * advertising five working tools had two that could not answer.
+     *
+     * The test above asserted the right *table* and was satisfied, which is why the wrong
+     * *column* survived it. This asserts the column.
+     */
+    public function testExecutePostgresqlForeignKeyQuerySelectsAValidColumn(): void
+    {
+        // Arrange
+        $db   = $this->buildDb('postgresql');
+        $tool = new QuerySchemaTool($db);
+
+        // Act
+        $tool->execute(['table' => 'measurements']);
+
+        // Assert
+        $sql = $this->sqlLog[2];
+        $this->assertStringContainsString(
+            'tc.constraint_name AS name',
+            $sql,
+            'The constraint name must come from information_schema.table_constraints.'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?<![.\w])conname\b/',
+            $sql,
+            'conname belongs to pg_constraint and does not exist in information_schema.'
+        );
+    }
+
     // =========================================================================
     // Defensive null-check in fetch* methods
     // =========================================================================

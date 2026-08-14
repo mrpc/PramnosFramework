@@ -115,7 +115,12 @@ class QuerySchemaTool implements McpToolInterface
     {
         if ($this->db->type === 'postgresql') {
             $sql = $this->db->prepareQuery(
-                "SELECT conname AS name,
+                // `tc.constraint_name`, not `conname`: conname is a pg_constraint column and
+                // this query reads information_schema, so the original raised
+                // `ERROR: column "conname" does not exist` — returned inside content[0].text
+                // with isError false, which is why five advertised tools looked like five
+                // working ones.
+                "SELECT tc.constraint_name AS name,
                         kcu.column_name,
                         ccu.table_name  AS referenced_table,
                         ccu.column_name AS referenced_column,
