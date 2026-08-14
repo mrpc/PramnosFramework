@@ -132,24 +132,22 @@ if (!function_exists("loadDotenv")) {
     }
 }
 
-if (!function_exists('l') && !class_exists("pramnos_theme")) {
+if (!function_exists('l')) {
     /**
      * Alias of echo $lang->_('string');
+     *
+     * Until 2026-08-14 this was declared twice, choosing between the framework's Factory and
+     * `pramnos_factory` from a deprecated CMS, and was skipped entirely when a `pramnos_theme`
+     * class existed. Neither class ships here, so the branch could only ever be taken by an
+     * application that carried its own copy — and the guard silently left `l()` undefined for
+     * one that did.
      */
-    if (class_exists('pramnos_factory')) {
-        function l(){
-            $lang = \pramnos_factory::getLanguage();
-            $params = func_get_args();
-            echo call_user_func_array(array($lang,'_'), $params);
-        }
-    } else {
-        function l(){
-            $lang = \Pramnos\Framework\Factory::getLanguage();
-            $params = func_get_args();
-            echo call_user_func_array(array($lang,'_'), $params);
-        }
+    function l()
+    {
+        $lang = \Pramnos\Framework\Factory::getLanguage();
+        $params = func_get_args();
+        echo call_user_func_array(array($lang, '_'), $params);
     }
-
 }
 
 if (!function_exists('e')) {

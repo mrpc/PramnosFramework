@@ -42,9 +42,7 @@ class Addon extends \Pramnos\Framework\Base
     public function __construct()
     {
         if (is_numeric(substr($this->name, 0, 1))) {
-            #$this->_form = new pramnos_html_form('_' . $this->name, false);
         } else {
-            #$this->_form = new pramnos_html_form($this->name, false);
         }
         parent::__construct();
         return $this;

@@ -711,7 +711,18 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $this->originalOtherinfo = $this->otherinfo;
 
         if ($this->avatarurl === '' or $this->avatarurl === NULL) {
-            $this->avatarurl = sURL . 'media/img/pramnoscms/noavatar.jpg';
+            // Until 2026-08-14 this was `sURL . 'media/img/pramnoscms/noavatar.jpg'` — a path
+            // into a deprecated CMS's asset folder for a file the framework has never
+            // shipped. Every user without an avatar got a URL that 404s.
+            //
+            // The framework cannot supply a default image it does not have, so the fallback
+            // is configuration: set `defaultAvatarUrl` in the application settings to a file
+            // that exists. Left unset, this stays empty and the template decides — which is
+            // the only honest answer, and lets a view render initials or an inline SVG
+            // instead of an image.
+            $this->avatarurl = (string) \Pramnos\Application\Settings::getSetting(
+                'defaultAvatarUrl'
+            );
         }
 
         if ($this->_isnew == false) {
