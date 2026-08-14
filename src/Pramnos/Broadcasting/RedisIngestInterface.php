@@ -51,7 +51,12 @@ interface RedisIngestInterface
     /**
      * Read what is available — without blocking — and return complete messages.
      *
-     * @return list<array{channel: string, message: string}>
+     * Each message carries the stream **entry id** as well as its channel and payload, so a
+     * consumer can tell when the event was published. An implementation that has no notion of
+     * one — a pub/sub bridge, for instance — may return an empty string, and a router written
+     * against it keeps working because the id arrives as a defaulted argument.
+     *
+     * @return list<array{channel: string, message: string, id?: string}>
      */
     public function drain(): array;
 

@@ -399,6 +399,50 @@ given the gap. `cursors()` returns the position per stream — persist it, hand 
 back as the constructor's third argument, and a redeploy costs nothing. With no
 cursor supplied, reading starts at `$`: new entries only.
 
+#### The ingest router gets the entry id, and an ephemeral event needs it
+
+`useIngestRouter()` maps one ingested message to zero or more WebSocket deliveries. Its
+callback receives **four** arguments:
+
+```php
+$server->useIngestRouter(
+    function (string $channel, string $event, $payload, ?string $id = null): array {
+        // $id is the backplane entry id — null for a pub/sub ingest, which has none
+        return [[$channel, $event, $payload]];
+    }
+);
+```
+
+The id is passed last and defaulted, so a router written with three parameters keeps working
+unchanged.
+
+**Declare it when an event's meaning depends on when it was published.** The case that makes
+this concrete is an *ephemeral* event — a typing indicator, a transient presence cue. It carries
+no timestamp of its own, and a consumer naturally sets state from receipt time, so a **replayed**
+cue announces that somebody is typing who stopped minutes ago:
+
+```php
+function (string $channel, string $event, $payload, ?string $id = null): array {
+    // Redis Stream ids are "<milliseconds>-<sequence>"
+    if ($event === 'typing' && $id !== null) {
+        $publishedAt = (int) explode('-', $id)[0];
+        if ($publishedAt < (int) (microtime(true) * 1000) - 10_000) {
+            return [];   // too old to mean anything
+        }
+    }
+
+    return [[$channel, $event, $payload]];
+}
+```
+
+Until 2026-08-14 the ingest consumed the id to advance its cursor and dropped it, so a WebSocket
+worker could not do this while an SSE stream could — `SseWriter::stream()` has always passed the
+id to `onEvent`. The asymmetry stayed invisible because **a worker starting at `$` never
+replays**: persisting `cursors()`, which is the whole advantage described above, is exactly the
+change that would have surfaced it — as stale cues for every WebSocket client at once, after a
+deploy. Cursor persistence and correct ephemeral handling were mutually exclusive; they are not
+now.
+
 ### Authentication
 
 By default the server is permissive (`AllowAllAuthorizer`) for local dev. In

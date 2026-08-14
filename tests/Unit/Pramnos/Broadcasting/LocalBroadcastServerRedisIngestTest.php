@@ -127,4 +127,122 @@ class LocalBroadcastServerRedisIngestTest extends TestCase
             @fclose($s);
         }
     }
+
+    /**
+     * A router that declares a fourth parameter receives the backplane entry id.
+     *
+     * Until 2026-08-14 the ingest consumed the id to advance its cursor and dropped it, so a
+     * WebSocket worker could not tell *when* an event was published — while an SSE stream could,
+     * because `SseWriter::stream()` has always passed the id to `onEvent`.
+     *
+     * The asymmetry mattered for ephemeral events, which carry no timestamp of their own: a
+     * consumer that sets state from receipt time shows a replayed "someone is typing…" for
+     * somebody who stopped minutes ago. It stayed invisible only because a worker starts at `$`
+     * and never replays — and persisting cursors, which is the whole advantage of reading a
+     * stream over subscribing to one, is exactly the change that would have made it visible for
+     * every WebSocket client at once.
+     */
+    public function testARouterCanReceiveTheEntryId(): void
+    {
+        // Arrange — an ingest that supplies one message with an id
+        $ingest = new class implements \Pramnos\Broadcasting\RedisIngestInterface {
+            /** @return void */
+            public function connect(): void
+            {
+            }
+
+            /** @return resource|null */
+            public function getStream()
+            {
+                return null;
+            }
+
+            /** @return list<array{channel: string, message: string, id: string}> */
+            public function drain(): array
+            {
+                return [[
+                    'channel' => 'chat:updates',
+                    'message' => '{"event":"typing","payload":{"user":"alice"}}',
+                    'id'      => '1700000000123-0',
+                ]];
+            }
+
+            /** @return void */
+            public function close(): void
+            {
+            }
+        };
+
+        $server = new LocalBroadcastServer();
+        $server->useRedisIngest($ingest);
+
+        $seen = [];
+        $server->useIngestRouter(
+            function (string $channel, string $event, $payload, ?string $id = null) use (&$seen): array {
+                $seen = ['event' => $event, 'id' => $id];
+
+                return [];   // nothing to deliver; the argument is what is under test
+            }
+        );
+
+        // Act
+        (new \ReflectionMethod($server, 'drainRedisIngest'))->invoke($server);
+
+        // Assert
+        $this->assertSame('typing', $seen['event']);
+        $this->assertSame('1700000000123-0', $seen['id']);
+    }
+
+    /**
+     * An ingest with no notion of an id hands the router null.
+     *
+     * `RedisSubscriberSocket` is pub/sub and has no entry ids, so a router must be able to tell
+     * "published at this point in the stream" from "no such thing here" — rather than receiving
+     * an empty string it might mistake for one.
+     */
+    public function testAnIngestWithoutIdsPassesNull(): void
+    {
+        // Arrange
+        $ingest = new class implements \Pramnos\Broadcasting\RedisIngestInterface {
+            /** @return void */
+            public function connect(): void
+            {
+            }
+
+            /** @return resource|null */
+            public function getStream()
+            {
+                return null;
+            }
+
+            /** @return list<array{channel: string, message: string}> */
+            public function drain(): array
+            {
+                return [['channel' => 'chat:updates', 'message' => '{"event":"ping"}']];
+            }
+
+            /** @return void */
+            public function close(): void
+            {
+            }
+        };
+
+        $server = new LocalBroadcastServer();
+        $server->useRedisIngest($ingest);
+
+        $seenId = 'untouched';
+        $server->useIngestRouter(
+            function (string $channel, string $event, $payload, ?string $id = null) use (&$seenId): array {
+                $seenId = $id;
+
+                return [];
+            }
+        );
+
+        // Act
+        (new \ReflectionMethod($server, 'drainRedisIngest'))->invoke($server);
+
+        // Assert
+        $this->assertNull($seenId);
+    }
 }

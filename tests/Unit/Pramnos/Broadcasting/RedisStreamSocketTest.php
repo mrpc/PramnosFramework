@@ -194,8 +194,41 @@ class RedisStreamSocketTest extends TestCase
         // Act
         $messages = $ingest->drain();
 
+        // Assert — the entry id travels with the message
+        $this->assertSame(
+            [['channel' => 'app:chat', 'message' => $envelope, 'id' => '1700000000000-0']],
+            $messages
+        );
+    }
+
+    /**
+     * The entry id is handed on, not just used for the cursor.
+     *
+     * Until 2026-08-14 it was consumed to advance the cursor and dropped, so a WebSocket worker
+     * could not tell when an event was published — while an SSE stream could, because
+     * `SseWriter::stream()` has always passed the id to `onEvent`.
+     *
+     * That asymmetry is not academic. An ephemeral event carries no timestamp of its own, so a
+     * consumer that sets state from receipt time shows a replayed "someone is typing…" for
+     * somebody who stopped minutes ago. It stayed invisible only because a worker starts at `$`
+     * and never replays — and **persisting cursors, which is the point of reading a stream, is
+     * exactly the change that would have made it visible**, for every WebSocket client at once
+     * after a deploy.
+     */
+    public function testTheEntryIdTravelsWithEveryMessage(): void
+    {
+        // Arrange — two entries, so ordering and per-entry ids are both covered
+        $ingest = $this->ingest();
+        $this->reply($this->entry('app:chat', '1700000000001-0', ['envelope' => '{"event":"a"}'])
+            . $this->entry('app:chat', '1700000000002-5', ['envelope' => '{"event":"b"}']));
+
+        // Act
+        $messages = $ingest->drain();
+
         // Assert
-        $this->assertSame([['channel' => 'app:chat', 'message' => $envelope]], $messages);
+        $this->assertCount(2, $messages);
+        $this->assertSame('1700000000001-0', $messages[0]['id']);
+        $this->assertSame('1700000000002-5', $messages[1]['id']);
     }
 
     /**

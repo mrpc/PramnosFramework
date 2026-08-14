@@ -243,7 +243,7 @@ class RedisStreamSocket implements RedisIngestInterface
      * over as a JSON object of its fields rather than dropped.
      *
      * @param  array<int, mixed> $reply
-     * @return list<array{channel: string, message: string}>
+     * @return list<array{channel: string, message: string, id: string}>
      */
     private function entriesOf(array $reply): array
     {
@@ -276,6 +276,18 @@ class RedisStreamSocket implements RedisIngestInterface
                     'message' => isset($fields['envelope'])
                         ? (string) $fields['envelope']
                         : (string) json_encode($fields),
+                    // The entry id, which until 2026-08-14 was consumed for the cursor and
+                    // dropped. A WebSocket worker therefore could not tell *when* an event was
+                    // published, while an SSE stream could — `SseWriter::stream()` has always
+                    // passed the id to `onEvent`.
+                    //
+                    // That asymmetry is not academic: an ephemeral event carries no timestamp of
+                    // its own, so a consumer that sets state from receipt time shows a replayed
+                    // "someone is typing…" for somebody who stopped minutes ago. It stayed
+                    // invisible only because a worker starts at `$` and never replays —
+                    // persisting cursors, which is the point of reading a stream, is exactly the
+                    // change that would have made it visible, for every WebSocket client at once.
+                    'id' => $id,
                 ];
             }
         }
