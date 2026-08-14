@@ -557,6 +557,57 @@ $emails = $db->queryBuilder()->from('users')->where('active', 1)->pluck('email')
 // → ['alice@example.com', 'bob@example.com', ...]
 ```
 
+#### `getAll()` and `pluck()` answer `[]` for a failed query too — and only on PostgreSQL
+
+`get()` keeps the distinction: **`false`** when the query failed, a `Result` when it succeeded
+*including* when it matched nothing. `getAll()` and `pluck()` collapse both into `[]`, which is
+the convenience they exist for.
+
+Which engine you are on decides whether that can hide anything. With `throwOnError` off — the
+default — a failed prepare **returns `false` on PostgreSQL** and **throws on MySQL**:
+
+| | A missing table, via `getAll()` |
+| --- | --- |
+| PostgreSQL | `[]` — indistinguishable from an empty table |
+| MySQL | throws `mysqli_sql_exception` |
+
+So an application developed against one and deployed against the other gets a different failure
+mode for free.
+
+**Where this bites is not the method, it is where the method gets reached for.** `getAll()` is
+the obvious way to read a list, and the lists whose empty answer is most plausible are the ones
+where it is most consequential — **settings, permissions, bans, allowlists**. A ban list that
+failed to read is an empty ban list, and one cache call later it is a *cached* empty ban list,
+outliving the failure that caused it.
+
+That is not hypothetical. A consumer renamed their `settings` table away and their
+`getGlobalSettings()` returned `array()` without throwing; the answer was cached as the
+installation's configuration, so every feature toggle sat at its compiled-in default for the
+whole TTL, with nothing in the logs.
+
+Three ways to keep the distinction, cheapest first:
+
+```php
+// 1. get() and check — no new API, works everywhere
+$result = $db->queryBuilder()->from('url_blacklist')->get();
+if ($result === false) {
+    throw new \RuntimeException('blacklist unreadable — refusing to treat it as empty');
+}
+$patterns = $result->fetchAll();
+
+// 2. getAllOrFail() — the same as getAll(), except a failed query throws QueryException.
+//    One exception type on both drivers, so the per-driver split above stops mattering.
+$patterns = $db->queryBuilder()->from('url_blacklist')->getAllOrFail();
+
+// 3. connection-wide, when everything in a process should be loud
+$db->throwOnError = true;
+```
+
+Reach for (2) on a read whose empty answer would be a decision, and **especially** when the
+answer is about to be cached. See
+[How database failures surface](Pramnos_Database_API_Guide.md#how-database-failures-surface-and-throwonerror)
+for the driver detail.
+
 ### Advanced Features
 
 #### Window Functions
