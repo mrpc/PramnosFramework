@@ -189,6 +189,42 @@ class DefaultRegistrationsTest extends TestCase
     }
 
     /**
+     * A handle can be served locally on its own, leaving the others on the CDN.
+     *
+     * All-or-nothing was the wrong shape and a consumer proved it within a day: they had
+     * `media/js/jquery/jquery.min.js` vendored and **no `plugins/` directory at all**, so
+     * switching to `'local'` would have 404'd two of the three. Their choice was between a GDPR
+     * problem they wanted to fix and two broken scripts, when what they needed was to fix the one
+     * they could.
+     */
+    public function testASingleHandleCanBeServedLocally(): void
+    {
+        // Arrange — only jquery is vendored here
+        \Pramnos\Application\Settings::setSetting('documentAssetSource', ['jquery']);
+        Document::reset();
+
+        try {
+            // Act
+            $document = Document::getInstance('html');
+            $registry = new \ReflectionProperty(Document::class, '_js');
+            $all      = (array) $registry->getValue($document);
+
+            // Assert — jquery local, the two without files still remote
+            $this->assertStringNotContainsString('cdnjs', (string) ($all['jquery']['src'] ?? ''));
+            $this->assertStringContainsString(
+                'cdnjs',
+                (string) ($all['bootstrap-datepicker']['src'] ?? ''),
+                'A handle nobody vendored must stay on the CDN rather than 404.'
+            );
+            $this->assertStringContainsString('cdnjs', (string) ($all['jquery-inputmask']['src'] ?? ''));
+        } finally {
+            // Cleanup
+            \Pramnos\Application\Settings::setSetting('documentAssetSource', '');
+            Document::reset();
+        }
+    }
+
+    /**
      * The three CDN defaults come from the CDN unless an application says otherwise.
      *
      * The default is unchanged deliberately: flipping it would break every application that

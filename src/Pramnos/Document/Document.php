@@ -156,6 +156,17 @@ class Document extends \Pramnos\Framework\Base
      *
      * @return bool True to use the CDN — the default
      */
+    /**
+     * The handles `documentAssetSource` governs.
+     *
+     * The three that point at a CDN. Everything else in the constructor is local already, so
+     * naming one of them in the setting does nothing — which is worth knowing rather than
+     * discovering.
+     *
+     * @var string[]
+     */
+    private const CDN_HANDLES = ['jquery', 'bootstrap-datepicker', 'jquery-inputmask'];
+
     protected static function servesDefaultsFromCdn(): bool
     {
         try {
@@ -166,21 +177,93 @@ class Document extends \Pramnos\Framework\Base
             return true;
         }
 
+        // A list of handles serves exactly those locally and leaves the rest on the CDN. That
+        // exists because all-or-nothing was the wrong shape, and a consumer proved it within a
+        // day: they had `media/js/jquery/jquery.min.js` vendored and **no `plugins/` directory
+        // at all**, so switching to 'local' would have 404'd two of the three scripts. Their
+        // choice was between a GDPR problem they wanted to fix and two broken scripts, when what
+        // they actually needed was to fix the one they could.
+        if (is_array($configured)) {
+            // Per-handle: some from the CDN, some not. "Is it the CDN" has no single answer,
+            // and the callers that matter ask localHandles() instead.
+            return $configured === [];
+        }
+
         return strtolower(trim((string) $configured)) !== 'local';
+    }
+
+    /**
+     * Handles the application has asked to serve locally, by name.
+     *
+     * Returned for the array form of `documentAssetSource`. `'local'` on its own is equivalent to
+     * naming all three; the list exists for the common case of having vendored some and not
+     * others.
+     *
+     * ```php
+     * // I have jquery locally; the other two are still on the CDN
+     * 'documentAssetSource' => ['jquery'],
+     * ```
+     *
+     * @return array<string, true> Handle => true
+     */
+    protected static function localHandles(): array
+    {
+        try {
+            $configured = \Pramnos\Application\Settings::getSetting('documentAssetSource');
+        } catch (\Throwable) {
+            return [];
+        }
+
+        // Settings round-trip a list as an array, an stdClass or a JSON string depending on how
+        // it was stored, and a comma-separated string is what somebody types. All four mean the
+        // same thing, so all four are accepted rather than three of them producing silence.
+        if (is_object($configured)) {
+            $configured = (array) $configured;
+        }
+
+        if (is_string($configured)) {
+            $trimmed = trim($configured);
+
+            if (strtolower($trimmed) === 'local') {
+                return array_fill_keys(self::CDN_HANDLES, true);
+            }
+
+            if ($trimmed !== '' && $trimmed[0] === '[') {
+                $decoded    = json_decode($trimmed, true);
+                $configured = is_array($decoded) ? $decoded : [];
+            } elseif (str_contains($trimmed, ',')) {
+                $configured = array_map('trim', explode(',', $trimmed));
+            } else {
+                return [];
+            }
+        }
+
+        if (!is_array($configured)) {
+            return [];
+        }
+
+        $handles = [];
+        foreach ($configured as $handle) {
+            if (is_string($handle) && trim($handle) !== '') {
+                $handles[trim($handle)] = true;
+            }
+        }
+
+        return $handles;
     }
 
     public function __construct()
     {
         parent::__construct();
 
-        $fromCdn = self::servesDefaultsFromCdn();
+        $local = self::localHandles();
 
         //Register default scripts
         $this->registerScript(
             'jquery',
-            $fromCdn
-                ? 'https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js'
-                : sURL . 'media/js/jquery/jquery.min.js',
+            isset($local['jquery'])
+                ? sURL . 'media/js/jquery/jquery.min.js'
+                : 'https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js',
             array(), '', false
         ); //jQuery
         $this->registerScript(
@@ -250,19 +333,19 @@ class Document extends \Pramnos\Framework\Base
 
         //Bootstrap Date
         $this->registerScript('bootstrap-datepicker',
-            $fromCdn
-                ? 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
-                  . '1.9.0/js/bootstrap-datepicker.min.js'
-                : sURL . 'plugins/datepicker/bootstrap-datepicker.js',
+            isset($local['bootstrap-datepicker'])
+                ? sURL . 'plugins/datepicker/bootstrap-datepicker.js'
+                : 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
+                  . '1.9.0/js/bootstrap-datepicker.min.js',
             array(), '', true
         );
 
         //jQuery InputMask
         $this->registerScript('jquery-inputmask',
-            $fromCdn
-                ? 'https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/'
-                  . '3.3.4/jquery.inputmask.bundle.min.js'
-                : sURL . 'plugins/input-mask/jquery.inputmask.js',
+            isset($local['jquery-inputmask'])
+                ? sURL . 'plugins/input-mask/jquery.inputmask.js'
+                : 'https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/'
+                  . '3.3.4/jquery.inputmask.bundle.min.js',
             array('jquery'), '', true
         );
 

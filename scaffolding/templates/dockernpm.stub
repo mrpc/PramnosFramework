@@ -19,7 +19,7 @@ fi
 # (or by a command that ran as root) is owned by root, and npm then fails with
 # EACCES on its own node_modules. Hand it back before running, as root.
 docker-compose exec -T -u root "$SERVICE" sh -lc \
-    'for d in /var/www/html/node_modules /var/www/html/www/assets/spa; do
+    'for d in /var/www/html/node_modules /var/www/html/{{ outDir }}; do
          if [ -e "$d" ] && [ "$(stat -c %U "$d")" != "www-data" ]; then
              chown -R www-data:www-data "$d"
          fi

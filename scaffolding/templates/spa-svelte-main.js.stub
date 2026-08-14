@@ -2,7 +2,7 @@
  * Entry point of the {{ appName }} SPA.
  *
  * Mounts the root Svelte component into the #app element emitted by the PHP
- * shell (www/{{ shellFile }}). Svelte 5 mounts with `mount()` rather than
+ * shell ({{ webRoot }}/{{ shellFile }}). Svelte 5 mounts with `mount()` rather than
  * `new App()`.
  */
 import { mount } from 'svelte';
