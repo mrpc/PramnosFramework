@@ -470,6 +470,12 @@ class Api extends Application
      */
     protected function _attachDebugPayload($body)
     {
+        // Reading this method is how an application concludes it cannot feed the toolbar
+        // without reimplementing it — a consumer did, twice. It cannot use *this*, because it
+        // is protected and their controllers never reach this class. It does not need to:
+        // ApiDebugPayload::attachTo() is public, and \Pramnos\Debug\ApiDebugMiddleware puts
+        // it in the pipeline in one line, for any routing style. See the Application Styles
+        // guide, "Feeding the debug toolbar from a non-Api application".
         // Delegated rather than reimplemented. The rule about which bodies can
         // carry the key — not a top-level array, not a non-object, not one that
         // already has a `_debug` — belongs in one place, because an application
@@ -487,6 +493,8 @@ class Api extends Application
      */
     protected function _sendServerTiming()
     {
+        // Public equivalent: ApiDebugPayload::sendHeaders(), which this calls. See
+        // _attachDebugPayload() above for why that note is here rather than only in a guide.
         // Both headers, once per response — the output-buffer callback offers
         // again for every response, and ApiDebugPayload keeps them from being
         // sent twice.

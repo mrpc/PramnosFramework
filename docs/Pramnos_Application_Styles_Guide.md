@@ -109,6 +109,43 @@ database; and where the test does need one, inject it:
 $service = new BillingService($databaseDouble);
 ```
 
+### Feeding the debug toolbar from a non-`Api` application
+
+A Services + API + SPA project routes `#[Route]` attributes to controllers returning
+`Response::json()`, and **never goes near `Pramnos\Application\Api`**. That class attaches the
+`_debug` payload and sends the debug headers in `protected` methods, so reading it leads to the
+conclusion that a non-`Api` application cannot feed the toolbar without reimplementing them.
+
+It can, and it is one line:
+
+```php
+$pipeline->add(new \Pramnos\Debug\ApiDebugMiddleware());
+```
+
+That covers every routing style. Both `Api` methods are thin delegations to public statics, and
+the middleware calls the same two:
+
+| What `Api` does privately | The public seam |
+| --- | --- |
+| `_attachDebugPayload($body)` | `ApiDebugPayload::attachTo(string $body): string` |
+| `_sendServerTiming()` | `ApiDebugPayload::sendHeaders(): void` |
+
+Use those directly if the middleware does not fit — a custom kernel, a response type the pipeline
+does not see. The rule about **which** bodies can carry the key lives in `attachTo()` and nowhere
+else: a top-level JSON array, a plain string, HTML, or a body that already has a `_debug` key is
+returned untouched, because mangling a response to annotate it is worse than not annotating it.
+
+Inert outside development — `ApiDebugPayload::isEnabled()` asks the toolbar whether any collector
+is registered, and collectors are registered only in debug mode. In production it is one array
+check per request.
+
+> A consumer filed this as a gap twice: the `Api` methods **are** still `protected`, which is
+> literally true and stopped being the obstacle when the middleware shipped. Their tripwire
+> checked a *name* — is this method still protected — rather than a *construction* — is the
+> capability reachable. It was documented in the Debugging and Upgrade guides and not here, which
+> is the half that was actually missing: on this page, where a project that will hit it is
+> standing.
+
 ### Converting an existing class: pass the connection explicitly
 
 The lazy fallback is `Factory::getDatabase()`, which is right for a service written against
