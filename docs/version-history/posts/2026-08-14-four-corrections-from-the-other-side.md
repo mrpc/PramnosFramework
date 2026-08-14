@@ -73,9 +73,15 @@ The [Query Builder guide](../../Pramnos_QueryBuilder_Guide.md) now names the sha
 treat such a `catch` as a **signal rather than a guard**: somebody knew this could fail and
 which way it should go, so check what the call actually does on failure.
 
-The same sweep found the one that was not a list at all: `ensureLaunchLicence()` promised
-idempotence with no unique constraint behind it, so an unreadable table read as *"this station
-has no licence"* and it wrote a second one.
+The same sweep found one that was not a list at all: `ensureLaunchLicence()`, where an
+unreadable table read as *"this station has no licence"* and a second one was written.
+
+**Corrected 2026-08-14, after this was first published.** The report added that there was no
+unique constraint behind the idempotence, and this page repeated it as fact. There is one —
+`uq_licenses_one_current UNIQUE (station_id) WHERE ends_at IS NULL`, checked against the live
+database — and they corrected their own docblock, which had it the wrong way round. The read is
+still the defect; the missing constraint was not. Left visible rather than quietly edited,
+because a page about repeating claims without checking them should not do it silently.
 
 ## 3. A channel whose safety rests on the authorizer, not its name
 
