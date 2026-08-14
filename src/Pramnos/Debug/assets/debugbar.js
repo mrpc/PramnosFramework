@@ -114,6 +114,10 @@
         { key: 'timers',     label: 'Time' },
         { key: 'route',      label: 'Route' },
         { key: 'auth',       label: 'Auth' },
+        // Beside Auth on purpose: that tab answers who the request is, this one answers
+        // whether it was allowed to do what it did. They are consecutive questions and
+        // used to have one answer between them.
+        { key: 'gate',       label: 'Gate' },
         { key: 'session',    label: 'Session' },
         { key: 'logs',       label: 'Logs' },
         { key: 'views',      label: 'Views' },
@@ -947,6 +951,8 @@
         + '.pdb-s-2{color:#a6e3a1}.pdb-s-3{color:#89b4fa}.pdb-s-4{color:#fab387}'
         + '.pdb-s-5{color:#f38ba8}.pdb-s-0{color:#f38ba8}'
         + '.pdb-level-error,.pdb-level-critical{color:#f38ba8}'
+        // The one green in this palette, already used by pdb-cached and the primary button.
+        + '.pdb-ok{color:#a6e3a1}'
         + '.pdb-level-warning{color:#fab387}'
         + '.pdb-pre{margin:2px 0 0;white-space:pre-wrap;word-break:break-all;background:#1e1e2e;'
         + 'padding:6px;border-radius:3px;max-height:240px;overflow:auto}'
@@ -1379,6 +1385,10 @@
                 // is the one thing worth seeing without opening the tab, because
                 // it explains every 401 above it in the list.
                 return null;
+            case 'gate':
+                // Refusals, not checks. A page doing forty allowed checks is
+                // working; one refusal is the thing worth a glance.
+                return data.refused || null;
             default:
                 return null;
         }
@@ -1667,6 +1677,7 @@
             case 'timers':     return renderTimers(data, entry);
             case 'route':      return renderKeyValue(data);
             case 'auth':       return renderAuth(data);
+            case 'gate':       return renderGate(data);
             case 'session':    return renderSession(data);
             case 'logs':       return renderLogs(data, entry);
             case 'views':      return renderViews(data);
@@ -1950,6 +1961,67 @@
             return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
         }
         return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
+    }
+
+    /**
+     * What each authorization step means, in one line each.
+     *
+     * Shown in the panel rather than only in the guide, because the whole value of this tab is
+     * telling the reader *which* step decided — and a step name they have to go and look up is
+     * a step name they will guess at instead.
+     */
+    var GATE_STEPS = {
+        before:  'a global before() hook decided',
+        ability: 'a named Gate::define() rule',
+        policy:  'a policy method',
+        store:   'the permission store',
+        'default': 'nothing claimed this ability — refused by default',
+        after:   'a rule answered, an after() hook overrode it'
+    };
+
+    function renderGate(data) {
+        var decisions = data.decisions || [];
+        if (!decisions.length) {
+            return '<p class="pdb-muted">No authorization checks in this request.</p>'
+                + '<p class="pdb-muted">Gate::allows(), denies(), authorize() and a controller\'s '
+                + 'can()/cannot() all appear here, with the step that decided.</p>';
+        }
+
+        var rows = '';
+        decisions.forEach(function (d) {
+            var step = String(d.step || '');
+            // The undefined case is the one this panel earns its place with: a typo in an
+            // ability name and a deliberate deny both produce false, and only the step
+            // tells them apart.
+            var stepClass = step === 'default' ? 'pdb-level-warning' : 'pdb-muted';
+            var what = d.detail ? esc(d.detail) : (GATE_STEPS[step] || step);
+
+            rows += '<tr>'
+                + '<td>' + (d.allowed
+                    ? '<span class="pdb-ok">allowed</span>'
+                    : '<span class="pdb-level-error">refused</span>') + '</td>'
+                + '<td class="pdb-sql">' + esc(d.ability || '')
+                + (d.times > 1 ? ' <span class="pdb-muted">×' + d.times + '</span>' : '') + '</td>'
+                + '<td class="' + stepClass + '">' + esc(step) + '</td>'
+                + '<td class="pdb-sql">' + what + '</td>'
+                + '<td class="pdb-muted pdb-sql">' + esc(d.subject || '—') + '</td>'
+                + '</tr>';
+        });
+
+        var lead = '<p class="pdb-lead">' + (data.checks || 0) + ' check'
+            + ((data.checks === 1) ? '' : 's') + ', ' + (data.refused || 0) + ' refused';
+        if (data.undefined) {
+            lead += ' — <strong>' + data.undefined + ' hit no rule at all</strong>, which is what a '
+                + 'mistyped ability name looks like';
+        }
+        lead += '.</p>';
+
+        return lead
+            + '<table class="pdb-table"><thead><tr>'
+            + '<th>Result</th><th>Ability</th><th>Decided by</th><th>What</th><th>Subject</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>'
+            + '<p class="pdb-muted">Arguments are not shown: a policy check receives whole models '
+            + 'and this payload travels to the browser. Subjects appear as a class name only.</p>';
     }
 
     function renderSession(data) {

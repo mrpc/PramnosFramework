@@ -6,6 +6,7 @@ namespace Pramnos\Debug;
 
 use Pramnos\Application\ServiceProvider;
 use Pramnos\Debug\Collectors\AuthCollector;
+use Pramnos\Debug\Collectors\GateCollector;
 use Pramnos\Debug\Collectors\ExceptionsCollector;
 use Pramnos\Debug\Collectors\LogCollector;
 use Pramnos\Debug\Collectors\MemoryCollector;
@@ -81,6 +82,13 @@ class DebugBarServiceProvider extends ServiceProvider
         $bar->addCollector(new MemoryCollector());
         $bar->addCollector(new SessionCollector());
         $bar->addCollector(new AuthCollector());
+
+        // Authorization decisions. The recorder is opt-in for the same reason
+        // Database::enableQueryLog() is: an application that never opens the toolbar should pay
+        // one boolean check per decision, not build a log nobody reads.
+        \Pramnos\Auth\Gate::enableDecisionLog();
+        $bar->addCollector(new GateCollector());
+
         $bar->addCollector(new LogCollector());
 
         // Query collector — only if DB is available

@@ -131,6 +131,41 @@ Gate::resolveUserUsing(fn () => MyApp::currentUser());
 Rules receive `null` when nobody is signed in, rather than the check throwing — so a
 public-facing rule can simply say what an anonymous visitor may do.
 
+### Seeing which step decided
+
+The order above is the contract, and until the toolbar carried it there was **no way to observe
+it**. A rule is a closure in a bootstrap file, so it appears in no stack trace. A `before` hook
+that returns `true` skips everything after it and leaves no mark. The SQL panel cannot help,
+because a decision may touch no database at all. And a 403 says something refused, not which of
+six steps did.
+
+The [debug toolbar](Pramnos_Debug_Toolbar_Usage.md)'s **Gate** tab lists every check the request
+made, with the step that answered:
+
+| Result | Ability | Decided by | What | Subject |
+| --- | --- | --- | --- | --- |
+| allowed | `update-post` | policy | `PostPolicy::update` | `App\Models\Post` |
+| allowed | `see-menu` ×40 | before | a global `before()` hook decided | — |
+| refused | `updatePost` | **default** | nothing claimed this ability | `App\Models\Post` |
+
+**That last row is why the tab exists.** With `fallbackToPermissions()` off — the default — an
+ability nobody defined is refused, so a **typo in an ability name is indistinguishable from a
+deliberate deny**: both produce `false`. `default` tells them apart, and the tab counts those
+separately so a badge says so before it is opened.
+
+Identical checks collapse into a `×N`, because rendering a permission-gated menu can ask the same
+question forty times and that should be one row.
+
+**Arguments are never in the payload.** A policy check receives whole models, and the debug
+payload travels to the browser — so a subject appears as a class name and a user as an id, and
+nothing that came out of a database goes with it. It is also request-scoped by design: it shows
+what *this request* decided, not what a user may do in general, which is a question for the
+store.
+
+Recording is opt-in — `Gate::enableDecisionLog()`, which the debug provider calls — so an
+application that never opens the toolbar pays one boolean check per decision. Same shape as
+`Database::enableQueryLog()`.
+
 ### Registration is process-wide
 
 Abilities live in statics. That is right for a request and wrong for anything handling more
