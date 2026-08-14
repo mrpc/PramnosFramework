@@ -392,12 +392,30 @@ $server->useRedisIngest(new RedisStreamSocket(
 `useRedisIngest()` accepts either implementation — it takes the
 `RedisIngestInterface` they share.
 
-**A stream reader also survives a restart of the daemon.** Its position is a
-cursor, not a subscription: a worker restarted mid-deploy with `SUBSCRIBE` misses
-everything published while it was down, while one reading from its last id is
-given the gap. `cursors()` returns the position per stream — persist it, hand it
-back as the constructor's third argument, and a redeploy costs nothing. With no
-cursor supplied, reading starts at `$`: new entries only.
+**A stream reader can survive a restart of the daemon** — its position is a cursor, not a
+subscription. A worker restarted mid-deploy with `SUBSCRIBE` misses everything published while
+it was down, while one reading from its last id is given the gap. `cursors()` returns the
+position per stream: persist it, hand it back as the constructor's third argument. With no
+cursor supplied, reading starts at `$` — new entries only.
+
+**But work out who the gap is for before persisting anything.** Replay is worth it when the
+*subscribers outlive the ingest*. It is worth nothing when they do not, and the second case is
+easy to walk into:
+
+| The ingest is | On restart | Replay delivers to |
+| --- | --- | --- |
+| An SSE endpoint, one process per client | that client reconnects and resumes from `Last-Event-ID` | **that client** — worth it |
+| A WebSocket worker owning the listening socket | **every client is dropped with it** | an empty room — worth nothing |
+
+A consumer measured exactly this rather than taking the paragraph above at face value, and came
+back with the negative result: their worker owns the socket, so a restart takes every client
+with it, there is nobody left to catch up, and their clients re-read their state on reconnect
+anyway because WebSocket carries no initial snapshot. Persisting cursors would have added
+supervisor state, a stale-cursor failure mode and a backlog to filter, to deliver events to
+nobody. **This guide had claimed the benefit without naming the condition it depends on; that
+is the correction, and it was theirs.**
+
+If you do persist, filter what comes back: see the ephemeral-event case below.
 
 #### The ingest router gets the entry id, and an ephemeral event needs it
 
@@ -485,6 +503,37 @@ $server->onTick(function (int $clients, int $subs) use (&$lastAt, $server, $pres
 Note the WS layer authenticates channels with an HMAC signature, not your app
 token, so it does not see a session id — derive whatever identity you need from
 the channel name (e.g. a per-user `private-user-<id>` convention).
+
+#### If a channel's safety rests on who may subscribe, write that down beside it
+
+The convention above puts the scope **in the name** — `private-user-42` is one user's channel
+because of what it is called. The alternative is a single name that everybody entitled to it
+shares, with the authorizer doing the separating:
+
+```php
+// Safe only because the authorizer admits nobody who should not see all of it
+$server->broadcast('private-admin-notifications', 'report', $payload);
+```
+
+That is a legitimate design and not a leak — while the authorizer's rule stays as narrow as the
+channel is broad. **It becomes one silently the day somebody widens the rule**, because the two
+facts live in different files: whoever relaxes an authorizer to admit station owners is reading
+the authorizer, not the worker that named the channel.
+
+A consumer hit exactly this fork. Their `private-admin-notifications` is a bare literal where
+every public channel beside it rebuilds its name with a station id; they checked before
+reporting it, confirmed it is not a leak today because the authorizer requires a platform admin,
+and then noted that their own roadmap direction — letting station owners in — would put every
+station's reports in every station's panel. They joined the two with a test.
+
+So: **when a channel is shared rather than named, say so where it is broadcast**, and pair it
+with the authorizer in a test. A comment on the `broadcast()` call naming the rule it depends on
+costs a line and is the only thing that will be in front of the person who widens it.
+
+The general form is worth carrying further than channels. Their words for it, from a related
+find in the same layer: *where a transport cannot carry something, look for every mechanism that
+assumed it could.* `EventSource` cannot send headers, so a header-based scope silently did
+nothing — and applying that rule immediately found a second stream with the same gap.
 
 ### Supervising the daemon
 

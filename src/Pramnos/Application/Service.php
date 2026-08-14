@@ -84,6 +84,28 @@ abstract class Service
     /**
      * The connection, resolved on first use.
      *
+     * **Converting an existing class: pass the connection explicitly.** This falls back to
+     * `Factory::getDatabase()`, which is right for a service written against this base and
+     * wrong for one being moved onto it. A class that previously reached its database some
+     * other way — an application-level singleton, an injected handle, a second connection —
+     * silently changes which database it talks to the moment its constructor is left
+     * defaulted. Nothing reports it, every query still succeeds, and they succeed somewhere
+     * else.
+     *
+     * A consumer converting one class caught this before it shipped: 59 call sites
+     * constructed it, and it had been built on an application-level `getInstance()`. Had the
+     * two resolvers differed, a conversion sold as observability would have quietly
+     * repointed all 59. They passed the instance in and pinned it with a test, which is the
+     * right shape:
+     *
+     * ```php
+     * // Converting: keep the handle the class already had
+     * public function __construct(MyDatabase $db)
+     * {
+     *     parent::__construct($db);
+     * }
+     * ```
+     *
      * @return Database
      */
     protected function database(): Database
