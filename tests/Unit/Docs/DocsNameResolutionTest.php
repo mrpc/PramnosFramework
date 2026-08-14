@@ -62,9 +62,6 @@ class DocsNameResolutionTest extends TestCase
         'Pramnos\Auth\Gate::define' => 'quoted in the guide’s record of its own error',
         // Named in the Testing guide's note about the class that section used to show.
         'Pramnos\Testing\HttpTest' => 'quoted in the guide’s record of its own error',
-        // Named in the Theme guide's notes about two extension points that never existed.
-        'Pramnos\Theme\Widget' => 'quoted in the guide’s record of its own error',
-        'Pramnos\Theme\MenuWalker' => 'quoted in the guide’s record of its own error',
         // Named in the ORM guide's note about the custom-cast interface that never existed.
         'Pramnos\Database\Casts\Castable' => 'quoted in the guide’s record of its own error',
     ];

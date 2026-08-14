@@ -49,6 +49,37 @@ class Theme extends \Pramnos\Framework\Base
     protected $widgetAreas = array();
     protected $menuAreas = array();
     protected $widgets = array();
+
+    /**
+     * Whether the stored widgets have been read yet.
+     *
+     * @var bool
+     */
+    protected bool $widgetsLoaded = false;
+
+    /**
+     * Widget types this application has registered, or null until one is.
+     *
+     * Null rather than an empty registry so that a project using no widgets never constructs
+     * one — see widgets().
+     *
+     * @var WidgetRegistry|null
+     */
+    protected ?WidgetRegistry $widgetRegistry = null;
+
+    /**
+     * The renderer used for navigation menus, or null for the default.
+     *
+     * @var MenuWalker|null
+     */
+    protected ?MenuWalker $menuWalker = null;
+
+    /**
+     * Where menu items come from, when the application supplies them.
+     *
+     * @var callable|null
+     */
+    protected $menuItemsProvider = null;
     protected $menus = array();
     protected $bannerLocations = array();
     protected $cmsBannerLocations = array();
@@ -79,8 +110,8 @@ class Theme extends \Pramnos\Framework\Base
     protected $_contentType = 'index';
 
     /**
-     * That actually contains a pramnos_html_form with all settings
-     * @var pramnos_html_form
+     * Settings are rendered by renderSettings() rather than held in a form object.
+     * @var mixed
      */
     protected $_form;
 
@@ -123,24 +154,15 @@ class Theme extends \Pramnos\Framework\Base
                 #$theme = 'default';
             }
         }
-        #$this->_form = new pramnos_html_form($this->name, false);
         #$this->_form->method = 'post';
         #$this->_form->name = 'settings_' . $this->theme;
         $this->document = \Pramnos\Framework\Factory::getDocument();
         $this->init();
         $this->loadSettings();
 
-        // A theme with no stored widgets is the normal case, and getSetting()
-        // answers `false` for it. Feeding that to unserialize() raises
-        // "Error at offset 0" — a warning on every page, for a condition that
-        // is not an error at all.
-        $storedWidgets = \Pramnos\Application\Settings::getSetting(
-            'theme_' . $this->theme . '_widgets'
-        );
-        $widgetsData = (is_string($storedWidgets) && $storedWidgets !== '')
-            ? @unserialize($storedWidgets)
-            : false;
-        $this->widgets = is_array($widgetsData) ? $widgetsData : [];
+        // Widgets are loaded on first use, not here. Most applications have none, and
+        // reading a setting on every theme construction to discover that is a cost paid
+        // by everybody for a feature used by a few. See loadWidgets().
         if ($theme != 'default'){
             $this->theme = $theme;
         }
@@ -435,8 +457,10 @@ class Theme extends \Pramnos\Framework\Base
                     and $directory != "CVS"
                     and $directory != ".svn"
                     and $directory != "default") {
-                $return[$directory] = pramnos_theme::getTheme($directory, $path,
-                                false);
+                // `pramnos_theme::getTheme()` until 2026-08-14 — a legacy CMS class name
+                // which, inside this namespace, resolved to Pramnos\Theme\pramnos_theme and
+                // therefore to a fatal. This method could never have run.
+                $return[$directory] = self::getTheme($directory, $path, false);
             }
         }
         return $return;
@@ -514,7 +538,7 @@ class Theme extends \Pramnos\Framework\Base
 
     /**
      * Used to initialize all theme options (settings, sidebars, etc)
-     * @return \pramnos_theme
+     * @return static
      */
     public function init()
     {
@@ -624,16 +648,76 @@ class Theme extends \Pramnos\Framework\Base
         $args = array_merge($defaultArgs, $args);
 
         $return = "";
-        if (isset($this->widgetAreas[$widgetArea])) {
-            $widgets = $this->getWidgets($widgetArea);
-            foreach ($widgets as $widgetData) {
-                // $widget = pramnos_theme_widget::getWidget(array_merge($args, $widgetData));
-                // if (method_exists($widget, 'display')) {
-                //    $return .= $widget->display($widgetData);
-                // }
-            }
+        if (!isset($this->widgetAreas[$widgetArea])) {
+            return $return;
         }
+
+        $widgets = $this->getWidgets($widgetArea);
+        if ($widgets === array()) {
+            // The common case, and the reason this returns before touching the registry:
+            // an area with nothing in it costs one array lookup.
+            return $return;
+        }
+
+        $registry = $this->widgets();
+        foreach ($widgets as $widgetData) {
+            if (!is_array($widgetData)) {
+                continue;
+            }
+
+            $widget = $registry->resolve($widgetData);
+            if ($widget === null) {
+                // A stored record whose type is no longer registered — a removed plugin, a
+                // renamed type. Skipped rather than fatal: a sidebar must not take the page
+                // down over one stale entry. See WidgetRegistry::unresolved().
+                continue;
+            }
+
+            $return .= $widget->render(array_merge($args, $widgetData));
+        }
+
         return $return;
+    }
+
+    /**
+     * The widget type registry for this theme.
+     *
+     * Constructed on first use, so a project that registers no widgets never builds one.
+     *
+     * @return WidgetRegistry The registry
+     */
+    public function widgets(): WidgetRegistry
+    {
+        if ($this->widgetRegistry === null) {
+            $this->widgetRegistry = new WidgetRegistry();
+        }
+
+        return $this->widgetRegistry;
+    }
+
+    /**
+     * Reads the stored widget records, once.
+     *
+     * A theme with no stored widgets is the normal case, and `getSetting()` answers `false`
+     * for it — feeding that to `unserialize()` raises "Error at offset 0", a warning on every
+     * page for a condition that is not an error.
+     *
+     * @return void
+     */
+    protected function loadWidgets(): void
+    {
+        if ($this->widgetsLoaded) {
+            return;
+        }
+
+        $this->widgetsLoaded = true;
+
+        $stored = \Pramnos\Application\Settings::getSetting(
+            'theme_' . $this->theme . '_widgets'
+        );
+        $data = (is_string($stored) && $stored !== '') ? @unserialize($stored) : false;
+
+        $this->widgets = is_array($data) ? $data : array();
     }
 
     /**
@@ -642,7 +726,7 @@ class Theme extends \Pramnos\Framework\Base
      * @param string $location Menu location identifier, like a slug.
      * @param string $description The default value to return if no value is returned (ie. the option is not in the database).
      * @param integer|NULL $menuid A menu ID for the menu that you want to be displayed in this position
-     * @return pramnos_theme
+     * @return static
      */
     public function register_nav_menu($location, $description, $menuid = NULL)
     {
@@ -799,6 +883,7 @@ class Theme extends \Pramnos\Framework\Base
         );
         $args = array_merge($defaults, $args);
         unset($defaults);
+        $echo = $args['echo'];
         $items_wrap = explode('%3$s', $args['items_wrap']);
         $items_wrap[0] = str_replace(array('%1$s', '%2$s'),
                 array($args['container_id'],
@@ -831,20 +916,108 @@ class Theme extends \Pramnos\Framework\Base
         $options['submenubodyend'] = '</ul>';
         $options['presubmenu'] = $args['before'];
         $options['postsubmenu'] = $args['after'];
-        if ($args['menu'] != '') {
-            $menu = new pramnoscms_menu($args['menu']);
+        $menuId = $args['menu'] != '' ? $args['menu'] : $this->getMenu($args['theme_location']);
+
+        // Menu storage is an application concern — the framework ships none — so items come
+        // from a registered provider. With no provider this returns an empty string.
+        //
+        // It used to instantiate `pramnoscms_menu` unconditionally: a class from a deprecated
+        // CMS that the framework does not ship, and which inside this namespace resolved to
+        // Pramnos\Theme\pramnoscms_menu. So this method *fatalled* in every project without
+        // it, and the framework's own test had to eval() a fake one to test it at all. The
+        // useful half of that class was rendering, which is now MenuWalker.
+        $items = $this->menuItems($menuId, $args['theme_location']);
+
+        if ($items !== null) {
+            $rendered = $this->menuWalker()->render($items, $options);
         } else {
-            $menu = new pramnoscms_menu($this->getMenu($args['theme_location']));
+            $rendered = '';
         }
 
-        $menu->options = $options;
-        if ($args['echo'] === true) {
-            unset($args);
-            echo $menu->render();
-        } else {
-            unset($args);
-            return $menu->render();
+        unset($args);
+
+        if ($echo === true) {
+            echo $rendered;
+
+            return null;
         }
+
+        return $rendered;
+    }
+
+    /**
+     * The renderer used for navigation menus.
+     *
+     * Constructed on first use, so a project that never displays a menu never builds one.
+     *
+     * @return MenuWalker The walker
+     */
+    public function menuWalker(): MenuWalker
+    {
+        if ($this->menuWalker === null) {
+            $this->menuWalker = new MenuWalker();
+        }
+
+        return $this->menuWalker;
+    }
+
+    /**
+     * Uses a different renderer for navigation menus.
+     *
+     * Subclass {@see MenuWalker} and override one method rather than reimplementing a nav
+     * menu — which is what the extension point documented here for years would have been, had
+     * it existed.
+     *
+     * @param MenuWalker $walker The renderer to use
+     * @return static This theme, for chaining
+     */
+    public function setMenuWalker(MenuWalker $walker): static
+    {
+        $this->menuWalker = $walker;
+
+        return $this;
+    }
+
+    /**
+     * Tells the theme where menu items come from.
+     *
+     * The framework has no menu storage — menus are an application concern, and every project
+     * that has them has its own table. The provider is given the menu id and the location, and
+     * returns items in the shape {@see MenuWalker} accepts, or null if it has nothing for
+     * this menu.
+     *
+     * ```php
+     * $theme->setMenuItemsProvider(
+     *     fn ($menuId, $location) => Menu::load($menuId)?->toTree()
+     * );
+     * ```
+     *
+     * @param callable|null $provider Receives `($menuId, $location)`; null removes it
+     * @return static This theme, for chaining
+     */
+    public function setMenuItemsProvider(?callable $provider): static
+    {
+        $this->menuItemsProvider = $provider;
+
+        return $this;
+    }
+
+    /**
+     * Items for a menu, from the registered provider.
+     *
+     * @param mixed  $menuId   The assigned menu id, or an empty value
+     * @param string $location The registered menu location
+     * @return array<int, array<string, mixed>>|null The items, or null when there is no provider
+     */
+    protected function menuItems(mixed $menuId, string $location): ?array
+    {
+        if ($this->menuItemsProvider === null) {
+            return null;
+        }
+
+        $items = ($this->menuItemsProvider)($menuId, $location);
+
+        return is_array($items) ? array_values($items) : null;
     }
 
     /**
@@ -885,6 +1058,9 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function resetWidgets()
     {
+        // Marked loaded as well, so a later getWidgets() does not read the setting back and
+        // undo this in memory.
+        $this->widgetsLoaded = true;
         $this->widgets = array();
         \Pramnos\Application\Settings::setSetting('theme_' . $this->theme . '_widgets',
                 serialize($this->widgets));
@@ -900,6 +1076,11 @@ class Theme extends \Pramnos\Framework\Base
     public function addWidget($widgetAreaID, $widgetData, $debug = false)
     {
         if (isset($this->widgetAreas[$widgetAreaID])) {
+            // Load before mutating. This method serialises the whole collection back to the
+            // setting, so adding to an unloaded one would persist just the new widget and
+            // silently discard every widget already stored.
+            $this->loadWidgets();
+
             $widget = array();
             $output = "Creating a widget with data: " . $widgetData . ' at ' . $widgetAreaID;
             parse_str($widgetData, $widget);
@@ -932,6 +1113,7 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function getWidgets($widgetArea = NULL)
     {
+        $this->loadWidgets();
         if (!is_array($this->widgets)) {
             $this->widgets = array();
         }

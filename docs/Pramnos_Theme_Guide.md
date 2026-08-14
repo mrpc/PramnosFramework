@@ -302,23 +302,68 @@ class MyTheme extends \Pramnos\Theme\Theme
 </div>
 ```
 
-### Custom widget development — not implemented
+### Custom widget development
 
-**There is no `Pramnos\Theme\Widget` base class**, and until 2026-08-14 this section
-documented one, together with a constructor signature and a `display()` method. None of it
-has ever existed.
+A widget implements `Pramnos\Theme\WidgetInterface`, or extends `Pramnos\Theme\Widget` and
+writes only its body:
 
-What is real is the area, not the widget. `registerWidgetArea()` and `hasWidgetAreas()` work
-as described above — you can declare where widgets would go, and ask whether any areas exist.
-But `renderWidgetArea()` returns an **empty string**: the loop that would render each widget
-is commented out in `Theme.php` and refers to a `pramnos_theme_widget` class that is not in
-the framework.
+```php
+use Pramnos\Theme\Widget;
 
-So a theme can declare widget areas today, and nothing will appear in them. That is worth
-knowing before designing a layout around them.
+class LatestPosts extends Widget
+{
+    protected function content(array $args): string
+    {
+        return '<ul>…</ul>';
+    }
+}
+```
 
-If widgets are what you need now, render the content directly in the theme template or through
-a view — the template system above is complete and does not depend on any of this.
+Register the type once, so a stored widget record can find its class:
+
+```php
+$theme->widgets()->register('latest-posts', LatestPosts::class);
+
+// or a factory, when the widget needs its stored settings
+$theme->widgets()->register('html', fn (array $record) => new RawHtml($record['html'] ?? ''));
+```
+
+`renderWidgetArea()` then renders each stored widget in the area, wrapped in the
+`before_widget` / `before_title` arguments the area was registered with:
+
+```html
+<aside class="widget">      ← before_widget
+  <h3>Latest posts</h3>     ← before_title + title + after_title, when a title is set
+  <ul>…</ul>                ← content()
+</aside>                    ← after_widget
+```
+
+**A widget with nothing to say renders nothing at all** — no empty wrapper, no stray heading —
+so a theme can test whether an area produced anything instead of asking each widget in advance.
+
+**A stored record whose type is no longer registered is skipped, not fatal.** Widget records
+outlive the code that renders them: a plugin is removed, a type is renamed, and the record is
+still in the settings. A sidebar must not take the page down over one stale entry. Those types
+are collected in `$theme->widgets()->unresolved()` so the situation is findable rather than
+merely survivable.
+
+#### What this costs a theme that has no widgets
+
+Nothing, by design and by test:
+
+- the stored widgets setting is read on **first use**, not when the theme is constructed;
+- the registry is constructed on first use, so a project that registers nothing never builds
+  one;
+- `renderWidgetArea()` on an area with no stored widgets returns after one array lookup,
+  without touching the registry at all.
+
+There is no table and no migration — widget records live in the theme's existing settings.
+
+> Until 2026-08-14 `renderWidgetArea()` returned an **empty string always**: the render loop
+> was commented out and referred to a `pramnos_theme_widget` class from a deprecated CMS that
+> the framework does not ship. A theme could declare widget areas and nothing would ever appear
+> in them. The `Pramnos\Theme\Widget` base class this section used to document did not exist
+> either.
 
 ## Menu System
 
@@ -384,16 +429,69 @@ register_nav_menus([
 <?php endif; ?>
 ```
 
-### Custom menu walker — not implemented
+### Rendering a menu
 
-**There is no `Pramnos\Theme\MenuWalker`.** Until 2026-08-14 this section documented one with
-`start_lvl()`, `end_lvl()` and `start_el()` — which is WordPress's `Walker_Nav_Menu` API,
-documented here by mistake and never built.
+The framework has **no menu storage** — menus are an application concern, and every project
+that has them has its own table. So a theme says where items come from, once:
 
-Menu **areas** are real: `register_nav_menu()`, `hasMenuAreas()`, `getMenuAreas()` and
-`removeMenuArea()` all work as described above. What is missing is the rendering extension
-point, so markup for a menu is produced by your own template rather than by subclassing
-anything.
+```php
+$theme->setMenuItemsProvider(
+    fn ($menuId, $location) => Menu::load($menuId)?->toTree()
+);
+```
+
+`displayMenu()` then renders them through `Pramnos\Theme\MenuWalker`. An item is an array and
+only `title` is required:
+
+```php
+['title' => 'Home', 'url' => '/', 'active' => true, 'children' => [...]]
+```
+
+| Key | Meaning |
+| --- | --- |
+| `title` | The link text. Escaped. Also accepted: `name`, `label`. |
+| `url` | Where it goes. Escaped. Also accepted: `link`, `href`. **An item with no URL renders as a `<span>`** — an anchor with no `href` is a broken promise. |
+| `active` | Marks the current item |
+| `children` | Nested items, to any depth. Also accepted: `submenu`, `items`. |
+| `class` | Extra classes on the `<li>` |
+| `target`, `rel` | Passed through to the anchor when set |
+
+The alternative spellings exist because menu rows come from tables that predate this class, and
+renaming a column is not a reasonable price for rendering a list.
+
+**With no provider, `displayMenu()` returns an empty string.** A theme asking for a menu that
+has no source should render a page without a menu.
+
+#### Customising the markup
+
+Subclass the walker and override one method:
+
+```php
+class BootstrapWalker extends \Pramnos\Theme\MenuWalker
+{
+    protected function anchor(array $item): string
+    {
+        return '<a class="nav-link" href="' . htmlspecialchars($this->urlOf($item)) . '">'
+            . htmlspecialchars($this->titleOf($item)) . '</a>';
+    }
+}
+
+$theme->setMenuWalker(new BootstrapWalker());
+```
+
+The walker is a pure function of its inputs — items in, string out, no database and no
+application — so it can be unit-tested on its own.
+
+The documented `displayMenu()` arguments still work, including the legacy `[URL]`, `[TITLE]`,
+`[ACTIVE]…[/ACTIVE]` and `[HASSUB]…[/HASSUB]` markers in `topmenuoption` and `before`. A theme
+that passes none of them gets sensible markup without knowing they exist.
+
+> Until 2026-08-14 `displayMenu()` instantiated `pramnoscms_menu` unconditionally — a class
+> from a deprecated CMS that the framework does not ship. Written unqualified inside the theme's
+> namespace, the name resolved to that namespace rather than the global one, so it could not be
+> satisfied even by a project that had the global class. **The method fatalled in every project
+> without it**, and the framework's own test had to `eval()` a fake one to test it at all. The `MenuWalker` this section used to document did not exist; the version described here
+> is real, and the API that section showed was WordPress's `Walker_Nav_Menu`.
 
 ## Theme Settings
 

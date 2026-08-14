@@ -45,6 +45,13 @@ class ThemeCharacterizationTest extends TestCase
         $widgetsProp = new \ReflectionProperty($theme, 'widgets');
         $widgetsProp->setValue($theme, []);
 
+        // …and marked loaded, which is the state a constructed theme is in. Widgets are read
+        // from the settings on first use rather than in the constructor, so without this the
+        // first getWidgets() in a test would pull in whatever a *sibling* test persisted —
+        // which is how the count assertions in this class became order-dependent.
+        $loadedProp = new \ReflectionProperty($theme, 'widgetsLoaded');
+        $loadedProp->setValue($theme, true);
+
         // theme name is used as part of the Settings key when persisting widgets
         $themeProp = new \ReflectionProperty($theme, 'theme');
         $themeProp->setValue($theme, 'test');

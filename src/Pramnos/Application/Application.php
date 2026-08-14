@@ -1399,7 +1399,7 @@ class Application extends Base
     }
 
     /**
-     * This should be called for default pramnos_factory controllers when no
+     * This should be called for default framework controllers when no
      * controller is found
      * @param string $controller
      * @param array|string $userPermissions

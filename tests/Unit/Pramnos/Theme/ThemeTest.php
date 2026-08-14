@@ -274,24 +274,51 @@ class ThemeTest extends TestCase
         $this->assertSame('', $this->theme->getheader());
     }
 
-    public function testDisplayMenuWithMockClass(): void
+    public function testDisplayMenuRendersItemsFromTheProvider(): void
     {
+        // Arrange — the application says where its menu items come from
         $this->theme->register_nav_menu('primary', 'Primary Menu', 1);
+        $this->theme->setMenuItemsProvider(
+            static fn ($menuId, $location) => [['title' => 'Home', 'url' => '/']]
+        );
 
+        // Act — echoed
         ob_start();
         try {
             $this->theme->displayMenu('primary', ['menu' => 1]);
-            $output = ob_get_clean();
+            $output = (string) ob_get_clean();
         } catch (\Throwable $e) {
             ob_end_clean();
             throw $e;
         }
 
-        $this->assertSame('rendered_menu', $output);
+        // Assert
+        $this->assertStringContainsString('<a href="/">Home</a>', $output);
 
-        // Test with echo = false
+        // Act & Assert — returned
         $result = $this->theme->displayMenu('primary', ['echo' => false]);
-        $this->assertSame('rendered_menu', $result);
+        $this->assertStringContainsString('<a href="/">Home</a>', $result);
+    }
+
+    /**
+     * With no provider, displayMenu() returns an empty string rather than failing.
+     *
+     * Until 2026-08-14 it instantiated `pramnoscms_menu` — a class from a deprecated CMS the
+     * framework does not ship — unconditionally. Every project without that class got a fatal
+     * from asking a theme for a menu, and this test file had to `eval()` a fake one to
+     * exercise the method at all. A theme asking for a menu with no source should render a
+     * page without a menu.
+     */
+    public function testDisplayMenuWithoutAProviderRendersNothing(): void
+    {
+        // Arrange
+        $this->theme->register_nav_menu('primary', 'Primary Menu', 1);
+
+        // Act
+        $result = $this->theme->displayMenu('primary', ['echo' => false]);
+
+        // Assert
+        $this->assertSame('', $result);
     }
 
     /**
@@ -806,6 +833,7 @@ class ThemeTest extends TestCase
         $app   = $this->createMock(\Pramnos\Application\Application::class);
         $theme = new Theme('default', '', $app);
         $theme->register_nav_menu('top', 'Top Menu', 1);
+        $theme->setMenuItemsProvider(static fn () => [['title' => 'Home', 'url' => '/']]);
 
         // Act: echo=false returns the rendered string
         $output = $theme->displayMenu('top', [
@@ -815,8 +843,10 @@ class ThemeTest extends TestCase
             'container_id'    => 'top-nav',
         ]);
 
-        // Assert: output contains the rendered menu string from the mock class
-        $this->assertStringContainsString('rendered_menu', $output);
+        // Assert: the container wraps the rendered items
+        $this->assertStringContainsString('<nav', $output);
+        $this->assertStringContainsString('main-nav', $output);
+        $this->assertStringContainsString('Home', $output);
     }
 
     /**
@@ -876,6 +906,7 @@ class ThemeTest extends TestCase
         $app   = $this->createMock(\Pramnos\Application\Application::class);
         $theme = new Theme('default', '', $app);
         $theme->register_nav_menu('footer', 'Footer Menu', 2);
+        $theme->setMenuItemsProvider(static fn () => [['title' => 'Home', 'url' => '/']]);
 
         // Act
         $output = $theme->displayMenu('footer', [
@@ -884,7 +915,7 @@ class ThemeTest extends TestCase
         ]);
 
         // Assert: output still contains menu content
-        $this->assertStringContainsString('rendered_menu', $output);
+        $this->assertStringContainsString('Home', $output);
         // No <div> or <nav> wrapper
         $this->assertStringNotContainsString('<div', $output);
         $this->assertStringNotContainsString('<nav', $output);
@@ -1148,12 +1179,4 @@ class ThemeTest extends TestCase
         // Assert (line 747)
         $this->assertFalse($result);
     }
-}
-
-if (!class_exists('Pramnos\Theme\pramnoscms_menu')) {
-    eval("namespace Pramnos\Theme { class pramnoscms_menu {
-        public \$options;
-        public function __construct(\$id) {}
-        public function render() { return 'rendered_menu'; }
-    } }");
 }
