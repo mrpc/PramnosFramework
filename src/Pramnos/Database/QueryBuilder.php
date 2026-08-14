@@ -1250,6 +1250,26 @@ class QueryBuilder
      * return values from get() — returning [] whenever the query fails or
      * the result set is empty, so callers never need to null-check.
      *
+     * **That convenience collapses two answers into one, and which driver you are on decides
+     * whether it can.** With `throwOnError` off — the default — a failed prepare *returns
+     * false* on PostgreSQL and *throws* `mysqli_sql_exception` on MySQL. So this method
+     * answers `[]` for a failed query **on PostgreSQL**, while the same failure surfaces as an
+     * exception on MySQL. An application developed against one and deployed against the other
+     * gets a different failure mode for free.
+     *
+     * Where that `[]` is reached for matters: it is the obvious way to read a list, and the
+     * lists whose empty answer is most plausible are the ones where it is most consequential —
+     * settings, permissions, bans, allowlists. A ban list that failed to read is an empty ban
+     * list, and one cache call later it is a *cached* empty ban list, outliving the failure
+     * that caused it.
+     *
+     * When the difference matters, three options, cheapest first:
+     *
+     * - {@see get()} keeps the distinction — `false` on failure, a `Result` on success
+     *   *including* when it matched nothing;
+     * - {@see getAllOrFail()} is this method for callers that would rather throw than branch;
+     * - `$db->throwOnError = true` makes every failing query loud, connection-wide.
+     *
      * @param bool   $cache     Whether to cache the result.
      * @param int    $cachetime Cache TTL in seconds.
      * @param string $category  Cache category.
@@ -1259,6 +1279,58 @@ class QueryBuilder
     {
         $result = $this->get($cache, $cachetime, $category);
         return ($result instanceof \Pramnos\Database\Result) ? $result->fetchAll() : [];
+    }
+
+    /**
+     * Execute a SELECT and return all rows, or throw if the query failed.
+     *
+     * The same shape as {@see getAll()} with the one distinction it discards put back: an
+     * empty table still returns `[]`, and a *failed* query raises instead of pretending the
+     * table was empty.
+     *
+     * ```php
+     * // A read whose empty answer would be a security decision
+     * $patterns = $db->queryBuilder()->from('url_blacklist')->getAllOrFail();
+     * ```
+     *
+     * Use it where the empty answer is plausible **and** consequential — settings,
+     * permissions, bans, allowlists — and especially where the answer is about to be cached,
+     * because a cached failure outlives the failure. One consumer read an unreadable
+     * `settings` table with `getAll()`, got "no settings", and cached that as the
+     * installation's configuration: every feature toggle at its compiled-in default, for the
+     * whole TTL, with nothing in the logs.
+     *
+     * Per-call rather than a mode, so a single dangerous read does not have to make the whole
+     * connection strict. `$db->throwOnError = true` is the connection-wide version and is the
+     * better answer when everything in a process should be loud.
+     *
+     * @param bool   $cache     Whether to cache the result.
+     * @param int    $cachetime Cache TTL in seconds.
+     * @param string $category  Cache category.
+     * @return array<int, array<string, mixed>> The rows; `[]` only when there were none
+     * @throws QueryException When the query could not be executed
+     */
+    public function getAllOrFail(bool $cache = false, int $cachetime = 60, string $category = ''): array
+    {
+        try {
+            $result = $this->get($cache, $cachetime, $category);
+        } catch (\Throwable $e) {
+            // One exception type on both drivers. Without this wrap a caller would have to
+            // catch QueryException on PostgreSQL — where a failed prepare returns false — and
+            // mysqli_sql_exception on MySQL, where it throws. That per-driver split is
+            // documented framework behaviour, and the point of this method is to be the one
+            // place a caller does not have to know about it.
+            throw new QueryException($e->getMessage(), $this->toSql(), $e);
+        }
+
+        if (!$result instanceof \Pramnos\Database\Result) {
+            throw new QueryException(
+                'The query failed, so its result cannot be distinguished from an empty table.',
+                $this->toSql()
+            );
+        }
+
+        return $result->fetchAll();
     }
 
     /**
@@ -1405,6 +1477,9 @@ class QueryBuilder
      *
      * @param string $col Column name (or qualified table.col)
      * @return array
+     *
+     * Answers `[]` for a failed query as well as an empty column — see {@see getAll()} for why
+     * that matters and {@see getAllOrFail()} for the version that does not.
      */
     public function pluck(string $col): array
     {

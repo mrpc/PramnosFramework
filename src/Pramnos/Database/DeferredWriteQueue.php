@@ -293,12 +293,15 @@ class DeferredWriteQueue
      */
     public function tablesWithPendingRows(): array
     {
+        // getAllOrFail(), not getAll(): a failed read here would answer "no tables pending",
+        // process() would loop over nothing, and the run would report success. A queue that
+        // cannot read its own table must not say it drained.
         $rows = $this->db->queryBuilder()->table(static::TABLE)
             ->select('tablename')
             ->where('status', static::STATUS_PENDING)
             ->groupBy('tablename')
             ->orderBy('tablename')
-            ->getAll();
+            ->getAllOrFail();
 
         $tables = [];
         foreach ($rows as $row) {
@@ -621,7 +624,9 @@ class DeferredWriteQueue
             $builder->where('targetdate', '<', date('Y-m-d H:i:s', $to));
         }
 
-        return $builder->orderBy('id')->limit(static::BATCH_SIZE)->getAll();
+        // Same reasoning as tablesWithPendingRows(): an empty batch means "this table is
+        // drained", so a failed read must not be able to say it.
+        return $builder->orderBy('id')->limit(static::BATCH_SIZE)->getAllOrFail();
     }
 
     /**
