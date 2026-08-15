@@ -3209,6 +3209,17 @@ PHP;
                 case 'bool':
                     $arrayFix .= "        \$data['{$colName}'] = (bool) \$this->{$colName};\n";
                     break;
+                case 'array':
+                    // JSON columns had no case here at all, so a generated model's
+                    // getData() silently dropped them: the base filters to numeric and
+                    // string, and nothing put them back. The bool case above exists for
+                    // exactly the same reason — this list was patching the base's type
+                    // filter one type at a time and stopped one short.
+                    //
+                    // Unconditional, like bool: the key is absent rather than null
+                    // after the base's filter, so there is nothing to test for.
+                    $arrayFix .= "        \$data['{$colName}'] = \$this->{$colName};\n";
+                    break;
             }
         }
 
