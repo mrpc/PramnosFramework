@@ -4,6 +4,8 @@ use_cases:
   - Deciding whether logic belongs in a service or a model
   - Understanding the directory layout of a Services + API + SPA project
   - Working on a SPA front end and its JSON API
+  - Rendering a server-rendered page from a service, without an ActiveRecord model
+  - Using a Model from a service, a queue worker or an attribute-routed controller
 ---
 
 # Pramnos Application Styles Guide
@@ -13,13 +15,39 @@ pick the one that fits the app, and mix where it helps. The framework's building
 blocks (Router, middleware, QueryBuilder, migrations, queue, broadcasting, cache)
 are shared by both.
 
-| | **MVC + Models** | **Services + API + SPA** |
-|---|---|---|
-| Front controller | `www/index.php` → `Application::init()/exec()/render()` | thin dispatcher → `Router` + middleware pipeline |
-| Routing | `src/Api/routes.php` and/or controller conventions | `#[Route]` attributes on `src/Controllers` |
-| Domain layer | `src/Models` (ActiveRecord) | `src/Services` (plain classes + QueryBuilder) |
-| View layer | `src/Views` (server-rendered templates/themes) | none — a JS SPA (served by a thin app-shell page) consumes the JSON API |
-| API docs | `apidoc.json` + `@api` comment blocks → OpenAPI | `php pramnos api:docs` (from `#[Route]`) |
+| | **MVC + Models** | **Services + API + SPA** | **Services + server-rendered pages** |
+|---|---|---|---|
+| Front controller | `www/index.php` → `Application::init()/exec()/render()` | thin dispatcher → `Router` + middleware pipeline | either |
+| Routing | `src/Api/routes.php` and/or controller conventions | `#[Route]` attributes on `src/Api/Controllers` | `#[Route]` on `src/Controllers` |
+| Domain layer | `src/Models` (ActiveRecord) | `src/Services` (plain classes + QueryBuilder) | `src/Services` — the same ones |
+| View layer | `src/Views` (server-rendered templates/themes) | none — a JS SPA (served by a thin app-shell page) consumes the JSON API | `src/Views`, fed from services |
+| API docs | `apidoc.json` + `@api` comment blocks → OpenAPI | `php pramnos api:docs` (from `#[Route]`) | as the API half |
+
+**The third column is not a third project layout.** It is the second one with server-
+rendered pages beside the JSON — for the pages a crawler has to read, or a form that
+should work without JavaScript. The services are the same objects; only the thing
+consuming them differs.
+
+> The middle column read **"View layer: none"** until 2026-08-16. That was true of the
+> style as first written and stopped being true the moment an application in it added a
+> controller returning HTML — which is a normal thing to do and which the framework has
+> always supported. A comparison table is a claim like any other, and this one was
+> quietly telling readers that something they were already doing was not a supported
+> option.
+
+**No model is required for a view.** `View::addModel()` is the only place
+`Pramnos\Application\Model` is structurally needed; skip it and `$this->model` is
+`false` in the template, which is the *no model* case rather than an error.
+`Controller::getModel()` type-checks nothing. Data reaches a template as plain view
+properties:
+
+```php
+$view = $this->getView('Directory');
+$view->stations = (new StationDirectory())->live(20, 0);
+return \Pramnos\Http\Response::make((string) $view->display('index'));
+```
+
+If you do want a model, [it costs 1.54 µs to construct one](#using-a-model-outside-an-mvc-request).
 
 The reference application and apps like it use **MVC + Models**. An app that is a
 JSON API with a JavaScript front end is better served by **Services + API + SPA**;
