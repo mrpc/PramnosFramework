@@ -146,6 +146,39 @@ check per request.
 > is the half that was actually missing: on this page, where a project that will hit it is
 > standing.
 
+### Using a Model outside an MVC request
+
+`Model::__construct()` requires a `Controller`, which reads like a hard dependency on
+the MVC stack. It is not. Of the five references to `$this->controller` inside `Model`,
+two are real uses — `getModel()` delegation and the error path — and three exist only to
+hand the same controller to the next model it constructs.
+
+```php
+use Pramnos\Application\ServiceController;
+
+$post = new \App\Models\Post(ServiceController::shared());
+$post->load($id);
+```
+
+That works from a service, a queue worker, a console command or an attribute-routed API
+controller. **Measured**: `new Controller()` is 1.54 µs, and the
+`Application::getInstance()` behind it is 1.3 ms cold and 0.002 ms warm. The dependency
+costs nothing and looks like it costs a great deal — which is why it has a name now
+rather than a workaround per project.
+
+Use `shared()` rather than constructing one per model: models built from the same
+controller can resolve each other through `getModel()`, and a fresh controller re-runs a
+reflection and a permissions normalisation for nothing.
+
+**It grants no permissions.** `Controller::__construct()` takes a permissions array and
+this passes none, so any permission check answers as it would for a request with none.
+Code outside a request has no user, and a controller that quietly behaved as though it
+did would be worse to have in the framework than the inconvenience it removes.
+
+This does not settle whether your services *should* use models — see
+[why services instead of models](#why-services-instead-of-models). It settles that the
+`Controller` argument is not the reason to decide either way.
+
 ### Converting an existing class: pass the connection explicitly
 
 The lazy fallback is `Factory::getDatabase()`, which is right for a service written against
