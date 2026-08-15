@@ -376,11 +376,35 @@ class Cache extends \Pramnos\Framework\Base
     public static function getInstance($category=NULL, $extension=NULL,
         $method='memcached', $settings = array())
     {
-        static $instance = null;
-        if ($instance === null) {
-            $instance = new Cache($category, $extension, $method, $settings);
+        // One instance **per category**, not one instance.
+        //
+        // This held a single `static $instance` and returned it whatever category was
+        // asked for, so the first caller in the process decided the category for
+        // everybody. In any application that boots providers that first caller is
+        // `CacheServiceProvider`, which asks for none — so every later
+        // `getInstance('views')` got a category-less instance, and `$this->category`
+        // is what `_generateCacheName()` writes into the key and what `save()` and
+        // `remember()` use.
+        //
+        // The effect was silent in both directions: entries a subsystem believed were
+        // namespaced were not, so `cache:clear --category=views` never matched them,
+        // and two subsystems with different categories shared one namespace where a
+        // key collision is possible.
+        //
+        // Keyed by everything that changes what the instance *is*. `$settings` is not
+        // part of the key: it is merged over the application's cache settings, and a
+        // caller passing different settings for the same category is asking for a
+        // different configuration of the same store — which is what `new Cache()` is
+        // for.
+        static $instances = array();
+
+        $key = ($category ?? '') . "\0" . ($extension ?? '') . "\0" . $method;
+
+        if (!isset($instances[$key])) {
+            $instances[$key] = new Cache($category, $extension, $method, $settings);
         }
-        return $instance;
+
+        return $instances[$key];
     }
 
     /**

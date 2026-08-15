@@ -132,6 +132,27 @@ $userCache->clear('users');
 $cache->clear('');
 ```
 
+> **Corrected 2026-08-16.** The three instances above were, until this date, **the same
+> object**. `getInstance()` held a single `static $instance` and returned it whatever
+> category was asked for, so the first caller in the process decided the category for
+> every later one — and in an application that boots providers, the first caller is
+> `CacheServiceProvider`, which asks for none.
+>
+> Since `$this->category` is what goes into the cache key, and `save()` has no category
+> parameter at all, the effect was that **categories were accepted and discarded**:
+> `View::cache()` believed it wrote under `views`, so `cache:clear --category=views`
+> never matched a view fragment, and two subsystems asking for different categories
+> shared one namespace where a key collision is possible rather than prevented.
+>
+> There is now one instance per `(category, extension, method)`. Existing entries were
+> written under the wrong key and will miss once, which for a cache is the correct
+> outcome rather than a migration.
+
+**Categories are a namespace, not a label.** Two entries with the same id in different
+categories are different entries, and `clear($category)` removes one category without
+touching the others. If you want a value shared between subsystems, give them the same
+category deliberately rather than relying on them colliding.
+
 ### Cache with Timeouts
 
 ```php
