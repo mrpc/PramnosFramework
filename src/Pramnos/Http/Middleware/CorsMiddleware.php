@@ -147,7 +147,10 @@ class CorsMiddleware implements MiddlewareInterface
 
         // Preflight — answer here, do not run the action.
         if ($request->getRequestMethod() === 'OPTIONS') {
-            header('HTTP/1.1 204 No Content');
+            // http_response_code() rather than a hand-written status line: the
+            // literal 'HTTP/1.1' is wrong on an HTTP/2 connection, and sending a
+            // status line by hand makes PHP ignore every later change to the code.
+            http_response_code(204);
             return '';
         }
 

@@ -73,7 +73,8 @@ class Rss extends \Pramnos\Document\Document
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
         if (!headers_sent()) {
-            header('HTTP/1.1 200 OK');
+            // See Json::render() — a hand-written status line stamps 200 over
+            // whatever the caller set and pins it against every later change.
             header(
                 'Content-type: application/rss+xml; charset='
                 . $lang->_('CHARSET')

@@ -13,7 +13,13 @@ class Json extends \Pramnos\Document\Document
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
         if (!headers_sent()) {
-            header('HTTP/1.1 200 OK');
+            // No status line here. `header('HTTP/1.1 200 OK')` used to be the first
+            // call, and it did two harmful things: it stamped 200 over a status the
+            // controller had already set — so a JSON *error* response was served as
+            // 200 and the client could not tell failure from success — and it pinned
+            // the status, because PHP ignores every later http_response_code() once
+            // a status line has been sent by hand. 200 is the default anyway, so the
+            // line was a no-op in the only case where it was correct.
             header(
                 'Content-type: application/json; charset='
                 . $lang->_('CHARSET')
