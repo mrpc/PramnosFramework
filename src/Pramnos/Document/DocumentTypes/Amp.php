@@ -68,43 +68,43 @@ class Amp extends \Pramnos\Document\Document
 
 
         $content = '<!DOCTYPE html>
-<html amp ' . $this->extraHtmlTag . ' lang="' . $lang->_('LangShort') . '">
+<html amp ' . $this->extraHtmlTag . ' lang="' . $this->escapeHeadValue($lang->_('LangShort')) . '">
     <head ' . $this->headContent . '>
-        <meta charset="' . $lang->_('CHARSET') . '">
+        <meta charset="' . $this->escapeHeadValue($lang->_('CHARSET')) . '">
 
         <script async src="https://cdn.ampproject.org/v0.js"></script>
-        <title>' . $this->title . '</title>
+        <title>' . $this->escapeHeadValue($this->title) . '</title>
         <style amp-boilerplate>body{-webkit-animation:-amp-start 8s steps(1,end) 0s 1 normal both;-moz-animation:-amp-start 8s steps(1,end) 0s 1 normal both;-ms-animation:-amp-start 8s steps(1,end) 0s 1 normal both;animation:-amp-start 8s steps(1,end) 0s 1 normal both}@-webkit-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-moz-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-ms-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-o-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}</style><noscript><style amp-boilerplate>body{-webkit-animation:none;-moz-animation:none;-ms-animation:none;animation:none}</style></noscript>
-        <link rel="canonical" href="' . $this->canonical . '">
+        <link rel="canonical" href="' . $this->escapeHeadValue($this->canonical) . '">
         <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1">
-        <meta name="description" content="' . $this->description . '" />
-        <meta property="og:title" content="' . $this->og_title . '" />
-        <meta property="og:type" content="' . $this->og_type . '" />
-        <meta property="og:url" content="' . $this->og_url . '" />' . "\n";
+        <meta name="description" content="' . $this->escapeHeadValue($this->description) . '" />
+        <meta property="og:title" content="' . $this->escapeHeadValue($this->og_title) . '" />
+        <meta property="og:type" content="' . $this->escapeHeadValue($this->og_type) . '" />
+        <meta property="og:url" content="' . $this->escapeHeadValue($this->og_url) . '" />' . "\n";
         foreach ($this->meta as $meta=>$metavalue) {
             $content .= '        <meta property="'
-                . $meta
+                . $this->escapeHeadValue($meta)
                 . '" content="'
-                . $metavalue
+                . $this->escapeHeadValue($metavalue)
                 . '" />'
                 . "\n";
         }
         foreach ($this->metanames as $meta=>$metavalue) {
             $content .= '        <meta name="'
-                . $meta
+                . $this->escapeHeadValue($meta)
                 . '" content="'
-                . $metavalue
+                . $this->escapeHeadValue($metavalue)
                 . '" />'
                 . "\n";
         }
         if ($this->og_image != "") {
             $content .= '<meta property="og:image" content="'
-                . $this->og_image . '"/>';
+                . $this->escapeHeadValue($this->og_image) . '"/>';
         }
         $content .= '
-        <meta property="og:site_name" content="' . $this->og_site_name . '" />
+        <meta property="og:site_name" content="' . $this->escapeHeadValue($this->og_site_name) . '" />
         <meta property="og:description" content="'
-            . $this->og_description . '" />';
+            . $this->escapeHeadValue($this->og_description) . '" />';
         $content .= $this->header;
         $bodyclasses = '';
         $comma = '';

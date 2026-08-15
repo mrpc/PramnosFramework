@@ -669,6 +669,43 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * Escape a value that a document type is about to put in the `<head>`.
+     *
+     * Every renderer built the head by concatenation — `content="' . $value . '"` —
+     * so a value containing a double quote ended the attribute and everything after
+     * it was markup. On a server-rendered page the values are a station name, a
+     * user-supplied description, a title from the database: exactly the strings that
+     * should never be trusted, in the one place nobody looks.
+     *
+     * `ENT_QUOTES` because these land in attributes, `ENT_SUBSTITUTE` so invalid
+     * UTF-8 becomes U+FFFD instead of an empty string (silently losing a title is
+     * worse than showing a replacement character), and **`double_encode: false`**
+     * because applications that already escape their own metadata are the ones most
+     * likely to be doing the right thing — re-encoding their `&amp;` into `&amp;amp;`
+     * would punish them for it.
+     *
+     * This deliberately does **not** cover `headContent`, `extraHtmlTag`,
+     * `extraBodyTag` or `header`: those exist to carry markup, and escaping them
+     * would break every application that uses them as documented.
+     *
+     * @param  mixed  $value Whatever the document type holds for that slot
+     * @return string        Safe to interpolate into an attribute or element text
+     */
+    protected function escapeHeadValue($value)
+    {
+        if ($value === null || is_array($value) || is_object($value)) {
+            return '';
+        }
+
+        return htmlspecialchars(
+            (string) $value,
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8',
+            false
+        );
+    }
+
+    /**
      * Add a meta tag to the head section
      * @param  string            $property   The meta property
      * @param  string            $value      The value of the tag
