@@ -207,7 +207,7 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
     }
 
     /**
-     * _getList() with useGetData=true and queryFields collapses payload to empty
+     * _getList() with useGetData=true and queryFields returns the selected columns
      * arrays on PostgreSQL — same known limitation as MySQL.
      *
      * This is a characterization of current behavior (known limitation), not an
@@ -240,8 +240,13 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
         $first = $rows[1] ?? null;
         $this->assertIsArray($first);
         // Current behavior on both MySQL and PostgreSQL: selected-field filtering
-        // collapses the payload to an empty array.
-        $this->assertSame([], $first);
+        // Until 2026-08-16 this collapsed to []. The cause was getData(), not the
+        // field filtering: the model declares no public properties, so its columns
+        // went through Base::__set into `_data`, which getData() saw as one array
+        // and dropped whole. Same finding on both engines, which is what says it was
+        // the model rather than the driver.
+        $this->assertArrayHasKey('id', $first);
+        $this->assertArrayHasKey('name', $first);
     }
 
     // -------------------------------------------------------------------------
@@ -468,7 +473,7 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
     // PG's ILIKE/unaccent + information_schema paths.
 
     /**
-     * useGetData=true (generated getApiList() wrapper path) collapses each row to
+     * useGetData=true (generated getApiList() wrapper path) returns each row as
      * an empty array on the generic base Model — same getData()/prune-mismatch
      * quirk as MySQL. Positions: 12=returnAsModels, 13=useGetData.
      */
@@ -489,8 +494,12 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
         // Assert
         $this->assertCount(5, $result['data']);
         $this->assertSame(5, (int) $result['pagination']['totalitems']);
-        $this->assertSame([], $result['data'][0],
-            'useGetData row collapses to [] on the generic model (PG)');
+        // See the MySQL sibling: rows were empty because getData() dropped the
+        // `_data` bag, not because of anything PostgreSQL did.
+        foreach ($result['data'] as $index => $row) {
+            $this->assertArrayHasKey('id', $row, "row {$index} lost its id");
+            $this->assertArrayHasKey('name', $row, "row {$index} lost its name");
+        }
     }
 
     /**

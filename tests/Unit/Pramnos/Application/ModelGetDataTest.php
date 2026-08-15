@@ -500,6 +500,53 @@ class ModelGetDataTest extends TestCase
     }
 
     /**
+     * Every property the base declares is classified, with nothing left to luck.
+     *
+     * `Model` declares no columns — columns belong to subclasses — so **every**
+     * instance property it or `Framework\Base` declares is machinery, and every one
+     * must be in the exclusion list. While the type filter existed this did not
+     * matter: arrays, objects and booleans were dropped whatever they were called.
+     * With the filter off by default, the list is the only thing between a payload and
+     * the model's internals.
+     *
+     * Written after the hand-maintained list turned out to be missing two entries —
+     * `_jsonactions`, and `getDataFullFidelity` itself, which would have put
+     * `"getDataFullFidelity": true` into every payload the change was meant to
+     * improve. Both were found by a characterization test rather than by reading the
+     * list, so the list is now derived from the class instead of trusted.
+     *
+     * @return void
+     */
+    public function testEveryDeclaredBasePropertyIsExcluded(): void
+    {
+        // Arrange
+        $listed  = (new \ReflectionClass(Model::class))
+            ->getConstant('INTERNAL_PROPERTIES');
+        $missing = [];
+
+        // Act — Model's own properties and everything it inherits from Base
+        foreach ([Model::class, \Pramnos\Framework\Base::class] as $class) {
+            foreach ((new \ReflectionClass($class))->getProperties() as $property) {
+                if ($property->isStatic()) {
+                    continue;
+                }
+                if (!isset($listed[$property->getName()])) {
+                    $missing[] = $class . '::$' . $property->getName();
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $missing,
+            'A property declared on the base is machinery, not a column. Add it to '
+            . 'Model::INTERNAL_PROPERTIES — with the type filter off by default, '
+            . 'this list is the only thing keeping it out of every payload.'
+        );
+    }
+
+    /**
      * The default path costs less than it did.
      *
      * Not a benchmark assertion — those are flaky and this suite has learned that the
