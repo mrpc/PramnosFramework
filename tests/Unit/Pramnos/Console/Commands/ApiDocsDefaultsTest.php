@@ -51,7 +51,33 @@ class ApiDocsDefaultsTest extends TestCase
      */
     protected function tearDown(): void
     {
-        exec('rm -rf ' . escapeshellarg($this->tmp));
+        $this->removeTree($this->tmp);
+    }
+
+    /**
+     * Removes a directory tree without spawning a process.
+     *
+     * `exec('rm -rf …')` is one fork per test. It is small — measured at a few
+     * milliseconds — but it is also avoidable, the file next door already does it
+     * this way, and the suite's runtime is something this project measures rather
+     * than assumes.
+     *
+     * @param  string $dir Directory to remove
+     * @return void
+     */
+    private function removeTree(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            is_dir($path) ? $this->removeTree($path) : @unlink($path);
+        }
+        @rmdir($dir);
     }
 
     /**
