@@ -340,6 +340,21 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     $sql    = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
                 }
 
+                // Deliberately uncached — the `false` is the point of this comment.
+                //
+                // The read paths below introspect with `query($sql, true, 3600, …)`,
+                // so a listing pays for this once an hour rather than once a request.
+                // This one is the **write** path, and the asymmetry is not an
+                // oversight: a stale schema here means the loop below never sees a
+                // newly added column, so `_save()` writes every row without it. That
+                // is silent data loss, discovered later and unrecoverable, against a
+                // saving of one query per table per request.
+                //
+                // A stale schema on a read path costs a column missing from a list.
+                // Visible, harmless, and fixed by waiting.
+                //
+                // The key is still built so the two paths can be told apart in the
+                // query log, and so anybody enabling this has one less thing to write.
                 $cacheKey = "schema_columns_" . $this->getFullTableName();
                 $result = $database->query($sql, false, 3600, $cacheKey);
                 self::$columnCache[$this->getFullTableName()] = array();
