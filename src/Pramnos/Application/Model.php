@@ -1224,6 +1224,14 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         '_messages'        => true,
         '_data'            => true,
         '_parentObject'    => true,
+        '_jsonactions'     => true,
+        // The switch itself. It is a boolean, so the type filter hid it while the
+        // filter existed — turning the filter off would have put
+        // `"getDataFullFidelity": true` into every payload the change was meant to
+        // improve. Found by a characterization test, not by reading this list, which
+        // is why ModelGetDataTest now derives the list from the class rather than
+        // trusting anybody to keep it complete by hand.
+        'getDataFullFidelity' => true,
     );
 
     /**

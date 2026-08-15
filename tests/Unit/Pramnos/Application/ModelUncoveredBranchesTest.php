@@ -369,25 +369,36 @@ class ModelUncoveredBranchesTest extends TestCase
     }
 
     /**
-     * getData() must skip non-scalar values (arrays/objects) so that the
-     * returned array is always safe for json_encode without nesting surprises.
+     * getData() returns array-valued columns, and skipped them before 2026-08-16.
      *
-     * This covers the `is_numeric($value) || is_string($value)` guard (line ~1061).
+     * This test asserted the opposite until that date, on the reasoning that the
+     * returned array should be "safe for json_encode without nesting surprises". The
+     * reasoning does not survive contact with a JSON column: nesting is what the
+     * column *is*, and dropping it does not make the payload safer, only smaller and
+     * wrong.
+     *
+     * What the old guard actually cost was measured before it was removed — on a real
+     * application, 48 of 54 models gained keys, 411 of them `NULL` — and the argument
+     * for removing it came from that same measurement: overrides in that application
+     * do `(int) $data['reportid']` unguarded, so a `NULL` column raised *Undefined
+     * array key* in production and put a `0` in the payload.
+     *
+     * The old shape remains available as `$getDataFullFidelity = false`, and is
+     * pinned byte for byte by ModelGetDataTest.
      */
-    public function testGetDataSkipsNonScalarValues(): void
+    public function testGetDataReturnsArrayValuedColumns(): void
     {
-        // Arrange — use stub; set array-valued property (must be skipped)
-        $stub       = new StubModelForGetData();
-        $stub->tags = ['a', 'b'];   // declared property — array, must be skipped
-        $stub->name = 'Widget';     // declared property — string, must be included
-        $stub->price = 9.99;        // declared property — numeric string/float, must be included
+        // Arrange
+        $stub        = new StubModelForGetData();
+        $stub->tags  = ['a', 'b'];   // a decoded JSON column
+        $stub->name  = 'Widget';
+        $stub->price = 9.99;
 
         // Act
         $data = $stub->getData();
 
         // Assert
-        $this->assertArrayNotHasKey('tags', $data,
-            'Array-valued declared properties must be excluded from getData()');
+        $this->assertSame(['a', 'b'], $data['tags']);
         $this->assertArrayHasKey('name', $data);
         $this->assertArrayHasKey('price', $data);
     }

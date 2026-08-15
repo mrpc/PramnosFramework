@@ -217,8 +217,15 @@ class ModelListApiCharacterizationTest extends TestCase
         $this->assertCount(5, $rows);
         $first = $rows[1] ?? null;
         $this->assertIsArray($first);
-        // Current behavior: selected-field filtering can collapse payload to empty array.
-        $this->assertSame([], $first);
+        // Until 2026-08-16 this collapsed to []. The cause was getData(), not the
+        // field filtering it was blamed on: the model under test declares no public
+        // properties, so its columns went through Base::__set into `_data` — and
+        // getData() scanned object properties, saw `_data` as one array, and dropped
+        // it whole with every column inside. A row of nothing, reported as a row.
+        //
+        // getData() reads the bag now, so useGetData returns the columns it selected.
+        $this->assertSame(1, $first['id']);
+        $this->assertSame('alpha', $first['name']);
     }
 
     /**
@@ -567,10 +574,22 @@ class ModelListApiCharacterizationTest extends TestCase
         $this->assertCount(5, $result['data']);
         $this->assertSame(5, (int) $result['pagination']['totalitems']);
 
-        // Each row is collapsed to an empty array by the getData()+prune step.
-        $this->assertSame([], $result['data'][0],
-            'useGetData row collapses to [] on the generic model (getData/prune mismatch)');
-        $this->assertSame([], $result['data'][4]);
+        // Until 2026-08-16 every row here was an empty array, and the note left
+        // behind blamed a "getData/prune mismatch". The prune was innocent: this
+        // model declares no public properties, so its columns live in `_data`, and
+        // getData() dropped that bag whole while scanning object properties. The
+        // endpoint returned the right number of rows with nothing in any of them —
+        // a shape that reads as "no data for these records" rather than as a bug.
+        // Asserted as "every row carries the fields it selected" rather than by
+        // naming the fixture's values: the point is that rows are no longer empty,
+        // and a test that also pins the seed data fails for the wrong reason when
+        // somebody adds a row. The first draft of this did exactly that.
+        foreach ($result['data'] as $index => $row) {
+            $this->assertArrayHasKey('id', $row, "row {$index} lost its id");
+            $this->assertArrayHasKey('name', $row, "row {$index} lost its name");
+            $this->assertNotSame('', (string) $row['name']);
+        }
+        $this->assertSame(1, $result['data'][0]['id']);
     }
 
     /**
