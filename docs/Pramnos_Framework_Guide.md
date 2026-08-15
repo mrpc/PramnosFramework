@@ -367,6 +367,12 @@ variables.
 
 Both `.html.php` and `.tpl.php` are tried at each step.
 
+**Debug output.** In debug mode an HTML view appends a comment naming the template it
+rendered and when. It is emitted only when `Application::isDebugMode()` says so — the
+`APP_DEBUG` environment variable, the `DEVELOPMENT` constant, or the debug setting. It
+used to be unconditional, which put the application's file layout into the source of
+every public page.
+
 Step 4 was missing until 2026-08-16, which made a shared layout the one thing that
 could not be found — and a declared layout that does not resolve renders the child
 **alone**: a page returned with `200`, no `<head>`, and, until the same change, nothing

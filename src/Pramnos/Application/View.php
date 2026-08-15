@@ -194,6 +194,27 @@ class View extends \Pramnos\Framework\Base
     }
 
     /**
+     * Whether this request is being debugged.
+     *
+     * Asks the application rather than reading `DEVELOPMENT` here: `isDebugMode()`
+     * checks the `APP_DEBUG` environment variable as well, and a second copy of that
+     * decision would answer differently on the machines where the environment
+     * variable is the one being used.
+     *
+     * Defaults to **false** when there is no application to ask. A view rendered
+     * outside a request is not a debugging session, and the safe answer for a
+     * disclosure is the quiet one.
+     *
+     * @return bool
+     */
+    protected function inDebugMode(): bool
+    {
+        $application = $this->controller->application ?? null;
+
+        return $application !== null && $application->isDebugMode();
+    }
+
+    /**
      * Adds a model to the view
      * @param \Pramnos\Application\Model $model
      * @param boolean $default Is this model the main used for this view?
@@ -649,8 +670,13 @@ class View extends \Pramnos\Framework\Base
                 }
             }
 
+            // The template's path, in an HTML comment, in the response — useful
+            // while building a page and a disclosure once the page is public. It was
+            // emitted unconditionally, so every server-rendered page told anybody
+            // reading the source where the application's files live, and search
+            // engines indexed it along with everything else. Debug mode only.
             $tplInformation = '';
-            if ($this->type == 'html') {
+            if ($this->type == 'html' && $this->inDebugMode()) {
                 $tplInformation = "\n<!-- \n"
                     . "View Rendered at: "
                     . date('d/m/Y H:i:s')

@@ -158,6 +158,30 @@ class ViewLayoutResolutionTest extends TestCase
     }
 
     /**
+     * The rendered template's path is not disclosed outside debug mode.
+     *
+     * Every HTML view appended `<!-- View Rendered at: … View Path: /src/Views/… -->`
+     * unconditionally. On a page nobody sees that is a convenience; on a public,
+     * server-rendered page it tells anybody reading the source where the
+     * application's files live, and gets indexed along with the rest of the markup.
+     *
+     * @return void
+     */
+    public function testTheTemplatePathIsNotLeakedOutsideDebugMode(): void
+    {
+        // Arrange
+        file_put_contents($this->tmp . '/Home/plain.html.php', 'hello');
+
+        // Act
+        $output = (string) $this->view()->display('plain');
+
+        // Assert — the page renders, the path does not travel with it
+        $this->assertStringContainsString('hello', $output);
+        $this->assertStringNotContainsString('View Path:', $output);
+        $this->assertStringNotContainsString('View Rendered at:', $output);
+    }
+
+    /**
      * A layout that cannot be found is written to the log.
      *
      * This is the half that matters. The framework cannot know every place a file

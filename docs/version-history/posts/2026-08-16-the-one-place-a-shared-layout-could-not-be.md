@@ -62,12 +62,36 @@ This is the third feature this week found documented only in a page that cannot 
 updated. The habit that catches it is cheap: when fixing something, grep the guides for
 the method name before writing the fix, not after.
 
+## And every page carried its own file path
+
+Unrelated to layouts, in the same method:
+
+```html
+<!--
+View Rendered at: 16/08/2026 11:04:22
+View Path: /src/Views/Home/home.html.php
+-->
+```
+
+Appended to **every** HTML view, unconditionally, in production as much as anywhere
+else. While building a page it is a convenience. On a public server-rendered page it
+tells anybody reading the source where the application's files live, and search engines
+index it with the rest of the markup.
+
+Debug mode only now — asked of `Application::isDebugMode()` rather than by reading
+`DEVELOPMENT` in the view, because that method also honours `APP_DEBUG`, and a second
+copy of the decision would answer differently on the machines using the environment
+variable. With no application to ask it answers **false**: a view rendered outside a
+request is not a debugging session, and the safe answer about a disclosure is the quiet
+one.
+
 ## Fixed
 
 - `View::resolveTemplatePath()` searches `dirname($this->path)` — `src/Views` for a
   standard layout — after the existing locations.
 - A declared layout that cannot be resolved is logged instead of silently dropping the
   page's entire structure.
+- The `View Rendered at` / `View Path` comment is emitted in debug mode only.
 
 ## Documentation
 
