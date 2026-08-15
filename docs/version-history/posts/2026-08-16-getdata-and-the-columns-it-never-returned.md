@@ -45,31 +45,47 @@ The generator already knew. `make:crud` emits per-column casts that put booleans
 after calling `parent::getData()` — patching the base's type filter one type at a time,
 and stopping one short of JSON. That case exists now too.
 
-## Why the fix is opt-in, measured rather than assumed
+## Why it changed, measured rather than assumed
 
-The obvious change is to name every internal and drop the type filter. It was written,
-and then the blast radius was measured before shipping it.
+The obvious fix is to name every internal and drop the type filter. The blast radius was
+measured first, on an application with **54 models, 45 overriding `getData()`, and 42 of
+those calling `parent::getData()`** — so a change here reaches almost every endpoint it
+has.
 
-In one existing application: **54 models, 45 override `getData()`, and 42 of those call
-`parent::getData()`.** A change here reaches almost every endpoint that application has,
-adding keys to every payload. All of the new keys are more correct. Every one is a
-difference a consumer can notice, and the requirement this work was held to was *no
-differences at all*.
+Running the old and new implementations side by side against those real model classes:
 
-So it splits:
+| | |
+| --- | --- |
+| models that gain keys | **48 of 54** |
+| keys added | **523** (avg 10.9 per model) |
+| of which `NULL` | **411** |
+| boolean | 53 |
+| array | 55 |
 
-**Unconditional** — the exclusion list is now a named array rather than eight chained
-string comparisons, and it includes the internals that were previously excluded only by
-luck of their type: `_initialData`, `controller`, `_isnew`, `_data`, the message
-buffers, and `sqlError`. Output is byte-identical, with the single deliberate exception
-of `sqlError` no longer leaking.
+And the measurement produced the argument **for** the change rather than against it.
+Those same overrides do:
 
-**Opt-in** — `protected $getDataFullFidelity = true` in **one** base model class returns
-every column, and merges the `_data` bag so a model that declares nothing works too.
+```php
+$data = parent::getData();
+$data['reportid'] = (int) $data['reportid'];
+$data['date']     = (int) $data['date'];
+```
 
-Adding a parameter was not available: `getData()` is overridden in dozens of places with
-no arguments, and PHP treats a child with fewer parameters than its parent as a fatal
-declaration error. Checked before designing around it.
+Unguarded. So a record with `NULL` in one of those columns raised *Undefined array key*
+in production, and `(int) null` put a **`0`** in the payload where the value was `NULL`.
+The absent key was not a neutral quirk; it was producing warnings and wrong numbers in
+the application that had lived with it longest.
+
+So the default now returns everything, and the historical shape is available as an
+opt-out for anybody who needs it back:
+
+```php
+protected $getDataFullFidelity = false;   // the pre-1.2 shape, byte for byte
+```
+
+Adding a parameter was never available: `getData()` is overridden in dozens of places
+with no arguments, and PHP treats a child with fewer parameters than its parent as a
+fatal declaration error. Checked before designing around it.
 
 ## The golden master, and the flaw in the first one
 
@@ -95,14 +111,27 @@ Six of the fourteen tests fail if the default is flipped to full fidelity.
 
 ## Fixed
 
-- `getData()` no longer returns `sqlError`, and no longer relies on a value's type to
-  keep the model's internals out of a payload.
+- `getData()` returns `NULL`, boolean and array columns instead of dropping them, and
+  reads the `_data` bag for models that declare no public properties.
+- It no longer returns `sqlError`, in either mode.
 - `make:crud` generates a case for JSON columns, which had none.
 
 ## Added
 
-- `Model::$getDataFullFidelity` — opt in to `NULL`, boolean and array columns, and to
-  reading the `_data` bag for models that declare no public properties.
+- `Model::$getDataFullFidelity` — set it to `false` for the pre-1.2 shape, byte for
+  byte.
+
+## The merge order was wrong first
+
+Where a column exists both as a declared property and in the `_data` bag, the **declared
+property wins** — it is the live value; the bag is the fallback for columns nobody
+declared.
+
+The first implementation had `array_merge($source, $this->_data)`, which is the other
+way round, so a stale bag entry shadowed the property. That presents as a field that
+stops updating: no error, no warning, a value that is simply old. It was caught by the
+one test written for precedence rather than for output, which existed only because the
+merge looked too obvious to leave untested.
 
 ## Documentation
 

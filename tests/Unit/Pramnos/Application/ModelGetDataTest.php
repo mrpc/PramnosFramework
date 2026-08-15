@@ -37,10 +37,10 @@ class ModelGetDataTest extends TestCase
     /**
      * A model declaring its columns, as the CRUD generator writes them.
      *
-     * @param  bool $fullFidelity Whether to opt in
+     * @param  bool $historical Whether to opt out, back to the pre-1.2 shape
      * @return Model
      */
-    private function declaredModel(bool $fullFidelity = false): Model
+    private function declaredModel(bool $historical = false): Model
     {
         $model = new class (ServiceController::shared()) extends Model {
             /** @var string */
@@ -69,13 +69,13 @@ class ModelGetDataTest extends TestCase
             public $emptyPayload = [];
 
             /**
-             * Turns the opt-in on.
+             * Restores the pre-1.2 shape.
              *
              * @return void
              */
-            public function optIn(): void
+            public function optOut(): void
             {
-                $this->getDataFullFidelity = true;
+                $this->getDataFullFidelity = false;
             }
 
             /**
@@ -123,8 +123,8 @@ class ModelGetDataTest extends TestCase
             }
         };
 
-        if ($fullFidelity) {
-            $model->optIn();
+        if ($historical) {
+            $model->optOut();
         }
 
         return $model;
@@ -133,23 +133,23 @@ class ModelGetDataTest extends TestCase
     /**
      * A model that declares nothing, relying on `Base::__set`.
      *
-     * @param  bool $fullFidelity Whether to opt in
+     * @param  bool $historical Whether to opt out, back to the pre-1.2 shape
      * @return Model
      */
-    private function undeclaredModel(bool $fullFidelity = false): Model
+    private function undeclaredModel(bool $historical = false): Model
     {
         $model = new class (ServiceController::shared()) extends Model {
             /** @var string */
             protected $_dbtable = 'probe';
 
             /**
-             * Turns the opt-in on.
+             * Restores the pre-1.2 shape.
              *
              * @return void
              */
-            public function optIn(): void
+            public function optOut(): void
             {
-                $this->getDataFullFidelity = true;
+                $this->getDataFullFidelity = false;
             }
 
             /**
@@ -190,8 +190,8 @@ class ModelGetDataTest extends TestCase
         $model->name    = 'a name';
         $model->nothing = null;
 
-        if ($fullFidelity) {
-            $model->optIn();
+        if ($historical) {
+            $model->optOut();
         }
 
         return $model;
@@ -207,10 +207,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testTheDefaultReturnsExactlyTheHistoricalKeys(): void
+    public function testTheOptOutReturnsExactlyTheHistoricalKeys(): void
     {
         // Act
-        $data = $this->declaredModel()->getData();
+        $data = $this->declaredModel(true)->getData();
 
         // Assert
         $this->assertSame(
@@ -249,10 +249,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testTheDefaultStillDropsNullBooleansAndArrays(): void
+    public function testTheOptOutStillDropsNullBooleansAndArrays(): void
     {
         // Act
-        $data = $this->declaredModel()->getData();
+        $data = $this->declaredModel(true)->getData();
 
         // Assert
         foreach (['nothing', 'flag', 'offFlag', 'payload', 'emptyPayload'] as $key) {
@@ -265,10 +265,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testFullFidelityKeepsEveryColumn(): void
+    public function testTheDefaultKeepsEveryColumn(): void
     {
         // Act
-        $data = $this->declaredModel(true)->getData();
+        $data = $this->declaredModel()->getData();
 
         // Assert
         $this->assertArrayHasKey('nothing', $data);
@@ -291,7 +291,7 @@ class ModelGetDataTest extends TestCase
     public function testAnEmptyArrayColumnIsStillAColumn(): void
     {
         // Act
-        $data = $this->declaredModel(true)->getData();
+        $data = $this->declaredModel()->getData();
 
         // Assert
         $this->assertArrayHasKey('emptyPayload', $data);
@@ -313,7 +313,7 @@ class ModelGetDataTest extends TestCase
         $plain = $this->declaredModel();
         $plain->failWith('SQLSTATE[42S02]: Base table or view not found');
 
-        $full = $this->declaredModel(true);
+        $full = $this->declaredModel();
         $full->failWith('SQLSTATE[42S02]: Base table or view not found');
 
         // Assert
@@ -330,7 +330,7 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testNoInternalsLeakUnderFullFidelity(): void
+    public function testNoInternalsLeakIntoThePayload(): void
     {
         // Arrange — _initialData is populated the way _getList() populates it
         $model = $this->declaredModel(true);
@@ -363,10 +363,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testAnUndeclaredModelReturnsNothingByDefault(): void
+    public function testAnUndeclaredModelReturnsNothingUnderTheOptOut(): void
     {
         // Act
-        $data = $this->undeclaredModel()->getData();
+        $data = $this->undeclaredModel(true)->getData();
 
         // Assert
         $this->assertSame([], $data);
@@ -377,10 +377,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testAnUndeclaredModelReturnsItsColumnsUnderFullFidelity(): void
+    public function testAnUndeclaredModelReturnsItsColumns(): void
     {
         // Act
-        $data = $this->undeclaredModel(true)->getData();
+        $data = $this->undeclaredModel()->getData();
 
         // Assert
         $this->assertSame(7, $data['id']);
@@ -401,18 +401,23 @@ class ModelGetDataTest extends TestCase
      */
     public function testADeclaredPropertyWinsOverTheDataBag(): void
     {
-        // Arrange
-        $model = $this->undeclaredModel(true);
+        // Arrange — a model that declares `id`, with a stale entry of the same name
+        // planted in the bag underneath it
+        $model      = $this->declaredModel();
         $reflection = new \ReflectionProperty(Model::class, '_data');
-        $bag = $reflection->getValue($model);
-        $bag['id'] = 'stale';
+        $bag        = $reflection->getValue($model);
+        $bag['id']  = 'stale';
+        $bag['onlyInTheBag'] = 'from the bag';
         $reflection->setValue($model, $bag);
 
-        // Act — id lives only in the bag for this model, so it is the bag's
+        // Act
         $data = $model->getData();
 
-        // Assert — the merge order is defined and tested rather than incidental
-        $this->assertSame('stale', $data['id']);
+        // Assert — the declared property wins, and the bag still contributes what
+        // only it has. A merge the other way round would present as a field that
+        // stops updating, which is the hardest kind of staleness to trace.
+        $this->assertSame(7, $data['id']);
+        $this->assertSame('from the bag', $data['onlyInTheBag']);
     }
 
     /**
@@ -430,10 +435,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testTheDefaultIsByteIdenticalToTheOldImplementation(): void
+    public function testTheOptOutIsByteIdenticalToTheOldImplementation(): void
     {
         // Arrange — every shape the filter used to sort on
-        $model = $this->declaredModel();
+        $model = $this->declaredModel(true);
 
         // Act
         $before = $model->historical();
@@ -455,10 +460,10 @@ class ModelGetDataTest extends TestCase
      *
      * @return void
      */
-    public function testTheDefaultIsByteIdenticalForAnUndeclaredModel(): void
+    public function testTheOptOutIsByteIdenticalForAnUndeclaredModel(): void
     {
         // Arrange
-        $model = $this->undeclaredModel();
+        $model = $this->undeclaredModel(true);
 
         // Act & Assert
         $this->assertSame(
@@ -480,7 +485,7 @@ class ModelGetDataTest extends TestCase
     public function testTheOnlyDeliberateDifferenceIsTheSqlError(): void
     {
         // Arrange
-        $model = $this->declaredModel();
+        $model = $this->declaredModel(true);
         $model->failWith('SQLSTATE[42S02]: Base table or view not found');
 
         // Act

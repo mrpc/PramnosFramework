@@ -1229,29 +1229,45 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     /**
      * Return every column, including `NULL`, booleans and decoded JSON.
      *
-     * **Off by default, and that default is not timidity — it is measured.** In one
-     * application of 54 models, 45 override `getData()` and **42 of those call
-     * `parent::getData()`**, so a change here reaches almost every endpoint it has.
-     * Switching this on adds keys to those payloads: columns that are `NULL` appear
-     * as `null` instead of being absent, booleans appear, and JSON columns arrive as
-     * arrays. Every one of those is more correct and every one is a change a consumer
-     * can notice.
+     * **On.** Set it to `false` in a base model class to get the historical shape
+     * back, byte for byte.
      *
-     * Turn it on in **one** base model class for the application, not per model, and
-     * check what the responses look like before and after. The parts most likely to
-     * care are code that builds SQL or calls `implode()` on the result — an array
-     * value where a scalar was assumed — and typed clients that reject unknown keys.
+     * The old behaviour kept only `is_numeric()` or `is_string()` values, so a column
+     * holding `NULL` was **absent from the payload** rather than `null`, booleans
+     * disappeared, and a decoded JSON column disappeared with them.
+     *
+     * That was measured before flipping, on an application with 54 models where 42
+     * reach this through `parent::getData()`: **523 keys across 48 models**, of which
+     * **411 were `NULL`**, 53 boolean and 55 array. And the measurement found the
+     * argument *for* flipping rather than against. Overrides in that application do
+     *
+     * ```php
+     * $data = parent::getData();
+     * $data['reportid'] = (int) $data['reportid'];
+     * ```
+     *
+     * unguarded — so a record with `NULL` in that column raised *Undefined array key*
+     * in production and cast the missing value to `0`. The absent key was not a
+     * neutral historical quirk; it was producing warnings and wrong numbers.
+     *
+     * What to check after upgrading, in order of likelihood:
+     *
+     * - code calling `implode()`, `http_build_query()` or building SQL from the
+     *   result — a JSON column now arrives as an array where a scalar was assumed;
+     * - clients that reject unknown keys;
+     * - anything reading `array_key_exists()` as *"this record has no value"*, which
+     *   now means *"this column is null"*.
      *
      * ```php
      * abstract class AppModel extends \Pramnos\Application\Model
      * {
-     *     protected $getDataFullFidelity = false;
+     *     protected $getDataFullFidelity = false;   // the pre-1.2 shape
      * }
      * ```
      *
      * @var bool
      */
-    protected $getDataFullFidelity = false;
+    protected $getDataFullFidelity = true;
 
     /**
      * Return all data as an array.
@@ -1269,16 +1285,19 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             // array and not the columns. Such a model gets an **empty** array from the
             // historical path — the columns are there, one level down, and nothing
             // ever looked.
-            $source = array_merge($source, $this->_data);
+            // Bag first, declared properties second: a declared property is the live
+            // value and must win. The reverse lets a stale `_data` entry of the same
+            // name shadow it, which presents as a field that stops updating — the
+            // hardest kind of staleness to trace, and the order this had at first.
+            $source = array_merge($this->_data, $source);
         }
 
         foreach ($source as $key => $value) {
             if (isset(self::INTERNAL_PROPERTIES[$key])) {
                 continue;
             }
-            // The historical shape: only numbers and strings, which silently drops
-            // NULL, booleans and decoded JSON columns. Kept as the default because
-            // 42 models in one application alone reach this through parent::getData().
+            // The pre-1.2 shape, kept as an opt-out: only numbers and strings, which
+            // silently drops NULL, booleans and decoded JSON columns.
             if (!$this->getDataFullFidelity
                 && !is_numeric($value) && !is_string($value)) {
                 continue;
