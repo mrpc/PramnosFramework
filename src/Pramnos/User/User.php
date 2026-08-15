@@ -1049,6 +1049,56 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      *                          NULL/0 expires as non-expiring.
      * @return $this
      */
+    /**
+     * What the `usertokens.deviceinfo` column has always said it holds.
+     *
+     * The column is declared as *"JSON-encoded device/client information (browser, OS,
+     * IP at token creation)"* and was written as `''` at every call site — so the
+     * active-sessions list, which exists so somebody can recognise a session they do
+     * not remember, showed nothing to recognise it by. `Token` has decoded this field
+     * for years; there was simply never anything in it.
+     *
+     * Three keys, and the choice of three is the point:
+     *
+     * - **`device`** — the coarse {@see \Pramnos\Auth\SignInFingerprint}, so two
+     *   sessions from the same browser compare equal across browser updates. Storing
+     *   the raw user agent instead would make every session look distinct after any
+     *   update, which is the failure the fingerprint exists to avoid.
+     * - **`label`** — the same thing in words, because `chrome|windows` is not what a
+     *   person scanning their sessions needs to read.
+     * - **`ip`** — recorded, because an administrator investigating an incident needs
+     *   it. It is deliberately **not** used to decide anything: consumer addresses are
+     *   dynamic, and comparing them is how a security signal becomes noise.
+     *
+     * @return string JSON, or an empty string when there is nothing to record
+     */
+    private static function currentDeviceInfo(): string
+    {
+        try {
+            $fingerprint = \Pramnos\Auth\SignInFingerprint::current();
+            $info = array(
+                'device' => $fingerprint,
+                'label'  => \Pramnos\Auth\SignInFingerprint::describe($fingerprint),
+            );
+
+            $ip = \Pramnos\Http\Request::clientIp();
+            if ($ip !== null && $ip !== '') {
+                $info['ip'] = substr((string) $ip, 0, 45);
+            }
+
+            $json = json_encode($info);
+
+            // An unencodable value would put the literal `false` in a TEXT column that
+            // Token::load() then tries to decode. A token created without device
+            // information is a smaller problem than one that cannot be read back.
+            return $json === false ? '' : $json;
+        } catch (\Throwable) {
+            // Issuing a token must not fail because the request could not be
+            // described. Every caller here is in a login or an OAuth exchange.
+            return '';
+        }
+    }
+
     public function addToken($tokentype, $token, $notes='',
         $parentToken = null, $expires = null)
     {
@@ -1068,7 +1118,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             'lastused'    => $now,
             'actions'     => 0,
             'removedate'  => 0,
-            'deviceinfo'  => '',
+            'deviceinfo'  => self::currentDeviceInfo(),
             'scope'       => '',
         ];
         // MySQL historically also wrote parentToken here; PostgreSQL omitted it.

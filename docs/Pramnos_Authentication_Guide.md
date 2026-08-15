@@ -465,6 +465,32 @@ if ($session->checkToken('post', 'csrf_')) {
 $session->reset();
 ```
 
+## What a session record contains
+
+Every token in `usertokens` carries a `deviceinfo` column, JSON-encoded:
+
+```json
+{"device": "chrome|windows", "label": "Chrome on Windows", "ip": "203.0.113.9"}
+```
+
+Written for every token type at creation — session, API, OAuth access and refresh — so
+the active-sessions list can show a person which of their devices a session belongs to.
+
+`Token` decodes it into an array. Both writers agree on the format — `User::addToken()`
+at creation and `Token::save()` afterwards both `json_encode()`. The `unserialize()`
+branch in `Token::load()` is a **reader** for rows written by an older path, not a
+second format anything produces today.
+
+**It stores the fingerprint, not the raw user agent**, and that is the same decision as
+in the section below: keeping the agent string would make every session look like a new
+device after any browser update, turning a list meant for recognition into a list of
+strangers. The `ip` is recorded for an administrator investigating an incident — it is
+never used to decide anything.
+
+> Until 2026-08-16 this column was written as an empty string at every call site, while
+> its own comment described it as holding *"browser, OS, IP at token creation"*. The
+> reader had existed for years; there was simply never anything in it.
+
 ## New sign-in alerts
 
 Opt-in. When a user has asked for it, an account signed in to from a browser/platform
