@@ -223,8 +223,12 @@ Generate an OpenAPI 3.0 spec straight from the `#[Route]` attributes (see the
 [Routing Guide](Pramnos_Routing_Guide.md#openapi-documentation-from-route)):
 
 ```
-php pramnos api:docs --namespace='App\Controllers' --output=www/api/openapi.json
+php pramnos api:docs
 ```
+
+It finds `src/Api/Controllers` or `src/Controllers` on its own and writes under
+whichever document root the project has, printing both — check that `Scanned …` line
+against where your API actually lives before publishing what it produced.
 
 Enrich request/response schemas via a deep-merged `--overrides` document.
 
