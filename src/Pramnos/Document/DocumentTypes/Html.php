@@ -145,6 +145,11 @@ class Html extends \Pramnos\Document\Document
         <meta property="og:description" content="'
             . $this->escapeHeadValue($this->og_description) . '" />';
 
+        // Canonical and structured data, from setCanonical() / addStructuredData().
+        // Emitted here rather than left to addHeadContent(), which was the only route
+        // before and meant every application escaped the URL itself or did not.
+        $content .= $this->seoHeadMarkup();
+
 
         $content .= $this->header;
         $bodyclasses = '';

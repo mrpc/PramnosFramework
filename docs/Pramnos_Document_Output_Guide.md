@@ -598,7 +598,51 @@ $doc->addMetaTag('twitter:image',       'https://example.com/twitter-image.jpg',
 
 ### Schema.org structured data
 
-There is no dedicated method. JSON-LD goes into the head with `addHeadContent()`:
+```php
+$doc->addStructuredData([
+    '@context' => 'https://schema.org',
+    '@type'    => 'Article',
+    'headline' => $article['title'],
+    'author'   => ['@type' => 'Person', 'name' => $article['author']],
+]);
+```
+
+Repeatable — a page carrying an `Article` and a `BreadcrumbList` calls it twice and
+gets two blocks. They are deliberately **not** merged: two `@type`s in one object is
+something no validator accepts.
+
+**Absent is not empty.** Omit a key you have no value for rather than emitting
+`"genre": ""`. An empty string is a claim that the field is blank, which is a different
+statement from not making the claim, and consumers treat it as one. The framework
+cannot do this for you — it cannot tell a deliberate empty string from a failed lookup.
+
+The encoding is handled, and the flags are not a preference:
+
+| Flag | What it prevents |
+| --- | --- |
+| `JSON_HEX_TAG` | **The one injection this format has.** A `</script>` inside any value would end the block early and everything after it would be parsed as markup |
+| `JSON_HEX_AMP` | the same, one step out, for consumers that re-parse the block from an HTML string |
+| `JSON_UNESCAPED_SLASHES` | every URL becoming `https:\/\/…` — valid, and unreadable in view-source, which is the only place anybody checks |
+| `JSON_UNESCAPED_UNICODE` | non-Latin text becoming `\uXXXX`, same cost, no benefit |
+
+If the data cannot be encoded at all — a resource handle, invalid UTF-8 — **no block is
+emitted**. A page without structured data is a smaller problem than a page with a broken
+script tag in its head.
+
+`Pramnos\Html\Seo::jsonLd($data)` returns the same string for a page assembled without
+a `Document` — a layout template, say. One implementation, two ways in.
+
+**Do not use `addInlineScript()` for this.** It hardcodes a bare `<script>` with no
+`type` and appends to the **foot**, not the head — so the browser would run your JSON-LD
+as JavaScript.
+
+<details>
+<summary>Before <code>addStructuredData()</code> existed</summary>
+
+JSON-LD had to go in by hand, and this is what that looked like — kept because
+applications written against it still work:
+
+</details>
 
 ```php
 $structuredData = [
@@ -630,12 +674,25 @@ your JSON-LD as JavaScript.
 
 ### Canonical links
 
-The HTML document type has no canonical property (the AMP type does). Add it as head
-content:
-
 ```php
-$doc->addHeadContent('<link rel="canonical" href="' . htmlspecialchars($url, ENT_QUOTES) . '">');
+$doc->setCanonical(URL . 'station/' . $station['slug']);
 ```
+
+Pass an **absolute** URL. A relative canonical is legal and is resolved against the
+current address, which makes it a no-op that looks like a decision — the case it exists
+to fix, two addresses serving one page, is exactly the case where "the current address"
+is the wrong answer.
+
+The AMP document type computes one when none is set and has always emitted it; setting
+one overrides that. It emits exactly one either way: two `<link rel="canonical">`
+elements on a page is undefined behaviour to a crawler, which is worse than none.
+
+`Pramnos\Html\Seo::canonicalLink($url)` returns the element for a page built without a
+`Document`.
+
+Until 2026-08-16 the HTML document type had no canonical at all and the only route was
+`addHeadContent()` with a hand-built `<link>` — which meant every application escaped
+the URL itself, or did not.
 
 ### Escaping: what the document escapes for you, and what it does not
 

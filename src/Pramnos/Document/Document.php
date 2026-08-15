@@ -669,6 +669,120 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * The URL this page should be indexed as, if it has been set.
+     *
+     * Declared here rather than only on `Amp`, which had it and computed its own
+     * default, because the HTML document type — the one almost every page uses — had
+     * no way to emit a canonical at all. The only route was `addHeadContent()` with a
+     * hand-built `<link>`, which meant every application escaped the URL itself or
+     * forgot to.
+     *
+     * @var string
+     */
+    public $canonical = '';
+
+    /**
+     * Structured-data blocks to emit in the head.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    protected $structuredData = array();
+
+    /**
+     * Set the canonical URL for this page.
+     *
+     * ```php
+     * $doc->setCanonical(URL . 'station/' . $station['slug']);
+     * ```
+     *
+     * Pass an **absolute** URL. A relative canonical is legal and is resolved against
+     * the current address, which makes it a no-op that looks like a decision — the
+     * case it exists to fix (two addresses serving one page) is exactly the case where
+     * "the current address" is the wrong answer.
+     *
+     * @param  string $url Absolute URL
+     * @return Document
+     */
+    public function setCanonical($url)
+    {
+        $this->canonical = (string) $url;
+
+        return $this;
+    }
+
+    /**
+     * Add a schema.org structured-data block.
+     *
+     * Repeatable: a station page carries the station and its breadcrumb trail, and a
+     * consumer reads both. Each call emits its own `ld+json` script rather than being
+     * merged, because merging two `@type`s into one object produces something no
+     * validator accepts.
+     *
+     * ```php
+     * $doc->addStructuredData([
+     *     '@context' => 'https://schema.org',
+     *     '@type'    => 'RadioStation',
+     *     'name'     => $station['name'],
+     * ]);
+     * ```
+     *
+     * @param  array<string, mixed> $data Structured data
+     * @return Document
+     */
+    public function addStructuredData(array $data)
+    {
+        if ($data !== array()) {
+            $this->structuredData[] = $data;
+        }
+
+        return $this;
+    }
+
+    /**
+     * Rendered `ld+json` blocks, one per {@see addStructuredData()} call.
+     *
+     * Separate from {@see seoHeadMarkup()} because the AMP document type emits its
+     * own canonical with a computed default and wants only these — two
+     * `<link rel="canonical">` elements on one page is undefined behaviour to a
+     * crawler, which is worse than having none.
+     *
+     * @return array<int, string>
+     */
+    protected function structuredDataBlocks()
+    {
+        $blocks = array();
+        foreach ($this->structuredData as $data) {
+            $block = \Pramnos\Html\Seo::jsonLd($data);
+            if ($block !== '') {
+                $blocks[] = $block;
+            }
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * The head markup for the canonical link and every structured-data block.
+     *
+     * @return string
+     */
+    protected function seoHeadMarkup()
+    {
+        $parts = array();
+
+        $canonical = \Pramnos\Html\Seo::canonicalLink($this->canonical);
+        if ($canonical !== '') {
+            $parts[] = $canonical;
+        }
+
+        foreach ($this->structuredDataBlocks() as $block) {
+            $parts[] = $block;
+        }
+
+        return $parts === array() ? '' : "\n        " . implode("\n        ", $parts);
+    }
+
+    /**
      * Escape a value that a document type is about to put in the `<head>`.
      *
      * Every renderer built the head by concatenation — `content="' . $value . '"` —
