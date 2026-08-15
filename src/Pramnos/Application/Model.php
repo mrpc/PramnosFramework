@@ -855,8 +855,17 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             } catch (\Throwable $ex) {
                 \Pramnos\Logs\Logger::logError("Error in getList query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
-                if ($displayerroroutput == true) {
-                    $this->controller->application->showError($ex->getMessage());
+                // showError() ends the request. That is defensible for a page — there
+                // is nothing useful to render without the list — and wrong for an API,
+                // which has an error envelope of its own (ApiListResponse::error) and
+                // never reaches it if this exits first. So the page path is unchanged
+                // and a client that asked for JSON gets the error the way its caller
+                // knows how to report it: sqlError set, empty list returned.
+                $application = $this->controller->application ?? null;
+                if ($displayerroroutput == true
+                    && $application !== null
+                    && !$application->clientWantsJson()) {
+                    $application->showError($ex->getMessage());
                 }
                 $this->sqlError = $ex->getMessage();
                 return array();

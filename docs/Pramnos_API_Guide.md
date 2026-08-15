@@ -241,6 +241,38 @@ $response->setBody(json_encode(['data' => $user]));
 return $response;
 ```
 
+### When something fails on the server
+
+Two things that used to end an API request with a page of HTML no longer do.
+
+**A failed list query.** `Model::_getList()` catches a query failure and, with its
+`$displayerroroutput` default of `true`, called `showError()` — which **exits**. The two
+lines after it, which record `sqlError` and return an empty list, are what
+`ApiListResponse::error()` was written against and were unreachable on the one path
+that needs them. A request whose `Accept` names JSON now takes those two lines instead,
+so the caller can report the failure in its own envelope:
+
+```json
+{ "error": "...", "data": [], "pagination": null, "fields": [...] }
+```
+
+The page path is unchanged: without a list there is nothing useful to render, so a
+browser still gets the error page.
+
+**A terminal error of any kind.** `Application::showError()` — maintenance mode, an
+unsupported PHP version, a database that will not answer — answers JSON to a client
+that asked for it, with a real status:
+
+```json
+{ "error": "maintenance", "retry_after": 300 }
+{ "error": "unavailable" }
+```
+
+`503` while `var/MAINTENANCE` exists, `500` otherwise. It previously sent an HTML page
+with **no status code at all**, so an API client got `200 OK` and failed on parsing
+rather than recognising the state. See the
+[Framework guide](Pramnos_Framework_Guide.md) for the flag files and `Retry-After`.
+
 ## Authentication
 
 ### Token-Based Authentication
