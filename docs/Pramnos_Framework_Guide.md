@@ -335,6 +335,44 @@ Templates are stored in `/src/Views/ViewName/template_name.html.php`:
 </div>
 ```
 
+### Layouts and partials
+
+A template can declare a layout and fill named sections of it:
+
+```php
+<?php $this->layout('layouts/main'); ?>
+<?php $this->section('content'); ?>
+    <h1><?= $this->e($this->title) ?></h1>
+<?php $this->endsection(); ?>
+```
+
+```php
+<!-- src/Views/layouts/main.html.php -->
+<!doctype html>
+<html><head><title><?= $this->e($this->title) ?></title></head>
+<body><?= $this->yield('content') ?></body></html>
+```
+
+`$this->insert('partials/card', ['item' => $item])` renders a partial with extra
+variables.
+
+**Where the framework looks**, in order:
+
+1. the name as an absolute path;
+2. `src/Views/<ViewName>/` — the view's own directory, so a per-view override wins;
+3. `ROOT/views/`;
+4. **`src/Views/`** — beside the view directories, where something shared by several
+   of them belongs;
+5. a theme override, if the active theme allows them.
+
+Both `.html.php` and `.tpl.php` are tried at each step.
+
+Step 4 was missing until 2026-08-16, which made a shared layout the one thing that
+could not be found — and a declared layout that does not resolve renders the child
+**alone**: a page returned with `200`, no `<head>`, and, until the same change, nothing
+in any log. It presents as a stylesheet that failed to load. If a page comes back
+looking unstyled and structurally bare, check the log for `Layout not found:` before
+looking at anything else.
 
 ## Routing
 

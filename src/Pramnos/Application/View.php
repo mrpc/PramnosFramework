@@ -464,6 +464,14 @@ class View extends \Pramnos\Framework\Base
         $bases      = array_filter([
             $this->path,
             defined('ROOT') ? ROOT . DIRECTORY_SEPARATOR . 'views' : null,
+            // The directory holding the view directories — `src/Views` when
+            // `$this->path` is `src/Views/Home`. It is where a developer puts a
+            // layout or a partial meant to be shared between views, and it was the
+            // one place never searched: `$this->layout('layouts/main')` from
+            // `src/Views/Home/home.html.php` looked in `src/Views/Home/layouts/`
+            // and in `ROOT/views/`, and found neither. Added last so no path that
+            // resolved before resolves differently now.
+            $this->path !== '' ? dirname($this->path) : null,
         ]);
 
         // 2 & 3. Relative to view path and ROOT/views/
@@ -610,6 +618,16 @@ class View extends \Pramnos\Framework\Base
             // render the layout file with the sections populated.
             if ($this->_layout !== null) {
                 $layoutFile = $this->resolveTemplatePath($this->_layout);
+                if ($layoutFile === null) {
+                    // Silence here is the worst failure in the whole view layer: the
+                    // child renders alone, so the page comes back 200 with no <head>,
+                    // no layout, and nothing in any log. It looks like a CSS problem.
+                    \Pramnos\Logs\Logger::log(
+                        'Layout not found: ' . $this->_layout
+                        . ' (searched from ' . $this->path . '). The view was '
+                        . 'rendered without it.'
+                    );
+                }
                 if ($layoutFile !== null) {
                     ob_start();
                     try {
