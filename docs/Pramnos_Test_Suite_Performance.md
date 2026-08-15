@@ -25,6 +25,11 @@ Coverage instrumentation costs **≈124 s, about 12%**. Real, and not the lever.
 > **4:01** and the default run **6:58**, for 9398 tests. Every number in the
 > sections below is the measurement that was true when that item was worked on; the totals at
 > the end are current.
+>
+> **Checked again 2026-08-16: 7:11 for 9568 tests.** 170 tests added, 13 s. That is the
+> shape to expect — roughly flat per test — and the reason to write the number down each
+> time rather than to notice one day that a run takes twenty minutes. A regression here
+> will not announce itself; it will look like the suite having grown.
 
 ## The distribution is the finding
 
