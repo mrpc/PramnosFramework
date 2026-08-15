@@ -423,13 +423,44 @@ attribute-native alternative to the older apidoc/JSDoc flow.
 
 ```
 php pramnos api:docs \
-    --namespace='App\Controllers' \
-    --controllers=src/Controllers \
-    --output=www/api/openapi.json \
     --title='My API' --api-version=1.0.0 \
     --server=https://api.example.com \
     --overrides=src/openapi-overrides.json
 ```
+
+**Where it looks and where it writes.** With no `--controllers` it takes the first of
+`src/Api/Controllers` or `src/Controllers` that exists, and with no `--output` it
+writes `<document root>/api/openapi.json`, where the document root is whichever of
+`www`, `public`, `html` or `web` holds an `index.php`. Both are printed:
+
+```
+Scanned src/Api/Controllers (namespace App\Api\Controllers)
+Wrote 72 path(s), 96 operation(s) to /srv/app/public/api/openapi.json
+```
+
+That first line exists because its absence cost somebody an hour. The command used to
+default to `src/Controllers` and report only where it wrote, so an application keeping
+its API in `src/Api/Controllers` got `Wrote 1 path(s), 1 operation(s)` for 72
+endpoints — every word of it true. **A document describing one endpoint of seventy-two
+is not obviously broken; it is indistinguishable from an application that has one
+endpoint**, so it gets published and believed.
+
+For the same reason, a run that finds fewer operations than a sibling directory holds
+says so and names it:
+
+```
+src/Api/Controllers holds 96 operation(s) — more than the 1 found in src/Controllers.
+Re-run with --controllers=src/Api/Controllers if that is the API.
+```
+
+Nothing is switched under you, and the check is skipped entirely when you passed
+`--controllers` yourself — naming the directory is a decision, not a guess to correct.
+
+**`--namespace` follows `--controllers`.** It is derived from the application
+namespace in `app/app.php` plus the path after `src/`, so
+`--controllers=src/Api/Controllers` gives `App\Api\Controllers`. It used to append a
+fixed `\Controllers` regardless, which is why passing `--controllers` alone found
+nothing at all and still exited successfully.
 
 What is derived automatically: paths and methods (with `{param}` segments becoming
 path parameters), `operationId` (from the route name), `summary`/`description`
