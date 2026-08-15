@@ -74,40 +74,44 @@ class Html extends \Pramnos\Document\Document
             $charset = 'UTF-8';
         }
 
+        // Everything interpolated below is escaped by escapeHeadValue(): these are
+        // attribute values and element text, and they routinely hold database
+        // content. headContent / extraHtmlTag / header are deliberately left raw —
+        // they exist to carry markup.
         $content = '<!doctype html>
-<html ' . $this->extraHtmlTag . ' lang="' . $langShort . '" xmlns:og="http://ogp.me/ns#"
+<html ' . $this->extraHtmlTag . ' lang="' . $this->escapeHeadValue($langShort) . '" xmlns:og="http://ogp.me/ns#"
     xmlns:fb="https://www.facebook.com/2008/fbml">
     <head class="no-js" ' . $this->headContent . '>
-        <meta charset="' . $charset . '">
-        <title>' . $this->title . '</title>
-        <meta name="description" content="' . $this->description . '" />
-        <meta property="og:title" content="' . $this->og_title . '" />
-        <meta property="og:type" content="' . $this->og_type . '" />
-        <meta property="og:url" content="' . $this->og_url . '" />' . "\n";
+        <meta charset="' . $this->escapeHeadValue($charset) . '">
+        <title>' . $this->escapeHeadValue($this->title) . '</title>
+        <meta name="description" content="' . $this->escapeHeadValue($this->description) . '" />
+        <meta property="og:title" content="' . $this->escapeHeadValue($this->og_title) . '" />
+        <meta property="og:type" content="' . $this->escapeHeadValue($this->og_type) . '" />
+        <meta property="og:url" content="' . $this->escapeHeadValue($this->og_url) . '" />' . "\n";
         foreach ($this->meta as $meta=>$metavalue) {
             $content .= '        <meta property="'
-                . $meta
+                . $this->escapeHeadValue($meta)
                 . '" content="'
-                . $metavalue
+                . $this->escapeHeadValue($metavalue)
                 . '" />'
                 . "\n";
         }
         foreach ($this->metanames as $meta=>$metavalue) {
             $content .= '        <meta name="'
-                . $meta
+                . $this->escapeHeadValue($meta)
                 . '" content="'
-                . $metavalue
+                . $this->escapeHeadValue($metavalue)
                 . '" />'
                 . "\n";
         }
         if ($this->og_image != "") {
             $content .= '<meta property="og:image" content="'
-                . $this->og_image . '"/>';
+                . $this->escapeHeadValue($this->og_image) . '"/>';
         }
         $content .= '
-        <meta property="og:site_name" content="' . $this->og_site_name . '" />
+        <meta property="og:site_name" content="' . $this->escapeHeadValue($this->og_site_name) . '" />
         <meta property="og:description" content="'
-            . $this->og_description . '" />';
+            . $this->escapeHeadValue($this->og_description) . '" />';
 
 
         $content .= $this->header;

@@ -537,72 +537,127 @@ echo $doc->render();
 
 ## Meta Tags and SEO
 
-### Basic SEO Meta Tags
+> **Corrected 2026-08-15.** This section previously documented `addMetaName()`,
+> `addMeta()` and `addScriptDeclaration()`. **None of the three exists**, and none ever
+> did — code copied from here failed with `Call to undefined method`. The API below is
+> the real one, checked against `src/Pramnos/Document/Document.php`.
+
+### Titles and descriptions
+
+Both are plain properties:
 
 ```php
 $doc = \Pramnos\Framework\Factory::getDocument();
 
-// Standard meta tags
-$doc->title = 'Page Title - Site Name';
+$doc->title       = 'Page Title - Site Name';
 $doc->description = 'Compelling page description under 160 characters';
-
-// Additional meta tags
-$doc->addMetaName('keywords', 'keyword1, keyword2, keyword3');
-$doc->addMetaName('author', 'Author Name');
-$doc->addMetaName('robots', 'index, follow');
-$doc->addMetaName('viewport', 'width=device-width, initial-scale=1.0');
 ```
 
-### Open Graph Meta Tags
+### Meta tags
+
+One method covers both spellings. `$isName = true` emits `<meta name="…">`, the default
+emits `<meta property="…">`:
 
 ```php
-// Open Graph for social media sharing
-$doc->og_title = 'Social Media Title';
+$doc->addMetaTag('keywords', 'keyword1, keyword2', true);   // <meta name="keywords" …>
+$doc->addMetaTag('robots',   'index, follow',      true);
+$doc->addMetaTag('viewport', 'width=device-width, initial-scale=1.0', true);
+
+$doc->addMetaTag('og:article:author', 'Author Name');       // <meta property="og:…" …>
+```
+
+`removeMetaTag($tag)` removes one again.
+
+### Open Graph
+
+The six most-used slots are properties rather than meta tags, because the document
+types render them in a fixed order:
+
+```php
+$doc->og_title       = 'Social Media Title';
 $doc->og_description = 'Description for social media';
-$doc->og_image = 'https://example.com/image.jpg';
-$doc->og_url = 'https://example.com/current-page';
-$doc->og_type = 'article'; // article, website, video, etc.
-$doc->og_site_name = 'Site Name';
-
-// Additional Open Graph properties
-$doc->addMeta('og:article:author', 'Author Name');
-$doc->addMeta('og:article:published_time', '2024-01-01T00:00:00Z');
+$doc->og_image       = 'https://example.com/image.jpg';
+$doc->og_url         = 'https://example.com/current-page';
+$doc->og_type        = 'article';        // article, website, video, …
+$doc->og_site_name   = 'Site Name';
 ```
 
-### Twitter Card Meta Tags
+Anything beyond those six goes through `addMetaTag()` with the `og:` prefix, as above.
+
+### Twitter cards
+
+Twitter reads `name`, not `property`, so pass `true`:
 
 ```php
-// Twitter-specific meta tags
-$doc->addMetaName('twitter:card', 'summary_large_image');
-$doc->addMetaName('twitter:site', '@yourusername');
-$doc->addMetaName('twitter:creator', '@authorusername');
-$doc->addMetaName('twitter:title', 'Twitter Title');
-$doc->addMetaName('twitter:description', 'Twitter description');
-$doc->addMetaName('twitter:image', 'https://example.com/twitter-image.jpg');
+$doc->addMetaTag('twitter:card',        'summary_large_image', true);
+$doc->addMetaTag('twitter:site',        '@yourusername',       true);
+$doc->addMetaTag('twitter:title',       'Twitter Title',       true);
+$doc->addMetaTag('twitter:description', 'Twitter description', true);
+$doc->addMetaTag('twitter:image',       'https://example.com/twitter-image.jpg', true);
 ```
 
-### Schema.org Structured Data
+### Schema.org structured data
+
+There is no dedicated method. JSON-LD goes into the head with `addHeadContent()`:
 
 ```php
-// JSON-LD structured data
 $structuredData = [
-    '@context' => 'https://schema.org',
-    '@type' => 'Article',
-    'headline' => 'Article Title',
-    'author' => [
-        '@type' => 'Person',
-        'name' => 'Author Name'
-    ],
+    '@context'      => 'https://schema.org',
+    '@type'         => 'Article',
+    'headline'      => 'Article Title',
+    'author'        => ['@type' => 'Person', 'name' => 'Author Name'],
     'datePublished' => '2024-01-01',
-    'dateModified' => '2024-01-15',
-    'image' => 'https://example.com/article-image.jpg'
 ];
 
-$doc->addScriptDeclaration(
-    'var structuredData = ' . json_encode($structuredData) . ';',
-    'application/ld+json'
+$doc->addHeadContent(
+    '<script type="application/ld+json">'
+    . json_encode(
+        $structuredData,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP
+    )
+    . '</script>'
 );
 ```
+
+**The flags are not decoration.** `JSON_HEX_TAG` closes the one injection this format
+has: a `</script>` inside any value would otherwise end the block early and everything
+after it would be parsed as markup. `JSON_UNESCAPED_SLASHES` and `JSON_UNESCAPED_UNICODE`
+keep URLs and non-Latin text readable rather than escaped into `\/` and `\uXXXX`.
+
+**Do not use `addInlineScript()` for this.** It hardcodes a bare `<script>` with no
+`type` attribute and appends to the **foot**, not the head — so the browser would run
+your JSON-LD as JavaScript.
+
+### Canonical links
+
+The HTML document type has no canonical property (the AMP type does). Add it as head
+content:
+
+```php
+$doc->addHeadContent('<link rel="canonical" href="' . htmlspecialchars($url, ENT_QUOTES) . '">');
+```
+
+### Escaping: what the document escapes for you, and what it does not
+
+Every value the document types put in the `<head>` — `title`, `description`, all six
+`og_*` slots, both meta-tag names and their values, and the AMP `canonical` — is escaped
+when the page renders. You pass raw text; the renderer makes it safe.
+
+That matters because of *what* those values usually are: a record's name, operator-written
+copy, a title from the database. Before this was fixed, one double quote in a station name
+ended the attribute and everything after it was parsed as markup.
+
+Three things follow:
+
+- **Do not escape them yourself.** It is harmless if you do — escaping uses
+  `double_encode: false`, so `&amp;` stays `&amp;` rather than becoming `&amp;amp;` — but
+  it is unnecessary.
+- **`addHeadContent()`, `addHeadTagContent()` and `extraHtmlTag` / `extraBodyTag` are
+  NOT escaped**, by design: they exist to carry markup. Anything you interpolate into
+  them is yours to escape, which is why the canonical example above calls
+  `htmlspecialchars()` explicitly.
+- A value that is `null`, an array or an object renders as an empty string rather than
+  raising. A blank title is bad; a fatal error while rendering the `<head>` is worse.
 
 ## Content Parsing and Processing
 
