@@ -25,6 +25,38 @@ class Html extends \Pramnos\Document\Document
      * Render the html document and return it's contents
      * @return string
      */
+    /**
+     * Whether to emit the two lines that turn `no-js` into `js`.
+     *
+     * On for a page a browser renders. A document type meant for something else
+     * turns it off — see {@see PrintDocument}, whose own tests pin that a printable
+     * page with nothing to run emits no `<script>` at all.
+     *
+     * @var bool
+     */
+    protected bool $emitNoJsFlip = true;
+
+    /**
+     * The inline script that marks JavaScript as available.
+     *
+     * `<html>` carries `class="no-js"` so a stylesheet can style the no-JavaScript
+     * case; this replaces it the moment scripting runs. Inline and two lines rather
+     * than a file, because a round trip to decide whether JavaScript exists would
+     * arrive after the page has already been painted — which is the whole failure
+     * the class exists to avoid.
+     *
+     * @return string Empty when this document type does not want it
+     */
+    protected function noJsFlipScript(): string
+    {
+        if (!$this->emitNoJsFlip) {
+            return '';
+        }
+
+        return "\n        <script>document.documentElement.className="
+            . "document.documentElement.className.replace(/\\bno-js\\b/,'js');</script>";
+    }
+
     public function render()
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
@@ -79,9 +111,9 @@ class Html extends \Pramnos\Document\Document
         // content. headContent / extraHtmlTag / header are deliberately left raw —
         // they exist to carry markup.
         $content = '<!doctype html>
-<html ' . $this->extraHtmlTag . ' lang="' . $this->escapeHeadValue($langShort) . '" xmlns:og="http://ogp.me/ns#"
+<html class="no-js" ' . $this->extraHtmlTag . ' lang="' . $this->escapeHeadValue($langShort) . '" xmlns:og="http://ogp.me/ns#"
     xmlns:fb="https://www.facebook.com/2008/fbml">
-    <head class="no-js" ' . $this->headContent . '>
+    <head ' . $this->headContent . '>' . $this->noJsFlipScript() . '
         <meta charset="' . $this->escapeHeadValue($charset) . '">
         <title>' . $this->escapeHeadValue($this->title) . '</title>
         <meta name="description" content="' . $this->escapeHeadValue($this->description) . '" />

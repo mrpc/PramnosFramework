@@ -160,6 +160,61 @@ missing page is a phone call.
 
 ---
 
+## Two features the legacy document had, and the modern one does not
+
+Reported by an application migrating from the legacy `pramnos_document_html`, and worth
+stating because neither was default-off — both were removed entirely.
+
+### `$modernizr`
+
+The legacy document type had `public $modernizr = true;` and injected
+
+```html
+<script async src="<?= sURL ?>media/js/modernizr.min.js"></script>
+```
+
+into the `<head>` of **every** page. `Pramnos\Document\DocumentTypes\Html` has no such
+property and emits no such tag.
+
+**This is not being restored**, and the reason is worth the paragraph: the framework
+does not ship `media/js/modernizr.min.js`. Reinstating a default-on injection of a file
+that may not exist would give every upgraded application a 404 in its `<head>`, to
+replace a feature most of them were not using. If you rely on Modernizr's feature
+classes, add it yourself:
+
+```php
+$doc->addHeadContent('<script async src="' . sURL . 'media/js/modernizr.min.js"></script>');
+```
+
+### `$reset` / `reset.css`
+
+The same shape and the same answer: no property, no injection, and no stylesheet
+shipped to inject. Add it with `addStylesheet()` if you want it.
+
+### What *was* fixed: the `no-js` marker
+
+The modern document kept emitting `class="no-js"` after the script that flips it was
+removed — so every page declared `no-js` permanently, and any CSS written as
+`.no-js .thing { display: none }` hid that thing forever in a browser with JavaScript
+working.
+
+It was also on the wrong element. `<head class="no-js">` cannot be matched by a
+stylesheet at all: the head is not rendered, so `head.no-js` selects nothing. Modernizr
+puts its classes on `<html>`, which is what makes the pattern work.
+
+Since 2026-08-16 the class is on `<html>` and a two-line inline script turns it into
+`js` — no external file, no dependency:
+
+```html
+<html class="no-js" lang="en">
+<head>
+<script>document.documentElement.className=document.documentElement.className.replace(/\bno-js\b/,'js');</script>
+```
+
+So `.no-js` and `.js` selectors behave the way every guide on progressive enhancement
+says they should. If your stylesheets were written against the legacy behaviour, they
+start working rather than stopping.
+
 ## v1.1 → v1.2
 
 v1.2 is a large release (replicas, query/schema builders, migration system
