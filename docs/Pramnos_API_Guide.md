@@ -241,52 +241,56 @@ $response->setBody(json_encode(['data' => $user]));
 return $response;
 ```
 
-### `getData()` and the columns it does not return
+### `getData()` and the columns it returns
 
-A model's `getData()` is what most CRUD endpoints serialise. The base implementation
-keeps only values that are `is_numeric()` or `is_string()`, which means:
+A model's `getData()` is what most CRUD endpoints serialise. **Since 2026-08-16 it
+returns every column** — including `NULL`, booleans and decoded JSON.
 
-| Column | In the payload? |
-| --- | --- |
-| `int`, `float`, `string` — including `0`, `'0'`, `''` | yes |
-| **`NULL`** | **no — the key is absent**, not `null` |
-| **`bool`** | **no** |
-| **a decoded JSON column** | **no** |
+It did not before. The old implementation kept only values that were `is_numeric()` or
+`is_string()`, so a column holding `NULL` was **absent from the payload** rather than
+`null`, and booleans and JSON columns disappeared with them.
 
-That is the historical behaviour and it is still the default, because changing it
-changes payloads: in one application of 54 models, 45 override `getData()` and **42 of
-those call `parent::getData()`**. Removing the filter would add keys to nearly every
-endpoint it has.
+That was not a neutral historical quirk. Overrides in one application do
 
-A generated CRUD model patches part of this itself — the generator emits casts that put
-booleans and JSON columns back. A hand-written model gets the base behaviour.
+```php
+$data = parent::getData();
+$data['reportid'] = (int) $data['reportid'];
+```
 
-To return every column, opt in **once**, in a base model class rather than per model:
+unguarded — so a record with `NULL` in that column raised *Undefined array key* in
+production and cast the missing value to `0`. **The absent key was producing warnings
+and wrong numbers**, and that measurement is what decided the change rather than
+tidiness.
+
+Measured on that application before flipping: 54 models, 42 reaching this through
+`parent::getData()`, **523 keys added across 48 models** — 411 `NULL`, 53 boolean,
+55 array.
+
+**What to check after upgrading**, in order of likelihood:
+
+- code calling `implode()`, `http_build_query()`, or building SQL from the result — a
+  JSON column now arrives as an **array** where a scalar was assumed;
+- clients that reject unknown keys;
+- anything reading `array_key_exists()` as *"this record has no value"*, which now means
+  *"this column is null"*.
+
+To get the old shape back, byte for byte, opt out **once** in a base model class:
 
 ```php
 abstract class AppModel extends \Pramnos\Application\Model
 {
-    protected $getDataFullFidelity = true;
+    protected $getDataFullFidelity = false;   // the pre-1.2 shape
 }
 ```
 
-Then compare your responses before and after. What is most likely to care:
+**`sqlError` is no longer in the payload, in either mode.** It is a string once a query
+has failed, so the old type filter let it through — a failed read put an SQL error
+message into whatever was being serialised.
 
-- code that builds SQL, calls `implode()`, or `http_build_query()` on the result — an
-  array value where a scalar was assumed;
-- typed clients that reject unknown keys;
-- anything using `array_key_exists()` to mean *"this record has no value"*, which
-  becomes *"this column is null"*.
-
-**One thing changed unconditionally**: `sqlError` is no longer in the payload. It is a
-string once a query has failed, so the type filter let it through — a failed read put an
-SQL error message into whatever was being serialised. There is no legitimate consumer of
-that, and it can only appear on a path already going wrong.
-
-**A model that declares no public properties returns `[]`** from the default path.
-Columns assigned to an undeclared property go through `Base::__set` into an internal
-bag, which the filter drops whole. The opt-in reads them; the default cannot, and this
-is worth knowing before concluding that a model is broken.
+**A model that declares no public properties used to return `[]`.** Columns assigned to
+an undeclared property go through `Base::__set` into an internal bag, which the filter
+dropped whole. They are read now. Where both exist, the declared property wins — the bag
+is the fallback, not the source of truth.
 
 ### When something fails on the server
 
