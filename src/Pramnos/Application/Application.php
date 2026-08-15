@@ -821,9 +821,13 @@ class Application extends Base
      * `application/json`, so testing for that one token is enough to tell an API
      * consumer from a person — without a list of paths to keep in sync.
      *
+     * Public because it is not only `showError()` that needs the answer: any code
+     * deciding whether to render a page or hand back data has the same question, and
+     * a second implementation of it would drift from this one.
+     *
      * @return bool
      */
-    protected function clientWantsJson(): bool
+    public function clientWantsJson(): bool
     {
         if (isset($_SERVER['HTTP_X_REQUESTED_WITH'])
             && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
@@ -952,8 +956,15 @@ class Application extends Base
         if ($wantsJson) {
             $payload = array(
                 'error' => $inMaintenance ? 'maintenance' : 'unavailable',
-                'title' => $title,
             );
+            // The default title is 'Maintenance Mode', which is right for the branch
+            // it was named after and misleading everywhere else: a database fault
+            // reported to an API client as "Maintenance Mode" sends whoever reads it
+            // to check the deploy. Carried only when it says something — a caller
+            // that passed one, or an actual maintenance stop.
+            if ($inMaintenance || $title !== 'Maintenance Mode') {
+                $payload['title'] = $title;
+            }
             if ($inMaintenance) {
                 $payload['retry_after'] = $this->maintenanceRetryAfter();
             }
