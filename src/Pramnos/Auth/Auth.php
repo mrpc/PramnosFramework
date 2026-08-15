@@ -532,7 +532,18 @@ class Auth extends \Pramnos\Framework\Base
         ActivityLog::record((int) $info['uid'], 'login', [
             'method'   => $info['method'] ?? 'password',
             'remember' => (bool) ($info['remember'] ?? false),
+            // Recorded so future history reads do not depend on re-parsing the user
+            // agent with whatever version of the parser is current. Reads still fall
+            // back to the agent string, which is what makes the feature work against
+            // the months of history that predate it.
+            'device'   => SignInFingerprint::current(),
         ]);
+
+        // Tell the account owner if this is a browser/platform they have not used.
+        // Opt-in, off by default, and deliberately after the log write above — the
+        // history read excludes this sign-in's own fingerprint. Never throws: a
+        // notification is not worth failing a login for.
+        NewSignInAlert::checkAndNotify((int) $info['uid']);
 
         // Create the web-session token so per-request activity is attributed in
         // usertokens/tokenactions (Application::exec() logs each request against

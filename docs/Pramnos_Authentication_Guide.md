@@ -465,6 +465,78 @@ if ($session->checkToken('post', 'csrf_')) {
 $session->reset();
 ```
 
+## New sign-in alerts
+
+Opt-in. When a user has asked for it, an account signed in to from a browser/platform
+combination that account has not used before triggers one email.
+
+```php
+use Pramnos\Auth\NewSignInAlert;
+
+NewSignInAlert::setEnabledFor($userId, true);
+NewSignInAlert::isEnabledFor($userId);          // false unless asked for
+```
+
+The built-in Account controller exposes it as a checkbox on the privacy page, beside
+the analytics and marketing consents, in all three scaffolded themes.
+
+### What counts as "new", and what deliberately does not
+
+`Pramnos\Auth\SignInFingerprint` reduces a `User-Agent` to a **browser family and a
+platform family** — `chrome|windows`, `safari|ios` — and nothing else.
+
+| Signal | Used? | Why |
+| --- | --- | --- |
+| Browser family | **yes** | changes when a person actually uses a different browser |
+| Platform family | **yes** | changes when they use a different kind of device |
+| Browser **version** | no | Chrome and Firefox ship a major version about every four weeks. Including it is a monthly alarm for every user |
+| Operating system point release | no | changes without the person doing anything |
+| **IP address** | **no** | dynamic on most consumer connections. An alarm on a changed address fires on a router reboot, and by the second week nobody reads it |
+
+**The cost, stated plainly:** two Chrome-on-Windows machines are indistinguishable, so
+signing in from a colleague's identical laptop raises nothing. That is the price of an
+alarm that stays rare, and rarity is the whole value — a security notification people
+learn to ignore is worse than none. If you need finer granularity, add a signed device
+cookie; that is the tool built for the job, and narrowing this fingerprint is not.
+
+### Where the history comes from
+
+`authserver.user_activity_log`, which has recorded a user agent against every `login`
+since the auth feature shipped.
+
+That is load-bearing rather than incidental. A device detector with **no** history says
+everything is new, so on the day it is switched on, every user who opted in is notified
+at once — about a sign-in they are performing right now. Reading an audit trail that
+already holds months of user agents means the first sign-in after upgrading is
+recognised as familiar, which it is.
+
+For the same reason, an account with no history at all is treated as **not** new.
+
+Only successful `login` rows count. `login_failed` carries a user agent too, and letting
+a failed attempt make a browser familiar would turn the log into a way of switching the
+alarm off.
+
+### Storage
+
+The preference is a `userdetails` row (`fieldname = 'notify_new_signin'`), not a column
+on `user_privacy_settings` — so **no migration is needed** and the feature works on
+every installation the moment the framework is upgraded, including those whose
+`migration_cutoff` skips baseline migrations. It inherits that table's cascade on user
+deletion, which a GDPR-relevant preference needs anyway.
+
+### The email
+
+Names the browser and the kind of device, and the time. It does **not** print the IP
+address: nobody recognises their own, and printing one invites exactly the
+compare-with-last-time habit this feature refuses to encourage. The address is in the
+audit log, for an administrator investigating an incident — the right audience for it.
+
+It offers one action — *if this was not you, change your password* — and no link. A link
+in an unexpected security email is the shape of the attack it warns about.
+
+Mail only. A database notification would put the warning in the panel of the session
+that triggered it, which in the case worth warning about is the wrong person.
+
 ## Authentication Addons
 
 ### User Database Addon

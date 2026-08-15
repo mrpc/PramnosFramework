@@ -988,9 +988,15 @@ class Account extends Controller
                    ['share_usage_analytics', 'marketing_emails', 'updated_at']
                );
 
+            \Pramnos\Auth\NewSignInAlert::setEnabledFor(
+                (int) $currentUser->userid,
+                isset($_POST['notifysignin'])
+            );
+
             \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'privacy_settings_updated', [
-                'analytics' => isset($_POST['analytics']),
-                'marketing' => isset($_POST['marketing']),
+                'analytics'    => isset($_POST['analytics']),
+                'marketing'    => isset($_POST['marketing']),
+                'notifysignin' => isset($_POST['notifysignin']),
             ]);
 
             $this->addMessage('Your privacy settings have been saved.');
@@ -1518,14 +1524,21 @@ class Account extends Controller
             ->where('userid', $userId)
             ->first();
 
+        // The new-sign-in opt-in lives in `userdetails`, not in this table, and the
+        // reason is worth the extra read: it needs no migration, so it works on every
+        // installation the moment the framework is upgraded — including the ones whose
+        // migration_cutoff skips baseline migrations. Two stores, one form.
+        $notifySignIn = \Pramnos\Auth\NewSignInAlert::isEnabledFor($userId);
+
         if ($result && $result->numRows > 0) {
             return [
-                'analytics' => (bool) ($result->fields['share_usage_analytics'] ?? false),
-                'marketing' => (bool) ($result->fields['marketing_emails'] ?? false),
+                'analytics'     => (bool) ($result->fields['share_usage_analytics'] ?? false),
+                'marketing'     => (bool) ($result->fields['marketing_emails'] ?? false),
+                'notifysignin'  => $notifySignIn,
             ];
         }
 
-        return ['analytics' => false, 'marketing' => false];
+        return ['analytics' => false, 'marketing' => false, 'notifysignin' => $notifySignIn];
     }
 
     /**

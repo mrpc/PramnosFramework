@@ -3,7 +3,7 @@
  * Privacy page (Tailwind theme).
  *
  * Variables:
- *   $this->privacySettings — array {analytics: bool, marketing: bool}
+ *   $this->privacySettings — array {analytics: bool, marketing: bool, notifysignin: bool}
  *   $this->routeBase       — Account controller route base
  */
 $routeBase = $this->routeBase ?? 'Account';
@@ -57,6 +57,20 @@ $this->activeNav = 'privacy';
                                 <span class="font-semibold text-gray-800">Marketing Communications</span>
                                 <p class="text-sm text-gray-500 mt-0.5">
                                     Receive occasional emails about new features and offers.
+                                </p>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start gap-3 cursor-pointer mt-4">
+                            <div class="mt-0.5">
+                                <input type="checkbox" id="notifysignin" name="notifysignin"
+                                       class="w-4 h-4 text-blue-600 border-gray-300 rounded-sm"
+                                       <?php echo !empty($this->privacySettings['notifysignin']) ? 'checked' : ''; ?>>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-gray-800">New sign-in alerts</span>
+                                <p class="text-sm text-gray-500 mt-0.5">
+                                    Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.
                                 </p>
                             </div>
                         </label>
