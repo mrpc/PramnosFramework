@@ -42,8 +42,20 @@ abstract class Relation
     abstract public function getResults(): mixed;
 
     /**
-     * Create a new instance of the related model bound to a dummy controller.
-     * We pass the parent's controller so the model can reach the database.
+     * Create a new instance of the related model, carrying the parent's controller.
+     *
+     * The reason is **not** database access, which the previous version of this
+     * comment gave: `Model::__construct()` calls `Database::getInstance()` itself and
+     * never touches the controller for it. The controller is passed because
+     * `Model::__construct()` requires one, and because a model that shares its
+     * parent's controller can resolve sibling models through `getModel()`.
+     *
+     * A wrong reason in a comment is worse than none: it makes the dependency look
+     * load-bearing, and anybody trying to use models outside an MVC request reads
+     * this and concludes they need a request. They need
+     * {@see \Pramnos\Application\ServiceController}, which costs 1.54 µs.
+     *
+     * @return OrmModel
      */
     protected function newRelatedInstance(): OrmModel
     {
