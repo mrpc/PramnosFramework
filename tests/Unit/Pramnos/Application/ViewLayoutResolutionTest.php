@@ -158,27 +158,97 @@ class ViewLayoutResolutionTest extends TestCase
     }
 
     /**
-     * The rendered template's path is not disclosed outside debug mode.
+     * The rendered template's path is disclosed only while debugging.
      *
      * Every HTML view appended `<!-- View Rendered at: … View Path: /src/Views/… -->`
      * unconditionally. On a page nobody sees that is a convenience; on a public,
      * server-rendered page it tells anybody reading the source where the
-     * application's files live, and gets indexed along with the rest of the markup.
+     * application's files live, and gets indexed with the rest of the markup.
+     *
+     * **Both directions are asserted through an overridden `inDebugMode()` rather
+     * than through the environment**, and that is not laziness. The first version of
+     * this test set nothing and assumed the suite was not in debug mode. It passed
+     * alone and failed in the full run, because another test calls
+     * `putenv('APP_DEBUG=true')` and `DEVELOPMENT` is a constant that cannot be
+     * unset once defined. A test whose subject is a conditional must control the
+     * condition, not inherit it from whatever ran first.
      *
      * @return void
      */
-    public function testTheTemplatePathIsNotLeakedOutsideDebugMode(): void
+    public function testTheTemplatePathIsShownOnlyWhileDebugging(): void
     {
         // Arrange
         file_put_contents($this->tmp . '/Home/plain.html.php', 'hello');
 
-        // Act
-        $output = (string) $this->view()->display('plain');
+        $notDebugging = new class (new Controller(), $this->tmp . '/Home', 'Home') extends View {
+            /**
+             * @return bool
+             */
+            protected function inDebugMode(): bool
+            {
+                return false;
+            }
+        };
+        $debugging = new class (new Controller(), $this->tmp . '/Home', 'Home') extends View {
+            /**
+             * @return bool
+             */
+            protected function inDebugMode(): bool
+            {
+                return true;
+            }
+        };
 
-        // Assert — the page renders, the path does not travel with it
-        $this->assertStringContainsString('hello', $output);
-        $this->assertStringNotContainsString('View Path:', $output);
-        $this->assertStringNotContainsString('View Rendered at:', $output);
+        // Act
+        $quiet = (string) $notDebugging->display('plain');
+        $loud  = (string) $debugging->display('plain');
+
+        // Assert — the page renders either way; only one of them says where from
+        $this->assertStringContainsString('hello', $quiet);
+        $this->assertStringNotContainsString('View Path:', $quiet);
+        $this->assertStringNotContainsString('View Rendered at:', $quiet);
+
+        $this->assertStringContainsString('hello', $loud);
+        $this->assertStringContainsString('View Path:', $loud);
+    }
+
+    /**
+     * The gate asks the application rather than reading `DEVELOPMENT` itself.
+     *
+     * `isDebugMode()` also honours `APP_DEBUG`, and a second copy of that decision
+     * inside the view would answer differently on the machines where the environment
+     * variable is the one in use.
+     *
+     * @return void
+     */
+    public function testTheGateFollowsTheApplication(): void
+    {
+        // Arrange — remember what the environment had, whatever that is
+        $original = getenv('APP_DEBUG');
+        $view     = $this->view();
+        $gate     = new \ReflectionMethod(View::class, 'inDebugMode');
+
+        try {
+            // Act & Assert — on
+            putenv('APP_DEBUG=1');
+            $this->assertTrue($gate->invoke($view));
+
+            // Act & Assert — off
+            putenv('APP_DEBUG=0');
+            $this->assertSame(
+                \Pramnos\Application\Application::getInstance()->isDebugMode(),
+                $gate->invoke($view),
+                'The view must agree with the application, not decide separately.'
+            );
+        } finally {
+            // Restore rather than unset: this suite has already been bitten once by
+            // a test leaving APP_DEBUG behind for everything that ran after it.
+            if ($original === false) {
+                putenv('APP_DEBUG');
+            } else {
+                putenv('APP_DEBUG=' . $original);
+            }
+        }
     }
 
     /**
