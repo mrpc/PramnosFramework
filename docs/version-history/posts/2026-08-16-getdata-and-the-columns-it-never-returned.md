@@ -121,6 +121,30 @@ Six of the fourteen tests fail if the default is flipped to full fidelity.
 - `Model::$getDataFullFidelity` — set it to `false` for the pre-1.2 shape, byte for
   byte.
 
+## It also got 8.5× faster
+
+Not the point of the change, but worth recording because the shape of the win was not
+where it looked:
+
+| | µs per call |
+| --- | --- |
+| the original | **12.143** |
+| exclusion list as an `isset()` lookup instead of eight chained `==` | 5.340 |
+| `array_diff_key()` instead of the loop | **1.422** |
+
+`get_object_vars()` alone is 0.949 µs of that last figure, so what remains is 0.34 µs of
+overhead and there is nothing further to win.
+
+A page of 50 rows through `useGetData` went **0.797 ms → 0.271 ms**, while returning
+more data than before. The opt-out improved too — 6.617 → 4.183 µs — because the
+internals are removed before the type test runs, so the loop covers twelve columns
+rather than thirty-one properties.
+
+One optimisation was measured and **rejected**: skipping the `array_merge` when the
+`_data` bag is empty saves nothing (1.299 µs against 1.287), because merging an empty
+array is already cheap. It would have been a branch earning its keep in nobody's
+benchmark.
+
 ## The merge order was wrong first
 
 Where a column exists both as a declared property and in the `_data` bag, the **declared
