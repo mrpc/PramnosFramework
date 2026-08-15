@@ -659,6 +659,29 @@ Three things follow:
 - A value that is `null`, an array or an object renders as an empty string rather than
   raising. A blank title is bad; a fatal error while rendering the `<head>` is worse.
 
+### The document does not decide the status code
+
+A renderer sets the **content type**. The **status** belongs to whatever decided what
+kind of response this is — the controller, a middleware, the router's error handler:
+
+```php
+http_response_code(404);
+$doc = \Pramnos\Framework\Factory::getDocument('json');
+$doc->addContent(json_encode(['error' => 'not found']));
+echo $doc->render();          // still a 404
+```
+
+`Json::render()` and `Rss::render()` used to open with `header('HTTP/1.1 200 OK')`,
+which broke that in two ways. It **stamped 200 over the status already set**, so a JSON
+error was served as `200 OK` and a client checking `response.ok` saw every failure as a
+success carrying odd data. And it **pinned** the status: PHP ignores every later
+`http_response_code()` once a status line has been written by hand, reporting it only as
+a warning nobody reads in production.
+
+If you are writing a document type or a middleware, use `http_response_code()` and never
+`header('HTTP/...')`. The literal `HTTP/1.1` is also wrong on an HTTP/2 connection —
+`http_response_code()` lets PHP write the right one.
+
 ## Content Parsing and Processing
 
 ### Content Filters and Parsing
