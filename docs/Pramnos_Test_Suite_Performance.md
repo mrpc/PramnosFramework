@@ -621,6 +621,32 @@ the 82 drops cost, so the work moved rather than disappeared.
 the only one where the answer was "do nothing". That is a result too: 37.2 s of the remaining
 run is now known to be genuine work rather than unexamined overhead.
 
+## Schema introspection: already cached where it is safe to cache
+
+Measured at **0.590 ms** per `SHOW COLUMNS`, which looked like an obvious target: a
+request touching three tables pays ~1.8 ms to ask the database about columns that only
+change when a migration runs.
+
+Reading the code before building anything found that half of it was already done, and
+the other half declined on purpose:
+
+| Call site | `$cache` |
+| --- | --- |
+| `Model::_getTableFields()` and the other read paths | **`true`**, 3600 s |
+| `Model::_save()` | **`false`** |
+
+The read paths already introspect through the query cache, so a listing pays once an
+hour rather than once a request. The 0.590 ms is a cold call.
+
+**The write path is uncached deliberately, and the asymmetry is the whole design.** A
+stale schema on a read path costs a column missing from a list: visible, harmless, fixed
+by waiting. A stale schema in `_save()` means the loop never sees a newly added column,
+so every row is written without it — silent data loss, found later, unrecoverable.
+
+So there is nothing to build here, and the item is closed by writing the reason down
+next to the `false` rather than by adding a second caching layer in front of it. Anybody
+arriving at this measurement again will find the answer where they are already looking.
+
 ## Is `paratest` the next step? Measured, and the answer is "not yet"
 
 The original page said parallelism was the right *second* lever. It is time to answer it with
