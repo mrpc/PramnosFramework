@@ -162,6 +162,12 @@ class PrintDocument extends Html
      */
     public function render()
     {
+        // A printable page has no progressive-enhancement styling to switch on, and
+        // this type's contract is that it emits no <script> when it has nothing to
+        // run. Inheriting the parent's no-js flip would break that for every print
+        // view, to set a class no print stylesheet reads.
+        $this->emitNoJsFlip = false;
+
         $this->header .= $this->buildStyleBlock();
         $this->foot   .= $this->buildPrintScript();
 

@@ -286,6 +286,45 @@ class HeadEscapingTest extends TestCase
     }
 
     /**
+     * `no-js` is on the element CSS can reach, and something turns it into `js`.
+     *
+     * The class was on `<head>`, which no stylesheet can match — browsers do not
+     * render it and `head.no-js` selects nothing. So the standard progressive-
+     * enhancement pattern, `.no-js .thing { display: none }`, never worked, and the
+     * marker sat there looking as though it did.
+     *
+     * That was survivable while a Modernizr script was being injected (it puts its
+     * own classes on `<html>`). The framework stopped injecting it and left the
+     * marker behind, so a page declared `no-js` permanently — and any CSS written
+     * against it hid content forever, in a browser with JavaScript fully working.
+     *
+     * Both halves are asserted: the class must be somewhere useful, and something
+     * must flip it. Either alone is worse than neither.
+     *
+     * @return void
+     */
+    public function testNoJsIsOnTheHtmlElementAndIsFlipped(): void
+    {
+        // Act
+        $output = (new Html())->render();
+
+        // Assert — on <html>, where a stylesheet can match it
+        $this->assertMatchesRegularExpression(
+            '#<html[^>]*class="no-js"#',
+            $output,
+            'no-js on <head> is inert: CSS cannot match an element that is not rendered.'
+        );
+
+        // Assert — and something turns it into js, without an external file
+        $this->assertStringContainsString('no-js', $output);
+        $this->assertStringContainsString(
+            "replace(/\bno-js\b/,'js')",
+            $output,
+            'A marker nothing flips is a permanent lie about the browser.'
+        );
+    }
+
+    /**
      * The AMP document type got the same treatment, including its canonical link.
      *
      * AMP is the easier one to forget — it is a second renderer with the same body of
