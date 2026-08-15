@@ -69,6 +69,9 @@ class TestableAccountControllerIT extends Account
 
 class AccountControllerIntegrationTest extends TestCase
 {
+    /** @var string|null Last table the mocked builder was pointed at */
+    private $lastTable = null;
+
     private TestableAccountControllerIT $controller;
     private $dbMock;
     private $queryBuilderMock;
@@ -300,19 +303,45 @@ class AccountControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('View Display: privacy_settings', $echoed);
     }
 
+    /**
+     * Saving privacy settings writes both stores, and says which.
+     *
+     * Two upserts rather than one, because the preferences live in two places on
+     * purpose: the GDPR consents in `authserver.user_privacy_settings`, and the
+     * new-sign-in opt-in in `userdetails` — the latter so the feature needs no
+     * migration and works on every installation the moment it is upgraded.
+     *
+     * Asserted by **table** rather than by call count. This test previously said
+     * `expects($this->once())`, which broke the moment a second preference was added
+     * and told whoever hit it only that a number had changed. Naming the tables makes
+     * the failure say what is missing, and makes it fail if a save ever silently
+     * stops writing one of them.
+     */
     public function testPrivacyPost()
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['analytics'] = '1';
         $this->bypassCsrf();
 
-        $this->queryBuilderMock->expects($this->once())->method('upsert')->willReturn(true);
+        $tablesWritten = [];
+        $this->queryBuilderMock->method('table')
+            ->willReturnCallback(function ($table) use (&$tablesWritten) {
+                $this->lastTable = $table;
+                return $this->queryBuilderMock;
+            });
+        $this->queryBuilderMock->method('upsert')
+            ->willReturnCallback(function () use (&$tablesWritten) {
+                $tablesWritten[] = $this->lastTable;
+                return true;
+            });
 
         ob_start();
         $this->controller->privacy();
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
+        $this->assertContains('authserver.user_privacy_settings', $tablesWritten);
+        $this->assertContains('userdetails', $tablesWritten);
     }
 
     public function testSecurity()

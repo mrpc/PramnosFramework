@@ -3,7 +3,7 @@
  * Privacy page (Bootstrap theme). GDPR Article 7 — conditions for consent.
  *
  * Variables:
- *   $this->privacySettings — array {analytics: bool, marketing: bool}
+ *   $this->privacySettings — array {analytics: bool, marketing: bool, notifysignin: bool}
  *   $this->routeBase       — Account controller route base
  */
 $routeBase = $this->routeBase ?? 'Account';
@@ -61,6 +61,20 @@ $this->activeNav = 'privacy';
                             <div class="form-text ms-4">
                                 Receive occasional emails about new features, tips, and offers.
                                 You can unsubscribe at any time.
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox"
+                                       id="notifysignin" name="notifysignin" role="switch"
+                                       <?php echo !empty($this->privacySettings['notifysignin']) ? 'checked' : ''; ?>>
+                                <label class="form-check-label fw-semibold" for="notifysignin">
+                                    New sign-in alerts
+                                </label>
+                            </div>
+                            <div class="form-text ms-4">
+                                Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.
                             </div>
                         </div>
 

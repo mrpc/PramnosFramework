@@ -3,7 +3,7 @@
  * Privacy Settings page (plain-CSS theme).
  *
  * Variables:
- *   $this->privacySettings — array {analytics: bool, marketing: bool}
+ *   $this->privacySettings — array {analytics: bool, marketing: bool, notifysignin: bool}
  *   $this->routeBase       — Account controller route base
  */
 $routeBase = $this->routeBase ?? 'Account';
@@ -56,6 +56,31 @@ $this->activeNav = 'privacy';
                                     <strong>Marketing Communications</strong>
                                     <p style="font-size:.85em;color:#666;margin:4px 0 0">
                                         Receive occasional emails about new features and offers.
+                                    </p>
+                                </div>
+                        <div class="form-group" style="margin-bottom:20px">
+                            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                                <input type="checkbox" name="analytics" id="analytics"
+                                       style="margin-top:3px"
+                                       <?php echo !empty($this->privacySettings['analytics']) ? 'checked' : ''; ?>>
+                                <div>
+                                    <strong>Analytics &amp; Usage Data</strong>
+                                    <p style="font-size:.85em;color:#666;margin:4px 0 0">
+                                        Allow anonymous usage analytics to help us improve the service.
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom:24px">
+                            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                                <input type="checkbox" name="notifysignin" id="notifysignin"
+                                       style="margin-top:3px"
+                                       <?php echo !empty($this->privacySettings['notifysignin']) ? 'checked' : ''; ?>>
+                                <div>
+                                    <strong>New sign-in alerts</strong>
+                                    <p style="font-size:.85em;color:#666;margin:4px 0 0">
+                                        Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.
                                     </p>
                                 </div>
                             </label>
