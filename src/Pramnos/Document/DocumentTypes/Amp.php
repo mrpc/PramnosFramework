@@ -105,6 +105,13 @@ class Amp extends \Pramnos\Document\Document
         <meta property="og:site_name" content="' . $this->escapeHeadValue($this->og_site_name) . '" />
         <meta property="og:description" content="'
             . $this->escapeHeadValue($this->og_description) . '" />';
+
+        // Structured data only: this type already emits its own canonical above, with
+        // a computed default, and emitting a second <link rel="canonical"> would be
+        // worse than emitting none — two of them is undefined behaviour to a crawler.
+        foreach ($this->structuredDataBlocks() as $block) {
+            $content .= "\n        " . $block;
+        }
         $content .= $this->header;
         $bodyclasses = '';
         $comma = '';
