@@ -241,6 +241,53 @@ $response->setBody(json_encode(['data' => $user]));
 return $response;
 ```
 
+### `getData()` and the columns it does not return
+
+A model's `getData()` is what most CRUD endpoints serialise. The base implementation
+keeps only values that are `is_numeric()` or `is_string()`, which means:
+
+| Column | In the payload? |
+| --- | --- |
+| `int`, `float`, `string` — including `0`, `'0'`, `''` | yes |
+| **`NULL`** | **no — the key is absent**, not `null` |
+| **`bool`** | **no** |
+| **a decoded JSON column** | **no** |
+
+That is the historical behaviour and it is still the default, because changing it
+changes payloads: in one application of 54 models, 45 override `getData()` and **42 of
+those call `parent::getData()`**. Removing the filter would add keys to nearly every
+endpoint it has.
+
+A generated CRUD model patches part of this itself — the generator emits casts that put
+booleans and JSON columns back. A hand-written model gets the base behaviour.
+
+To return every column, opt in **once**, in a base model class rather than per model:
+
+```php
+abstract class AppModel extends \Pramnos\Application\Model
+{
+    protected $getDataFullFidelity = true;
+}
+```
+
+Then compare your responses before and after. What is most likely to care:
+
+- code that builds SQL, calls `implode()`, or `http_build_query()` on the result — an
+  array value where a scalar was assumed;
+- typed clients that reject unknown keys;
+- anything using `array_key_exists()` to mean *"this record has no value"*, which
+  becomes *"this column is null"*.
+
+**One thing changed unconditionally**: `sqlError` is no longer in the payload. It is a
+string once a query has failed, so the type filter let it through — a failed read put an
+SQL error message into whatever was being serialised. There is no legitimate consumer of
+that, and it can only appear on a path already going wrong.
+
+**A model that declares no public properties returns `[]`** from the default path.
+Columns assigned to an undeclared property go through `Base::__set` into an internal
+bag, which the filter drops whole. The opt-in reads them; the default cannot, and this
+is worth knowing before concluding that a model is broken.
+
 ### When something fails on the server
 
 Two things that used to end an API request with a page of HTML no longer do.

@@ -1176,22 +1176,101 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      * Returns an array with all useful object data for json encoding
      * @return array
      */
+    /**
+     * Properties that are the model's machinery rather than its data.
+     *
+     * Eight of these were the original list. The rest were **excluded by accident**:
+     * they are arrays, objects or booleans, and the type filter below happened to drop
+     * them. `sqlError` was not — it is a string when a query has failed, so a failed
+     * read put its SQL error message into whatever payload the caller was building.
+     *
+     * Naming them all is what makes {@see $getDataFullFidelity} safe to switch on.
+     * Without this list, dropping the type filter would put `_initialData` — a
+     * complete second copy of the row — and the controller object into every payload.
+     *
+     * @var array<string, true>
+     */
+    private const INTERNAL_PROPERTIES = array(
+        '_primaryKey'      => true,
+        '_dbtable'         => true,
+        'modelname'        => true,
+        'prefix'           => true,
+        '_dbschema'        => true,
+        '_cacheKey'        => true,
+        'cacheInListsTime' => true,
+        'useCacheInLists'  => true,
+        // Excluded by luck until now:
+        'sqlError'         => true,
+        'controller'       => true,
+        '_isnew'           => true,
+        '_initialData'     => true,
+        '_lastChanges'     => true,
+        '_errors'          => true,
+        '_messages'        => true,
+        '_data'            => true,
+        '_parentObject'    => true,
+    );
+
+    /**
+     * Return every column, including `NULL`, booleans and decoded JSON.
+     *
+     * **Off by default, and that default is not timidity — it is measured.** In one
+     * application of 54 models, 45 override `getData()` and **42 of those call
+     * `parent::getData()`**, so a change here reaches almost every endpoint it has.
+     * Switching this on adds keys to those payloads: columns that are `NULL` appear
+     * as `null` instead of being absent, booleans appear, and JSON columns arrive as
+     * arrays. Every one of those is more correct and every one is a change a consumer
+     * can notice.
+     *
+     * Turn it on in **one** base model class for the application, not per model, and
+     * check what the responses look like before and after. The parts most likely to
+     * care are code that builds SQL or calls `implode()` on the result — an array
+     * value where a scalar was assumed — and typed clients that reject unknown keys.
+     *
+     * ```php
+     * abstract class AppModel extends \Pramnos\Application\Model
+     * {
+     *     protected $getDataFullFidelity = false;
+     * }
+     * ```
+     *
+     * @var bool
+     */
+    protected $getDataFullFidelity = false;
+
+    /**
+     * Return all data as an array.
+     *
+     * @return array<string, mixed>
+     */
     public function getData()
     {
         $data = array();
-        foreach (get_object_vars($this) as $key=>$value) {
-            if ($key == '_primaryKey' || $key == '_dbtable'
-                || $key == 'modelname' || $key == 'prefix'
-                || $key == '_dbschema'
-                || $key == '_cacheKey'
-                || $key == 'cacheInListsTime'
-                || $key == 'useCacheInLists') {
+
+        $source = get_object_vars($this);
+        if ($this->getDataFullFidelity) {
+            // Columns set on a model that does not declare them as public properties
+            // go through Base::__set into `_data`, where get_object_vars() sees the
+            // array and not the columns. Such a model gets an **empty** array from the
+            // historical path — the columns are there, one level down, and nothing
+            // ever looked.
+            $source = array_merge($source, $this->_data);
+        }
+
+        foreach ($source as $key => $value) {
+            if (isset(self::INTERNAL_PROPERTIES[$key])) {
                 continue;
             }
-            if (is_numeric($value) || is_string($value)) {
-                $data[$key] = $value;
+            // The historical shape: only numbers and strings, which silently drops
+            // NULL, booleans and decoded JSON columns. Kept as the default because
+            // 42 models in one application alone reach this through parent::getData().
+            if (!$this->getDataFullFidelity
+                && !is_numeric($value) && !is_string($value)) {
+                continue;
             }
+            $data[$key] = $value;
         }
+
         return $data;
     }
 
