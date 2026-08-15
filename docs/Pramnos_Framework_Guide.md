@@ -566,8 +566,52 @@ $result = (new MiddlewarePipeline())
 | `AuthMiddleware` | Throws 401 or redirects if not logged in |
 | `CorsMiddleware` | Sets `Access-Control-*` headers; handles OPTIONS preflight |
 | `ThrottleMiddleware` | Rate-limits by IP using APCu (requires `apcu` extension) |
-| `MaintenanceModeMiddleware` | Returns 503 when `maintenance.flag` exists |
+| `MaintenanceModeMiddleware` | Returns 503 while `var/MAINTENANCE` **or** `maintenance.flag` exists |
 | `CsrfMiddleware` | Validates CSRF token on POST/PUT/PATCH/DELETE |
+
+#### Maintenance mode: which flag, and what the client is told
+
+There are two ways the site goes down on purpose, and until 2026-08-15 they watched
+different files:
+
+| Raised by | Flag |
+| --- | --- |
+| `Application::startMaintenance()` | `<ROOT>/var/MAINTENANCE` |
+| `MigrationRunner` (for the duration of a batch) | `<ROOT>/var/MAINTENANCE` |
+| A deployment script doing `touch` | whatever it touches — historically `<ROOT>/maintenance.flag` |
+
+`MaintenanceModeMiddleware` watched only the last one. So an application that
+registered it exactly as shown above and then ran a migration **served the whole
+migration from the live site** — the runner raised its flag, the middleware watched
+the other, and nothing looked wrong. With no constructor argument it now watches both.
+Pass a path explicitly and that path is the only one watched, because an application
+that named its own file has said which file it means.
+
+`Retry-After` is an hour by default in the middleware, five minutes from
+`Application::showError()`. Define `PRAMNOS_MAINTENANCE_RETRY_AFTER` to set both:
+
+```php
+define('PRAMNOS_MAINTENANCE_RETRY_AFTER', 900);   // 15 minutes
+```
+
+**What the client gets.** `Application::showError()` — which the constructor calls when
+`var/MAINTENANCE` exists, so a router-dispatched application reaches it too — now sends
+a status and a content type:
+
+| Situation | Status | Body |
+| --- | --- | --- |
+| Maintenance, browser | `503` + `Retry-After` | the HTML page, unchanged |
+| Maintenance, `Accept: application/json` | `503` + `Retry-After` | `{"error":"maintenance","retry_after":300,…}` |
+| Any other fatal (PHP version, addon, database) | `500` | as above, `"error":"unavailable"`, no retry |
+
+It previously sent **neither**, which produced two failures that look unrelated and
+are one bug: a JSON client got `200 OK` with a page of HTML and failed on parsing
+rather than recognising the state, and a crawler got the maintenance page as a `200`,
+making it eligible to be indexed in place of the real page.
+
+A client is treated as wanting JSON when its `Accept` names `application/json` or it
+sends `X-Requested-With: XMLHttpRequest`. Browsers send neither, so no list of API
+paths has to be kept in step with the router.
 
 **Execution order:**
 

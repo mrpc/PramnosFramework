@@ -814,8 +814,131 @@ class Application extends Base
      * Display an error
      * @param string $msg Message to add
      */
+    /**
+     * Whether the client asked for JSON rather than a page.
+     *
+     * Browsers send `text/html,application/xhtml+xml,…` and never name
+     * `application/json`, so testing for that one token is enough to tell an API
+     * consumer from a person — without a list of paths to keep in sync.
+     *
+     * @return bool
+     */
+    protected function clientWantsJson(): bool
+    {
+        if (isset($_SERVER['HTTP_X_REQUESTED_WITH'])
+            && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+            return true;
+        }
+
+        $accept = isset($_SERVER['HTTP_ACCEPT'])
+            ? strtolower((string) $_SERVER['HTTP_ACCEPT'])
+            : '';
+
+        return $accept !== '' && strpos($accept, 'application/json') !== false;
+    }
+
+    /**
+     * Whether the site is flagged as being down on purpose.
+     *
+     * @return bool
+     */
+    protected function isInMaintenance(): bool
+    {
+        return file_exists(ROOT . DS . 'var' . DS . 'MAINTENANCE');
+    }
+
+    /**
+     * Send the status line and content type for a terminal error.
+     *
+     * Split out from {@see showError()} so the decisions above it — which status,
+     * which content type, whether to advertise a retry — are reachable from a test.
+     * Under PHPUnit `headers_sent()` is already true by the time any test runs (the
+     * progress dots are output), so a guard inside this method is unreachable there;
+     * putting the decisions in the caller is what keeps them covered.
+     *
+     * @param  int  $status        503 while stopped on purpose, 500 for a fault
+     * @param  bool $json          Client asked for JSON
+     * @param  bool $advertiseRetry Send `Retry-After`
+     * @return void
+     * @codeCoverageIgnore
+     */
+    protected function sendErrorHeaders(int $status, bool $json, bool $advertiseRetry): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+
+        http_response_code($status);
+        if ($advertiseRetry) {
+            header('Retry-After: ' . $this->maintenanceRetryAfter());
+        }
+        header(
+            'Content-Type: '
+            . ($json ? 'application/json; charset=UTF-8' : 'text/html; charset=UTF-8')
+        );
+    }
+
+    /**
+     * How long a client should wait before retrying, in seconds.
+     *
+     * Read from a constant rather than the settings table on purpose: this runs while
+     * the site is down, and in the case that matters most — the database being the
+     * reason — asking the database how long to wait cannot work.
+     *
+     * @return int
+     */
+    protected function maintenanceRetryAfter(): int
+    {
+        if (defined('PRAMNOS_MAINTENANCE_RETRY_AFTER')) {
+            $seconds = (int) constant('PRAMNOS_MAINTENANCE_RETRY_AFTER');
+            if ($seconds > 0) {
+                return $seconds;
+            }
+        }
+
+        return 300;
+    }
+
+    /**
+     * Stop the request and tell the client why.
+     *
+     * This is the framework's terminal error path: maintenance mode (the constructor
+     * calls it when `var/MAINTENANCE` exists), an unsupported PHP version, an addon
+     * that would not load, a database that would not answer.
+     *
+     * It used to emit an HTML page and nothing else — **no status code and no
+     * content type** — which produced two failures that look unrelated and are the
+     * same bug:
+     *
+     *   - a JSON API answered `200 OK` with a page of HTML, so the client failed with
+     *     a parse error instead of a recognisable "the site is down". Applications
+     *     that route with `Router::dispatch()` still construct an `Application`, so
+     *     they inherit this path whether or not they use the rest of the MVC stack;
+     *   - a crawler was served the maintenance page as a **`200`**, which makes it
+     *     eligible to be indexed in place of the real page. For a site whose reason
+     *     for rendering on the server is search engines, that is the worst possible
+     *     outcome of an hour's downtime.
+     *
+     * So the status is now `503` while `var/MAINTENANCE` exists — with `Retry-After`,
+     * which is what tells a crawler to come back rather than to re-index — and `500`
+     * otherwise, because the other callers are genuine faults rather than a planned
+     * stop. The signature is unchanged, and so is the HTML for anyone asking for HTML.
+     *
+     * @param  string $msg   Message to show
+     * @param  string $title Title of the page
+     * @return void
+     */
     public function showError($msg='', $title='Maintenance Mode')
     {
+        $inMaintenance = $this->isInMaintenance();
+        $wantsJson     = $this->clientWantsJson();
+
+        $this->sendErrorHeaders(
+            $inMaintenance ? 503 : 500,
+            $wantsJson,
+            $inMaintenance
+        );
+
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
             $database = \Pramnos\Framework\Factory::getDatabase();
             $error = \Pramnos\General\Helpers::varDumpToString($database->getError());
@@ -825,6 +948,26 @@ class Application extends Base
         if ($msg != '') {
             $error .= "<br />" . $msg;
         }
+
+        if ($wantsJson) {
+            $payload = array(
+                'error' => $inMaintenance ? 'maintenance' : 'unavailable',
+                'title' => $title,
+            );
+            if ($inMaintenance) {
+                $payload['retry_after'] = $this->maintenanceRetryAfter();
+            }
+            // The same information the HTML branch shows, in the same conditions —
+            // $msg always, the database dump only under DEVELOPMENT (that gate is
+            // applied above, where $error is built). Carrying less here would mean
+            // the format a client can actually parse is the one told least.
+            if ($error !== '') {
+                $payload['message'] = trim(strip_tags(str_replace('<br />', ' ', $error)));
+            }
+            $this->close((string) json_encode($payload));
+            return;
+        }
+
         $this->close(
             '<html><head><title>'
             . $title
