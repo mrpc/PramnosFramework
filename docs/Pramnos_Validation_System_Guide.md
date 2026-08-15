@@ -242,6 +242,44 @@ The exception stores validation errors as an array grouped by field name.
 ]
 ```
 
+### Who catches it, and where that leaves your application
+
+The flash-and-redirect this guide describes — errors and submitted input into the
+session, browser sent back to the form — is written **inside `Application::exec()`**.
+
+That is the whole MVC request cycle. An application that dispatches with
+`Router::dispatch()` never calls it, so it gets an **uncaught `ValidationException`**
+where this page promises a redirect. One line restores it:
+
+```php
+$router->addGlobalMiddleware(new \Pramnos\Http\Middleware\ValidationRedirectMiddleware());
+```
+
+It catches only `ValidationException` — anything else passes through, because turning
+a real fault into a redirect back to the form is the most confusing outcome available:
+the visitor sees the page again with nothing wrong on it. Pass a path to the
+constructor for a form that should always return to one place; otherwise it uses
+`HTTP_REFERER`, exactly as `Application::exec()` does, falling back to the site root
+when there is none (some privacy tooling strips the header).
+
+### Two session conventions, and they do not interoperate
+
+This is the sharp edge in this system, and it is invisible from either side:
+
+| Written by | Keys | Read by |
+| --- | --- | --- |
+| `Request::validate()` + `Application::exec()` + `ValidationRedirectMiddleware` | `_validation_errors`, `_old_input` | `View::__construct()` → `$this->errors`; `Request::old()` |
+| `FormRequest::failWith()` | `_form_errors`, `_form_old_input` | `FormRequest::errors()`, `FormRequest::old()` — statics |
+
+**A view using `$this->errors` sees nothing after a `FormRequest` failure.** The form
+redraws with no errors on it and no indication why, which reads as "validation is
+broken" rather than as "two conventions".
+
+Pick one per form. If your templates use `$this->errors` and `$request->old()` — what
+the `View` gives you for free — use `Request::validate()`. Reach for `FormRequest` when
+you want the rules in their own class, and read the errors back through
+`FormRequest`'s statics in the same place.
+
 ---
 
 ## WWW Application Flow
