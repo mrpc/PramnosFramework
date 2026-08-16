@@ -169,11 +169,19 @@ class DebugBar
             return '';
         }
 
+        $devPanelUrl = null;
+        if (defined('sURL')) {
+            $devPanelUrl = rtrim((string) sURL, '/') . '/devpanel';
+        } elseif (defined('SITE_URL')) {
+            $devPanelUrl = rtrim((string) SITE_URL, '/') . '/devpanel';
+        }
+
         $payload = ApiDebugPayload::build() + [
             'request_method'   => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
             'request_path'     => (string) ($_SERVER['REQUEST_URI'] ?? '/'),
             'status_code'      => (int) (http_response_code() ?: 200),
             'devpanel_enabled' => \Pramnos\Application\FeatureRegistry::isEnabled('devpanel'),
+            'devpanel_url'     => $devPanelUrl,
         ];
 
         // Hex-escaping the four characters that could end the element early means
