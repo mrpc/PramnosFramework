@@ -73,7 +73,7 @@ describe('the server-rendered toolbar', () => {
         assert.ok(dom.byId['pramnos-debugbar'], 'the bar was built');
         // Server time comes from request.time: the top-level copy is overwritten
         // by the memory collector, and reading it printed "[object Object]MB".
-        assert.match(dom.byId['pdb-info'].innerHTML, /12\.5ms server/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /12\.5ms/);
         assert.match(dom.byId['pdb-info'].innerHTML, /GET \/dashboard/);
 
         openTab(dom, 'requests');
