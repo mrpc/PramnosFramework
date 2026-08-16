@@ -201,7 +201,7 @@ describe('SPA toolbar module', () => {
         assert.match(dom.byId['pdb-tabs'].innerHTML, /requests/);
         // Server time comes from request.time — the top-level copy is overwritten
         // by the memory collector, and reading it printed "[object Object]MB".
-        assert.match(dom.byId['pdb-info'].innerHTML, /12\.5ms server/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /12\.5ms/);
         assert.match(dom.byId['pdb-info'].innerHTML, /2\.5MB/);
     });
 
@@ -322,7 +322,7 @@ describe('SPA toolbar module', () => {
 
         // Assert
         assert.match(dom.byId['pdb-info'].innerHTML, /POST \/api\/1\.0\/second/);
-        assert.match(dom.byId['pdb-info'].innerHTML, /22ms server/);
+        assert.match(dom.byId['pdb-info'].innerHTML, /22ms/);
     });
 
     test('rendering survives a payload with nothing in it', async () => {

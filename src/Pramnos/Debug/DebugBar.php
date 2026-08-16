@@ -170,9 +170,10 @@ class DebugBar
         }
 
         $payload = ApiDebugPayload::build() + [
-            'request_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
-            'request_path'   => (string) ($_SERVER['REQUEST_URI'] ?? '/'),
-            'status_code'    => (int) (http_response_code() ?: 200),
+            'request_method'   => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
+            'request_path'     => (string) ($_SERVER['REQUEST_URI'] ?? '/'),
+            'status_code'      => (int) (http_response_code() ?: 200),
+            'devpanel_enabled' => \Pramnos\Application\FeatureRegistry::isEnabled('devpanel'),
         ];
 
         // Hex-escaping the four characters that could end the element early means

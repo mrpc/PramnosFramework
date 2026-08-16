@@ -110,32 +110,20 @@
      * and the tab a reader wants must not move between requests.
      */
     var TABS = [
-        { key: 'queries',    label: 'SQL' },
-        { key: 'timers',     label: 'Time' },
-        { key: 'route',      label: 'Route' },
-        { key: 'auth',       label: 'Auth' },
-        // Beside Auth on purpose: that tab answers who the request is, this one answers
-        // whether it was allowed to do what it did. They are consecutive questions and
-        // used to have one answer between them.
-        { key: 'gate',       label: 'Gate' },
-        { key: 'session',    label: 'Session' },
-        { key: 'logs',       label: 'Logs' },
-        { key: 'views',      label: 'Views' },
-        // One tab for the domain layer, whichever way the application builds it.
-        // Its payload key stays `models` — the tab is a view, and renaming the
-        // data would break every front end already reading it.
-        { key: 'models',     label: 'Domain' },
-        { key: 'migrations', label: 'Migrations' },
-        { key: 'exceptions', label: 'Exceptions' },
-        // Last, and the only two tabs whose data never came from the server:
-        // what the browser itself threw, and what it thinks the world is.
-        // Errors sits beside Exceptions on purpose — the two halves of
-        // "something went wrong" belong next to each other.
-        { key: 'errors',     label: 'Errors' },
-        { key: 'client',     label: 'Client' },
-        // Not a report at all — the one tab you use rather than read. Last,
-        // because it is the only one that changes the application's state.
-        { key: 'api',        label: 'API' }
+        { key: 'queries',    label: 'SQL',        title: 'SQL Database queries executed' },
+        { key: 'timers',     label: 'Time',       title: 'Execution time profiling & breakdown' },
+        { key: 'route',      label: 'Route',      title: 'Matched HTTP route & controller action' },
+        { key: 'auth',       label: 'Auth',       title: 'Authenticated user identity & JWT state' },
+        { key: 'gate',       label: 'Gate',       title: 'Authorization policy & permission checks' },
+        { key: 'session',    label: 'Session',    title: 'Session data & CSRF tokens' },
+        { key: 'logs',       label: 'Logs',       title: 'Application & PSR-3 server logs' },
+        { key: 'views',      label: 'Views',      title: 'Rendered HTML templates & view variables' },
+        { key: 'models',     label: 'Domain',     title: 'Domain model entities loaded' },
+        { key: 'exceptions', label: 'Exceptions', title: 'Server-side PHP exceptions caught' },
+        { key: 'errors',     label: 'Errors',     title: 'Browser-side JavaScript errors captured' },
+        { key: 'client',     label: 'Client',     title: 'Browser environment & device details' },
+        { key: 'api',        label: 'API',        title: 'Interactive API testing playground' },
+        { key: 'migrations', label: 'Migrations', title: 'Database schema migrations' }
     ];
 
     /**
@@ -245,6 +233,9 @@
     var selected = -1;          // entry whose tabs are shown; -1 = none yet
     var userPicked = false;     // has the reader chosen a request themselves?
     var activeTab = null;       // 'requests' or a payload key; null = panel closed
+    var openCategory = null;     // category key of open dropdown menu, or null
+    var hasMvcPage = false;
+    var devPanelEnabled = false;
     var root = null;
     var tabsEl = null;
     var panelEl = null;
@@ -860,10 +851,17 @@
         return ''
         + '#pramnos-debugbar{position:fixed;bottom:0;left:0;right:0;z-index:2147483000;'
         + 'font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cdd6f4;'
-        + 'background:#1e1e2e;border-top:2px solid #89b4fa}'
-        + '#pdb-bar{display:flex;align-items:center;padding:0 8px;height:28px;gap:4px;'
-        + 'overflow-x:auto;white-space:nowrap}'
-        + '#pdb-brand{color:#89b4fa;font-weight:bold;margin-right:8px;flex-shrink:0}'
+        + 'background:#1e1e2e;border-top:2px solid #89b4fa;box-sizing:border-box}'
+        + '#pramnos-debugbar *{box-sizing:border-box}'
+        + '#pdb-bar{display:flex;align-items:center;justify-content:space-between;padding:0 8px;height:28px;gap:6px;'
+        + 'overflow:hidden;white-space:nowrap}'
+        + '#pdb-left{display:flex;align-items:center;gap:4px;flex:1;min-width:0;overflow:hidden}'
+        + '#pdb-brand{color:#89b4fa;font-weight:bold;margin-right:4px;flex-shrink:0}'
+        + '#pdb-tabs-wrap{display:flex;align-items:center;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin;scrollbar-color:#45475a transparent}'
+        + '#pdb-tabs-wrap::-webkit-scrollbar{height:3px}'
+        + '#pdb-tabs-wrap::-webkit-scrollbar-thumb{background:#45475a;border-radius:2px}'
+        + '#pdb-tabs{display:flex;align-items:center;gap:3px;white-space:nowrap}'
+        + '#pdb-right{display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:auto}'
         + '.pdb-tab{background:none;border:none;color:#cdd6f4;cursor:pointer;padding:2px 8px;'
         + 'border-radius:4px;font:inherit;flex-shrink:0}'
         + '.pdb-tab:hover,.pdb-tab.pdb-active{background:#313244;color:#89b4fa}'
@@ -873,7 +871,15 @@
         + '.pdb-tab-alert{color:#f38ba8;font-weight:bold}'
         + '.pdb-tab-alert:hover,.pdb-tab-alert.pdb-active{color:#f38ba8;background:#45303a}'
         + '.pdb-tab-alert .pdb-tab-count{background:#f38ba8;color:#11111b;font-weight:bold}'
-        + '#pdb-info{margin-left:auto;display:flex;gap:5px;flex-shrink:0;align-items:center}'
+        + '#pdb-info{display:flex;gap:4px;align-items:center;flex-shrink:0}'
+        + '.pdb-more-wrap{position:relative;display:inline-block}'
+        + '.pdb-more-btn{background:none;border:1px solid #45475a;color:#cdd6f4;cursor:pointer;padding:2px 6px;border-radius:4px;font:inherit;flex-shrink:0}'
+        + '.pdb-more-btn:hover,.pdb-more-btn.pdb-active{background:#313244;color:#89b4fa;border-color:#89b4fa}'
+        + '.pdb-more-menu{position:fixed;z-index:2147483005;background:#1e1e2e;border:1px solid #45475a;border-radius:6px;padding:4px;display:flex;flex-direction:column;gap:2px;box-shadow:0 4px 14px rgba(0,0,0,0.6);min-width:140px}'
+        + '.pdb-more-menu[hidden]{display:none!important}'
+        + '.pdb-more-menu .pdb-tab{text-align:left;width:100%;display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-radius:3px}'
+        + '@media(max-width:900px){#pdb-brand{font-size:11px;margin-right:2px}.pdb-tab{padding:2px 5px;font-size:11px}.pdb-devpanel{padding:2px 4px;font-size:11px}#pdb-info{gap:3px}}'
+        + '@media(max-width:600px){#pdb-brand{display:none}.pdb-devpanel{display:none}}'
         + '.pdb-chip{font-size:10px;color:#6c7086;padding:1px 6px;background:#313244;border-radius:3px}'
         + '.pdb-fetch-logs{background:#313244;border:1px solid #45475a;color:#89b4fa;cursor:pointer;'
         + 'font:inherit;font-size:11px;padding:2px 8px;border-radius:4px}'
@@ -993,7 +999,7 @@
      * island, no page — so no link, rather than a link to nothing.
      */
     function devPanelLink() {
-        if (!hasMvcPage) {
+        if (!hasMvcPage || !devPanelEnabled) {
             return '';
         }
 
@@ -1054,11 +1060,13 @@
         root = document.createElement('div');
         root.id = 'pramnos-debugbar';
         root.innerHTML = '<div id="pdb-grip" title="Drag to resize the panel"></div>'
-            + '<div id="pdb-bar"><span id="pdb-brand">&#9881; Pramnos</span>'
-            + '<span id="pdb-tabs"></span><span id="pdb-info"></span>'
+            + '<div id="pdb-bar">'
+            + '<div id="pdb-left"><span id="pdb-brand">&#9881; Pramnos</span>'
+            + '<div id="pdb-tabs-wrap"><span id="pdb-tabs"></span></div></div>'
+            + '<div id="pdb-right"><span id="pdb-info"></span>'
             + devPanelLink()
             + helpLink()
-            + '<button class="pdb-close" id="pdb-close-btn" title="Hide the toolbar">&#x2715;</button></div>'
+            + '<button class="pdb-close" id="pdb-close-btn" title="Hide the toolbar">&#x2715;</button></div></div>'
             + '<div id="pdb-panel"></div>';
 
         // Hiding the bar has to leave something to bring it back, and it has to
@@ -1221,7 +1229,35 @@
         }
     }
 
+    function positionCategoryMenu() {
+        if (openCategory && root) {
+            var btn = root.querySelector('[data-cat-toggle="' + openCategory + '"]');
+            var menu = root.querySelector('.pdb-cat-menu-' + openCategory);
+            if (btn && menu && btn.getBoundingClientRect) {
+                var rect = btn.getBoundingClientRect();
+                var vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+                menu.style.left = Math.max(8, rect.left) + 'px';
+                menu.style.bottom = Math.round(vh - rect.top + 2) + 'px';
+            }
+        }
+    }
+
     // ── Rendering ───────────────────────────────────────────────────────────
+
+    var CATEGORIES = {
+        route: 'App',
+        views: 'App',
+        models: 'App',
+        migrations: 'App',
+
+        auth: 'User',
+        gate: 'User',
+        session: 'User',
+
+        logs: 'Logs',
+        exceptions: 'Logs',
+        errors: 'Logs'
+    };
 
     /** Redraw the tabs, the info strip and the open panel. */
     function render() {
@@ -1232,31 +1268,23 @@
         var entry = entries[selected] || null;
 
         var html = '<button class="pdb-tab' + (activeTab === 'requests' ? ' pdb-active' : '')
-            + '" data-panel="requests">requests<span class="pdb-tab-count">'
+            + '" data-panel="requests" title="List all captured HTTP requests">requests<span class="pdb-tab-count">'
             + entries.length + '</span></button>';
+
+        var mainHtml = '';
+        var categoryGroups = {};
 
         TABS.forEach(function (tab) {
             var data = entry && entry.payload ? entry.payload[tab.key] : null;
-            // While nothing has been picked, the two stream tabs answer for the
-            // whole page — so one of them is worth showing even when the request
-            // in view produced none of its own.
             var stream = aggregating() && STREAMS[tab.key] ? streamAcross(tab.key) : null;
 
-            // A state tab appears while any request has carried it: the one in
-            // view may predate the login that produced it.
             if (!data && STATE_TABS[tab.key] && !userPicked) {
                 data = newestPayloadFor(tab.key);
             }
 
-            // A client-side tab answers from what this script saw, and appears
-            // only once it has something — an Errors tab reading 0 on every page
-            // would train the eye to ignore the one time it does not.
             if (tab.key === 'errors') {
                 data = clientErrors.length ? { count: clientErrors.length } : null;
             }
-            // The Client and API tabs are the exception to "no tab without
-            // data": there is always a URL and always a configuration, and their
-            // whole purpose is to be opened when something is *missing*.
             if (tab.key === 'client' || tab.key === 'api') {
                 data = { count: null };
             }
@@ -1265,22 +1293,57 @@
                 return;
             }
             var count = stream ? stream.length : tabCount(tab.key, data, entry);
-            // Something went wrong somewhere on this page, and a tab that looks
-            // exactly like the other eight does not say so. The colour is the
-            // whole point of collecting exceptions: nobody opens a tab to check
-            // whether there is anything in it.
             var alarming = (tab.key === 'exceptions' && count > 0)
                 || (tab.key === 'errors' && count > 0)
                 || (tab.key === 'auth' && credentialExpired(data));
-            html += '<button class="pdb-tab' + (activeTab === tab.key ? ' pdb-active' : '')
+
+            var tabBtn = '<button class="pdb-tab' + (activeTab === tab.key ? ' pdb-active' : '')
                 + (alarming ? ' pdb-tab-alert' : '')
-                + '" data-panel="' + tab.key + '">' + (alarming ? '⚠ ' : '') + esc(tab.label)
+                + '" data-panel="' + tab.key + '" title="' + escAttr(tab.title || tab.label) + '">'
+                + (alarming ? '⚠ ' : '') + esc(tab.label)
                 + (count === null ? '' : '<span class="pdb-tab-count">' + count + '</span>')
                 + '</button>';
+
+            var cat = CATEGORIES[tab.key];
+            if (!cat || activeTab === tab.key) {
+                mainHtml += tabBtn;
+            } else {
+                categoryGroups[cat] = categoryGroups[cat] || { items: [], alarming: false };
+                categoryGroups[cat].items.push(tabBtn);
+                if (alarming) {
+                    categoryGroups[cat].alarming = true;
+                }
+            }
+        });
+
+        html += mainHtml;
+
+        Object.keys(categoryGroups).forEach(function (cat) {
+            var group = categoryGroups[cat];
+            if (!group || !group.items || group.items.length === 0) {
+                return;
+            }
+            if (group.items.length === 1) {
+                html += group.items[0];
+                return;
+            }
+            var catKey = cat.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            var isOpen = openCategory === catKey;
+            var isAlarm = group.alarming;
+            html += '<div class="pdb-more-wrap">'
+                + '<button class="pdb-more-btn' + (isOpen ? ' pdb-active' : '')
+                + (isAlarm ? ' pdb-tab-alert' : '')
+                + '" data-cat-toggle="' + catKey + '" title="' + escAttr(cat) + ' tabs">'
+                + (isAlarm ? '⚠ ' : '') + esc(cat)
+                + ' <span class="pdb-tab-count">' + group.items.length + '</span> &#9660;</button>'
+                + '<div class="pdb-more-menu pdb-cat-menu-' + catKey + '"' + (isOpen ? '' : ' hidden') + '>'
+                + group.items.join('') + '</div></div>';
         });
 
         tabsEl.innerHTML = html;
         infoEl.innerHTML = infoStrip(entry);
+
+        positionCategoryMenu();
 
         if (activeTab === null) {
             panelEl.style.display = 'none';
@@ -1414,23 +1477,19 @@
         var bits = [];
         var ms = serverMs(entry);
         if (ms !== null) {
-            bits.push('<span class="pdb-chip">' + ms + 'ms server</span>');
+            bits.push('<span class="pdb-chip" title="Server response time: ' + ms + 'ms">' + ms + 'ms</span>');
         }
         if (entry.ms !== null && entry.ms !== undefined) {
-            bits.push('<span class="pdb-chip">' + entry.ms + 'ms client</span>');
+            bits.push('<span class="pdb-chip" title="Client round-trip time: ' + entry.ms + 'ms">' + entry.ms + 'ms</span>');
         }
         var mb = memoryMb(entry);
         if (mb !== null) {
-            bits.push('<span class="pdb-chip">' + mb + 'MB</span>');
+            bits.push('<span class="pdb-chip" title="Peak memory usage: ' + mb + 'MB">' + mb + 'MB</span>');
         }
-        // Once a request has been picked, the chip naming it becomes the way
-        // back: a selection with no visible way to undo it is a mode, and a mode
-        // nobody can leave is where "the toolbar is showing the wrong numbers"
-        // comes from.
         bits.push(userPicked
-            ? '<button class="pdb-chip pdb-unpick" title="Stop showing just this request">'
+            ? '<button class="pdb-chip pdb-unpick" title="Pinned request (click to unpin): ' + escAttr(entry.method + ' ' + entry.path) + '">'
                 + esc(entry.method) + ' ' + esc(entry.path) + ' ✕</button>'
-            : '<span class="pdb-chip">' + esc(entry.method) + ' ' + esc(entry.path) + '</span>');
+            : '<span class="pdb-chip" title="Request path: ' + escAttr(entry.method + ' ' + entry.path) + '">' + esc(entry.method) + ' ' + esc(entry.path) + '</span>');
         return bits.join('');
     }
 
@@ -3263,18 +3322,42 @@
                 return;
             }
 
+            var catBtn = event.target.closest('[data-cat-toggle]');
+            if (catBtn) {
+                event.stopPropagation();
+                var catKey = catBtn.dataset.catToggle;
+                openCategory = openCategory === catKey ? null : catKey;
+                render();
+                positionCategoryMenu();
+                return;
+            }
+
             var tab = event.target.closest('.pdb-tab');
             if (tab) {
                 // Clicking the open tab closes the panel — the bar stays, which is
                 // what the ✕ is for.
                 activeTab = activeTab === tab.dataset.panel ? null : tab.dataset.panel;
+                openCategory = null;
                 render();
                 return;
             }
 
             if (event.target.closest('#pdb-close-btn')) {
-                setHidden(true);
+                if (activeTab !== null) {
+                    // Panel is expanded: first close/collapse the panel
+                    activeTab = null;
+                    openCategory = null;
+                    render();
+                } else {
+                    // Panel is already collapsed: hide the entire toolbar
+                    setHidden(true);
+                }
                 return;
+            }
+
+            if (openCategory && !event.target.closest('.pdb-more-wrap')) {
+                openCategory = null;
+                render();
             }
 
             if (event.target.closest('#pdb-clear')) {
@@ -3628,6 +3711,7 @@
             hasMvcPage = true;
 
             var payload = JSON.parse(island.textContent || '{}');
+            devPanelEnabled = payload.devpanel_enabled !== false;
             record(
                 payload.request_method || 'GET',
                 payload.request_path || (location.pathname + location.search),
