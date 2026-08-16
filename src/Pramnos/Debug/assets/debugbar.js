@@ -236,6 +236,7 @@
     var openCategory = null;     // category key of open dropdown menu, or null
     var hasMvcPage = false;
     var devPanelEnabled = false;
+    var devPanelCustomUrl = null;
     var root = null;
     var tabsEl = null;
     var panelEl = null;
@@ -1034,6 +1035,9 @@
 
     /** Where the DevPanel lives, resolved the same way the log endpoint is. */
     function devPanelUrl() {
+        if (devPanelCustomUrl) {
+            return devPanelCustomUrl;
+        }
         try {
             return new URL('devpanel', document.baseURI || location.origin).toString();
         } catch (e) {
@@ -3712,6 +3716,7 @@
 
             var payload = JSON.parse(island.textContent || '{}');
             devPanelEnabled = payload.devpanel_enabled !== false;
+            devPanelCustomUrl = payload.devpanel_url || null;
             record(
                 payload.request_method || 'GET',
                 payload.request_path || (location.pathname + location.search),
