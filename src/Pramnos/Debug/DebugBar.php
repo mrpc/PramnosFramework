@@ -180,7 +180,7 @@ class DebugBar
             'request_method'   => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
             'request_path'     => (string) ($_SERVER['REQUEST_URI'] ?? '/'),
             'status_code'      => (int) (http_response_code() ?: 200),
-            'devpanel_enabled' => \Pramnos\Application\FeatureRegistry::isEnabled('devpanel'),
+            'devpanel_enabled' => $this->canAccessDevPanel(),
             'devpanel_url'     => $devPanelUrl,
         ];
 
@@ -321,5 +321,31 @@ HTML;
         }
 
         return $name;
+    }
+
+    /**
+     * Checks whether DevPanel feature is active AND the current user has access.
+     */
+    private function canAccessDevPanel(): bool
+    {
+        if (!\Pramnos\Application\FeatureRegistry::isEnabled('devpanel')) {
+            return false;
+        }
+
+        if (class_exists(\Pramnos\User\User::class)) {
+            try {
+                $user = \Pramnos\User\User::getCurrentUser();
+                $min = \Pramnos\Application\Settings::getSetting('devpanel.min_usertype');
+                $minUserType = ($min !== false && $min !== null && (int) $min > 0) ? (int) $min : 90;
+
+                if ($user === null || (int) ($user->usertype ?? 0) < $minUserType) {
+                    return false;
+                }
+            } catch (\Throwable $e) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
