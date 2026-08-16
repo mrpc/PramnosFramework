@@ -234,7 +234,6 @@
     var userPicked = false;     // has the reader chosen a request themselves?
     var activeTab = null;       // 'requests' or a payload key; null = panel closed
     var openCategory = null;     // category key of open dropdown menu, or null
-    var hasMvcPage = false;
     var devPanelEnabled = false;
     var devPanelCustomUrl = null;
     var root = null;

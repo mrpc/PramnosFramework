@@ -136,7 +136,7 @@ class ProjectResync extends Command
             ? "<comment>Dry run — no files will be written.</comment>"
             : "<info>Resyncing framework-owned files…</info>");
 
-        $tally = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'skipped' => 0];
+        $tally = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'skipped' => 0, 'failed' => 0];
 
         foreach ($files as $file) {
             $action = $this->applyFile($base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll, $output);
@@ -167,24 +167,65 @@ class ProjectResync extends Command
         // named, reported as absent, and nothing says that the *directory* is the
         // assumption rather than the file.
         if ($tally['skipped'] > 0
-            && ($tally['created'] + $tally['updated'] + $tally['unchanged']) === 0
+            && ($tally['created'] + $tally['updated'] + $tally['unchanged'] + $tally['failed']) === 0
         ) {
             $this->explainEmptyResync($base, $output);
         }
 
         $output->writeln('');
-        $output->writeln(sprintf(
-            '<info>Done.</info> %d created, %d updated, %d unchanged, %d skipped.',
+        $summary = sprintf(
+            'Done. %d created, %d updated, %d unchanged, %d skipped',
             $tally['created'],
             $tally['updated'],
             $tally['unchanged'],
             $tally['skipped']
-        ));
+        );
+        // The failure count is only ever printed when there is one. A "0 failed" in
+        // every successful run is noise that teaches the reader to skip the line the
+        // one time it matters.
+        if ($tally['failed'] > 0) {
+            $output->writeln('<error>' . $summary . ', ' . $tally['failed'] . ' FAILED.</error>');
+        } else {
+            $output->writeln('<info>' . $summary . '.</info>');
+        }
         if ($tally['skipped'] > 0 && !$copyAll) {
             $output->writeln('<comment>Some framework files are not present in this project. Re-run with --all to add them.</comment>');
         }
 
-        return Command::SUCCESS;
+        // Non-zero when anything could not be written. A caller that checks the exit
+        // code — the correct way to run this from a deploy script or CI — must not be
+        // told a resync succeeded when the files on disk are still the old ones.
+        return $tally['failed'] > 0 ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    /**
+     * What to say when a write fails.
+     *
+     * Permissions first, by a distance: the command is normally run by a developer or
+     * a deploy user against files owned by the web-server user, and the fix is *who*
+     * runs it rather than anything in the code. Naming the likely cause is the
+     * difference between a message that ends the investigation and one that starts it.
+     *
+     * @var string
+     */
+    private const PERMISSION_HINT =
+        'Usually a permissions problem: the user running this command must be able to '
+        . 'write the file. Check ownership, or re-run as the user that owns the project.';
+
+    /**
+     * A path relative to the project root, for messages.
+     *
+     * @param  string $base Project root
+     * @param  string $path Absolute path
+     * @return string
+     */
+    private function relativise(string $base, string $path): string
+    {
+        $prefix = rtrim($base, '/') . '/';
+
+        return str_starts_with($path, $prefix)
+            ? substr($path, strlen($prefix))
+            : $path;
     }
 
     /**
@@ -194,7 +235,7 @@ class ProjectResync extends Command
      * Honours the two cross-cutting flags: missing files are skipped unless
      * --all, and nothing is written under --dry-run.
      *
-     * @return string One of: created, updated, unchanged, skipped.
+     * @return string One of: created, updated, unchanged, skipped, failed.
      */
     private function applyFile(
         string $base,
@@ -224,10 +265,42 @@ class ProjectResync extends Command
             $output->writeln("  <info>would {$verb}</info> {$rel}");
         } else {
             $dir = dirname($abs);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
+            if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+                $output->writeln(sprintf(
+                    '  <error>failed</error>    %s (cannot create %s)',
+                    $rel,
+                    $this->relativise($base, $dir)
+                ));
+                $output->writeln('             ' . self::PERMISSION_HINT);
+
+                return 'failed';
             }
-            file_put_contents($abs, $content);
+
+            // The return value is checked, and that is the whole point of this
+            // method's existence in its current shape.
+            //
+            // This used to be a bare `file_put_contents($abs, $content);`, so a write
+            // that failed still printed "updated", still counted as updated in the
+            // summary, and still exited 0. The only trace was a PHP warning on stderr,
+            // inside a wall of output that a CI job or a habitual `2>/dev/null`
+            // discards — so a caller checking the exit code, which is the correct way
+            // to call this, was told the resync had succeeded.
+            //
+            // That inverts the command's entire purpose. `project:resync` exists so a
+            // framework-owned file downstream *is* the framework's current one; a
+            // resync that reports success without writing means a project runs an old
+            // copy with confidence, which is precisely the failure it was built to
+            // prevent.
+            if (@file_put_contents($abs, $content) === false) {
+                $output->writeln(sprintf(
+                    '  <error>failed</error>    %s (could not write)',
+                    $rel
+                ));
+                $output->writeln('             ' . self::PERMISSION_HINT);
+
+                return 'failed';
+            }
+
             if ($exec) {
                 @chmod($abs, 0755);
             }

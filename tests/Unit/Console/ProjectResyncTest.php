@@ -82,6 +82,111 @@ class ProjectResyncTest extends TestCase
         return new CommandTester($cmd);
     }
 
+    /**
+     * A file that cannot be written is reported as failed, not as updated.
+     *
+     * The whole purpose of `project:resync` is that a framework-owned file downstream
+     * **is** the framework's current one. Until 2026-08-16 the write was
+     * `file_put_contents($abs, $content);` with the return value discarded, so a
+     * write that failed still printed `updated`, still counted as updated in the
+     * summary, and still exited `0`.
+     *
+     * The only trace was a PHP warning on stderr, inside a wall of output that a CI
+     * job or a habitual `2>/dev/null` throws away. So a caller checking the exit
+     * code — the correct way to run this from a deploy script — was told the resync
+     * had succeeded while the file on disk was still the old one. A resync that
+     * reports success without writing is the exact failure the command exists to
+     * prevent.
+     *
+     * Reported by a consuming project, which reproduced it by running the command as
+     * a user that could not write the target and confirming with `diff` that the file
+     * was byte-identical afterwards.
+     *
+     * **The failure is produced with a directory in the target's place, not with
+     * `chmod`.** The first version of this test made the file read-only, which the
+     * test container — running as root, where the mode is advisory — ignored: the
+     * test skipped, and a skipped test is green. `file_put_contents()` on a path that
+     * is a directory fails for root too, so this runs everywhere.
+     *
+     * @return void
+     */
+    public function testAnUnwritableFileIsReportedAsFailed(): void
+    {
+        // Arrange — the destination path exists as a directory, so no write can land
+        $rel = 'www/assets/js/pf-utils.js';
+        mkdir($this->projectDir . '/' . $rel, 0777, true);
+
+        // Act — --all, because the target is not a regular file and would otherwise
+        // be reported as absent and skipped
+        $tester  = $this->tester();
+        $exit    = $tester->execute(['--all' => true]);
+        $display = $tester->getDisplay();
+
+        // Assert — the exit code is what a deploy script reads
+        $this->assertNotSame(
+            Command::SUCCESS,
+            $exit,
+            'A resync that could not write must not report success.'
+        );
+
+        // Assert — and the human output says so, naming the file
+        $this->assertStringContainsString('failed', $display);
+        $this->assertStringContainsString($rel, $display);
+        $this->assertStringContainsString('FAILED', $display);
+
+        // Assert — it is not counted as an update, which is what the summary claimed
+        $this->assertDoesNotMatchRegularExpression('/[1-9]\d* updated/', $display);
+    }
+
+    /**
+     * A directory that cannot be created is reported the same way.
+     *
+     * The other unchecked call on that path: `mkdir()` above the write. A parent that
+     * exists as a regular file cannot be turned into a directory, for root either.
+     *
+     * @return void
+     */
+    public function testAnUncreatableDirectoryIsReportedAsFailed(): void
+    {
+        // Arrange — `www/assets/js` exists as a file, so its child cannot be created
+        mkdir($this->projectDir . '/www/assets', 0777, true);
+        file_put_contents($this->projectDir . '/www/assets/js', 'not a directory');
+
+        // Act
+        $tester  = $this->tester();
+        $exit    = $tester->execute(['--all' => true]);
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertNotSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('failed', $display);
+        $this->assertStringContainsString('permissions', $display);
+    }
+
+    /**
+     * A successful run still exits zero and says nothing about failures.
+     *
+     * The guard against over-correcting: a `0 failed` on every healthy run is noise
+     * that teaches the reader to skip the line the one time it matters.
+     *
+     * @return void
+     */
+    public function testASuccessfulRunDoesNotMentionFailures(): void
+    {
+        // Arrange
+        $this->seed('www/assets/js/pf-utils.js', 'UTILS_V1');
+
+        // Act
+        $tester  = $this->tester();
+        $exit    = $tester->execute([]);
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringNotContainsString('FAILED', $display);
+        $this->assertStringContainsString('Done.', $display);
+    }
+
     /** Not a project root (no app/app.php) → clean failure. */
     public function testMissingAppConfigFails(): void
     {
