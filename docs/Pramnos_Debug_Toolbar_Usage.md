@@ -17,6 +17,35 @@ Open it with the `⚙ Pramnos` bar along the bottom of the page. Click a tab to 
 panel, click the same tab again to close it, drag the panel's top edge to resize it — the
 height is remembered.
 
+## Finding the tab you want
+
+Fourteen tabs do not fit across a laptop, so related ones collapse into a dropdown:
+
+| Group | Tabs |
+| --- | --- |
+| **App** | Route, Views, Domain, Migrations |
+| **User** | Auth, Gate, Session |
+| **Logs** | Logs, Exceptions, Errors |
+
+Everything else — SQL, Time, Client, API — stays inline, because those are the ones
+opened most often and a click to reach them would be a click too many.
+
+Three behaviours are worth knowing, because each is the answer to "why did that tab
+move":
+
+- **The tab you have open is always pulled out of its group** and shown on the bar. It
+  does not disappear behind a dropdown the moment you select it.
+- **A group whose contents include something alarming is marked**, so an exception you
+  cannot see is still visible as a warning on the group that holds it. A collapsed
+  problem is the one failure a grouping like this could introduce, and it is the one it
+  is built not to have.
+- **A group with only one tab in it is not a dropdown.** It renders as a plain tab,
+  because a menu holding a single item is a worse way to click that item.
+
+Every tab carries a tooltip saying what it holds — `Gate` is *authorization policy and
+permission checks*, `Domain` is *domain model entities loaded* — so the short labels do
+not have to be guessed at.
+
 ---
 
 ## The request came back wrong
@@ -173,3 +202,11 @@ and what `GET /devpanel/logs?request=<id>` takes.
   choice is remembered, and shared between the server-rendered toolbar and the SPA panel.
 - **The bar is not there at all in production**, because nothing attaches debug data — no
   data, no DOM, no panel.
+- **The DevPanel link** appears only when the `devpanel` feature is enabled *and* the
+  signed-in user meets `devpanel.min_usertype` (default 90). Its address is resolved
+  server-side from `sURL`, or `SITE_URL` when that is what the application defines, so
+  an installation served from a subdirectory gets a link that works.
+
+  The link is hidden rather than disabled, and hiding it is **not** what protects the
+  panel: `DevPanelController` performs the same feature and usertype check on every
+  action it serves. Removing the link stops advertising a door that is already locked.

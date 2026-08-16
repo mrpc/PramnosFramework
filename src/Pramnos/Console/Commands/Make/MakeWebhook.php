@@ -106,13 +106,25 @@ class MakeWebhook extends MakeCommandBase
         }
         }
 
-        // Look for a single *.php entry point in root (exclude composer.php, index.php)
-        $candidates = glob($root . '/*.php') ?: [];
-        $excluded   = ['index.php', 'composer.php', 'phpunit.php'];
-        foreach ($candidates as $file) {
-            $name = basename($file, '.php');
-            if (!in_array(basename($file), $excluded, true)) {
-                return $name;
+        // Look for a console entry point in the project root.
+        //
+        // This used to take the first `*.php` that was not on a list of three names to
+        // exclude. A blocklist here has to enumerate everything that is *not* the
+        // answer, which is unbounded — and it was wrong the first time somebody left a
+        // file in the root: a `demo.php` in this repository made this return `demo`,
+        // so `project:git-webhook` generated a script telling the operator to run
+        // `php demo project:git-webhook`. A wrong instruction in a generated file is
+        // worse than none, because it is written down and looks authoritative.
+        //
+        // Identified positively instead: a scaffolded entry point constructs the
+        // application's Console and runs it. A stray script in the root does neither.
+        foreach (glob($root . '/*.php') ?: [] as $file) {
+            $source = @file_get_contents($file);
+            if ($source === false) {
+                continue;
+            }
+            if (strpos($source, 'Console(') !== false && strpos($source, '->run(') !== false) {
+                return basename($file, '.php');
             }
         }
 

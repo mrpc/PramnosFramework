@@ -128,7 +128,16 @@
       "Bash(echo \"RUN1_EXIT=$?\")",
       "Bash(echo \"RUN2_EXIT=$?\")",
       "Bash(curl -s -o /dev/null -w \"http=%{http_code}\\\\n\" --max-time 10 http://localhost:18081/)",
-      "Bash(python3 -c \"import json,sys; print\\([e['className'] for e in json.load\\(sys.stdin\\)]\\)\")"
+      "Bash(python3 -c \"import json,sys; print\\([e['className'] for e in json.load\\(sys.stdin\\)]\\)\")",
+      "Bash(timeout 900 docker-compose build app)",
+      "Bash(timeout 1500 docker-compose build php-apache-environment)",
+      "Bash(python3 -c ' *)",
+      "Bash(pkill -f \"bash ./dockertest\")",
+      "Bash(kill 115604 115671)",
+      "Bash(sed -i 's#node scripts/apidoc-to-openapi\\\\.js#node scripts/apidoc-to-openapi.cjs#; s#/scripts/apidoc-to-openapi\\\\.js#/scripts/apidoc-to-openapi.cjs#; s#writeFile\\(.scripts/apidoc-to-openapi\\\\.js.#writeFile\\('\"'\"'scripts/apidoc-to-openapi.cjs'\"'\"'#' src/Pramnos/Console/Commands/Init.php)",
+      "Bash(sed -i 's#node scripts/apidoc-to-openapi\\\\.js#node scripts/apidoc-to-openapi.cjs#' scaffolding/scripts/apidoc-to-openapi.cjs)",
+      "Bash(/home/mrpc/.claude/jobs/5eead6a4/tmp/swap-framework.sh status *)",
+      "Bash(/home/mrpc/.claude/jobs/5eead6a4/tmp/swap-framework.sh off *)"
     ]
   }
 }
