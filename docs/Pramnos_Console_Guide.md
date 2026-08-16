@@ -277,6 +277,27 @@ php bin/pramnos project:resync --debug-panel  # only the SPA debug panel (lib/de
 reported as skipped, so the command never adds tooling nobody opted into; `--all` is the
 explicit "yes, add it" switch.
 
+**A file it could not write is reported as `failed`, and the command exits non-zero.**
+
+```
+  failed    frontend/lib/debug.js (could not write)
+            Usually a permissions problem: the user running this command must be able
+            to write the file. Check ownership, or re-run as the user that owns the
+            project.
+
+Done. 0 created, 0 updated, 0 unchanged, 0 skipped, 1 FAILED.
+```
+
+Until 2026-08-16 that write was unchecked: a resync that could not write still printed
+`updated`, counted the file as updated in the summary, and exited `0`. The only trace
+was a PHP warning on stderr, which a CI job or a habitual `2>/dev/null` discards — so a
+deploy script checking the exit code, which is the right way to run this, was told the
+resync had succeeded while the file on disk was still the old one.
+
+That inverts the point of the command. Run it from CI and **check the exit code**; the
+whole value of `project:resync` is being able to say a framework-owned file downstream
+*is* the framework's current one.
+
 The three groups:
 
 | Flag | What it owns |
