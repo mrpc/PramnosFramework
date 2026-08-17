@@ -489,8 +489,45 @@ return \Pramnos\Http\Response::redirect(
 ```
 
 Put that on a session-authenticated route. It answers `null` when nobody is signed in,
-when the minimum is not met, or when no signing key is configured — a route that
+when the minimum is not met, or when there is no usable signing key — a route that
 redirects sensibly either way is the intended caller.
+
+### Only a session may be exchanged
+
+A request whose identity was proved by anything other than a session is refused, whatever
+role it holds.
+
+That is not a formality. `User::getCurrentUser()` prefers a *sealed* identity over the
+session, so without the check an API request carrying a bearer token reached the minting
+path and received a fresh one — a **refresh**, with rotation and revocation questions this
+method answers neither of. Every twelve-hour token good for another twelve hours on
+request, forever, from a method documented as exchanging a session.
+
+If your application wants refresh tokens, that is a separate mechanism with a separate
+policy. This is not it.
+
+### The signing key
+
+The token is signed with the same key the API verifier uses, resolved in this order:
+
+1. the current application's `authenticationKey`, if it declares one — `Api` computes its
+   own in the constructor, and an application may set one explicitly;
+2. otherwise `Api::deriveAuthenticationKey()`, which is the identical derivation the API
+   itself performs.
+
+The fallback is the **normal** path, not the exceptional one, and the reason is worth
+knowing if you are reading this because an exchange returned `null`: `authenticationKey` is
+declared on `Api`, not on `Application`. A session-authenticated MVC route — which is the
+only kind that can call this — has an `Application`, so reading the property alone found
+nothing every single time.
+
+There is one case with no answer: **no declared key and no `sURL`**. The derivation then
+reduces to `md5('edge')`, a constant every installation in that state would share, so a
+token from any of them would verify against all of them. That is refused rather than
+signed. A real request always has `sURL`.
+
+A declared key must also be long enough for `JWT::encode()`, which rejects a short one
+outright — the exchange reports that as `null` and logs the reason.
 
 ### Not `UnifiedAuthMiddleware`
 
@@ -510,7 +547,7 @@ Three are only wrong in ways nobody notices.
 | --- | --- |
 | **The role is re-read from the database**, not taken from the session | a remember-me cookie can outlive a demotion by a fortnight, and a token minted from that session is then good for its whole lifetime |
 | **The token travels in the URL fragment** | a fragment is never sent to a server. `?token=` works, reviews identically, and writes the credential into the access log of every hop and into `Referer` |
-| **Nothing is issued for an anonymous caller** | no implicit token, no partial credential |
+| **Nothing is issued for an anonymous caller, a guest, or user id 0/1** | no implicit token, no partial credential; ids 0 and 1 are the guest by convention, and a token minted for one would authenticate as "somebody" everywhere |
 | **Failure is `null`, not an exception** | the caller is a route that has to redirect somewhere either way |
 
 The claim set matches the API login's, so an exchanged token is indistinguishable to

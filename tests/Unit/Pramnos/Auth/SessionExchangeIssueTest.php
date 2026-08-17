@@ -18,6 +18,22 @@ use Pramnos\Http\RequestIdentity;
  *
  * The refusals are the contract. A method that mints bearer credentials is defined by
  * whom it declines, and each case here is a way the wrong caller could have got one.
+ *
+ * **Every case here is decided before a query.** That is not incidental tidiness: the
+ * refusals that need the database — the role re-read from the account, the missing signing
+ * key — live in `SessionExchangeMintTest`, because they are only meaningful against a real
+ * row. Keeping them here also broke the suite: `new User($id)` built an unconnected
+ * `Database` singleton with no settings loaded, and the integration class that ran
+ * afterwards inherited it and failed to connect. A unit test that reaches for a database
+ * is not merely slower, it is a hazard for whatever runs next.
+ *
+ * One branch is deliberately not asserted here: deriving the key from the site URL.
+ * `tests/bootstrap.php` defines `sURL` as `''`, and a constant cannot be redefined — not
+ * even in an isolated process, because the bootstrap runs there too. Asserting it would
+ * mean either changing the bootstrap for every test in the suite or pretending; the
+ * equality that matters (`SessionExchange` and the API verifier deriving the same value)
+ * is a single call to `Api::deriveAuthenticationKey()` in both, which is the strongest
+ * guarantee available without a second mechanism to keep in step.
  */
 class SessionExchangeIssueTest extends TestCase
 {
@@ -132,51 +148,31 @@ class SessionExchangeIssueTest extends TestCase
         $this->assertNull(SessionExchange::issue());
     }
 
+
     /**
-     * A signed-in session below the required role is refused.
+     * A session that says the guest user is signed in is refused.
      *
-     * The role is re-read from the database rather than trusted from the session, which
-     * is what makes this refusal meaningful: a remember-me cookie can outlive a
-     * demotion by a fortnight, and a token minted from that session would then be good
-     * for its whole lifetime afterwards.
-     *
-     * The user here is sealed `via: 'session'` — the one credential that *is*
-     * exchangeable — so this test reaches the role check rather than stopping at the
-     * one above it. `usertype` 10 against a minimum of 90.
+     * User ids 0 and 1 are the guest by this framework's convention, and this is the one
+     * refusal that a *session* can trigger: the seal is `via: 'session'`, so it passes the
+     * credential check and is stopped by the identity behind it. Without the check a token
+     * would be minted for user 1 and would authenticate as "somebody" everywhere it was
+     * presented.
      *
      * @return void
      */
-    public function testASessionBelowTheMinimumRoleIsRefused(): void
+    public function testASessionForTheGuestUserIsRefused(): void
     {
-        // Arrange
-        RequestIdentity::seal((object) ['userid' => 42, 'usertype' => 10], 'session');
+        foreach ([0, 1] as $guestId) {
+            // Arrange
+            RequestIdentity::reset();
+            RequestIdentity::seal((object) ['userid' => $guestId, 'usertype' => 0], 'session');
 
-        // Act
-        $token = SessionExchange::issue(minimumUserType: 90);
-
-        // Assert
-        $this->assertNull($token);
+            // Act & Assert
+            $this->assertNull(
+                SessionExchange::issue(),
+                "User id {$guestId} is the guest and has nothing to exchange."
+            );
+        }
     }
 
-    /**
-     * Failure is null rather than an exception, whatever went wrong.
-     *
-     * The fourth documented decision. The caller is a route that has to redirect
-     * somewhere either way, and a route that throws on a missing signing key turns a
-     * misconfiguration into a 500 on the page somebody opened to sign in.
-     *
-     * Exercised with no application configured at all, which is the harshest version:
-     * no signing key, no audience, nothing to read.
-     *
-     * @return void
-     */
-    public function testAMisconfiguredApplicationYieldsNullRatherThanThrowing(): void
-    {
-        // Arrange — a session-authenticated user, so the guards above are passed and
-        // the failure has to come from minting
-        RequestIdentity::seal((object) ['userid' => 42, 'usertype' => 99], 'session');
-
-        // Act & Assert — the assertion is that this call returns at all
-        $this->assertNull(SessionExchange::issue(minimumUserType: 0));
-    }
 }
