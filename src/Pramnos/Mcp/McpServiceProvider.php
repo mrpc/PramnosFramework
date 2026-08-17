@@ -6,6 +6,7 @@ namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
+use Pramnos\Mcp\Tools\PramnosCheckTool;
 use Pramnos\Mcp\Tools\ListTablesTool;
 use Pramnos\Mcp\Tools\MigrationStatusTool;
 use Pramnos\Mcp\Tools\ModelInspectTool;
@@ -69,6 +70,12 @@ class McpServiceProvider extends ServiceProvider
         // does the framework work", from the guides vendored alongside this class. It
         // takes no application, because it is the same answer in every project.
         $server->addTool(new FrameworkDocsTool());
+
+        // The other half of the same idea. `framework-docs` lets an assistant *find* a rule;
+        // this one tells it when a rule has been broken — and only the second has evidence
+        // behind it, since every rule it checks is something that happened after the guide
+        // describing it was written.
+        $server->addTool(new PramnosCheckTool());
 
         // Register standard file resources
         $root = defined('ROOT') ? ROOT : getcwd();

@@ -12,6 +12,7 @@ use Pramnos\Mcp\McpServer;
 use Pramnos\Mcp\McpResource;
 use Pramnos\Mcp\McpServiceProvider;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
+use Pramnos\Mcp\Tools\PramnosCheckTool;
 use Pramnos\Mcp\Tools\ListTablesTool;
 use Pramnos\Mcp\Tools\MigrationStatusTool;
 use Pramnos\Mcp\Tools\ModelInspectTool;
@@ -179,6 +180,7 @@ class McpServe extends Command
         // application to make unanswerable — and a server that boots without one is
         // exactly when somebody is asking how any of this is supposed to work.
         $server->addTool(new FrameworkDocsTool());
+        $server->addTool(new PramnosCheckTool());
 
         if ($app !== null) {
             $db = $app->database ?? null;
