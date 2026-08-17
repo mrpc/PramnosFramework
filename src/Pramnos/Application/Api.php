@@ -50,12 +50,45 @@ class Api extends Application
                 define('APIVERSION', 'edge');
             }
         }
-        if (defined('sURL')) {
-            $this->authenticationKey = md5(sURL . APIVERSION);
-        } else {
-            $this->authenticationKey = md5(APIVERSION);
+        $this->authenticationKey = self::deriveAuthenticationKey(APIVERSION);
+
+    }
+
+    /**
+     * The JWT signing key for this site's API, derived rather than configured.
+     *
+     * Extracted from the constructor so that code outside an API request can reach the
+     * same value. It has to be the *same* value: a token signed with one key and verified
+     * with another fails as an authentication error, arbitrarily far from the mistake.
+     *
+     * That is not hypothetical. `SessionExchange` — which hands a session-authenticated
+     * browser a token for the API — read `$app->authenticationKey` from whatever
+     * application was current. In an MVC request that is an `Application`, which has never
+     * declared the property, so the exchange silently issued nothing in precisely the
+     * setup it exists for: a session-authenticated site with a token-authenticated panel.
+     * Its own docblock said "no signing key is configured", which read as a deployment
+     * problem rather than as a lookup that could not succeed.
+     *
+     * @param  string|null $version The API version; defaults to `APIVERSION` when defined,
+     *                              then to the application's `api_version`, then `edge` —
+     *                              the same order the constructor establishes it in.
+     * @return string
+     */
+    public static function deriveAuthenticationKey(?string $version = null): string
+    {
+        if ($version === null) {
+            if (defined('APIVERSION')) {
+                $version = (string) APIVERSION;
+            } else {
+                $app     = Application::currentInstance();
+                $version = (string) (
+                    (is_object($app) ? ($app->applicationInfo['api_version'] ?? null) : null)
+                    ?? 'edge'
+                );
+            }
         }
 
+        return defined('sURL') ? md5(sURL . $version) : md5($version);
     }
 
     /**

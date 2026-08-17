@@ -54,6 +54,37 @@ session. Identified positively rather than by excluding token-ish `via` values: 
 would have to enumerate every credential that is *not* a session, which is unbounded, and
 that exact shape produced a separate defect elsewhere in the framework the same week.
 
+### It could not issue a token at all
+
+Found while writing the tests that were missing, and it is the reason they were worth
+writing rather than backfilling for the coverage number.
+
+`issue()` read its signing key from `$app->authenticationKey`. That property is declared on
+`Api` — which computes it in its constructor — and **not** on `Application`. This method is
+called from a session-authenticated MVC route by definition, because that is what a session
+is, so the property was absent on every real call and the exchange silently issued nothing.
+Its own docblock said "no signing key is configured", which reads as a deployment problem
+rather than as a lookup that could never succeed.
+
+The derivation is now a single named method, `Api::deriveAuthenticationKey()`, used by both
+`Api`'s constructor and the exchange. One value, one place: a token signed with a key the
+verifier does not derive fails as an authentication error arbitrarily far from its cause,
+and two copies of a derivation are two things to keep in step.
+
+With one case deliberately left refusing: **no declared key and no `sURL`**. The derivation
+then reduces to `md5('edge')` — a constant every installation in that state would share, so
+a token minted by any of them would verify against all of them. That is not a weak key, it
+is no key, and refusing to mint under it is the only honest answer. A real request always
+has `sURL`.
+
+Two smaller things the same tests found: `Application::getInstance()` was being called in
+three places, and it is a **factory** — given no instance it reads `app.php` and runs the
+whole constructor, database, language and session included. The framework's own docblock on
+`currentInstance()` states the rule and names the incident behind it: a CSRF fingerprint
+check that booted an application was a side effect in the middle of a security decision.
+Minting a bearer token is that same kind of code. And a session claiming user id 0 or 1 —
+the guest, by this framework's convention — is now refused explicitly rather than by luck.
+
 ### Four decisions, three of them invisible when wrong
 
 That framing is the reporter's and it is the reason this belongs in the framework rather

@@ -214,7 +214,9 @@ class SessionExchange
         $key = self::signingKey();
         if ($key === '') {
             \Pramnos\Logs\Logger::log(
-                'SessionExchange: no authenticationKey configured, cannot issue a token.',
+                'SessionExchange: no usable signing key — the application declares no '
+                . 'authenticationKey and there is no sURL to derive one from. Refusing '
+                . 'rather than signing with a constant every installation would share.',
                 'auth'
             );
 
@@ -250,15 +252,44 @@ class SessionExchange
     /**
      * The application's JWT signing key, or an empty string.
      *
+     * `currentInstance()` rather than `getInstance()`, which is a **factory**: given no
+     * existing instance it reads `app.php`, defines constants, and runs the whole
+     * constructor — database, language and session. The framework's own docblock on
+     * `currentInstance()` states the rule and the incident behind it: a CSRF fingerprint
+     * check that booted an application was a side effect in the middle of a security
+     * decision, and a reference application's login tests began failing on valid tokens
+     * because a second instance was being constructed underneath them.
+     *
+     * Minting a bearer token is that same kind of code. In a real request an application
+     * always exists, so this is the identical answer — it differs only where there is
+     * none, and there the honest answer is that no key is configured.
+     *
      * @return string
      */
     private static function signingKey(): string
     {
-        $app = \Pramnos\Application\Application::getInstance();
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (is_object($app) && isset($app->authenticationKey) && $app->authenticationKey !== '') {
+            return (string) $app->authenticationKey;
+        }
 
-        return (is_object($app) && isset($app->authenticationKey))
-            ? (string) $app->authenticationKey
-            : '';
+        // Falling back is the normal path here, not the exceptional one. `Api` declares and
+        // computes `authenticationKey`; a plain `Application` never has. This method is
+        // called from a session-authenticated MVC route by definition — that is what a
+        // session is — so reading the property alone returned an empty key every time and
+        // the exchange issued nothing at all.
+        //
+        // But only with a site URL to derive from. Without `sURL` the derivation reduces to
+        // `md5($version)`, and the version defaults to `edge` — so every installation in
+        // that state would sign with the same publicly computable constant, and a token
+        // from any of them would verify against all of them. `Api` has always derived it
+        // that way and changing that is not this method's business; refusing to *mint* a
+        // credential under a world-known key is.
+        if (!defined('sURL') || (string) sURL === '') {
+            return '';
+        }
+
+        return \Pramnos\Application\Api::deriveAuthenticationKey();
     }
 
     /**
@@ -268,7 +299,7 @@ class SessionExchange
      */
     private static function audience(): string
     {
-        $app = \Pramnos\Application\Application::getInstance();
+        $app = \Pramnos\Application\Application::currentInstance();
 
         if (is_object($app) && isset($app->apiKey) && is_object($app->apiKey)) {
             return (string) ($app->apiKey->apikey ?? '');
@@ -284,7 +315,7 @@ class SessionExchange
      */
     private static function configuredTtl(): int
     {
-        $app = \Pramnos\Application\Application::getInstance();
+        $app = \Pramnos\Application\Application::currentInstance();
 
         if (is_object($app) && isset($app->applicationInfo['auth']['token_ttl'])) {
             return max(0, (int) $app->applicationInfo['auth']['token_ttl']);
