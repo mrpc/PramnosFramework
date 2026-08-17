@@ -618,6 +618,42 @@ If you genuinely need to *build* an application from guarded code, add the file 
 `ApplicationFactoryPurityTest::EXEMPT` with the reason. Having to write the reason
 down is the point.
 
+### Outside the guarded directories: audited, and twelve calls kept
+
+The remaining `getInstance()` calls in `src/` were examined one by one rather than
+left as an unknown. Eleven were converted and one deleted:
+
+- the CSP-nonce reads in the debug panel and in the `Html` and `Raw` renderers, where
+  rendering already happens inside a request and the `if ($app && …)` guard was
+  already written for a null the factory could not return;
+- `Broadcastable::resolveBroadcastingManager()`, where building an application in
+  order to ask whether broadcasting is configured was a side effect inside a `try`
+  whose `catch` reports "not configured";
+- `RouteList`'s third fallback strategy, which asks whether a global instance
+  *exists*;
+- `TestClient`, whose `if ($appInstance === null)` fallback was unreachable and
+  carried a coverage-ignore saying so — it is now live;
+- five generated templates the scaffolder writes into every project, now
+  `currentInstance()?->…`;
+- and a line in the session-cleanup addon that assigned `$app` and **never read it**,
+  so an entire application was constructed for a variable nothing used. Deleted.
+
+**Twelve are kept deliberately**, and they fall into two groups:
+
+1. **Console bootstraps** — `Console\Application`, `TimescaleDrain`, `TimescaleEnsure`,
+   `PolicyEngine`, `BroadcastServe`, `BaseTestCase`, and the two bootstrap scripts the
+   scaffolder generates. Building an application is what these are *for*; the factory
+   is the correct call.
+2. **Constructor fallbacks** in `Controller` and `Theme`: `__construct($application =
+   null)` resolving the current one when none was passed. In a real request both calls
+   answer identically, and `currentInstance()` would put **null** into
+   `$this->application` for the standalone case — which every unit test that builds a
+   controller by hand relies on not happening. The blast radius is every controller
+   and every theme, for no gain in production.
+
+The guard covers the directories where the factory is a hazard rather than a choice.
+These twelve are choices.
+
 This guide provides a comprehensive overview of the Pramnos framework structure and conventions. Use it as a reference for building consistent, secure, and maintainable applications within the Pramnos ecosystem.
 
 ---

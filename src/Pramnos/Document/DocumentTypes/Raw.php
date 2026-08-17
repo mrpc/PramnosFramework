@@ -19,7 +19,9 @@ class Raw extends \Pramnos\Document\Document
          * (Logs/raw); without this, their inline scripts are blocked by a
          * `script-src 'self' 'nonce-…'` policy.
          */
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`: rendering happens inside a request that has an application,
+        // and the `if` below was already written for a null this call could not return.
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app && property_exists($app, 'cspNonce') && $app->cspNonce !== '') {
             $nonce = htmlspecialchars($app->cspNonce, ENT_QUOTES);
 

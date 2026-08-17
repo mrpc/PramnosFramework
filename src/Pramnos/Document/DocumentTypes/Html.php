@@ -190,7 +190,9 @@ class Html extends \Pramnos\Document\Document
          * inline <script> and <style> tags. This ensures that manually 
          * authored views and themes are automatically covered by the CSP.
          */
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`: rendering happens inside a request that has an application,
+        // and the `if` below was already written for a null this call could not return.
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app && property_exists($app, 'cspNonce') && $app->cspNonce !== '') {
             $nonce = htmlspecialchars($app->cspNonce, ENT_QUOTES);
 

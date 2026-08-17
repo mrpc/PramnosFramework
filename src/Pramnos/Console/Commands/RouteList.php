@@ -143,8 +143,12 @@ class RouteList extends Command
         }
 
         // 3. Router published on the global Application instance
+        //
+        // `currentInstance()`, because this strategy asks whether one *exists* — building an
+        // application in order to discover that it has no router is the opposite of what the
+        // fallback chain is doing.
         try {
-            $app = \Pramnos\Application\Application::getInstance();
+            $app = \Pramnos\Application\Application::currentInstance();
             if (isset($app->router)
                 && $app->router instanceof \Pramnos\Routing\Router) {
                 return $app->router;

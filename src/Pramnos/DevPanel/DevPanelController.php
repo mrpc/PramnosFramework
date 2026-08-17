@@ -595,7 +595,7 @@ class DevPanelController extends Controller
         $nsFilter = !empty($categories) ? "<div class='range-bar' style='margin-bottom:1rem'>{$nsLinks}</div>" : '';
         $itemCount = count($items);
         $limitNote = $itemCount >= 100 ? ' <em>(showing first 100)</em>' : '';
-        $cacheNonce = \Pramnos\Application\Application::getInstance()->cspNonce ?? '';
+        $cacheNonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
         $cacheNa    = $cacheNonce !== '' ? ' nonce="' . htmlspecialchars($cacheNonce, ENT_QUOTES) . '"' : '';
 
         return <<<HTML
@@ -1287,7 +1287,7 @@ class DevPanelController extends Controller
         }
 
         $css   = $this->panelCss();
-        $nonce = \Pramnos\Application\Application::getInstance()->cspNonce ?? '';
+        $nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
         $na    = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
         $html  = <<<HTML
         <!DOCTYPE html>
