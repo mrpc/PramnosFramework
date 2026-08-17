@@ -101,7 +101,8 @@ class PermissionsController extends Controller
                 ->first();
 
             if (!$result || $result->numRows === 0) {
-                $this->redirect(sURL . 'permissions?error=not_found');
+                $this->addError('That record no longer exists.');
+                $this->redirect(sURL . 'permissions');
                 return null;
             }
 
@@ -131,7 +132,8 @@ class PermissionsController extends Controller
         $priority    = max(0, (int) ($_POST['priority'] ?? 100));
 
         if ($subjectType === '' || $objectType === '' || $action === '') {
-            $this->redirect(sURL . 'permissions/edit/' . $id . '?error=required_fields');
+            $this->addError('Please fill in the required fields.');
+            $this->redirect(sURL . 'permissions/edit/' . $id);
             return;
         }
 
@@ -169,7 +171,8 @@ class PermissionsController extends Controller
             'operation'   => $id > 0 ? 'update' : 'create',
         ]);
 
-        $this->redirect(sURL . 'permissions?message=saved');
+        $this->addMessage('Saved.');
+        $this->redirect(sURL . 'permissions');
     }
 
     /**
@@ -183,7 +186,8 @@ class PermissionsController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
-            $this->redirect(sURL . 'permissions?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'permissions');
             return;
         }
 
@@ -208,7 +212,8 @@ class PermissionsController extends Controller
             );
         }
 
-        $this->redirect(sURL . 'permissions?message=deleted');
+        $this->addMessage('Deleted.');
+        $this->redirect(sURL . 'permissions');
     }
 
     /**
@@ -255,7 +260,8 @@ class PermissionsController extends Controller
         $action     = trim((string) ($_POST['action']      ?? ''));
 
         if ($userId <= 0 || $objectType === '' || $action === '') {
-            $this->redirect(sURL . 'permissions?error=required_fields');
+            $this->addError('Please fill in the required fields.');
+            $this->redirect(sURL . 'permissions');
             return;
         }
 
@@ -275,7 +281,8 @@ class PermissionsController extends Controller
                 'granted_by'   => $current ? (int) $current->userid : null,
             ]);
 
-        $this->redirect(sURL . 'permissions?message=assigned');
+        $this->addMessage('Assigned.');
+        $this->redirect(sURL . 'permissions');
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

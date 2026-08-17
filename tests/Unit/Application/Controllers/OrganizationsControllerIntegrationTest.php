@@ -206,7 +206,11 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('error=not_found', $echoed);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'That record no longer exists.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     public function testSaveCreate()
@@ -250,7 +254,11 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $this->controller->save();
         $echoed = ob_get_clean();
 
-        $this->assertStringContainsString('error=name_required', $echoed);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'A name is required.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     public function testDelete()
@@ -297,7 +305,11 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $this->controller->members();
         $echoed = ob_get_clean();
 
-        $this->assertStringContainsString('error=not_found', $echoed);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'That record no longer exists.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     public function testAddMember()
@@ -311,7 +323,11 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $this->controller->addmember();
         $echoed = ob_get_clean();
 
-        $this->assertStringContainsString('message=added', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Added.',
+            $_SESSION['_messages'] ?? []
+        );
     }
 
     public function testRemoveMember()
@@ -322,6 +338,10 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $this->controller->removemember(5, 100);
         $echoed = ob_get_clean();
 
-        $this->assertStringContainsString('message=removed', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Removed.',
+            $_SESSION['_messages'] ?? []
+        );
     }
 }

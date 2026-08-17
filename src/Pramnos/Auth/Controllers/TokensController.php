@@ -110,7 +110,8 @@ class TokensController extends Controller
         // — the dispatcher does not pass it as a method argument.
         $tokenId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($tokenId <= 0) {
-            $this->redirect(sURL . 'tokens?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'tokens');
             return;
         }
 
@@ -121,7 +122,8 @@ class TokensController extends Controller
             ->where('status', 1)
             ->update(['status' => 3, 'removedate' => time()]);
 
-        $this->redirect(sURL . 'tokens?message=revoked');
+        $this->addMessage('Token revoked.');
+        $this->redirect(sURL . 'tokens');
     }
 
     /**
@@ -146,7 +148,8 @@ class TokensController extends Controller
 
         // Require at least one filter to prevent full-table revocation
         if ($userId <= 0 && $appId <= 0) {
-            $this->redirect(sURL . 'tokens?error=filter_required');
+            $this->addError('Choose which tokens to revoke first.');
+            $this->redirect(sURL . 'tokens');
             return;
         }
 
@@ -164,7 +167,8 @@ class TokensController extends Controller
 
         $qb->update(['status' => 3, 'removedate' => time()]);
 
-        $this->redirect(sURL . 'tokens?message=revoked_all');
+        $this->addMessage('Every matching token has been revoked.');
+        $this->redirect(sURL . 'tokens');
     }
 
     // ── Per-user token management (base auth tier, usertype >= 80) ──────────────

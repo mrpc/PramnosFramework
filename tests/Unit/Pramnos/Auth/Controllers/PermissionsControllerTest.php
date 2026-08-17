@@ -265,7 +265,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->edit(999);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=not_found', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'That record no longer exists.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -288,7 +292,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->save();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=saved', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Saved.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()->table('authserver.permissions')->where('subject_type', 'role')->first();
@@ -317,7 +325,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->save();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=saved', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Saved.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()->table('authserver.permissions')->where('permissionid', 1)->first();
@@ -341,7 +353,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->save();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=required_fields', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Please fill in the required fields.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -357,7 +373,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->delete(1);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=deleted', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Deleted.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()->table('authserver.permissions')->where('permissionid', 1)->first();
@@ -376,7 +396,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->delete(0);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=invalid_id', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'The id in that link is not valid.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -397,7 +421,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->assign();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=assigned', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Assigned.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()->table('authserver.permissions')->where('subject_id', 3)->first();
@@ -422,7 +450,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->assign();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=required_fields', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Please fill in the required fields.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -489,7 +521,11 @@ class PermissionsControllerTest extends BaseTestCase
             $this->controller->assign(5);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=assigned', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Assigned.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db     = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()

@@ -162,8 +162,22 @@ class ViewTest extends TestCase
         $this->assertEquals('buffered', $view->display('', false));
     }
 
+    /**
+     * A rendered template carries the debug comment **when debugging is on**.
+     *
+     * The `putenv()` is not decoration. The comment is gated behind debug mode — it is a path
+     * disclosure on an indexed page otherwise — and this test passed only because some other
+     * test in the suite happened to set `APP_DEBUG` first. Run under a narrower filter it
+     * failed, asserting a comment nothing had asked for. A test that depends on another test's
+     * environment is passing by luck.
+     *
+     * @return void
+     */
     public function testGetTplWithActualFile(): void
     {
+        $originalDebug = getenv('APP_DEBUG');
+        putenv('APP_DEBUG=true');
+
         $tempDir = sys_get_temp_dir() . '/view_test_' . uniqid();
         mkdir($tempDir);
         file_put_contents($tempDir . '/my_view.html.php', '<?php echo "Hello View"; ?>');
@@ -183,6 +197,12 @@ class ViewTest extends TestCase
 
         unlink($tempDir . '/my_view.html.php');
         rmdir($tempDir);
+
+        if ($originalDebug === false) {
+            putenv('APP_DEBUG');
+        } else {
+            putenv('APP_DEBUG=' . $originalDebug);
+        }
     }
 
     public function testInsertAndLayout(): void

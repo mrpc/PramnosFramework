@@ -134,9 +134,21 @@ class Base
                 unset($_SESSION['_errors']);
                 return $return;
             }
-            else {
-                return false;
-            }
+
+            // …or from the per-request capture, if something already drained the session.
+            //
+            // `Request` captures `_errors` and `_messages` once per request and unsets them
+            // immediately, so that a flash survives exactly one redirect. `View::__construct()`
+            // triggers that capture on essentially every request — which would leave this
+            // method returning `false` for errors that were flashed perfectly well.
+            //
+            // That is not hypothetical: **consuming applications read their flash through this
+            // method**, which is the point of it living on `Base`. It was nearly shipped as a
+            // silent regression, where an API response that used to carry `errors` would carry
+            // `false` instead, and nothing would have looked wrong.
+            $captured = \Pramnos\Http\Request::getInstance()->takeFlashErrors();
+
+            return $captured === array() ? false : $captured;
         }
         else {
             if (count($this->_errors) == 0) {
@@ -160,9 +172,21 @@ class Base
                 unset($_SESSION['_messages']);
                 return $return;
             }
-            else {
-                return false;
-            }
+
+            // …or from the per-request capture, if something already drained the session.
+            //
+            // `Request` captures `_errors` and `_messages` once per request and unsets them
+            // immediately, so that a flash survives exactly one redirect. `View::__construct()`
+            // triggers that capture on essentially every request — which would leave this
+            // method returning `false` for errors that were flashed perfectly well.
+            //
+            // That is not hypothetical: **consuming applications read their flash through this
+            // method**, which is the point of it living on `Base`. It was nearly shipped as a
+            // silent regression, where an API response that used to carry `errors` would carry
+            // `false` instead, and nothing would have looked wrong.
+            $captured = \Pramnos\Http\Request::getInstance()->takeMessages();
+
+            return $captured === array() ? false : $captured;
         }
         else {
             if (count($this->_messages) == 0) {
@@ -225,6 +249,22 @@ class Base
             && count($_SESSION['_errors']) > 0) {
             return true;
         }
+
+        // …or in the per-request capture, which `Request` drained the session into.
+        //
+        // **This is the half that was missed the first time.** The destructive readers got the
+        // fallback; these gates did not — and a reference application gates *every* flash it
+        // displays on them: `if ($this->hasErrors()) { echo $this->_printErrors(); }` in its
+        // theme header and in five views. So the whole flash UI went silent, with nothing
+        // failing anywhere. Its own 5497-test suite could not see it either; it took three real
+        // HTTP requests against two framework versions to find.
+        //
+        // Non-destructive on purpose: a gate that consumed the flash would leave the printer
+        // that follows it with nothing.
+        if (\Pramnos\Http\Request::getInstance()->flashErrors() !== array()) {
+            return true;
+        }
+
         if (count($this->_errors) != 0) {
             return true;
         }
@@ -242,6 +282,21 @@ class Base
         if (isset($_SESSION['_messages'])
             && is_array($_SESSION['_messages'])
             && count($_SESSION['_messages']) > 0) {
+            return true;
+        }
+
+        // …or in the per-request capture, which `Request` drained the session into.
+        //
+        // **This is the half that was missed the first time.** The destructive readers got the
+        // fallback; these gates did not — and a reference application gates *every* flash it
+        // displays on them: `if ($this->hasErrors()) { echo $this->_printErrors(); }` in its
+        // theme header and in five views. So the whole flash UI went silent, with nothing
+        // failing anywhere. Its own 5497-test suite could not see it either; it took three real
+        // HTTP requests against two framework versions to find.
+        //
+        // Non-destructive on purpose: a gate that consumed the flash would leave the printer
+        // that follows it with nothing.
+        if (\Pramnos\Http\Request::getInstance()->messages() !== array()) {
             return true;
         }
 

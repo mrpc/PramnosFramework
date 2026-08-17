@@ -93,7 +93,8 @@ class TokenActionsController extends Controller
         // "option" — the dispatcher does not pass it as a method argument.
         $actionId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($actionId <= 0) {
-            $this->redirect(sURL . 'tokenactions?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'tokenactions');
             return null;
         }
 
@@ -111,7 +112,8 @@ class TokenActionsController extends Controller
             ->first();
 
         if (!$result || $result->numRows === 0) {
-            $this->redirect(sURL . 'tokenactions?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'tokenactions');
             return null;
         }
 

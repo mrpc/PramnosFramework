@@ -243,8 +243,13 @@ class QueueControllerTest extends BaseTestCase
         // Assert — redirect issued to error URL
         $this->assertNotNull($this->ctrl->lastRedirect,
             'retry(0) must issue a redirect');
-        $this->assertStringContainsString('error=invalid_id', $this->ctrl->lastRedirect,
-            'retry(0) must redirect with error=invalid_id');
+        // The message itself, not a query parameter: `?error=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'The id in that link is not valid.',
+            $_SESSION['_errors'] ?? [],
+            'retry(0) must redirect with error=invalid_id'
+        );
     }
 
     /**
@@ -265,8 +270,13 @@ class QueueControllerTest extends BaseTestCase
 
         // Assert — redirect to success URL
         $this->assertNotNull($this->ctrl->lastRedirect);
-        $this->assertStringContainsString('message=retried', $this->ctrl->lastRedirect,
-            'retry() with valid id must redirect with message=retried');
+        // The message itself, not a query parameter: `?message=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'Queued again.',
+            $_SESSION['_messages'] ?? [],
+            'retry() with valid id must redirect with message=retried'
+        );
     }
 
     /**
@@ -286,8 +296,13 @@ class QueueControllerTest extends BaseTestCase
 
         // Assert — redirect to success URL
         $this->assertNotNull($this->ctrl->lastRedirect);
-        $this->assertStringContainsString('message=retried_all', $this->ctrl->lastRedirect,
-            'retryall() must redirect with message=retried_all');
+        // The message itself, not a query parameter: `?message=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'Every failed job has been queued again.',
+            $_SESSION['_messages'] ?? [],
+            'retryall() must redirect with message=retried_all'
+        );
     }
 
     /**
@@ -304,8 +319,13 @@ class QueueControllerTest extends BaseTestCase
 
         // Assert
         $this->assertNotNull($this->ctrl->lastRedirect);
-        $this->assertStringContainsString('error=invalid_id', $this->ctrl->lastRedirect,
-            'delete(0) must redirect with error=invalid_id');
+        // The message itself, not a query parameter: `?error=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'The id in that link is not valid.',
+            $_SESSION['_errors'] ?? [],
+            'delete(0) must redirect with error=invalid_id'
+        );
     }
 
     /**
@@ -326,8 +346,13 @@ class QueueControllerTest extends BaseTestCase
 
         // Assert
         $this->assertNotNull($this->ctrl->lastRedirect);
-        $this->assertStringContainsString('message=deleted', $this->ctrl->lastRedirect,
-            'delete() must redirect with message=deleted');
+        // The message itself, not a query parameter: `?message=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'Deleted.',
+            $_SESSION['_messages'] ?? [],
+            'delete() must redirect with message=deleted'
+        );
     }
 
     /**
@@ -347,8 +372,13 @@ class QueueControllerTest extends BaseTestCase
         $this->ctrl->clear();
 
         // Assert
-        $this->assertStringContainsString('error=invalid_status', $this->ctrl->lastRedirect,
-            "clear() with status='pending' must redirect with error=invalid_status");
+        // The message itself, not a query parameter: `?error=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'That is not a status this queue uses.',
+            $_SESSION['_errors'] ?? [],
+            "clear() with status='pending' must redirect with error=invalid_status"
+        );
 
         unset($_POST['status']);
     }
@@ -372,8 +402,13 @@ class QueueControllerTest extends BaseTestCase
         $this->ctrl->clear();
 
         // Assert
-        $this->assertStringContainsString('message=cleared', $this->ctrl->lastRedirect,
-            "clear() with status='failed' must redirect with message=cleared");
+        // The message itself, not a query parameter: `?message=…` sat in the
+        // URL and nothing ever read it back.
+        $this->assertContains(
+            'Cleared.',
+            $_SESSION['_messages'] ?? [],
+            "clear() with status='failed' must redirect with message=cleared"
+        );
 
         unset($_POST['status']);
     }
@@ -393,7 +428,11 @@ class QueueControllerTest extends BaseTestCase
         $this->ctrl->clear();
 
         // Assert — no error, success redirect
-        $this->assertStringContainsString('message=cleared', $this->ctrl->lastRedirect);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Cleared.',
+            $_SESSION['_messages'] ?? []
+        );
 
         unset($_POST['status']);
     }
@@ -412,7 +451,11 @@ class QueueControllerTest extends BaseTestCase
         $this->ctrl->clear();
 
         // Assert
-        $this->assertStringContainsString('error=invalid_status', $this->ctrl->lastRedirect);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'That is not a status this queue uses.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     /**

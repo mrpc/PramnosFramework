@@ -944,7 +944,8 @@ class Account extends Controller
                 $auth = \Pramnos\Framework\Factory::getAuth();
                 $auth->logout();
 
-                $this->redirect(sURL . '?message=account_deleted');
+                $this->addMessage('Your account has been deleted.');
+                $this->redirect(sURL);
 
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error deleting account: ' . $ex->getMessage());

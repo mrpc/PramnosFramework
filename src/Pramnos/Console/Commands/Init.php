@@ -3772,9 +3772,9 @@ class AuthFlowTest extends BaseTestCase
         \$this->assertNotEmpty(\$_SESSION['logged'] ?? null,
             '\$_SESSION[logged] must be set after successful auth via Auth::executeDefaultLogin()');
 
-        // Cleanup — no backtick quotes: works on both MySQL and PostgreSQL
+        // Cleanup. The builder resolves the prefix and quotes per driver.
         \$db = \\Pramnos\\Database\\Database::getInstance();
-        \$db->query(\$db->prepareQuery("DELETE FROM #PREFIX#users WHERE userid = %d", \$userId));
+        \$db->queryBuilder()->table('#PREFIX#users')->where('userid', \$userId)->delete();
     }
 
     // -----------------------------------------------------------------------
@@ -3826,7 +3826,7 @@ class AuthFlowTest extends BaseTestCase
 
         // Cleanup
         \$db = \\Pramnos\\Database\\Database::getInstance();
-        \$db->query(\$db->prepareQuery("DELETE FROM #PREFIX#users WHERE userid = %d", \$userId));
+        \$db->queryBuilder()->table('#PREFIX#users')->where('userid', \$userId)->delete();
     }
 
     /**
@@ -3869,7 +3869,7 @@ class AuthFlowTest extends BaseTestCase
 
         // Cleanup
         \$db = \\Pramnos\\Database\\Database::getInstance();
-        \$db->query(\$db->prepareQuery("DELETE FROM #PREFIX#users WHERE userid = %d", \$userId));
+        \$db->queryBuilder()->table('#PREFIX#users')->where('userid', \$userId)->delete();
     }
 }
 PHP;
@@ -6255,15 +6255,20 @@ HTML;
 
     private function buildAccountProfileView(string $uiSystem): string
     {
+        // Reads the flash, not the query string.
+        //
+        // This block used to map `?message=profile_saved` to a sentence — and **nothing ever
+        // emitted those parameters**, so the maps were dead and the page could not report
+        // anything. The same half-wired shape as the framework's own sixty-seven redirects,
+        // generated into every new project.
+        //
+        // `View::__construct()` populates `$this->messages` and `$this->flashErrors` from the
+        // flash, so a controller writes `$this->addMessage('…')` before redirecting and this
+        // shows it once.
         $errorMessages = <<<'PHP'
 <?php
-$_msg = $_GET['message'] ?? '';
-$_err = $_GET['error'] ?? '';
-$_msgMap = ['profile_saved' => 'Profile updated successfully.'];
-$_errMap = [
-    'invalid_email' => 'Please enter a valid email address.',
-    'invalid_token' => 'Security token invalid. Please try again.',
-];
+$_msgs = $this->messages ?? [];
+$_errs = $this->flashErrors ?? [];
 ?>
 PHP;
 
@@ -6280,11 +6285,11 @@ $errorMessages
                     <a href="<?php echo sURL; ?>account" class="btn btn-sm btn-outline-secondary">Back</a>
                 </div>
                 <div class="card-body">
-                    <?php if (\$_msg && isset(\$_msgMap[\$_msg])): ?>
-                    <div class="alert alert-success"><?php echo htmlspecialchars(\$_msgMap[\$_msg], ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php foreach (\$_msgs as \$_m): ?>
+                    <div class="alert alert-success"><?php echo htmlspecialchars(\$_m, ENT_QUOTES, 'UTF-8'); ?></div>
                     <?php endif; ?>
-                    <?php if (\$_err && isset(\$_errMap[\$_err])): ?>
-                    <div class="alert alert-danger"><?php echo htmlspecialchars(\$_errMap[\$_err], ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php foreach (\$_errs as \$_e): ?>
+                    <div class="alert alert-danger"><?php echo htmlspecialchars(\$_e, ENT_QUOTES, 'UTF-8'); ?></div>
                     <?php endif; ?>
                     <form method="post" action="<?php echo sURL; ?>account/profile">
                         <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
@@ -6332,11 +6337,11 @@ $errorMessages
             <h1 class="text-xl font-bold">My Profile</h1>
             <a href="<?php echo sURL; ?>account" class="text-sm text-gray-500 hover:underline">Back</a>
         </div>
-        <?php if (\$_msg && isset(\$_msgMap[\$_msg])): ?>
-        <div class="bg-green-50 border border-green-200 text-green-800 rounded-md p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_msgMap[\$_msg], ENT_QUOTES, 'UTF-8'); ?></div>
+        <?php foreach (\$_msgs as \$_m): ?>
+        <div class="bg-green-50 border border-green-200 text-green-800 rounded-md p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_m, ENT_QUOTES, 'UTF-8'); ?></div>
         <?php endif; ?>
-        <?php if (\$_err && isset(\$_errMap[\$_err])): ?>
-        <div class="bg-red-50 border border-red-200 text-red-800 rounded-md p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_errMap[\$_err], ENT_QUOTES, 'UTF-8'); ?></div>
+        <?php foreach (\$_errs as \$_e): ?>
+        <div class="bg-red-50 border border-red-200 text-red-800 rounded-md p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_e, ENT_QUOTES, 'UTF-8'); ?></div>
         <?php endif; ?>
         <form method="post" action="<?php echo sURL; ?>account/profile" class="space-y-4">
             <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
@@ -6384,11 +6389,11 @@ $errorMessages
                 <h1 class="text-xl font-bold">My Profile</h1>
                 <a href="<?php echo sURL; ?>account" class="text-sm text-gray-500 hover:underline">Back</a>
             </div>
-            <?php if (\$_msg && isset(\$_msgMap[\$_msg])): ?>
-            <div class="bg-green-50 border border-green-200 text-green-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_msgMap[\$_msg], ENT_QUOTES, 'UTF-8'); ?></div>
+            <?php foreach (\$_msgs as \$_m): ?>
+            <div class="bg-green-50 border border-green-200 text-green-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_m, ENT_QUOTES, 'UTF-8'); ?></div>
             <?php endif; ?>
-            <?php if (\$_err && isset(\$_errMap[\$_err])): ?>
-            <div class="bg-red-50 border border-red-200 text-red-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_errMap[\$_err], ENT_QUOTES, 'UTF-8'); ?></div>
+            <?php foreach (\$_errs as \$_e): ?>
+            <div class="bg-red-50 border border-red-200 text-red-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_e, ENT_QUOTES, 'UTF-8'); ?></div>
             <?php endif; ?>
             <form method="post" action="<?php echo sURL; ?>account/profile">
                 <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>

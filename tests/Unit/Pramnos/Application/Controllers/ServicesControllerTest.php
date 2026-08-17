@@ -209,7 +209,11 @@ class ServicesControllerTest extends TestCase
             $this->controller->stop('test-worker-id');
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=stopped', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Stopped.',
+                $_SESSION['_messages'] ?? []
+            );
             $this->assertFileExists($this->lockFile . '.stop');
         }
     }
@@ -225,7 +229,11 @@ class ServicesControllerTest extends TestCase
             $this->controller->stop('non-existent');
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=not_found', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'That record no longer exists.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -241,7 +249,11 @@ class ServicesControllerTest extends TestCase
             $this->controller->start('test-worker-id');
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=started', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Started.',
+                $_SESSION['_messages'] ?? []
+            );
             $this->assertFileDoesNotExist($this->lockFile . '.stop');
         }
     }
@@ -258,7 +270,11 @@ class ServicesControllerTest extends TestCase
             $this->controller->restart('test-worker-id');
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=restarted', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Restarted.',
+                $_SESSION['_messages'] ?? []
+            );
             $this->assertFileDoesNotExist($this->lockFile . '.stop');
         }
     }
@@ -299,7 +315,11 @@ class ServicesControllerTest extends TestCase
             $this->controller->logs('non-existent');
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=not_found', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'That record no longer exists.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -346,8 +366,13 @@ class ServicesControllerTest extends TestCase
         } finally {
             // Assert — must redirect with the no_lock_file error
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=no_lock_file', $this->controller->redirectedTo[0],
-                'stop() must redirect with error=no_lock_file when the service has no lockFile');
+            // The message itself, not a query parameter: `no_lock_file` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'That service has no lock file, so it does not appear to be running.',
+                $_SESSION['_errors'] ?? [],
+                'stop() must redirect with error=no_lock_file when the service has no lockFile'
+            );
         }
     }
 
@@ -370,7 +395,11 @@ class ServicesControllerTest extends TestCase
         } finally {
             // Assert — start() still redirects with message=started after clearStopFile no-ops
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=started', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Started.',
+                $_SESSION['_messages'] ?? []
+            );
         }
     }
 

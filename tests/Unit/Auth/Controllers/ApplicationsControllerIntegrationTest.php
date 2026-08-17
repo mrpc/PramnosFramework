@@ -188,7 +188,11 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('error=not_found', $echoed);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'That record no longer exists.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     public function testEditNew()
@@ -226,7 +230,11 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('error=not_found', $echoed);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'That record no longer exists.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     public function testSaveCreate()
@@ -241,7 +249,11 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('message=saved', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Saved.',
+            $_SESSION['_messages'] ?? []
+        );
     }
 
     public function testSaveUpdate()
@@ -256,7 +268,11 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('message=saved', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Saved.',
+            $_SESSION['_messages'] ?? []
+        );
     }
 
     public function testSaveMissingName()
@@ -269,7 +285,11 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('error=name_required', $echoed);
+        // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'A name is required.',
+            $_SESSION['_errors'] ?? []
+        );
     }
 
     public function testDelete()
@@ -282,7 +302,11 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('message=deleted', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Deleted.',
+            $_SESSION['_messages'] ?? []
+        );
     }
 
     public function testTokens()
@@ -312,6 +336,10 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('message=secret_rotated', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'A new secret has been generated.',
+            $_SESSION['_messages'] ?? []
+        );
     }
 }

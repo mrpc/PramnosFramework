@@ -243,7 +243,11 @@ class TokensControllerTest extends BaseTestCase
             $this->controller->revoke(10);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=revoked', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Token revoked.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()->table('#PREFIX#usertokens')->where('tokenid', 10)->first();
@@ -262,7 +266,11 @@ class TokensControllerTest extends BaseTestCase
             $this->controller->revoke(0);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=invalid_id', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'The id in that link is not valid.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -281,7 +289,11 @@ class TokensControllerTest extends BaseTestCase
             $this->controller->revokeall();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('message=revoked_all', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Every matching token has been revoked.',
+                $_SESSION['_messages'] ?? []
+            );
 
             $db = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', 1)->first();
@@ -302,7 +314,11 @@ class TokensControllerTest extends BaseTestCase
             $this->controller->revokeall();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=filter_required', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Choose which tokens to revoke first.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -407,8 +423,13 @@ class TokensControllerTest extends BaseTestCase
             // Assert — redirected with revoked_all message (both filters were applied)
             $this->assertCount(1, $this->controller->redirectedTo,
                 'revokeall() must redirect exactly once after bulk revocation');
-            $this->assertStringContainsString('message=revoked_all', $this->controller->redirectedTo[0],
-                'revokeall() must redirect with message=revoked_all when both filters are provided');
+            // The message itself, not a query parameter: `revoked_all` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Every matching token has been revoked.',
+                $_SESSION['_messages'] ?? [],
+                'revokeall() must redirect with message=revoked_all when both filters are provided'
+            );
         }
     }
 

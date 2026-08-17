@@ -82,7 +82,8 @@ class EmailsController extends Controller
 
         $mailId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($mailId <= 0) {
-            $this->redirect(sURL . 'emails?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'emails');
             return null;
         }
 
@@ -93,7 +94,8 @@ class EmailsController extends Controller
             ->first();
 
         if (!$result || $result->numRows === 0) {
-            $this->redirect(sURL . 'emails?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'emails');
             return null;
         }
 
@@ -119,7 +121,8 @@ class EmailsController extends Controller
 
         $mailId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($mailId <= 0) {
-            $this->redirect(sURL . 'emails?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'emails');
             return;
         }
 
@@ -132,7 +135,8 @@ class EmailsController extends Controller
             ->where('status', 0)
             ->update(['status' => 2]);
 
-        $this->redirect(sURL . 'emails/show/' . $mailId . '?message=requeued');
+        $this->addMessage('Queued again.');
+        $this->redirect(sURL . 'emails/show/' . $mailId);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
