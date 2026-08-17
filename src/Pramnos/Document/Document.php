@@ -638,8 +638,21 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
-     * @todo    Use bodyclasses
-     * @param   string $class
+     * Add a CSS class to the `<body>` tag.
+     *
+     * The `@todo Use bodyclasses` that stood here for years was **stale** — `Html::render()`
+     * and `Amp::render()` have both emitted the list all along. It was removed because it
+     * had done real damage as documentation: a consuming project read it, concluded the
+     * framework collected classes and never printed them, and went looking for the missing
+     * half of a feature that was already complete. A note describing work that is finished
+     * is worse than no note.
+     *
+     * Values are escaped at render time, so a slug or a user-chosen theme name is safe to
+     * pass. For raw attributes on the tag itself, see `$extraBodyTag` — which is markup and
+     * is not escaped.
+     *
+     * @param   string $class One class name
+     * @return  void
      */
     public function addBodyClass($class)
     {

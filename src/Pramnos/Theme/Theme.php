@@ -562,13 +562,24 @@ class Theme extends \Pramnos\Framework\Base
     }
 
     /**
-     * Save theme settings
-     * @return string
+     * Save theme settings.
+     *
+     * `pramnos_settings` was a legacy CMS class name that resolves to nothing here, so this
+     * method fatalled on every call — the third instance of that shape found in the
+     * framework, after `pramnos_theme::getTheme()` and `pramnos_request` in the AMP renderer.
+     * A theme's settings form could be rendered and never saved.
+     *
+     * The `@return string` it used to declare was wrong as well: it returns nothing, and
+     * never did.
+     *
+     * @return void
      */
     function saveSettings()
     {
-        pramnos_settings::setSetting('theme_' . $this->theme . '_settings',
-                serialize($this->_form->getData()));
+        \Pramnos\Application\Settings::setSetting(
+            'theme_' . $this->theme . '_settings',
+            serialize($this->_form->getData())
+        );
     }
 
     /**

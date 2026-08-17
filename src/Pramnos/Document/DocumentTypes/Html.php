@@ -152,21 +152,32 @@ class Html extends \Pramnos\Document\Document
 
 
         $content .= $this->header;
-        $bodyclasses = '';
-        $comma = '';
-        foreach ($this->bodyclasses as $class) {
-            $bodyclasses.= $comma . $class;
-            $comma = ' ';
+        // Space-separated, and **escaped**. A class name reaches this from
+        // `addBodyClass()`, which an application may well feed a slug, a content type or a
+        // user's chosen theme — and a `"` in any of those closes the attribute. Every value
+        // in `<head>` has been escaped since the same reporter's first pass over this
+        // renderer; the class list was missed then because only head values were looked at.
+        $bodyclasses = implode(
+            ' ',
+            array_map(
+                fn($class): string => (string) $this->escapeHeadValue($class),
+                $this->bodyclasses
+            )
+        );
+
+        // `extraBodyTag` stays raw, deliberately: it is documented as markup — attributes
+        // the application writes itself — so escaping it would turn every use of it into
+        // visible text. It is the application's to get right.
+        // Cast: `extraBodyTag` is a public property an application may leave as null, and
+        // Amp's own tests do exactly that.
+        $attributes = trim((string) $this->extraBodyTag);
+        if (trim($bodyclasses) !== '') {
+            $attributes .= ' class="' . $bodyclasses . '"';
         }
-        if (trim($bodyclasses) == '') {
-            $content .= "\n</head>\n<body "
-                . $this->extraBodyTag
-                . ">\n";
-        } else {
-            $content .= "\n</head>\n<body "
-                . $this->extraBodyTag
-                . " class=\"" . $bodyclasses . "\">\n";
-        }
+
+        // No attributes means `<body>`, not `<body >`.
+        $attributes = trim($attributes);
+        $content .= "\n</head>\n<body" . ($attributes === '' ? '' : ' ' . $attributes) . ">\n";
 
         $content .= $this->parse($this->head);
         #$content .=parent::getContent();
