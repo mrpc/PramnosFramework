@@ -1522,6 +1522,19 @@ class Application extends Base
             "img-src 'self' data:" . $this->getCspDomains($csp, 'img-src'),
             "font-src 'self' data:" . $this->getCspDomains($csp, 'font-src'),
             "connect-src 'self'" . $this->getCspDomains($csp, 'connect-src'),
+            // **`media-src` was absent, so `default-src 'none'` decided it.**
+            //
+            // An <audio> or <video> element whose source is not same-origin was
+            // blocked outright, with a console message naming a directive the
+            // policy never contained — which reads as a misconfiguration rather
+            // than a gap. Any application that plays third-party media hits this
+            // and cannot fix it from configuration, because this list did not
+            // consult `csp` for it.
+            //
+            // `'self'` keeps the same default posture as the directives around
+            // it; a site that streams from elsewhere adds its hosts under
+            // `csp: media-src` in app.php, exactly like `img-src`.
+            "media-src 'self'" . $this->getCspDomains($csp, 'media-src'),
             "frame-src 'self'",
             "frame-ancestors 'self'",
             "object-src 'none'",
