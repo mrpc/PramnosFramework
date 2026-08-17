@@ -11,6 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Mcp\McpServer;
 use Pramnos\Mcp\McpResource;
 use Pramnos\Mcp\McpServiceProvider;
+use Pramnos\Mcp\Tools\FrameworkDocsTool;
 use Pramnos\Mcp\Tools\ListTablesTool;
 use Pramnos\Mcp\Tools\MigrationStatusTool;
 use Pramnos\Mcp\Tools\ModelInspectTool;
@@ -172,6 +173,12 @@ class McpServe extends Command
         $appVersion = defined('VERSION') ? VERSION : '1.0.0';
 
         $server = new McpServer($appName, $appVersion);
+
+        // Outside the `$app` guard below, deliberately. The guides answer questions about
+        // the framework, not about this application, so there is nothing for a missing
+        // application to make unanswerable — and a server that boots without one is
+        // exactly when somebody is asking how any of this is supposed to work.
+        $server->addTool(new FrameworkDocsTool());
 
         if ($app !== null) {
             $db = $app->database ?? null;

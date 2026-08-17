@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Mcp\Tools\FrameworkDocsTool;
 use Pramnos\Mcp\Tools\ListTablesTool;
 use Pramnos\Mcp\Tools\MigrationStatusTool;
 use Pramnos\Mcp\Tools\ModelInspectTool;
@@ -63,6 +64,11 @@ class McpServiceProvider extends ServiceProvider
         $server->addTool(new MigrationStatusTool($app));
         $server->addTool(new ModelInspectTool());
         $server->addTool(new RouteListTool($app));
+
+        // Not application introspection like the five above — this one answers "how
+        // does the framework work", from the guides vendored alongside this class. It
+        // takes no application, because it is the same answer in every project.
+        $server->addTool(new FrameworkDocsTool());
 
         // Register standard file resources
         $root = defined('ROOT') ? ROOT : getcwd();
