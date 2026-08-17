@@ -713,6 +713,11 @@ Three things follow:
   NOT escaped**, by design: they exist to carry markup. Anything you interpolate into
   them is yours to escape, which is why the canonical example above calls
   `htmlspecialchars()` explicitly.
+- **Body classes are escaped too**, since 2026-08-17. The guarantee is not limited to
+  `<head>`: `addBodyClass()` values go through the same escaping, because an application
+  reasonably feeds it a slug, a content type or a user's chosen theme name, and a `"` in
+  any of those closes the `class` attribute. This was missed in the original pass over
+  this renderer, which looked only at head values.
 - A value that is `null`, an array or an object renders as an empty string rather than
   raising. A blank title is bad; a fatal error while rendering the `<head>` is worse.
 
@@ -783,13 +788,28 @@ class ContentProcessorAddon extends \Pramnos\Addon\Addon
 ### Body Classes and Styling
 
 ```php
-// Add CSS classes to body tag
 $doc->addBodyClass('page-home');
 $doc->addBodyClass('user-logged-in');
-$doc->addBodyClass('theme-dark');
-
-// Classes are automatically added to <body> tag in HTML output
+$doc->addBodyClass('theme-' . $user->theme);   // escaped for you — see below
 ```
+
+The list is emitted space-separated on the `<body>` tag by `Html::render()` and
+`Amp::render()`, and each value is **escaped**. With no classes and no `extraBodyTag`, the
+tag is `<body>` — nothing to opt out of and no stray attribute.
+
+!!! note "`addBodyClass()` used to look unimplemented, and was not"
+    `Document::addBodyClass()` carried a `@todo Use bodyclasses` for years while both
+    renderers printed the list all along. A consuming project read the note, concluded the
+    framework collected classes and never used them, and went looking for the missing half
+    of a complete feature.
+
+    The note is gone. It is worth naming as a documentation failure rather than a code one:
+    a stale `@todo` describing finished work is read as a statement about the present, and
+    it is more misleading than no comment at all.
+
+For raw attributes on the tag itself — event handlers, `data-` attributes, anything that is
+markup rather than a class name — use `$doc->extraBodyTag`, which is deliberately **not**
+escaped and is therefore yours to make safe.
 
 ## Advanced Features
 

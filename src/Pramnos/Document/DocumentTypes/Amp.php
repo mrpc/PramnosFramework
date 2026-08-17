@@ -29,7 +29,14 @@ class Amp extends \Pramnos\Document\Document
                 . str_replace(
                     '/format/amp',
                     '',
-                    \pramnos_request::$originalRequestNoChange
+                    // `\pramnos_request` — a legacy CMS class name which, resolved from
+                    // the global namespace, is nothing at all. So an AMP document with no
+                    // explicit canonical fatalled on `Class "pramnos_request" not found`,
+                    // which is every AMP page that did not set one: this branch exists
+                    // precisely to handle that case and could never run. Same shape as
+                    // `pramnos_theme::getTheme()` in Theme::getThemeObjects(), found and
+                    // fixed on 2026-08-14. The modern class carries the identical property.
+                    \Pramnos\Http\Request::$originalRequestNoChange
                 );
         }
 
@@ -113,21 +120,32 @@ class Amp extends \Pramnos\Document\Document
             $content .= "\n        " . $block;
         }
         $content .= $this->header;
-        $bodyclasses = '';
-        $comma = '';
-        foreach ($this->bodyclasses as $class) {
-            $bodyclasses.= $comma . $class;
-            $comma = ' ';
+        // Space-separated, and **escaped**. A class name reaches this from
+        // `addBodyClass()`, which an application may well feed a slug, a content type or a
+        // user's chosen theme — and a `"` in any of those closes the attribute. Every value
+        // in `<head>` has been escaped since the same reporter's first pass over this
+        // renderer; the class list was missed then because only head values were looked at.
+        $bodyclasses = implode(
+            ' ',
+            array_map(
+                fn($class): string => (string) $this->escapeHeadValue($class),
+                $this->bodyclasses
+            )
+        );
+
+        // `extraBodyTag` stays raw, deliberately: it is documented as markup — attributes
+        // the application writes itself — so escaping it would turn every use of it into
+        // visible text. It is the application's to get right.
+        // Cast: `extraBodyTag` is a public property an application may leave as null, and
+        // Amp's own tests do exactly that.
+        $attributes = trim((string) $this->extraBodyTag);
+        if (trim($bodyclasses) !== '') {
+            $attributes .= ' class="' . $bodyclasses . '"';
         }
-        if (trim($bodyclasses) == '') {
-            $content .= "\n</head>\n<body "
-                . $this->extraBodyTag
-                . ">\n";
-        } else {
-            $content .= "\n</head>\n<body "
-                . $this->extraBodyTag
-                . " class=\"" . $bodyclasses . "\">\n";
-        }
+
+        // No attributes means `<body>`, not `<body >`.
+        $attributes = trim($attributes);
+        $content .= "\n</head>\n<body" . ($attributes === '' ? '' : ' ' . $attributes) . ">\n";
 
         $content .= $this->parse($this->head);
         #$content .=parent::getContent();
