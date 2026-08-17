@@ -557,50 +557,149 @@ that passes none of them gets sensible markup without knowing they exist.
 
 ## Theme Settings
 
-### Adding Theme Settings
+A theme declares the settings it wants; the framework renders them, reads them back and
+persists them. That is the whole contract, and it is the same shape as Django's `Form`,
+Rails' model validations and WordPress's Settings API: **you describe fields, not markup.**
+
+!!! warning "This section was wrong until 2026-08-17, and the feature did not work"
+    It documented `$this->addField(...)` on a theme. `addField()` is real, but it belongs to
+    the **form**, not the theme: the chain was `Theme::addSetting()` →
+    `pramnos_html_form::addField()`, and the guide had written the inner call as though it were
+    the theme's own. It also used a `'value,Label|value,Label'` option format the code never
+    parsed.
+
+    And it would not have mattered either way: every settings method fatalled. The form object
+    they called into was a legacy class (`pramnos_html_form`) that was never ported, and the
+    line building it arrived from the legacy framework **already commented out**, so `$_form`
+    was null from the first day of the file.
+
+    The name is kept on the new form class — `SettingsForm::addField()` — precisely so that
+    knowledge lands on the right object instead of the wrong one.
+
+    Both are fixed. The feature works, and this section describes what it does.
+
+### Declaring settings
 
 ```php
 class MyTheme extends \Pramnos\Theme\Theme
 {
     public function init()
     {
-        // Add theme customization options
-        $this->addField(
-            'logo_url',                    // Setting name
-            'Logo URL',                    // Display label
-            'image',                       // Field type
-            '',                           // Options (for selectbox)
-            'Upload your site logo'        // Description
+        $this->addSetting(
+            'logo_url',                 // name
+            'Logo URL',                 // label
+            'url',                      // type
+            null,                       // options (selects only)
+            'Address of your site logo' // description
         );
-        
-        $this->addField(
+
+        // A select. Three option shapes are accepted — see below.
+        $this->addSetting(
             'color_scheme',
-            'Color Scheme',
-            'selectbox',
-            'default,Default|dark,Dark|light,Light',
-            'Choose the color scheme'
+            'Colour scheme',
+            'select',
+            ['default' => 'Default', 'dark' => 'Dark', 'light' => 'Light'],
+            'Choose the colour scheme',
+            false,
+            'default'                   // the default value
         );
-        
-        $this->addField(
-            'enable_sidebar',
-            'Enable Sidebar',
-            'checkbox',
-            '',
-            'Show sidebar on pages'
-        );
-        
-        $this->addField(
-            'footer_text',
-            'Footer Text',
-            'textarea',
-            '',
-            'Custom footer text'
-        );
-        
+
+        $this->addSetting('enable_sidebar', 'Enable sidebar', 'checkbox', null, null, false, '1');
+        $this->addSetting('footer_text', 'Footer text', 'textarea');
+
         return $this;
     }
 }
 ```
+
+**Types:** `textfield` (or `text`), `textarea`, `checkbox`, `select` (or `selectbox`),
+`number`, `email`, `url`, `password`, `date`, `time`, `datetime`, `color`, `hidden`. An
+unrecognised type renders as a text input rather than nothing, so a typo costs the wrong
+control and not a missing setting.
+
+**Select options** are accepted in three shapes, because both callers of this API already use
+all three:
+
+```php
+'one, two, three'                       // comma-separated: value === label
+['red', 'green']                        // a list: value === label
+['1' => 'Enabled', '0' => 'Disabled']   // value => label
+[['No', 0], ['Yes', 1]]                 // [label, value] pairs
+```
+
+One case is undecidable and worth knowing rather than discovering: `[0 => 'No', 1 => 'Yes']`
+is indistinguishable from the list `['No', 'Yes']`, because PHP represents them identically.
+It is read as a list. Use the `[label, value]` pair form when your keys are `0` and `1` in
+that order.
+
+### Rendering and saving
+
+```php
+if ($theme->hasSettings()) {
+    echo '<form method="post">'
+        . $theme->renderSettings()          // the fields, escaped
+        . '<button type="submit">Save</button></form>';
+}
+
+// On submit:
+$theme->saveSettings();
+```
+
+`renderSettings()` returns **the fields only**, without a `<form>` tag, so an administration
+panel can put several themes' or addons' settings inside one submit. An empty string means the
+theme declared nothing — it is not an error, and it used to be a fatal.
+
+Three behaviours worth relying on:
+
+- **Everything is escaped.** Values, labels, descriptions and every option. A `"` in a value
+  cannot end the attribute it sits in. The class this replaced interpolated values straight
+  into `value="…"`, which on a settings page is the worst possible place for it: the values are
+  administrator-supplied and re-rendered after every save.
+- **A checkbox can be turned off.** Browsers submit nothing for an unchecked box, so each one
+  is rendered with a hidden `0` companion that the checkbox overwrites with `1`. Without it a
+  setting could be switched on and never off.
+- **A rejected submit writes nothing.** `saveSettings()` refuses to store an empty result, so a
+  submission whose CSRF token does not check out leaves the existing settings alone instead of
+  blanking every one of them.
+
+### Where the values live
+
+`saveSettings()` serialises them into the application setting
+`theme_<name>_settings`. Reading them back is the theme's own business, and
+`loadSettings()` is the hook for it:
+
+```php
+protected function loadSettings()
+{
+    $stored = unserialize(
+        (string) \Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_settings')
+    );
+
+    // Anything that is not an array — including the `false` from a missing setting — is
+    // ignored, so a fresh installation shows the declared defaults.
+    $this->settingsForm()->setValues($stored);
+
+    return $this;
+}
+```
+
+### Addons declare settings the same way
+
+`Addon::addSetting()` has the identical signature, plus a ninth argument for multilanguage
+fields, and it was non-functional for the same reason — so **no addon could have settings at
+all** until this was fixed. `Addon::getProperty($name, $language)` returns the translated
+value when one was declared for that language and the addon's own property otherwise.
+
+Multilanguage fields are copied once per language in `ROOT/language/*.php`. An installation
+with no such directory gets the base field and no copies, rather than an error.
+
+### The form class underneath
+
+`Pramnos\Html\Form\SettingsForm` is available directly for an application's own settings
+pages. It is **deliberately narrow** — settings, not CRUD — and the reasoning is on the class
+itself: Laravel removed its form builder from core, this framework already generates CRUD forms
+from column introspection in `make:` commands, and validation already belongs to `FormRequest`.
+A general runtime form builder would be a third way to render a field.
 
 ### Using Theme Settings
 
@@ -608,7 +707,7 @@ class MyTheme extends \Pramnos\Theme\Theme
 // In theme templates
 $theme = \Pramnos\Theme\Theme::getTheme();
 
-// Get setting values
+// Get setting values — the value if one was saved, the declared default otherwise
 $logoUrl = $theme->getSetting('logo_url');
 $colorScheme = $theme->getSetting('color_scheme');
 $enableSidebar = $theme->getSetting('enable_sidebar');
@@ -638,28 +737,37 @@ Available field types for theme settings:
 
 ```php
 // Text input
-$this->addField('site_tagline', 'Site Tagline', 'textfield');
+$this->addSetting('site_tagline', 'Site Tagline', 'textfield');
 
 // Number input
-$this->addField('posts_per_page', 'Posts Per Page', 'number');
+$this->addSetting('posts_per_page', 'Posts Per Page', 'number');
 
 // Email input
-$this->addField('contact_email', 'Contact Email', 'email');
+$this->addSetting('contact_email', 'Contact Email', 'email');
 
 // URL input
-$this->addField('social_facebook', 'Facebook URL', 'url');
+$this->addSetting('social_facebook', 'Facebook URL', 'url');
 
 // Textarea
-$this->addField('about_text', 'About Text', 'textarea');
+$this->addSetting('about_text', 'About Text', 'textarea');
 
 // Checkbox
-$this->addField('show_breadcrumbs', 'Show Breadcrumbs', 'checkbox');
+$this->addSetting('show_breadcrumbs', 'Show Breadcrumbs', 'checkbox');
 
-// Select dropdown
-$this->addField('layout', 'Layout', 'selectbox', 'full,Full Width|boxed,Boxed|fluid,Fluid');
+// Select dropdown — a value => label map
+$this->addSetting('layout', 'Layout', 'select', [
+    'full'  => 'Full Width',
+    'boxed' => 'Boxed',
+    'fluid' => 'Fluid',
+]);
 
-// Image upload
-$this->addField('header_image', 'Header Image', 'image');
+// A path or URL. `image` is the legacy name for this type and renders a text input:
+// nothing in the framework has ever drawn a picker for it.
+$this->addSetting('header_image', 'Header Image', 'image');
+
+// Colour, date and time map to the matching HTML input types
+$this->addSetting('primary_color', 'Primary Colour', 'color');
+$this->addSetting('publish_from', 'Publish From', 'date');
 ```
 
 ## Content Types
@@ -938,9 +1046,9 @@ class MyNewTheme extends \Pramnos\Theme\Theme
         $this->addSidebar('footer-1', 'Footer Widget 1');
         
         // Add theme settings
-        $this->addField('logo', 'Site Logo', 'image');
-        $this->addField('primary_color', 'Primary Color', 'color');
-        $this->addField('show_sidebar', 'Show Sidebar', 'checkbox');
+        $this->addSetting('logo', 'Site Logo', 'image');
+        $this->addSetting('primary_color', 'Primary Color', 'color');
+        $this->addSetting('show_sidebar', 'Show Sidebar', 'checkbox');
         
         return $this;
     }
