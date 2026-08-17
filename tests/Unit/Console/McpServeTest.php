@@ -140,12 +140,14 @@ class McpServeTest extends TestCase
 
         // Assert
         $text = $stderr->fetch();
-        $this->assertStringContainsString('6 tools', $text);
+        $this->assertStringContainsString('7 tools', $text);
         $this->assertStringContainsString('list-tables', $text);
         $this->assertStringContainsString('route-list', $text);
-        // Named in the announcement too: the tool an assistant needs to know exists before
-        // it can decide to ask what the framework already does.
+        // Named in the announcement too: the tools an assistant needs to know exist before
+        // it can decide to ask what the framework already does, or whether it has just broken
+        // one of the framework's rules.
         $this->assertStringContainsString('framework-docs', $text);
+        $this->assertStringContainsString('pramnos-check', $text);
         // Resources are only mentioned when there are any, so this asserts the
         // branch as well as the text.
         $this->assertStringContainsString('resources:', $text);
@@ -245,8 +247,8 @@ class McpServeTest extends TestCase
 
     /**
      * resolveServer(null) — e.g. when the command runs outside a Pramnos console
-     * application — falls back to a server carrying the documentation tool and nothing
-     * else.
+     * application — falls back to a server carrying the two application-independent tools
+     * and nothing else.
      *
      * The five other tools and the three resources all describe *this application*, so
      * with no application there is genuinely nothing for them to report. `framework-docs`
@@ -255,7 +257,7 @@ class McpServeTest extends TestCase
      * booting without an application is exactly when somebody is asking how any of this is
      * supposed to work.
      */
-    public function testResolveServerWithoutAppStillOffersTheDocumentation(): void
+    public function testResolveServerWithoutAppStillOffersTheApplicationIndependentTools(): void
     {
         // Arrange
         $command = new McpServe();
@@ -266,9 +268,11 @@ class McpServeTest extends TestCase
 
         // Assert
         $this->assertInstanceOf(McpServer::class, $server);
-        // Keyed by tool name, as `addTool()` stores them
+        // Keyed by tool name, as `addTool()` stores them. Both application-independent
+        // tools are here: one reads the vendored guides, the other checks the project against
+        // them. Neither needs a database or an application to answer.
         $this->assertSame(
-            ['framework-docs' => 'framework-docs'],
+            ['framework-docs' => 'framework-docs', 'pramnos-check' => 'pramnos-check'],
             array_map(fn($t) => $t->name(), $server->getTools())
         );
 
@@ -349,10 +353,10 @@ class McpServeTest extends TestCase
         // Act
         $server = $method->invoke($command, $app);
 
-        // Assert — the five application-introspection tools, plus the documentation tool
-        // that does not depend on an application at all
+        // Assert — the five application-introspection tools, plus the two that do not depend
+        // on an application at all: the guides, and the check against them
         $tools = $server->getTools();
-        $this->assertCount(6, $tools);
+        $this->assertCount(7, $tools);
         $names = array_map(fn($t) => $t->name(), $tools);
         sort($names);
         $this->assertSame(
@@ -361,6 +365,7 @@ class McpServeTest extends TestCase
                 'list-tables',
                 'migration-status',
                 'model-inspect',
+                'pramnos-check',
                 'query-schema',
                 'route-list',
             ],

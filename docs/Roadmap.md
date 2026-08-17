@@ -117,7 +117,7 @@ authoritative than the other.
 *Done when:* the two pages answer different questions, and the `use_cases:` of
 each say which.
 
-### A verification tool over the documented rules
+### A verification tool over the documented rules — done
 
 The retrieval half of this is **done**: `framework-docs` indexes, searches and
 reads `docs/*.md` using each page's `use_cases`, keeps the changelog posts as a
@@ -125,8 +125,8 @@ separate corpus so "when did this change" cannot outrank "how does this work",
 and demotes pages carrying no use cases because they are not guidance. See
 [MCP server](Pramnos_MCP_Guide.md). Runtime scan, no build artifact to go stale.
 
-What remains is the half that says **no** — a `pramnos_check` tool for the rules
-assistants break in practice:
+The half that says **no** is now built too: `pramnos-check`, a seventh MCP tool. See
+[MCP server](Pramnos_MCP_Guide.md#pramnos-check). It covers the rules this entry asked for:
 
 - raw SQL where the query builder belongs (rule 12);
 - unqualified `authserver.*` tables, which fail silently on PostgreSQL;
@@ -143,8 +143,19 @@ guide describing it was written. Being *able* to find the rule and being *told*
 when you have broken it are different mechanisms, and the second one is the one
 with evidence behind it.
 
-*Done when:* an assistant gets told "no" when it breaks a documented rule,
-rather than only being able to look the rule up.
+Each is matched as a **construction rather than a name**, with a negative test per rule and
+a suppression mechanism whose reason is mandatory. The precision mattered more than the
+coverage: the first run against the framework's own `src/` produced 29 raw-SQL findings of
+which sixteen were noise, and a check that cries wolf is a check that gets muted.
+
+**What this surfaced, and what is now open:** the framework does not pass its own check — 9
+raw-SQL findings and 67 flash-query-parameter findings under `src/`. Every one was reviewed
+and they are real. That is the entry's own argument turned on its author: the rules were
+written down, and the framework drifted from them in seventy-six places. Rewriting them is a
+priority decision, not a tidy-up, so it is recorded here rather than done quietly.
+
+*Done:* an assistant now gets told "no" when it breaks a documented rule, rather than only
+being able to look the rule up.
 
 ---
 

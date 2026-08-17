@@ -5,6 +5,7 @@ use_cases:
   - Exposing an application-specific capability to an assistant as an MCP tool
   - Registering a project file as a resource an assistant can read
   - Working out why an assistant reimplemented something the framework already ships
+  - Checking a change against the framework's rules before calling it finished
 ---
 
 # MCP server
@@ -13,8 +14,9 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 `php <cli> mcp:serve`. It speaks JSON-RPC 2.0 over stdio, which is what an assistant such
 as Claude Code expects, and it exposes two kinds of thing:
 
-- **tools** — callable capabilities, five of which introspect the application and one of
-  which reads the framework's own guides;
+- **tools** — callable capabilities: five introspect the application, and two need neither an
+  application nor a database because they are about the framework itself — one reads its
+  guides, the other checks this project against its rules;
 - **resources** — read-only files the assistant can fetch by URI.
 
 There is no HTTP surface and no port. The client starts the process, talks to it on stdin
@@ -57,6 +59,7 @@ for every one of its servers.
 | `model-inspect` | A model's table, primary key, columns and relations |
 | `route-list` | Every registered route, with method, URI, action and permissions |
 | `framework-docs` | **How the framework works** — see below |
+| `pramnos-check` | **Whether this project has broken a documented rule** — see below |
 
 The first five are **application introspection**: they answer *what exists in this
 project*. They need a database or an application to answer at all, and two of them are
@@ -119,6 +122,74 @@ answered by three fragments of a feature's history. That is exactly what the
 guide/changelog split exists to prevent, and merged search would reintroduce it as a
 ranking accident rather than as a decision. Ask `guides` first; reach for `changelog` when
 the date or the reason for a change *is* the question.
+
+### `pramnos-check`
+
+The other half of `framework-docs`, and the half with evidence behind it. That tool lets an
+assistant *find* a rule; this one tells it when a rule has been **broken** — and every rule it
+checks is something that happened *after* the guide describing it was written.
+
+```jsonc
+{}                                          // the whole project
+{"path": "src/Models"}                      // one subtree, or a single file
+{"rules": ["raw-sql", "flash-query-params"]} // a subset
+```
+
+Seven rules. Six are defects; the seventh polices the escape hatch.
+
+| Rule | Why it is invisible when you make it |
+| --- | --- |
+| `raw-sql` | The builder is the only layer that knows the dialect. Hand-written SQL has produced both a query against a table no migration creates and unqualified names that match nothing. |
+| `unqualified-authserver` | On PostgreSQL `authserver` is a real schema and is not on the default `search_path`, so the unqualified name returns no rows and no error. On MySQL the qualified form becomes `authserver_x` — a different table again. |
+| `flash-query-params` | `?message=` is shown again on every reload, stays in history, and is user-controlled text arriving in a page that displays it. |
+| `view-reserved-props` | `sections`, `path`, `model` and `_layout` are used by the View engine, so the value is overwritten and the variable is simply absent in the template. No error, no log line. |
+| `baseline-migration-timestamp` | Installations predating the migration system set `migration_cutoff = 2020_01_02_000000`, so a new `2020_01_01_*` migration is silently never run there. |
+| `duplicate-debug-panel` | A second reader of the `_debug` payload is usually a panel written because the shipped one was not known to exist. That has happened, and it is why the documentation rules were rewritten. |
+| `unexplained-suppression` | A suppression with no reason hides a finding and tells the next reader nothing. |
+
+The authserver table list is **read from the framework's own migrations** at runtime, so it
+cannot drift out of step with the schema the framework creates.
+
+#### Suppressing a finding
+
+```php
+// pramnos-check: ignore raw-sql — recursive CTE the builder cannot express
+$rows = $db->query('WITH RECURSIVE …');
+```
+
+Same line or the line above. **The reason is required.** A bare `ignore raw-sql` suppresses
+nothing and is reported as its own finding — because the value of rule 12's "leave a one-line
+comment saying why" is that the next reader can tell a considered exception from an oversight.
+
+#### On precision
+
+A check that cries wolf gets muted, and then the real finding it makes next month is muted
+with it. So the rules match **constructions, not names**, and each one carries a negative test.
+
+That is not a stylistic preference. The first run of this tool against the framework's own
+`src/` reported 29 raw-SQL findings and **sixteen were noise**: `SELECT version()`,
+`SELECT NOW()`, `select @@global.long_query_time`, TimescaleDB catalogs, and one example
+inside a docblock — because the first version did not strip comments. Rule 12 exempts
+introspection and driver-specific features in its own text; a statement with no table cannot
+be expressed by a builder at all; a fixture in test code is clearer as a literal.
+
+What the rules deliberately do not report:
+
+- raw SQL in `database/migrations/**`, in `tests/**`, or in the framework's `Testing/` helpers;
+- statements with no table to address, or against `information_schema`, `pg_*`,
+  `timescaledb_information`, or `SHOW …`;
+- *reading* `?message=` — an application does not control every link pointing at it;
+- `authserver.user_activity_log`, which contains the unqualified form as a substring;
+- `$config->path = …` or `$this->model = …`, which are not view variables;
+- `_debug` in a project with no shipped `lib/debug.js`, which has nothing to duplicate.
+
+#### The framework does not pass its own check
+
+Run against `src/`, it reports **9 raw-SQL** findings and **67 flash-query-parameter** ones.
+Those are real, and they are the argument for the tool existing: the rules were written down,
+and the framework itself drifted from them in seventy-six places. They are recorded rather
+than quietly fixed, because rewriting seventy-six call sites is a decision about priorities
+and not a tidy-up.
 
 ## The built-in resources
 
