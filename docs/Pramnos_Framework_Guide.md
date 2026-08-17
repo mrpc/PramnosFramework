@@ -517,6 +517,41 @@ set up `Settings`, which queried the database through the very connection still
 being established. `ConnectionPathPurityTest` now fails the build if that
 returns.
 
+**Four directories are guarded the same way.** Nothing under `src/Pramnos/Auth/`,
+`src/Pramnos/Http/Middleware/`, `src/Pramnos/User/` or `src/Pramnos/Database/` may
+call `Application::getInstance()`; `ApplicationFactoryPurityTest` reads the source
+and fails the build if it does, with an enumerated exemption list that is
+currently empty. `ConnectionPathPurityTest` guards the connection path in
+particular; this is the wider rule that path is one instance of.
+
+That guard exists because this section did not prevent the mistake. Nine call
+sites were still using the factory, and the placements say why the rule matters:
+
+- inside a **token-minting** method, in `SessionExchange`;
+- inside **`User::getCurrentUser()`** — asking *who is signed in* constructed an
+  entire application, database and session included;
+- inside **`Database::displayError()`**, where building an application builds
+  `Settings`, which queries the database that just failed. That also made the
+  method's own `error_log()` fallback unreachable, so a database error outside a
+  request went nowhere at all;
+- and in four middleware and driver methods that wanted to write one property or
+  read two booleans.
+
+Every one of them was written as `if ($app)` or `if (!is_object($app))` — a guard
+for a null the factory cannot return. So the guard was dead and the construction
+was live, and the source had been saying so all along.
+
+One practical consequence when you convert a call site: `currentInstance()`
+declares `?Application` while `getInstance()` declares nothing, so any test that
+installs a plain `stdClass` in the registry as a fake application starts failing
+with a `TypeError`. That is the correct type being enforced — the registry is
+meant to hold applications — but it is the first thing you will see. Use a real
+subclass with an empty constructor.
+
+If you genuinely need to *build* an application from guarded code, add the file to
+`ApplicationFactoryPurityTest::EXEMPT` with the reason. Having to write the reason
+down is the point.
+
 This guide provides a comprehensive overview of the Pramnos framework structure and conventions. Use it as a reference for building consistent, secure, and maintainable applications within the Pramnos ecosystem.
 
 ---

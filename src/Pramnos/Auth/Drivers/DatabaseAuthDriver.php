@@ -132,7 +132,13 @@ class DatabaseAuthDriver implements AuthDriverInterface
     private function resolveConfig(): array
     {
         $appConfig = [];
-        $app = Application::getInstance();
+
+        // A configuration lookup, which is exactly what `getInstance()` must not be used
+        // for: it is a factory, and reading two boolean settings does not warrant
+        // constructing an application, a database connection and a session. The
+        // `!== null` below has been here all along, describing behaviour the call could
+        // not produce.
+        $app = Application::currentInstance();
         if ($app !== null) {
             $appConfig = $app->applicationInfo['auth'] ?? [];
         }

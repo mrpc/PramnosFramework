@@ -182,7 +182,12 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             return self::$usersCache[$userid];
         }
 
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`: `getInstance()` is a factory, and deciding which class name
+        // to instantiate is not a reason to build an application, a database connection and
+        // a session. With no application the `isset()` below is simply false and the
+        // framework's own User class is used, which is the right answer — an application
+        // that has not been created cannot have declared an override.
+        $app = \Pramnos\Application\Application::currentInstance();
 
          // Try to find an override user class
         if (isset($app->applicationInfo['namespace'])
@@ -994,7 +999,15 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         // server-rendered page knows who it is serving, and nothing about it
         // changes here.
         if (\Pramnos\Http\Session::staticIsLogged() == true) {
-            $app = \Pramnos\Application\Application::getInstance();
+            // The worst placement of the factory in the framework: *inside the identity
+            // lookup*. Asking "who is signed in" would construct an entire application —
+            // database, language, session — which is the exact shape of the incident named
+            // in `currentInstance()`'s docblock, where a CSRF check that booted an
+            // application made a reference application's login tests fail on valid tokens.
+            //
+            // The `$app &&` below has been here all along, describing a null the factory
+            // could not return.
+            $app = \Pramnos\Application\Application::currentInstance();
             if ($app && is_object($app->currentUser)) {
                 if (!isset($_SESSION['adminlogin'])
                     || (int) $_SESSION['adminlogin'] == 0
@@ -1938,7 +1951,10 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      */
     protected function legacyMd5Allowed(): bool
     {
-        $app = \Pramnos\Application\Application::getInstance();
+        // A config read, so the lookup — see the note in getCurrentUser(). The guard below
+        // now guards something: with no application the answer is the documented default,
+        // which for legacy MD5 is the secure one.
+        $app = \Pramnos\Application\Application::currentInstance();
         if (!is_object($app)) {
             return false;
         }
