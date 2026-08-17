@@ -36,7 +36,7 @@ use Pramnos\User\User;
  *
  * ```php
  * $user = \Pramnos\User\User::getCurrentUser();
- * $features = \Pramnos\Application\Application::getInstance()->applicationInfo['features'] ?? [];
+ * $features = \Pramnos\Application\Application::currentInstance()?->applicationInfo['features'] ?? [];
  * $nav = NavRegistry::getForUser($user, $features);
  *
  * foreach ($nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $item) {

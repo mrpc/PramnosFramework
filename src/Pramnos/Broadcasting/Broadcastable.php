@@ -133,7 +133,15 @@ trait Broadcastable
     private function resolveBroadcastingManager(): ?BroadcastingManager
     {
         try {
-            $app = \Pramnos\Application\Application::getInstance();
+            // `currentInstance()`: a lookup. Broadcasting happens inside a request or a
+            // worker, both of which already have an application — and building one here to
+            // ask whether broadcasting is configured would be a side effect inside a
+            // `try` whose `catch` reports "not configured".
+            $app = \Pramnos\Application\Application::currentInstance();
+            if ($app === null) {
+                return null;
+            }
+
             // getContainer(), not ->container: `container` is a magic property
             // nothing ever assigned, so this read was null and the call below it
             // threw — swallowed by the catch, which turned a wiring bug into

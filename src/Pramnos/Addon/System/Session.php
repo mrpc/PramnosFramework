@@ -27,7 +27,9 @@ class Session extends \Pramnos\Addon\Addon
         $database = \Pramnos\Framework\Factory::getDatabase();
         $session = \Pramnos\Framework\Factory::getSession();
         $auth = \Pramnos\Framework\Factory::getAuth();
-        $app = \Pramnos\Application\Application::getInstance();
+        // (An `$app = Application::getInstance()` stood here and was never read. So a
+        // session-cleanup addon constructed an entire application — database, language,
+        // session — for a variable nothing used.)
         $request = \Pramnos\Framework\Factory::getRequest();
         $past = time() - 300;
         $sql = $database->prepareQuery(

@@ -18,9 +18,12 @@ class TestClient
     public function __construct(?Application $app = null)
     {
         if ($app === null) {
-            $appInstance = Application::getInstance();
+            // `currentInstance()` makes the branch below reachable. With `getInstance()` it
+            // could not be: that never returns null, so the fallback was dead code carrying a
+            // coverage-ignore to explain why.
+            $appInstance = Application::currentInstance();
             if ($appInstance === null) {
-                $this->app = new Application(); // @codeCoverageIgnore — Application is always pre-initialised in tests
+                $this->app = new Application();
             } else {
                 $this->app = $appInstance;
             }

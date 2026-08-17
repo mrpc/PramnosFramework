@@ -2745,7 +2745,7 @@ PHP;
         $navSetup = <<<'PHP'
     <?php
     $_navUser     = \Pramnos\User\User::getCurrentUser() ?: null;
-    $_navFeatures = \Pramnos\Application\Application::getInstance()->applicationInfo['features'] ?? [];
+    $_navFeatures = \Pramnos\Application\Application::currentInstance()?->applicationInfo['features'] ?? [];
     $_nav         = \Pramnos\Application\NavRegistry::getForUser($_navUser, $_navFeatures);
     ?>
 PHP;
@@ -2880,21 +2880,21 @@ HTML,
             'bootstrap' => <<<HTML
     <footer class="bg-dark text-light py-4 mt-auto">
         <div class="container text-center">
-            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
         </div>
     </footer>
 HTML,
             'tailwind' => <<<HTML
     <footer class="bg-gray-800 text-gray-300 py-8 mt-auto">
         <div class="container mx-auto px-4 max-w-5xl text-center">
-            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
         </div>
     </footer>
 HTML,
             default => <<<HTML
     <footer class="main-footer">
         <div class="container">
-            <p>&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
         </div>
     </footer>
 HTML,
@@ -3068,7 +3068,7 @@ HTML,
     private function brandLogo(string $uiSystem): string
     {
         $file = $uiSystem === 'bootstrap' ? 'logo-inverse.png' : 'logo.png';
-        $name = "<?php echo htmlspecialchars(\\Pramnos\\Application\\Application::getInstance()->applicationInfo['name'], ENT_QUOTES, 'UTF-8'); ?>";
+        $name = "<?php echo htmlspecialchars((string) (\\Pramnos\\Application\\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>";
         $img  = "<img src=\"<?php echo sURL; ?>assets/img/$file\" alt=\"$name\"";
 
         return match ($uiSystem) {
