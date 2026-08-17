@@ -345,7 +345,7 @@ class ApiCrudController extends Controller
         try {
             $database = \Pramnos\Database\Database::getInstance();
             $table    = defined('DB_PERMISSIONSTABLE') ? DB_PERMISSIONSTABLE : '#PREFIX#permissions';
-            $exists   = (bool) $database->query('SELECT 1 FROM ' . $table . ' LIMIT 1');
+            $exists   = (bool) $database->queryBuilder()->table($table)->exists();
         } catch (\Throwable) {
             $exists = false;
         }

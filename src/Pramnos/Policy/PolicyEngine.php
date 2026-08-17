@@ -250,6 +250,10 @@ class PolicyEngine
             // MySQL: truncate cache table and reload from source
             if ($source !== null) {
                 $this->db->query("TRUNCATE {$view}");
+                // INSERT … SELECT is not expressible in the query builder, which has no
+                // insertUsing()/insertFrom(). Both identifiers go through quoteIdentifier()
+                // and neither carries a value, so there is nothing to bind.
+                // pramnos-check: ignore raw-sql — INSERT … SELECT, no builder equivalent
                 $this->db->query("INSERT INTO {$view} SELECT * FROM {$source}");
             }
             // If no source, nothing to do — the app must provide a custom handler
@@ -265,6 +269,7 @@ class PolicyEngine
 
         if ($source !== null) {
             $this->db->query("TRUNCATE {$view}");
+            // pramnos-check: ignore raw-sql — INSERT … SELECT, as above.
             $this->db->query("INSERT INTO {$view} SELECT * FROM {$source}");
         }
     }

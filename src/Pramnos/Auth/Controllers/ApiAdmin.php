@@ -123,11 +123,8 @@ class ApiAdmin extends ApiCrudController
     {
         try {
             $database = \Pramnos\Database\Database::getInstance();
-            $result   = $database->query('SELECT COUNT(*) AS total FROM ' . $table);
 
-            return $result && isset($result->fields['total'])
-                ? (int) $result->fields['total']
-                : null;
+            return (int) $database->queryBuilder()->table($table)->count();
         } catch (\Throwable) {
             return null;
         }
