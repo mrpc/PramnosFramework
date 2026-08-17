@@ -2717,7 +2717,16 @@ class Database extends \Pramnos\Framework\Base
      */
     public function displayError()
     {
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`, and here the factory was self-defeating: reporting a database
+        // error by constructing an application constructs `Settings`, which queries the
+        // database — the connection that just failed. It also made the `else` below
+        // unreachable, so the `error_log()` fallback written for "no application" could
+        // never run, and a database error outside a request went nowhere at all.
+        //
+        // Same class of cycle that `ConnectionPathPurityTest` guards on the connect path,
+        // one step further along: not while opening the connection, but while complaining
+        // about it.
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app) {
             $app->showError($this->error_number . ' ' . $this->error_text);
         } else {

@@ -253,7 +253,19 @@ class ApiAuthMiddleware implements MiddlewareInterface
         // in to the website on the same domain.
         \Pramnos\Http\RequestIdentity::seal($user, $via);
 
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`, not `getInstance()`. The latter is a **factory**: given no
+        // existing instance it reads `app.php`, defines constants and runs the whole
+        // constructor — database, language, session. Its own docblock states the rule and
+        // names the incident: a CSRF fingerprint check that booted an application was a
+        // side effect in the middle of a security decision, and a reference application's
+        // login tests began failing on valid tokens because a second instance was being
+        // constructed underneath them.
+        //
+        // The `if` below was already written as though null were possible. It never was —
+        // so the guard was dead and the construction was live. Now the guard is the
+        // behaviour: in a real request the application exists and this is the identical
+        // answer; where there is none, there is no current user to record.
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app) {
             $app->currentUser = $user;
         }

@@ -93,7 +93,19 @@ class UserDatabaseMySQLTest extends TestCase
      */
     private function setAuthConfig(array $authConfig): void
     {
-        $stub                  = new \stdClass();
+        // A real `Application` with its constructor skipped, not a `stdClass`.
+        //
+        // `getInstance()` has no return type and accepted anything the registry held, so a
+        // plain object worked. `currentInstance()` declares `?Application` and TypeErrors on
+        // one — which is the correct type being enforced, not a regression: the registry is
+        // meant to hold applications. Caught the moment the authentication code moved to the
+        // lookup, in four tests per driver.
+        $stub = new class extends Application {
+            /** No database, language or session is wanted for a config read. */
+            public function __construct()
+            {
+            }
+        };
         $stub->applicationInfo = ['auth' => $authConfig];
 
         $ref = new \ReflectionProperty(Application::class, 'appInstances');

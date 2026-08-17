@@ -239,7 +239,12 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
     {
         \Pramnos\Http\RequestIdentity::seal($user, $via);
 
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`, not `getInstance()` — the latter is a factory that would
+        // construct a whole application, database and session included, in the middle of an
+        // authentication decision. The `if` was already written as though null were
+        // possible; it never was, so the guard was dead and the construction was live. See
+        // the longer note in {@see ApiAuthMiddleware::sealIdentity()}.
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app) {
             $app->currentUser = $user;
         }

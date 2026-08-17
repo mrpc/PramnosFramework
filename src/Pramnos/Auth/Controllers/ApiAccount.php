@@ -157,7 +157,11 @@ class ApiAccount extends Controller
         // happens, instead of only on whatever call comes next; and it means
         // anything reading the current user during this response (activity logs,
         // tracking) sees who it was for.
-        $app = \Pramnos\Application\Application::getInstance();
+        // `currentInstance()`: `getInstance()` is a factory, and this is a login response
+        // — not the place to construct an application, a database connection and a session
+        // as a side effect. The guard was already written for a null this call never
+        // returned.
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app) {
             $app->currentUser = $user;
         }
@@ -235,7 +239,7 @@ class ApiAccount extends Controller
         // Symmetric with login(), which reports the identity it *created* rather
         // than the anonymous one it was made with.
         \Pramnos\Http\RequestIdentity::seal(null, 'signed-out');
-        $app = \Pramnos\Application\Application::getInstance();
+        $app = \Pramnos\Application\Application::currentInstance();
         if ($app) {
             $app->currentUser = null;
         }
