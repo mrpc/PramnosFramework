@@ -73,6 +73,10 @@ class SessionExchange
     /**
      * Issue an API token for the user the **session** says is signed in.
      *
+     * Refuses when the request's identity was sealed by anything other than a session —
+     * a bearer token exchanging itself for another token is a refresh, with rotation and
+     * revocation questions this method does not answer.
+     *
      * @param  int  $minimumUserType Minimum `usertype` required, re-read from the
      *                               database rather than trusted from the session. 0
      *                               accepts any signed-in user.
@@ -91,6 +95,32 @@ class SessionExchange
         string $notes = 'session_exchange'
     ): ?string {
         try {
+            // Only a session may be exchanged.
+            //
+            // `getCurrentUser()` prefers a *sealed* identity over the session, so an
+            // API request authenticated by a bearer token would otherwise reach here
+            // and mint a fresh token from a token — an unbounded refresh with no
+            // rotation policy, from a method whose whole contract is that a **session**
+            // is what proved the identity.
+            //
+            // Identified positively rather than by excluding token-ish `via` values: a
+            // blocklist here would have to enumerate every credential that is not a
+            // session, which is unbounded, and the framework has already been bitten
+            // by that shape once this week in `MakeWebhook::detectCliName()`.
+            if (\Pramnos\Http\RequestIdentity::isSealed()
+                && \Pramnos\Http\RequestIdentity::via() !== 'session'
+            ) {
+                \Pramnos\Logs\Logger::log(
+                    'SessionExchange::issue() refused: this request was authenticated '
+                    . 'by ' . (\Pramnos\Http\RequestIdentity::via() ?: 'nothing')
+                    . ', not by a session. Exchanging a token for a token is a refresh, '
+                    . 'which this is not.',
+                    'auth'
+                );
+
+                return null;
+            }
+
             $sessionUser = \Pramnos\User\User::getCurrentUser();
             $userId      = (int) ($sessionUser->userid ?? 0);
 
