@@ -94,7 +94,16 @@ class DatabaseQueueDriver implements QueueDriverInterface
         $claimed = [];
         foreach ($rows as $row) {
             // Whoever's DELETE removes the row owns the job (atomic claim).
-            $delete = $this->db->query('DELETE FROM ' . $this->table . ' WHERE id = ' . $row['id']);
+            //
+            // The id was interpolated into the statement until 2026-08-17. It comes from a row
+            // this driver just read, so it was not reachable input — but the builder binds it,
+            // which is the difference between safe and safe-for-now.
+            // `delete()` returns a Result, not a row count — casting it to int would make
+            // this comparison false for every job and the queue would claim nothing at all.
+            $delete = $this->db->queryBuilder()
+                ->table($this->table)
+                ->where('id', $row['id'])
+                ->delete();
             if (!$delete || (int) $delete->getAffectedRows() !== 1) {
                 continue;
             }
@@ -132,7 +141,7 @@ class DatabaseQueueDriver implements QueueDriverInterface
     public function flush(): int
     {
         $count = $this->size();
-        $this->db->query('DELETE FROM ' . $this->table);
+        $this->db->queryBuilder()->table($this->table)->delete();
 
         return $count;
     }
