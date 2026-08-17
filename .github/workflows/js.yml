@@ -1,0 +1,55 @@
+name: JavaScript
+
+# The framework ships one browser asset — `src/Pramnos/Debug/assets/debugbar.js`, 3700-odd
+# lines, served on every page of every project that enables the debug toolbar — plus the
+# tests that cover it. Both are checked here.
+#
+# The reason this workflow exists: that asset had `var hasMvcPage` declared twice. A
+# consuming project's linter found it, and the duplicate had stopped **1,195 panel tests**
+# from running there. Nothing in this repository could have caught it, because there was no
+# linter. A unit test for a duplicate `var` would have been a worse version of `no-redeclare`
+# — and was tried, and misfired on `var rows` in six unrelated functions, because it matched
+# an identifier rather than a redeclaration.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**/*.js"
+      - "tests/js/**"
+      - "eslint.config.mjs"
+      - "package.json"
+      - ".github/workflows/js.yml"
+  pull_request:
+    paths:
+      - "src/**/*.js"
+      - "tests/js/**"
+      - "eslint.config.mjs"
+      - "package.json"
+      - ".github/workflows/js.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The version the php-apache-environment container ships, so a failure here is
+          # reproducible with ./lintjs and ./testjs rather than being a CI-only surprise.
+          node-version: "20"
+
+      - name: Install dev dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Lint the shipped assets and their tests
+        run: npx eslint src tests/js
+
+      - name: Run the JavaScript tests
+        run: node --test tests/js/*.test.js

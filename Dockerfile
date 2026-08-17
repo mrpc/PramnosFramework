@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     git \
     nodejs \
+    npm \
     postgresql-client \
     default-mysql-client \
     && docker-php-ext-configure intl \

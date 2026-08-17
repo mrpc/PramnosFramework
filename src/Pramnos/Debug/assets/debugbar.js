@@ -126,14 +126,18 @@
         { key: 'migrations', label: 'Migrations', title: 'Database schema migrations' }
     ];
 
-    /**
-     * Tabs drawn from what this script observed, not from a response payload.
+    /*
+     * A `CLIENT_TABS = { errors: true, client: true, api: true }` lookup stood here and
+     * nothing read it. The three tabs it named are genuinely special — they are drawn from
+     * what this script observed rather than from a response payload, because there is no
+     * payload key for an error raised in the browser three seconds after the response
+     * arrived — but that knowledge is encoded as explicit `tab.key === …` checks in three
+     * places below, not as a table lookup. Reported by ESLint the first time it ran here.
      *
-     * The tab loop reads `entry.payload[key]` for everything else, and there is
-     * no payload key for an error raised in the browser three seconds after the
-     * response arrived.
+     * Left as a note rather than wired up: making the constant the single source would mean
+     * editing three behavioural branches in a 3744-line asset, which is a refactor and not
+     * the addition of a linter.
      */
-    var CLIENT_TABS = { errors: true, client: true, api: true };
 
     /** @type {Array<Object>} One per request, oldest first. */
     var entries = [];

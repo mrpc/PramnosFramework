@@ -35,3 +35,6 @@ site/*
 
 # Test debris: the media tests write into ROOT/www/uploads
 /www/
+
+# Node tooling for the shipped JavaScript assets (see ./lintjs)
+node_modules/
