@@ -260,7 +260,11 @@ class TokenActionsControllerTest extends BaseTestCase
             $this->controller->show(0);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=invalid_id', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'The id in that link is not valid.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -276,7 +280,11 @@ class TokenActionsControllerTest extends BaseTestCase
             $this->controller->show(999);
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=not_found', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'That record no longer exists.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 

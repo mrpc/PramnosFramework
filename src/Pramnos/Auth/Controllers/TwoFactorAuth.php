@@ -42,7 +42,8 @@ class TwoFactorAuth extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
-            $this->redirect(sURL . 'login?error=unauthorized');
+            $this->addError('Please sign in to continue.');
+            $this->redirect(sURL . 'login');
             return null;
         }
         $view        = $this->getView('twofactor');
@@ -69,12 +70,14 @@ class TwoFactorAuth extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
-            $this->redirect(sURL . 'login?error=unauthorized');
+            $this->addError('Please sign in to continue.');
+            $this->redirect(sURL . 'login');
             return null;
         }
 
         if ($this->twoFactorService->isEnabled($currentUser->userid)) {
-            $this->redirect(sURL . 'TwoFactorAuth?error=already_enabled');
+            $this->addError('Two-factor authentication is already enabled on this account.');
+            $this->redirect(sURL . 'TwoFactorAuth');
             return null;
         }
 
@@ -109,14 +112,16 @@ class TwoFactorAuth extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
-            $this->redirect(sURL . 'login?error=unauthorized');
+            $this->addError('Please sign in to continue.');
+            $this->redirect(sURL . 'login');
             return;
         }
         $request     = new \Pramnos\Http\Request();
         $code        = $request->get('verify_code', '', 'post');
 
         if ($code === '') {
-            $this->redirect(sURL . 'TwoFactorAuth/setup?error=code_required');
+            $this->addError('Enter the code from your authenticator app.');
+            $this->redirect(sURL . 'TwoFactorAuth/setup');
             return;
         }
 
@@ -124,7 +129,8 @@ class TwoFactorAuth extends Controller
             \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'twofactor_enabled');
             $this->redirect(sURL . 'TwoFactorAuth/backup?setup=complete');
         } else {
-            $this->redirect(sURL . 'TwoFactorAuth/setup?error=invalid_code');
+            $this->addError('That code is not correct.');
+            $this->redirect(sURL . 'TwoFactorAuth/setup');
         }
     }
 
@@ -136,22 +142,26 @@ class TwoFactorAuth extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
-            $this->redirect(sURL . 'login?error=unauthorized');
+            $this->addError('Please sign in to continue.');
+            $this->redirect(sURL . 'login');
             return;
         }
         $request     = new \Pramnos\Http\Request();
         $password    = $request->get('confirm_password', '', 'post');
 
         if ($password === '') {
-            $this->redirect(sURL . 'TwoFactorAuth?error=password_required');
+            $this->addError('Your password is required to confirm this.');
+            $this->redirect(sURL . 'TwoFactorAuth');
             return;
         }
 
         if ($this->twoFactorService->disable($currentUser->userid, $password)) {
             \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'twofactor_disabled');
-            $this->redirect(sURL . 'TwoFactorAuth?success=disabled');
+            $this->addMessage('Two-factor authentication is now off.');
+            $this->redirect(sURL . 'TwoFactorAuth');
         } else {
-            $this->redirect(sURL . 'TwoFactorAuth?error=invalid_password');
+            $this->addError('That password is not correct.');
+            $this->redirect(sURL . 'TwoFactorAuth');
         }
     }
 
@@ -165,12 +175,14 @@ class TwoFactorAuth extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
-            $this->redirect(sURL . 'login?error=unauthorized');
+            $this->addError('Please sign in to continue.');
+            $this->redirect(sURL . 'login');
             return null;
         }
 
         if (!$this->twoFactorService->isEnabled($currentUser->userid)) {
-            $this->redirect(sURL . 'TwoFactorAuth?error=not_enabled');
+            $this->addError('Two-factor authentication is not enabled on this account.');
+            $this->redirect(sURL . 'TwoFactorAuth');
             return null;
         }
 
@@ -213,7 +225,8 @@ class TwoFactorAuth extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
-            $this->redirect(sURL . 'login?error=unauthorized');
+            $this->addError('Please sign in to continue.');
+            $this->redirect(sURL . 'login');
             return;
         }
 

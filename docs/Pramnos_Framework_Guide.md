@@ -4,6 +4,7 @@ use_cases:
   - Rendering a view or passing data into a template
   - Understanding how a request becomes a response (middleware pipeline, Response object)
   - Handling errors or registering an exception handler
+  - Telling the user what happened after a redirect (flash messages)
   - Reading application configuration in app/app.php
 ---
 
@@ -443,19 +444,84 @@ return [
 ```
 
 
-## Error Handling
+## Flash messages and errors
 
-### Adding Errors
+A controller tells the user what happened by flashing a sentence and redirecting. The message
+survives exactly one request: it is shown on the page the redirect lands on, and **not again on
+a reload**.
 
 ```php
-// Add error messages
-$this->addError('Something went wrong');
-$this->addError('Validation failed: ' . $validationMessage);
+// In a controller
+$this->addMessage('Saved.');
+$this->addError('That record no longer exists.');
 
-// Check for errors
+$this->redirect(sURL . 'organizations');
+```
+
+```php
+// In a view or layout
+foreach ($this->messages as $message) {
+    echo '<div class="alert alert-success">'
+        . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</div>';
+}
+foreach ($this->flashErrors as $error) {
+    echo '<div class="alert alert-danger">'
+        . htmlspecialchars($error, ENT_QUOTES, 'UTF-8') . '</div>';
+}
+```
+
+Outside a view, read them from the request: `$request->messages()` and
+`$request->flashErrors()`.
+
+!!! warning "Do not pass messages as query parameters"
+    `redirect(sURL . 'things?error=not_found')` is the shape to avoid. The text ends up in the
+    URL, so it is shown again on every reload, it stays in browser history, it is in whatever
+    the user pastes when asking for help, and it is user-controlled input arriving at a page
+    that displays it.
+
+    The framework itself did this in **sixty-seven** places until 2026-08-17. All are converted.
+
+!!! note "If your application reads the flash through `Base`"
+    All four members keep working, and they are a supported way to do it — they are `protected`
+    on `Base`, so every controller, model and theme inherits them:
+
+    | Member | Consumes the flash? | Typical use |
+    | --- | --- | --- |
+    | `hasErrors()` / `hasMessages()` | **no** | the gate: `if ($this->hasErrors())` |
+    | `_printErrors()` / `_printMessages()` | yes | renders `<span>`s |
+    | `_getErrors()` / `_getMessages()` | yes | the raw array, e.g. for a JSON response |
+
+    All four now consult the same per-request capture, because `View::__construct()` drains
+    `$_SESSION` into it. Without that, a gate answers `false` for a flash that arrived perfectly
+    well and **the printer behind it is never reached** — which is silent: nothing fails, the page
+    simply says nothing. That happened to a reference application, in its theme header and five
+    views, and took three real HTTP requests against two framework versions to find. Neither its
+    5497-test suite nor this framework's saw it.
+
+    The gates are non-destructive on purpose: a gate that consumed would leave the printer with
+    nothing, which is the same silence by the opposite route.
+
+    One residual: a `View` snapshots the bags when it is constructed, so an application that
+    prints the flash **both** in its theme header and in a template will print it twice. Which
+    one prints is the application's call — the framework cannot make that choice without
+    breaking the other.
+
+### Three things to know about the mechanism
+
+- **`$this->messages` is not `$this->errors`.** `errors` is the per-field output of a validator
+  (`['email' => ['Not an email address.']]`); `messages` and `flashErrors` are whole sentences.
+  A template that iterates one expecting the other gets field names where it wanted text.
+- **Reading consumes.** The session entry is cleared by the first read of the request, and the
+  values stay available for the rest of it — so a controller and a template can both read them
+  without one silently eating the other's.
+- **It needs a session.** With none, `addMessage()` keeps the value on the object for the
+  current request only, which is what a CLI or API context wants anyway.
+
+### Checking for errors in the same request
+
+```php
 if ($this->hasErrors()) {
-    // Handle errors
-    return $this->showErrorPage();
+    // …
 }
 ```
 

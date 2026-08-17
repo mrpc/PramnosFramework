@@ -90,6 +90,26 @@ class Request extends Base
      */
     protected static $oldInput = null;
 
+    /**
+     * Flashed messages, captured once per request.
+     *
+     * The companion to {@see $validationErrors}, for the general-purpose flash that
+     * `Base::addMessage()` writes. Null until first read.
+     *
+     * @var array|null
+     */
+    protected static $flashMessages = null;
+
+    /**
+     * Flashed errors, captured once per request.
+     *
+     * Distinct from {@see $validationErrors}: those are per-field and come from a validator,
+     * these are whole sentences a controller wrote with `Base::addError()`.
+     *
+     * @var array|null
+     */
+    protected static $flashErrors = null;
+
     public static function &getInstance()
     {
         static $instance=null;
@@ -943,6 +963,85 @@ class Request extends Base
     }
 
     /**
+     * Flashed messages written by `Base::addMessage()` on the previous request.
+     *
+     * ## Why this exists
+     *
+     * `addMessage()` and `addError()` have written `$_SESSION['_messages']` and
+     * `$_SESSION['_errors']` for as long as the framework has had them, and **nothing ever
+     * read them back**: `Base::_getMessages()` and `_getErrors()` are `protected` and were
+     * called from nowhere in the framework. So the flash mechanism the guides recommend had
+     * no display side at all, and sixty-seven controller redirects carried `?error=…` query
+     * parameters instead — which nothing read either.
+     *
+     * Captured and cleared exactly like validation errors, by the same method, so a message
+     * survives one redirect and is not shown again on a reload. That is the whole point of a
+     * flash, and it is what a query parameter cannot do.
+     *
+     * @return array<int, string>
+     */
+    public function messages(): array
+    {
+        if (self::$flashMessages === null) {
+            $this->loadFlashedValidationState();
+        }
+
+        return is_array(self::$flashMessages) ? self::$flashMessages : array();
+    }
+
+    /**
+     * Flashed errors written by `Base::addError()` on the previous request.
+     *
+     * Not {@see errors()}, which is the per-field output of a validator. These are sentences.
+     *
+     * @return array<int, string>
+     */
+    public function flashErrors(): array
+    {
+        if (self::$flashErrors === null) {
+            $this->loadFlashedValidationState();
+        }
+
+        return is_array(self::$flashErrors) ? self::$flashErrors : array();
+    }
+
+    /**
+     * Flashed messages, consumed: the captured bag is emptied.
+     *
+     * The destructive counterpart to {@see messages()}. `Base::_getMessages()` uses this
+     * because its documented behaviour is one-shot — the second call in a request answers
+     * `false` — and a non-destructive fallback would have quietly removed that guarantee.
+     *
+     * A `View` that has already copied the bag into `$messages` keeps its copy: the snapshot is
+     * taken when the view is constructed, which is before a theme's header renders. That is
+     * deliberate, because both readers must be able to see the flash — an application whose
+     * header prints it and whose template also prints it will print it twice, and choosing
+     * which one prints is the application's call, not the framework's.
+     *
+     * @return array<int, string>
+     */
+    public function takeMessages(): array
+    {
+        $messages = $this->messages();
+        self::$flashMessages = array();
+
+        return $messages;
+    }
+
+    /**
+     * Flashed errors, consumed.
+     *
+     * @return array<int, string>
+     */
+    public function takeFlashErrors(): array
+    {
+        $errors = $this->flashErrors();
+        self::$flashErrors = array();
+
+        return $errors;
+    }
+
+    /**
      * Get old input from session and optionally clear it
      *
      * @param string|null $key
@@ -970,7 +1069,14 @@ class Request extends Base
         self::$validationErrors = array();
         self::$oldInput = array();
 
-        unset($_SESSION['_validation_errors'], $_SESSION['_old_input']);
+        self::$flashMessages = array();
+        self::$flashErrors = array();
+        unset(
+            $_SESSION['_validation_errors'],
+            $_SESSION['_old_input'],
+            $_SESSION['_messages'],
+            $_SESSION['_errors']
+        );
     }
 
     /**
@@ -982,7 +1088,9 @@ class Request extends Base
      */
     protected function loadFlashedValidationState()
     {
-        if (self::$validationErrors !== null && self::$oldInput !== null) {
+        if (self::$validationErrors !== null && self::$oldInput !== null
+            && self::$flashMessages !== null && self::$flashErrors !== null
+        ) {
             return;
         }
 
@@ -996,6 +1104,21 @@ class Request extends Base
             ? $_SESSION['_old_input']
             : array();
 
-        unset($_SESSION['_validation_errors'], $_SESSION['_old_input']);
+        self::$flashMessages = isset($_SESSION['_messages'])
+        && is_array($_SESSION['_messages'])
+            ? array_values($_SESSION['_messages'])
+            : array();
+
+        self::$flashErrors = isset($_SESSION['_errors'])
+        && is_array($_SESSION['_errors'])
+            ? array_values($_SESSION['_errors'])
+            : array();
+
+        unset(
+            $_SESSION['_validation_errors'],
+            $_SESSION['_old_input'],
+            $_SESSION['_messages'],
+            $_SESSION['_errors']
+        );
     }
 }

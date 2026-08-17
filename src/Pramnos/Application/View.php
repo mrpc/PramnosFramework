@@ -64,6 +64,27 @@ class View extends \Pramnos\Framework\Base
      */
     public $errors = array();
 
+    /**
+     * Flash messages written with `addMessage()` on the previous request.
+     *
+     * Distinct from {@see $errors}, which is the per-field output of a validator. These are
+     * whole sentences a controller wrote before redirecting — "Application saved", "That id
+     * does not exist" — and they are consumed once: a reload does not show them again.
+     *
+     * Until 2026-08-17 there was nowhere for a template to read them, so controllers passed
+     * `?error=…` in the redirect URL instead. Nothing read that either, in either direction.
+     *
+     * @var array<int, string>
+     */
+    public $messages = array();
+
+    /**
+     * Flash errors written with `addError()` on the previous request.
+     *
+     * @var array<int, string>
+     */
+    public $flashErrors = array();
+
     // =========================================================================
     // Template engine state
     // =========================================================================
@@ -189,6 +210,11 @@ class View extends \Pramnos\Framework\Base
 
         $this->request = new \Pramnos\Http\Request();
         $this->errors = $this->request->errors();
+
+        // Read here rather than in the template, and read once: the same one-shot capture as
+        // the validation errors above, so a message survives exactly one redirect.
+        $this->messages    = $this->request->messages();
+        $this->flashErrors = $this->request->flashErrors();
 
         parent::__construct();
     }

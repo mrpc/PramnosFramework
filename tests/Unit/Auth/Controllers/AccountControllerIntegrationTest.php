@@ -495,7 +495,11 @@ class AccountControllerIntegrationTest extends TestCase
         $echoed = ob_get_clean();
 
         // Assert — redirected to the site root with the success message
-        $this->assertStringContainsString('message=account_deleted', $echoed);
+        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
+        $this->assertContains(
+            'Your account has been deleted.',
+            $_SESSION['_messages'] ?? []
+        );
         // logout() must have flipped the session flag
         $this->assertFalse($_SESSION['logged']);
     }

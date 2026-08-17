@@ -75,18 +75,21 @@ class ServicesController extends Controller
         $service = $this->findService($name);
 
         if ($service === null) {
-            $this->redirect(sURL . 'services?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'services');
             return;
         }
 
         $lockFile = (string) ($service['lockFile'] ?? '');
         if ($lockFile === '') {
-            $this->redirect(sURL . 'services?error=no_lock_file');
+            $this->addError('That service has no lock file, so it does not appear to be running.');
+            $this->redirect(sURL . 'services');
             return;
         }
 
         file_put_contents($lockFile . '.stop', '1');
-        $this->redirect(sURL . 'services?message=stopped');
+        $this->addMessage('Stopped.');
+        $this->redirect(sURL . 'services');
     }
 
     /**
@@ -102,7 +105,8 @@ class ServicesController extends Controller
         }
 
         $this->clearStopFile($name);
-        $this->redirect(sURL . 'services?message=started');
+        $this->addMessage('Started.');
+        $this->redirect(sURL . 'services');
     }
 
     /**
@@ -117,7 +121,8 @@ class ServicesController extends Controller
         }
 
         $this->clearStopFile($name);
-        $this->redirect(sURL . 'services?message=restarted');
+        $this->addMessage('Restarted.');
+        $this->redirect(sURL . 'services');
     }
 
     /**
@@ -133,7 +138,8 @@ class ServicesController extends Controller
         $service = $this->findService($name);
 
         if ($service === null) {
-            $this->redirect(sURL . 'services?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'services');
             return null;
         }
 

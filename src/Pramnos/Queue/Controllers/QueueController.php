@@ -92,7 +92,8 @@ class QueueController extends Controller
 
         $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
-            $this->redirect(sURL . 'queue?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'queue');
             return;
         }
 
@@ -108,7 +109,8 @@ class QueueController extends Controller
                 'lockexpires' => null,
             ]);
 
-        $this->redirect(sURL . 'queue?message=retried');
+        $this->addMessage('Queued again.');
+        $this->redirect(sURL . 'queue');
     }
 
     /**
@@ -132,7 +134,8 @@ class QueueController extends Controller
                 'lockexpires' => null,
             ]);
 
-        $this->redirect(sURL . 'queue?message=retried_all');
+        $this->addMessage('Every failed job has been queued again.');
+        $this->redirect(sURL . 'queue');
     }
 
     /**
@@ -147,7 +150,8 @@ class QueueController extends Controller
 
         $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
-            $this->redirect(sURL . 'queue?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'queue');
             return;
         }
 
@@ -157,7 +161,8 @@ class QueueController extends Controller
             ->where('taskid', $taskId)
             ->update(['status' => 'deleted']);
 
-        $this->redirect(sURL . 'queue?message=deleted');
+        $this->addMessage('Deleted.');
+        $this->redirect(sURL . 'queue');
     }
 
     /**
@@ -175,7 +180,8 @@ class QueueController extends Controller
         $allowed      = ['failed', 'completed', 'deleted'];
 
         if (!in_array($targetStatus, $allowed, true)) {
-            $this->redirect(sURL . 'queue?error=invalid_status');
+            $this->addError('That is not a status this queue uses.');
+            $this->redirect(sURL . 'queue');
             return;
         }
 
@@ -185,7 +191,8 @@ class QueueController extends Controller
             ->where('status', $targetStatus)
             ->update(['status' => 'deleted']);
 
-        $this->redirect(sURL . 'queue?message=cleared');
+        $this->addMessage('Cleared.');
+        $this->redirect(sURL . 'queue');
     }
 
     /**

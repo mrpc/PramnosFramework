@@ -52,7 +52,8 @@ class ApplicationsController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
-            $this->redirect(sURL . 'applications?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'applications');
             return null;
         }
 
@@ -63,7 +64,8 @@ class ApplicationsController extends Controller
             ->first();
 
         if (!$app || $app->numRows === 0) {
-            $this->redirect(sURL . 'applications?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'applications');
             return null;
         }
 
@@ -185,8 +187,15 @@ class ApplicationsController extends Controller
 
         $view              = $this->getView('applications');
         $view->application = null;
-        $view->message     = $_GET['message'] ?? '';
-        $view->error       = $_GET['error'] ?? '';
+        // From the flash, not the query string — nothing emits those parameters any more.
+        //
+        // Read from the request rather than from `$view->messages`: a view here may be a test
+        // double or an application's own class, and the first version of this assumed the
+        // framework's `View` and its new properties, which cost three `implode(): null given`
+        // errors. Non-destructive, so a theme header can still print them.
+        $request           = \Pramnos\Http\Request::getInstance();
+        $view->message     = implode(' ', $request->messages());
+        $view->error       = implode(' ', $request->flashErrors());
 
         if ($id > 0) {
             $db     = \Pramnos\Framework\Factory::getDatabase();
@@ -196,7 +205,8 @@ class ApplicationsController extends Controller
                 ->first();
 
             if (!$result || $result->numRows === 0) {
-                $this->redirect(sURL . 'applications?error=not_found');
+                $this->addError('That record no longer exists.');
+                $this->redirect(sURL . 'applications');
                 return null;
             }
 
@@ -238,7 +248,8 @@ class ApplicationsController extends Controller
         $jwks_uri        = trim((string) ($_POST['jwks_uri']        ?? ''));
 
         if ($name === '') {
-            $this->redirect(sURL . 'applications/edit/' . $id . '?error=name_required');
+            $this->addError('A name is required.');
+            $this->redirect(sURL . 'applications/edit/' . $id);
             return;
         }
 
@@ -284,7 +295,8 @@ class ApplicationsController extends Controller
                 ->insert($fields);
         }
 
-        $this->redirect(sURL . 'applications?message=saved');
+        $this->addMessage('Saved.');
+        $this->redirect(sURL . 'applications');
     }
 
     /**
@@ -299,7 +311,8 @@ class ApplicationsController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
-            $this->redirect(sURL . 'applications?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'applications');
             return;
         }
 
@@ -318,7 +331,8 @@ class ApplicationsController extends Controller
             ->where('appid', $id)
             ->update(['status' => 0]);
 
-        $this->redirect(sURL . 'applications?message=deleted');
+        $this->addMessage('Deleted.');
+        $this->redirect(sURL . 'applications');
     }
 
     /**
@@ -332,7 +346,8 @@ class ApplicationsController extends Controller
 
         $appId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($appId <= 0) {
-            $this->redirect(sURL . 'applications?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'applications');
             return null;
         }
 
@@ -344,7 +359,8 @@ class ApplicationsController extends Controller
             ->first();
 
         if (!$app || $app->numRows === 0) {
-            $this->redirect(sURL . 'applications?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'applications');
             return null;
         }
 
@@ -380,7 +396,8 @@ class ApplicationsController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
-            $this->redirect(sURL . 'applications?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'applications');
             return;
         }
 
@@ -392,7 +409,8 @@ class ApplicationsController extends Controller
             ->where('appid', $id)
             ->update(['apisecret' => $newSecret]);
 
-        $this->redirect(sURL . 'applications/edit/' . $id . '?message=secret_rotated');
+        $this->addMessage('A new secret has been generated.');
+        $this->redirect(sURL . 'applications/edit/' . $id);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

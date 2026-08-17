@@ -295,7 +295,11 @@ class TwoFactorAuthTest extends BaseTestCase
             $this->controller->setup();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=already_enabled', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'Two-factor authentication is already enabled on this account.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -329,7 +333,11 @@ class TwoFactorAuthTest extends BaseTestCase
             $this->controller->setup();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=invalid_code', $this->controller->redirectedTo[0]);
+            // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
+            $this->assertContains(
+                'That code is not correct.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -391,8 +399,13 @@ class TwoFactorAuthTest extends BaseTestCase
                 'display() must redirect exactly once when no user is logged in');
             $this->assertStringContainsString('login', $this->controller->redirectedTo[0],
                 'display() must redirect to the login page');
-            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0],
-                'display() must include error=unauthorized in the redirect URL');
+            // The message itself, not a query parameter: `unauthorized` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Please sign in to continue.',
+                $_SESSION['_errors'] ?? [],
+                'display() must include error=unauthorized in the redirect URL'
+            );
         }
     }
 
@@ -425,7 +438,12 @@ class TwoFactorAuthTest extends BaseTestCase
             // Assert — redirected to login
             $this->assertCount(1, $this->controller->redirectedTo);
             $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
-            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+            // The message itself, not a query parameter: `unauthorized` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Please sign in to continue.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -458,7 +476,12 @@ class TwoFactorAuthTest extends BaseTestCase
             // Assert
             $this->assertCount(1, $this->controller->redirectedTo);
             $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
-            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+            // The message itself, not a query parameter: `unauthorized` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Please sign in to continue.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -484,8 +507,13 @@ class TwoFactorAuthTest extends BaseTestCase
         } finally {
             // Assert — error=password_required in redirect
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=password_required', $this->controller->redirectedTo[0],
-                'disable() must redirect with error=password_required when confirm_password is empty');
+            // The message itself, not a query parameter: `password_required` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Your password is required to confirm this.',
+                $_SESSION['_errors'] ?? [],
+                'disable() must redirect with error=password_required when confirm_password is empty'
+            );
         }
     }
 
@@ -514,8 +542,13 @@ class TwoFactorAuthTest extends BaseTestCase
         } finally {
             // Assert — service returned false → error=invalid_password redirect
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=invalid_password', $this->controller->redirectedTo[0],
-                'disable() must redirect with error=invalid_password when TwoFactorAuthService::disable() returns false');
+            // The message itself, not a query parameter: `invalid_password` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'That password is not correct.',
+                $_SESSION['_errors'] ?? [],
+                'disable() must redirect with error=invalid_password when TwoFactorAuthService::disable() returns false'
+            );
         }
     }
 
@@ -542,8 +575,13 @@ class TwoFactorAuthTest extends BaseTestCase
         } finally {
             // Assert — service succeeded → success=disabled redirect
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('success=disabled', $this->controller->redirectedTo[0],
-                'disable() must redirect with success=disabled when 2FA is successfully deactivated');
+            // The message itself, not a query parameter: `disabled` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Two-factor authentication is now off.',
+                $_SESSION['_messages'] ?? [],
+                'disable() must redirect with success=disabled when 2FA is successfully deactivated'
+            );
         }
     }
 
@@ -575,7 +613,12 @@ class TwoFactorAuthTest extends BaseTestCase
             // Assert
             $this->assertCount(1, $this->controller->redirectedTo);
             $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
-            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+            // The message itself, not a query parameter: `unauthorized` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Please sign in to continue.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 
@@ -599,8 +642,13 @@ class TwoFactorAuthTest extends BaseTestCase
         } finally {
             // Assert — redirected with not_enabled error
             $this->assertCount(1, $this->controller->redirectedTo);
-            $this->assertStringContainsString('error=not_enabled', $this->controller->redirectedTo[0],
-                'backup() must redirect with error=not_enabled when 2FA is disabled');
+            // The message itself, not a query parameter: `not_enabled` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Two-factor authentication is not enabled on this account.',
+                $_SESSION['_errors'] ?? [],
+                'backup() must redirect with error=not_enabled when 2FA is disabled'
+            );
         }
     }
 
@@ -748,7 +796,12 @@ class TwoFactorAuthTest extends BaseTestCase
             // Assert
             $this->assertCount(1, $this->controller->redirectedTo);
             $this->assertStringContainsString('login', $this->controller->redirectedTo[0]);
-            $this->assertStringContainsString('unauthorized', $this->controller->redirectedTo[0]);
+            // The message itself, not a query parameter: `unauthorized` sat in the URL and
+            // nothing ever read it back.
+            $this->assertContains(
+                'Please sign in to continue.',
+                $_SESSION['_errors'] ?? []
+            );
         }
     }
 

@@ -128,7 +128,8 @@ class OrganizationsController extends Controller
                 ->first();
 
             if (!$result || $result->numRows === 0) {
-                $this->redirect(sURL . 'organizations?error=not_found');
+                $this->addError('That record no longer exists.');
+                $this->redirect(sURL . 'organizations');
                 return null;
             }
 
@@ -157,12 +158,14 @@ class OrganizationsController extends Controller
         // CSRF validation.
         $session = \Pramnos\Http\Session::getInstance();
         if (!$session->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
-            $this->redirect(sURL . 'organizations/edit/' . $id . '?error=invalid_token');
+            $this->addError('That form had expired. Please try again.');
+            $this->redirect(sURL . 'organizations/edit/' . $id);
             return;
         }
 
         if ($name === '') {
-            $this->redirect(sURL . 'organizations/edit/' . $id . '?error=name_required');
+            $this->addError('A name is required.');
+            $this->redirect(sURL . 'organizations/edit/' . $id);
             return;
         }
 
@@ -189,7 +192,8 @@ class OrganizationsController extends Controller
                 ]);
         }
 
-        $this->redirect(sURL . 'organizations?message=saved');
+        $this->addMessage('Saved.');
+        $this->redirect(sURL . 'organizations');
     }
 
     /**
@@ -204,7 +208,8 @@ class OrganizationsController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
-            $this->redirect(sURL . 'organizations?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'organizations');
             return;
         }
 
@@ -214,7 +219,8 @@ class OrganizationsController extends Controller
             ->where('organization_id', $id)
             ->update(['is_active' => 0]);
 
-        $this->redirect(sURL . 'organizations?message=deleted');
+        $this->addMessage('Deleted.');
+        $this->redirect(sURL . 'organizations');
     }
 
     /**
@@ -229,7 +235,8 @@ class OrganizationsController extends Controller
 
         $orgId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($orgId <= 0) {
-            $this->redirect(sURL . 'organizations?error=invalid_id');
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(sURL . 'organizations');
             return null;
         }
 
@@ -243,7 +250,8 @@ class OrganizationsController extends Controller
             ->first();
 
         if (!$org || $org->numRows === 0) {
-            $this->redirect(sURL . 'organizations?error=not_found');
+            $this->addError('That record no longer exists.');
+            $this->redirect(sURL . 'organizations');
             return null;
         }
 
@@ -279,7 +287,8 @@ class OrganizationsController extends Controller
         $userId = (int) ($_POST['userid'] ?? 0);
 
         if ($orgId <= 0 || $userId <= 0) {
-            $this->redirect(sURL . 'organizations/' . $orgId . '/members?error=invalid_ids');
+            $this->addError('No valid entries were selected.');
+            $this->redirect(sURL . 'organizations/' . $orgId . '/members');
             return;
         }
 
@@ -302,7 +311,8 @@ class OrganizationsController extends Controller
                 ['granted_by', 'is_active']
             );
 
-        $this->redirect(sURL . 'organizations/' . $orgId . '/members?message=added');
+        $this->addMessage('Added.');
+        $this->redirect(sURL . 'organizations/' . $orgId . '/members');
     }
 
     /**
@@ -319,7 +329,8 @@ class OrganizationsController extends Controller
         $userId = (int) ($userId ?? 0);
 
         if ($orgId <= 0 || $userId <= 0) {
-            $this->redirect(sURL . 'organizations/' . $orgId . '/members?error=invalid_ids');
+            $this->addError('No valid entries were selected.');
+            $this->redirect(sURL . 'organizations/' . $orgId . '/members');
             return;
         }
 
@@ -333,7 +344,8 @@ class OrganizationsController extends Controller
             ->where($orgCol, $orgId)
             ->update(['is_active' => 0]);
 
-        $this->redirect(sURL . 'organizations/' . $orgId . '/members?message=removed');
+        $this->addMessage('Removed.');
+        $this->redirect(sURL . 'organizations/' . $orgId . '/members');
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
