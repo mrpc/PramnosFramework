@@ -465,6 +465,104 @@ if ($session->checkToken('post', 'csrf_')) {
 $session->reset();
 ```
 
+## Handing the browser's user an API token
+
+A hybrid application — a session-authenticated site and a token-authenticated SPA on one
+origin — has two credentials with two lifetimes. The symptom is always reported the same
+way: *"I am signed in on the site; if I leave it a while and then open the panel, it asks
+me to log in again."* The site knows who they are; the panel has no way to ask.
+
+```php
+use Pramnos\Auth\SessionExchange;
+
+$token = SessionExchange::issue(minimumUserType: 90, ttl: 43200);
+if ($token === null) {
+    return \Pramnos\Http\Response::redirect(sURL . 'login');
+}
+
+return \Pramnos\Http\Response::redirect(
+    SessionExchange::redirectUrl(sURL . 'panel/', $token)
+);
+```
+
+Put that on a session-authenticated route. It answers `null` when nobody is signed in,
+when the minimum is not met, or when no signing key is configured — a route that
+redirects sensibly either way is the intended caller.
+
+### Not `UnifiedAuthMiddleware`
+
+That solves the **other** direction: it lets an API endpoint accept a cookie plus a CSRF
+token. Reaching for it here has a cost worth naming — it makes the API authenticate with
+cookies, which quietly invalidates every decision an application made *because* it does
+not. A permissive CORS default is the usual one, and it was introduced a long way from
+where it would break.
+
+An exchange goes one way, at one moment, and the API still never reads a cookie.
+
+### The four decisions it makes for you
+
+Three are only wrong in ways nobody notices.
+
+| Decision | Why it is not the caller's to make |
+| --- | --- |
+| **The role is re-read from the database**, not taken from the session | a remember-me cookie can outlive a demotion by a fortnight, and a token minted from that session is then good for its whole lifetime |
+| **The token travels in the URL fragment** | a fragment is never sent to a server. `?token=` works, reviews identically, and writes the credential into the access log of every hop and into `Referer` |
+| **Nothing is issued for an anonymous caller** | no implicit token, no partial credential |
+| **Failure is `null`, not an exception** | the caller is a route that has to redirect somewhere either way |
+
+The claim set matches the API login's, so an exchanged token is indistinguishable to
+every verifier. The row is recorded with `notes = 'session_exchange'`, so a session list
+can say where the credential came from, and the exchange is written to the activity log.
+
+### The one decision that stays yours
+
+An SPA that bounces to the exchange route when it has no token **must record that it has
+bounced before redirecting**, not after. The route redirects back without a fragment when
+it cannot help, so a flag written afterwards is an infinite bounce — on the one page an
+operator opens when something is already wrong.
+
+And clear the fragment once adopted (`history.replaceState`), or the token survives in
+browser history and in whatever a visitor pastes when asking for help.
+
+## Requests that are somebody without being an account
+
+`RequestIdentity::seal()` models *an account* or *nobody*. That is right for an API,
+where anonymous means no identity at all, and not enough for an application whose
+unauthenticated callers are people: a chat participant with a nickname and a session,
+present in a room, mutable, bannable, addressable, and the same person across requests
+for as long as they stay.
+
+```php
+RequestIdentity::sealGuest($presenceId, 'presence');
+
+RequestIdentity::isGuest();    // true
+RequestIdentity::user();       // null — an account is still an account
+RequestIdentity::guestId();    // the opaque id
+RequestIdentity::subject();    // the id, whichever kind of identity this is
+```
+
+`subject()` is the reason to use this rather than a parallel mechanism: one question, one
+answer, for all three states. Without it an application keeps a second notion of who the
+caller is, and every consumer has to know which of the two to consult.
+
+The id is opaque and the framework does not interpret it. A presence row, a signed
+cookie, a hash of a nickname and a session are all yours.
+
+**Three rules the framework enforces**, because each is only wrong invisibly:
+
+- **A guest never replaces an account.** `sealGuest()` on an already-authenticated
+  request is refused and logged. A middleware that seals a guest unconditionally,
+  ordered after the one that authenticates, would otherwise demote the caller and every
+  later permission check would answer for the wrong person.
+- **An account does replace a guest**, because that is a real login — and a request must
+  not end up holding both identities.
+- **`user()` keeps returning null.** A guest is not a `users` row, and code asking for a
+  user is not handed something that resembles one. That is why `isGuest()` is a separate
+  question.
+
+An empty id is refused: every such guest would be indistinguishable, so a mute, a ban or
+a rate limit keyed on it would apply to all of them at once.
+
 ## What a session record contains
 
 Every token in `usertokens` carries a `deviceinfo` column, JSON-encoded:
