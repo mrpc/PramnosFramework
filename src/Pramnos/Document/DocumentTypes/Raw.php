@@ -10,7 +10,7 @@ class Raw extends \Pramnos\Document\Document
 
     function render()
     {
-        $content = self::_getContent();
+        $content = $this->bodyContent();
 
         /**
          * Post-process the rendered output to inject CSP nonces into inline

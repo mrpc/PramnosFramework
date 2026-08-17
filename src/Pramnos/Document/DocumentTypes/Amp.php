@@ -131,7 +131,7 @@ class Amp extends \Pramnos\Document\Document
 
         $content .= $this->parse($this->head);
         #$content .=parent::getContent();
-        $content .= self::_getContent();
+        $content .= $this->bodyContent();
         $content .= $this->parse($this->foot);
         $content .= "\n</body>\n</html>";
         return $content;

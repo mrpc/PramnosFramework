@@ -25,7 +25,7 @@ class Json extends \Pramnos\Document\Document
                 . $lang->_('CHARSET')
             );
         }
-        return self::_getContent();
+        return $this->bodyContent();
     }
 
 }
