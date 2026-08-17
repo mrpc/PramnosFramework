@@ -3,6 +3,9 @@ use_cases:
   - Building or modifying a theme
   - Working with templates, widgets or menus
   - Registering theme assets (CSS/JS) or theme settings
+  - Getting a page's HTML to appear inside a theme's [MODULE] placeholder
+  - Diagnosing a theme that renders a header and footer with an empty page
+  - Rendering a document outside the framework's own MVC path
 ---
 
 # Pramnos Framework - Theme System Guide
@@ -131,6 +134,65 @@ The main template file defines the overall page structure:
 </body>
 </html>
 ```
+
+### How a page's content reaches `[MODULE]`
+
+`[MODULE]` is where the page goes, and the theme guide used to stop there — leaving *how
+the page gets there* undocumented. It cost a consuming project real time, so it is spelled
+out here.
+
+**Set it with `setContent()` or `addContent()` on the document:**
+
+```php
+$document = \Pramnos\Document\Document::getInstance();
+
+$document->setContent($html);        // replaces whatever is there
+$document->addContent($moreHtml);    // appends
+echo $document->getContent();        // reads it back
+```
+
+That is the whole API, and in an MVC application the framework already calls it for you —
+a controller's view output is put there before the document renders. You need it directly
+when you render outside that path: a custom route, a service-layer application adding
+server-rendered pages, an error page assembled by hand.
+
+!!! note "`$document->content` also works now, and used to be a trap"
+    The property is public and looks exactly like the seam, but only `Document::render()`
+    read it — and every concrete document type (`Html`, `Amp`, `Json`, `Png`, `Raw`)
+    overrides `render()` and read a static buffer instead. So on an HTML page
+    `$document->content = $html` produced a correct header, a correct footer, and **nothing
+    between them**: the theme visibly working, the page visibly empty, and no error to look
+    up.
+
+    Since 2026-08-17 every type falls back to the property when the buffer is empty, so
+    both work. Prefer `setContent()` anyway: it is what the framework itself uses, and it
+    is the one that composes with `addContent()`.
+
+**The buffer is `static`.** One process, one buffer, shared by every document instance. It
+matters in exactly two places: a long-running worker that renders more than one document
+must reset it (`$document->setContent('')`) between them, and a test that forgets to reset
+it reads the previous test's page.
+
+### When the theme body is loaded
+
+Lazily, by the first accessor that needs it — `gethead()`, `getfoot()` or `getheader()`
+reads `theme.<type>.php` if nothing has read it yet. So this works:
+
+```php
+$document->themeObject = \Pramnos\Theme\Theme::getTheme('mytheme', 'app/themes', false);
+echo $document->render();
+```
+
+Two details worth knowing:
+
+- `Document::loadtheme()` passes `$load = false` to `Theme::getTheme()`, so the object it
+  hands back has read nothing yet. Before the lazy load existed, an application that
+  assigned `themeObject` and rendered through any route other than `Html::render()` — which
+  calls `loadTheme()` itself — got an object that reported no error and produced the
+  framework's bare default, because the accessors were splitting an empty string.
+- An explicit `loadtheme()` call still re-reads, every time. That is deliberate: the file it
+  picks depends on the content type, so setting a content type and reloading is how you
+  switch templates. And a `body` you assign yourself is never read over.
 
 ### Content Type Templates
 

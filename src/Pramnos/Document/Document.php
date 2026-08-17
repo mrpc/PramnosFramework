@@ -1247,10 +1247,39 @@ class Document extends \Pramnos\Framework\Base
         $content = '';
         $content .= $this->parse($this->header);
         $content .= $this->parse($this->head);
-        $content .= $this->content;
+        $content .= $this->bodyContent();
         $content .= $this->parse($this->foot);
         \Pramnos\Addon\Addon::doAction('send_headers');
         return $content;
+    }
+
+    /**
+     * The page body, from wherever this document's content was actually put.
+     *
+     * Two mechanisms exist and they disagreed. `Document::render()` read the public
+     * `$content` property; every concrete type — `Html`, `Amp`, `Json`, `Png`, `Raw` —
+     * read the static buffer instead. So `$document->content = $html` on an HTML page
+     * produced a correct header, a correct footer, and nothing between them: the theme
+     * visibly working and the page visibly empty, with no error anywhere. Reported from a
+     * project adopting themes for the first time, and it is not guessable — the property is
+     * public, it is what the parent class reads, and it looks exactly like the seam.
+     *
+     * The buffer wins when it holds anything, so no working page changes. The only
+     * behaviour that changes is a page that renders blank today.
+     *
+     * The buffer is the mechanism the framework itself uses, through
+     * {@see setContent()} and {@see addContent()}. This is the reconciliation, not a
+     * third way in: prefer those.
+     *
+     * @return string
+     */
+    protected function bodyContent(): string
+    {
+        $buffered = self::_getContent();
+
+        return ($buffered !== '' && $buffered !== null)
+            ? (string) $buffered
+            : (string) $this->content;
     }
 
     public static function _addContent($content)

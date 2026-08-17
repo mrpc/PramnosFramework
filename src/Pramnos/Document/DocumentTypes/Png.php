@@ -13,7 +13,7 @@ class Png extends \Pramnos\Document\Document
         if (!headers_sent()) {
             header('Content-Type: image/png');
         }
-        return self::_getContent();
+        return $this->bodyContent();
     }
 
 }

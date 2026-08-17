@@ -369,11 +369,42 @@ class Theme extends \Pramnos\Framework\Base
     }
 
     /**
+     * Read the theme file if nothing has read it yet.
+     *
+     * `Document::loadtheme()` builds the theme object with `$load = false`, so
+     * `Theme::loadtheme()` never runs and `$contents` stays empty. `Html::render()` happens
+     * to call `loadTheme()` itself, which is why the framework's own path works — and why
+     * this was hard to find from outside: an application that assigns `themeObject` and
+     * renders through any other route got an object reporting no error and producing the
+     * bare default, because `gethead()` and `getfoot()` were splitting an empty string.
+     *
+     * Loading here makes "the body is loaded lazily" true rather than nearly true. It does
+     * **not** short-circuit an explicit `loadtheme()` call: that still re-reads, because the
+     * file it picks depends on the content type, and an application that sets a content type
+     * and reloads is asking for a different template on purpose.
+     *
+     * The condition is **nothing read yet**, both `contents` and `body` — not merely an empty
+     * `contents`. A caller that assigns `body` itself, bypassing the theme file entirely, has
+     * supplied the very thing this would load; reading over it would replace a deliberate
+     * value with a file's. Caught immediately by an existing test that does exactly that.
+     *
+     * @return void
+     */
+    protected function loadIfUnread(): void
+    {
+        if ((string) $this->contents === '' && (string) $this->body === '') {
+            $this->loadtheme();
+        }
+    }
+
+    /**
      * Get everything inside <head>
      * @return text
      */
     public function getheader()
     {
+        $this->loadIfUnread();
+
         if (preg_match("/\<head>(.*?)<\/head>/is", $this->contents, $result)) {
             return $result[1];
         } else {
@@ -386,6 +417,8 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function gethead()
     {
+        $this->loadIfUnread();
+
         $return = '';
         $head = substr($this->body, 0, strpos($this->body, "[MODULE]"));
         $return .= $head; //pass html code to the browser
@@ -398,6 +431,8 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function getfoot()
     {
+        $this->loadIfUnread();
+
         $return = '';
         $foot = substr($this->body, (strpos($this->body, "[MODULE]") + 8));
         $return .= "\n<!-- End of Module Content -->\n";
