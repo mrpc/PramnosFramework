@@ -30,6 +30,17 @@ class Addon extends \Pramnos\Framework\Base
      * @var string
      */
     public $type = 'system';
+
+    /**
+     * The addon's declared settings.
+     *
+     * Null until the first {@see addSetting()} call. Like `Theme`'s, this was declared and
+     * never assigned — so `addSetting()` and the multilanguage branch of
+     * {@see getProperty()} both fatalled, and **no addon could have settings at all**. See
+     * {@see \Pramnos\Html\Form\SettingsForm}.
+     *
+     * @var \Pramnos\Html\Form\SettingsForm|null
+     */
     protected $_form;
     private static $_addons = array();
     private static $_actions = array();
@@ -469,11 +480,28 @@ class Addon extends \Pramnos\Framework\Base
         if (is_numeric(substr($name, 0, 1))) {
             $name = '_' . $name;
         }
-        $this->_form->addField(
+        $this->settingsForm()->addField(
             $name, $title, $type, $options, $description,
             $required, $default, $value, $multilanguage
         );
+
         return $this;
+    }
+
+    /**
+     * The settings form, created on first use.
+     *
+     * @return \Pramnos\Html\Form\SettingsForm
+     */
+    protected function settingsForm(): \Pramnos\Html\Form\SettingsForm
+    {
+        if ($this->_form === null) {
+            $this->_form = new \Pramnos\Html\Form\SettingsForm(
+                'addon_' . $this->name
+            );
+        }
+
+        return $this->_form;
     }
 
     /**
@@ -547,15 +575,17 @@ class Addon extends \Pramnos\Framework\Base
             $language = $lang->currentlang();
         }
 
-        if (isset($this->_form->_multilanguageFields[$language])
-            && isset(
-                $this->_form->_multilanguageFields[$language][$property]
-            )) {
-            return $this->_form->_multilanguageFields[$language][$property]
-                ->value;
-        } else {
-            return $this->$property;
+        // A translated setting when one was declared for this language, the addon's own
+        // property otherwise. `$this->_form` is null for an addon that declares no settings,
+        // which is most of them.
+        if ($this->_form !== null) {
+            $field = $this->_form->field($property, $language);
+            if ($field !== null) {
+                return $field->value;
+            }
         }
+
+        return $this->$property;
     }
 
 }

@@ -240,27 +240,91 @@ class ThemeTest extends TestCase
         $this->assertIsArray($themes);
     }
     
+    /**
+     * The settings methods work against the real form, with no stub in sight.
+     *
+     * This test used to inject an anonymous object implementing `addField()` and a public
+     * `$_fields`, because the collaborator those methods called into — a legacy class named
+     * `pramnos_html_form` — **was never ported**, so the only way to exercise them was to
+     * supply a fake. That is worth remembering as a signal: a test that has to invent its
+     * subject's collaborator is describing something that cannot run in production, and
+     * these five methods could not.
+     *
+     * `SettingsForm` exists now, and the form is created on first use, so there is nothing
+     * to inject.
+     *
+     * @return void
+     */
     public function testSettingsFunctions(): void
     {
-        // Mock the form since Settings relies on form object internally
-        $mockForm = new class {
-            public array $_fields = [];
-            public function addField($name, $title, $type, $options, $description, $required, $default, $value) {
-                $field = new \stdClass();
-                $field->value = $value;
-                $this->_fields[$name] = $field;
-            }
-        };
-        
-        $ref = new \ReflectionProperty($this->theme, '_form');
-        $ref->setValue($this->theme, $mockForm);
-        
+        // Assert — nothing declared yet
         $this->assertFalse($this->theme->hasSettings());
-        
-        $this->theme->addSetting('test_setting', 'Test', 'textfield', null, 'Desc', false, 'def', 'val');
+
+        // Act
+        $this->theme->addSetting(
+            'test_setting', 'Test', 'textfield', null, 'Desc', false, 'def', 'val'
+        );
+
+        // Assert
         $this->assertTrue($this->theme->hasSettings());
         $this->assertSame('val', $this->theme->getSetting('test_setting'));
         $this->assertNull($this->theme->getSetting('missing'));
+    }
+
+    /**
+     * A declared setting falls back to its default until a value is set.
+     *
+     * The distinction the form draws between "no value" and "an empty value": a setting
+     * deliberately saved as an empty string must stay empty rather than reverting to its
+     * default on every render.
+     *
+     * @return void
+     */
+    public function testADeclaredSettingUsesItsDefaultThenItsValue(): void
+    {
+        // Act & Assert — no value given, so the default
+        $this->theme->addSetting('accent', 'Accent', 'color', null, null, false, '#3366ff');
+        $this->assertSame('#3366ff', $this->theme->getSetting('accent'));
+
+        // Act & Assert — an empty string is a value, not an absence
+        $this->theme->addSetting('tagline', 'Tagline', 'textfield', null, null, false, 'Hi', '');
+        $this->assertSame('', $this->theme->getSetting('tagline'));
+    }
+
+    /**
+     * `renderSettings()` produces escaped markup, and nothing at all when there is nothing.
+     *
+     * A theme with no settings is the common case, and an administration panel that asks
+     * every theme what it has must not depend on the answer being non-empty — it used to
+     * be a fatal.
+     *
+     * @return void
+     */
+    public function testRenderSettingsIsEmptyWithoutSettingsAndEscapedWithThem(): void
+    {
+        // Assert — nothing declared
+        $this->assertSame('', $this->theme->renderSettings());
+
+        // Arrange — a title and a value that would end an attribute
+        $this->theme->addSetting(
+            'accent',
+            'Accent <b>colour</b>',
+            'textfield',
+            null,
+            null,
+            false,
+            '',
+            'x" onfocus="alert(1)'
+        );
+
+        // Act
+        $markup = $this->theme->renderSettings();
+
+        // Assert
+        $this->assertStringContainsString('name="settings_default_accent"', $markup);
+        $this->assertStringNotContainsString('onfocus="alert(1)"', $markup);
+        $this->assertStringNotContainsString('<b>colour</b>', $markup);
+        $this->assertStringContainsString('&lt;b&gt;colour&lt;/b&gt;', $markup);
     }
 
     public function testGetheader(): void
@@ -1141,19 +1205,9 @@ class ThemeTest extends TestCase
     public function testAddSettingPrefixesNumericName(): void
     {
         // Arrange: mock the form as before
-        $mockForm = new class {
-            public array $_fields = [];
-            public function addField($name, $title, $type, $options, $description, $required, $default, $value): void {
-                $field = new \stdClass();
-                $field->value = $value;
-                $this->_fields[$name] = $field;
-            }
-        };
+        // No stub: `SettingsForm` is real, and the theme builds one on first use.
         $app   = $this->createMock(\Pramnos\Application\Application::class);
         $theme = new Theme('default', '', $app);
-        $ref   = new \ReflectionProperty($theme, '_form');
-        $ref->setValue($theme, $mockForm);
-
         // Act: name starts with digit — addSetting() prepends '_' (line 445)
         $theme->addSetting('1numeric', 'Test', 'textfield', null, null, false, null, 'hello');
 

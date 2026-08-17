@@ -110,8 +110,16 @@ class Theme extends \Pramnos\Framework\Base
     protected $_contentType = 'index';
 
     /**
-     * Settings are rendered by renderSettings() rather than held in a form object.
-     * @var mixed
+     * The theme's declared settings.
+     *
+     * Null until the first {@see addSetting()} call. It was declared and **never assigned**
+     * from the day this file was transferred from the legacy framework — the line that built
+     * it arrived already commented out, naming a class (`pramnos_html_form`) that was not
+     * ported — so all five settings methods fatalled on a base theme for the whole life of
+     * the file. See {@see \Pramnos\Html\Form\SettingsForm} for what replaced it and why it
+     * is deliberately narrow.
+     *
+     * @var \Pramnos\Html\Form\SettingsForm|null
      */
     protected $_form;
 
@@ -154,8 +162,6 @@ class Theme extends \Pramnos\Framework\Base
                 #$theme = 'default';
             }
         }
-        #$this->_form->method = 'post';
-        #$this->_form->name = 'settings_' . $this->theme;
         $this->document = \Pramnos\Framework\Factory::getDocument();
         $this->init();
         $this->loadSettings();
@@ -520,9 +526,31 @@ class Theme extends \Pramnos\Framework\Base
         if (is_numeric(substr($name, 0, 1))) {
             $name = '_' . $name;
         }
-        $this->_form->addField($name, $title, $type, $options, $description,
-                $required, $default, $value);
+
+        $this->settingsForm()->addField(
+            $name, $title, $type, $options, $description, $required, $default, $value
+        );
+
         return $this;
+    }
+
+    /**
+     * The settings form, created on first use.
+     *
+     * Lazily, because most themes declare no settings and the form's constructor should not be
+     * paid for on every page render.
+     *
+     * @return \Pramnos\Html\Form\SettingsForm
+     */
+    protected function settingsForm(): \Pramnos\Html\Form\SettingsForm
+    {
+        if ($this->_form === null) {
+            $this->_form = new \Pramnos\Html\Form\SettingsForm(
+                'settings_' . $this->theme
+            );
+        }
+
+        return $this->_form;
     }
 
     /**
@@ -531,10 +559,7 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function hasSettings()
     {
-        if (count($this->_form->_fields) == 0) {
-            return false;
-        }
-        return true;
+        return $this->_form !== null && $this->_form->hasFields();
     }
 
     /**
@@ -544,11 +569,7 @@ class Theme extends \Pramnos\Framework\Base
      */
     public function getSetting($setting)
     {
-        if (isset($this->_form->_fields[$setting])) {
-            return $this->_form->_fields[$setting]->value;
-        } else {
-            return NULL;
-        }
+        return $this->_form === null ? null : $this->_form->value($setting);
     }
 
     /**
@@ -558,7 +579,11 @@ class Theme extends \Pramnos\Framework\Base
     public function renderSettings()
     {
         $this->cleanUpBanners();
-        return $this->_form->renderFields();
+
+        // No declared settings is an empty string, not a fatal. A theme without settings is
+        // the common case, and an administration panel asking every theme what it has must
+        // not depend on the answer being non-empty.
+        return $this->_form === null ? '' : $this->_form->renderFields();
     }
 
     /**
@@ -576,9 +601,22 @@ class Theme extends \Pramnos\Framework\Base
      */
     function saveSettings()
     {
+        if ($this->_form === null) {
+            return;
+        }
+
+        $data = $this->_form->getData();
+
+        // An empty array is what `getData()` returns when the CSRF token does not check out.
+        // Writing it would blank every setting on a rejected submit, which is a worse outcome
+        // than ignoring the request.
+        if ($data === []) {
+            return;
+        }
+
         \Pramnos\Application\Settings::setSetting(
             'theme_' . $this->theme . '_settings',
-            serialize($this->_form->getData())
+            serialize($data)
         );
     }
 

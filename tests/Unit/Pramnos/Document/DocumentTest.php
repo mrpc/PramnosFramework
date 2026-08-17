@@ -651,6 +651,13 @@ class DocumentTest extends TestCase
         $doc->foot    = 'FOOT_CONTENT';
         $doc->themeObject = null;
 
+        // The content buffer is process-wide, and since 2026-08-17 it takes precedence over
+        // the `$content` property — so a value another test left behind would be rendered
+        // here instead of this one's. That is not a flaw in the precedence: the buffer is what
+        // the framework itself writes. It is the hazard of a static, and this test asserts the
+        // property, so it has to say the buffer is empty.
+        Document::_setContent('');
+
         // Act
         $output = $doc->render();
 
