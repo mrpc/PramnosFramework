@@ -5,6 +5,9 @@ use_cases:
   - Issuing, validating or revoking JWT / bearer tokens
   - Requiring authentication in a controller
   - Working with sessions or authentication addons
+  - Giving a signed-in browser an API token for a SPA on the same origin
+  - Identifying a caller who is present and has no account, such as a chat guest
+  - Showing a user which devices and sessions their account has
 ---
 
 # Pramnos Authentication & User Management Guide

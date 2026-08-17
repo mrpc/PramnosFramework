@@ -38,6 +38,22 @@ $token = SessionExchange::issue(minimumUserType: 90, ttl: 43200);
 return Response::redirect(SessionExchange::redirectUrl(sURL . 'panel/', $token));
 ```
 
+### Only a session may be exchanged
+
+Written first without this check, and the omission is worth naming because it was invisible
+in review: `User::getCurrentUser()` prefers a *sealed* identity over the session, so an API
+request carrying a bearer token reached the minting path and received a fresh token.
+
+That is a **refresh** — a credential extending itself, with rotation and revocation
+questions this method answers neither of and never claimed to. Every twelve-hour token
+good for another twelve hours on request, forever, from a method documented as exchanging
+a session.
+
+`issue()` now refuses any request whose identity was sealed by something other than a
+session. Identified positively rather than by excluding token-ish `via` values: a blocklist
+would have to enumerate every credential that is *not* a session, which is unbounded, and
+that exact shape produced a separate defect elsewhere in the framework the same week.
+
 ### Four decisions, three of them invisible when wrong
 
 That framing is the reporter's and it is the reason this belongs in the framework rather
