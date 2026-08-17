@@ -30,6 +30,12 @@ Coverage instrumentation costs **≈124 s, about 12%**. Real, and not the lever.
 > test-only commit apart. 170 tests added since 6:58/9398, and the difference between
 > the two runs is larger than the difference from the baseline.
 >
+> **Final measurement, 2026-08-17: `--nocoverage` is 3:44 and 3:46 for 9750 tests** — two
+> consecutive runs, 211.9 s and 214.1 s of measured test time. That is 182 tests more than the
+> 6:55/7:11 check above and roughly half the wall clock, which is item 3b and item 4 landing.
+> These two runs happen to agree to within 2 s; do not read that as the spread having narrowed,
+> because two samples cannot say so. The ±15 s figure above is the one to plan against.
+>
 > That is the number worth carrying: **run-to-run spread here is ±15 s**, so a single
 > measurement cannot tell you whether anything changed. The first draft of this note
 > recorded 7:11 alone and read "+13 s" off it as though it meant something — the same
@@ -647,29 +653,94 @@ So there is nothing to build here, and the item is closed by writing the reason 
 next to the `false` rather than by adding a second caching layer in front of it. Anybody
 arriving at this measurement again will find the answer where they are already looking.
 
-## Is `paratest` the next step? Measured, and the answer is "not yet"
+## 7 — The remaining conversions, measured and declined
 
-The original page said parallelism was the right *second* lever. It is time to answer it with
-the numbers rather than the intuition, because both sides of the trade have moved.
+The standing plan was: finish the `DatabaseTestCase` conversions, then re-ask the parallelism
+question. Both halves are answered below, and the first one is answered **no**.
+
+Fifteen classes still do DDL inside `setUp()` rather than `setUpBeforeClass()` — the shape item
+3b converted ten of, for 81 s. So the remainder looked like more of the same. It is not, and the
+arithmetic is the entire argument:
+
+| Class | Time | Tests | ms/test |
+| --- | --- | --- | --- |
+| `SchemaMigrationsCharacterizationTest` | 2.84 s | 11 | 257.9 |
+| `UserAdminCreationMySQLCharacterizationTest` | 2.34 s | 5 | 467.0 |
+| `MigrationRunnerMySQLTest` | 1.88 s | 15 | 125.4 |
+| `ApplicationAutoMigrationsMySQLTest` | 1.06 s | 12 | 88.3 |
+| `TriggerSequenceMySQLTest` | 0.86 s | 8 | 108.0 |
+| `UserAdminCreationPostgreSQLCharacterizationTest` | 0.76 s | 4 | 189.3 |
+| `CTEMySQLTest` | 0.53 s | 5 | 105.9 |
+| **Total** | **10.26 s** | | |
+
+**10.26 s out of 211.9 s of measured test time — 4.8%.** At the reduction item 3b actually
+achieved (8.38 s → 1.38 s, about 83%), converting all seven perfectly saves roughly **8.5 s**.
+
+The two runs recorded below differ from each other by 2.2 s of measured time and 2 s of wall
+clock, and the spread this page recorded earlier was ±15 s. Either way the whole remaining
+programme is at or under the noise it would have to be measured in: **there is no experiment
+that could show it worked.** Item 3b was worth doing because it moved 81 s. This is not that
+work at a smaller scale — it is work whose result is indistinguishable from doing nothing.
+
+Two further reasons, both already established above:
+
+- **Three of the seven are PostgreSQL**, where this conversion has been measured making things
+  *slower*: `MessagingModelsPostgreSQLTest` went 5.71 s → 7.34 s and was reverted. PostgreSQL
+  DDL costs 36 ms against MySQL's 279.6 ms, so the per-class machinery can exceed the DDL it
+  avoids.
+- **Four of the seven are migration tests**, and for migrations the DDL *is* the subject.
+
+The groundwork keeps the value item 3b claimed for it — one place per class that says where its
+schema lives — and is worth continuing when a class is touched for other reasons. As a
+performance programme it is finished.
+
+### Two other candidates, examined and left
+
+`InitSpinnerTest` (3.21 s / 5 tests / 641 ms per test) spends 3 s of that inside `sleep 2` and
+`sleep 1` in the commands it drives. That is the shape of item 1, where seven tests waited
+8.00 s each — except here the waiting is the subject: the spinner polls every 100 ms and
+escalates on an **integer-second** threshold, so a command must genuinely exceed one second for
+the escalation path to exist. The compressible part is about 1.4 s, 0.6% of the run, in exchange
+for tightening a timing-dependent test. A flaky spinner test costs more than 1.4 s the first
+time it fails in CI.
+
+`TestEnvironmentTest` (6.20 s / 16 tests) creates and drops real databases on two engines and
+shells out for binary discovery. That is what it is for.
+
+## Is `paratest` the next step? Asked again, and the answer has changed
+
+The original page said parallelism was the right *second* lever, then said "not yet — finish the
+cheaper work first". **That answer expired**, because item 7 measured the cheaper work and found
+it worth 8.5 s. Parallelism is now the only remaining lever of any size. The question is no
+longer *whether something cheaper exists* but *whether the prize justifies the cost*, and both
+are stated below with current numbers.
 
 ### What it would buy
 
-547 test classes, 229.7 s of measured test time, largest class 17.5 s. Modelling
-longest-processing-time bin-packing by class, on this 10-core machine:
+Two runs, one after the other, on the same tree:
+
+| Run | Wall clock | Measured test time | Classes | Tests ≥ 1000 ms |
+| --- | --- | --- | --- | --- |
+| A | 3:44 | 211.9 s | 584 | 19 (28.8 s) |
+| B | 3:46 | 214.1 s | 584 | 21 (31.5 s) |
+
+Modelling longest-processing-time bin-packing by class, on this 10-core machine (run A):
 
 | Workers | Makespan | Speed-up |
 | --- | --- | --- |
-| 2 | 114.8 s | 2.0× |
-| 4 | 57.4 s | 4.0× |
-| 8 | **28.7 s** | 8.0× |
-| 12 | 19.1 s | 12.0× |
+| 2 | 105.9 s | 2.00× |
+| 4 | 53.0 s | 4.00× |
+| 8 | **26.5 s** | 8.00× |
+| 12 | 19.8 s | 10.68× |
 
-Scaling is essentially ideal to 8 workers — no class is large enough to become the tail. The
-ceiling is 13×, set by `FrameworkMigrationsMySQLTest` at 17.5 s, and that class stays as it is
-because its DDL is the subject.
+Scaling is ideal to 8 workers — no class is large enough to become the tail. The ceiling is
+**10.7×**, set by `FrameworkMigrationsPostgreSQLTest` at 19.8 s, which stays as it is because
+its DDL is the subject. In run B the ceiling reads 12.7×, because which migration class is
+largest swaps between runs; that difference is measurement noise and not a change.
 
-So: a `--nocoverage` run of **4:01 could plausibly become about 45–60 s** at 8 workers, once
-per-worker overhead and the ~13 s of non-test wall clock are added back.
+Non-test wall clock is **about 12 s** (225 s wall against 213 s measured). So at 8 workers a
+`--nocoverage` run of **3:45 plausibly becomes 45–60 s** once per-worker overhead is added back
+— roughly **three minutes saved per run**.
 
 ### What it would cost
 
@@ -693,27 +764,55 @@ base class declare their connection in one method, so a single change to
 
 ### The recommendation
 
-**Not yet — finish the cheaper work first, and re-measure before committing to it.**
+**It is the only lever left, and it is still not obviously worth pulling. Decide on CI, not on
+a developer's patience.**
 
-The reasoning is that the ROI has moved underneath the question. When this page was written,
-parallelism promised to take ~15 minutes to ~4. Today it promises to take **4 minutes to
-about 1**. The implementation cost is unchanged; the prize is a quarter of what it was, and it
-buys a permanent increase in how hard the suite is to reason about — a failure that only
-appears under a particular worker split is a bad afternoon.
+The trade, stated plainly:
 
-What is left that is cheaper, from the distribution above:
+- **Prize:** about three minutes per run, 3:45 → roughly 50 s.
+- **Cost:** per-worker databases on three engines, and the 38 test files that name `pramnos_test`
+  themselves routed through a helper. Permanent, and it buys a suite that is harder to reason
+  about — a failure appearing only under a particular worker split is a bad afternoon, and it
+  arrives long after the change that caused it.
 
-- **625 tests at ≥ 100 ms are 75% of the run.** That is a shallow, wide tail — no single
-  target, but the same `setUp()` patterns already documented here.
-- `Characterization` was **17% of the time for 8.5% of the tests**; item 5 took the largest
-  class in it and left the rest, which is 12 ms per test and not worth touching.
-- ~~`FrameworkMigrations{MySQL,PostgreSQL,TimescaleDB}Test`~~ — profiled and left alone; see
-  item 6. Their 37.2 s is genuine work.
+Which way that goes depends on who is waiting:
 
-Revisit parallelism when those are done and the suite is around two minutes, or immediately if
-CI wall-clock becomes the binding constraint rather than a developer's patience. The
-groundwork — one place per class that says where its schema lives — is the thing worth
-continuing either way, and it is worth doing for its own sake.
+- **For a developer's local loop, no.** 3:45 is inside the span where you look at the diff
+  rather than leave the desk, and `--filter` already answers the fast-feedback case in under a
+  second. Buying three minutes with permanent cross-worker state isolation is a poor trade when
+  the thing being bought is not the binding constraint.
+- **For CI, plausibly yes**, and that is a different calculation: it is minutes × runs × people,
+  it is money rather than patience, and a flake under a worker split is caught by a rerun rather
+  than by somebody's afternoon.
+
+So: **not on the strength of the local number. Do it when CI wall clock is what hurts**, and do
+step 3 first — routing every connection through one helper — because that step is worth having
+on its own and is the one that makes the rest mechanical.
+
+What is explicitly **not** the answer any more: "finish the cheaper work first". Item 7 measured
+the cheaper work. There is 8.5 s in it, and the suite's own run-to-run spread is larger than
+that.
+
+### Where the time actually is now, for anyone re-opening this
+
+| Threshold | Tests | Time | Share |
+| --- | --- | --- | --- |
+| ≥ 1000 ms | 19 | 28.8 s | 13.6% |
+| 500–999 ms | 43 | 28.1 s | 13.2% |
+| 100–499 ms | **525** | **100.0 s** | **47.2%** |
+| 50–99 ms | 510 | 36.8 s | 17.3% |
+| < 50 ms | 8653 | 18.2 s | 8.6% |
+
+| Directory | Time | Tests | Per test | Was |
+| --- | --- | --- | --- | --- |
+| `tests/Integration` | 123.6 s (58%) | 1193 | 103.6 ms | 303 ms |
+| `tests/Unit` | 59.7 s (28%) | 7603 | **7.9 ms** | 60 ms |
+| `tests/Characterization` | 28.2 s (13%) | 801 | 35.2 ms | 84 ms |
+
+The shape has inverted since this page was written. Then, **203 tests were 46% of the run** and
+the work was to find them. Now the largest band is 525 tests averaging 190 ms, and the 19 tests
+over a second are 13.6% — mostly the migration classes that are supposed to be slow. There is no
+target left, which is the same finding as item 7 from the other direction.
 
 ## How to measure it again
 

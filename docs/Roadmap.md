@@ -161,3 +161,21 @@ being able to look the rule up.
 
 _Have a request or found a gap? Open an issue on
 [GitHub](https://github.com/mrpc/PramnosFramework)._
+
+### Test suite performance — closed
+
+Both open items are answered in
+[Test suite performance](Pramnos_Test_Suite_Performance.md), with measurements:
+
+- **The remaining `DatabaseTestCase` conversions are declined.** The seven convertible
+  classes are 10.26 s of 211.9 s of measured test time, and a perfect conversion of all
+  seven saves about 8.5 s — at or below the suite's own run-to-run spread. Three of the
+  seven are PostgreSQL, where the conversion has been measured making things *slower*.
+  There is no experiment that could show the work succeeded.
+- **`paratest` is now the only remaining lever, and the recommendation is to decide it on
+  CI rather than on local wall clock.** Prize: 3:45 → roughly 50 s at 8 workers. Cost:
+  per-worker databases on three engines, permanently. For a local loop that is a poor
+  trade; for CI it is minutes × runs × people and plausibly worth it. Step 3 — routing
+  every connection through one helper — is worth doing first either way.
+
+*Open only if CI wall clock becomes the binding constraint.*
