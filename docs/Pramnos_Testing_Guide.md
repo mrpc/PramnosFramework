@@ -3,6 +3,8 @@ use_cases:
   - Writing a test for a controller, model or HTTP endpoint
   - Using factories or seeders to build test data
   - Choosing a base test case, or testing without booting the application
+  - Changing the debug toolbar's JavaScript, or any asset the framework ships
+  - Running the linter or the JavaScript tests
 ---
 
 # Pramnos Testing Guide
@@ -436,10 +438,61 @@ is a third extension of the same shape, not a `setUp()` in the test that noticed
 Existing projects that predate this: see
 [the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
 
+## The JavaScript the framework ships
+
+One browser asset — `src/Pramnos/Debug/assets/debugbar.js`, around 3700 lines, served on every
+page of every project with the debug toolbar enabled — plus the tests that cover it under
+`tests/js/`.
+
+```bash
+./testjs              # node --test over tests/js/**/*.test.js
+./lintjs              # ESLint over src and tests/js
+./lintjs --fix        # fix what can be fixed automatically
+./lintjs src          # a subtree
+```
+
+Both run **inside the container**, like `./dockertest`, and for the same reason: the container
+is the environment. A linter that reports differently depending on whose Node ran it is worse
+than no linter. `npm` is in the `Dockerfile`; `./lintjs` installs it into a stale image rather
+than failing on a detail nobody wants to think about while linting.
+
+### What the linter is for, and what it is not
+
+Every rule enabled describes a **defect**. There are no style rules — no quote policy, no
+semicolons, no indentation — because `debugbar.js` predates the config by years: reformatting it
+would bury the next real change in noise, and a `--fix` sweep across 3700 lines is precisely the
+diff nobody can review.
+
+The rule the config exists for is `no-redeclare`. That asset had `var hasMvcPage` declared
+twice; a consuming project's linter found it, and the duplicate had stopped **1,195 panel tests**
+from running there. Nothing here could have caught it.
+
+!!! warning "Do not write a unit test for this class of mistake"
+    It was tried. A test that scanned for duplicate `var` declarations flagged `var rows` in six
+    unrelated functions, because it matched an **identifier** rather than a redeclaration, and it
+    was deleted. `no-redeclare` understands scope; a grep never will.
+
+    The same reasoning applies to `no-undef`, `no-dupe-keys` and the rest: they are answers a
+    parser can give and a test cannot.
+
+### First run
+
+Six findings, and two of them were the config's own fault — `Blob` and `setImmediate` missing
+from the globals. The other four were real: a dead `CLIENT_TABS` lookup table in `debugbar.js`
+that nothing read, and three tests destructuring a `sandbox` they never used. The dead table is
+worth a note, because deleting it correctly required reading the code rather than the error: the
+three tabs it named *are* special-cased, by explicit `tab.key === …` checks in three separate
+places. The constant duplicated knowledge that lives elsewhere; wiring it up would be a refactor
+of behavioural code, so the observation is recorded in the file instead.
+
+CI runs both, on Node 20 — the version the container ships, so a failure there reproduces with
+`./lintjs` rather than being a CI-only surprise.
+
 ## Reference
 
 **Related Guides:**
 - [Pramnos_Test_Suite_Performance.md](Pramnos_Test_Suite_Performance.md) — where the suite's time goes, measured
+- [Pramnos_Debugging_Guide.md](Pramnos_Debugging_Guide.md) — the toolbar the shipped JavaScript draws
 - [Pramnos_Migration_Guide.md](Pramnos_Migration_Guide.md) — Running migrations in tests
 - [Pramnos_Console_Guide.md](Pramnos_Console_Guide.md) — `db:seed` command and Seeder base class
 - [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, Response Object

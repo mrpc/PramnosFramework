@@ -1,0 +1,13 @@
+{
+  "name": "pramnosframework",
+  "private": true,
+  "description": "Lint and test tooling for the JavaScript assets the framework ships.",
+  "scripts": {
+    "lint": "eslint src tests/js",
+    "lint:fix": "eslint src tests/js --fix",
+    "test": "node --test tests/js/*.test.js"
+  },
+  "devDependencies": {
+    "eslint": "^9.15.0"
+  }
+}

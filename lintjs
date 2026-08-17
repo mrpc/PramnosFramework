@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Lint the JavaScript this framework ships.
+#
+# Runs ESLint **inside the php-apache-environment container**, like ./dockertest does for
+# PHPUnit and for the same reason: the container is the environment. The host may have a
+# different Node, a different npm, or neither, and a linter that reports differently
+# depending on who ran it is worse than no linter.
+#
+# Usage:
+#   ./lintjs              # report problems
+#   ./lintjs --fix        # fix what can be fixed automatically
+#   ./lintjs src          # a subtree
+#
+# Scope: src/**/*.js (the shipped assets) and tests/js/**/*.js. Nothing else in the tree is
+# JavaScript this repository owns.
+set -euo pipefail
+
+CONTAINER="php-apache-environment"
+APP_DIR="/var/www/html"
+DEFAULT_TARGETS=(src tests/js)
+
+cd "$(dirname "$0")"
+
+if ! docker-compose ps "$CONTAINER" 2>/dev/null | grep -q "Up"; then
+    echo "Starting containers..."
+    docker-compose up -d >/dev/null
+fi
+
+in_container() {
+    docker-compose exec -T "$CONTAINER" sh -c "$1"
+}
+
+if ! in_container 'command -v npm >/dev/null 2>&1'; then
+    # npm is in the Dockerfile; an image built before that needs a rebuild, and installing
+    # it here keeps this command working in the meantime rather than failing on a detail
+    # nobody wants to think about while linting.
+    echo "npm is missing from this image — installing it (rebuild the image to make it stick)."
+    in_container 'apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq npm >/dev/null 2>&1'
+fi
+
+if ! in_container "test -x ${APP_DIR}/node_modules/.bin/eslint"; then
+    echo "Installing JavaScript dev dependencies..."
+    in_container "cd ${APP_DIR} && npm install --silent"
+fi
+
+if [ "$#" -gt 0 ]; then
+    TARGETS=("$@")
+else
+    TARGETS=("${DEFAULT_TARGETS[@]}")
+fi
+
+echo "Linting ${TARGETS[*]} ..."
+in_container "cd ${APP_DIR} && node_modules/.bin/eslint ${TARGETS[*]}"

@@ -536,7 +536,7 @@ describe('the server-rendered toolbar', () => {
             }
             return Promise.resolve(makeResponse({ status: 500, body: 'not json' }));
         };
-        const { dom, sandbox } = loadToolbar({
+        const { dom } = loadToolbar({
             payload: island({
                 request: { time: 12.5, memory: 2.5, id: 'aabbccddeeff0011' },
                 logs: { count: 0, entries: [] },
@@ -713,7 +713,7 @@ describe('the server-rendered toolbar', () => {
                 json: () => Promise.resolve({ lines: [] }),
             });
         };
-        const { dom, sandbox } = loadToolbar({
+        const { dom } = loadToolbar({
             payload: island({ request: { time: 1, memory: 1, id: 'aabbccddeeff0011' } }),
             fetch: server,
         });
@@ -744,7 +744,7 @@ describe('the server-rendered toolbar', () => {
                 json: () => Promise.resolve({}),
             });
         };
-        const { dom, sandbox } = loadToolbar({
+        const { dom } = loadToolbar({
             payload: island({ request: { time: 1, memory: 1, id: 'aabbccddeeff0011' } }),
             fetch: server,
         });
