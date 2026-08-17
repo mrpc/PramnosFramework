@@ -117,29 +117,34 @@ authoritative than the other.
 *Done when:* the two pages answer different questions, and the `use_cases:` of
 each say which.
 
-### An MCP tool over the docs corpus
+### A verification tool over the documented rules
 
-The retrieval preconditions now hold (`use_cases:` frontmatter on every
-indexable page, nav coverage, both enforced by
-`tests/Unit/Docs/DocsRetrievabilityTest.php`) but nothing reads them yet. The
-scaffolded `mcp:serve` exposes application introspection only — tables, schema,
-migrations, models, routes.
+The retrieval half of this is **done**: `framework-docs` indexes, searches and
+reads `docs/*.md` using each page's `use_cases`, keeps the changelog posts as a
+separate corpus so "when did this change" cannot outrank "how does this work",
+and demotes pages carrying no use cases because they are not guidance. See
+[MCP server](Pramnos_MCP_Guide.md). Runtime scan, no build artifact to go stale.
 
-- `list_doc_sections` / `get_doc_section` over `docs/*.md`, returning each page's
-  `use_cases` so the agent can choose before fetching. Runtime scan of ~90 files,
-  no build artifact to go stale.
-- The changelog posts as a **separate** corpus, so "when did this change" cannot
-  outrank "how does this work".
-- A verification tool (`pramnos_check`) for the rules assistants break in
-  practice: raw SQL where the query builder belongs (rule 12), unqualified
-  `authserver.*` tables, `?message=`/`?error=` query params instead of flash
-  messages, view variables named `sections`/`path`/`model`/`_layout`, migrations
-  prefixed `2020_01_01_*`, a hand-rolled debug panel beside `lib/debug.js`. Each
-  is mechanically detectable, and prose in a guide demonstrably does not prevent
-  them.
+What remains is the half that says **no** — a `pramnos_check` tool for the rules
+assistants break in practice:
 
-*Done when:* an assistant working in a project can find the right guide section
-without reading every file, and gets told "no" when it breaks a documented rule.
+- raw SQL where the query builder belongs (rule 12);
+- unqualified `authserver.*` tables, which fail silently on PostgreSQL;
+- `?message=` / `?error=` query params instead of flash messages, which re-show
+  the message on reload;
+- view variables named `sections`, `path`, `model` or `_layout`, which collide
+  with the View engine and vanish without a word;
+- migrations prefixed `2020_01_01_*`, which installations with a cutoff skip;
+- a hand-rolled debug panel beside the framework's own.
+
+Each is mechanically detectable, and prose in a guide demonstrably does not
+prevent them — every item on that list is something that happened after the
+guide describing it was written. Being *able* to find the rule and being *told*
+when you have broken it are different mechanisms, and the second one is the one
+with evidence behind it.
+
+*Done when:* an assistant gets told "no" when it breaks a documented rule,
+rather than only being able to look the rule up.
 
 ---
 
