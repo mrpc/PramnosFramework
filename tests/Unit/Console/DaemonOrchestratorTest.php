@@ -2615,6 +2615,122 @@ class DaemonOrchestratorTest extends TestCase
     }
 
     /**
+     * **A zombie must not be reported as a running daemon.**
+     *
+     * `posix_kill($pid, 0)` answers *"may I signal this"*, and an exited-but-unreaped process
+     * still says yes — its PID stays in the table until somebody waits on it. A supervisor
+     * asking that question about its own dead child is told the child is fine and never
+     * respawns it.
+     *
+     * This is the normal state inside a container, not an edge case. Workers are started with
+     * `nohup setsid … &`, so the intermediate shell exits and the worker is orphaned, and an
+     * orphan is reparented to **PID 1** — which in a container is the orchestrator itself. It
+     * inherits every daemon it starts and reaps none of them.
+     *
+     * Found in myliveradio's development stack on 2026-08-18: three of four daemons had been
+     * `[php] <defunct>` for fourteen hours after a redeploy asked them to stop, the
+     * orchestrator's log showed nothing wrong, and every feature behind those workers was
+     * simply empty. A supervisor that cannot tell a corpse from a worker is worse than none,
+     * because it reports success.
+     *
+     * ## A real zombie, made rather than mocked
+     *
+     * `proc_open` a process that exits immediately and do not close it: the child is now
+     * defunct and this process is its parent, which is exactly the shape being tested. A
+     * stubbed `/proc` read would have proved only that the stub works — and the parsing is
+     * half the fix, because a zombie's `comm` field is `(php) <defunct>` and splitting
+     * `/proc/<pid>/stat` on whitespace is what made it parse as a running process.
+     */
+    public function testIsProcessRunningReturnsFalseForAZombie(): void
+    {
+        if (!is_dir('/proc')) {
+            $this->markTestSkipped('there is no /proc on this platform to read a state from');
+        }
+
+        $orch = new MinimalDaemonOrchestrator();
+        $ref  = new \ReflectionMethod($orch, 'isProcessRunning');
+
+        // A child that exits at once and is deliberately never reaped.
+        $handle = proc_open(
+            PHP_BINARY . ' -r "exit(0);"',
+            [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+            $pipes
+        );
+
+        $this->assertIsResource($handle, 'the fixture child could not be started');
+
+        $pid = (int) proc_get_status($handle)['pid'];
+
+        // Wait for it to die without reaping it: `proc_get_status()` does not wait, but it
+        // does reap once it sees the exit, so the state is read straight from /proc instead.
+        $state = null;
+
+        for ($i = 0; $i < 100; $i++) {
+            usleep(20000);
+            $raw = @file_get_contents('/proc/' . $pid . '/stat');
+
+            if ($raw === false) {
+                break;
+            }
+
+            $close = strrpos($raw, ')');
+            $state = $close === false ? null : substr(trim(substr($raw, $close + 1)), 0, 1);
+
+            if ($state === 'Z') {
+                break;
+            }
+        }
+
+        if ($state !== 'Z') {
+            proc_close($handle);
+            $this->markTestSkipped('could not observe the child as a zombie on this system');
+        }
+
+        try {
+            // The old answer, for contrast: the kernel still allows a signal to it.
+            if (function_exists('posix_kill')) {
+                $this->assertTrue(
+                    @posix_kill($pid, 0),
+                    'the premise of this test is gone: posix_kill() no longer accepts a zombie'
+                );
+            }
+
+            $this->assertFalse(
+                $ref->invoke($orch, $pid),
+                'isProcessRunning() reports a zombie as alive, so the supervisor will never '
+                    . 'respawn a worker that has already died'
+            );
+        } finally {
+            proc_close($handle);
+        }
+    }
+
+    /**
+     * **The state is read from after the last `)`, because the name field contains spaces.**
+     *
+     * `/proc/<pid>/stat` is `pid (comm) state …`, and `comm` is unescaped: a zombie's is
+     * `(php) <defunct>`. Splitting the line on whitespace puts `<defunct>` where the state
+     * belongs, which is neither `Z` nor anything else recognised — and the guard above would
+     * pass while the parsing was wrong in the other direction.
+     */
+    public function testProcessStateIsParsedFromAfterTheCommField(): void
+    {
+        $orch = new MinimalDaemonOrchestrator();
+        $ref  = new \ReflectionMethod($orch, 'processState');
+
+        $this->assertSame(
+            'R',
+            $ref->invoke($orch, getmypid()),
+            'the running test process does not read as running'
+        );
+
+        $this->assertNull(
+            $ref->invoke($orch, 999999),
+            'a PID with no /proc entry must be null — "cannot answer" is not "it is gone"'
+        );
+    }
+
+    /**
      * isProcessRunning() must return true for the current process PID.
      *
      * The current PHP process is definitely running. Using getmypid() gives a
