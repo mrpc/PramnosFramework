@@ -300,6 +300,13 @@ abstract class DaemonOrchestrator extends CommandBase
                 $lastGitCheck = time();
             }
 
+            /*
+             * **Reap before reconciling**, so a worker that has just exited is gone from the
+             * process table by the time the loop asks whether it is running. Reconciling first
+             * would read the same tick's fresh corpse.
+             */
+            $this->reapExitedChildren();
+
             $reconcileOutput = $interactive ? new NullOutput() : $output;
             $this->reconcile($phpBinary, $dryRun, $reconcileOutput);
 
@@ -700,16 +707,105 @@ abstract class DaemonOrchestrator extends CommandBase
 
     /**
      * Returns true when process $pid is alive.
+     *
+     * **A zombie is not a running daemon.** `posix_kill($pid, 0)` answers *"may I signal
+     * this"*, and a process that has exited but not been reaped still accepts that — the PID
+     * stays in the table until somebody waits on it. So a supervisor asking this question
+     * about its own dead child is told the child is fine, and never respawns it.
+     *
+     * That is not a theoretical state, it is the normal one inside a container. Workers are
+     * started with `nohup setsid … &`, so the intermediate shell exits and the worker is
+     * orphaned — and an orphan is reparented to **PID 1**, which in a container is the
+     * orchestrator itself. It therefore inherits every daemon it starts, reaps none of them
+     * (there is no wait loop, and `pcntl` is frequently not built into the image), and each
+     * graceful stop leaves behind a `<defunct>` entry it reads as a healthy worker.
+     *
+     * Observed in a project's development stack on 2026-08-18: three of four daemons had
+     * been zombies for fourteen hours after a redeploy asked them to stop. `ps` showed
+     * `[php] <defunct>`, the orchestrator's own log showed nothing wrong, and the features
+     * behind those workers — now-playing, airplay statistics, feed-health tiering — were
+     * simply empty. **A supervisor that cannot tell a corpse from a worker is worse than no
+     * supervisor**, because it reports success.
+     *
+     * `/proc/<pid>/stat` carries the state as its third field, `Z` for a zombie, and it is
+     * read first for exactly that reason. Where there is no `/proc` (BSD, macOS) the old
+     * `posix_kill()` answer stands — the previous behaviour, unchanged.
      */
     protected function isProcessRunning(int $pid): bool
     {
         if ($pid <= 0) {
             return false;
         }
+
+        $state = $this->processState($pid);
+
+        if ($state !== null) {
+            return $state !== 'Z' && $state !== 'X';
+        }
+
         if (function_exists('posix_kill')) {
             return @posix_kill($pid, 0);
         }
+
         return file_exists('/proc/' . $pid);
+    }
+
+    /**
+     * The single-letter process state from `/proc`, or null where it cannot be read.
+     *
+     * Null means *"this platform cannot answer"* and is deliberately distinct from `'Z'`: the
+     * caller falls back to the older, weaker check rather than deciding the process is gone.
+     */
+    protected function processState(int $pid): ?string
+    {
+        $raw = @file_get_contents('/proc/' . $pid . '/stat');
+
+        if ($raw === false || $raw === '') {
+            return null;
+        }
+
+        /*
+         * The second field is the executable name **in parentheses and unescaped**, so it may
+         * contain spaces and parentheses of its own — `[php] <defunct>` among them. Splitting
+         * on whitespace is what makes a zombie parse as a running process, so the state is
+         * taken from after the *last* `)`.
+         */
+        $close = strrpos($raw, ')');
+
+        if ($close === false) {
+            return null;
+        }
+
+        $rest = trim(substr($raw, $close + 1));
+
+        return $rest === '' ? null : substr($rest, 0, 1);
+    }
+
+    /**
+     * Reap any child that has already exited, so its PID leaves the table.
+     *
+     * Called from the supervisor loop. Without this a containerised orchestrator — PID 1, and
+     * therefore the parent of every orphaned worker — accumulates one zombie per restart for
+     * the life of the service. `isProcessRunning()` no longer *believes* them, so this is
+     * hygiene rather than the fix; where `pcntl` is not built in there is nothing portable to
+     * call and the zombies are harmless but visible in `ps`.
+     */
+    protected function reapExitedChildren(): void
+    {
+        if (!function_exists('pcntl_waitpid')) {
+            return;
+        }
+
+        $guard = 0;
+
+        while ($guard++ < 64) {
+            $status = 0;
+            $pid    = @pcntl_waitpid(-1, $status, defined('WNOHANG') ? \WNOHANG : 1);
+
+            if ($pid <= 0) {
+                return;
+            }
+        }
     }
 
     /**
