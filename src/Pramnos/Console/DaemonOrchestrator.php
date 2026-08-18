@@ -1069,7 +1069,7 @@ abstract class DaemonOrchestrator extends CommandBase
             $daemons[] = [
                 'id'      => $entry['id'] ?? ($entry['daemon'] ?? null),
                 'pid'     => $daemonPid > 0 ? $daemonPid : null,
-                'running' => $daemonPid > 0 && $this->isProcessRunning($daemonPid),
+                'running' => $this->daemonLooksAlive($daemonPid, (string) ($entry['lockFile'] ?? '')),
             ] + $entry;
         }
 
@@ -1079,6 +1079,43 @@ abstract class DaemonOrchestrator extends CommandBase
             'heartbeat_age_seconds' => $heartbeatAge,
             'daemons'               => $daemons,
         ];
+    }
+
+    /**
+     * Whether a managed daemon is alive — by its heartbeat first, its pid second.
+     *
+     * **A pid answers a question about *this* process table.** `status()` is read by whatever
+     * asks, and what asks is frequently not the process that started the daemons: a web request
+     * on the same host, an admin panel, or — in a containerised development stack — a *different
+     * container*, where pid 20 is either nothing or somebody else entirely.
+     *
+     * Reported from myliveradio on 2026-08-18: the panel's Workers screen showed all four daemons
+     * **down** while all four were running, and `/api/realtime-config` therefore advertised SSE
+     * with a healthy WebSocket worker listening two containers away. The pid check was not wrong
+     * about pids; it was answering a different question from the one being asked.
+     *
+     * The lock file is the shared evidence. Every managed worker touches it on each heartbeat and
+     * it lives on the volume both sides can read, so *"touched within the stale window"* is a fact
+     * about the daemon rather than about the reader's namespace. It is also the check that survives
+     * the failure this class learned the same day: an unreaped zombie satisfies `posix_kill` and
+     * touches nothing.
+     *
+     * The pid is still consulted, and still first when it can answer — on a single-host install
+     * with no lock file (a daemon that declares none), it is all there is.
+     */
+    protected function daemonLooksAlive(int $pid, string $lockFile): bool
+    {
+        if ($pid > 0 && $this->isProcessRunning($pid)) {
+            return true;
+        }
+
+        if ($lockFile === '' || !is_file($lockFile) || is_file($lockFile . '.stop')) {
+            return false;
+        }
+
+        $age = time() - (int) @filemtime($lockFile);
+
+        return $age >= 0 && $age <= static::HEARTBEAT_STALE_SECONDS;
     }
 
     // ── Singleton orchestrator lock ───────────────────────────────────────────
