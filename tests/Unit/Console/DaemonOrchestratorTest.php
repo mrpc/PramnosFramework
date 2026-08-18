@@ -2615,6 +2615,75 @@ class DaemonOrchestratorTest extends TestCase
     }
 
     /**
+     * **A daemon is judged by its heartbeat when its pid belongs to somebody else's process table.**
+     *
+     * `status()` is read by whatever asks, and what asks is frequently not the process that started
+     * the daemons: a web request, an admin panel, or — in a containerised development stack — a
+     * different container, where the recorded pid is either nothing or an unrelated process.
+     *
+     * Reported from a project on 2026-08-18: the panel showed all four daemons **down** while all
+     * four were running, and `/api/realtime-config` advertised SSE with a healthy WebSocket worker
+     * listening in the next container. The pid check was not wrong about pids — it was answering a
+     * different question from the one being asked.
+     *
+     * The lock file is the evidence both sides share, and *"touched within the stale window"* is a
+     * fact about the daemon rather than about the reader. It also survives what this class learned
+     * the same day: an unreaped zombie satisfies `posix_kill` and touches nothing.
+     */
+    public function testADaemonWithAForeignPidIsAliveIfItsHeartbeatIsFresh(): void
+    {
+        $orch = new MinimalDaemonOrchestrator();
+        $ref  = new \ReflectionMethod($orch, 'daemonLooksAlive');
+
+        $lock = tempnam(sys_get_temp_dir(), 'mlr-lock-');
+
+        try {
+            // A pid that is certainly not running here, and a lock touched a moment ago.
+            $this->assertTrue(
+                $ref->invoke($orch, 999999, $lock),
+                'a daemon with a fresh heartbeat is reported down because its pid is not in this '
+                    . 'process table — which is every reader that is not the supervisor itself'
+            );
+
+            // A stale heartbeat is not life: this is the same file, older than the window.
+            touch($lock, time() - (MinimalDaemonOrchestrator::heartbeatStaleSeconds() + 60));
+            clearstatcache(true, $lock);
+
+            $this->assertFalse(
+                $ref->invoke($orch, 999999, $lock),
+                'a lock nobody has touched for longer than the stale window counts as alive, so a '
+                    . 'dead worker keeps its badge for ever'
+            );
+
+            // And a stop sentinel beside it means it was asked to go: not alive, whatever the file
+            // says.
+            touch($lock);
+            touch($lock . '.stop');
+            clearstatcache(true, $lock);
+
+            $this->assertFalse(
+                $ref->invoke($orch, 999999, $lock),
+                'a daemon that has been asked to stop still reports as running'
+            );
+        } finally {
+            @unlink($lock . '.stop');
+            @unlink($lock);
+        }
+    }
+
+    /**
+     * **A live pid still answers first**, so a single-host install with no lock file is unchanged.
+     */
+    public function testALivePidIsStillEnoughOnItsOwn(): void
+    {
+        $orch = new MinimalDaemonOrchestrator();
+        $ref  = new \ReflectionMethod($orch, 'daemonLooksAlive');
+
+        $this->assertTrue($ref->invoke($orch, getmypid(), ''));
+        $this->assertFalse($ref->invoke($orch, 0, ''));
+    }
+
+    /**
      * **A zombie must not be reported as a running daemon.**
      *
      * `posix_kill($pid, 0)` answers *"may I signal this"*, and an exited-but-unreaped process
@@ -3722,6 +3791,12 @@ class TestableDaemonOrchestratorDisabled extends TestableDaemonOrchestrator
  */
 class MinimalDaemonOrchestrator extends DaemonOrchestrator
 {
+    /** The stale window, so a test can age a lock past it without spelling the number twice. */
+    public static function heartbeatStaleSeconds(): int
+    {
+        return static::HEARTBEAT_STALE_SECONDS;
+    }
+
     protected function buildDesiredProcesses(): array
     {
         return [];
