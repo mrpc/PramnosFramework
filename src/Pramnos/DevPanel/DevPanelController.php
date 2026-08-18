@@ -314,6 +314,26 @@ class DevPanelController extends Controller
         }
 
         echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        // Stop, like every other output path in this controller.
+        //
+        // `renderLayout()` and `renderError()` both echo and then `terminate()`. This method
+        // echoed and **returned null**, which is the same contract with the ending left off —
+        // and it was the only outlier in the file.
+        //
+        // Reported from a consuming application: `/devpanel/logs?request=…` printed its JSON
+        // and then the application went on to render a page, because a `null` return told its
+        // dispatcher nothing had been produced. The application's own `$output` property is
+        // magic — `Base::__get()` answers null for anything unset — and `null !== ''`, so its
+        // "did a controller produce output?" guard passed with a null in hand: two
+        // `stripos(): Passing null` deprecations, then a fatal on a `string` parameter, printed
+        // *after* a perfectly good JSON body.
+        //
+        // Returning a `Response` was the other candidate and is worse here: that application
+        // routes a non-API, non-HTML body through its theme, so the JSON would have come back
+        // wrapped in a page. A JSON reply to an XHR is finished when it has been written.
+        $this->terminate();
+
         return null;
     }
 
