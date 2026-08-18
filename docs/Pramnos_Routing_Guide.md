@@ -5,6 +5,7 @@ use_cases:
   - Attaching middleware to routes
   - Binding a model to a route parameter
   - Diagnosing a URL that answers 404 only when it carries a query string
+  - Working out why HEAD requests, link checkers or uptime monitors report a page as missing
   - Generating OpenAPI documentation from route attributes
 ---
 
@@ -188,6 +189,48 @@ $router->discoverRoutes([
     'namespace' => 'App\\Controllers',
 ]);
 ```
+
+## HEAD is answered by GET
+
+**A route registered for GET answers HEAD as well.** You do not declare it and you cannot forget
+it.
+
+```php
+$router->addRoute('station/{slug}', 'GET', 'StationController@show');
+```
+
+| Request | Route |
+|---|---|
+| `GET /station/athens` | matches, `{slug}` = `athens` |
+| `HEAD /station/athens` | matches, `{slug}` = `athens` |
+| `POST /station/athens` | no match |
+
+This is RFC 9110 §9.3.2 — *"The HEAD method is identical to GET except that the server MUST NOT
+send content"* — and it matters far more than the verb's reputation suggests: HEAD is what link
+checkers, uptime monitors, `curl -I` and several crawlers send first. Until 2026-08-18 the router
+kept a separate table per method and answered **404 to HEAD for every page**, so an entirely
+reachable site reported as entirely broken. See the changelog post *Every page answered 404 to
+HEAD*.
+
+**Declaring HEAD explicitly still wins**, and is worth doing when the answer can be cheaper than
+the GET:
+
+```php
+// A GET that renders a report, and a HEAD that only decides whether it exists.
+$router->addRoute('report/{id}', 'GET',  'ReportController@show');
+$router->addRoute('report/{id}', 'HEAD', 'ReportController@exists');
+```
+
+**The body is not the router's concern.** PHP's SAPI drops the content of a HEAD response. If your
+action does expensive work to build output nobody will receive, check the method yourself:
+
+```php
+if (\Pramnos\Http\Request::getInstance()->getRequestMethod() === 'HEAD') {
+    return Response::make('')->withHeader('Content-Type', 'application/json');
+}
+```
+
+Only HEAD falls back. POST, PUT, PATCH and DELETE never borrow the GET table.
 
 ## Query strings and route matching
 

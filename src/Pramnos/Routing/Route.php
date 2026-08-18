@@ -302,11 +302,22 @@ class Route
      * Determine if the route matches given request.
      *
      * @param  \Pramnos\Http\Request  $request
+     * @param  string|null  $asMethod  Match as this method rather than the
+     *                                 request's own. Used by the router to answer
+     *                                 a HEAD request from the GET table.
      * @return bool
      */
-    public function matches(\Pramnos\Http\Request $request)
+    public function matches(\Pramnos\Http\Request $request, $asMethod = null)
     {
-        $method = $request->getRequestMethod();
+        /*
+         * **`$asMethod` is how HEAD is answered by a GET route.**
+         *
+         * Optional and additive, so every existing caller keeps its behaviour:
+         * with nothing passed the method is the request's own, as it always was.
+         * `Router::getMatchedRoute()` passes `'GET'` when it is retrying a HEAD
+         * request against the GET table — see the RFC note there.
+         */
+        $method = $asMethod !== null ? $asMethod : $request->getRequestMethod();
         $uri = $request->getRequestUri();
         if ($this->method != $method) {
             return false;
