@@ -251,6 +251,22 @@ class Router extends Base implements RouterInterface
         if (isset($this->routes[$method][$uri])) {
             return $this->routes[$method][$uri];
         }
+
+        /*
+         * **The same lookup without the query string.**
+         *
+         * `getRequestUri()` keeps the query string, so `/stations?playable=1`
+         * misses this map entirely and every static route with a parameter on it
+         * paid for a full scan of the table before `Route::matches()` stripped it.
+         * Correct either way — this only makes the fast path reachable.
+         *
+         * Tried second, so a route that deliberately registers itself with a
+         * query string still wins on the exact form.
+         */
+        $queryAt = strpos($uri, '?');
+        if ($queryAt !== false && isset($this->routes[$method][substr($uri, 0, $queryAt)])) {
+            return $this->routes[$method][substr($uri, 0, $queryAt)];
+        }
         
         // Advanced matching
         foreach ($this->routes[$method] as $route) {

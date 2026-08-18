@@ -311,6 +311,41 @@ class Route
         if ($this->method != $method) {
             return false;
         }
+
+        /*
+         * **The query string is not part of the path, and it must be removed
+         * before the first comparison rather than after the last.**
+         *
+         * `getRequestUri()` returns the request with its query string still
+         * attached, and this method used to try the pattern against that, only
+         * stripping the query and retrying if nothing had matched. For a static
+         * route that worked: `/stations?playable=1` misses every pattern and the
+         * retry catches it.
+         *
+         * For a route ending in a placeholder it did not, because the first
+         * attempt **succeeded on the wrong string**. A placeholder compiles to
+         * `[^/]+` by default, and a query string contains no `/` — so
+         * `/station/{slug}` matched `/station/athens-radio?fbclid=abc` and handed
+         * the controller a slug of `athens-radio?fbclid=abc`. The retry was never
+         * reached, because a match had already been returned.
+         *
+         * Reported from an application whose station pages answered **404 to
+         * every link shared on Facebook**: the network appends `fbclid`, and the
+         * page it pointed at stopped existing. `utm_source`, a `?page=2` on a
+         * parameterised listing and a redirect carrying `?error=…` all failed the
+         * same way, silently and only for routes with a placeholder.
+         *
+         * A route that declares its own query string is left alone — that is what
+         * the guard preserves, and it is why this is a strip rather than an
+         * unconditional `parse_url`.
+         */
+        if (strpos($this->uri, '?') === false) {
+            $queryAt = strpos($uri, '?');
+            if ($queryAt !== false) {
+                $uri = substr($uri, 0, $queryAt);
+            }
+        }
+
         if ($this->uri == $uri) {
             return true;
         }
@@ -323,22 +358,6 @@ class Route
             $this->parameters
         )) {
             return true;
-        }
-
-        // Check if $this->uri contains query parameters
-        if (strpos($this->uri, '?') === false) {
-            // Remove query parameters from the URI
-            $uri = parse_url($uri, PHP_URL_PATH);
-            if ($this->uri == $uri) {
-            return true;
-            }
-            if (preg_match(
-            $this->getCompiledRoute()->getRegex(),
-            '/' . $uri,
-            $this->parameters
-            )) {
-            return true;
-            }
         }
 
         return false;

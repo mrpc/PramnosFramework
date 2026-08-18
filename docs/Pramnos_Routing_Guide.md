@@ -4,6 +4,7 @@ use_cases:
   - Using #[Route] attribute routing on a controller
   - Attaching middleware to routes
   - Binding a model to a route parameter
+  - Diagnosing a URL that answers 404 only when it carries a query string
   - Generating OpenAPI documentation from route attributes
 ---
 
@@ -187,6 +188,41 @@ $router->discoverRoutes([
     'namespace' => 'App\\Controllers',
 ]);
 ```
+
+## Query strings and route matching
+
+**A query string never takes part in matching, and never lands in a placeholder.**
+
+```php
+$router->addRoute('station/{slug}', 'GET', 'StationController@show');
+```
+
+| Request | `{slug}` receives |
+|---|---|
+| `/station/athens` | `athens` |
+| `/station/athens?fbclid=abc` | `athens` |
+| `/station/athens?return=/station/other` | `athens` |
+
+The parameters themselves are read the ordinary way — `$request->get('fbclid', '', 'get')` or
+`$_GET` — not from the route.
+
+This is worth stating because it was wrong until 2026-08-18, and wrong in a way that only showed
+on routes with a placeholder. The pattern was tried against the URI with its query string still
+attached, and a placeholder compiles to `[^/]+`, which a query string satisfies — so
+`/station/athens?fbclid=abc` matched with a slug of `athens?fbclid=abc`, and the controller
+answered 404 for a page that exists. Every link shared on a network that appends a tracking
+parameter was affected. See the changelog post *A placeholder that ate the query string*.
+
+**One exception, by design:** a route registered *with* a query string in its own URI matches on
+that exact form.
+
+```php
+// Matches `/legacy?page=2` and nothing else.
+$router->addRoute('legacy?page=2', 'GET', 'LegacyController@page');
+```
+
+Use it only for an address that must be preserved verbatim; ordinary paging belongs in a
+placeholder or in `$_GET`.
 
 ## Route Model Binding
 
