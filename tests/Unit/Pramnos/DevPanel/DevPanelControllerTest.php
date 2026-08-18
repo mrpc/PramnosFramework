@@ -22,9 +22,14 @@ class TestableDevPanelController extends DevPanelController
         throw new \RuntimeException('redirect_quit');
     }
 
+    /** @var int How many times an output path asked to stop */
+    public int $terminated = 0;
+
     protected function terminate(): void
     {
-        // Prevent exit during tests
+        // Prevent exit during tests, and count: "did this path stop?" is the contract
+        // {@see DevPanelControllerTest::testTheJsonEndpointStops()} exists to hold.
+        $this->terminated++;
     }
 }
 
@@ -624,5 +629,73 @@ class DevPanelControllerTest extends TestCase
             \Pramnos\Application\FeatureRegistry::reset();
             \Pramnos\Application\FeatureRegistry::loadFromConfig(['devpanel']);
         }
+    }
+
+    /**
+     * A JSON endpoint stops after writing, like every other output path here.
+     *
+     * **The contract, and it was broken.** `renderLayout()` and `renderError()` both echo and
+     * then `terminate()`; `sendJson()` echoed and returned `null`, which is the same contract
+     * with the ending left off — the only outlier in the file.
+     *
+     * Reported from a consuming application: `/devpanel/logs?request=…` printed its JSON and
+     * then the application rendered a page on top of it, because a `null` return told its
+     * dispatcher that nothing had been produced. Its `$output` property is magic —
+     * `Base::__get()` answers null for anything unset — and `null !== ''`, so its "did a
+     * controller produce output?" guard passed holding a null: two `stripos(): Passing null`
+     * deprecations and then a fatal on a `string` parameter, all printed after a perfectly
+     * good JSON body.
+     *
+     * Asserting the JSON alone would not have caught it. The JSON was correct.
+     *
+     * @return void
+     */
+    public function testTheJsonEndpointStops(): void
+    {
+        // Arrange — a valid grant and a well-formed request id
+        $this->setMockUser(95);
+        $_GET['request'] = str_repeat('ab', 8);
+
+        // Act
+        ob_start();
+        $this->controller->logs();
+        $output = ob_get_clean();
+
+        // Assert — the body is right…
+        $this->assertStringContainsString('"request"', $output);
+        $this->assertStringContainsString('"lines"', $output);
+
+        // …and the request was declared finished, which is the part that was missing
+        $this->assertSame(
+            1,
+            $this->controller->terminated,
+            'A JSON reply is finished when it has been written; anything that runs after it '
+            . 'appends to a response that is already complete.'
+        );
+    }
+
+    /**
+     * A rejected request id also stops.
+     *
+     * The 400 path goes through the same method, so it had the same missing ending — and an
+     * error reply followed by a rendered page is the shape that is hardest to read in a
+     * browser's network tab.
+     *
+     * @return void
+     */
+    public function testTheRejectedJsonEndpointStopsToo(): void
+    {
+        // Arrange
+        $this->setMockUser(95);
+        $_GET['request'] = 'not a valid id';
+
+        // Act
+        ob_start();
+        $this->controller->logs();
+        $output = ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('valid request id', $output);
+        $this->assertSame(1, $this->controller->terminated);
     }
 }
