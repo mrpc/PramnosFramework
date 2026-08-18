@@ -239,14 +239,58 @@ class Router extends Base implements RouterInterface
     public function getMatchedRoute(\Pramnos\Http\Request $request)
     {
         $method = $request->getRequestMethod();
-        $uri = $request->getRequestUri();
-        
-        // If there is no route with the selected method, return null
-        // no need to check one-by-one
+
+        $matched = $this->matchWithin($method, $request);
+
+        /*
+         * **HEAD is GET without the body, and that is not optional.**
+         *
+         * RFC 9110 §9.3.2: *"The HEAD method is identical to GET except that the
+         * server MUST NOT send content in the response."* A route registered for
+         * GET therefore answers HEAD as well, and until now it did not: routes
+         * are stored per method, `HEAD` had a table of its own containing only
+         * routes somebody had declared for it, and every application built on
+         * this router answered **404 to HEAD for every page it serves**.
+         *
+         * That is not a curiosity. It is what link checkers, uptime monitors,
+         * `curl -I`, several crawlers and every "is this URL alive" tool send —
+         * so a site could be entirely reachable and report as entirely broken.
+         * Reported from an application whose sitemap had just started working:
+         * 2,250 station pages, `GET` 200 and `HEAD` 404 on every one.
+         *
+         * A HEAD route declared explicitly still wins, because it is tried
+         * first — an application that wants a cheaper HEAD than its GET keeps
+         * that.
+         *
+         * The body is the caller's business, not the router's: PHP's SAPI drops
+         * the content of a HEAD response, and an application that writes its own
+         * output can check the method. What is fixed here is *which route runs*.
+         */
+        if ($matched === null && $method === 'HEAD') {
+            return $this->matchWithin('GET', $request);
+        }
+
+        return $matched;
+    }
+
+    /**
+     * The route for this request within one method's table, or null.
+     *
+     * Split out of {@see getMatchedRoute()} so HEAD can fall back to GET without
+     * duplicating the three lookups — exact, query-stripped, then pattern.
+     *
+     * @param  string $method  The table to search, which is not necessarily the
+     *                         request's own method.
+     * @return \Pramnos\Routing\Route|null
+     */
+    private function matchWithin($method, \Pramnos\Http\Request $request)
+    {
         if (!isset($this->routes[$method])) {
             return null;
         }
-        
+
+        $uri = $request->getRequestUri();
+
         // First, we check for static routes (no regex)
         if (isset($this->routes[$method][$uri])) {
             return $this->routes[$method][$uri];
@@ -267,14 +311,14 @@ class Router extends Base implements RouterInterface
         if ($queryAt !== false && isset($this->routes[$method][substr($uri, 0, $queryAt)])) {
             return $this->routes[$method][substr($uri, 0, $queryAt)];
         }
-        
+
         // Advanced matching
         foreach ($this->routes[$method] as $route) {
-            if ($route->matches($request)) {
+            if ($route->matches($request, $method)) {
                 return $route;
             }
         }
-        
+
         return null;
     }
 
