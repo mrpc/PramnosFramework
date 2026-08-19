@@ -65,7 +65,7 @@ $cacheConfig = $settings->getSetting('cache');
 ### Creating Cache Instances
 
 ```php
-// Get default cache instance
+// Get default cache instance — uses the configured backend
 $cache = \Pramnos\Cache\Cache::getInstance();
 
 // Get cache instance with specific category and extension
@@ -77,6 +77,24 @@ $cache = \Pramnos\Cache\Cache::getInstance('sessions', 'session', 'file', [
     'prefix' => 'session_'
 ]);
 ```
+
+**Omit the method unless you mean it.** The third argument overrides the
+application's `cache.method` setting for that instance. Leave it out — or pass
+`''` — and you get the store the application is configured to use, which is what
+almost every caller wants. Name a backend only when this particular cache must
+live somewhere other than the configured one (a file cache for something you
+want to survive a Redis flush, for example).
+
+> **Corrected 2026-08-20.** `getInstance()` declared `$method = 'memcached'`, which is
+> not a default but an answer: the constructor reads the `cache` setting first and then
+> lets a non-empty method argument overwrite it, so **every caller that did not name a
+> backend asked for memcached** — the service provider, `Factory::getCache()`, the view
+> cache, the SQL cache, the DevPanel cache screen. On an installation configured for
+> Redis with no memcached to connect to, the fallback chain walked those callers down to
+> the file adapter: the process ended up with a private on-disk cache sharing nothing
+> with the store the rest of the application used, and the one screen that exists to show
+> what the cache holds described that empty file store. Passing a method still wins, so
+> nothing that named a backend changes.
 
 ### Basic Operations
 
@@ -254,6 +272,41 @@ Redis → Memcached → Memcache → File
 ```php
 // This will try Redis first, then fall back to Memcached, then File
 $cache = \Pramnos\Cache\Cache::getInstance('data', 'app', 'redis');
+```
+
+An unrecognised method name — a typo in a settings file — lands on the file
+adapter too, by the same route.
+
+**Every downgrade is logged at `warning` level**, once per process per
+transition:
+
+```
+Cache: falling back from "redis" to "memcached" - could not connect to 127.0.0.1:6379.
+```
+
+This matters more than it looks. A cache that silently changes store is a bug
+with no symptom of its own: a value written to Redis and read back from a file
+store is indistinguishable from an expiry, and the application keeps answering —
+from a per-process cache it believes is shared. The log line is the only place
+that difference is visible, so treat one in production as a broken cache rather
+than as noise.
+
+**Two properties, deliberately:**
+
+| Property | Meaning |
+|---|---|
+| `$cache->method` | The store the instance **ended up with**. Follows the fallback chain, and always matches `getStats()['method']`. |
+| `$cache->requestedMethod` | The store that was **asked for**, before any fallback. |
+
+Read `->method` when you want to know where the data actually is — a diagnostic
+screen printing the requested name over the numbers of a different store is
+exactly the report that hides this problem. Compare the two when you want to know
+whether a fallback happened at all:
+
+```php
+if ($cache->method !== $cache->requestedMethod) {
+    // Asked for one store, running on another.
+}
 ```
 
 ### Cache Key Management
