@@ -2314,7 +2314,11 @@ class Database extends \Pramnos\Framework\Base
     public function cacheExpire($query, $category = NULL)
     {
         $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        $cacheMethod = 'memcached'; // default
+        // No opinion when the setting says nothing: an empty method lets Cache
+        // use the configured store. Defaulting to 'memcached' here asked for a
+        // store nobody configured, and the connection failure downgraded the
+        // SQL cache to a private file store.
+        $cacheMethod = '';
         if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
             $cacheMethod = $cacheSettings['method'];
         } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
@@ -2343,7 +2347,11 @@ class Database extends \Pramnos\Framework\Base
         $category = NULL, $cachetime=3600)
     {
         $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        $cacheMethod = 'memcached'; // default
+        // No opinion when the setting says nothing: an empty method lets Cache
+        // use the configured store. Defaulting to 'memcached' here asked for a
+        // store nobody configured, and the connection failure downgraded the
+        // SQL cache to a private file store.
+        $cacheMethod = '';
         if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
             $cacheMethod = $cacheSettings['method'];
         } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
@@ -2398,7 +2406,11 @@ class Database extends \Pramnos\Framework\Base
     function cacheRead($query, $category = "")
     {
         $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        $cacheMethod = 'memcached'; // default
+        // No opinion when the setting says nothing: an empty method lets Cache
+        // use the configured store. Defaulting to 'memcached' here asked for a
+        // store nobody configured, and the connection failure downgraded the
+        // SQL cache to a private file store.
+        $cacheMethod = '';
         if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
             $cacheMethod = $cacheSettings['method'];
         } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
@@ -2449,7 +2461,11 @@ class Database extends \Pramnos\Framework\Base
     function cacheflush($category = "")
     {
         $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        $cacheMethod = 'memcached'; // default
+        // No opinion when the setting says nothing: an empty method lets Cache
+        // use the configured store. Defaulting to 'memcached' here asked for a
+        // store nobody configured, and the connection failure downgraded the
+        // SQL cache to a private file store.
+        $cacheMethod = '';
         if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
             $cacheMethod = $cacheSettings['method'];
         } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {

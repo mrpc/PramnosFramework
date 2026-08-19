@@ -160,6 +160,9 @@ class ArrayAdapter extends AbstractAdapter
     {
         $this->pruneExpired();
         return [
+            // 'method' is what Cache::getStats() and the DevPanel read; 'adapter'
+            // predates it and is kept so existing callers keep working.
+            'method'  => 'array',
             'adapter' => 'array',
             'items'   => count($this->store),
             'bytes'   => strlen(serialize($this->store)),

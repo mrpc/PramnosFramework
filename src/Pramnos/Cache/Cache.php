@@ -81,6 +81,12 @@ class Cache extends \Pramnos\Framework\Base
     protected static $_connections = [];
     protected static $_connected = [];
 
+    /**
+     * Adapter fallbacks already reported this process, keyed "from>to".
+     * @var array
+     */
+    protected static $loggedFallbacks = [];
+
     protected $_id='';
     protected $_cachename='';
 
@@ -93,10 +99,20 @@ class Cache extends \Pramnos\Framework\Base
 
     /**
      * Cache method: file, memcache, memcached, redis
-     * If something is wrong, it defaults to file
+     *
+     * This names the store the instance actually ended up with. When an adapter
+     * cannot be reached, `initializeAdapter()` walks down to the next one and
+     * this follows it, so `->method` and `getStats()['method']` never describe
+     * two different stores. {@see $requestedMethod} for what was asked for.
      * @var string
      */
     public $method='memcached';
+
+    /**
+     * The method this instance was constructed with, before any fallback.
+     * @var string
+     */
+    public $requestedMethod='';
 
 
     /**
@@ -158,6 +174,11 @@ class Cache extends \Pramnos\Framework\Base
             }
         }
 
+        // What was asked for, kept separately: $this->method follows the
+        // fallback chain from here on, and the legacy _connect() needs the
+        // original name.
+        $this->requestedMethod = $this->method;
+
         // Create the appropriate adapter
         $this->initializeAdapter($this->method);
 
@@ -186,16 +207,29 @@ class Cache extends \Pramnos\Framework\Base
                     if (!$redisAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         // Don't set the failed adapter, fallback to memcached
+                        $this->logAdapterFallback(
+                            'redis',
+                            'memcached',
+                            'could not connect to ' . $this->hostname
+                            . ':' . $this->port
+                        );
                         $this->initializeAdapter('memcached');
                     } else {
                         self::$_connected[$methodKey] = true;
                         // Only set adapter if connection succeeded
                         $this->adapter = $redisAdapter;
+                        $this->method = 'redis';
                     }
                 } else {
-                    // @codeCoverageIgnore — \Redis extension present in test env;
-                    // this else-branch only runs when Redis is not installed.
-                    $this->initializeAdapter('memcached'); // @codeCoverageIgnore
+                    // @codeCoverageIgnoreStart
+                    // \Redis extension present in test env; this else-branch
+                    // only runs when Redis is not installed.
+                    $this->logAdapterFallback(
+                        'redis', 'memcached',
+                        'the \Redis extension is not installed'
+                    );
+                    $this->initializeAdapter('memcached');
+                    // @codeCoverageIgnoreEnd
                 }
                 break;
 
@@ -220,14 +254,25 @@ class Cache extends \Pramnos\Framework\Base
                     if (!$memcachedAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         // Don't set the failed adapter, fallback to memcache
+                        $this->logAdapterFallback(
+                            'memcached',
+                            'memcache',
+                            'could not connect to ' . $this->hostname
+                            . ':' . $this->port
+                        );
                         $this->initializeAdapter('memcache');
                     } else {
                         self::$_connected[$methodKey] = true;
                         // Only set adapter if connection succeeded
                         $this->adapter = $memcachedAdapter;
+                        $this->method = 'memcached';
                     }
                     // @codeCoverageIgnoreEnd
                 } else {
+                    $this->logAdapterFallback(
+                        'memcached', 'memcache',
+                        'the \Memcached extension is not installed'
+                    );
                     $this->initializeAdapter('memcache');
                 }
                 break;
@@ -246,13 +291,24 @@ class Cache extends \Pramnos\Framework\Base
 
                     if (!$memcacheAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
+                        $this->logAdapterFallback(
+                            'memcache',
+                            'file',
+                            'could not connect to ' . $this->hostname
+                            . ':' . $this->port
+                        );
                         $this->initializeAdapter('file');
                     } else {
                         $this->adapter = $memcacheAdapter;
                         self::$_connected[$methodKey] = true;
+                        $this->method = 'memcache';
                     }
                     // @codeCoverageIgnoreEnd
                 } else {
+                    $this->logAdapterFallback(
+                        'memcache', 'file',
+                        'the \Memcache extension is not installed'
+                    );
                     $this->initializeAdapter('file');
                 }
                 break;
@@ -260,16 +316,26 @@ class Cache extends \Pramnos\Framework\Base
             case 'array':
                 $this->adapter = new Adapter\ArrayAdapter($this->prefix);
                 self::$_connected[$methodKey] = true;
+                $this->method = 'array';
                 break;
 
             case 'file':
             default:
+                if ($methodKey !== 'file') {
+                    // An unrecognised method name lands here too, and it is the
+                    // same silent downgrade as a failed connection.
+                    $this->logAdapterFallback(
+                        $methodKey, 'file', 'unknown cache method'
+                    );
+                }
                 // Use a default cache directory if not defined
                 $cacheDir = defined('CACHE_PATH') ? CACHE_PATH : sys_get_temp_dir() . '/pramnos_cache';
                 $fileAdapter = new Adapter\FileAdapter(
                     $cacheDir,
                     $this->prefix
                 );
+
+                $this->method = 'file';
 
                 if (!$fileAdapter->connect()) {
                     // @codeCoverageIgnoreStart
@@ -278,12 +344,61 @@ class Cache extends \Pramnos\Framework\Base
                     // unreachable in a normal test environment.
                     self::$_connected[$methodKey] = false;
                     $this->caching = false;
+                    $this->logAdapterFallback(
+                        'file', 'none',
+                        'the cache directory ' . $cacheDir
+                        . ' is not writable — caching is disabled'
+                    );
                     // @codeCoverageIgnoreEnd
                 } else {
                     $this->adapter = $fileAdapter;
                     self::$_connected[$methodKey] = true;
                 }
                 break;
+        }
+    }
+
+    /**
+     * Report that a cache adapter was abandoned in favour of another one.
+     *
+     * A cache that silently changes store is a bug with no symptom of its own:
+     * a value written to Redis and then read back from a file store looks
+     * exactly like an expiry, and the application keeps working — slower, and
+     * with a per-process cache where it believes it has a shared one. The
+     * warning is the only place that difference is visible.
+     *
+     * Deduplicated per process and per transition: the same downgrade happens
+     * once per `Cache` instance, and an application builds several of them per
+     * request (the service provider, views, the SQL cache), which would turn a
+     * useful line into a flood of identical ones.
+     *
+     * @param string $from   The method that was asked for
+     * @param string $to     The method actually used ('none' if caching is off)
+     * @param string $reason Why the first one could not be used
+     * @return void
+     */
+    protected function logAdapterFallback($from, $to, $reason)
+    {
+        $key = $from . '>' . $to;
+        if (isset(self::$loggedFallbacks[$key])) {
+            return;
+        }
+        self::$loggedFallbacks[$key] = true;
+
+        try {
+            \Pramnos\Logs\Logger::warning(
+                'Cache: falling back from "' . $from . '" to "' . $to
+                . '" - ' . $reason . '.',
+                array('from' => $from, 'to' => $to, 'reason' => $reason)
+            );
+        } catch (\Throwable $exception) {
+            // @codeCoverageIgnoreStart
+            // A cache must not be brought down by its own logging: an
+            // unwritable log directory is strictly less bad than a fatal
+            // error on every request that touches the cache. There is no way
+            // to make Logger::warning() throw from a test without breaking the
+            // log target for the rest of the suite.
+            // @codeCoverageIgnoreEnd
         }
     }
 
@@ -326,14 +441,20 @@ class Cache extends \Pramnos\Framework\Base
      */
     protected function _connect()
     {
-        $methodKey = strtolower($this->method);
+        // The method as asked for: this path treats it as a class name, and
+        // $this->method now names the adapter that was actually built, which
+        // after a fallback is a store rather than a class.
+        $requested = $this->requestedMethod !== ''
+            ? $this->requestedMethod
+            : $this->method;
+        $methodKey = strtolower($requested);
 
-        if (!class_exists($this->method)) {
+        if (!class_exists($requested)) {
             return false;
         }
 
         if (!isset(self::$_connections[$methodKey])) {
-            $class = '\\' . ucfirst($this->method);
+            $class = '\\' . ucfirst($requested);
             self::$_connections[$methodKey] = new $class();
             try {
                 self::$_connected[$methodKey] = self::$_connections[$methodKey]->connect(
@@ -352,6 +473,9 @@ class Cache extends \Pramnos\Framework\Base
                 }
             } catch (\Exception $exc) {
                 \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                $this->logAdapterFallback(
+                    $methodKey, 'file', $exc->getMessage()
+                );
                 $this->method = 'file';
                 self::$_connected[$methodKey] = false;
             }
@@ -368,13 +492,29 @@ class Cache extends \Pramnos\Framework\Base
 
     /**
      * Factory Method
+     *
+     * `$method` defaults to the empty string, meaning "whatever the application
+     * configured". It used to default to `'memcached'`, which is not a default
+     * but an answer: the constructor reads `Settings::getSetting('cache')` and
+     * then lets a non-empty `$method` argument overwrite it, so every caller
+     * that did not care about the store — the service provider, the DevPanel
+     * cache screen, `Factory::getCache()`, the view cache — asked for memcached
+     * on an installation configured for Redis. With no memcached to connect to,
+     * `initializeAdapter()` walked down to the file adapter, and the process
+     * ended up with a private on-disk cache sharing nothing with the store the
+     * rest of the application was using.
+     *
+     * Passing a method still wins, so this is source-compatible; passing none
+     * now means none.
+     *
      * @param string $category
      * @param string $extension
-     * @param string $method file, memcache, memcached, redis
+     * @param string $method file, memcache, memcached, redis. Empty string
+     *                       (the default) uses the configured method.
      * @return \Cache
      */
     public static function getInstance($category=NULL, $extension=NULL,
-        $method='memcached', $settings = array())
+        $method='', $settings = array())
     {
         // One instance **per category**, not one instance.
         //
@@ -667,8 +807,19 @@ class Cache extends \Pramnos\Framework\Base
                 'items' => 0
             ];
         }
-        
-        return $this->adapter->getStats();
+
+        $stats = $this->adapter->getStats();
+
+        // `$this->method` and the reported method must be the same store, or a
+        // diagnostic screen shows one name while the numbers below it come from
+        // another. Adapters that name themselves win; the ones that do not
+        // (ArrayAdapter, anything using the AbstractAdapter default) get the
+        // method the adapter was actually built for.
+        if (!isset($stats['method']) || $stats['method'] === 'unknown') {
+            $stats['method'] = $this->method;
+        }
+
+        return $stats;
     }
     
     /**
