@@ -1246,6 +1246,21 @@ class Database extends \Pramnos\Framework\Base
         $isWrite = $this->isWriteQuery($sql);
         $connection = $this->getConnection($isWrite);
 
+        // A new statement starts with no error of its own.
+        //
+        // The captures further down are guarded with `empty($this->error_text)`,
+        // to keep the *first* error of a single prepare attempt — the PostgreSQL
+        // retry path deliberately runs DEALLOCATE, which overwrites
+        // pg_last_error() with the retry's message. But these are per-connection
+        // properties, so without this reset that "first" stretched across
+        // statements: the first failure of a request answered for every failure
+        // after it, and a broken query was reported with an unrelated query's
+        // message. That cost real time to diagnose — a DevPanel query failing on
+        // a PostgreSQL syntax error was reported as a bind-parameter mismatch in
+        // the session INSERT that had failed minutes earlier.
+        $this->error_text   = '';
+        $this->error_number = 0;
+
         if ($this->type == 'postgresql') {
             $schema = '';
             if ($this->schema != '') {
@@ -1269,6 +1284,12 @@ class Database extends \Pramnos\Framework\Base
             );
         }
         
+        // The statement now being attempted, for the error path: setError()
+        // appends `currentQuery` to the message it throws, and only query() used
+        // to set it — so every failure raised from a prepared statement quoted
+        // whichever unprepared query had run last.
+        $this->currentQuery = $query;
+
         $types = array();
         // Count %X placeholders only outside SQL string literals to avoid
         // matching % inside LIKE/ILIKE patterns such as '%display-read-%'
@@ -1471,6 +1492,9 @@ class Database extends \Pramnos\Framework\Base
         $stmtData = $this->statements[$statement->id];
         $connection = $stmtData['connection'];
         $isWrite = $stmtData['isWrite'];
+        // A statement prepared earlier and executed now: name it, so an error
+        // raised below quotes this statement rather than the last one prepared.
+        $this->currentQuery = $stmtData['query'];
 
         if ($this->type != 'postgresql') {
             $arguments = array_merge(
