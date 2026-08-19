@@ -528,6 +528,33 @@ Key points:
   everywhere. With `throwOnError = false` the two drivers keep their (different) historical
   signals; the framework does not force them to match, precisely to preserve BC.
 
+### `error_text` is the last error, not the first
+
+`$db->error_text` (and `getError()`, which falls back to it) describes **the statement
+that just ran**. Read it immediately after the call that returned `false`:
+
+```php
+if ($db->execute($sql) === false) {
+    \Pramnos\Logs\Logger::error('query failed: ' . $db->error_text);
+}
+```
+
+A statement that succeeds clears it, so an empty `error_text` means "nothing went wrong
+here" rather than "nothing has gone wrong yet".
+
+> **Corrected 2026-08-20.** It used to be the *first* error of the request. The captures
+> in `prepare()` are guarded with `empty($this->error_text)` — deliberately, because the
+> PostgreSQL retry path runs `DEALLOCATE` and overwrites `pg_last_error()` — but nothing
+> reset the property between statements, so the first failure in a request answered for
+> every failure after it. `currentQuery`, which `setError()` appends to the message it
+> throws, was set by `query()` alone, so anything raised from a prepared statement quoted
+> whichever unprepared query had run last.
+>
+> Together they produced messages naming a real error and a real query that belonged to
+> two different statements minutes apart — worse than no message, because it sends the
+> reader to the wrong file. A DevPanel query failing on a PostgreSQL syntax error was
+> reported as a bind-parameter mismatch in the session INSERT from application boot.
+
 ### Proper Error Handling for Database Operations
 
 Always wrap database operations in try-catch blocks to handle potential errors gracefully:
