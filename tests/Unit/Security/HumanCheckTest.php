@@ -116,6 +116,36 @@ class HumanCheckTest extends TestCase
     }
 
     /**
+     * A string that provably does *not* solve this challenge.
+     *
+     * Not a fixed literal, which is what this test used to pass: the difficulty
+     * floor is 4 bits, so any given wrong answer satisfies it by accident one time
+     * in sixteen — and the nonce is fresh per run, so it is a fresh coin toss per
+     * run. That is a test that fails roughly every sixteenth full suite for a
+     * reason that has nothing to do with the code under test, which is worse than
+     * a test that never runs: it teaches the reader to re-run and move on.
+     *
+     * @param HumanCheck $check     The instance whose difficulty applies
+     * @param string     $challenge The token being answered
+     * @return string A candidate that fails meetsDifficulty()
+     */
+    private function wrongSolution(HumanCheck $check, string $challenge): string
+    {
+        $parts   = explode('.', $challenge);
+        $payload = implode('.', array_slice($parts, 0, 3));
+        $bits    = (int) $parts[1];
+
+        for ($i = 0; $i < 1000; $i++) {
+            $candidate = 'not-a-solution-' . $i;
+            if (!$check->meetsDifficulty($payload, $candidate, $bits)) {
+                return $candidate;
+            }
+        }
+
+        $this->fail('every candidate solved the challenge — the difficulty is misconfigured');
+    }
+
+    /**
      * A cheap check, so the tests solve in milliseconds rather than seconds.
      *
      * The difficulty floor is 4 bits, which is 16 expected hashes.
@@ -308,8 +338,12 @@ class HumanCheckTest extends TestCase
         $check     = $this->check();
         $challenge = $check->challenge();
 
-        // Act
-        $rejected = $check->verify($challenge['challenge'], 'definitely-not-a-solution');
+        // Act — a candidate checked against this challenge's own difficulty, so
+        // "wrong" is a fact rather than a 15-in-16 bet
+        $rejected = $check->verify(
+            $challenge['challenge'],
+            $this->wrongSolution($check, $challenge['challenge'])
+        );
         $solution = $this->solve($check, $challenge['challenge']);
 
         // Assert

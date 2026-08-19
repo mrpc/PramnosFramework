@@ -1132,6 +1132,21 @@ class QueryBuilder
     /**
      * Add a binding value.
      *
+     * An {@see Expression} is never bound. It is a raw SQL fragment that the
+     * grammar emits **in place of** a placeholder — `getPlaceholder()` returns
+     * the fragment itself — so binding it as well leaves the statement with one
+     * value more than it has placeholders.
+     *
+     * Both drivers reject the mismatch, in their own words.
+     * `where('lockoutuntil', '>', $qb->raw('NOW()'))` gave
+     * *"bind message supplies 1 parameters, but prepared statement requires 0"*
+     * on PostgreSQL and *"bind_param(): Argument #1 ($types) must not be empty"*
+     * on MySQL — the same statement, unrunnable on both.
+     *
+     * The `insert()`/`upsert()` paths already filtered Expressions out at each
+     * call site; `where()`, `having()` and `whereBetween()` did not, which is
+     * why the same fragment worked in one clause and threw in another.
+     *
      * @param mixed $value
      * @param string $type
      * @return $this
@@ -1144,9 +1159,12 @@ class QueryBuilder
 
         if (is_array($value)) {
             foreach ($value as $v) {
+                if ($v instanceof Expression) {
+                    continue;
+                }
                 $this->bindings[$type][] = $v;
             }
-        } else {
+        } elseif (!($value instanceof Expression)) {
             $this->bindings[$type][] = $value;
         }
 
