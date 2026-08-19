@@ -706,6 +706,36 @@ $qb->orderBy($qb->raw('COALESCE(last_login, created_at)'), 'desc');
 $qb->update(['last_login' => $qb->raw('NOW()')]);
 ```
 
+**A raw value is emitted, never bound.** `raw()` returns an `Expression`, and wherever
+a value is expected the grammar writes the fragment itself in place of a placeholder:
+
+```php
+$qb->from('sessions')->where('expires_at', '<', $qb->raw('NOW()'));
+// WHERE expires_at < NOW()      ← no placeholder, and nothing bound for it
+```
+
+Scalars beside it are still bound, in the position they were written:
+
+```php
+$qb->from('loginlockouts')
+   ->where('locktype', 'ip')                       // %s  ← bound
+   ->where('lockoutuntil', '>', $qb->raw('NOW()')) // inlined
+   ->where('failedattempts', '>=', 3);             // %i  ← bound
+```
+
+That holds for `where()`, `orWhere()`, `having()`, `whereIn()` and both endpoints of
+`whereBetween()`, as well as the `insert()` / `update()` / `upsert()` value maps.
+
+> **Corrected 2026-08-20.** Until this date a raw value in `where()`, `having()` or
+> `whereBetween()` was inlined into the SQL **and** appended to the bindings, so the
+> statement carried one value more than it had placeholders. Both drivers refused it —
+> PostgreSQL with *"bind message supplies 1 parameters, but prepared statement requires
+> 0"*, MySQL with *"bind_param(): Argument #1 (\$types) must not be empty"* — which
+> means the `DELETE` example further down this page did not run as written. The
+> `insert()` and `upsert()` paths filtered Expressions out at their own call sites, so
+> the same fragment worked in a value map and threw in a `WHERE`. The filter now lives
+> in `addBinding()`, which every clause goes through.
+
 #### Conditional Building
 
 ```php
