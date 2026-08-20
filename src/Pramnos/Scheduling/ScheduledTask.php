@@ -39,6 +39,16 @@ class ScheduledTask
     private string $lockDir;
 
     /**
+     * Seconds after which a lock whose holder cannot be identified — a different
+     * host, a different container — is treated as abandoned.
+     *
+     * Only reached when the pid cannot be trusted; a holder on this host is
+     * checked directly. Raise it for a task that legitimately runs longer than
+     * this without finishing.
+     */
+    private int $lockStaleAfter = \Pramnos\Console\WorkerLock::DEFAULT_STALE_AFTER;
+
+    /**
      * @param string|callable $handler CLI command name or PHP callable.
      * @param string          $type    'command' | 'callable' | 'job'
      */
@@ -155,9 +165,21 @@ class ScheduledTask
     /**
      * Skips execution if a previous run of this task is still active (based on
      * a lock file in the system temp directory).
+     *
+     * @param string $lockDir    Where the lock lives (default: the system temp dir)
+     * @param int    $staleAfter Seconds after which a lock whose holder cannot be
+     *                           identified is treated as abandoned. 0 keeps the
+     *                           default. Only consulted when the holder is on
+     *                           another host, so a long task on this host is never
+     *                           taken over while it is still running.
+     * @return static
      */
-    public function withoutOverlapping(string $lockDir = ''): static
+    public function withoutOverlapping(string $lockDir = '', int $staleAfter = 0): static
     {
+        if ($staleAfter > 0) {
+            $this->lockStaleAfter = $staleAfter;
+        }
+
         $this->noOverlap = true;
         if ($lockDir !== '') {
             $this->lockDir = $lockDir;
@@ -195,19 +217,28 @@ class ScheduledTask
      */
     public function run(): bool
     {
-        if ($this->noOverlap && $this->isLocked()) {
-            return false;
-        }
+        $lock = null;
 
         if ($this->noOverlap) {
-            $this->acquireLock();
+            $lock = $this->lock();
+            if (!$lock->acquire()) {
+                return false;
+            }
         }
 
         try {
             $this->execute();
         } finally {
-            if ($this->noOverlap) {
-                $this->releaseLock();
+            if ($lock !== null) {
+                $lock->release();
+                // WorkerLock keeps the file and marks it stopped, which is how a
+                // dashboard reads a daemon's last state. A scheduled task has no
+                // dashboard and runs again in a minute, so the file is removed:
+                // the next run then takes a plain lock rather than a takeover,
+                // and nothing watching the directory sees a lock that is not one.
+                // Only ever reached by the process that acquired it — a failed
+                // acquire returns before the try.
+                $this->removeLockFile();
             }
         }
 
@@ -346,32 +377,54 @@ class ScheduledTask
             . 'pramnos_sched_' . md5($this->type . ':' . $this->describeHandler()) . '.lock';
     }
 
-    private function isLocked(): bool
+    /**
+     * The overlap lock for this task.
+     *
+     * {@see \Pramnos\Console\WorkerLock}, rather than the pid file this used to
+     * write, for the reason a pid file cannot answer the question it is asked:
+     * **a pid is a fact about the process table of whoever is asking.** This
+     * wrote its own pid to a file and later called `posix_kill($pid, 0)` on
+     * whatever it read back. Two containers sharing a volume — an application
+     * container and a daemon container, which is the ordinary shape here — each
+     * see the other's recorded pid as alive whenever some unrelated local
+     * process happens to hold that number. The task is then skipped for ever,
+     * silently, which is indistinguishable from never having scheduled it.
+     *
+     * `WorkerLock` records the host beside the pid and trusts the pid only when
+     * the host matches, falling back to heartbeat age when it does not. It also
+     * closes a race this had: `isLocked()` followed by `acquireLock()` is a
+     * check and then a write, and two schedulers a millisecond apart both passed
+     * the check. `acquire()` is one atomic create.
+     *
+     * A lock left behind in the old format is a bare pid rather than JSON.
+     * `WorkerLock::readState()` recognises that case and reports an unknown
+     * holder with the file's own age, so such a lock is honoured while it is
+     * fresh and taken over once it is older than the stale threshold. An upgrade
+     * therefore neither runs a task twice nor inherits a lock that outlives the
+     * process that wrote it.
+     *
+     * @return \Pramnos\Console\WorkerLock
+     */
+    /**
+     * Delete this task's lock file, if it is still there.
+     *
+     * @return void
+     */
+    private function removeLockFile(): void
     {
         $file = $this->lockFile();
-        if (!file_exists($file)) {
-            return false;
+        if (is_file($file)) {
+            @unlink($file);
         }
-        // Lock is valid only if the PID inside is still running
-        $pid = (int) file_get_contents($file);
-        if ($pid > 0 && function_exists('posix_kill')) {
-            return posix_kill($pid, 0);
-        }
-        // Can't verify PID — treat as locked to be safe
-        return true;
     }
 
-    private function acquireLock(): void
+    private function lock(): \Pramnos\Console\WorkerLock
     {
-        file_put_contents($this->lockFile(), getmypid());
-    }
-
-    private function releaseLock(): void
-    {
-        $file = $this->lockFile();
-        if (file_exists($file)) {
-            unlink($file);
-        }
+        return new \Pramnos\Console\WorkerLock(
+            'schedule:' . $this->describeHandler(),
+            $this->lockFile(),
+            $this->lockStaleAfter
+        );
     }
 
     private function describeHandler(): string
