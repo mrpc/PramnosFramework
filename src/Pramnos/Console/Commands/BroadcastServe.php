@@ -8,6 +8,8 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Application\Application;
+use Pramnos\Broadcasting\Apps\AppSource;
+use Pramnos\Broadcasting\Auth\AppRegistryAuthorizer;
 use Pramnos\Broadcasting\Auth\PusherAuthorizer;
 use Pramnos\Broadcasting\LocalBroadcastServer;
 use Pramnos\Broadcasting\RedisSubscriberSocket;
@@ -126,8 +128,37 @@ class BroadcastServe extends CommandBase
         // the server straight from Redis pub/sub when channels are requested.
         $config = $this->broadcastingConfig();
 
-        $secret = (string) ($config['pusher']['app_secret'] ?? '');
-        if ($secret !== '') {
+        $secret   = (string) ($config['pusher']['app_secret'] ?? '');
+        $features = $this->applicationFeatures();
+
+        // A registry-backed authorizer resolves the signing secret per connection
+        // from the app key in the token, which is what makes more than one app
+        // possible at all. The single-pair PusherAuthorizer below is the fallback,
+        // and stays the behaviour of every deployment that has not moved its app
+        // keys into the AuthServer.
+        $appSource = null;
+        try {
+            $appSource = AppSource::resolve($config, $features);
+        } catch (\RuntimeException $e) {
+            // A misconfigured source must stop the daemon rather than silently
+            // authorize against a different secret than the operator asked for.
+            $output->writeln('  <error>Broadcasting apps: ' . $e->getMessage() . '</error>');
+
+            return self::FAILURE;
+        }
+
+        if ($appSource === AppSource::AUTHSERVER) {
+            // A TTL, unlike the web binding's zero: this process is a
+            // single-threaded select loop, so a query per handshake blocks every
+            // other connection — and after a deploy every client reconnects at once.
+            $this->wsServer->useAuthorizer(
+                new AppRegistryAuthorizer(AppSource::registry($config, $features, 60))
+            );
+            $output->writeln(
+                '  Auth: <info>Pusher signatures enforced, app keys from the AuthServer '
+                . 'applications table</info>'
+            );
+        } elseif ($secret !== '') {
             $this->wsServer->useAuthorizer(new PusherAuthorizer($appKey, $secret));
             $output->writeln('  Auth: <info>Pusher signatures enforced</info>');
         } else {
@@ -217,6 +248,26 @@ class BroadcastServe extends CommandBase
     protected function createServer(string $appKey, ?string $logFile): LocalBroadcastServer
     {
         return new LocalBroadcastServer($appKey, $logFile);
+    }
+
+    /**
+     * The app.php['features'] array, or [].
+     *
+     * Read from applicationInfo rather than from FeatureRegistry: the registry is
+     * populated at bootstrap, and a security decision should not depend on which
+     * entry point ran first. See {@see AppSource} for what that cost once.
+     *
+     * @return string[]
+     */
+    protected function applicationFeatures(): array
+    {
+        $app = Application::getInstance();
+
+        if ($app instanceof Application && is_array($app->applicationInfo['features'] ?? null)) {
+            return $app->applicationInfo['features'];
+        }
+
+        return [];
     }
 
     /**

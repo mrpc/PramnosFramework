@@ -686,6 +686,38 @@ credentials too. The column is nullable and `apisecret` is the fallback, so an
 installation that has not run the migration keeps working — and an operator can
 rotate the realtime key without invalidating OAuth2 clients.
 
+#### More than one app, at the edge
+
+`PusherAuthorizer` holds one key and one secret. That is correct for a single-app
+deployment and it was also the ceiling: the `applications` table could describe fifty
+apps while the daemon only ever verified against the pair in `app.php`.
+
+`Auth\AppRegistryAuthorizer` resolves the app per connection instead, and
+`broadcast:serve` wires it automatically when the app source is `authserver`:
+
+```
+$ php bin/pramnos broadcast:serve
+  Auth: Pusher signatures enforced, app keys from the AuthServer applications table
+```
+
+**The app key comes out of the token.** A channel token is `"<appKey>:<hmac>"`, so no
+per-connection bookkeeping is needed to know which secret to verify against — the
+client says, in the one field it cannot lie about, because naming the wrong app
+produces an HMAC that does not verify. That is why the protocol puts the key there.
+
+An unknown key, a disabled application, an app with no secret and a bad signature all
+return the same refusal. A caller has no use for the difference, and telling them
+apart would let somebody probing keys learn which ones exist.
+
+The daemon's registry carries a **60-second TTL**, unlike the web binding's zero. Two
+consequences worth knowing: a query per handshake would block the whole select loop,
+and revoking an application takes effect within one TTL rather than at the next
+restart.
+
+A misconfigured `apps.source` **stops the daemon** rather than starting it. Falling
+back would authorize channels against a different secret than the operator asked for,
+with the daemon reporting itself as healthy.
+
 ### The daemon never makes this decision
 
 Everything above runs in a normal request, where a session and a database are cheap.

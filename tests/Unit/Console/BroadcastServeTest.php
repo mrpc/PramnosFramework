@@ -701,4 +701,107 @@ class BroadcastServeTest extends TestCase
         // Assert
         $this->assertStringContainsString('1/s per connection', $tester->getDisplay());
     }
+
+    // =========================================================================
+    // App-key source
+    // =========================================================================
+
+    /**
+     * Install an Application with both a broadcasting config and a features list.
+     *
+     * @param array<string,mixed> $broadcasting
+     * @param string[]            $features
+     */
+    private function installApplicationWithFeatures(array $broadcasting, array $features): void
+    {
+        $app = new class($broadcasting, $features) extends \Pramnos\Application\Application {
+            public function __construct(array $broadcasting, array $features)
+            {
+                $this->_data['container'] = new \Pramnos\Application\Container();
+                $this->applicationInfo    = [
+                    'broadcasting' => $broadcasting,
+                    'features'     => $features,
+                ];
+            }
+        };
+
+        $ref = new \ReflectionClass(\Pramnos\Application\Application::class);
+        $ref->getProperty('appInstances')->setValue(null, ['default' => $app]);
+        $ref->getProperty('lastUsedApplication')->setValue(null, 'default');
+    }
+
+    /**
+     * With the authserver feature enabled, the daemon resolves app keys from the
+     * applications table and says so.
+     *
+     * This is the piece that makes more than one app possible at the edge: the
+     * single-pair authorizer verifies against one secret, so the registry could
+     * describe fifty applications and the daemon would still only know one.
+     */
+    public function testExecuteUsesTheAuthserverRegistryWhenTheFeatureIsEnabled(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([], ['broadcasting', 'authserver']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $exitCode = $tester->execute([]);
+
+        // Assert
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString(
+            'app keys from the AuthServer applications table',
+            $tester->getDisplay()
+        );
+    }
+
+    /**
+     * Without the feature, a configured secret keeps the historical single-pair
+     * authorizer.
+     */
+    public function testExecuteKeepsTheSinglePairAuthorizerWithoutTheFeature(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['pusher' => ['app_secret' => 'a-secret']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Pusher signatures enforced', $display);
+        $this->assertStringNotContainsString('AuthServer applications table', $display);
+    }
+
+    /**
+     * A misconfigured app source stops the daemon instead of starting it.
+     *
+     * Naming `authserver` while the feature is off would otherwise fall back to the
+     * config registry and authorize channels against a different secret than the
+     * operator asked for — a security decision reversed by a missing line in
+     * app.php, with the daemon reporting itself as healthy.
+     */
+    public function testExecuteFailsOnAMisconfiguredAppSource(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['apps' => ['source' => 'authserver']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester   = new CommandTester($cmd);
+        $exitCode = $tester->execute([]);
+
+        // Assert
+        $this->assertSame(1, $exitCode, 'the daemon must not start');
+        $this->assertStringContainsString("'authserver' feature is not enabled", $tester->getDisplay());
+    }
 }
