@@ -329,7 +329,7 @@ class Token extends \Pramnos\Framework\Base
     {
         $this->lastActionTime = (int) (microtime(true) * 1000);
         $request = \Pramnos\Framework\Factory::getRequest();
-        $url     = $request->getURL(false);
+        [$url, $queryString] = static::splitActionUrl($request->getURL(false));
 
         \Pramnos\Framework\Factory::getRequest();
         switch (\Pramnos\Http\Request::$requestMethod) {
@@ -345,6 +345,14 @@ class Token extends \Pramnos\Framework\Base
             default:
                 $inputData = file_get_contents("php://input");
                 break;
+        }
+
+        // A GET carries its inputs in the query string, and `params` is where a
+        // request's inputs go — it was empty for every GET ever logged. Only
+        // when there is nothing else in it: a POST's body is the better record
+        // of what it was asked to do.
+        if ($queryString !== '' && static::looksEmpty($inputData)) {
+            $inputData = $queryString;
         }
         // The row is held rather than written. An API request logs its call and
         // then, once the response is known, logs the status and the duration —
@@ -562,6 +570,53 @@ class Token extends \Pramnos\Framework\Base
     }
 
     /**
+     * Split a request URL into the endpoint and its query string.
+     *
+     * `urls` is a *deduplicated* registry — one row per endpoint — and it was
+     * given the absolute URL including the query, so a page whose query carries
+     * an id or a token gets a row of its own every time it is called. Reported
+     * from an installation whose "slowest endpoints" report was twenty rows of
+     * `…/devpanel/logs?request=<hash>`, one call each: a registry with nothing
+     * deduplicated in it and a report with nothing to compare.
+     *
+     * The scheme and host go too. Every row in an installation has the same
+     * one, and where it does not — a multi-tenant application — the endpoint is
+     * still the endpoint. An application that needs the host can replace the
+     * transformer; {@see \Pramnos\Database\WriteSpool::transform()} is that seam.
+     *
+     * @param  string $url An absolute request URL
+     * @return array{0: string, 1: string} The path, and the query string
+     */
+    protected static function splitActionUrl(string $url): array
+    {
+        $parts = parse_url($url);
+
+        if (!is_array($parts) || !isset($parts['path'])) {
+            // Not something parse_url() understands: keep it whole rather than
+            // lose it. An unparseable URL is still a fact about a request.
+            return [$url, ''];
+        }
+
+        return [$parts['path'], (string) ($parts['query'] ?? '')];
+    }
+
+    /**
+     * Whether a params payload carries nothing.
+     *
+     * `json_encode([])` and an empty body are both "no inputs", and both are
+     * what a GET produces.
+     *
+     * @param  mixed $inputData
+     * @return bool
+     */
+    protected static function looksEmpty($inputData): bool
+    {
+        $value = trim((string) $inputData);
+
+        return $value === '' || $value === '[]' || $value === '{}' || $value === 'null';
+    }
+
+    /**
      * Make sure a held action is written even if nothing completes it.
      *
      * The API path calls updateAction() once it knows the response, and that is
@@ -602,17 +657,57 @@ class Token extends \Pramnos\Framework\Base
 
         $row = $this->pendingAction;
 
+        // What this request turned out to cost, for the path that never says.
+        //
+        // `updateAction()` fills these in and flushes — but only the API path
+        // calls it. A web request is written by the shutdown flush instead, and
+        // was written without either, so every page view in the audit log had no
+        // duration and no status: a "slowest endpoints" report of rows all
+        // reading 0.0 ms. Both are knowable here, which is the point of writing
+        // at shutdown rather than at the start of the request.
+        // array_key_exists, not isset: a null here is a decision — see the
+        // negative-status branch of updateAction() — and isset() cannot tell it
+        // from a key that was never set.
+        if (!array_key_exists('execution_time_ms', $row) && $this->lastActionTime !== null) {
+            $row['execution_time_ms'] = round(
+                ((float) (microtime(true) * 1000)) - $this->lastActionTime,
+                3
+            );
+        }
+
+        if (!array_key_exists('return_status', $row) && function_exists('http_response_code')) {
+            $status = http_response_code();
+            if (is_int($status) && $status > 0) {
+                $row['return_status'] = $status;
+            }
+        }
+
         // Cleared first: a failure to write must not leave a row that a later
         // flush would write a second time.
         $this->pendingAction = null;
 
         try {
-            \Pramnos\Database\WriteSpool::append('#PREFIX#tokenactions', $row);
+            $this->appendActionRow($row);
         } catch (\Throwable $ex) {
             // Recording that a request happened is not a reason for the request
             // to fail, and by this point it has usually finished anyway.
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
+    }
+
+    /**
+     * Buffer one completed action row.
+     *
+     * The one line that leaves this class for the spool, so a test can see the
+     * row as it is written rather than as it was held — which is the difference
+     * the shutdown flush exists to make.
+     *
+     * @param  array<string, mixed> $row
+     * @return void
+     */
+    protected function appendActionRow(array $row): void
+    {
+        \Pramnos\Database\WriteSpool::append('#PREFIX#tokenactions', $row);
     }
 
     /**
@@ -658,6 +753,14 @@ class Token extends \Pramnos\Framework\Base
                 $this->pendingAction['return_status']     = (int) $return_status;
                 $this->pendingAction['execution_time_ms'] = round((float) $execution_time_ms, 3);
                 $this->pendingAction['return_data']       = $return_data;
+            } else {
+                // A negative status is the caller saying "this happened, do not
+                // record what it returned". Written as explicit nulls rather than
+                // left absent, because the shutdown flush fills in what it can
+                // see — and "nobody said" and "somebody said no" have to be
+                // distinguishable by the time it looks.
+                $this->pendingAction['return_status']     = null;
+                $this->pendingAction['execution_time_ms'] = null;
             }
 
             // Written even when the status says not to record one: the request

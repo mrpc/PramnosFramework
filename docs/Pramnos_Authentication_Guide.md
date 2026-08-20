@@ -341,6 +341,31 @@ nothing has used it for a month.
 > them expiring, arriving at about 230 an hour. It is also the table `tokenactions` points
 > a foreign key at, which is how a buffered write outlives the row it references.
 
+### What a logged request records
+
+`Token::addAction()` holds a row and the request completes it. Two paths do that:
+
+| Path | Completed by | Records |
+| --- | --- | --- |
+| API | `updateAction()`, once the response is known | status, duration, response body |
+| Web | the shutdown flush | status (`http_response_code()`), duration since `addAction()` |
+
+The endpoint is stored as a **path** — `/api/v1/stations`, not
+`https://host/api/v1/stations?token=…`. `urls` is a deduplicated registry, and a query
+string that carries an id or a hash gives every call a row of its own. The query is not
+lost: it goes into `params`, where a request's inputs belong, whenever `params` would
+otherwise be empty — which is every GET.
+
+A negative `$return_status` still means "this happened, do not record what it returned":
+the row is written with no status and no duration.
+
+> **Corrected 2026-08-20.** The web path recorded neither status nor duration — only the
+> API path calls `updateAction()`, and the shutdown flush wrote the held row exactly as it
+> was held. Every page view in the audit log had `execution_time_ms` empty, so the
+> DevPanel's slowest-endpoints report read `0.0 ms` on every row. And the endpoint was the
+> absolute URL with its query, so that same report was twenty distinct URLs of one call
+> each. Both reported from the same screen.
+
 ### Working with Token Objects
 
 ```php
