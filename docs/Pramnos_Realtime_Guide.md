@@ -8,6 +8,9 @@ use_cases:
   - Deciding who may subscribe to a private or presence channel
   - Serving the /broadcasting/auth endpoint a Pusher or Echo client needs
   - Using AuthServer applications as realtime app keys instead of config values
+  - Showing who is currently in a room, and reacting when they join or leave
+  - Sending a typing indicator or cursor from one browser to another
+  - Stopping an optimistic UI from rendering its own change twice
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -693,6 +696,175 @@ once. So the endpoint decides and signs; the daemon only verifies an HMAC.
 
 That is not a compromise made for this framework. It is why the Pusher protocol has
 an auth endpoint at all.
+
+---
+
+## Presence channels
+
+A presence channel is a channel that knows who is in it. Subscribe with `join()` and
+the three membership callbacks:
+
+```js
+PramnosEcho.join('room.lobby')
+    .here(function (members)   { render(members); })     // once, on subscribe
+    .joining(function (member) { add(member); })         // somebody arrived
+    .leaving(function (member) { remove(member); })      // somebody left
+    .listen('message.created', append);                  // ordinary events too
+```
+
+Each member is `{ id, info }`. **`id` is always a string** — the server casts it and
+so does the client, because a client comparing a numeric id against its own gets
+`7 !== "7"`, which presents as a member who is in the room but is never recognised
+as anybody, including as yourself.
+
+### Membership counts people, not sockets
+
+The server keys membership by connection but reports it by user, and that
+distinction is the whole correctness of the feature:
+
+| | |
+|---|---|
+| One user, three tabs | **one** member, count of 1 |
+| Their second tab connects | no `joining` — they were already here |
+| They close two of three tabs | no `leaving` — they are still here |
+| Their last tab closes | `leaving` fires once |
+
+Getting this wrong in either direction is visible: counting connections shows a room
+of one person as a room of three, and announcing a departure per connection makes
+members flicker out of the list.
+
+### What the server needs from you
+
+Membership comes from the `channel_data` your auth endpoint signed, so the presence
+rule in your `ChannelRegistry` must return member data rather than `true`:
+
+```php
+$channels->channel('room.{room}', fn (?object $user, string $room): array|bool
+    => $user === null ? false : [
+        'user_id'   => (string) $user->userid,
+        'user_info' => ['name' => $user->name],
+    ]);
+```
+
+A `presence-` subscription that arrives with **no** member data still succeeds — it
+just stays unlisted. That is deliberate: a client that only wants the channel's
+events is legitimate, and inventing an identity for it would put an anonymous entry
+in everybody's member list.
+
+!!! note "A custom authorizer opts in"
+    Membership is read through `Auth\PresenceAuthorizer`, which extends
+    `ConnectionAuthorizer` rather than replacing a method on it. The guide has always
+    invited applications to implement `ConnectionAuthorizer` themselves, and adding a
+    method to it would have broken every one of those on upgrade. A deployment with a
+    custom authorizer keeps working with no membership until it implements the new
+    interface. The shipped `PusherAuthorizer` and `AllowAllAuthorizer` both do.
+
+Server-side, `presenceMembers($channel)` returns `user_id → user_info` for an
+application that wants to act on the live audience — the counterpart of
+`subscribedChannels()`.
+
+---
+
+## Client events (whisper)
+
+Browser-to-browser messages: typing indicators, cursors, transient cues. This is the
+one direction SSE cannot carry at all, and the main reason to run a WebSocket.
+
+```js
+var room = PramnosEcho.join('room.lobby');
+
+room.whisper('typing', { user: 'Ada' });
+room.listenForWhisper('typing', function (payload) { showTyping(payload); });
+```
+
+!!! danger "Off by default, and enabling it is a trust decision"
+    ```php
+    'broadcasting' => [
+        'websocket' => [
+            'client_events'            => true,   // default false
+            'client_events_per_second' => 10,
+        ],
+    ],
+    ```
+
+    Enabling this grants **every connected browser a write path onto the channel**: a
+    client event is relayed to the other subscribers without the server inspecting
+    it, which is what makes it cheap and also what makes it a trust decision. Nothing
+    a client must not be able to assert about another user may travel this way — that
+    has to go through your application.
+
+    It stayed off by default for a reason beyond caution: until this existed a
+    `client-` event was silently dropped, so no deployment has ever had this write
+    path. Enabling it by default would have opened one on every installation that
+    merely updated the framework.
+
+Three guards, and each refusal is **silent** — a client event is fire-and-forget, and
+answering every rejection would hand a browser a cheap way to make the server talk:
+
+- **Private and presence channels only.** A public channel has no membership test, so
+  relaying on one would be an open publish endpoint.
+- **The sender must be subscribed.** The subscription is the only proof of
+  authorization the daemon holds; without this check a connection could publish into
+  any channel it can *name*, having never been authorized for it.
+- **A per-connection budget**, 10/s by default. The fan-out is per subscriber, so the
+  cost of an unthrottled sender is multiplied by the size of the room.
+
+The sender never receives its own whisper. `broadcast:serve` reports the setting in
+its startup banner either way, because silence reads the same as "enabled" to
+somebody debugging a whisper that never arrives.
+
+---
+
+## Not echoing to the originator (`toOthers`)
+
+An application that renders a change optimistically does not want the broadcast of
+that change back — it would render it twice.
+
+```php
+use Pramnos\Broadcasting\BroadcastingManager;
+
+$broadcasting
+    ->except(BroadcastingManager::socketIdFromRequest())
+    ->broadcast('chat.updates', 'message.created', $payload);
+```
+
+On the client, send the socket id with the write that causes the broadcast:
+
+```js
+fetch('/messages', {
+    method:  'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, PramnosEcho.headers()),
+    body:    JSON.stringify(message)
+});
+```
+
+`PramnosEcho.headers()` adds `X-Socket-ID`, and is empty before the connection is up
+— the honest answer, since there is no connection to exclude yet. `socketIdFromRequest()`
+also reads a `socket_id` body or query field, for a form post that cannot set a
+header.
+
+### Why the odd shape
+
+Two constraints, both from BC:
+
+**`except()` returns a clone and no method grew a parameter.** Adding a trailing
+optional parameter to a public method is source-compatible for callers and **fatal
+for a subclass that overrides it** — and this framework's own test suite subclasses
+`LocalBroadcastServer` and overrides `broadcast()` with its exact three-argument
+signature. The pattern demonstrably exists in the wild, so `broadcast()` kept its
+signature and the server gained `broadcastExcept()` beside it.
+
+**The exclusion travels inside the envelope.** The process that publishes and the
+daemon that fans out to browsers are different processes, so anything held in PHP
+memory is gone by the time the edge sees the event. A driver that supports exclusion
+adds an `except` key to the `{event, payload, timestamp}` envelope it already writes;
+consumers that predate the key ignore it, because envelope decoding reads by key.
+
+A driver that does not implement `Drivers\ExcludesSocketInterface` — a third-party one
+— broadcasts to everyone and the manager **logs it**. Degrading is better than
+dropping the event, but the only visible symptom is one user seeing a duplicate of
+something they just did, which reads as an application bug rather than a driver
+capability gap.
 
 ---
 

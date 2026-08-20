@@ -17,7 +17,7 @@ namespace Pramnos\Broadcasting\Auth;
  *   presence- channel: "<socketId>:<channel>:<channelData>"
  * Token: "<appKey>:" . hash_hmac('sha256', <string>, <appSecret>)
  */
-final class PusherAuthorizer implements ConnectionAuthorizer
+final class PusherAuthorizer implements PresenceAuthorizer
 {
     public function __construct(
         private readonly string $appKey,
@@ -48,5 +48,38 @@ final class PusherAuthorizer implements ConnectionAuthorizer
         $expected = $this->appKey . ':' . hash_hmac('sha256', $stringToSign, $this->appSecret);
 
         return hash_equals($expected, $auth);
+    }
+
+    /**
+     * Decode the member identity from the already-verified channel data.
+     *
+     * Safe to trust: this runs only after {@see authorizeChannel()} accepted the
+     * subscription, and the signature covered `$channelData` byte-for-byte. That
+     * is the whole reason presence data is signed rather than merely sent — a
+     * client that could edit it could claim to be anyone in the room.
+     */
+    public function presenceMember(string $channel, string $socketId, ?string $channelData): ?array
+    {
+        if ($channelData === null || $channelData === '') {
+            return null;
+        }
+
+        $decoded = json_decode($channelData, true);
+
+        if (!is_array($decoded) || !isset($decoded['user_id'])) {
+            return null;
+        }
+
+        $member = ['user_id' => (string) $decoded['user_id']];
+
+        if ($member['user_id'] === '') {
+            return null;
+        }
+
+        if (isset($decoded['user_info']) && is_array($decoded['user_info'])) {
+            $member['user_info'] = $decoded['user_info'];
+        }
+
+        return $member;
     }
 }

@@ -608,4 +608,97 @@ class BroadcastServeTest extends TestCase
         $this->assertIsString($path,
             'resolveDefaultLogFile() must always return a string, never throw');
     }
+
+    // =========================================================================
+    // Client events banner
+    // =========================================================================
+
+    /**
+     * Install an Application whose applicationInfo carries a broadcasting config,
+     * so broadcastingConfig() has something to read.
+     *
+     * @param array<string,mixed> $broadcasting
+     */
+    private function installApplicationWith(array $broadcasting): void
+    {
+        $app = new class($broadcasting) extends \Pramnos\Application\Application {
+            public function __construct(array $broadcasting)
+            {
+                $this->_data['container'] = new \Pramnos\Application\Container();
+                $this->applicationInfo    = ['broadcasting' => $broadcasting];
+            }
+        };
+
+        $ref = new \ReflectionClass(\Pramnos\Application\Application::class);
+        $ref->getProperty('appInstances')->setValue(null, ['default' => $app]);
+        $ref->getProperty('lastUsedApplication')->setValue(null, 'default');
+    }
+
+    /**
+     * With client events off — the default — the startup banner says so.
+     *
+     * Reported rather than left silent: an operator has no other way to tell whether
+     * browsers can write to a channel on this server, and silence reads the same as
+     * "enabled" to somebody debugging a whisper that never arrives.
+     */
+    public function testExecuteReportsClientEventsDisabledByDefault(): void
+    {
+        // Arrange
+        $this->installApplicationWith([]);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('Client events: disabled', $tester->getDisplay());
+    }
+
+    /**
+     * With client events enabled, the banner names the per-connection rate and the
+     * channels they apply to.
+     *
+     * Enabling this grants every connected browser a write path onto a private or
+     * presence channel, so it belongs in the startup output where an operator will
+     * see it.
+     */
+    public function testExecuteReportsClientEventsEnabledWithTheRate(): void
+    {
+        // Arrange
+        $this->installApplicationWith([
+            'websocket' => ['client_events' => true, 'client_events_per_second' => 25],
+        ]);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Client events: enabled', $display);
+        $this->assertStringContainsString('25/s per connection', $display);
+        $this->assertStringContainsString('private/presence channels only', $display);
+    }
+
+    /**
+     * A configured rate of zero is reported as the clamped value rather than as
+     * zero, so the banner matches what the server will actually enforce.
+     */
+    public function testExecuteReportsTheClampedRate(): void
+    {
+        // Arrange
+        $this->installApplicationWith([
+            'websocket' => ['client_events' => true, 'client_events_per_second' => 0],
+        ]);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('1/s per connection', $tester->getDisplay());
+    }
 }

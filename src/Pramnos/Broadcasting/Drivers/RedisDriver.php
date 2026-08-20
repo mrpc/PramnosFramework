@@ -30,7 +30,7 @@ use Pramnos\Broadcasting\SubscriptionOptions;
  * else), created through an injectable factory so the loop can be unit-tested
  * without a live server.
  */
-class RedisDriver implements SubscribableDriverInterface
+class RedisDriver implements SubscribableDriverInterface, ExcludesSocketInterface
 {
     private string $host;
     private int $port;
@@ -64,6 +64,33 @@ class RedisDriver implements SubscribableDriverInterface
     public function name(): string
     {
         return 'redis';
+    }
+
+    /** Socket id to exclude from the next envelope, set by broadcastExcept(). */
+    private ?string $exceptSocketId = null;
+
+    /**
+     * Broadcast to $channel, excluding one connection.
+     *
+     * The exclusion is written into the envelope rather than held in memory: the
+     * process that publishes is not the one that fans out to browsers, so anything
+     * kept locally is gone by the time the edge sees the event.
+     */
+    public function broadcastExcept(
+        string $channel,
+        string $event,
+        array $payload,
+        ?string $exceptSocketId
+    ): void {
+        $this->exceptSocketId = $exceptSocketId;
+
+        try {
+            $this->broadcast($channel, $event, $payload);
+        } finally {
+            // Cleared even on failure, so one excluded broadcast cannot leak its
+            // exclusion into the next ordinary one.
+            $this->exceptSocketId = null;
+        }
     }
 
     public function broadcast(string $channel, string $event, array $payload): void
@@ -173,7 +200,7 @@ class RedisDriver implements SubscribableDriverInterface
     private function encodeEnvelope(string $event, array $payload): string
     {
         return (string) json_encode(
-            ['event' => $event, 'payload' => $payload, 'timestamp' => time()],
+            $this->envelope($event, $payload),
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
     }
@@ -198,5 +225,23 @@ class RedisDriver implements SubscribableDriverInterface
             return substr($channel, strlen($this->prefix));
         }
         return $channel;
+    }
+
+    /**
+     * The wire envelope. `except` is present only when there is one, so an
+     * ordinary broadcast is byte-identical to what this driver has always written.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function envelope(string $event, array $payload): array
+    {
+        $envelope = ['event' => $event, 'payload' => $payload, 'timestamp' => time()];
+
+        if ($this->exceptSocketId !== null && $this->exceptSocketId !== '') {
+            $envelope['except'] = $this->exceptSocketId;
+        }
+
+        return $envelope;
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Broadcasting;
 
 use Pramnos\Broadcasting\Drivers\DriverInterface;
+use Pramnos\Broadcasting\Drivers\ExcludesSocketInterface;
 use Pramnos\Broadcasting\Drivers\NullDriver;
 
 /**
@@ -43,6 +44,9 @@ class BroadcastingManager
 
     /** The default manager, pre-wired with a Redis driver on the ConnectionManager. */
     private static ?self $instance = null;
+
+    /** Connection excluded from the next broadcast, set by {@see except()}. */
+    private ?string $exceptSocketId = null;
 
     public function __construct()
     {
@@ -150,7 +154,83 @@ class BroadcastingManager
      */
     public function broadcast(string $channel, string $event, array $payload): void
     {
-        $this->driver()->broadcast($channel, $event, $payload);
+        $driver = $this->driver();
+
+        if ($this->exceptSocketId === null) {
+            $driver->broadcast($channel, $event, $payload);
+            return;
+        }
+
+        if ($driver instanceof ExcludesSocketInterface) {
+            $driver->broadcastExcept($channel, $event, $payload, $this->exceptSocketId);
+            return;
+        }
+
+        // The exclusion was asked for and cannot be honoured. Said out loud,
+        // because the only symptom is one user seeing a duplicate of something they
+        // just did — which looks like an application bug and is a driver
+        // capability gap.
+        \Pramnos\Logs\Logger::log(
+            'Broadcasting: driver "' . $driver->name() . '" cannot exclude a socket, so '
+            . 'the event on "' . $channel . '" went to every subscriber including the '
+            . 'originating connection.',
+            'broadcasting'
+        );
+
+        $driver->broadcast($channel, $event, $payload);
+    }
+
+    /**
+     * A manager that excludes one connection from the next broadcast.
+     *
+     * ```php
+     * $broadcasting->except($socketId)->broadcast('chat.updates', 'message.created', $payload);
+     * ```
+     *
+     * Returns a clone rather than mutating, and takes no new parameter on
+     * {@see broadcast()}. That is not stylistic: adding a trailing parameter to a
+     * public method is source-compatible for callers but fatal for a subclass that
+     * overrides it, and this framework's own test suite subclasses and overrides
+     * `broadcast()` — so the codebase itself proves the pattern exists in the wild.
+     *
+     * @param string|null $socketId The originating connection, or null to clear.
+     */
+    public function except(?string $socketId): static
+    {
+        $clone = clone $this;
+        $clone->exceptSocketId = ($socketId === null || $socketId === '') ? null : $socketId;
+
+        return $clone;
+    }
+
+    /**
+     * The originating connection's socket id, from the request that caused this
+     * broadcast.
+     *
+     * A Pusher-protocol client is given a socket id at handshake and sends it back
+     * on the write that triggers a broadcast, conventionally as `X-Socket-ID`. The
+     * body field is read too, for a form post that cannot set a header — and for
+     * `EventSource`, which cannot set one at all.
+     *
+     * Validated to the `<n>.<n>` shape the server issues rather than trusted: it is
+     * compared against connection ids and, in a driver envelope, is data an edge
+     * acts on.
+     */
+    public static function socketIdFromRequest(): ?string
+    {
+        $candidates = [
+            $_SERVER['HTTP_X_SOCKET_ID'] ?? null,
+            $_POST['socket_id'] ?? null,
+            $_GET['socket_id'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && preg_match('/^\d+\.\d+$/', $candidate) === 1) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -161,6 +241,13 @@ class BroadcastingManager
      */
     public function via(string $driverName, string $channel, string $event, array $payload): void
     {
-        $this->driver($driverName)->broadcast($channel, $event, $payload);
+        $driver = $this->driver($driverName);
+
+        if ($this->exceptSocketId !== null && $driver instanceof ExcludesSocketInterface) {
+            $driver->broadcastExcept($channel, $event, $payload, $this->exceptSocketId);
+            return;
+        }
+
+        $driver->broadcast($channel, $event, $payload);
     }
 }

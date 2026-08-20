@@ -32,7 +32,7 @@ use Pramnos\Broadcasting\SubscriptionOptions;
  * client away for longer than the cap gets what remains, and an application that
  * needs more than that needs a snapshot on connect, not a bigger stream.
  */
-class RedisStreamDriver implements SubscribableDriverInterface
+class RedisStreamDriver implements SubscribableDriverInterface, ExcludesSocketInterface
 {
     /** Redis host. */
     private string $host;
@@ -93,6 +93,33 @@ class RedisStreamDriver implements SubscribableDriverInterface
      * Unlike a publish, this is durable for as long as the cap allows: a
      * consumer that is not connected right now can still be given it.
      */
+    /** Socket id to exclude from the next envelope, set by broadcastExcept(). */
+    private ?string $exceptSocketId = null;
+
+    /**
+     * Broadcast to $channel, excluding one connection.
+     *
+     * The exclusion is written into the envelope rather than held in memory: the
+     * process that publishes is not the one that fans out to browsers, so anything
+     * kept locally is gone by the time the edge sees the event.
+     */
+    public function broadcastExcept(
+        string $channel,
+        string $event,
+        array $payload,
+        ?string $exceptSocketId
+    ): void {
+        $this->exceptSocketId = $exceptSocketId;
+
+        try {
+            $this->broadcast($channel, $event, $payload);
+        } finally {
+            // Cleared even on failure, so one excluded broadcast cannot leak its
+            // exclusion into the next ordinary one.
+            $this->exceptSocketId = null;
+        }
+    }
+
     public function broadcast(string $channel, string $event, array $payload): void
     {
         if ($this->publisher === null) {
@@ -304,7 +331,7 @@ class RedisStreamDriver implements SubscribableDriverInterface
     private function encodeEnvelope(string $event, array $payload): string
     {
         return (string) json_encode(
-            ['event' => $event, 'payload' => $payload, 'timestamp' => time()],
+            $this->envelope($event, $payload),
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
     }
@@ -323,5 +350,23 @@ class RedisStreamDriver implements SubscribableDriverInterface
         // Non-enveloped entry (written by something else): deliver raw rather
         // than dropping it, so a migration can happen incrementally.
         return ['', is_array($decoded) ? $decoded : ['data' => $message]];
+    }
+
+    /**
+     * The wire envelope. `except` is present only when there is one, so an
+     * ordinary broadcast is byte-identical to what this driver has always written.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function envelope(string $event, array $payload): array
+    {
+        $envelope = ['event' => $event, 'payload' => $payload, 'timestamp' => time()];
+
+        if ($this->exceptSocketId !== null && $this->exceptSocketId !== '') {
+            $envelope['except'] = $this->exceptSocketId;
+        }
+
+        return $envelope;
     }
 }
