@@ -448,12 +448,40 @@ supervised entry that could only ever fail to start.
 
 - `requireLockFile => true` — health is a fresh heartbeat (mtime) in the worker's lock file
   (a `CommandBase`/`ProcessQueue` worker keeps this automatically via `heartbeat()`).
-- `requireLockFile => false` — health is process liveness only (use for a worker whose lock
-  is JSON-heartbeat rather than the orchestrator's mtime convention — see the standalone
-  example below).
+- `requireLockFile => false` — health is **process liveness only**, and the status line says
+  `(pid alive)` rather than `(lock active)` because that is all that was checked. It also
+  switches off the stale-heartbeat restart, which is the one restart a pid check cannot
+  make: a wedged daemon satisfies "pid alive" indefinitely. Prefer `true` — a JSON lock is
+  read fine, `readWorkerPidFromLockFile()` delegates to `WorkerLock::pidFromFile()`.
 - Stopping a daemon = the orchestrator drops a `<lockFile>.stop` sentinel; the worker's
   `shouldStop()` (or a standalone script's `WorkerLock::stopRequested()`) sees it and exits
   after the current job. Constants: `HEARTBEAT_STALE_SECONDS` (300), `GIT_CHECK_SECONDS` (60).
+
+### A stop request has a deadline
+
+Every stop — a process leaving the desired set, a redeploy, the orchestrator being
+disabled — records when it was asked for. A worker still running `STOP_GRACE_SECONDS`
+(30) later is sent `SIGTERM` and reported as its own event:
+
+```
+[waiting]      realtime pid=30 — gracefully stopping, will restart when done (24s before SIGTERM)
+[stop-timeout] realtime pid=30 — ignored the stop sentinel for 31s, sent SIGTERM
+```
+
+A daemon that polls its sentinel exits long before the deadline and never sees it. One that
+cannot is the case the deadline exists for — and `[stop-timeout]` is a fact about that
+worker, worth finding in a log.
+
+The sentinel applies **whatever `requireLockFile` says**: it is the orchestrator's
+instruction to that process, not a claim about its lock.
+
+> **Corrected 2026-08-20.** Only the teardown path had a deadline. A redeploy called
+> `requestStopAll()` and re-exec'd the orchestrator immediately; the new image knew only the
+> state file, which recorded nothing about the stop, so the grace period never started —
+> and a `requireLockFile => false` daemon was reported `[ok]` throughout, because the
+> sentinel was read as part of a lock check it had switched off. Reported from a project
+> where one worker ran for 1h32m across three deploys with its `.stop` sentinel on disk the
+> whole time, serving every WebSocket client from the old code.
 
 ### Health snapshot for a dashboard
 
