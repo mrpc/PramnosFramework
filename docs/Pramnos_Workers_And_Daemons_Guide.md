@@ -275,6 +275,63 @@ on running them itself.
 
 ---
 
+## 1d. The write spool — rows written out of the request path
+
+Some rows are worth keeping and worth nothing individually: an access log, an audit
+trail, a hit counter. `WriteSpool::append()` puts one somewhere cheap and the scheduled
+`spool:drain` writes what has accumulated, batched, out of the request path.
+
+```php
+\Pramnos\Database\WriteSpool::append('#PREFIX#tokenactions', [
+    'tokenid' => 7, 'urlid' => 3, 'method' => 'POST', 'servertime' => time(),
+]);
+```
+
+```
+php pramnos spool:drain             # write everything buffered
+php pramnos spool:drain --status    # how much is waiting, and where
+```
+
+### Rows that can never be written
+
+A spool is a promise to write a row **later**, and later can arrive after the row stopped
+being writable. The common case is a foreign key: `tokenactions` references `usertokens`,
+and a token cleaned up while its rows waited takes the key with it.
+
+Such a row is retried **five times** and then *parked* — appended to
+`<table>.spool.failed` with the error that stopped it and a timestamp, removed from the
+spool, and never read back:
+
+```json
+{"parked_at":"2026-08-20T04:11:07+03:00","attempts":5,
+ "error":"insert or update … violates foreign key constraint","row":{"tokenid":3907,…}}
+```
+
+`spool:drain --status` reports the count; `WriteSpool::parked()` returns it. Parked rows
+are **not** pending — nothing will try them again — so read that file, decide, and delete
+it.
+
+Tuning:
+
+```
+php pramnos spool:drain --max-attempts=10   # more patient
+php pramnos spool:drain --max-attempts=0    # never park; retry for ever
+```
+
+```php
+WriteSpool::setMaxAttempts(10);                    // in code
+// or the `spool_max_attempts` application setting
+```
+
+> **Added 2026-08-20.** There was no limit: a row that could not be written was requeued
+> unconditionally. One installation whose drain had never run accumulated a backlog whose
+> tokens were cleaned up in the meantime; when the schedule started working, the same 209
+> rows failed every minute, for ever, printing a line each. Identical failures are now
+> reported once with a count, too — two hundred lines a minute for one reason is how the
+> reason stops being read.
+
+---
+
 ## 2. `ProcessQueue` — the ready-made queue worker
 
 Extend it and supply your queue model; you get the daemon loop, dashboard, heartbeat,
