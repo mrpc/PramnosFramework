@@ -18,6 +18,11 @@ use Symfony\Component\Console\Output\OutputInterface;
  * persistence, stop-file mechanism, flock singleton guard, dedup scan, interactive
  * dashboard, git-hash restart detection) is provided by the framework.
  *
+ * The framework's own schedule worker (`work`) is supervised alongside them
+ * without the application asking — see {@see collectDesiredProcesses()} — because
+ * the framework schedules periodic work that otherwise nothing runs. Override
+ * {@see includeScheduler()} to `false` if a crontab already does it.
+ *
  * Each "desired process" is an associative array:
  *   id            string   Unique slot identifier (used for state + log file)
  *   daemon        string   Daemon type label (e.g. 'queue', 'kafka', 'custom')
@@ -98,6 +103,126 @@ abstract class DaemonOrchestrator extends CommandBase
      * @return array<int, array<string, mixed>>
      */
     abstract protected function buildDesiredProcesses(): array;
+
+    // ── The schedule ──────────────────────────────────────────────────────────
+
+    /**
+     * Every process the orchestrator should be supervising.
+     *
+     * The application's list, plus the framework's schedule worker. Everything
+     * inside this class reads *this*, not {@see buildDesiredProcesses()} — an
+     * application answers for its own daemons and should not have to remember
+     * the framework's.
+     *
+     * It had to remember, and did not. The framework declares periodic work of
+     * its own in {@see \Pramnos\Scheduling\FrameworkSchedule} — `spool:drain`
+     * every minute, `timescale:drain` hourly, `queue:cleanup` daily — and a
+     * schedule only happens when something runs it. An installation supervising
+     * three application daemons and no scheduler ran none of it: rows written
+     * through the WriteSpool stayed in a file, and every report reading the
+     * drained table showed "no data" for ever. That is a stack with a daemon
+     * orchestrator, no cron, and a framework quietly waiting for a cron.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function collectDesiredProcesses(): array
+    {
+        $desired = $this->buildDesiredProcesses();
+
+        if (!$this->includeScheduler()) {
+            return $desired;
+        }
+
+        // A console that does not have `work` cannot run it, and a supervised
+        // entry that cannot start reports [failed-start] on every cycle for ever.
+        // The framework's own console registers it, so this only excludes an
+        // application that built its console by hand and left it out — for which
+        // doing nothing is the right answer, not a permanent error in its
+        // dashboard. A null console means this is not attached to one at all
+        // (a test, or a subclass used directly), and the framework's answer
+        // applies.
+        $console = $this->getApplication();
+        if ($console !== null && !$console->has('work')) {
+            return $desired;
+        }
+
+        // An application that already supervises `work` — under any id — keeps
+        // its own entry. Two schedulers would not corrupt anything (the tasks
+        // take their own overlap locks and `work` holds a single-instance lock
+        // of its own), but the second would sit there failing to start and
+        // reporting itself as unhealthy for ever.
+        foreach ($desired as $process) {
+            if ($this->isSchedulerProcess($process)) {
+                return $desired;
+            }
+        }
+
+        $desired[] = $this->schedulerProcess();
+
+        return $desired;
+    }
+
+    /**
+     * Whether the orchestrator supervises the framework's schedule worker.
+     *
+     * Override to `false` when the schedule is run some other way — a crontab
+     * line calling `schedule:run`, or a systemd timer. Running both is safe but
+     * pointless.
+     */
+    protected function includeScheduler(): bool
+    {
+        return true;
+    }
+
+    /**
+     * The supervised entry for `work`, the framework's schedule worker.
+     *
+     * `work` wakes on an interval, runs whatever is due, and sleeps — the same
+     * schedule a crontab line for `schedule:run` would run, in a process a
+     * supervisor can see. It takes the lock at `var/pramnos-work.lock` through
+     * the same protocol every other managed daemon uses, so the orchestrator's
+     * health checks apply to it unchanged.
+     *
+     * @return array<string, mixed>
+     */
+    protected function schedulerProcess(): array
+    {
+        $base = defined('ROOT') ? \ROOT : sys_get_temp_dir();
+
+        return [
+            'id'       => 'schedule',
+            'daemon'   => 'schedule',
+            'workerId' => 'schedule-1',
+            'lockFile' => $base . '/var/pramnos-work.lock',
+            'tokens'   => ['work'],
+            'profile'  => 'framework + application schedule',
+        ];
+    }
+
+    /**
+     * Whether a desired-process entry is already the schedule worker.
+     *
+     * Recognised by what it runs rather than by its id, because an application
+     * that added one before this existed chose its own name for it.
+     *
+     * @param  array<string, mixed> $process One desired-process entry
+     * @return bool
+     */
+    protected function isSchedulerProcess(array $process): bool
+    {
+        if ((string)($process['id'] ?? '') === 'schedule') {
+            return true;
+        }
+
+        $tokens = (array)($process['tokens'] ?? []);
+        if (in_array('work', $tokens, true)) {
+            return true;
+        }
+
+        $shell = (string)($process['shellCommand'] ?? '');
+
+        return $shell !== '' && preg_match('/\bwork\b/', $shell) === 1;
+    }
 
     /**
      * Return the title string shown in the interactive dashboard header.
@@ -315,7 +440,7 @@ abstract class DaemonOrchestrator extends CommandBase
                 $runDedup = $interactive || ($cycleCount % static::DEDUP_SCAN_INTERVAL === 0);
                 if ($runDedup) {
                     $dedupOut = new \Symfony\Component\Console\Output\BufferedOutput();
-                    $this->deduplicateRunningProcesses($this->buildDesiredProcesses(), $this->loadState(), $dedupOut);
+                    $this->deduplicateRunningProcesses($this->collectDesiredProcesses(), $this->loadState(), $dedupOut);
                     $raw = trim($dedupOut->fetch());
                     if ($raw !== '') {
                         $dedupMessages = explode("\n", $raw);
@@ -371,7 +496,7 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function reconcile(string $phpBinary, bool $dryRun, OutputInterface $output): void
     {
-        $desired    = $this->buildDesiredProcesses();
+        $desired    = $this->collectDesiredProcesses();
         $desiredById = [];
         foreach ($desired as $item) {
             $desiredById[$item['id']] = $item;
@@ -1303,7 +1428,7 @@ abstract class DaemonOrchestrator extends CommandBase
     {
         $this->updateSystemMetrics();
 
-        $desired  = $this->buildDesiredProcesses();
+        $desired  = $this->collectDesiredProcesses();
         $state    = $this->loadState();
         $stateById = [];
         foreach ($state as $item) {
