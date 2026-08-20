@@ -200,6 +200,18 @@ class FrameworkSchedule
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',
             ],
+
+            // Session tokens nobody has used for a month. `usertokens` is
+            // append-only in practice — one row per login, and until they were
+            // given an expiry they never stopped being valid — and it is the
+            // table `tokenactions` points a foreign key at. A two-day-old
+            // development installation with one user had 7,255 rows in it.
+            // Off-peak and daily: retiring a token is one UPDATE over an indexed
+            // range, and nothing about it is urgent.
+            'auth:token-cleanup' => [
+                'cadence'     => [['daily'], ['at', '03:40']],
+                'description' => 'Retire session tokens idle for a month',
+            ],
         ];
     }
 }

@@ -115,6 +115,7 @@ class Application extends \Symfony\Component\Console\Application
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());
+        $this->add(new \Pramnos\Console\Commands\AuthTokenCleanup());
         $this->add(new \Pramnos\Console\Commands\QueueFailed());
         $this->add(new \Pramnos\Console\Commands\QueueRetry());
         // Database seeding + lifecycle
