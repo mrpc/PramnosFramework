@@ -268,17 +268,27 @@ echo -e "\e[32mRunning PHPUnit tests...\e[0m"
 extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped --display-phpunit-deprecations"
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
+# `set -e` is not in force here, so the exit status is captured explicitly and
+# re-raised at the very end. Without it the script's status was that of whatever
+# ran last — the coverage-report `if` — so a run that printed "FAILURES!" exited
+# 0, and anything reading $? (CI, a pre-push hook, an agent) was told the suite
+# passed. Observed on a real red run.
+phpunit_status=0
+
 if [[ "$coverage" == true ]]; then
     docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit \
         --coverage-html coverage \
         --coverage-clover coverage/clover.xml \
         $extra_flags "${passthrough[@]}"
+    phpunit_status=$?
 elif [[ "$nocoverage" == true ]]; then
     # --no-coverage overrides the always-on <coverage> block in phpunit.xml;
     # XDEBUG_MODE=off removes the per-line instrumentation overhead completely.
     docker-compose exec -e XDEBUG_MODE=off php-apache-environment php -d memory_limit=1G vendor/bin/phpunit --no-coverage $extra_flags "${passthrough[@]}"
+    phpunit_status=$?
 else
     docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit $extra_flags "${passthrough[@]}"
+    phpunit_status=$?
 fi
 
 # Open coverage report if generated and not suppressed
@@ -292,3 +302,6 @@ if [[ "$coverage" == true && "$nobrowser" == false && -f ./coverage/index.html ]
         open ./coverage/index.html
     fi
 fi
+
+# The result of the run, not of the last thing the script happened to do.
+exit $phpunit_status
