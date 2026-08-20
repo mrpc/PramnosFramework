@@ -212,6 +212,32 @@ php pramnos work &
 php pramnos queue:process --daemon &
 ```
 
+### How a `command` task is run
+
+`Scheduler::command('spool:drain')` shells out, and the console it shells out to is the
+one **this** process is running:
+
+```
+/usr/local/bin/php /var/www/html/myapp.php spool:drain
+```
+
+The running entry point, not a fixed name — a scaffolded application's console is
+`<cliName>.php` in the project root, not the framework's `pramnos`. Define `PRAMNOS_BIN`
+to point somewhere else:
+
+```php
+define('PRAMNOS_BIN', '/usr/local/bin/php /srv/app/console');
+```
+
+**A non-zero exit fails the task.** `schedule:run` prints `✗ Failed` and returns non-zero;
+`work` counts it and carries on with the rest of the pass. Both write it to `schedule.log`.
+
+> **Corrected 2026-08-20.** The default used to be the literal `php pramnos`, and the exit
+> status was discarded. In a scaffolded application every `command` task therefore answered
+> `Could not open input file: pramnos` while reporting `✓ Done` — including `spool:drain`,
+> which meant a write spool that was never drained. Found on an installation with 478 rows
+> in `var/spool/` and a `tokenactions` table that had never had a row in it.
+
 ### Replacing a framework task
 
 ```php
