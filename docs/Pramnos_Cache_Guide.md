@@ -50,6 +50,36 @@ return [
 ];
 ```
 
+### When nothing is configured
+
+An installation with no `cache` section still gets a cache: the first backend whose
+extension is actually installed, **Redis first**, then memcached, then memcache, then
+file.
+
+And a Redis cache with no connection details of its own uses **the framework's Redis** —
+the `REDIS_HOST` / `REDIS_PORT` / `REDIS_DATABASE` / `REDIS_PASSWORD` environment
+variables, or a `redis` settings section, resolved by
+`\Pramnos\Redis\ConnectionManager` exactly as everything else built on it does. A
+`cache` section that names a host keeps it, value by value: name a hostname and only the
+hostname is yours.
+
+```php
+// Nothing at all — Redis at $REDIS_HOST, or localhost, or the next backend down
+'cache' => null,
+
+// A prefix and nothing else — still finds the framework's Redis
+'cache' => ['prefix' => 'myapp:'],
+
+// A cache on its own Redis, deliberately not the framework's
+'cache' => ['method' => 'redis', 'hostname' => 'cache-redis', 'port' => 6380],
+```
+
+> **Corrected 2026-08-20.** The unconfigured default was the literal `'memcached'`, and a
+> Redis cache assumed `localhost`. In a container stack — where Redis is a service name and
+> memcached is not installed at all — an installation with a working Redis and no `cache`
+> section asked for memcached, failed, walked down to memcache, failed, and cached to disk.
+> Reported from a project doing exactly that, with Redis running beside it the whole time.
+
 ### Application Settings Integration
 
 The cache system automatically loads configuration from application settings:

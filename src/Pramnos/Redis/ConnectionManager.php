@@ -116,9 +116,16 @@ class ConnectionManager
         $redis = new \Redis();
         // Fail fast on connect/auth so callers get a clear error instead of a
         // dead connection that only throws on the first command.
+        //
+        // The connect is silenced because phpredis raises a PHP warning *and*
+        // returns false, and the throw below says the same thing with the host
+        // and port in it. Callers of this — the cache, above all — treat a
+        // failure as "use the next backend" and log it themselves, so the raw
+        // warning added a second entry per request for a condition already
+        // reported, in the exact situation where the log matters most.
         $connected = $this->timeout > 0
-            ? $redis->connect($this->host, $this->port, $this->timeout)
-            : $redis->connect($this->host, $this->port);
+            ? @$redis->connect($this->host, $this->port, $this->timeout)
+            : @$redis->connect($this->host, $this->port);
         if (!$connected) {
             throw new \RuntimeException("Could not connect to Redis at {$this->host}:{$this->port}");
         }

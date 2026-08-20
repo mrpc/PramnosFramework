@@ -167,16 +167,19 @@ class CacheConfiguredMethodTest extends TestCase
     }
 
     /**
-     * With nothing configured at all, the historic default still applies.
+     * With nothing configured at all, the store is one that is actually installed.
      *
-     * The empty default must not turn into "no cache": absent settings keep
-     * resolving through `memcached` and down whatever chain is available, which
-     * is the behaviour every existing installation without a `cache` setting
-     * already has.
+     * The empty default must not turn into "no cache" — but it must not name a
+     * backend nobody installed either. `'memcached'` was the literal here, which
+     * is the same mistake `getInstance()` made with its argument one level up: an
+     * installation running Redis and carrying no `cache` setting asked for
+     * memcached, could not reach it, and cached to disk with Redis working beside
+     * it. The default is now the first backend whose extension is present, Redis
+     * first — the one this framework's guide recommends.
      *
      * @return void
      */
-    public function testNoConfigurationKeepsTheHistoricChain(): void
+    public function testNoConfigurationResolvesToAnInstalledBackend(): void
     {
         // Arrange — no cache setting whatsoever
         Settings::clearSettings();
@@ -187,6 +190,48 @@ class CacheConfiguredMethodTest extends TestCase
         // Assert — it resolved to *something* usable rather than nothing
         $this->assertNotNull($cache->getAdapter());
         $this->assertNotSame('', $cache->method);
+
+        // ...and specifically to a backend this PHP can actually talk to, rather
+        // than to a name that only leads to the file adapter through two failures
+        $expected = match (true) {
+            class_exists('\Redis')     => 'redis',
+            class_exists('\Memcached') => 'memcached',
+            class_exists('\Memcache')  => 'memcache',
+            default                    => 'file',
+        };
+        $this->assertSame($expected, $cache->requestedMethod);
+    }
+
+    /**
+     * The resolved default is the first backend that is installed.
+     *
+     * Asserted against `defaultMethod()` directly, because which one that is depends
+     * on the extensions of the machine running the tests — the invariant is the
+     * order, not the answer.
+     *
+     * @return void
+     */
+    public function testTheDefaultPrefersRedisThenMemcachedThenFile(): void
+    {
+        // Arrange
+        $resolve = new \ReflectionMethod(Cache::class, 'defaultMethod');
+        $cache   = new Cache(null, null, 'array');
+
+        // Act
+        $default = $resolve->invoke($cache);
+
+        // Assert
+        $this->assertContains($default, ['redis', 'memcached', 'memcache', 'file']);
+
+        if (class_exists('\Redis')) {
+            $this->assertSame('redis', $default, 'Redis is the recommended backend');
+        } elseif (!class_exists('\Memcached') && !class_exists('\Memcache')) {
+            $this->assertSame(
+                'file',
+                $default,
+                'with no memory cache installed, say so rather than failing into it'
+            );
+        }
     }
 
     /**
@@ -361,6 +406,88 @@ class CacheConfiguredMethodTest extends TestCase
         // ...and the placeholder is replaced rather than shown
         $adapter->setValue($cache, $placeholder);
         $this->assertSame('array', $cache->getStats()['method']);
+    }
+
+    /**
+     * A Redis cache with no host of its own uses the framework's Redis.
+     *
+     * `REDIS_HOST` and friends are the documented way to configure Redis, and
+     * `\Pramnos\Redis\ConnectionManager` is what reads them. This class read only
+     * its own `cache` settings and otherwise assumed localhost — so in a container
+     * stack, where Redis is a service name, an installation with a working Redis
+     * and no `cache` section could not reach it and cached to disk instead. Which
+     * is exactly how it was reported.
+     *
+     * @return void
+     */
+    public function testARedisCacheWithoutAHostUsesTheFrameworksRedis(): void
+    {
+        // Arrange — the shared configuration says Redis lives at "redis:6380"
+        $previous = null;
+        try {
+            $previous = \Pramnos\Redis\ConnectionManager::getInstance();
+        } catch (\Throwable) {
+            // none yet
+        }
+
+        \Pramnos\Redis\ConnectionManager::setInstance(
+            new \Pramnos\Redis\ConnectionManager([
+                'host' => 'redis-from-env',
+                'port' => 6380,
+                'database' => 3,
+            ])
+        );
+
+        try {
+            // Act — a cache that asks for redis and says nothing about where
+            $cache = new Cache(null, null, 'redis');
+
+            // Assert — it looked where the rest of the framework looks
+            $this->assertSame('redis-from-env', $cache->hostname);
+            $this->assertSame(6380, $cache->port);
+            $this->assertSame(3, $cache->database);
+        } finally {
+            \Pramnos\Redis\ConnectionManager::setInstance($previous);
+        }
+    }
+
+    /**
+     * A cache that names its own host keeps it.
+     *
+     * An application naming a cache host means it — including when it means a
+     * different Redis from the one the rest of the framework talks to. Adopting
+     * over an explicit value would be the same class of bug as the default that
+     * started all this.
+     *
+     * @return void
+     */
+    public function testAnExplicitCacheHostIsNotOverwritten(): void
+    {
+        // Arrange
+        $previous = null;
+        try {
+            $previous = \Pramnos\Redis\ConnectionManager::getInstance();
+        } catch (\Throwable) {
+            // none yet
+        }
+
+        \Pramnos\Redis\ConnectionManager::setInstance(
+            new \Pramnos\Redis\ConnectionManager(['host' => 'redis-from-env', 'port' => 6380])
+        );
+
+        try {
+            // Act — the cache settings name a host of their own
+            $cache = new Cache(null, null, 'redis', [
+                'hostname' => 'cache-redis',
+                'port'     => 6399,
+            ]);
+
+            // Assert
+            $this->assertSame('cache-redis', $cache->hostname);
+            $this->assertSame(6399, $cache->port);
+        } finally {
+            \Pramnos\Redis\ConnectionManager::setInstance($previous);
+        }
     }
 
     /**
