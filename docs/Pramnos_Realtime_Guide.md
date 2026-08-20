@@ -3,6 +3,8 @@ use_cases:
   - Pushing an event to a connected browser
   - Choosing between SSE and WebSockets
   - Configuring the broadcasting backplane or driver
+  - Consuming a third party's WebSocket or push feed instead of polling it
+  - Reading WebSocket frames inside a worker that already has its own loop
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -540,6 +542,114 @@ nothing — and applying that rule immediately found a second stream with the sa
 Run `broadcast:serve` under the `DaemonOrchestrator` (crash respawn, graceful
 stop, redeploy) by returning a process spec whose tokens invoke it — see the
 [Console Commands guide](Pramnos_Console_Guide.md).
+
+---
+
+## Consuming somebody else's WebSocket
+
+Everything above is the framework talking: `LocalBroadcastServer` **is** a WebSocket
+server, `PusherDriver` **publishes** to one. The other direction — reading a feed
+somebody else pushes — is `\Pramnos\Http\WebSocketClient`.
+
+It is **transport only**. The handshake, masking, the three payload-length forms,
+fragment reassembly and ping/pong are handled; the protocol on top is not. Pusher's
+`pusher:subscribe` exchange, its `activity_timeout`, its channel auth belong to
+whoever is speaking Pusher, exactly as `Pramnos\Http\Client` knows HTTP and not the
+APIs called over it. A `PusherClient` in the framework would be a guess about one
+provider; a WebSocket client is what every provider needs.
+
+### The caller keeps its own loop
+
+This is the property that decides the API. A worker multiplexing several SSE reads,
+one WebSocket and the `.stop` sentinel every daemon here must honour cannot use a
+client that owns the loop or blocks in `read()`. So `WebSocketClient` is shaped like
+`RedisSubscriberSocket`: it hands you its stream and you select on it.
+
+```php
+use Pramnos\Http\WebSocketClient;
+
+$socket = new WebSocketClient('wss://reverb.example.test/app/api-key?protocol=7');
+$socket->connect();                     // handshake; throws on non-101 or bad Accept
+
+while ($running) {
+    $read  = [$socket->stream(), ...$otherStreams];
+    $write = $except = [];
+
+    stream_select($read, $write, $except, 1);
+
+    foreach ($socket->read() as $message) {   // whole messages, [] when none
+        handle(json_decode($message, true));
+    }
+
+    if (!$socket->isConnected()) {
+        break;                          // peer closed, or EOF
+    }
+}
+```
+
+Only `connect()` blocks, and only for the handshake.
+
+### What it guarantees
+
+| | |
+|---|---|
+| `stream()` | the resource for `stream_select()`; null before connect and after close |
+| `read()` | complete messages only — never a fragment, never a partial frame |
+| ping | answered with a matching pong and **not** surfaced as a message |
+| close | surfaces as `isConnected() === false`, not as a message |
+| client frames | always masked, per RFC 6455 §5.3 — not an option |
+| `permessage-deflate` | declined by never offering it |
+| `wss://` | TLS with SNI and the framework's verification defaults |
+| read limit | per-frame **and** per-reassembled-message ceiling |
+
+Both ceilings are needed, and the second is the one that is easy to miss: unlimited
+fragments that never set FIN grow one buffer without any single frame looking
+suspicious.
+
+```php
+$socket = new WebSocketClient(
+    url:        'wss://example.test/socket',
+    headers:    ['Origin' => 'https://app.test'],   // an upgrade request gets one chance
+    timeout:    10.0,
+    maxMessage: 1024 * 1024,
+);
+```
+
+### Handshake failures are refusals, not warnings
+
+`connect()` throws rather than returning a degraded connection, on each of:
+
+- a response that is not `101 Switching Protocols`
+- a `Sec-WebSocket-Accept` that does not match the key sent — **the check that
+  separates a WebSocket server from anything that can be talked into returning 101**
+- a server negotiating an extension that was never offered, since receiving
+  compressed frames with no inflate path is silent corruption rather than a visible
+  failure
+
+A framing violation mid-stream throws too, and closes the connection first: once
+frame boundaries are lost every later frame is misread, so continuing would feed
+arbitrary slices of the stream to the application.
+
+### Framing is shared with the server
+
+`Pramnos\Http\WebSocket\FrameCodec` and `MessageAssembler` are used by both this
+client and `LocalBroadcastServer`. One implementation of the length forms rather than
+one per direction — the single asymmetry RFC 6455 imposes is *who* masks (a client
+must, a server must not), which is one boolean.
+
+That extraction fixed two things in the server on the way through. It **never read
+the FIN bit**, so a fragmented text message reached the Pusher handler as separate
+halves, each invalid JSON, from a client that had done nothing wrong. And completing
+the handshake cleared the whole read buffer, discarding any frame a client had
+pipelined into the same segment as its request — a loss that depended on how the
+kernel happened to split two writes.
+
+### What this makes possible next
+
+`PusherDriver` publishes over HTTP and is the one driver in the table above that
+cannot be *subscribed* to. With a client, a Pusher/Reverb implementation of
+`SubscribableDriverInterface` becomes possible, so an application on a managed Reverb
+server could receive on the backplane it already publishes to.
 
 ---
 

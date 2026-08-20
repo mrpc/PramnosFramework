@@ -6,6 +6,9 @@ namespace Pramnos\Broadcasting;
 
 use Pramnos\Broadcasting\Auth\AllowAllAuthorizer;
 use Pramnos\Broadcasting\Auth\ConnectionAuthorizer;
+use Pramnos\Http\WebSocket\FrameCodec;
+use Pramnos\Http\WebSocket\MessageAssembler;
+use Pramnos\Http\WebSocket\WebSocketProtocolException;
 
 /**
  * Pure-PHP WebSocket server for local broadcasting (development only).
@@ -38,7 +41,7 @@ class LocalBroadcastServer
     /** @var resource|null Server socket. */
     private $serverSocket = null;
 
-    /** @var array<int, array{socket:resource, state:string, buffer:string, channels:string[], socketId:string, pingAt:int}> */
+    /** @var array<int, array{socket:resource, state:string, buffer:string, channels:string[], socketId:string, pingAt:int, assembler:?MessageAssembler}> */
     private array $clients = [];
 
     /** @var array<string, int[]> channel → list of client IDs */
@@ -330,6 +333,8 @@ class LocalBroadcastServer
             'channels' => [],
             'socketId' => "{$id}.{$this->nextSocketId}",
             'pingAt'   => time() + 30,
+            // Created once the handshake completes; frames cannot arrive before.
+            'assembler' => null,
         ];
     }
 
@@ -348,12 +353,12 @@ class LocalBroadcastServer
             return;
         }
 
-        $client['buffer'] .= $data;
-
         if ($client['state'] === 'handshaking') {
+            $client['buffer'] .= $data;
             $this->processHandshake($id);
         } else {
-            $this->processFrames($id);
+            // The assembler owns the partial-frame buffer from here on.
+            $this->ingestFrames($id, $data);
         }
     }
 
@@ -402,8 +407,15 @@ class LocalBroadcastServer
 
         fwrite($client['socket'], $response);
 
-        $client['state']  = 'connected';
-        $client['buffer'] = '';
+        $client['state'] = 'connected';
+
+        // Everything after the header terminator is already a WebSocket frame.
+        // Discarding the buffer here lost the first frame of any client that
+        // pipelined it into the same segment as the handshake.
+        $remainder = substr($buf, strpos($buf, "\r\n\r\n") + 4);
+
+        $client['buffer']    = '';
+        $client['assembler'] = new MessageAssembler();
 
         // Pusher protocol: send pusher:connection_established event
         $this->wsSend($client['socket'], json_encode([
@@ -413,6 +425,10 @@ class LocalBroadcastServer
                 'activity_timeout' => 120,
             ]),
         ]));
+
+        if ($remainder !== '') {
+            $this->ingestFrames($id, $remainder);
+        }
     }
 
     /**
@@ -463,118 +479,68 @@ class LocalBroadcastServer
     // WebSocket framing (RFC 6455 §5)
     // =========================================================================
 
-    private function processFrames(int $id): void
+    /**
+     * Feed received bytes to this client's assembler and act on every complete
+     * message it yields.
+     *
+     * Framing itself lives in {@see FrameCodec} / {@see MessageAssembler}, shared
+     * with {@see \Pramnos\Http\WebSocketClient}. Before that extraction this
+     * method read the opcode but never the FIN bit, so a fragmented text message
+     * reached handleTextMessage() as separate halves — each an invalid JSON
+     * document, from a sender that had done nothing wrong.
+     */
+    private function ingestFrames(int $id, string $bytes): void
     {
         $client = &$this->clients[$id];
 
-        while (strlen($client['buffer']) > 0) {
-            $frame = $this->parseFrame($client['buffer']);
-            if ($frame === null) {
-                break; // incomplete frame — wait for more data
-            }
+        // Created here when absent rather than assumed: a connection reaching
+        // this point without having gone through acceptClient() would otherwise
+        // read every frame into a no-op, which is silence rather than an error.
+        if (!($client['assembler'] ?? null) instanceof MessageAssembler) {
+            $client['assembler'] = new MessageAssembler();
+        }
+        $assembler = $client['assembler'];
 
-            $consumed = $frame['headerLen'] + $frame['payloadLen'];
-            $client['buffer'] = substr($client['buffer'], $consumed);
+        try {
+            $messages = $assembler->feed($bytes);
+        } catch (WebSocketProtocolException) {
+            // A framing violation cannot be recovered from mid-stream: the byte
+            // offsets are lost, so every later frame is misread too.
+            $this->wsSendClose($client['socket']);
+            $this->disconnectClient($id);
+            return;
+        }
 
-            switch ($frame['opcode']) {
-                case 0x1: // text
-                    $this->handleTextMessage($id, $frame['payload']);
+        foreach ($messages as $message) {
+            switch ($message['opcode']) {
+                case FrameCodec::OP_TEXT:
+                    $this->handleTextMessage($id, $message['payload']);
                     break;
-                case 0x8: // close
+                case FrameCodec::OP_CLOSE:
                     $this->wsSendClose($client['socket']);
                     $this->disconnectClient($id);
                     return;
-                case 0x9: // ping
-                    $this->wsSend($client['socket'], $frame['payload'], 0xA); // pong
+                case FrameCodec::OP_PING:
+                    $this->wsSend($client['socket'], $message['payload'], FrameCodec::OP_PONG);
                     break;
-                case 0xA: // pong
+                case FrameCodec::OP_PONG:
                     break;
             }
         }
-    }
-
-    /**
-     * Parse one WebSocket frame from $buffer.
-     *
-     * @return array{headerLen:int, payloadLen:int, opcode:int, payload:string}|null
-     */
-    private function parseFrame(string $buffer): ?array
-    {
-        $len = strlen($buffer);
-        if ($len < 2) {
-            return null;
-        }
-
-        $byte0   = ord($buffer[0]);
-        $byte1   = ord($buffer[1]);
-        $opcode  = $byte0 & 0x0F;
-        $masked  = ($byte1 & 0x80) !== 0;
-        $payLen  = $byte1 & 0x7F;
-        $offset  = 2;
-
-        if ($payLen === 126) {
-            if ($len < 4) {
-                return null;
-            }
-            $payLen = (ord($buffer[2]) << 8) | ord($buffer[3]);
-            $offset = 4;
-        } elseif ($payLen === 127) {
-            if ($len < 10) {
-                return null;
-            }
-            $payLen = 0;
-            for ($i = 0; $i < 8; $i++) {
-                $payLen = ($payLen << 8) | ord($buffer[2 + $i]);
-            }
-            $offset = 10;
-        }
-
-        $maskLen = $masked ? 4 : 0;
-        if ($len < $offset + $maskLen + $payLen) {
-            return null;
-        }
-
-        $mask    = $masked ? substr($buffer, $offset, 4) : '';
-        $offset += $maskLen;
-        $payload = substr($buffer, $offset, $payLen);
-
-        if ($masked) {
-            for ($i = 0; $i < $payLen; $i++) {
-                $payload[$i] = chr(ord($payload[$i]) ^ ord($mask[$i % 4]));
-            }
-        }
-
-        return [
-            'headerLen'  => $offset,
-            'payloadLen' => $payLen,
-            'opcode'     => $opcode,
-            'payload'    => $payload,
-        ];
     }
 
     /**
      * Send a WebSocket text frame (or specified opcode) to $socket.
      */
-    private function wsSend(mixed $socket, string $payload, int $opcode = 0x1): void
+    private function wsSend(mixed $socket, string $payload, int $opcode = FrameCodec::OP_TEXT): void
     {
-        $len = strlen($payload);
-
-        if ($len < 126) {
-            $frame = chr(0x80 | $opcode) . chr($len) . $payload;
-        } elseif ($len < 65536) {
-            $frame = chr(0x80 | $opcode) . chr(126) . chr($len >> 8) . chr($len & 0xFF) . $payload;
-        } else {
-            $frame = chr(0x80 | $opcode) . chr(127)
-                . "\x00\x00\x00\x00" . pack('N', $len)
-                . $payload;
-        }
-
-        @fwrite($socket, $frame);
+        // A server MUST NOT mask (RFC 6455 §5.3), hence mask: false.
+        @fwrite($socket, FrameCodec::encode($payload, $opcode, false));
     }
 
     private function wsSendClose(mixed $socket): void
     {
-        @fwrite($socket, chr(0x88) . chr(0x00));
+        @fwrite($socket, FrameCodec::encode('', FrameCodec::OP_CLOSE, false));
     }
 
     // =========================================================================
