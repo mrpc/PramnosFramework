@@ -95,6 +95,37 @@ class WriteSpool
     protected const BATCH_SIZE = 500;
 
     /**
+     * How many times a row is retried before it is parked.
+     *
+     * A spool is a promise to write a row later, and "later" can arrive after the
+     * row stopped being writable: `tokenactions` references `usertokens`, and a
+     * token cleaned up while its rows waited takes the foreign key with it. Such a
+     * row can never be written, and the drain retried it every minute for ever —
+     * measured on one installation as 209 rows failing per minute, indefinitely,
+     * in a log where each failure printed its own line.
+     *
+     * Five attempts is generous for the failures that *are* transient (a
+     * deadlock, a server restarting) and short enough that a permanent one stops
+     * being noise the same hour it starts.
+     */
+    public const DEFAULT_MAX_ATTEMPTS = 5;
+
+    /**
+     * Distinct error messages reported per drained file before they are counted
+     * rather than listed.
+     */
+    protected const REPORTED_ERRORS = 3;
+
+    /** @var int|null Overrides DEFAULT_MAX_ATTEMPTS when set. */
+    protected static ?int $maxAttempts = null;
+
+    /** Key marking a requeued payload that carries its attempt count. */
+    protected const ATTEMPT_KEY = '__spool_attempts';
+
+    /** Key holding the row inside a requeued payload. */
+    protected const ROW_KEY = '__spool_row';
+
+    /**
      * The driver in use, decided once per process.
      *
      * @var string|null
@@ -277,6 +308,38 @@ class WriteSpool
      * @param  string|null $driver One of the DRIVER_* constants, or null to re-resolve
      * @return void
      */
+    /**
+     * How many times a row is retried before it is parked.
+     *
+     * @return int
+     */
+    public static function maxAttempts(): int
+    {
+        if (static::$maxAttempts !== null) {
+            return static::$maxAttempts;
+        }
+
+        $configured = \Pramnos\Application\Settings::getSetting('spool_max_attempts');
+
+        if (is_numeric($configured)) {
+            return max(0, (int) $configured);
+        }
+
+        return static::DEFAULT_MAX_ATTEMPTS;
+    }
+
+    /**
+     * Override the retry limit. `0` means never park — retry for ever, which is
+     * what this did before the limit existed.
+     *
+     * @param  int|null $attempts Null restores the configured/default value
+     * @return void
+     */
+    public static function setMaxAttempts(?int $attempts): void
+    {
+        static::$maxAttempts = $attempts === null ? null : max(0, $attempts);
+    }
+
     public static function setDriver(?string $driver): void
     {
         static::$driver = $driver;
@@ -289,8 +352,9 @@ class WriteSpool
      */
     public static function reset(): void
     {
-        static::$driver    = null;
-        static::$directory = null;
+        static::$driver      = null;
+        static::$directory   = null;
+        static::$maxAttempts = null;
     }
 
     /**
@@ -355,7 +419,9 @@ class WriteSpool
      */
     public static function drain(?callable $reporter = null): array
     {
-        $stats = ['written' => 0, 'failed' => 0, 'tables' => []];
+        // `parked` and `errors` join the shape rather than replacing anything:
+        // callers reading `written`/`failed`/`tables` keep working.
+        $stats = ['written' => 0, 'failed' => 0, 'parked' => 0, 'tables' => [], 'errors' => []];
 
         static::drainRedis($stats, $reporter);
         static::drainFiles($stats, $reporter);
@@ -368,6 +434,39 @@ class WriteSpool
      *
      * @return int
      */
+    /**
+     * How many rows were set aside as unwritable.
+     *
+     * These are not pending: nothing will try them again. They are counted so an
+     * operator can see that rows were lost to a permanent error rather than
+     * quietly disappearing — and so `spool:drain --status` can say so.
+     *
+     * @return int
+     */
+    public static function parked(): int
+    {
+        $directory = static::directory();
+
+        if ($directory === null) {
+            return 0;
+        }
+
+        $count = 0;
+
+        foreach (glob($directory . DIRECTORY_SEPARATOR . '*.spool.failed') ?: [] as $file) {
+            $handle = @fopen($file, 'rb');
+            if ($handle === false) {
+                continue;
+            }
+            while (fgets($handle) !== false) {
+                $count++;
+            }
+            fclose($handle);
+        }
+
+        return $count;
+    }
+
     public static function pending(): int
     {
         $count = 0;
@@ -447,8 +546,10 @@ class WriteSpool
             // A batch at a time, for the same reason the file is streamed: one
             // `LRANGE 0 -1` over a backlog that built up while nothing drained
             // would pull all of it into memory at once.
-            $written = 0;
-            $failed  = [];
+            $written      = 0;
+            $failed       = [];
+            $parkedBefore = $stats['parked'] ?? 0;
+            $errorsBefore = $stats['errors'] ?? [];
 
             try {
                 while (true) {
@@ -468,12 +569,15 @@ class WriteSpool
                 continue;
             }
 
-            if ($written > 0 || $failed !== []) {
+            if ($written > 0 || $failed !== [] || $stats['parked'] > $parkedBefore) {
+                $parked = $stats['parked'] - $parkedBefore;
                 static::report(
                     $reporter,
                     '  redis ' . $table . ': ' . $written . ' row(s)'
                     . ($failed !== [] ? ', ' . count($failed) . ' failed' : '')
+                    . ($parked > 0 ? ', ' . $parked . ' parked' : '')
                 );
+                static::reportErrors($stats, $reporter, $errorsBefore);
             }
 
             // Rows that could not be written go back on the live list, so the
@@ -647,9 +751,11 @@ class WriteSpool
             // spool that could not be drained is the one that keeps growing.
             // Streaming holds one batch, whatever the file's size, and measured
             // twice as fast into the bargain.
-            $batch   = [];
-            $written = 0;
-            $failed  = [];
+            $batch        = [];
+            $written      = 0;
+            $failed       = [];
+            $parkedBefore = $stats['parked'] ?? 0;
+            $errorsBefore = $stats['errors'] ?? [];
 
             while (($line = fgets($handle)) !== false) {
                 $line = trim($line);
@@ -671,12 +777,15 @@ class WriteSpool
 
             fclose($handle);
 
-            if ($written > 0 || $failed !== []) {
+            if ($written > 0 || $failed !== [] || $stats['parked'] > $parkedBefore) {
+                $parked = $stats['parked'] - $parkedBefore;
                 static::report(
                     $reporter,
                     '  file ' . $table . ': ' . $written . ' row(s)'
                     . ($failed !== [] ? ', ' . count($failed) . ' failed' : '')
+                    . ($parked > 0 ? ', ' . $parked . ' parked' : '')
                 );
+                static::reportErrors($stats, $reporter, $errorsBefore);
             }
 
             // What could not be written goes back to a fresh spool file, and
@@ -759,7 +868,18 @@ class WriteSpool
 
         $files = glob($directory . DIRECTORY_SEPARATOR . '*.spool*');
 
-        return is_array($files) ? array_values($files) : [];
+        if (!is_array($files)) {
+            return [];
+        }
+
+        // `.spool.failed` holds rows that were tried and cannot be written. They
+        // are for a human to read, not for the drain to pick up again — and the
+        // glob above would otherwise hand them straight back to it, which is the
+        // loop parking exists to break.
+        return array_values(array_filter(
+            $files,
+            static fn(string $file): bool => !str_ends_with($file, '.spool.failed')
+        ));
     }
 
     /**
@@ -840,6 +960,159 @@ class WriteSpool
      * @param  list<string> $rejected Payloads that could not be written, collected
      * @return void
      */
+    /**
+     * Read one spooled line into its row and how many times it has been tried.
+     *
+     * Two shapes, because the format had to stay readable by a drain that
+     * predates it: a line appended by `append()` is the row itself, and a line
+     * written back by a failed drain wraps it with a counter. An installation
+     * upgrading mid-backlog reads both.
+     *
+     * @param  string $payload One line of a spool file, or one Redis entry
+     * @return array{row: array<string, mixed>, attempts: int}|null Null when the
+     *         line is not a row at all
+     */
+    protected static function decodePayload(string $payload): ?array
+    {
+        $decoded = json_decode($payload, true);
+
+        if (!is_array($decoded) || $decoded === []) {
+            return null;
+        }
+
+        if (isset($decoded[static::ROW_KEY]) && is_array($decoded[static::ROW_KEY])) {
+            return [
+                'row'      => $decoded[static::ROW_KEY],
+                'attempts' => (int) ($decoded[static::ATTEMPT_KEY] ?? 0),
+            ];
+        }
+
+        return ['row' => $decoded, 'attempts' => 0];
+    }
+
+    /**
+     * Encode a row for requeueing, carrying its attempt count.
+     *
+     * @param  array<string, mixed> $row
+     * @param  int                  $attempts How many times it has now been tried
+     * @return string|false JSON, or false when the row cannot be encoded
+     */
+    protected static function encodePayload(array $row, int $attempts)
+    {
+        if ($attempts <= 0) {
+            return json_encode($row, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+
+        return json_encode(
+            [static::ATTEMPT_KEY => $attempts, static::ROW_KEY => $row],
+            JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+    }
+
+    /**
+     * Set a row aside as unwritable, with why.
+     *
+     * Parked rather than dropped: the row is somebody's audit trail, and "we
+     * could not write this and here is the error" is a thing an operator can act
+     * on. Parked rows live in `<table>.spool.failed`, are never read back by a
+     * drain, and do not count as pending.
+     *
+     * @param  string               $table
+     * @param  array<string, mixed> $row
+     * @param  string               $error Why it could not be written
+     * @return void
+     */
+    /**
+     * Record a failure message once, with a count.
+     *
+     * Every failed row used to print its own line. Two hundred rows failing for
+     * one reason is one thing to know and two hundred lines to read, once a
+     * minute — which is how the reason stops being read at all.
+     *
+     * @param  array<string, mixed> $stats
+     * @param  string               $message
+     * @return void
+     */
+    protected static function collectError(array &$stats, string $message): void
+    {
+        // The first line only: a driver error carries the whole statement after
+        // it, and grouping on that groups nothing.
+        $key = trim(strtok($message, "\n") ?: $message);
+
+        if (!isset($stats['errors'])) {
+            $stats['errors'] = [];
+        }
+
+        $stats['errors'][$key] = ($stats['errors'][$key] ?? 0) + 1;
+    }
+
+    /**
+     * Report the distinct failures of one file, capped.
+     *
+     * @param  array<string, mixed>  $stats
+     * @param  callable|null         $reporter
+     * @param  array<string, int>    $before Error counts before this file
+     * @return void
+     */
+    protected static function reportErrors(array $stats, ?callable $reporter, array $before): void
+    {
+        if ($reporter === null) {
+            return;
+        }
+
+        $shown = 0;
+        $rest  = 0;
+
+        foreach (($stats['errors'] ?? []) as $message => $count) {
+            $new = $count - ($before[$message] ?? 0);
+
+            if ($new <= 0) {
+                continue;
+            }
+
+            if ($shown >= static::REPORTED_ERRORS) {
+                $rest += $new;
+                continue;
+            }
+
+            static::report($reporter, '    ' . $new . '× ' . $message);
+            $shown++;
+        }
+
+        if ($rest > 0) {
+            static::report($reporter, '    and ' . $rest . ' more');
+        }
+    }
+
+    protected static function park(string $table, array $row, string $error): void
+    {
+        $directory = static::directory();
+
+        if ($directory === null) {
+            return;
+        }
+
+        $payload = json_encode(
+            [
+                'parked_at' => date('c'),
+                'attempts'  => static::maxAttempts(),
+                'error'     => $error,
+                'row'       => $row,
+            ],
+            JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+
+        if ($payload === false) {
+            return;
+        }
+
+        @file_put_contents(
+            $directory . DIRECTORY_SEPARATOR . static::slug($table) . '.spool.failed',
+            $payload . "\n",
+            FILE_APPEND | LOCK_EX
+        );
+    }
+
     protected static function writeRows(
         string $table,
         array $rows,
@@ -851,10 +1124,10 @@ class WriteSpool
             $decoded = [];
 
             foreach ($batch as $payload) {
-                $row = json_decode((string) $payload, true);
+                $entry = static::decodePayload((string) $payload);
 
-                if (is_array($row) && $row !== []) {
-                    $decoded[] = $row;
+                if ($entry !== null) {
+                    $decoded[] = $entry;
                     continue;
                 }
 
@@ -872,8 +1145,8 @@ class WriteSpool
 
             try {
                 static::beginBatch();
-                foreach ($decoded as $row) {
-                    static::persist($table, $row);
+                foreach ($decoded as $entry) {
+                    static::persist($table, $entry['row']);
                 }
                 static::commitBatch();
 
@@ -902,21 +1175,39 @@ class WriteSpool
         ?callable $reporter = null,
         array &$rejected = []
     ): void {
-        foreach ($rows as $row) {
+        $max = static::maxAttempts();
+
+        foreach ($rows as $entry) {
+            $row      = $entry['row'];
+            $attempts = (int) ($entry['attempts'] ?? 0);
+
             try {
                 static::persist($table, $row);
                 $stats['written']++;
                 $stats['tables'][$table] = ($stats['tables'][$table] ?? 0) + 1;
             } catch (\Throwable $ex) {
                 $stats['failed']++;
+                $attempts++;
+
+                // Out of attempts: set aside rather than requeued. A row whose
+                // foreign key was deleted while it waited cannot become writable
+                // by being tried again, and trying it again is what turned one
+                // installation's log into 209 identical errors a minute, for ever.
+                if ($max > 0 && $attempts >= $max) {
+                    static::park($table, $row, $ex->getMessage());
+                    $stats['parked']++;
+                    static::collectError($stats, $ex->getMessage());
+                    continue;
+                }
+
                 // Re-encoded rather than kept from the original line, because a
                 // row that came back from Redis and one that came off disk have
                 // to be requeued in the same form.
-                $payload = json_encode($row, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                $payload = static::encodePayload($row, $attempts);
                 if ($payload !== false) {
                     $rejected[] = $payload;
                 }
-                static::report($reporter, '    row failed: ' . $ex->getMessage());
+                static::collectError($stats, $ex->getMessage());
             }
         }
     }

@@ -50,6 +50,12 @@ class SpoolDrain extends Command
                 's',
                 InputOption::VALUE_NONE,
                 'Report what is buffered, and write nothing'
+            )
+            ->addOption(
+                'max-attempts',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Park a row after this many failed attempts (0 = retry for ever)'
             );
     }
 
@@ -57,13 +63,25 @@ class SpoolDrain extends Command
     {
         if ($input->getOption('status')) {
             $pending = WriteSpool::pending();
+            $parked  = WriteSpool::parked();
 
             $output->writeln('Driver:  <info>' . WriteSpool::driver() . '</info>');
             $output->writeln(
                 'Waiting: <info>' . number_format($pending) . '</info> row(s)'
             );
 
+            if ($parked > 0) {
+                $output->writeln(
+                    'Parked:  <comment>' . number_format($parked) . '</comment> row(s) '
+                    . 'that could not be written — see *.spool.failed'
+                );
+            }
+
             return Command::SUCCESS;
+        }
+
+        if ($input->getOption('max-attempts') !== null) {
+            WriteSpool::setMaxAttempts((int) $input->getOption('max-attempts'));
         }
 
         $started = microtime(true);
@@ -93,11 +111,25 @@ class SpoolDrain extends Command
             . round((microtime(true) - $started) * 1000) . 'ms.'
         );
 
-        if ($stats['failed'] > 0) {
+        $parked = $stats['parked'] ?? 0;
+
+        if ($parked > 0) {
             $output->writeln(
-                '<error>' . number_format($stats['failed']) . ' row(s) could not be '
-                . 'written and were kept for the next run.</error>'
+                '<comment>' . number_format($parked) . ' row(s) were set aside as '
+                . 'unwritable after ' . WriteSpool::maxAttempts() . ' attempts '
+                . '(see *.spool.failed).</comment>'
             );
+        }
+
+        if ($stats['failed'] > 0) {
+            $kept = $stats['failed'] - $parked;
+
+            if ($kept > 0) {
+                $output->writeln(
+                    '<error>' . number_format($kept) . ' row(s) could not be '
+                    . 'written and were kept for the next run.</error>'
+                );
+            }
 
             return Command::FAILURE;
         }
