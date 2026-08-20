@@ -6,6 +6,7 @@ use_cases:
   - Refreshing framework-owned files in an existing project (project:resync)
   - Finding out what `init` scaffolds, including the files aimed at AI assistants
   - Starting the development server, or the SPA dev server and build
+  - Checking whether a feature from app.php is active inside a command or daemon
 ---
 
 # Pramnos Console Commands Guide
@@ -218,6 +219,26 @@ exactly as written, so there is nothing to build and nothing to serve.
 
 These commands change an **existing** project after it was scaffolded — no need to re-run
 `init`. They are BC-safe and idempotent (re-running does nothing new).
+
+!!! info "`features` from `app.php` are active on the CLI too"
+    A command — and any daemon it runs — sees the same feature state as the web
+    application: `FeatureRegistry::isEnabled('authserver')` answers from the
+    `features` array in `app/app.php`, whichever entry point asked.
+
+    That was not always true. `Application::getInstance()` reads `app.php` into
+    `applicationInfo`, but the call that turns its `features` list into registry
+    state lived only in `Application::init()`, which the web lifecycle runs and a
+    console command does not. So every feature read as **disabled** inside every
+    command, however `app.php` was written — and a long-running daemon deciding
+    anything from a feature flag reached the opposite conclusion from the web
+    application reading the same file, with nothing to report that the two
+    disagreed. Feature state has to mean one thing per installation, not one thing
+    per entry point.
+
+    One consequence to know about: a `features` entry naming something unregistered
+    now raises `UnknownFeatureException` on the CLI as it already did on the web,
+    rather than being silently ignored. The message names the unknown key and lists
+    the valid ones.
 
 ```bash
 # Interactive umbrella: enable features and/or add libraries

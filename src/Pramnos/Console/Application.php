@@ -49,6 +49,25 @@ class Application extends \Symfony\Component\Console\Application
         $this->registerCommands();
         $this->internalApplication
             = \Pramnos\Application\Application::getInstance();
+
+        // Honour app.php's `features` on the CLI too.
+        //
+        // getInstance() reads app.php into applicationInfo, but the call that
+        // turns that list into FeatureRegistry state lives in
+        // Application::init() — which the web lifecycle runs and a console
+        // command does not. So FeatureRegistry::isEnabled() answered false for
+        // every feature inside every command, however app.php was written.
+        //
+        // That is not a cosmetic gap: a long-running daemon deciding anything
+        // from a feature flag reached the opposite conclusion from the web app
+        // reading the same file, with nothing anywhere to say the two disagreed.
+        // Feature state has to mean one thing per installation, not one thing
+        // per entry point.
+        if ($this->internalApplication instanceof \Pramnos\Application\Application) {
+            \Pramnos\Application\FeatureRegistry::loadFromConfig(
+                $this->internalApplication->applicationInfo['features'] ?? []
+            );
+        }
     }
 
     /**
