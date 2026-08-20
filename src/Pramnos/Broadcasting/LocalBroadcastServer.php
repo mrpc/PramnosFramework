@@ -6,6 +6,7 @@ namespace Pramnos\Broadcasting;
 
 use Pramnos\Broadcasting\Auth\AllowAllAuthorizer;
 use Pramnos\Broadcasting\Auth\ConnectionAuthorizer;
+use Pramnos\Broadcasting\Auth\PresenceAuthorizer;
 use Pramnos\Http\WebSocket\FrameCodec;
 use Pramnos\Http\WebSocket\MessageAssembler;
 use Pramnos\Http\WebSocket\WebSocketProtocolException;
@@ -47,6 +48,19 @@ class LocalBroadcastServer
     /** @var array<string, int[]> channel → list of client IDs */
     private array $subscriptions = [];
 
+    /**
+     * Presence membership: channel → clientId → member data.
+     *
+     * Keyed by connection rather than by user, because one user may hold several
+     * (two tabs, a phone and a laptop). The member *list* is deduplicated by
+     * `user_id` on the way out, and a departure is only announced when the last
+     * connection for that user goes — announcing it per connection would report
+     * somebody as having left a room they are still sitting in.
+     *
+     * @var array<string, array<int, array{user_id:string, user_info?:array<string,mixed>}>>
+     */
+    private array $presence = [];
+
     /** @var int Next auto-increment socket ID. */
     private int $nextSocketId = 1;
 
@@ -70,6 +84,24 @@ class LocalBroadcastServer
 
     /** Optional Redis pub/sub ingest, polled non-blocking inside the select loop. */
     private ?RedisIngestInterface $redisIngest = null;
+
+    /**
+     * Whether browsers may publish `client-*` events to a channel.
+     *
+     * **Default false, and that is a security decision rather than a preference.**
+     * Until this existed, a `client-` event from a browser was silently dropped, so
+     * no deployment has ever had a client-to-client write path through this server.
+     * Enabling it by default would open one on every installation that merely
+     * updated the framework — a new write surface nobody asked for, appearing in a
+     * patch release.
+     */
+    private bool $clientEventsEnabled = false;
+
+    /** Per-connection client-event budget: clientId → [windowStart, count]. */
+    private array $clientEventBudget = [];
+
+    /** Max client events one connection may send per second. */
+    private int $clientEventsPerSecond = 10;
 
     /** @var callable|null Optional router mapping an ingested message to WS deliveries. */
     private $ingestRouter = null;
@@ -107,6 +139,22 @@ class LocalBroadcastServer
     public function subscribedChannels(): array
     {
         return array_keys($this->subscriptions);
+    }
+
+    /**
+     * Who is currently in a presence channel: `user_id` → `user_info`.
+     *
+     * One entry per distinct user rather than per connection, so a user with three
+     * tabs open counts once. Read-only, and the counterpart of
+     * {@see subscribedChannels()} for an application that wants to act on the live
+     * audience — an onTick callback refreshing presence records, for instance —
+     * without patching the server.
+     *
+     * @return array<string, array<string,mixed>>
+     */
+    public function presenceMembers(string $channel): array
+    {
+        return $this->presencePayload($channel)['presence']['hash'];
     }
 
     /**
@@ -172,6 +220,44 @@ class LocalBroadcastServer
      */
     public function broadcast(string $channel, string $event, $data): void
     {
+        $this->fanOut($channel, $event, $data, null);
+    }
+
+    /**
+     * Broadcast to $channel, skipping the connection whose socket id is
+     * $exceptSocketId — what `toOthers()` needs.
+     *
+     * A separate method rather than a fourth parameter on {@see broadcast()}: this
+     * framework's own test suite subclasses this class and overrides `broadcast()`
+     * with its exact three-argument signature, and PHP requires an override to stay
+     * compatible. Adding a parameter would have been source-compatible for callers
+     * and fatal for every subclass — including ours.
+     *
+     * For the same reason `broadcast()` still holds the fan-out entry point that
+     * internal callers use, so a subclass overriding it keeps intercepting
+     * everything it used to.
+     *
+     * @param mixed $data
+     */
+    public function broadcastExcept(
+        string $channel,
+        string $event,
+        $data,
+        ?string $exceptSocketId
+    ): void {
+        if ($exceptSocketId === null || $exceptSocketId === '') {
+            $this->broadcast($channel, $event, $data);
+            return;
+        }
+
+        $this->fanOut($channel, $event, $data, $exceptSocketId);
+    }
+
+    /**
+     * @param mixed $data
+     */
+    private function fanOut(string $channel, string $event, $data, ?string $exceptSocketId): void
+    {
         $payload = json_encode([
             'event'   => $event,
             'data'    => is_string($data) ? $data : json_encode($data),
@@ -179,6 +265,13 @@ class LocalBroadcastServer
         ]);
 
         foreach ($this->subscriptions[$channel] ?? [] as $id) {
+            if (
+                $exceptSocketId !== null
+                && ($this->clients[$id]['socketId'] ?? null) === $exceptSocketId
+            ) {
+                continue;
+            }
+
             if (isset($this->clients[$id])) {
                 $this->wsSend($this->clients[$id]['socket'], $payload);
             }
@@ -239,6 +332,29 @@ class LocalBroadcastServer
         $this->authorizer = $authorizer;
     }
 
+    /**
+     * Allow browsers to publish `client-*` events to private and presence channels.
+     *
+     * This is the whole category of typing indicators, cursors and other transient
+     * peer-to-peer cues — and the reason to want a WebSocket rather than SSE at all,
+     * since it is the only direction SSE cannot carry.
+     *
+     * **It is off by default and must be turned on deliberately.** It grants every
+     * connected browser a write path onto a channel: a client event is relayed to
+     * the channel's other subscribers without the server inspecting it, which is
+     * what makes it cheap and also what makes it a trust decision. Anything a
+     * client must not be able to assert about another user has to travel through the
+     * application, not through here.
+     *
+     * @param bool $enabled       Off by default.
+     * @param int  $eventsPerSecond Per-connection budget. Pusher's own limit is 10.
+     */
+    public function allowClientEvents(bool $enabled = true, int $eventsPerSecond = 10): void
+    {
+        $this->clientEventsEnabled   = $enabled;
+        $this->clientEventsPerSecond = max(1, $eventsPerSecond);
+    }
+
     private function loopIteration(): void
     {
         $read = [$this->serverSocket];
@@ -290,9 +406,18 @@ class LocalBroadcastServer
         }
         foreach ($this->redisIngest->drain() as $msg) {
             $decoded = json_decode($msg['message'], true);
+            $except  = null;
             if (is_array($decoded) && array_key_exists('event', $decoded)) {
                 $event   = (string) $decoded['event'];
                 $payload = $decoded['payload'] ?? [];
+
+                // `toOthers()` writes the originating socket id into the envelope,
+                // because the publishing process and this one are not the same and
+                // anything held in PHP memory is gone by the time the event
+                // arrives here. Absent on every envelope that did not ask for it.
+                if (isset($decoded['except']) && is_string($decoded['except'])) {
+                    $except = $decoded['except'];
+                }
             } else {
                 $event   = 'message';
                 $payload = $decoded ?? $msg['message'];
@@ -305,14 +430,15 @@ class LocalBroadcastServer
                 $id = isset($msg['id']) ? (string) $msg['id'] : null;
 
                 foreach ((($this->ingestRouter)($msg['channel'], $event, $payload, $id) ?? []) as $route) {
-                    $this->broadcast(
+                    $this->broadcastExcept(
                         (string) $route[0],
                         (string) ($route[1] ?? $event),
-                        $route[2] ?? $payload
+                        $route[2] ?? $payload,
+                        $except
                     );
                 }
             } else {
-                $this->broadcast($msg['channel'], $event, $payload);
+                $this->broadcastExcept($msg['channel'], $event, $payload, $except);
             }
         }
     }
@@ -565,7 +691,97 @@ class LocalBroadcastServer
                 $client = &$this->clients[$id];
                 $this->wsSend($client['socket'], json_encode(['event' => 'pusher:pong', 'data' => '{}']));
                 break;
+            default:
+                if (str_starts_with((string) $msg['event'], 'client-')) {
+                    $this->handleClientEvent($id, (string) $msg['event'], $msg);
+                }
+                break;
         }
+    }
+
+    /**
+     * Relay a `client-*` event from one browser to the rest of a channel.
+     *
+     * Every refusal below is silent — no error frame is sent back. That is
+     * deliberate: a client event is fire-and-forget by design, and answering each
+     * rejected one would hand a browser a cheap way to make the server talk, which
+     * is the opposite of what a rate limit is for.
+     *
+     * @param array<string,mixed> $msg The decoded client frame.
+     */
+    private function handleClientEvent(int $id, string $event, array $msg): void
+    {
+        if (!$this->clientEventsEnabled) {
+            return;
+        }
+
+        $channel = (string) ($msg['channel'] ?? '');
+
+        // Private and presence channels only. A public channel has no membership
+        // test at all, so relaying client events on one would let any connection
+        // publish to every listener — an open write path dressed as a feature.
+        if (
+            !str_starts_with($channel, 'private-')
+            && !str_starts_with($channel, 'presence-')
+        ) {
+            return;
+        }
+
+        // The sender must itself be subscribed. Without this check a connection
+        // could publish into any channel it can name, having never been authorized
+        // for it — the subscription is the only proof of authorization the daemon
+        // holds.
+        if (!isset($this->subscriptions[$channel][$id])) {
+            return;
+        }
+
+        if (!$this->consumeClientEventBudget($id)) {
+            return;
+        }
+
+        $data = $msg['data'] ?? [];
+
+        $payload = json_encode([
+            'event'   => $event,
+            'data'    => is_string($data) ? $data : json_encode($data),
+            'channel' => $channel,
+        ]);
+
+        // Not echoed to the sender: it already knows what it typed, and echoing is
+        // how a client ends up rendering its own cursor twice.
+        foreach ($this->subscriptions[$channel] as $clientId) {
+            if ($clientId === $id || !isset($this->clients[$clientId])) {
+                continue;
+            }
+            $this->wsSend($this->clients[$clientId]['socket'], (string) $payload);
+        }
+    }
+
+    /**
+     * Take one unit of this connection's per-second client-event budget.
+     *
+     * A fixed window rather than a sliding one: the failure mode of a fixed window
+     * is that a sender can burst twice the limit across a boundary, and for typing
+     * indicators that is not worth the bookkeeping a sliding window costs on every
+     * message.
+     */
+    private function consumeClientEventBudget(int $id): bool
+    {
+        $now = time();
+        [$windowStart, $count] = $this->clientEventBudget[$id] ?? [$now, 0];
+
+        if ($windowStart !== $now) {
+            $windowStart = $now;
+            $count       = 0;
+        }
+
+        if ($count >= $this->clientEventsPerSecond) {
+            return false;
+        }
+
+        $this->clientEventBudget[$id] = [$windowStart, $count + 1];
+
+        return true;
     }
 
     private function handleSubscribe(int $id, mixed $data): void
@@ -597,15 +813,147 @@ class LocalBroadcastServer
 
         $this->subscriptions[$channel][$id] = $id;
 
+        // A presence channel is one that knows who is in it. Membership is opted
+        // into by the authorizer implementing PresenceAuthorizer — see that
+        // interface for why it is not a method on ConnectionAuthorizer. Without
+        // it the branch below never runs and subscription_succeeded carries '{}',
+        // exactly as it did before presence existed.
+        $member = null;
+        if (
+            str_starts_with($channel, 'presence-')
+            && $this->authorizer instanceof PresenceAuthorizer
+        ) {
+            $member = $this->authorizer->presenceMember($channel, $client['socketId'], $channelData);
+        }
+
+        if ($member === null) {
+            $this->wsSend($client['socket'], json_encode([
+                'event'   => 'pusher_internal:subscription_succeeded',
+                'data'    => '{}',
+                'channel' => $channel,
+            ]));
+            return;
+        }
+
+        // Whether this user is newly present has to be decided *before* adding
+        // this connection, or a second tab would announce its own arrival.
+        $alreadyPresent = $this->userIsPresent($channel, $member['user_id']);
+
+        $this->presence[$channel][$id] = $member;
+
+        // The subscriber's own list includes itself, per the Pusher protocol: a
+        // client that had to add itself would show a different room to the person
+        // who just joined than to everyone already there.
         $this->wsSend($client['socket'], json_encode([
             'event'   => 'pusher_internal:subscription_succeeded',
-            'data'    => '{}',
+            'data'    => json_encode($this->presencePayload($channel)),
             'channel' => $channel,
         ]));
+
+        if (!$alreadyPresent) {
+            $this->sendToChannelExcept($channel, 'pusher_internal:member_added', $member, $id);
+        }
+    }
+
+    /**
+     * The presence payload for $channel: one entry per distinct user, not per
+     * connection.
+     *
+     * @return array{presence:array{ids:list<string>, hash:array<string,mixed>, count:int}}
+     */
+    private function presencePayload(string $channel): array
+    {
+        $hash = [];
+        $ids  = [];
+
+        foreach ($this->presence[$channel] ?? [] as $member) {
+            // Last write wins for a user with several connections. They carry the
+            // same identity by construction — the auth endpoint derived it from
+            // one session — so which one lands is not a meaningful difference.
+            $hash[$member['user_id']] = $member['user_info'] ?? [];
+
+            // Collected separately, and deliberately not as array_keys($hash):
+            // PHP casts a numeric string array key to an integer, so a member id
+            // of "7" would come back out as int 7 and serialise to [7] instead of
+            // ["7"]. Clients compare member ids as strings — pusher-js does — so
+            // that reads as a member who is in the room but is never recognised
+            // as anybody, including as yourself.
+            $ids[$member['user_id']] = (string) $member['user_id'];
+        }
+
+        return [
+            'presence' => [
+                'ids'   => array_values($ids),
+                'hash'  => $hash,
+                'count' => count($hash),
+            ],
+        ];
+    }
+
+    /** True when some connection on $channel already carries $userId. */
+    private function userIsPresent(string $channel, string $userId, ?int $ignoreClient = null): bool
+    {
+        foreach ($this->presence[$channel] ?? [] as $clientId => $member) {
+            if ($clientId !== $ignoreClient && $member['user_id'] === $userId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Drop a connection from a channel's membership, announcing the departure only
+     * when it was that user's last connection.
+     */
+    private function leavePresence(int $id, string $channel): void
+    {
+        $member = $this->presence[$channel][$id] ?? null;
+
+        if ($member === null) {
+            return;
+        }
+
+        unset($this->presence[$channel][$id]);
+
+        if ($this->presence[$channel] === []) {
+            unset($this->presence[$channel]);
+        }
+
+        if (!$this->userIsPresent($channel, $member['user_id'])) {
+            $this->sendToChannelExcept($channel, 'pusher_internal:member_removed', $member, $id);
+        }
+    }
+
+    /**
+     * Send an event to every subscriber of $channel except one connection.
+     *
+     * The exclusion is what makes an arrival announcement an announcement: the
+     * joining client already has itself in the list it was just sent, and would
+     * otherwise be told it arrived.
+     *
+     * @param array<string,mixed> $data
+     */
+    private function sendToChannelExcept(string $channel, string $event, array $data, int $exceptId): void
+    {
+        $payload = json_encode([
+            'event'   => $event,
+            'data'    => json_encode($data),
+            'channel' => $channel,
+        ]);
+
+        foreach ($this->subscriptions[$channel] ?? [] as $clientId) {
+            if ($clientId === $exceptId || !isset($this->clients[$clientId])) {
+                continue;
+            }
+            $this->wsSend($this->clients[$clientId]['socket'], (string) $payload);
+        }
     }
 
     private function handleUnsubscribe(int $id, string $channel): void
     {
+        $this->leavePresence($id, $channel);
+
         $client   = &$this->clients[$id];
         $client['channels'] = array_filter(
             $client['channels'],
@@ -695,14 +1043,18 @@ class LocalBroadcastServer
         $client = $this->clients[$id];
 
         foreach ($client['channels'] as $channel) {
+            // Before the subscription is dropped, so the departure reaches the
+            // people still in the room.
             unset($this->subscriptions[$channel][$id]);
+            $this->leavePresence($id, $channel);
+
             if (empty($this->subscriptions[$channel])) {
                 unset($this->subscriptions[$channel]);
             }
         }
 
         @fclose($client['socket']);
-        unset($this->clients[$id]);
+        unset($this->clients[$id], $this->clientEventBudget[$id]);
     }
 
     private function findClientId(mixed $socket): ?int

@@ -144,6 +144,23 @@ class BroadcastServe extends CommandBase
             );
         }
 
+        // Client events (typing indicators and other browser-to-browser cues) are
+        // off unless app.php asks for them. Reported either way: an operator who
+        // enabled a write path onto every private channel should see it in the
+        // startup banner, and one who did not should be able to tell.
+        $clientEvents = (bool) ($config['websocket']['client_events'] ?? false);
+        $perSecond    = (int) ($config['websocket']['client_events_per_second'] ?? 10);
+
+        if ($clientEvents) {
+            $this->wsServer->allowClientEvents(true, $perSecond);
+            $output->writeln(
+                '  Client events: <info>enabled</info>, ' . max(1, $perSecond)
+                . '/s per connection (private/presence channels only)'
+            );
+        } else {
+            $output->writeln('  Client events: <comment>disabled</comment>');
+        }
+
         $channels = array_values(array_filter(array_map(
             'trim',
             explode(',', (string) ($input->getOption('channels') ?? ''))
