@@ -120,7 +120,18 @@ class RedisAdapter extends AbstractAdapter
             if (!$entry) {
                 return false;
             }
+            // A Redis instance is shared with everything else the application
+            // keeps there. A key that is not one of ours is a miss, not an
+            // error: unserialize() raises a *warning* rather than throwing, so
+            // the catch below never saw it and `$entry['data']` then ran on
+            // false.
+            if (!\Pramnos\General\Helpers::checkUnserialize($entry)) {
+                return false;
+            }
             $entry = unserialize($entry);
+            if (!is_array($entry) || !array_key_exists('data', $entry)) {
+                return false;
+            }
             
             // Check for timeout
             if (isset($entry['time']) && $entry['time'] > 0 && $timeout > 0) {
@@ -703,20 +714,38 @@ class RedisAdapter extends AbstractAdapter
             
             foreach ($keys as $key) {
                 try {
-                    $entry = $this->redis->get($key);
-                    if ($entry) {
-                        $entry = unserialize($entry);
-                        $size = strlen($this->redis->get($key));
-                        
-                        $items[] = [
-                            'key' => str_replace($this->prefix, '', $key),
-                            'size' => $size,
-                            'created_time' => isset($entry['time']) ? date('Y-m-d H:i:s', $entry['time']) : 'Unknown',
-                            'ttl' => $this->redis->ttl($key),
-                            'type' => gettype($entry['data'] ?? null)
-                        ];
+                    $raw = $this->redis->get($key);
+                    if ($raw === false || $raw === null || $raw === '') {
+                        continue;
                     }
-                } catch (\Exception $e) {
+
+                    $item = [
+                        'key'          => str_replace($this->prefix, '', $key),
+                        // Measured from the value already fetched: this used to
+                        // call get() a second time purely to take its length.
+                        'size'         => strlen((string) $raw),
+                        'created_time' => 'Unknown',
+                        'ttl'          => $this->redis->ttl($key),
+                        'type'         => 'raw',
+                    ];
+
+                    // Anything else in the instance — a session, a queue payload,
+                    // a key another library owns — is listed as a raw value rather
+                    // than skipped or, as before, run through unserialize() until
+                    // it printed "Error at offset 0" into the page that was
+                    // supposed to be showing the cache.
+                    if (\Pramnos\General\Helpers::checkUnserialize($raw)) {
+                        $entry = unserialize($raw);
+                        if (is_array($entry)) {
+                            $item['created_time'] = isset($entry['time'])
+                                ? date('Y-m-d H:i:s', (int) $entry['time'])
+                                : 'Unknown';
+                            $item['type'] = gettype($entry['data'] ?? null);
+                        }
+                    }
+
+                    $items[] = $item;
+                } catch (\Throwable $e) {
                     // Skip problematic keys
                     continue;
                 }

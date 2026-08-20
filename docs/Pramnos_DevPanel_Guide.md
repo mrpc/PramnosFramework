@@ -1,0 +1,149 @@
+---
+use_cases:
+  - Checking what a running installation is actually doing
+  - Finding out why a cache read misses or a value looks stale
+  - Seeing who is signed in and from where
+  - Diagnosing an empty or wrong panel in the developer dashboard
+  - Adding an application-specific panel to the developer dashboard
+---
+
+# DevPanel Guide
+
+A server-rendered dashboard for a running installation, mounted at `/devpanel`. It is
+deliberately independent of the application's theme and document system: it emits its own
+self-contained HTML page, so it looks and behaves the same in every project and keeps
+working when the thing you are debugging is the theme.
+
+It answers questions about **this installation, right now** — what the database holds, what
+is in the cache, who is signed in, what is queued, what has not migrated. For per-request
+timing and queries, use the [debug toolbar](Pramnos_Debug_Toolbar_Usage.md) instead; the two
+are complementary and neither replaces the other.
+
+## Enabling it
+
+```php
+// app.php
+'features' => ['devpanel', 'cache', 'queue'],
+```
+
+Access requires **all** of:
+
+- the `devpanel` feature enabled;
+- development mode (`DEVELOPMENT`);
+- a signed-in user with `usertype >= 90`, or a policy callback that says yes.
+
+Two optional settings:
+
+| Setting | Meaning |
+| --- | --- |
+| `devpanel.mount` | Path to mount on. Default `devpanel`. |
+| `devpanel.min_usertype` | Raise the minimum usertype above 90. |
+
+## The tabs
+
+### Overview
+
+Runtime facts: PHP and framework version, memory, host uptime, load and RAM, database
+driver and version, git HEAD, migrations, background work, and the queue.
+
+**Migrations** counts every migration file the loader resolves — the same directories
+`migrate:status` uses, which is `app/Migrations` plus each framework feature directory —
+against the `schemaversion` history. A migration counts as applied only when its history row
+has `result = 1`, so a failed attempt shows as pending, which is what it is. Auto-migration
+fingerprint rows (`__fw_auto_*`) are bookkeeping and are skipped.
+
+**Background work** is the one to read when another panel looks empty:
+
+| Row | Meaning |
+| --- | --- |
+| Write spool | Rows buffered out of the request path by [`WriteSpool`](Pramnos_Database_API_Guide.md), waiting for a drain — and which backend holds them. |
+| Scheduled tasks | How many tasks `Scheduler` knows about, framework and application together. |
+
+A non-zero spool with nothing draining it is the normal cause of an empty Performance tab.
+The framework schedules `spool:drain` every minute in `FrameworkSchedule`, but **a schedule
+only runs when something runs `schedule:run`** — a cron entry, or a supervised daemon. An
+installation whose daemons are all application workers has no scheduler, and the rows stay
+in the spool for ever.
+
+### Database
+
+Tables by size (top 30) with live row counts, and — where the extension is present —
+TimescaleDB hypertables with chunk counts and compression state. The queries are
+driver-specific by necessity: PostgreSQL reads `pg_class` joined to `pg_stat_user_tables`,
+MySQL reads `information_schema.tables`.
+
+### Cache
+
+Adapter, item count and namespaces, a paginated item browser (first 100), a namespace
+filter, per-item **Inspect**, and a flush button.
+
+The adapter named here is the store the instance actually ended up with — see
+[the cache guide](Pramnos_Cache_Guide.md#fallback-strategy) for what happens when the
+configured backend cannot be reached. If this says `file` on an installation configured for
+Redis, that is a fallback and the log will have a warning saying so.
+
+The browser lists **everything in the store**, including keys written by other components —
+sessions, queue payloads, anything else sharing the same Redis instance. Those are shown as
+type `raw`: they are not this cache's envelopes and are not decoded.
+
+### Users
+
+Sessions and login security.
+
+**Sessions are limited to a recency window** — last used within 1h / 6h / 24h (default) /
+7d / 30d, or `All`. The window is not cosmetic. A `web_session` token is created per login
+and carries no expiry, so "not expired" means "for ever"; without a window the panel lists
+every login the installation has ever had. If the `All` count is large and the 1h count is
+one, that is not a busy server, it is an accumulating table.
+
+Two tables: **Sessions by User**, which is the summary to read first (who, which token type,
+how many, last seen), and the 50 most recently used sessions in detail. The count line says
+how many there are in total, so a capped list is never mistaken for a complete one.
+
+A session is listed when its token has `status = 1` and an expiry that has not passed — the
+same test `User::loadByToken()` applies when deciding whether a token still works — and its
+type is one of `web_session`, `auth` or `access_token`.
+
+Click a token for its request history; click a user for their audit log. Both are paginated.
+
+**Login Lockouts** lists identifiers currently locked out, with attempt counts and the
+lockout expiry.
+
+### Performance
+
+Slowest endpoints and slowest users/applications over a selectable window, read from
+`tokenactions`. An endpoint is shown by URL, resolved through the `urls` table.
+
+`tokenactions` rows are written through the write spool, so this panel shows nothing until
+something drains it. When the table is empty the panel says so — and says how many rows are
+waiting in the spool — rather than reporting "no data for this period", which is a different
+problem with a different fix.
+
+### Git, PHP Info
+
+HEAD commit, branches and remotes; and `phpinfo()` for admins.
+
+## Adding your own panel
+
+```php
+\Pramnos\DevPanel\DevPanelController::registerPanel(
+    'billing',
+    'Billing',
+    fn(): string => '<p>Anything you can render as HTML.</p>'
+);
+```
+
+Register it from a service provider. The slug becomes a route (`/devpanel/billing`) and a
+tab, and inherits the same access guard.
+
+## When a panel looks empty
+
+Empty is an answer, and it used to be the wrong one often enough to be worth a section.
+
+- **A section that could not load says so.** Failures are rendered as a warning above the
+  panel, and logged to the `devpanel` log. A panel that shows an empty table and no warning
+  really did find nothing.
+- **Check the Background Work card** before concluding a table is empty: rows may be spooled.
+- **Check the window** on Users and Performance — both default to a bounded period.
+- **Check the cache adapter** on the Cache tab: an unexpected `file` means a fallback, and a
+  fallback means the data you are looking for is in another store.
