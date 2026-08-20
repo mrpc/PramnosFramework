@@ -804,4 +804,116 @@ class BroadcastServeTest extends TestCase
         $this->assertSame(1, $exitCode, 'the daemon must not start');
         $this->assertStringContainsString("'authserver' feature is not enabled", $tester->getDisplay());
     }
+
+    // =========================================================================
+    // HTTP API and webhooks
+    // =========================================================================
+
+    /**
+     * The HTTP API is absent unless app.php asks for it, and the banner says which.
+     *
+     * Opt-in because it opens a publish path on the port: a signed request can
+     * broadcast to any channel, so it must not appear on an installation merely
+     * because the framework was updated.
+     */
+    public function testExecuteReportsTheHttpApiDisabledByDefault(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([], ['broadcasting']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('HTTP API: disabled', $tester->getDisplay());
+    }
+
+    /**
+     * With `http_api.enabled`, the API is installed and reported.
+     */
+    public function testExecuteEnablesTheHttpApi(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['http_api' => ['enabled' => true], 'pusher' => ['app_key' => 'k', 'app_secret' => 's']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('HTTP API: enabled', $tester->getDisplay());
+    }
+
+    /**
+     * A configured webhook URL is queued with a signer.
+     */
+    public function testExecuteConfiguresWebhooks(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            [
+                'pusher'   => ['app_key' => 'k', 'app_secret' => 's'],
+                'webhooks' => ['url' => 'https://hooks.test/realtime'],
+            ],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('Webhooks: queued for https://hooks.test/realtime', $tester->getDisplay());
+    }
+
+    /**
+     * A webhook URL with no signing secret is refused loudly rather than sent
+     * unsigned.
+     *
+     * Unsigned webhooks are worse than none: a receiver cannot tell them from
+     * anybody else's POST, so it either trusts every caller or rejects ours.
+     */
+    public function testExecuteRefusesToSendUnsignedWebhooks(): void
+    {
+        // Arrange — a URL but no app_secret anywhere
+        $this->installApplicationWithFeatures(
+            ['webhooks' => ['url' => 'https://hooks.test/realtime']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('no app secret is available to sign', $display);
+        $this->assertStringNotContainsString('Webhooks: queued', $display);
+    }
+
+    /**
+     * With no webhook URL configured, nothing about webhooks is printed — silence
+     * is correct for a feature that was never asked for.
+     */
+    public function testExecuteSaysNothingAboutUnconfiguredWebhooks(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([], ['broadcasting']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringNotContainsString('Webhooks:', $tester->getDisplay());
+    }
 }
