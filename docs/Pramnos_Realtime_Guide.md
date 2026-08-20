@@ -11,6 +11,9 @@ use_cases:
   - Showing who is currently in a room, and reacting when they join or leave
   - Sending a typing indicator or cursor from one browser to another
   - Stopping an optimistic UI from rendering its own change twice
+  - Publishing an event from a deploy script or a service in another language
+  - Finding out which channels are occupied, or who is in one, from outside the daemon
+  - Reacting when a room becomes empty, or when a user's last connection goes
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -897,6 +900,159 @@ A driver that does not implement `Drivers\ExcludesSocketInterface` — a third-p
 dropping the event, but the only visible symptom is one user seeing a duplicate of
 something they just did, which reads as an application bug rather than a driver
 capability gap.
+
+---
+
+## The HTTP API
+
+Until now the only way into the server was the backplane: an event had to be
+published to Redis and ingested. That is right for the application and wrong for
+everything else — a deploy script announcing a release, a service in another
+language, a check asking "is anybody in room 12" all had to speak Redis and know
+the envelope format, or do nothing. Occupancy in particular was unobservable from
+outside the process.
+
+```php
+'broadcasting' => [
+    'http_api' => ['enabled' => true],   // default false
+],
+```
+
+```
+POST /apps/{appId}/events            {name, channel|channels, data, socket_id?}
+POST /apps/{appId}/batch_events      {batch: [...]}
+GET  /apps/{appId}/channels          ?info=user_count&filter_by_prefix=presence-
+GET  /apps/{appId}/channels/{name}   ?info=user_count,subscription_count
+GET  /apps/{appId}/channels/{name}/users
+```
+
+It is **opt-in**, for the same reason client events are: a signed request can
+broadcast to any channel, so a publish path must not appear on a port because the
+framework was updated.
+
+**It shares the WebSocket port.** A second listener would need its own address, its
+own firewall rule and its own supervisor entry to carry requests the process is
+already able to answer — and it would have to reach into the same in-memory
+occupancy state anyway. Requests that are not an upgrade and not under `/apps/` get
+the same `400` they always did.
+
+### Signing
+
+Pusher's REST scheme, unchanged, so **every Pusher server SDK already speaks it**:
+`auth_key`, `auth_timestamp`, `auth_version`, `body_md5`, `auth_signature` as query
+parameters. A bespoke scheme would mean a bespoke client in every language that
+wants in, which is the problem this exists to remove.
+
+The signature covers the **method**, the **path** and every query parameter except
+itself, sorted. `body_md5` is what binds the body to it, and a request that has a
+body without one is **refused** rather than tolerated — a signature over an unbound
+body authenticates who sent the request and says nothing about what they sent.
+
+Requests are rejected outside a **ten-minute** window (`ServerApi::MAX_CLOCK_SKEW`).
+That is a replay window rather than a nonce store: a daemon has nowhere durable to
+remember nonces, and a shorter window turns ordinary clock drift into intermittent
+401s that look like a signing bug.
+
+An unknown key, a stale timestamp, a wrong signature, an unbound body and a key
+acting on another app's path all return the same `401`.
+
+### Two answers that look similar and are not
+
+| | |
+|---|---|
+| `subscription_count` | **connections** |
+| `user_count` | **distinct users**, presence channels only |
+
+`user_count` is refused on a non-presence channel rather than answered with the
+subscription count: a caller reading it would believe it had deduplicated people,
+and it would not have.
+
+A batch is validated in full before anything is published. A batch that failed
+half-way would have delivered some of its events and reported an error, leaving the
+caller unable to retry safely.
+
+---
+
+## Webhooks
+
+How an application learns things it cannot otherwise see: that a room is empty and
+its state can be torn down, that a user's last connection went away, that somebody
+is typing. The only previous route was polling from an `onTick` callback, which
+counts channels rather than observing transitions and fires on a timer rather than
+on the event.
+
+```php
+'broadcasting' => [
+    'webhooks' => [
+        'url'   => 'https://your-app.test/hooks/realtime',
+        'queue' => 'broadcasting',
+    ],
+],
+```
+
+Five events, in Pusher's shape:
+
+| Event | When | Carries |
+|---|---|---|
+| `channel_occupied` | first subscriber | `channel` |
+| `channel_vacated` | last unsubscriber | `channel` |
+| `member_added` | a user's **first** connection to a presence channel | `channel`, `user_id` |
+| `member_removed` | a user's **last** connection goes | `channel`, `user_id` |
+| `client_event` | a whisper was relayed | `channel`, `event`, `data`, `socket_id` |
+
+The member events follow the same people-not-sockets rule as the wire
+announcements, and that matters more here: an application tearing down state on
+`member_removed` must not be told somebody left because they closed one of two tabs.
+A refused client event is **not** reported — reporting one would claim a whisper
+happened when nothing was relayed, and a rate-limited sender would generate webhook
+traffic exactly when the point was to stop generating traffic.
+
+### The daemon does not make the HTTP call
+
+`WebhookDispatcherInterface` exists for one reason: the server is a single-threaded
+`stream_select()` loop, and **an outbound HTTP request inside it stalls every
+connected client for the duration of that request**. A slow webhook endpoint would
+present as a realtime outage and an unreachable one as a hang.
+
+The shipped `QueueWebhookDispatcher` pushes onto a Redis queue and returns; a worker
+delivers. The job payload carries the URL, the signed body and the headers, so the
+worker does no signing and holds no secret. Retry policy, backoff and dead-lettering
+are a deployment's opinions and none of them belong in a fan-out loop.
+
+If you write your own dispatcher, it must not block. One that calls `curl`
+synchronously works in development and takes the server down in production.
+
+### Verifying a delivery
+
+`Webhooks\WebhookSigner::verify()` takes the **raw** body:
+
+```php
+$signer = new WebhookSigner($app);
+
+if (!$signer->verify($rawBody, $_SERVER['HTTP_X_PUSHER_SIGNATURE'] ?? '')) {
+    // reject
+}
+```
+
+Re-encoding a decoded payload before checking it changes key order and escaping, so
+a delivery nobody tampered with stops verifying — the same canonicalisation trap as
+presence `channel_data`, which is why `verify()` refuses to take an array.
+
+`broadcast:serve` refuses to send webhooks when no app secret is available to sign
+them, and says so. Unsigned webhooks are worse than none: a receiver cannot tell
+them from anybody else's POST, so it either trusts every caller or rejects yours.
+
+!!! warning "Channels are process-global, not per-app"
+    Multi-app support resolves **credentials** per connection — the right secret for
+    the right key. It does not partition the **channel namespace**: two apps
+    connected to the same daemon share `presence-room`, and a webhook batch is signed
+    with one app's secret because the server does not track which app a channel
+    belongs to.
+
+    For separate tenants that must not see each other's channels, run a daemon per
+    tenant, or namespace the channel names themselves (`tenant-42-room`). Stated here
+    because it is the kind of limit that is invisible until two tenants pick the same
+    room name.
 
 ---
 

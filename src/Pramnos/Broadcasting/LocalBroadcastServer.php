@@ -7,6 +7,8 @@ namespace Pramnos\Broadcasting;
 use Pramnos\Broadcasting\Auth\AllowAllAuthorizer;
 use Pramnos\Broadcasting\Auth\ConnectionAuthorizer;
 use Pramnos\Broadcasting\Auth\PresenceAuthorizer;
+use Pramnos\Broadcasting\Http\ServerApi;
+use Pramnos\Broadcasting\Webhooks\WebhookDispatcherInterface;
 use Pramnos\Http\WebSocket\FrameCodec;
 use Pramnos\Http\WebSocket\MessageAssembler;
 use Pramnos\Http\WebSocket\WebSocketProtocolException;
@@ -103,6 +105,24 @@ class LocalBroadcastServer
     /** Max client events one connection may send per second. */
     private int $clientEventsPerSecond = 10;
 
+    /** The HTTP API, when one is installed. Absent unless explicitly enabled. */
+    private ?ServerApi $httpApi = null;
+
+    /** Where lifecycle notifications go, when anywhere. */
+    private ?WebhookDispatcherInterface $webhooks = null;
+
+    /**
+     * Webhook events accumulated during this loop iteration.
+     *
+     * Batched rather than dispatched one at a time because a single action produces
+     * several — a client disconnecting from three channels vacates up to three, and
+     * a departure is both a `member_removed` and possibly a `channel_vacated`. One
+     * hand-off per iteration instead of one per event.
+     *
+     * @var list<array<string,mixed>>
+     */
+    private array $pendingWebhooks = [];
+
     /** @var callable|null Optional router mapping an ingested message to WS deliveries. */
     private $ingestRouter = null;
 
@@ -139,6 +159,47 @@ class LocalBroadcastServer
     public function subscribedChannels(): array
     {
         return array_keys($this->subscriptions);
+    }
+
+    /**
+     * How many connections are subscribed to $channel.
+     *
+     * Connections, not people — the deduplicated head count is
+     * {@see presenceMembers()}, and only a presence channel has one. Conflating
+     * them is how a caller ends up reporting three tabs as three users.
+     */
+    public function subscriberCount(string $channel): int
+    {
+        return count($this->subscriptions[$channel] ?? []);
+    }
+
+    /**
+     * Serve the Pusher-compatible HTTP API on the same port.
+     *
+     * **Opt-in, because it opens a publish path.** A signed request can broadcast
+     * to any channel, so the API is absent unless a deployment installs it — the
+     * same reasoning as client events. Requests are authenticated per app against
+     * the registry the api was built with; an unsigned or missigned one gets 401.
+     */
+    public function useHttpApi(ServerApi $api): void
+    {
+        $this->httpApi = $api;
+    }
+
+    /**
+     * Send lifecycle notifications — channel occupied/vacated, member
+     * added/removed, client events — to $dispatcher.
+     *
+     * Absent by default: with no dispatcher installed nothing is collected and
+     * nothing is emitted, which is the behaviour every existing deployment has.
+     *
+     * The dispatcher must not block. See {@see WebhookDispatcherInterface} for why
+     * an outbound HTTP call from inside this loop is a realtime outage waiting to
+     * happen.
+     */
+    public function useWebhooks(WebhookDispatcherInterface $dispatcher): void
+    {
+        $this->webhooks = $dispatcher;
     }
 
     /**
@@ -355,6 +416,48 @@ class LocalBroadcastServer
         $this->clientEventsPerSecond = max(1, $eventsPerSecond);
     }
 
+    /**
+     * Record a lifecycle event, if anybody is listening.
+     *
+     * The guard is what keeps this free for the deployments that do not use
+     * webhooks: with no dispatcher there is no array to grow and no work per
+     * subscribe.
+     *
+     * @param array<string,mixed> $event
+     */
+    private function queueWebhook(array $event): void
+    {
+        if ($this->webhooks !== null) {
+            $this->pendingWebhooks[] = $event;
+        }
+    }
+
+    /**
+     * Hand this iteration's events to the dispatcher.
+     *
+     * The buffer is cleared **before** dispatching, so a dispatcher that throws
+     * cannot make the same batch be re-sent on every subsequent iteration —
+     * which would turn one unreachable endpoint into an unbounded resend loop.
+     */
+    private function flushWebhooks(): void
+    {
+        if ($this->webhooks === null || $this->pendingWebhooks === []) {
+            return;
+        }
+
+        $batch                 = $this->pendingWebhooks;
+        $this->pendingWebhooks = [];
+
+        try {
+            $this->webhooks->dispatch($batch);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log(
+                'Broadcasting: webhook dispatch failed: ' . $e->getMessage(),
+                'broadcasting'
+            );
+        }
+    }
+
     private function loopIteration(): void
     {
         $read = [$this->serverSocket];
@@ -376,6 +479,7 @@ class LocalBroadcastServer
             $this->drainRedisIngest();
             $this->pollLogFile();
             $this->sendKeepalives();
+            $this->flushWebhooks();
             return;
         }
 
@@ -392,6 +496,7 @@ class LocalBroadcastServer
         $this->drainRedisIngest();
         $this->pollLogFile();
         $this->sendKeepalives();
+        $this->flushWebhooks();
     }
 
     /**
@@ -508,6 +613,14 @@ class LocalBroadcastServer
         $conn      = strtolower($headers['connection'] ?? '');
 
         if ($upgrade !== 'websocket' || strpos($conn, 'upgrade') === false || $wsKey === '') {
+            // Not an upgrade. It may still be an API call — those arrive on the
+            // same port, because a second listener would need its own address,
+            // its own firewall rule and its own supervisor entry to carry
+            // requests the process is already able to answer.
+            if ($this->httpApi !== null && $this->serveApiRequest($id, $buf)) {
+                return;
+            }
+
             $this->sendHttpError($client['socket'], 400, 'Bad Request');
             $this->disconnectClient($id);
             return;
@@ -741,6 +854,14 @@ class LocalBroadcastServer
 
         $data = $msg['data'] ?? [];
 
+        $this->queueWebhook([
+            'name'      => 'client_event',
+            'channel'   => $channel,
+            'event'     => $event,
+            'data'      => is_string($data) ? $data : json_encode($data),
+            'socket_id' => $this->clients[$id]['socketId'] ?? '',
+        ]);
+
         $payload = json_encode([
             'event'   => $event,
             'data'    => is_string($data) ? $data : json_encode($data),
@@ -811,7 +932,16 @@ class LocalBroadcastServer
             $client['channels'][] = $channel;
         }
 
+        // Read before the subscription is recorded: occupancy is a transition, and
+        // asking afterwards would report every subscribe as an arrival into an
+        // occupied channel.
+        $wasEmpty = ($this->subscriptions[$channel] ?? []) === [];
+
         $this->subscriptions[$channel][$id] = $id;
+
+        if ($wasEmpty) {
+            $this->queueWebhook(['name' => 'channel_occupied', 'channel' => $channel]);
+        }
 
         // A presence channel is one that knows who is in it. Membership is opted
         // into by the authorizer implementing PresenceAuthorizer — see that
@@ -852,6 +982,11 @@ class LocalBroadcastServer
 
         if (!$alreadyPresent) {
             $this->sendToChannelExcept($channel, 'pusher_internal:member_added', $member, $id);
+            $this->queueWebhook([
+                'name'    => 'member_added',
+                'channel' => $channel,
+                'user_id' => $member['user_id'],
+            ]);
         }
     }
 
@@ -922,6 +1057,11 @@ class LocalBroadcastServer
 
         if (!$this->userIsPresent($channel, $member['user_id'])) {
             $this->sendToChannelExcept($channel, 'pusher_internal:member_removed', $member, $id);
+            $this->queueWebhook([
+                'name'    => 'member_removed',
+                'channel' => $channel,
+                'user_id' => $member['user_id'],
+            ]);
         }
     }
 
@@ -961,6 +1101,11 @@ class LocalBroadcastServer
         );
 
         unset($this->subscriptions[$channel][$id]);
+
+        if (($this->subscriptions[$channel] ?? []) === []) {
+            unset($this->subscriptions[$channel]);
+            $this->queueWebhook(['name' => 'channel_vacated', 'channel' => $channel]);
+        }
     }
 
     // =========================================================================
@@ -1050,6 +1195,7 @@ class LocalBroadcastServer
 
             if (empty($this->subscriptions[$channel])) {
                 unset($this->subscriptions[$channel]);
+                $this->queueWebhook(['name' => 'channel_vacated', 'channel' => $channel]);
             }
         }
 
@@ -1080,6 +1226,76 @@ class LocalBroadcastServer
             @fclose($this->serverSocket);
             $this->serverSocket = null;
         }
+    }
+
+    /**
+     * Try to answer $request through the HTTP API.
+     *
+     * @return bool True when the request was handled (and the connection closed).
+     */
+    private function serveApiRequest(int $id, string $request): bool
+    {
+        $client    = &$this->clients[$id];
+        $firstLine = strtok($request, "\r\n") ?: '';
+        $parts     = explode(' ', $firstLine);
+        $method    = strtoupper($parts[0] ?? '');
+        $target    = $parts[1] ?? '';
+        $path      = (string) (parse_url($target, PHP_URL_PATH) ?: '');
+
+        if (!str_starts_with($path, '/apps/')) {
+            return false;
+        }
+
+        $query = [];
+        parse_str((string) (parse_url($target, PHP_URL_QUERY) ?: ''), $query);
+
+        $separator = strpos($request, "\r\n\r\n");
+        $body      = $separator === false ? '' : substr($request, $separator + 4);
+
+        // A body that has not fully arrived would be signed-but-truncated, and
+        // body_md5 would reject it as tampering. Wait for the rest instead: the
+        // buffer keeps accumulating and this runs again on the next read.
+        $headers = $this->parseHttpHeaders($request);
+        if (isset($headers['content-length'])) {
+            $expected = (int) $headers['content-length'];
+            if (strlen($body) < $expected) {
+                return true;    // handled in the sense of "not an error yet"
+            }
+            $body = substr($body, 0, $expected);
+        }
+
+        $result = $this->httpApi->handle(
+            $method,
+            $path,
+            array_map('strval', $query),
+            $body
+        );
+
+        $this->sendJsonResponse($client['socket'], $result['status'], $result['body']);
+        $this->disconnectClient($id);
+
+        return true;
+    }
+
+    /**
+     * @param array<string,mixed> $body
+     */
+    private function sendJsonResponse(mixed $socket, int $status, array $body): void
+    {
+        $encoded = (string) json_encode($body);
+        $reason  = match ($status) {
+            200 => 'OK',
+            400 => 'Bad Request',
+            401 => 'Unauthorized',
+            404 => 'Not Found',
+            default => 'Error',
+        };
+
+        fwrite($socket, "HTTP/1.1 {$status} {$reason}\r\n"
+            . "Content-Type: application/json\r\n"
+            . 'Content-Length: ' . strlen($encoded) . "\r\n"
+            . "Connection: close\r\n\r\n"
+            . $encoded);
     }
 
     private function sendHttpError(mixed $socket, int $code, string $message): void

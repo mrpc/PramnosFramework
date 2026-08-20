@@ -10,6 +10,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Application\Application;
 use Pramnos\Broadcasting\Apps\AppSource;
 use Pramnos\Broadcasting\Auth\AppRegistryAuthorizer;
+use Pramnos\Broadcasting\Http\ServerApi;
+use Pramnos\Broadcasting\Webhooks\QueueWebhookDispatcher;
+use Pramnos\Broadcasting\Webhooks\WebhookSigner;
 use Pramnos\Broadcasting\Auth\PusherAuthorizer;
 use Pramnos\Broadcasting\LocalBroadcastServer;
 use Pramnos\Broadcasting\RedisSubscriberSocket;
@@ -173,6 +176,44 @@ class BroadcastServe extends CommandBase
                 '        Set broadcasting.pusher.app_secret in app.php before '
                 . 'using private-* or presence-* channels outside development.'
             );
+        }
+
+        // The HTTP API and the webhooks both hang off the app registry: the API
+        // authenticates each request against it, and the webhook signer needs one
+        // app's secret. Built once here so the daemon does not resolve them per
+        // request inside its select loop.
+        $appRegistry = AppSource::registry($config, $features, 60);
+
+        if ((bool) ($config['http_api']['enabled'] ?? false)) {
+            $this->wsServer->useHttpApi(new ServerApi($this->wsServer, $appRegistry));
+            $output->writeln(
+                '  HTTP API: <info>enabled</info> on the same port '
+                . '(signed /apps/{id}/events, /channels)'
+            );
+        } else {
+            $output->writeln('  HTTP API: <comment>disabled</comment>');
+        }
+
+        $webhookUrl = (string) ($config['webhooks']['url'] ?? '');
+        if ($webhookUrl !== '') {
+            $webhookApp = $appRegistry->defaultApp() ?? $appRegistry->findByKey($appKey);
+
+            if ($webhookApp === null || !$webhookApp->canSign()) {
+                // Unsigned webhooks are worse than none: a receiver cannot tell
+                // them from anybody else's POST, so it either trusts every caller
+                // or rejects ours. Saying so beats sending them.
+                $output->writeln(
+                    '  Webhooks: <error>configured but no app secret is available to sign '
+                    . 'them — not sending</error>'
+                );
+            } else {
+                $this->wsServer->useWebhooks(new QueueWebhookDispatcher(
+                    $webhookUrl,
+                    new WebhookSigner($webhookApp),
+                    (string) ($config['webhooks']['queue'] ?? 'broadcasting')
+                ));
+                $output->writeln('  Webhooks: <info>queued for ' . $webhookUrl . '</info>');
+            }
         }
 
         // Client events (typing indicators and other browser-to-browser cues) are
