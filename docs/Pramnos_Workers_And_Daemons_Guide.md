@@ -238,6 +238,26 @@ define('PRAMNOS_BIN', '/usr/local/bin/php /srv/app/console');
 > which meant a write spool that was never drained. Found on an installation with 478 rows
 > in `var/spool/` and a `tokenactions` table that had never had a row in it.
 
+### Overlap protection across containers
+
+```php
+Scheduler::command('slow:job')->hourly()->withoutOverlapping();
+Scheduler::command('very:slow')->daily()->withoutOverlapping('', 7200);  // wait up to 2h
+```
+
+The lock is a [`WorkerLock`](#workerlock--single-instance-lock--heartbeat): it records the
+**host** beside the pid, and trusts the pid only when the host matches. Where it does not —
+an application container and a daemon container sharing one `var/` — the holder is judged by
+how recently it reported instead. The second argument is that threshold, for a task that
+legitimately runs longer than the default two minutes.
+
+> **Corrected 2026-08-20.** The lock used to be a bare pid file checked with
+> `posix_kill($pid, 0)`. A pid is a fact about the process table of whoever is asking, so in
+> a two-container stack each side read the other's pid, found *some* local process holding
+> that number, and concluded the task was still running — for ever, silently, because "still
+> running" is a normal answer. The check-then-write was also a race two schedulers a
+> millisecond apart both passed; `acquire()` is a single atomic create.
+
 ### Replacing a framework task
 
 ```php
