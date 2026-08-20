@@ -1331,15 +1331,42 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         }
     }
 
-    public static function cleanupAllAuthTokens(int $days = 30)
+    /**
+     * Retire every session-bearing token that has been idle for `$days`.
+     *
+     * `web_session` is in the list. It was not, and nothing else cleaned it
+     * either, while `createWebSessionToken()` inserts one per login and gives it
+     * no expiry — so the table grew for ever. Measured on a two-day-old
+     * development installation with a single user: 7,255 rows, all
+     * `web_session`, all with no expiry, arriving at about 230 an hour.
+     *
+     * It is also the table `tokenactions` points a foreign key at, so those rows
+     * are not merely dead weight — see the write spool's parked-row policy for
+     * what happens when the two disagree.
+     *
+     * Safe for a session token by the same rule as for an API one: `lastused` is
+     * updated on every request that presents it, so a token idle for a month has
+     * no browser behind it. A PHP session expires after `session.gc_maxlifetime`
+     * — 24 minutes by default — which is three orders of magnitude sooner.
+     *
+     * @param  int          $days  Idle days after which a token is retired
+     * @param  string[]|null $types Token types to retire; null means every
+     *                              session-bearing type
+     * @return bool
+     */
+    public static function cleanupAllAuthTokens(int $days = 30, ?array $types = null)
     {
-        $oneMonthAgo = time() - ($days * 24 * 60 * 60);
+        $cutoff   = time() - ($days * 24 * 60 * 60);
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
             ->table('usertokens')
-            ->where('created', '<', $oneMonthAgo)
-            ->where('lastused', '<', $oneMonthAgo)
-            ->whereIn('tokentype', ['auth', 'access_token'])
+            ->where('created', '<', $cutoff)
+            ->where('lastused', '<', $cutoff)
+            ->whereIn('tokentype', $types ?? [
+                Token::TYPE_WEB_SESSION,
+                Token::TYPE_API,
+                Token::TYPE_ACCESS_TOKEN,
+            ])
             ->update(['status' => 2]);
         $database->cacheflush('usertokens');
         return true;
@@ -1804,10 +1831,44 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      * @param  string|null $ipAddress  Optional client IP (stored in the token record).
      * @return Token                   The newly created token object.
      */
+    /**
+     * How long a web-session token stays valid, in seconds.
+     *
+     * One is created per login and, until this existed, none of them ever
+     * expired: `loadByToken()` reads 0 and NULL as "never", and nothing set
+     * anything else. A two-day-old development installation with one user had
+     * 7,255 of them.
+     *
+     * Thirty days by default — generous next to the PHP session it belongs to,
+     * whose own idle timeout (`session.gc_maxlifetime`) is 24 minutes out of the
+     * box, and short enough that the table stops being append-only. Set
+     * `web_session_lifetime` to change it; `0` restores tokens that never
+     * expire.
+     *
+     * @return int Seconds, or 0 for no expiry
+     */
+    public static function webSessionLifetime(): int
+    {
+        $configured = \Pramnos\Application\Settings::getSetting('web_session_lifetime');
+
+        if (is_numeric($configured)) {
+            return max(0, (int) $configured);
+        }
+
+        return 2592000; // 30 days
+    }
+
     public function createWebSessionToken(?string $ipAddress = null): Token
     {
         $rawToken = bin2hex(random_bytes(32));
-        $this->addToken(Token::TYPE_WEB_SESSION, $rawToken, 'web_session');
+        $lifetime = static::webSessionLifetime();
+        $this->addToken(
+            Token::TYPE_WEB_SESSION,
+            $rawToken,
+            'web_session',
+            null,
+            $lifetime > 0 ? time() + $lifetime : null
+        );
 
         $database   = \Pramnos\Framework\Factory::getDatabase();
         $result     = $database->queryBuilder()

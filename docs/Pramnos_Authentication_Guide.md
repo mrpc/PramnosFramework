@@ -305,6 +305,42 @@ $user->loadByToken($tokenString, 'auth');
 \Pramnos\User\User::cleanupAllAuthTokens(30);
 ```
 
+### Web-session tokens, and how they stop
+
+A `web_session` token is created on every successful web login and lives in
+`$_SESSION['usertoken']`, so same-origin AJAX is authenticated without a Bearer token.
+One login, one row.
+
+That row now carries an expiry — **30 days** by default, set at creation:
+
+```php
+// app settings
+'web_session_lifetime' => 2592000,   // seconds; 0 = never expires
+```
+
+Generous next to the PHP session it belongs to, whose own idle timeout
+(`session.gc_maxlifetime`) is 24 minutes out of the box, and short enough that the table
+stops being append-only.
+
+And something retires them. `auth:token-cleanup` marks every session-bearing token idle
+for more than a month as `status = 2` — kept for the audit trail, no longer accepted — and
+the framework schedules it daily:
+
+```
+php pramnos auth:token-cleanup             # the same thing by hand
+php pramnos auth:token-cleanup --days=90   # be more patient
+```
+
+`lastused` is updated on every request that presents a token, so "idle for a month" means
+nothing has used it for a month.
+
+> **Added 2026-08-20.** Neither existed: `createWebSessionToken()` set no expiry,
+> `loadByToken()` reads 0 and NULL as "never", and `cleanupAllAuthTokens()` covered only
+> `auth` and `access_token` — and had no caller anywhere in the framework. A two-day-old
+> development installation with a single user had **7,255** `web_session` rows, none of
+> them expiring, arriving at about 230 an hour. It is also the table `tokenactions` points
+> a foreign key at, which is how a buffered write outlives the row it references.
+
 ### Working with Token Objects
 
 ```php
