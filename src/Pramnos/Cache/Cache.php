@@ -104,9 +104,13 @@ class Cache extends \Pramnos\Framework\Base
      * cannot be reached, `initializeAdapter()` walks down to the next one and
      * this follows it, so `->method` and `getStats()['method']` never describe
      * two different stores. {@see $requestedMethod} for what was asked for.
+     *
+     * Empty until the constructor resolves it: from the application's `cache`
+     * setting, from the argument, or — when neither says anything — from
+     * {@see defaultMethod()}.
      * @var string
      */
-    public $method='memcached';
+    public $method='';
 
     /**
      * The method this instance was constructed with, before any fallback.
@@ -143,9 +147,11 @@ class Cache extends \Pramnos\Framework\Base
             $settings = array_merge($initialSettings, $settings);
         }
         
+        $configured = [];
         foreach ($settings as $setting => $value) {
             if (property_exists($this, $setting)) {
                 $this->$setting = $value;
+                $configured[$setting] = true;
             }
         }
         
@@ -154,7 +160,7 @@ class Cache extends \Pramnos\Framework\Base
         }
         
         if ($this->method == '') {
-            $this->method = 'memcached';
+            $this->method = $this->defaultMethod();
         }
 
 
@@ -174,6 +180,25 @@ class Cache extends \Pramnos\Framework\Base
             }
         }
 
+        // A Redis cache with no connection details of its own uses the ones the
+        // rest of the framework uses. `REDIS_HOST` and friends are the framework's
+        // documented way to configure Redis — `\Pramnos\Redis\ConnectionManager`
+        // reads them, and so does everything built on it — but this class read
+        // only its own `cache` settings and otherwise assumed localhost. In a
+        // container stack, where Redis is a service name rather than localhost,
+        // that meant an installation with a working Redis and no `cache` section
+        // could not reach it and cached to disk instead.
+        //
+        // Only when the `cache` settings did not say: an application that names a
+        // cache host means it, including when it names a different Redis from the
+        // one the rest of the framework talks to.
+        if (strtolower((string) $this->method) === 'redis'
+            && !isset($configured['hostname'])
+            && class_exists(\Pramnos\Redis\ConnectionManager::class)
+        ) {
+            $this->adoptSharedRedisConfig($configured);
+        }
+
         // What was asked for, kept separately: $this->method follows the
         // fallback chain from here on, and the legacy _connect() needs the
         // original name.
@@ -183,6 +208,77 @@ class Cache extends \Pramnos\Framework\Base
         $this->initializeAdapter($this->method);
 
         parent::__construct();
+    }
+
+    /**
+     * Take Redis connection details from the framework's shared configuration.
+     *
+     * Each value only when the `cache` settings did not carry one, so a partial
+     * `cache` section — a prefix and nothing else — still gets a usable host.
+     *
+     * @param  array<string, bool> $configured Keys the cache settings did set
+     * @return void
+     */
+    protected function adoptSharedRedisConfig(array $configured): void
+    {
+        try {
+            $manager = \Pramnos\Redis\ConnectionManager::getInstance();
+        } catch (\Throwable) {
+            // No shared configuration to adopt; the defaults below stand.
+            return;
+        }
+
+        $this->hostname = $manager->host();
+
+        if (!isset($configured['port'])) {
+            $this->port = $manager->port();
+        }
+
+        if (!isset($configured['database'])) {
+            $this->database = $manager->database();
+        }
+
+        if (!isset($configured['password'])) {
+            $this->password = $manager->password();
+        }
+    }
+
+    /**
+     * The store to use when the application has not chosen one.
+     *
+     * The first backend whose extension is actually present, Redis first —
+     * which is the one this framework's own guide recommends, and the one a
+     * container stack normally has.
+     *
+     * It was the literal `'memcached'`, which is the same defaulting mistake
+     * that `getInstance()` made with its argument: an installation running
+     * Redis and carrying no `cache` setting asked for memcached, failed to
+     * connect to it, walked down memcache, and cached to disk — with Redis
+     * running and working beside it. Naming a store nobody installed is not a
+     * default, it is an answer.
+     *
+     * Asking what is installed also removes two pointless hops: with neither
+     * memcached extension present, the old chain reached the file adapter
+     * through two failed adapters, and (since the fallbacks began logging) two
+     * warnings about abandoning stores nobody had asked for.
+     *
+     * @return string One of: redis, memcached, memcache, file
+     */
+    protected function defaultMethod(): string
+    {
+        if (class_exists('\Redis')) {
+            return 'redis';
+        }
+
+        if (class_exists('\Memcached')) {
+            return 'memcached';
+        }
+
+        if (class_exists('\Memcache')) {
+            return 'memcache';
+        }
+
+        return 'file';
     }
 
     /**

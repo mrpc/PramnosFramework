@@ -613,6 +613,28 @@ class DevPanelController extends Controller
             return $this->alert('Cache system not available.', 'warning');
         }
 
+        // What the application asked for, beside what it got. They differ for two
+        // reasons and both are worth seeing here rather than in a log: the store
+        // was unreachable and the chain walked down, or nothing was configured at
+        // all and the default answered. An installation running Redis and caching
+        // to disk looked exactly like an installation configured for disk.
+        $configured = Settings::getSetting('cache');
+        $configuredMethod = '';
+        if (is_array($configured) && isset($configured['method'])) {
+            $configuredMethod = (string) $configured['method'];
+        } elseif (is_object($configured) && isset($configured->method)) {
+            $configuredMethod = (string) $configured->method;
+        }
+
+        $requested = $configuredMethod !== ''
+            ? htmlspecialchars($configuredMethod)
+            : '<em>not configured — defaulted to '
+              . htmlspecialchars($cache->requestedMethod) . '</em>';
+
+        $fellBack = $cache->method !== $cache->requestedMethod
+            ? '<span class="badge warn">fell back from ' . htmlspecialchars($cache->requestedMethod) . '</span>'
+            : '';
+
         // Namespace filter from GET parameter
         $ns = isset($_GET['ns']) ? (string) $_GET['ns'] : '';
 
@@ -667,7 +689,8 @@ class DevPanelController extends Controller
             <div class="grid-2">
                 {$this->card('Cache Status', <<<INNER
                     <table class="info-table">
-                        <tr><th>Adapter</th><td>{$method}</td></tr>
+                        <tr><th>Adapter</th><td>{$method} {$fellBack}</td></tr>
+                        <tr><th>Configured</th><td>{$requested}</td></tr>
                         <tr><th>Total items</th><td>{$totalItems}</td></tr>
                         <tr><th>Namespaces</th><td>{$totalCats}</td></tr>
                     </table>
