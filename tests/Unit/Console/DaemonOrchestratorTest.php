@@ -3132,10 +3132,14 @@ class DaemonOrchestratorTest extends TestCase
         // Act
         $orch->publicReconcile('php', false, $output);
 
-        // Assert
+        // Assert — "(pid alive)", because that is all that was checked. This
+        // daemon declares `requireLockFile => false`, so no lock pid was read;
+        // the line used to claim "(lock active)" about a file nothing had looked
+        // at, and downstream about one that did not exist.
         $out = $output->fetch();
         $this->assertStringContainsString('[ok]', $out);
-        $this->assertStringContainsString('lock active', $out);
+        $this->assertStringContainsString('pid alive', $out);
+        $this->assertStringNotContainsString('lock active', $out);
 
         $this->rmdirRecursive($tmpDir);
     }

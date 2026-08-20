@@ -514,8 +514,16 @@ abstract class DaemonOrchestrator extends CommandBase
             $pid             = (int)($existing['pid'] ?? 0);
             $requiresLock    = (bool)($desiredProcess['requireLockFile'] ?? true);
             $lockFile        = (string)($desiredProcess['lockFile'] ?? '');
-            $hasHealthyLock  = !$requiresLock
-                || ($lockFile !== '' && file_exists($lockFile) && !file_exists($lockFile . '.stop'));
+
+            // A `.stop` sentinel is this orchestrator's own instruction to that
+            // process, and it is true whether or not the process keeps a lock.
+            // It used to be read as part of the lock check, so a daemon declared
+            // with `requireLockFile => false` was reported healthy while a stop
+            // it was ignoring sat on disk beside it — which is how a worker
+            // survived three deploys and was logged as `[ok]` throughout.
+            $stopRequested   = $lockFile !== '' && file_exists($lockFile . '.stop');
+            $hasHealthyLock  = !$stopRequested
+                && (!$requiresLock || ($lockFile !== '' && file_exists($lockFile)));
 
             $pidAlive   = $this->isProcessRunning($pid);
             $lockPid    = 0;
@@ -571,7 +579,15 @@ abstract class DaemonOrchestrator extends CommandBase
                     $hasHealthyLock = false;
                 } else {
                     if ($this->shouldAnnounceHealthyProcess($id, $pid)) {
-                        $output->writeln('<info>[ok]</info> ' . $id . ' pid=' . $pid . ' (lock active)');
+                        // "(pid alive)", because that is all that was checked.
+                        // This branch is reached when no lock pid was read — a
+                        // daemon declared with `requireLockFile => false`, or one
+                        // whose lock could not be parsed — and it used to say
+                        // "(lock active)" about a file it had not looked at, and
+                        // in one reported case about a file that did not exist.
+                        // A wedged daemon satisfies "pid alive"; that is the
+                        // weaker claim, and the words should say so.
+                        $output->writeln('<info>[ok]</info> ' . $id . ' pid=' . $pid . ' (pid alive)');
                     }
                     continue;
                 }
@@ -580,7 +596,57 @@ abstract class DaemonOrchestrator extends CommandBase
             // Old instance still alive but a stop file was written.
             if ($pidAlive && !$hasHealthyLock) {
                 unset($this->announcedHealthyPids[$id]);
-                $output->writeln('<comment>[waiting]</comment> ' . $id . ' pid=' . $pid . ' — gracefully stopping, will restart when done');
+
+                // A stop request needs a deadline, and this path had none.
+                //
+                // The teardown path below records `stoppingAt` and escalates to
+                // SIGTERM after the grace period. A stop asked for *here* — by a
+                // redeploy, or by the orchestrator being disabled — recorded
+                // nothing, so the grace period ten lines away never started and a
+                // daemon that does not poll its sentinel was never stopped, never
+                // signalled, and never reported as anything but healthy. Measured
+                // downstream: one worker, 1h32m, three deploys, `.stop` on disk
+                // throughout.
+                //
+                // The deadline is also started here rather than only in
+                // `requestStopAll()`, so a sentinel that arrived another way — an
+                // operator's `touch`, a state file written before this existed —
+                // gets one too.
+                $stoppingAt = $existing['stoppingAt'] ?? null;
+
+                if ($stoppingAt === null) {
+                    $stateById[$id]['stoppingAt'] = date('c');
+                    $output->writeln(
+                        '<comment>[waiting]</comment> ' . $id . ' pid=' . $pid
+                        . ' — gracefully stopping, will restart when done'
+                    );
+                    continue;
+                }
+
+                $waited = time() - (int)strtotime((string)$stoppingAt);
+
+                if ($waited >= static::STOP_GRACE_SECONDS) {
+                    if (!$dryRun && function_exists('posix_kill')) {
+                        @posix_kill($pid, defined('SIGTERM') ? \SIGTERM : 15);
+                    }
+                    // Reported as its own thing: "this worker had to be signalled"
+                    // is a fact about the worker, not noise about the deploy.
+                    $output->writeln(
+                        '<error>[stop-timeout]</error> ' . $id . ' pid=' . $pid
+                        . ' — ignored the stop sentinel for ' . $waited . 's, sent SIGTERM'
+                    );
+                    if (!$dryRun) {
+                        $this->clearStopFile($lockFile);
+                    }
+                    unset($stateById[$id]);
+                    continue;
+                }
+
+                $output->writeln(
+                    '<comment>[waiting]</comment> ' . $id . ' pid=' . $pid
+                    . ' — gracefully stopping, will restart when done ('
+                    . (static::STOP_GRACE_SECONDS - $waited) . 's before SIGTERM)'
+                );
                 continue;
             }
 
@@ -1065,12 +1131,33 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function requestStopAll(OutputInterface $output): void
     {
-        foreach ($this->loadState() as $item) {
+        $state   = $this->loadState();
+        $changed = false;
+
+        foreach ($state as $index => $item) {
             $lockFile = (string)($item['lockFile'] ?? '');
-            if ($lockFile !== '') {
-                $this->requestStop($lockFile);
-                $output->writeln('<comment>[stop-all]</comment> stop requested for ' . ($item['id'] ?? '?'));
+            if ($lockFile === '') {
+                continue;
             }
+
+            $this->requestStop($lockFile);
+
+            // When the stop was asked for, written where it survives this
+            // process. A redeploy re-execs the orchestrator immediately
+            // afterwards, and the new image knows nothing except what is in the
+            // state file — so without this the grace period could never start,
+            // and a daemon that ignores its sentinel was supervised for ever as
+            // healthy. See the `[stop-timeout]` branch in reconcile().
+            if (!isset($state[$index]['stoppingAt'])) {
+                $state[$index]['stoppingAt'] = date('c');
+                $changed = true;
+            }
+
+            $output->writeln('<comment>[stop-all]</comment> stop requested for ' . ($item['id'] ?? '?'));
+        }
+
+        if ($changed) {
+            $this->saveState(array_values($state));
         }
     }
 
