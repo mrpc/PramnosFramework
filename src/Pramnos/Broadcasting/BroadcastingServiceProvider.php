@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Pramnos\Broadcasting;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Broadcasting\Apps\AppRegistryInterface;
+use Pramnos\Broadcasting\Apps\AppSource;
+use Pramnos\Broadcasting\Auth\ChannelRegistry;
 use Pramnos\Application\Settings;
 use Pramnos\Broadcasting\Drivers\DatabaseDriver;
 use Pramnos\Broadcasting\Drivers\LogDriver;
@@ -106,6 +109,44 @@ class BroadcastingServiceProvider extends ServiceProvider
             }
 
             return $manager;
+        });
+
+        $this->registerChannelAuthorization();
+    }
+
+    /**
+     * Register the two bindings channel authorization needs.
+     *
+     * `broadcasting.channels` is an empty {@see ChannelRegistry} the application
+     * fills in its own provider — a registry with no rules denies every private
+     * and presence channel, which is the right default for a deployment that
+     * enabled the endpoint before writing any.
+     *
+     * `broadcasting.apps` resolves where app keys come from. It is a singleton so a
+     * request performs at most one lookup, and it is built through
+     * {@see AppSource} rather than from `FeatureRegistry`, so the answer does not
+     * depend on which entry point asked. See that class for what went wrong when
+     * it did.
+     */
+    private function registerChannelAuthorization(): void
+    {
+        $app = $this->app;
+
+        $app->getContainer()->singleton('broadcasting.channels', static function (): ChannelRegistry {
+            return new ChannelRegistry();
+        });
+
+        $app->getContainer()->singleton('broadcasting.apps', static function () use ($app): AppRegistryInterface {
+            $info = $app->applicationInfo;
+
+            // TTL 0 here: this binding serves web requests, which perform one
+            // lookup and exit. The daemon builds its own registry with a TTL,
+            // because a query per handshake blocks its whole select loop.
+            return AppSource::registry(
+                is_array($info['broadcasting'] ?? null) ? $info['broadcasting'] : [],
+                is_array($info['features'] ?? null) ? $info['features'] : [],
+                0
+            );
         });
     }
 

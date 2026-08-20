@@ -5,6 +5,9 @@ use_cases:
   - Configuring the broadcasting backplane or driver
   - Consuming a third party's WebSocket or push feed instead of polling it
   - Reading WebSocket frames inside a worker that already has its own loop
+  - Deciding who may subscribe to a private or presence channel
+  - Serving the /broadcasting/auth endpoint a Pusher or Echo client needs
+  - Using AuthServer applications as realtime app keys instead of config values
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -542,6 +545,154 @@ nothing — and applying that rule immediately found a second stream with the sa
 Run `broadcast:serve` under the `DaemonOrchestrator` (crash respawn, graceful
 stop, redeploy) by returning a process spec whose tokens invoke it — see the
 [Console Commands guide](Pramnos_Console_Guide.md).
+
+---
+
+## Channel authorization
+
+A `private-` or `presence-` channel is only private because a client must present a
+signed token to join it. The framework could always **verify** that token
+({@see PusherAuthorizer}) but never **produce** one, so every application wrote its
+own `/broadcasting/auth` endpoint and its own HMAC — production security code,
+rewritten per project, the same code every time.
+
+Three pieces now ship instead.
+
+### 1. Rules: `ChannelRegistry`
+
+Register them once, in your own service provider. Patterns are written **without**
+the protocol prefix, and placeholders in braces arrive as callback arguments:
+
+```php
+use Pramnos\Broadcasting\Auth\ChannelRegistry;
+
+$channels = $app->getContainer()->get('broadcasting.channels');
+
+// private-order.42  →  ('42')
+$channels->channel('order.{id}', function (?object $user, string $id): bool {
+    return $user !== null && Order::load((int) $id)?->userid === $user->userid;
+});
+
+// presence-room.lobby  →  member data, not a boolean
+$channels->channel('room.{room}', function (?object $user, string $room): array|bool {
+    if ($user === null) {
+        return false;
+    }
+
+    return [
+        'user_id'   => (string) $user->userid,
+        'user_info' => ['name' => $user->name],
+    ];
+});
+```
+
+!!! warning "An unmatched channel is denied"
+    A channel no pattern matches is refused. A missing rule is not an open channel —
+    otherwise every misspelled pattern would be a hole, and the misspelled rule
+    would still look registered.
+
+A placeholder matches one segment and never a dot, so `order.{id}` does not cover
+`order.42.items`. A pattern that matched more than it names would hand one rule's
+decision to a channel it was never written for.
+
+### 2. The endpoint
+
+`Pramnos\Broadcasting\Controllers\Broadcasting` serves the path every Pusher-protocol
+client calls by default. Applications reach it by scaffolding a thin wrapper in
+their own `Controllers` namespace, the same opt-in pattern as the framework's auth
+controllers:
+
+```php
+namespace MyApp\Controllers;
+
+use Pramnos\Broadcasting\Controllers\Broadcasting as FrameworkBroadcasting;
+
+class Broadcasting extends FrameworkBroadcasting
+{
+}
+```
+
+```
+POST /broadcasting/auth      socket_id, channel_name[, app_key]
+→ 200 {"auth": "key:hmac"}                          private
+→ 200 {"auth": "key:hmac", "channel_data": "{...}"}  presence
+→ 400 malformed request
+→ 403 rule said no, no rule matched, public channel, or unknown app key
+→ 500 the server has no secret to sign with
+```
+
+!!! note "The action is `postAuth`, not `auth`"
+    `Controller::auth($action)` is the framework's per-action authorization gate,
+    called by `exec()` on every dispatch, so an action named `auth` cannot exist on
+    a controller. The name is also what the dispatcher wants: for a non-GET request
+    `exec()` resolves `strtolower(METHOD . ucfirst($action))`, so `POST` on the
+    `auth` segment lands on `postAuth` with no route entry.
+
+**403 is deliberately one answer for four causes.** A rejected rule, a channel with
+no rule, a public channel and an unknown app key return the same body. Telling them
+apart would let a caller enumerate which channels have rules and which keys are
+real. A missing secret is the one exception and returns **500**, because that is the
+operator's misconfiguration rather than the user's lack of permission — reporting it
+as "forbidden" sends whoever debugs it to the wrong file.
+
+### 3. Where app keys come from
+
+`broadcasting.apps.source` selects the registry:
+
+```php
+'broadcasting' => [
+    'apps' => ['source' => 'auto'],   // auto (default) | config | authserver
+],
+```
+
+| Source | Keys come from | When |
+|---|---|---|
+| `config` | `broadcasting.pusher.app_key` / `app_secret` | the historical single-app setup |
+| `authserver` | the `applications` table | the `authserver` feature is enabled |
+| `auto` | whichever of the two the feature list implies | default |
+
+`auto` means the two features travel together: with the `authserver` feature on,
+realtime app keys are AuthServer applications; without it, the simple config
+implementation runs, byte-identical to before. Naming `authserver` **explicitly**
+while the feature is off is an error rather than a silent fallback — falling back
+would authorize channels against a different secret than the operator asked for.
+
+#### Marrying the AuthServer
+
+The `applications` table already stores what a realtime edge needs, so there is no
+second table and no second admin screen:
+
+| Pusher / Reverb | AuthServer |
+|---|---|
+| `app_key` | `applications.apikey` (already UNIQUE) |
+| `app_secret` | `applications.broadcast_secret`, falling back to `apisecret` |
+| `app_id` | `applications.appid` |
+| enabled / disabled | `applications.status` |
+| secret rotation | `ApplicationsController::rotate()` |
+
+What that buys over a config file is the rest of the row: an `owner`, a `scope`, a
+`trusted` flag, the audit log, and `user_app_authorizations` — so a user can revoke
+one application's realtime access without touching the others. See the
+[AuthServer Integration Guide](Pramnos_AuthServer_Integration_Guide.md).
+
+**`broadcast_secret` is a separate, nullable column on purpose.** A WebSocket daemon
+is a long-running process holding every connected app's secret in memory for the
+life of the connection; an OAuth2 token exchange reads one and exits. Sharing a
+secret between them means a core dump from the daemon leaks OAuth2 client
+credentials too. The column is nullable and `apisecret` is the fallback, so an
+installation that has not run the migration keeps working — and an operator can
+rotate the realtime key without invalidating OAuth2 clients.
+
+### The daemon never makes this decision
+
+Everything above runs in a normal request, where a session and a database are cheap.
+The WebSocket daemon is a single-threaded `stream_select()` loop: one permission
+lookup per subscribe — `Gate` reaching an effective-permissions view — would block
+every other connection on the process, and after a deploy every client reconnects at
+once. So the endpoint decides and signs; the daemon only verifies an HMAC.
+
+That is not a compromise made for this framework. It is why the Pusher protocol has
+an auth endpoint at all.
 
 ---
 
