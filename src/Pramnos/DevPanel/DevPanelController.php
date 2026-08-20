@@ -39,6 +39,13 @@ class DevPanelController extends Controller
     protected ?\Closure $policyCallback = null;
 
     /**
+     * Sections of the current page that could not be loaded, keyed by name.
+     *
+     * @var array<string, string> section => error message
+     */
+    private array $panelErrors = [];
+
+    /**
      * Registered pluggable panels.
      *
      * @var array<string, array{label: string, renderer: callable}>
@@ -383,6 +390,9 @@ class DevPanelController extends Controller
         // Queue stats
         [$queuePending, $queueRunning, $queueFailed] = $this->fetchQueueStats();
 
+        // Background work: what is buffered, and what is supposed to be draining it.
+        [$spoolPending, $spoolDriver, $scheduledTasks] = $this->fetchBackgroundWork();
+
         $h  = '<div class="grid-2">';
 
         // ── System card ──────────────────────────────────────────────────────
@@ -428,6 +438,26 @@ class DevPanelController extends Controller
             </table>
         HTML);
 
+        // ── Background work card ─────────────────────────────────────────────
+        //
+        // Rows buffered out of the request path are invisible until something
+        // drains them, and nothing says so: an installation whose `schedule:run`
+        // is not wired to a cron or a daemon accumulates them for ever while every
+        // panel that reads the drained table shows "no data". That happened here —
+        // 17 requests in a spool file, a Performance tab that had never had a row,
+        // and no way to tell those two facts were the same fact.
+        $spoolClass = $this->statusClass($spoolPending > 0);
+        $h .= $this->card('Background Work', <<<HTML
+            <table class="info-table">
+                <tr><th>Write spool</th><td><span class="{$spoolClass}">{$spoolPending}</span> pending ({$spoolDriver})</td></tr>
+                <tr><th>Scheduled tasks</th><td>{$scheduledTasks}</td></tr>
+            </table>
+            <p style="margin-top:.5rem;font-size:.85em;opacity:.8">
+                Scheduled tasks run only when <code>schedule:run</code> is executed —
+                from cron, or from a supervised daemon.
+            </p>
+        HTML);
+
         // ── Queue card ───────────────────────────────────────────────────────
         if (FeatureRegistry::isEnabled('queue')) {
             $failClass = $this->statusClass($queueFailed > 0);
@@ -458,28 +488,40 @@ class DevPanelController extends Controller
         // Table sizes
         try {
             if ($isPostgres) {
+                // Every `oid` is qualified, and the row count comes from
+                // pg_stat_user_tables. Unqualified, `oid` is ambiguous across the
+                // join — both pg_class and pg_namespace have one — so PostgreSQL
+                // refused the whole statement with "column reference oid is
+                // ambiguous", `execute()` returned false, and the table list has
+                // been empty on every PostgreSQL installation since it was
+                // written. `n_live_tup` is not a pg_class column at all.
                 $res = $db->execute(
-                    "SELECT relname AS tbl,
-                            pg_size_pretty(pg_total_relation_size(oid)) AS total,
-                            pg_size_pretty(pg_relation_size(oid)) AS data,
-                            n_live_tup AS rows
+                    "SELECT c.relname AS tbl,
+                            pg_size_pretty(pg_total_relation_size(c.oid)) AS total,
+                            pg_size_pretty(pg_relation_size(c.oid)) AS data,
+                            COALESCE(s.n_live_tup, 0) AS rows
                      FROM pg_class c
                      JOIN pg_namespace n ON n.oid = c.relnamespace
+                     LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
                      WHERE c.relkind = 'r' AND n.nspname = 'public'
-                     ORDER BY pg_total_relation_size(oid) DESC
+                     ORDER BY pg_total_relation_size(c.oid) DESC
                      LIMIT 30"
                 );
                 $tables = $res ? $res->fetchAll() : [];
             } else {
                 $dbName = $db->execute('SELECT DATABASE() AS d');
                 $dbName = $dbName ? ($dbName->fields['d'] ?? '') : '';
+                // `%s`, not `?`: the framework's prepared statements use typed
+                // placeholders and count them itself, so a `?` was left in the SQL
+                // as a literal while the argument went to bind_param with an empty
+                // type string.
                 $res    = $db->execute(
                     "SELECT table_name AS tbl,
                             ROUND((data_length + index_length) / 1024, 1) AS total,
                             ROUND(data_length / 1024, 1) AS data,
                             table_rows AS rows
                      FROM information_schema.tables
-                     WHERE table_schema = ?
+                     WHERE table_schema = %s
                      ORDER BY (data_length + index_length) DESC
                      LIMIT 30",
                     $dbName
@@ -500,16 +542,19 @@ class DevPanelController extends Controller
             $this->panelError('TimescaleDB detection', $ex);
         }
 
+        // PostgreSQL returns pre-formatted sizes from pg_size_pretty ("552 kB"),
+        // MySQL returns a number of kilobytes. Only the latter needs a unit, and
+        // appending one to both produced "552 kB KB".
+        $unit    = $isPostgres ? '' : ' KB';
+
         $rows = '';
         foreach ($tables as $t) {
             $tbl  = htmlspecialchars($t['tbl']  ?? '');
-            $tot  = htmlspecialchars($t['total'] ?? '');
-            $data = htmlspecialchars($t['data']  ?? '');
+            $tot  = htmlspecialchars((string) ($t['total'] ?? ''));
+            $data = htmlspecialchars((string) ($t['data']  ?? ''));
             $rowc = number_format((int) ($t['rows'] ?? 0));
-            $rows .= "<tr><td>{$tbl}</td><td class='num'>{$rowc}</td><td class='num'>{$data} KB</td><td class='num'>{$tot}</td></tr>";
+            $rows .= "<tr><td>{$tbl}</td><td class='num'>{$rowc}</td><td class='num'>{$data}{$unit}</td><td class='num'>{$tot}{$unit}</td></tr>";
         }
-
-        $unit    = $isPostgres ? '' : ' KB';
         $content = <<<HTML
             <h3>Tables (top 30 by size)</h3>
             <table class="data-table">
@@ -635,27 +680,50 @@ class DevPanelController extends Controller
                 <thead><tr><th>Key</th><th>Type / NS</th><th class="num">Size (B)</th><th>TTL</th><th>Created</th><th></th></tr></thead>
                 <tbody>{$noItems}</tbody>
             </table>
-            <div id="inspect-modal" style="display:none;margin-top:1rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:1rem">
+            <div id="inspect-modal" style="display:none;position:fixed;z-index:9999;left:50%;top:10%;transform:translateX(-50%);width:min(900px,90vw);max-height:75vh;overflow:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:1rem;box-shadow:0 8px 32px rgba(0,0,0,.45)">
+                <button type="button" id="inspect-close" style="float:right;padding:2px 8px;cursor:pointer">Close</button>
                 <strong id="inspect-title">Item content</strong>
-                <pre id="inspect-content" style="margin-top:0.5rem;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:0.8em"></pre>
+                <pre id="inspect-content" style="margin-top:0.5rem;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:0.8em"></pre>
             </div>
             <script{$cacheNa}>
             document.addEventListener('click', function(e) {
+                if (e.target.closest('#inspect-close')) {
+                    document.getElementById('inspect-modal').style.display = 'none';
+                    return;
+                }
                 var btn = e.target.closest('[data-inspect]');
                 if (!btn) return;
                 var key = btn.dataset.key;
                 var ns  = btn.dataset.ns;
                 var url = '?action=cache&key=' + key + (ns ? '&ns=' + ns : '');
-                document.getElementById('inspect-modal').style.display = 'block';
+                // Fixed-position and scrolled to, because the panel used to be an
+                // ordinary div under a table of up to 100 rows: it opened far below
+                // the fold, and clicking Inspect looked like nothing happening.
+                var modal = document.getElementById('inspect-modal');
+                modal.style.display = 'block';
+                modal.scrollIntoView({block: 'nearest'});
                 document.getElementById('inspect-title').textContent = 'Loading …';
                 document.getElementById('inspect-content').textContent = '';
-                fetch(url).then(function(r){ return r.json(); }).then(function(d){
-                    document.getElementById('inspect-title').textContent = d.ok ? decodeURIComponent(key) : 'Error';
-                    document.getElementById('inspect-content').textContent = d.ok ? (d.content || '(empty)') : (d.error || 'unknown error');
-                }).catch(function(e){
-                    document.getElementById('inspect-title').textContent = 'Error';
-                    document.getElementById('inspect-content').textContent = String(e);
-                });
+                fetch(url, {credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+                    .then(function(r){
+                        // A session that has expired answers with the login page,
+                        // and `r.json()` on HTML throws a parser error that says
+                        // nothing about what happened.
+                        return r.text().then(function(body){
+                            try { return JSON.parse(body); }
+                            catch (err) {
+                                throw new Error('Unexpected response (' + r.status + '). Still signed in?');
+                            }
+                        });
+                    })
+                    .then(function(d){
+                        document.getElementById('inspect-title').textContent = d.ok ? decodeURIComponent(key) : 'Error';
+                        document.getElementById('inspect-content').textContent = d.ok ? (d.content || '(empty)') : (d.error || 'unknown error');
+                    })
+                    .catch(function(e){
+                        document.getElementById('inspect-title').textContent = 'Error';
+                        document.getElementById('inspect-content').textContent = String(e && e.message ? e.message : e);
+                    });
             });
 
             // Flush cache via AJAX so the POST does not navigate to the JSON body.
@@ -706,17 +774,102 @@ class DevPanelController extends Controller
         // it with a `PREFIX` constant this framework never defines. Every query
         // threw, and the empty catch below turned a broken panel into a blank
         // one.
+        // How recently a session has to have been used to count as active.
+        //
+        // Validity alone is not enough. A `web_session` token is minted per login
+        // and carries no expiry, so "not expired" means "for ever": one
+        // installation had 342 of them, all for the same user, all technically
+        // active and none of them a session anybody was in. A window is the only
+        // thing that makes the word mean what the heading says.
+        $windows = [1 => '1h', 6 => '6h', 24 => '24h', 168 => '7d', 720 => '30d', 0 => 'All'];
+        // Validated as a string before the cast, because `(int) 'abc'` is 0 and 0
+        // is a *valid* window here — the one meaning "no limit". Casting first
+        // turned every malformed value into the widest possible answer, which is
+        // the one setting this window exists to stop being the default.
+        $hours = 24;
+        if (isset($_GET['hours'])
+            && ctype_digit((string) $_GET['hours'])
+            && array_key_exists((int) $_GET['hours'], $windows)
+        ) {
+            $hours = (int) $_GET['hours'];
+        }
+
+        // What counts as active, taken from User::loadByToken(): status 1 and an
+        // expiry that has not passed. Without it the panel listed every row the
+        // table had ever held — "active" meaning only "never explicitly revoked".
+        $now         = time();
+        $usedSince   = $hours > 0 ? $now - ($hours * 3600) : 0;
+        $sessionTypes = [
+            \Pramnos\User\Token::TYPE_WEB_SESSION,
+            \Pramnos\User\Token::TYPE_API,
+            \Pramnos\User\Token::TYPE_ACCESS_TOKEN,
+        ];
+        $stillValid = static function ($query) use ($now) {
+            $query->where('expires', 0)
+                ->orWhere('expires', '>', $now)
+                ->orWhereNull('expires');
+        };
+
+        // How many there are, against how many are listed. The list is capped at
+        // 50 and said so nowhere, so a reader could not tell 50 sessions from
+        // several hundred — and several hundred is itself the finding.
+        $sessionCount = 0;
+        $perUser      = [];
+        try {
+            $countQuery = $db->queryBuilder()
+                ->table('#PREFIX#usertokens')
+                ->where('status', 1)
+                ->whereIn('tokentype', $sessionTypes)
+                ->where($stillValid);
+            if ($usedSince > 0) {
+                $countQuery->where('lastused', '>=', $usedSince);
+            }
+            $sessionCount = (int) $countQuery->count();
+
+            $qb  = $db->queryBuilder();
+            $res = $qb
+                ->table('#PREFIX#usertokens AS t')
+                ->select([
+                    'u.username', 't.tokentype',
+                    $qb->raw('COUNT(*) AS sessions'),
+                    $qb->raw('MAX(t.lastused) AS lastused'),
+                ])
+                ->join('#PREFIX#users AS u', 'u.userid', '=', 't.userid')
+                ->where('t.status', 1)
+                ->whereIn('t.tokentype', $sessionTypes)
+                ->where($stillValid)
+                ->when($usedSince > 0, fn($q) => $q->where('t.lastused', '>=', $usedSince))
+                ->groupBy('u.username', 't.tokentype')
+                ->orderBy('sessions', 'desc')
+                ->limit(20)
+                ->get();
+            $perUser = $res ? $res->fetchAll() : [];
+        } catch (\Throwable $ex) {
+            $this->panelError('session summary', $ex);
+        }
+
         $sessions = [];
         try {
             $res = $db->queryBuilder()
-                ->table('usertokens AS t')
+                // Prefixed, like every other table this panel reads: an
+                // installation with a table prefix was querying names that do
+                // not exist, and the panel reported it as no sessions.
+                ->table('#PREFIX#usertokens AS t')
                 ->select([
                     't.tokenid', 't.userid', 'u.username',
                     't.lastused', 't.ipaddress', 't.tokentype', 't.applicationid',
                 ])
-                ->join('users AS u', 't.userid', '=', 'u.userid')
+                ->join('#PREFIX#users AS u', 't.userid', '=', 'u.userid')
                 ->where('t.status', 1)
-                ->whereIn('t.tokentype', ['auth', 'access_token'])
+                // The heading says "web + API" and the filter left the web out:
+                // a browser login is a `web_session` token, which is the only type
+                // an application that is not an API issues at all — so this panel
+                // was empty on exactly the installations most likely to open it.
+                // Taken from the Token constants rather than spelled out again,
+                // because a new session type must not silently stop appearing here.
+                ->whereIn('t.tokentype', $sessionTypes)
+                ->where($stillValid)
+                ->when($usedSince > 0, fn($q) => $q->where('t.lastused', '>=', $usedSince))
                 ->orderBy('t.lastused', 'desc')
                 ->limit(50)
                 ->get();
@@ -754,10 +907,11 @@ class DevPanelController extends Controller
             $user      = htmlspecialchars($s['username'] ?? '');
             $app       = htmlspecialchars((string) ($s['applicationid'] ?? '—'));
             $ip        = htmlspecialchars($s['ipaddress'] ?? '—');
-            $last      = htmlspecialchars((string) ($s['lastused'] ?? '—'));
+            $type      = htmlspecialchars((string) ($s['tokentype'] ?? '—'));
+            $last      = $this->formatTimestamp($s['lastused'] ?? null);
             $tokenLink = "<a href='?action=users&amp;token={$tid}'>#{$tid}</a>";
             $userLink  = "<a href='?action=users&amp;user={$uid}'>{$user}</a>";
-            $sessionRows .= "<tr><td>{$tokenLink}</td><td>{$userLink}</td><td>{$ip}</td><td>{$app}</td><td>{$last}</td></tr>";
+            $sessionRows .= "<tr><td>{$tokenLink}</td><td>{$userLink}</td><td>{$type}</td><td>{$ip}</td><td>{$app}</td><td>{$last}</td></tr>";
         }
 
         $lockoutRows = '';
@@ -769,13 +923,52 @@ class DevPanelController extends Controller
             $lockoutRows .= "<tr><td>{$id}</td><td>{$ip}</td><td>{$attempts}</td><td>{$until}</td></tr>";
         }
 
-        $noSessions = $sessionRows === '' ? '<tr><td colspan="5" class="empty">No active sessions</td></tr>' : $sessionRows;
+        $summaryRows = '';
+        foreach ($perUser as $row) {
+            $who      = htmlspecialchars($row['username'] ?? '—');
+            $type     = htmlspecialchars((string) ($row['tokentype'] ?? '—'));
+            $count    = number_format((int) ($row['sessions'] ?? 0));
+            $lastSeen = $this->formatTimestamp($row['lastused'] ?? null);
+            $summaryRows .= "<tr><td>{$who}</td><td>{$type}</td><td class='num'>{$count}</td><td>{$lastSeen}</td></tr>";
+        }
+        $noSummary = $summaryRows === ''
+            ? '<tr><td colspan="4" class="empty">No active sessions</td></tr>'
+            : $summaryRows;
+
+        $noSessions = $sessionRows === '' ? '<tr><td colspan="6" class="empty">No active sessions</td></tr>' : $sessionRows;
         $noLockouts = $lockoutRows === '' ? '<tr><td colspan="4" class="empty">No active lockouts</td></tr>' : $lockoutRows;
 
+        $shown  = count($sessions);
+        $within = $hours > 0
+            ? ' used in the last ' . htmlspecialchars((string) $windows[$hours])
+            : '';
+        $showing = $sessionCount > $shown
+            ? "Showing the {$shown} most recent of " . number_format($sessionCount)
+              . ' active sessions' . $within . '.'
+            : number_format($sessionCount) . ' active session'
+              . ($sessionCount === 1 ? '' : 's') . $within . '.';
+
+        // The window is a link bar rather than a fixed filter: "how many sessions
+        // are there really" and "who is here now" are different questions, and the
+        // panel should not decide which one the reader is asking.
+        $windowLinks = '';
+        foreach ($windows as $value => $label) {
+            $active      = $value === $hours ? ' active' : '';
+            $windowLinks .= "<a href='?action=users&amp;hours={$value}' class='tab-link{$active}'>"
+                . htmlspecialchars($label) . '</a>';
+        }
+
         return <<<HTML
-            <h3>Active Sessions (web + API)</h3>
+            <div class="range-bar">{$windowLinks}</div>
+            <h3>Sessions by User</h3>
+            <p>{$showing}</p>
             <table class="data-table">
-                <thead><tr><th>Token</th><th>User</th><th>IP</th><th>Application</th><th>Last seen</th></tr></thead>
+                <thead><tr><th>User</th><th>Type</th><th class="num">Sessions</th><th>Last seen</th></tr></thead>
+                <tbody>{$noSummary}</tbody>
+            </table>
+            <h3 style="margin-top:2rem">Active Sessions (web + API)</h3>
+            <table class="data-table">
+                <thead><tr><th>Token</th><th>User</th><th>Type</th><th>IP</th><th>Application</th><th>Last seen</th></tr></thead>
                 <tbody>{$noSessions}</tbody>
             </table>
             <h3>Login Lockouts</h3>
@@ -801,13 +994,13 @@ class DevPanelController extends Controller
 
         $tokenInfo = null;
         try {
-            $res = $db->execute(
-                "SELECT t.tokenid, t.userid, u.username, t.applicationid AS application
-                 FROM usertokens t
-                 JOIN users u ON u.userid = t.userid
-                 WHERE t.tokenid = {$tokenId}
-                 LIMIT 1"
-            );
+            $res = $db->queryBuilder()
+                ->table('#PREFIX#usertokens AS t')
+                ->select(['t.tokenid', 't.userid', 'u.username', 't.applicationid AS application'])
+                ->join('#PREFIX#users AS u', 'u.userid', '=', 't.userid')
+                ->where('t.tokenid', $tokenId)
+                ->limit(1)
+                ->get();
             if ($res && $res->numRows > 0) {
                 $tokenInfo = $res->fields;
             }
@@ -823,20 +1016,25 @@ class DevPanelController extends Controller
         $actions = [];
         $total   = 0;
         try {
-            $countRes = $db->execute(
-                "SELECT COUNT(*) AS cnt FROM #PREFIX#tokenactions WHERE tokenid = {$tokenId}"
-            );
-            if ($countRes && $countRes->numRows > 0) {
-                $total = (int) $countRes->fields['cnt'];
-            }
+            $total = (int) $db->queryBuilder()
+                ->table('#PREFIX#tokenactions')
+                ->where('tokenid', $tokenId)
+                ->count();
 
-            $res = $db->execute(
-                "SELECT urlid, method, servertime, execution_time_ms, return_status
-                 FROM #PREFIX#tokenactions
-                 WHERE tokenid = {$tokenId}
-                 ORDER BY servertime DESC
-                 LIMIT {$perPage} OFFSET {$offset}"
-            );
+            // Joined to `urls`: `tokenactions.urlid` is a foreign key, so the
+            // column headed "URL" printed a row id.
+            $res = $db->queryBuilder()
+                ->table('#PREFIX#tokenactions AS ta')
+                ->select([
+                    'u.url', 'ta.method', 'ta.servertime',
+                    'ta.execution_time_ms', 'ta.return_status',
+                ])
+                ->leftJoin('#PREFIX#urls AS u', 'u.urlid', '=', 'ta.urlid')
+                ->where('ta.tokenid', $tokenId)
+                ->orderBy('ta.servertime', 'desc')
+                ->limit($perPage)
+                ->offset($offset)
+                ->get();
             $actions = $res ? $res->fetchAll() : [];
         } catch (\Throwable $ex) {
             $this->panelError('token activity', $ex);
@@ -847,9 +1045,9 @@ class DevPanelController extends Controller
 
         $rows = '';
         foreach ($actions as $a) {
-            $url    = htmlspecialchars($a['urlid'] ?? '');
+            $url    = htmlspecialchars($a['url'] ?? '—');
             $method = htmlspecialchars($a['method'] ?? '');
-            $time   = htmlspecialchars($a['servertime'] ?? '');
+            $time   = $this->formatTimestamp($a['servertime'] ?? null);
             $ms     = number_format((float) ($a['execution_time_ms'] ?? 0), 1);
             $status = (int) ($a['return_status'] ?? 0);
             $statusStyle = $status >= 400 ? ' style="color:var(--danger)"' : '';
@@ -895,12 +1093,12 @@ class DevPanelController extends Controller
 
         $userInfo = null;
         try {
-            $res = $db->execute(
-                "SELECT userid, username
-                 FROM #PREFIX#users
-                 WHERE userid = {$userId}
-                 LIMIT 1"
-            );
+            $res = $db->queryBuilder()
+                ->table('#PREFIX#users')
+                ->select(['userid', 'username'])
+                ->where('userid', $userId)
+                ->limit(1)
+                ->get();
             if ($res && $res->numRows > 0) {
                 $userInfo = $res->fields;
             }
@@ -916,20 +1114,20 @@ class DevPanelController extends Controller
         $logs  = [];
         $total = 0;
         try {
-            $countRes = $db->execute(
-                "SELECT COUNT(*) AS cnt FROM #PREFIX#userlog WHERE userid = {$userId}"
-            );
-            if ($countRes && $countRes->numRows > 0) {
-                $total = (int) $countRes->fields['cnt'];
-            }
+            $total = (int) $db->queryBuilder()
+                ->table('#PREFIX#userlog')
+                ->where('userid', $userId)
+                ->count();
 
-            $res = $db->execute(
-                "SELECT logid, date, logtype, log, details
-                 FROM #PREFIX#userlog
-                 WHERE userid = {$userId}
-                 ORDER BY date DESC, logid DESC
-                 LIMIT {$perPage} OFFSET {$offset}"
-            );
+            $res = $db->queryBuilder()
+                ->table('#PREFIX#userlog')
+                ->select(['logid', 'date', 'logtype', 'log', 'details'])
+                ->where('userid', $userId)
+                ->orderBy('date', 'desc')
+                ->orderBy('logid', 'desc')
+                ->limit($perPage)
+                ->offset($offset)
+                ->get();
             $logs = $res ? $res->fetchAll() : [];
         } catch (\Throwable $ex) {
             $this->panelError('user activity log', $ex);
@@ -939,7 +1137,7 @@ class DevPanelController extends Controller
 
         $rows = '';
         foreach ($logs as $l) {
-            $date    = date('Y-m-d H:i:s', (int) ($l['date'] ?? 0));
+            $date    = $this->formatTimestamp($l['date'] ?? null);
             $logtype = (int) ($l['logtype'] ?? 0);
             $log     = htmlspecialchars($l['log'] ?? '—');
             $details = htmlspecialchars(mb_strimwidth($l['details'] ?? '', 0, 120, '…'));
@@ -982,41 +1180,71 @@ class DevPanelController extends Controller
             $range = 24;
         }
 
+        // The window, as a unix timestamp. `tokenactions.servertime` is an integer
+        // epoch, and this compared it to NOW() with `NOW() - INTERVAL 24 HOUR` —
+        // MySQL's interval syntax, which PostgreSQL rejects outright, and a
+        // timestamp compared to an integer, which neither engine will do. Both
+        // queries threw on every request, and the panel reported "No data for this
+        // period" as if the table were empty.
+        $since = time() - ($range * 3600);
+
         $endpoints = [];
+        try {
+            // Query builder rather than hand-built SQL: `#PREFIX#tokenactions` was
+            // prefixed while `usertokens`, `users` and `applications` in the same
+            // statement were not, so on a prefixed installation the join named
+            // tables that do not exist. The builder resolves every name the same
+            // way, per driver.
+            $qb  = $db->queryBuilder();
+            $res = $qb
+                ->table('#PREFIX#tokenactions AS ta')
+                ->select([
+                    'u.url AS endpoint',
+                    'ta.method',
+                    $qb->raw('COUNT(*) AS calls'),
+                    $qb->raw('ROUND(AVG(ta.execution_time_ms), 1) AS avg_ms'),
+                    $qb->raw('MAX(ta.execution_time_ms) AS max_ms'),
+                ])
+                // LEFT: an action whose URL row was removed still cost the time it
+                // cost, and dropping it would quietly change the numbers above it.
+                ->leftJoin('#PREFIX#urls AS u', 'u.urlid', '=', 'ta.urlid')
+                ->where('ta.servertime', '>=', $since)
+                ->groupBy('u.url', 'ta.method')
+                ->orderBy('avg_ms', 'desc')
+                ->limit(20)
+                ->get();
+            $endpoints = $res ? $res->fetchAll() : [];
+        } catch (\Throwable $ex) {
+            // Reported as itself: both queries below used to share one catch
+            // labelled "slow users", so a failure in this one was logged under the
+            // name of the other.
+            $this->panelError('slowest endpoints', $ex);
+        }
+
         $slowUsers = [];
         try {
-            $res    = $db->execute(
-                "SELECT urlid AS endpoint, method,
-                        COUNT(*) AS calls,
-                        ROUND(AVG(execution_time_ms), 1) AS avg_ms,
-                        MAX(execution_time_ms) AS max_ms
-                 FROM #PREFIX#tokenactions
-                 WHERE servertime >= NOW() - INTERVAL {$range} HOUR
-                 GROUP BY urlid, method
-                 ORDER BY avg_ms DESC
-                 LIMIT 20"
-            );
-            $endpoints = $res ? $res->fetchAll() : [];
-
-            // Slowest users/applications: join tokenactions → tokens → users → applications
-            $res2 = $db->execute(
-                "SELECT t.userid, u.username,
-                        a.name AS app_name,
-                        COUNT(*) AS calls,
-                        ROUND(AVG(ta.execution_time_ms), 1) AS avg_ms,
-                        MAX(ta.execution_time_ms) AS max_ms
-                 FROM #PREFIX#tokenactions ta
-                 JOIN usertokens t ON t.tokenid = ta.tokenid
-                 JOIN users u ON u.userid = t.userid
-                 LEFT JOIN applications a ON a.appid = t.applicationid
-                 WHERE ta.servertime >= NOW() - INTERVAL {$range} HOUR
-                 GROUP BY t.userid, u.username, a.name
-                 ORDER BY avg_ms DESC
-                 LIMIT 20"
-            );
-            $slowUsers = $res2 ? $res2->fetchAll() : [];
+            $qb  = $db->queryBuilder();
+            $res = $qb
+                ->table('#PREFIX#tokenactions AS ta')
+                ->select([
+                    't.userid',
+                    'us.username',
+                    'a.name AS app_name',
+                    $qb->raw('COUNT(*) AS calls'),
+                    $qb->raw('ROUND(AVG(ta.execution_time_ms), 1) AS avg_ms'),
+                    $qb->raw('MAX(ta.execution_time_ms) AS max_ms'),
+                ])
+                ->join('#PREFIX#usertokens AS t', 't.tokenid', '=', 'ta.tokenid')
+                ->join('#PREFIX#users AS us', 'us.userid', '=', 't.userid')
+                ->leftJoin('#PREFIX#applications AS a', 'a.appid', '=', 't.applicationid')
+                ->where('ta.servertime', '>=', $since)
+                ->groupBy('t.userid', 'us.username', 'a.name')
+                ->orderBy('avg_ms', 'desc')
+                ->limit(20)
+                ->get();
+            $slowUsers = $res ? $res->fetchAll() : [];
         } catch (\Throwable $ex) {
-            $this->panelError('slow users', $ex);
+            $this->panelError('slowest users', $ex);
         }
 
         $rows = '';
@@ -1029,7 +1257,37 @@ class DevPanelController extends Controller
             $rows .= "<tr><td>{$ep}</td><td>{$m}</td><td class='num'>{$c}</td><td class='num'>{$avg} ms</td><td class='num'>{$max} ms</td></tr>";
         }
 
-        $noData = $rows === '' ? '<tr><td colspan="5" class="empty">No data for this period</td></tr>' : $rows;
+        // "No data for this period" is three different answers, and which one it is
+        // decides what the reader should do next. An empty table looks exactly like
+        // a quiet hour, and a *spooled* table looks exactly like an empty one:
+        // `Token::addAction()` appends to the WriteSpool rather than inserting, so
+        // on an installation that never runs `spool:drain` every request ever made
+        // is sitting in a file and this panel is empty for ever.
+        $recorded = 0;
+        try {
+            $recorded = (int) $db->queryBuilder()
+                ->table('#PREFIX#tokenactions')
+                ->count();
+        } catch (\Throwable $ex) {
+            $this->panelError('recorded request count', $ex);
+        }
+
+        $emptyMessage = 'No data for this period';
+        if ($recorded === 0) {
+            $emptyMessage = 'No requests have been recorded at all.';
+            try {
+                $spooled = \Pramnos\Database\WriteSpool::pending();
+                if ($spooled > 0) {
+                    $emptyMessage .= ' ' . number_format($spooled)
+                        . ' are waiting in the write spool — run <code>spool:drain</code>'
+                        . ' (or schedule it) to write them.';
+                }
+            } catch (\Throwable $ex) {
+                $this->panelError('write spool status', $ex);
+            }
+        }
+
+        $noData = $rows === '' ? '<tr><td colspan="5" class="empty">' . $emptyMessage . '</td></tr>' : $rows;
 
         $userRows = '';
         foreach ($slowUsers as $u) {
@@ -1042,7 +1300,7 @@ class DevPanelController extends Controller
             $userRows .= "<tr><td>{$uid}</td><td>{$uname}</td><td>{$app}</td><td class='num'>{$c}</td><td class='num'>{$avg} ms</td><td class='num'>{$max} ms</td></tr>";
         }
 
-        $noUserData = $userRows === '' ? '<tr><td colspan="6" class="empty">No data for this period</td></tr>' : $userRows;
+        $noUserData = $userRows === '' ? '<tr><td colspan="6" class="empty">' . $emptyMessage . '</td></tr>' : $userRows;
 
         $rangeLinks = '';
         foreach (['1' => '1h', '6' => '6h', '24' => '24h', '168' => '7d', '720' => '30d'] as $h => $label) {
@@ -1109,22 +1367,106 @@ class DevPanelController extends Controller
     private function fetchMigrationStatus(): array
     {
         try {
-            $db     = \Pramnos\Framework\Factory::getDatabase();
-            $loader = new \Pramnos\Database\Migrations\MigrationLoader();
-            $runner = new \Pramnos\Database\Migrations\MigrationRunner($db);
-            $paths  = [];
-            foreach (FeatureRegistry::getEnabled() as $key) {
-                $paths = array_merge($paths, FeatureRegistry::getMigrationPaths($key));
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            if (!$db || !$db->connected) {
+                return ['—', '—', '—'];
             }
-            $all     = $loader->loadFromDirectories($paths);
-            $history = $runner->getHistory();
-            $applied = count($history);
-            $pending = count($all) - $applied;
-            $last    = !empty($history) ? end($history)['slug'] ?? '—' : '—';
-            return [max(0, $pending), $applied, htmlspecialchars($last)];
-        } catch (\Throwable) {
+
+            // `\Pramnos\Database\MigrationLoader`, not `…\Migrations\MigrationLoader`:
+            // there is no `Migrations` namespace, so this threw `Class not found`
+            // into a `catch (\Throwable)` that returned three em-dashes. The card
+            // has shown "— / — / —" on every installation since it was written,
+            // and looked like a card for a feature nobody was using.
+            $app = $this->application
+                ?? \Pramnos\Application\Application::currentInstance();
+            if ($app === null) {
+                return ['—', '—', '—'];
+            }
+
+            // The same directories the console's `migrate:status` and the MCP
+            // migration tool resolve, rather than a second answer to the same
+            // question: FeatureRegistry::getMigrationPaths() covers registered
+            // features only and misses the application's own app/Migrations.
+            $all = \Pramnos\Database\MigrationLoader::loadFromDirectories(
+                \Pramnos\Database\MigrationLoader::resolveDefaultDirectories(
+                    defined('ROOT') ? \ROOT : getcwd()
+                ),
+                $app
+            );
+
+            $runner  = new \Pramnos\Database\MigrationRunner($db);
+            $history = [];
+            $last    = '—';
+            foreach ($runner->getHistory() as $row) {
+                $slug = $row['key'] ?? '';
+                if ($slug === '') {
+                    continue;
+                }
+                // `__fw_auto_*` rows are the auto-migration fingerprint, not a
+                // migration: they carry no batch, so they sort last and became
+                // "last applied" — the card named a bookkeeping key nobody can
+                // look up.
+                if (str_starts_with($slug, '__fw_')) {
+                    continue;
+                }
+                $history[$slug] = $row;
+                if ((int) ($row['result'] ?? 0) === 1) {
+                    // getHistory() orders by batch then time, so the last row that
+                    // ran successfully is the most recent one.
+                    $last = $slug;
+                }
+            }
+
+            // Counted per migration file, not as `count(all) - count(history)`:
+            // history also holds migrations no longer in the codebase and rows
+            // for failed attempts, either of which made "pending" negative or
+            // hid a migration that still needs to run.
+            $applied = 0;
+            $pending = 0;
+            foreach ($all as $migration) {
+                $slug = $migration->getSlug();
+                if (isset($history[$slug])
+                    && (int) ($history[$slug]['result'] ?? 0) === 1
+                ) {
+                    $applied++;
+                    continue;
+                }
+                $pending++;
+            }
+
+            return [$pending, $applied, htmlspecialchars($last)];
+        } catch (\Throwable $ex) {
+            $this->panelError('migration status', $ex);
             return ['—', '—', '—'];
         }
+    }
+
+    /**
+     * What is buffered and what is meant to be draining it.
+     *
+     * @return array{0: int, 1: string, 2: int} pending rows, spool driver, scheduled task count
+     */
+    private function fetchBackgroundWork(): array
+    {
+        $pending = 0;
+        $driver  = 'unknown';
+        $tasks   = 0;
+
+        try {
+            $pending = \Pramnos\Database\WriteSpool::pending();
+            $driver  = \Pramnos\Database\WriteSpool::driver();
+        } catch (\Throwable $ex) {
+            $this->panelError('write spool status', $ex);
+        }
+
+        try {
+            \Pramnos\Scheduling\Scheduler::loadDefinitions();
+            $tasks = count(\Pramnos\Scheduling\Scheduler::all());
+        } catch (\Throwable $ex) {
+            $this->panelError('scheduled tasks', $ex);
+        }
+
+        return [$pending, htmlspecialchars($driver), $tasks];
     }
 
     private function fetchQueueStats(): array
@@ -1145,7 +1487,8 @@ class DevPanelController extends Controller
                 }
             }
             return [$stats['pending'], $stats['running'], $stats['failed']];
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            $this->panelError('queue statistics', $ex);
             return ['—', '—', '—'];
         }
     }
@@ -1306,6 +1649,11 @@ class DevPanelController extends Controller
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
 
+        // Whatever the section renderers could not load. Rendered above the
+        // content rather than in place of it: the parts that did work are still
+        // worth reading, and the parts that did not must not look like emptiness.
+        $errors = $this->panelErrorsHtml();
+
         $css   = $this->panelCss();
         $nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
         $na    = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
@@ -1327,6 +1675,7 @@ class DevPanelController extends Controller
             </header>
             <main>
               <div class="panel-content">
+                {$errors}
                 {$content}
               </div>
             </main>
@@ -1427,12 +1776,44 @@ class DevPanelController extends Controller
      * @param string     $panel     What could not be shown
      * @param \Throwable $exception Why
      */
+    /**
+     * Record a section that could not be loaded, and say so on the page.
+     *
+     * A panel must never take the page down over one section — but a section that
+     * fails silently is indistinguishable from one with nothing to show, and that
+     * is precisely how four broken queries survived here: an empty table reads as
+     * "no data", so nobody looks in a log nobody knew was being written.
+     *
+     * @param string     $panel     What could not be loaded, in the reader's words
+     * @param \Throwable $exception The failure
+     * @return void
+     */
     private function panelError(string $panel, \Throwable $exception): void
     {
+        $this->panelErrors[$panel] = $exception->getMessage();
+
         \Pramnos\Logs\Logger::log(
             'DevPanel could not load ' . $panel . ': ' . $exception->getMessage(),
             'devpanel'
         );
+    }
+
+    /**
+     * The recorded failures, as an alert per section.
+     *
+     * @return string HTML, empty when everything loaded
+     */
+    private function panelErrorsHtml(): string
+    {
+        $html = '';
+        foreach ($this->panelErrors as $panel => $message) {
+            $html .= $this->alert(
+                'Could not load ' . $panel . ': ' . $message,
+                'warning'
+            );
+        }
+
+        return $html;
     }
 
     private function card(string $title, string $body): string
@@ -1448,6 +1829,26 @@ class DevPanelController extends Controller
     private function alert(string $message, string $type = 'info'): string
     {
         return "<div class=\"alert alert-{$type}\">" . htmlspecialchars($message) . "</div>";
+    }
+
+    /**
+     * Render one of the framework's unix-timestamp columns as a date.
+     *
+     * `usertokens.lastused`, `tokenactions.servertime` and `userlog.date` are
+     * integers, and printing one raw gives the reader a ten-digit number where a
+     * date belongs — "1787174877" is not a worse answer than "—", it is a worse
+     * answer than the value the column holds.
+     *
+     * @param mixed $timestamp Unix timestamp, possibly null, '' or 0
+     * @return string An escaped date, or an em-dash when there is nothing to show
+     */
+    private function formatTimestamp($timestamp): string
+    {
+        if ($timestamp === null || $timestamp === '' || (int) $timestamp <= 0) {
+            return '—';
+        }
+
+        return htmlspecialchars(date('Y-m-d H:i:s', (int) $timestamp));
     }
 
     private function statusClass(bool $bad): string

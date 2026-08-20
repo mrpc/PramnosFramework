@@ -346,14 +346,21 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->dbMock->mockResults['COUNT(*)'] = new FakeDatabaseResult(['cnt' => 120], [
             ['cnt' => 120]
         ]);
+        // `url`, from the join on the urls table, and `servertime` as the unix
+        // timestamp the column actually holds: the panel used to print the raw
+        // `urlid` under a heading that said URL, and the timestamp unformatted.
         $this->dbMock->mockResults['tokenactions'] = new FakeDatabaseResult([], [
-            ['urlid' => '/api/v1/data', 'method' => 'GET', 'servertime' => '2026-06-03 00:01:00', 'execution_time_ms' => 12.5, 'return_status' => 200]
+            ['url' => '/api/v1/data', 'method' => 'GET', 'servertime' => 1780531260, 'execution_time_ms' => 12.5, 'return_status' => 200]
         ]);
 
         $this->controller->users();
 
         $this->assertStringContainsString('Token #101', $this->controller->lastRenderedContent);
         $this->assertStringContainsString('/api/v1/data', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString(
+            date('Y-m-d H:i:s', 1780531260),
+            $this->controller->lastRenderedContent
+        );
     }
 
     public function testUserLogView()

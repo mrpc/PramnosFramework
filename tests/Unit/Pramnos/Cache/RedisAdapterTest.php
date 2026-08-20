@@ -1078,4 +1078,139 @@ class RedisAdapterTest extends TestCase
         $this->assertSame(0, $stats['categories']);
         $this->assertSame(0, $stats['items']);
     }
+
+    // =========================================================================
+    // Foreign keys: a Redis instance holds more than this cache
+    // =========================================================================
+
+    /**
+     * A key this cache did not write is listed, not unserialized.
+     *
+     * The instance is shared with everything else the application keeps in Redis —
+     * sessions, queue payloads, whatever another library owns. `getAllItems()` ran
+     * every value it found through `unserialize()`, which raises a **warning** rather
+     * than throwing, so the `catch (\Exception)` around it never fired and PHP printed
+     *
+     *     Warning: unserialize(): Error at offset 0 of 93 bytes
+     *
+     * into the DevPanel's cache screen — the one page whose job is to show what the
+     * cache holds. Observed on a live installation the moment the panel started
+     * reading the configured Redis store instead of an empty file cache.
+     */
+    #[Group('redis')]
+    public function testAForeignKeyIsListedRatherThanUnserialized(): void
+    {
+        // Arrange — one entry written by this cache, one raw value beside it
+        $adapter = $this->makeConnectedAdapter('test_foreign_');
+        $adapter->clear();
+        // The adapter takes keys already prefixed — `Cache` prefixes them before
+        // it calls down — so both writes name the full key.
+        $adapter->save('test_foreign_ours', 'a value');
+        $adapter->getConnection()->set('test_foreign_someone_elses', 'not-serialized-at-all');
+
+        // Act
+        $items = $adapter->getAllItems('', 100);
+
+        // Assert — both are listed, and nothing warned
+        $keys = array_column($items, 'key');
+        $this->assertContains('ours', $keys);
+        $this->assertContains('someone_elses', $keys);
+
+        // The foreign one is reported as raw rather than described as a type it is not
+        foreach ($items as $item) {
+            if ($item['key'] === 'someone_elses') {
+                $this->assertSame('raw', $item['type']);
+                $this->assertSame(strlen('not-serialized-at-all'), $item['size']);
+            }
+        }
+
+        // Cleanup
+        $adapter->clear();
+        $adapter->getConnection()->del('test_foreign_someone_elses');
+    }
+
+    /**
+     * A serialized value that is not one of ours is a miss too.
+     *
+     * `checkUnserialize()` passes for anything PHP can decode — a serialized string,
+     * an integer, an object — and only an array with a `data` key is an entry this
+     * adapter wrote. Reading `['data']` from a string is the fatal that guard exists
+     * to prevent, and a serialized foreign value is the case that reaches it.
+     */
+    #[Group('redis')]
+    public function testASerializedForeignValueIsAlsoAMiss(): void
+    {
+        // Arrange — valid PHP serialization, not this adapter's envelope
+        $adapter = $this->makeConnectedAdapter('test_foreign_shape_');
+        $adapter->getConnection()->set('test_foreign_shape_x', serialize('a plain string'));
+
+        // Act + Assert
+        $this->assertFalse($adapter->load('test_foreign_shape_x'));
+
+        // Cleanup
+        $adapter->getConnection()->del('test_foreign_shape_x');
+    }
+
+    /**
+     * An entry with no stored time is listed without inventing one.
+     *
+     * The envelope carries `time`, but a key written by an older version — or by
+     * hand — may not. The listing must show the entry rather than skip it, and say
+     * "Unknown" rather than 1970.
+     */
+    #[Group('redis')]
+    public function testAnEntryWithoutATimeIsListedAsUnknown(): void
+    {
+        // Arrange
+        $adapter = $this->makeConnectedAdapter('test_no_time_');
+        $adapter->clear();
+        $adapter->getConnection()->set(
+            'test_no_time_entry',
+            serialize(['data' => 'value with no timestamp'])
+        );
+        // An empty value beside it: nothing to show, and nothing to crash on
+        $adapter->getConnection()->set('test_no_time_empty', '');
+
+        // Act
+        $items = $adapter->getAllItems('', 100);
+
+        // Assert
+        $keys = array_column($items, 'key');
+        $this->assertContains('entry', $keys);
+        $this->assertNotContains('empty', $keys, 'an empty value has nothing to list');
+
+        foreach ($items as $item) {
+            if ($item['key'] === 'entry') {
+                $this->assertSame('Unknown', $item['created_time']);
+                $this->assertSame('string', $item['type']);
+            }
+        }
+
+        // Cleanup
+        $adapter->getConnection()->del('test_no_time_entry', 'test_no_time_empty');
+    }
+
+    /**
+     * Loading a foreign key is a miss, not a fatal.
+     *
+     * `load()` had the same unguarded `unserialize()`, and then read `$entry['data']`
+     * from its `false` result. A cache read of a key another component owns must
+     * answer "not mine" rather than take the request down.
+     */
+    #[Group('redis')]
+    public function testLoadingAForeignKeyIsAMiss(): void
+    {
+        // Arrange
+        $adapter = $this->makeConnectedAdapter('test_foreign_load_');
+        $adapter->getConnection()->set('test_foreign_load_raw', 'not-serialized-at-all');
+
+        // Act
+        $value = $adapter->load('test_foreign_load_raw');
+
+        // Assert
+        $this->assertFalse($value);
+
+        // Cleanup
+        $adapter->getConnection()->del('test_foreign_load_raw');
+    }
 }

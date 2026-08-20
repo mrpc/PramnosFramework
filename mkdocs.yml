@@ -111,4 +111,5 @@ nav:
     - Testing: Pramnos_Testing_Guide.md
     - Test suite performance: Pramnos_Test_Suite_Performance.md
     - Debugging: Pramnos_Debugging_Guide.md
+    - DevPanel: Pramnos_DevPanel_Guide.md
     - Using the debug toolbar: Pramnos_Debug_Toolbar_Usage.md
