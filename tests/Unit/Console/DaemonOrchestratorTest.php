@@ -3565,6 +3565,18 @@ class TestableDaemonOrchestrator extends DaemonOrchestrator
     public array $desiredProcesses = [];
 
     /**
+     * These tests count spawns and status lines against `$desiredProcesses`, so the
+     * framework's own schedule worker — supervised by default since 2026-08-20 — would
+     * add one to every one of those numbers for a reason unrelated to what they assert.
+     * That policy has its own tests in {@see DaemonOrchestratorSchedulerTest}; reconcile
+     * treats every entry the same way regardless of where it came from.
+     */
+    protected function includeScheduler(): bool
+    {
+        return false;
+    }
+
+    /**
      * Map of pid → bool for isProcessRunning().
      * @var array<int, bool>
      */

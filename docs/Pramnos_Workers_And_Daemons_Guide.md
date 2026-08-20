@@ -195,6 +195,11 @@ php pramnos work --max-runtime=3600 # exit hourly for a supervisor to restart
 `work` holds a single-instance lock and stops cooperatively, so a SIGTERM
 during a task lets that task finish.
 
+**With a daemon orchestrator** — nothing to do. `DaemonOrchestrator` supervises
+`work` alongside the application's own daemons, so a project that has an
+orchestrator already runs the schedule. See
+[§3](#3-daemonorchestrator--the-supervisor).
+
 ### This is not the queue worker
 
 `queue:process` runs background **jobs** — things an application dispatches and
@@ -295,6 +300,48 @@ final class MyDaemons extends DaemonOrchestrator
     }
 }
 ```
+
+### The schedule comes with it
+
+The list above is the application's daemons. The orchestrator supervises one more
+without being asked — `work`, the framework's schedule worker (§1c) — under the id
+`schedule`, with the standard lock file at `var/pramnos-work.lock`:
+
+```
+[started] stats pid=118
+[started] realtime pid=30
+[started] schedule pid=141      ← not in buildDesiredProcesses()
+```
+
+The framework declares periodic work of its own and a schedule only happens when
+something runs it. A stack with an orchestrator and no crontab used to run none of
+it: `spool:drain` never fired, rows written through the `WriteSpool` stayed in a
+file, and every report reading the drained table showed "no data" for ever — a
+symptom several layers away from its cause. An application answers for its own
+daemons; the framework's are the framework's business.
+
+Two overrides:
+
+```php
+// Already have a crontab line for schedule:run? Running both is safe (every
+// framework task takes an overlap lock) but pointless.
+protected function includeScheduler(): bool { return false; }
+
+// Or supervise it differently — a shorter interval, a different lock file.
+protected function schedulerProcess(): array
+{
+    return [
+        'id' => 'schedule', 'daemon' => 'schedule', 'workerId' => 'schedule-1',
+        'lockFile' => ROOT . '/var/pramnos-work.lock',
+        'tokens'   => ['work', '--interval=30'],
+    ];
+}
+```
+
+An application that *already* declares `work` in `buildDesiredProcesses()` keeps its
+own entry — recognised by what it runs, not by the id it was given. An application
+whose console does not register `work` at all gets nothing added, rather than a
+supervised entry that could only ever fail to start.
 
 - `requireLockFile => true` — health is a fresh heartbeat (mtime) in the worker's lock file
   (a `CommandBase`/`ProcessQueue` worker keeps this automatically via `heartbeat()`).
