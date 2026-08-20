@@ -5,6 +5,7 @@ use_cases:
   - Choosing a base test case, or testing without booting the application
   - Changing the debug toolbar's JavaScript, or any asset the framework ships
   - Running the linter or the JavaScript tests
+  - Asserting that an action broadcast a realtime event
 ---
 
 # Pramnos Testing Guide
@@ -397,6 +398,73 @@ If a class genuinely asserts on the sequence, override `resetAutoIncrement()` to
 
 When the DDL **is** the subject. The framework's migration and schema-builder tests keep
 building their schema per test, because that is the behaviour they are asserting.
+
+## Asserting that something was broadcast
+
+`NullDriver` discards silently and `LogDriver` writes a file a test then has to
+parse, so a test asserting "this action broadcasts" either needed a real Redis or
+asserted nothing. The second kind keeps passing after the broadcast is deleted,
+which is the failure mode worth naming.
+
+`Broadcasting\Testing\FakeDriver` records instead of publishing:
+
+```php
+use Pramnos\Broadcasting\Testing\FakeDriver;
+
+protected function tearDown(): void
+{
+    FakeDriver::restore();      // unconditional; safe when nothing was swapped
+}
+
+public function testMarkingAnOrderPaidAnnouncesIt(): void
+{
+    // Arrange
+    $fake = FakeDriver::swap();          // becomes the process-default manager
+
+    // Act
+    $order->markPaid();
+
+    // Assert
+    $fake->assertBroadcast('private-order.' . $order->id, 'order.paid');
+    $fake->assertBroadcastCount(1);
+}
+```
+
+`swap()` installs the fake as the process default, so code that resolves the manager
+itself is captured — no need to thread a driver through the code under test. It
+remembers whatever was installed, and `restore()` puts exactly that back: a test
+that left a fake in place would silently swallow every later test's broadcasts, and
+the failure would surface in an unrelated file.
+
+### What you can assert
+
+| | |
+|---|---|
+| `assertBroadcast($channel?, $event?, $payloadMatches?)` | something matched |
+| `assertNotBroadcast($channel?, $event?)` | nothing matched |
+| `assertBroadcastCount($n, $channel?, $event?)` | exactly `$n` matched |
+| `assertNothingBroadcast()` | this path stays quiet |
+| `assertBroadcastExcept($socketId, $channel?, $event?)` | `toOthers()` reached the driver |
+
+`assertBroadcastExcept()` earns its own place: the exclusion is easy to lose — a
+driver that does not implement it, a socket id that never left the request — and its
+only production symptom is one user seeing a duplicate of their own action.
+
+For anything the assertions do not cover, `recorded()` returns every entry and
+`matching()` narrows by channel, event and a payload predicate.
+
+A failing assertion **lists what was actually broadcast**. Without that, a reader
+cannot tell a missing broadcast from one on a channel whose name is built slightly
+differently, which is the usual cause:
+
+```
+Expected a broadcast on "private-order-42" named "order.paid", but none matched.
+Recorded:
+  - private-order.42 / order.paid
+```
+
+See the [Realtime guide](Pramnos_Realtime_Guide.md) for what the channels and events
+mean.
 
 ## Isolating process-wide state
 

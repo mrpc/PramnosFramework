@@ -903,6 +903,22 @@ capability gap.
 
 ---
 
+## Testing a broadcast
+
+`Broadcasting\Testing\FakeDriver::swap()` makes the process default record instead
+of publish, so a test can assert that an action broadcast what it should:
+
+```php
+$fake = FakeDriver::swap();
+$order->markPaid();
+$fake->assertBroadcast('private-order.42', 'order.paid');
+```
+
+Full reference — including `assertBroadcastExcept()` for `toOthers()` — in the
+[Testing guide](Pramnos_Testing_Guide.md#asserting-that-something-was-broadcast).
+
+---
+
 ## The HTTP API
 
 Until now the only way into the server was the backplane: an event had to be

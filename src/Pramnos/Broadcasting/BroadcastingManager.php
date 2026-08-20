@@ -88,6 +88,21 @@ class BroadcastingManager
         self::$instance = $manager;
     }
 
+    /**
+     * The process-default manager if one exists, without creating one.
+     *
+     * {@see instance()} is a factory: given no instance it builds a Redis-backed
+     * manager, which is right for a caller that wants to broadcast and wrong for one
+     * that only wants to know what is currently installed. A test swapping the
+     * default in and out is the second kind, and calling the factory to find out
+     * what to restore would construct a Redis connection as a side effect of asking
+     * a question — the same trap `Application::currentInstance()` exists for.
+     */
+    public static function currentInstance(): ?self
+    {
+        return self::$instance;
+    }
+
     // =========================================================================
     // Driver management
     // =========================================================================
