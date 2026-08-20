@@ -822,6 +822,42 @@ class DevPanelController extends Controller
         // table had ever held — "active" meaning only "never explicitly revoked".
         $now         = time();
         $usedSince   = $hours > 0 ? $now - ($hours * 3600) : 0;
+
+        // A web session cannot outlive the PHP session it belongs to.
+        //
+        // `web_session` is accepted through `$_SESSION['usertoken']`, so once PHP
+        // has expired the session — `session.gc_maxlifetime`, 24 minutes out of
+        // the box — the row is unreachable by the browser that owns it, whatever
+        // its own expiry says. Listing it as an active session is listing
+        // something nobody can use: a login from this morning is not a session,
+        // it is a row. API tokens have no such bound and keep the selected
+        // window.
+        $idleTimeout = (int) ini_get('session.gc_maxlifetime');
+        if ($idleTimeout <= 0) {
+            $idleTimeout = 1440;
+        }
+        $webSessionSince = $hours > 0 ? $now - $idleTimeout : 0;
+
+        // The per-type bound, as one clause: a web session used inside the idle
+        // timeout, or any other type inside the window.
+        $withinItsLifetime = static function ($query) use ($webSessionSince, $usedSince) {
+            $query->where(static function ($web) use ($webSessionSince) {
+                $web->where('tokentype', \Pramnos\User\Token::TYPE_WEB_SESSION)
+                    ->where('lastused', '>=', $webSessionSince);
+            })->orWhere(static function ($api) use ($usedSince) {
+                $api->where('tokentype', '!=', \Pramnos\User\Token::TYPE_WEB_SESSION)
+                    ->where('lastused', '>=', $usedSince);
+            });
+        };
+        $withinItsLifetimeAliased = static function ($query) use ($webSessionSince, $usedSince) {
+            $query->where(static function ($web) use ($webSessionSince) {
+                $web->where('t.tokentype', \Pramnos\User\Token::TYPE_WEB_SESSION)
+                    ->where('t.lastused', '>=', $webSessionSince);
+            })->orWhere(static function ($api) use ($usedSince) {
+                $api->where('t.tokentype', '!=', \Pramnos\User\Token::TYPE_WEB_SESSION)
+                    ->where('t.lastused', '>=', $usedSince);
+            });
+        };
         $sessionTypes = [
             \Pramnos\User\Token::TYPE_WEB_SESSION,
             \Pramnos\User\Token::TYPE_API,
@@ -845,7 +881,7 @@ class DevPanelController extends Controller
                 ->whereIn('tokentype', $sessionTypes)
                 ->where($stillValid);
             if ($usedSince > 0) {
-                $countQuery->where('lastused', '>=', $usedSince);
+                $countQuery->where($withinItsLifetime);
             }
             $sessionCount = (int) $countQuery->count();
 
@@ -861,7 +897,7 @@ class DevPanelController extends Controller
                 ->where('t.status', 1)
                 ->whereIn('t.tokentype', $sessionTypes)
                 ->where($stillValid)
-                ->when($usedSince > 0, fn($q) => $q->where('t.lastused', '>=', $usedSince))
+                ->when($usedSince > 0, fn($q) => $q->where($withinItsLifetimeAliased))
                 ->groupBy('u.username', 't.tokentype')
                 ->orderBy('sessions', 'desc')
                 ->limit(20)
@@ -892,7 +928,7 @@ class DevPanelController extends Controller
                 // because a new session type must not silently stop appearing here.
                 ->whereIn('t.tokentype', $sessionTypes)
                 ->where($stillValid)
-                ->when($usedSince > 0, fn($q) => $q->where('t.lastused', '>=', $usedSince))
+                ->when($usedSince > 0, fn($q) => $q->where($withinItsLifetimeAliased))
                 ->orderBy('t.lastused', 'desc')
                 ->limit(50)
                 ->get();
@@ -970,6 +1006,12 @@ class DevPanelController extends Controller
               . ' active sessions' . $within . '.'
             : number_format($sessionCount) . ' active session'
               . ($sessionCount === 1 ? '' : 's') . $within . '.';
+
+        if ($hours > 0) {
+            $showing .= ' Web sessions are bounded by the PHP session idle timeout ('
+                . number_format($idleTimeout / 60, 0) . ' min), whatever the window says —'
+                . ' past it the browser has to sign in again.';
+        }
 
         // The window is a link bar rather than a fixed filter: "how many sessions
         // are there really" and "who is here now" are different questions, and the
@@ -1232,6 +1274,16 @@ class DevPanelController extends Controller
                 // cost, and dropping it would quietly change the numbers above it.
                 ->leftJoin('#PREFIX#urls AS u', 'u.urlid', '=', 'ta.urlid')
                 ->where('ta.servertime', '>=', $since)
+                // Only calls that were timed.
+                //
+                // A row with no duration has nothing to say about speed, and it
+                // did worse than say nothing: `ORDER BY avg_ms DESC` puts NULLs
+                // *first* on PostgreSQL, so a table holding any unmeasured rows
+                // showed twenty of them at the top of "slowest endpoints", each
+                // rendered as 0.0 ms, with the real measurements pushed off the
+                // list. Every web request was unmeasured until 2026-08-20, so on
+                // an existing installation that was the whole report.
+                ->whereNotNull('ta.execution_time_ms')
                 ->groupBy('u.url', 'ta.method')
                 ->orderBy('avg_ms', 'desc')
                 ->limit(20)
@@ -1261,6 +1313,7 @@ class DevPanelController extends Controller
                 ->join('#PREFIX#users AS us', 'us.userid', '=', 't.userid')
                 ->leftJoin('#PREFIX#applications AS a', 'a.appid', '=', 't.applicationid')
                 ->where('ta.servertime', '>=', $since)
+                ->whereNotNull('ta.execution_time_ms')
                 ->groupBy('t.userid', 'us.username', 'a.name')
                 ->orderBy('avg_ms', 'desc')
                 ->limit(20)
@@ -1296,6 +1349,28 @@ class DevPanelController extends Controller
         }
 
         $emptyMessage = 'No data for this period';
+
+        // "Recorded but never timed" is its own answer, and on any installation
+        // with history it is the likely one: web requests carried no duration
+        // until 2026-08-20, so those rows are in the table and cannot appear in
+        // a report about how long things take.
+        if ($recorded > 0) {
+            try {
+                $timed = (int) $db->queryBuilder()
+                    ->table('#PREFIX#tokenactions')
+                    ->whereNotNull('execution_time_ms')
+                    ->count();
+
+                if ($timed === 0) {
+                    $emptyMessage = number_format($recorded) . ' request(s) are recorded,'
+                        . ' none of them timed. Durations are written from the moment a'
+                        . ' request finishes; rows older than that carry none.';
+                }
+            } catch (\Throwable $ex) {
+                $this->panelError('timed request count', $ex);
+            }
+        }
+
         if ($recorded === 0) {
             $emptyMessage = 'No requests have been recorded at all.';
             try {
