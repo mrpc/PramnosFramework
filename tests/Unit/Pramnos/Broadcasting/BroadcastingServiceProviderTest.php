@@ -155,4 +155,117 @@ class BroadcastingServiceProviderTest extends TestCase
         $this->expectNotToPerformAssertions();
         $provider->boot();
     }
+
+    // -------------------------------------------------------------------------
+    // Channel authorization bindings
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build an app with both a broadcasting config and a features list, which the
+     * app-registry binding needs.
+     */
+    private function makeAppWithFeatures(array $broadcasting, array $features): Application
+    {
+        $container = new Container();
+        $info      = ['broadcasting' => $broadcasting, 'features' => $features];
+
+        return new class($container, $info) extends Application {
+            public function __construct(Container $c, array $info)
+            {
+                $this->_data['container'] = $c;
+                $this->applicationInfo    = $info;
+            }
+        };
+    }
+
+    /**
+     * register() binds an empty ChannelRegistry, shared across resolutions.
+     *
+     * Empty is the correct default and worth asserting: a registry with no rules
+     * denies every private and presence channel, so a deployment that enabled the
+     * endpoint before writing any rules is closed rather than open.
+     */
+    public function testRegistersASharedEmptyChannelRegistry(): void
+    {
+        // Arrange
+        $app      = $this->makeAppWithFeatures([], []);
+        $provider = new BroadcastingServiceProvider($app);
+
+        // Act
+        $provider->register();
+        $registry = $app->container->get('broadcasting.channels');
+
+        // Assert
+        $this->assertInstanceOf(\Pramnos\Broadcasting\Auth\ChannelRegistry::class, $registry);
+        $this->assertFalse(
+            $registry->authorize('private-anything', null),
+            'an unconfigured registry must deny, not admit'
+        );
+        $this->assertSame(
+            $registry,
+            $app->container->get('broadcasting.channels'),
+            'the registry is shared, so rules registered once are seen everywhere'
+        );
+    }
+
+    /**
+     * Without the authserver feature, the app registry is the config-backed one —
+     * byte-identical behaviour to before app registries existed.
+     */
+    public function testAppRegistryFallsBackToConfigWithoutAuthserver(): void
+    {
+        // Arrange
+        $app = $this->makeAppWithFeatures(
+            ['pusher' => ['app_key' => 'k', 'app_secret' => 's']],
+            ['broadcasting']
+        );
+        $provider = new BroadcastingServiceProvider($app);
+
+        // Act
+        $provider->register();
+        $registry = $app->container->get('broadcasting.apps');
+
+        // Assert
+        $this->assertInstanceOf(\Pramnos\Broadcasting\Apps\ConfigAppRegistry::class, $registry);
+        $this->assertSame('s', $registry->findByKey('k')?->secret);
+    }
+
+    /**
+     * With the authserver feature enabled, the app registry reads the applications
+     * table instead — the two features travelling together, as intended.
+     */
+    public function testAppRegistryUsesAuthserverWhenTheFeatureIsEnabled(): void
+    {
+        // Arrange
+        $app      = $this->makeAppWithFeatures([], ['broadcasting', 'authserver']);
+        $provider = new BroadcastingServiceProvider($app);
+
+        // Act
+        $provider->register();
+
+        // Assert
+        $this->assertInstanceOf(
+            \Pramnos\Broadcasting\Apps\AuthServerAppRegistry::class,
+            $app->container->get('broadcasting.apps')
+        );
+    }
+
+    /**
+     * A config naming `authserver` without the feature surfaces as an exception
+     * when the binding resolves, rather than silently signing with a different
+     * secret than the operator asked for.
+     */
+    public function testMisconfiguredAppSourceThrowsOnResolution(): void
+    {
+        // Arrange
+        $app = $this->makeAppWithFeatures(
+            ['apps' => ['source' => 'authserver']],
+            ['broadcasting']
+        );
+        (new BroadcastingServiceProvider($app))->register();
+
+        // Act & Assert
+        $this->expectException(\Throwable::class);
+        $app->container->get('broadcasting.apps');
+    }
 }
