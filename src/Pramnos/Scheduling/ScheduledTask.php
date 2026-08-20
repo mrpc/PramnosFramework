@@ -262,14 +262,82 @@ class ScheduledTask
         }
 
         if ($this->type === 'command') {
-            // Shell out to the framework's bin/pramnos entry point
-            $bin     = defined('PRAMNOS_BIN') ? PRAMNOS_BIN : 'php pramnos';
-            $command = escapeshellcmd((string) $this->handler);
-            passthru("{$bin} {$command}");
+            $command = $this->consoleBinary() . ' ' . escapeshellcmd((string) $this->handler);
+            $status  = $this->runShellCommand($command);
+
+            // A command that could not run is a task that did not happen, and
+            // the callers already know how to report a throw — `schedule:run`
+            // prints "✗ Failed" and returns non-zero, `work` counts it. Before
+            // this, `passthru()`'s status was discarded: every framework task
+            // reported "✓ Done" while the shell answered "Could not open input
+            // file", once a minute, for as long as the installation existed.
+            if ($status !== 0) {
+                throw new \RuntimeException(sprintf(
+                    "Scheduled command '%s' exited with status %d (ran: %s).",
+                    (string) $this->handler,
+                    $status,
+                    $command
+                ));
+            }
+
             return;
         }
 
         throw new \RuntimeException("Unknown scheduled task type '{$this->type}'.");
+    }
+
+    /**
+     * The console this application is actually run with.
+     *
+     * The default was the literal `php pramnos` — the framework's own entry
+     * point, which a scaffolded application does not have: the scaffolder
+     * generates `<cliName>.php` in the project root and says so. Every
+     * `command` task in such a project answered "Could not open input file:
+     * pramnos" and did nothing, which on one installation meant `spool:drain`
+     * had never run: 478 rows waiting in a file and a `tokenactions` table that
+     * had never had a row in it.
+     *
+     * The running script is a better assumption than a fixed name, and not a
+     * guess: the process running the scheduler is by definition a console that
+     * knows the commands the scheduler wants to run. `PRAMNOS_BIN` still wins
+     * where an installation needs to say something else.
+     *
+     * Only in CLI. Under a web SAPI the running script is `index.php`, which
+     * would turn a scheduled command into a second HTTP bootstrap.
+     *
+     * @return string A shell-ready prefix, without a trailing space
+     */
+    protected function consoleBinary(): string
+    {
+        if (defined('PRAMNOS_BIN')) {
+            return (string) \PRAMNOS_BIN;
+        }
+
+        if (PHP_SAPI === 'cli') {
+            $script = $_SERVER['SCRIPT_FILENAME'] ?? ($GLOBALS['argv'][0] ?? '');
+            if (is_string($script) && $script !== '' && is_file($script)) {
+                return escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script);
+            }
+        }
+
+        return 'php pramnos';
+    }
+
+    /**
+     * Run a shell command and return its exit status.
+     *
+     * A seam: the only line in this class that reaches the shell, so a test can
+     * assert what would be run without running it.
+     *
+     * @param  string $command The full command line
+     * @return int Exit status, 0 on success
+     */
+    protected function runShellCommand(string $command): int
+    {
+        $status = 0;
+        passthru($command, $status);
+
+        return $status;
     }
 
     private function lockFile(): string
