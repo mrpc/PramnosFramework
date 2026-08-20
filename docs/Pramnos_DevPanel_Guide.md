@@ -91,10 +91,15 @@ type `raw`: they are not this cache's envelopes and are not decoded.
 Sessions and login security.
 
 **Sessions are limited to a recency window** — last used within 1h / 6h / 24h (default) /
-7d / 30d, or `All`. The window is not cosmetic. A `web_session` token is created per login
-and carries no expiry, so "not expired" means "for ever"; without a window the panel lists
-every login the installation has ever had. If the `All` count is large and the 1h count is
-one, that is not a busy server, it is an accumulating table.
+7d / 30d, or `All`. The window is not cosmetic. A `web_session` token is created per login,
+so without one the panel lists every login the installation has ever had. If the `All` count
+is large and the 1h count is one, that is not a busy server, it is an accumulating table.
+
+**A web session is bounded by the PHP session it belongs to, whatever the window says.** It
+is accepted through `$_SESSION['usertoken']`, so once PHP has expired the session —
+`session.gc_maxlifetime`, 24 minutes out of the box — the row cannot be used by the browser
+that owns it. A login from this morning is not a session, it is a row. API tokens (`auth`,
+`access_token`) have no such bound and use the window you selected. `All` lifts both.
 
 Two tables: **Sessions by User**, which is the summary to read first (who, which token type,
 how many, last seen), and the 50 most recently used sessions in detail. The count line says
@@ -113,6 +118,13 @@ lockout expiry.
 
 Slowest endpoints and slowest users/applications over a selectable window, read from
 `tokenactions`. An endpoint is shown by URL, resolved through the `urls` table.
+
+**Only calls that were timed appear here.** A row with no duration has nothing to say about
+speed, and it did worse than say nothing: `ORDER BY avg_ms DESC` puts NULLs *first* on
+PostgreSQL, so a table holding unmeasured rows showed twenty of them at the top, each
+rendered as `0.0 ms`, with the real measurements pushed off the list. Web requests carried no
+duration before 2026-08-20, so on an installation with history that was the whole report.
+When rows exist but none are timed, the panel says that instead.
 
 `tokenactions` rows are written through the write spool, so this panel shows nothing until
 something drains it. When the table is empty the panel says so — and says how many rows are

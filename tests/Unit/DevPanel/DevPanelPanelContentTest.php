@@ -634,6 +634,102 @@ class DevPanelPanelContentTest extends TestCase
     }
 
     /**
+     * The slowest-endpoints report reads only calls that were timed.
+     *
+     * A row with no duration has nothing to say about speed, and it did worse than say
+     * nothing: `ORDER BY avg_ms DESC` puts NULLs **first** on PostgreSQL, so a table
+     * holding any unmeasured rows showed twenty of them at the top of the report, each
+     * rendered as `0.0 ms`, with the real measurements pushed off the list. Every web
+     * request was unmeasured until the shutdown flush started timing them, so on an
+     * installation with history that was the entire report — which is exactly how it was
+     * reported, twice.
+     *
+     * @return void
+     */
+    public function testTheEndpointsReportIgnoresUntimedCalls(): void
+    {
+        // Arrange
+        $db = $this->useRecordingDatabase();
+
+        // Act
+        $this->render($this->controller(), 'renderPerformance');
+
+        // Assert — both reports filter on a duration being present
+        $timed = array_filter(
+            $db->statementsRun,
+            static fn(string $sql): bool => str_contains($sql, 'execution_time_ms IS NOT NULL')
+        );
+        $this->assertCount(
+            2,
+            $timed,
+            'the endpoint report and the user report both rank by duration'
+        );
+    }
+
+    /**
+     * A web session is bounded by the PHP session it belongs to.
+     *
+     * `web_session` is accepted through `$_SESSION['usertoken']`, so once PHP has expired
+     * the session — `session.gc_maxlifetime`, 24 minutes out of the box — the row cannot be
+     * used by the browser that owns it, whatever its own expiry says. Listing it as an
+     * active session lists something nobody can use: a login from this morning is not a
+     * session, it is a row. API tokens have no such bound and keep the selected window.
+     *
+     * @return void
+     */
+    public function testWebSessionsAreBoundedByTheSessionIdleTimeout(): void
+    {
+        // Arrange
+        $db = $this->useRecordingDatabase();
+
+        // Act
+        $html = $this->render($this->controller(), 'renderUsers');
+
+        // Assert — the session query asks about the token type inside its predicate,
+        // which a flat "used since" filter never had to
+        $sessionQuery = '';
+        foreach ($db->statementsRun as $index => $sql) {
+            if (str_contains($sql, 'usertokens') && str_contains($sql, 'ORDER BY')) {
+                $sessionQuery = $sql;
+                $bound        = $db->bindingsUsed[$index];
+                break;
+            }
+        }
+
+        $this->assertStringContainsString('tokentype', $sessionQuery);
+        $this->assertStringContainsString('lastused >=', $sessionQuery);
+
+        // The PHP session's own idle timeout is among the bound cutoffs — asserted
+        // against `session.gc_maxlifetime` itself, because that is the contract:
+        // "as long as the session it belongs to can be alive".
+        $idle     = (int) ini_get('session.gc_maxlifetime') ?: 1440;
+        $expected = time() - $idle;
+
+        $matched = array_filter(
+            $bound ?? [],
+            static fn($value): bool => is_int($value) && abs($value - $expected) <= 5
+        );
+
+        $this->assertNotSame(
+            [],
+            $matched,
+            'a cutoff at the session idle timeout must be bound, not only the window'
+        );
+
+        // ...and the 24h window is still bound too, for the API tokens it applies to
+        $window  = time() - 86400;
+        $matched = array_filter(
+            $bound ?? [],
+            static fn($value): bool => is_int($value) && abs($value - $window) <= 5
+        );
+        $this->assertNotSame([], $matched, 'the selected window still applies');
+
+        // ...and the page says so, rather than leaving the reader to wonder why a
+        // session they can see in the database is not listed
+        $this->assertStringContainsString('idle timeout', $html);
+    }
+
+    /**
      * A table with rows in it, but none in this window, says exactly that.
      *
      * @return void
