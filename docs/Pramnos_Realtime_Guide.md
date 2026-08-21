@@ -15,6 +15,7 @@ use_cases:
   - Finding out which channels are occupied, or who is in one, from outside the daemon
   - Reacting when a room becomes empty, or when a user's last connection goes
   - Serving wss:// without putting a proxy in front
+  - Defining an event once instead of repeating channel and payload at every call site
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -949,6 +950,86 @@ The paths are therefore checked at startup, and TLS configured without a
 TLS is configured but local_cert "/etc/ssl/realtime/fullchain.pem" is not readable;
 refusing to start a wss:// listener that would fail every handshake.
 ```
+
+---
+
+## Events that describe themselves
+
+`broadcast('private-order.' . $id, 'order.paid', [...])` repeats three decisions at
+every call site — which channel, what the event is called, what the payload looks
+like — and they drift. The channel name is the dangerous one: one place builds
+`private-order.42`, another `private-order-42`, and the subscriber that guessed
+wrong receives nothing with no error anywhere.
+
+```php
+use Pramnos\Broadcasting\BroadcastableEvent;
+
+final class OrderPaid implements BroadcastableEvent
+{
+    public function __construct(private Order $order)
+    {
+    }
+
+    public function broadcastOn(): array
+    {
+        return ['private-order.' . $this->order->id, 'ops'];
+    }
+
+    public function broadcastAs(): string
+    {
+        return 'order.paid';
+    }
+
+    public function broadcastWith(): array
+    {
+        return ['id' => $this->order->id, 'total' => $this->order->total];
+    }
+}
+
+$broadcasting->event(new OrderPaid($order));
+```
+
+The payload is resolved **once** per dispatch, not once per channel —
+`broadcastWith()` may be loading relations, and calling it per channel multiplies
+that by the size of the audience. An event naming no channels publishes nothing
+rather than failing: a conditional audience legitimately resolves to an empty list.
+
+`except()` composes: `$broadcasting->except($socketId)->event(new OrderPaid($order))`.
+
+!!! note "Related, but different from the `Broadcastable` trait"
+    The trait broadcasts a model's own lifecycle (`created`/`updated`/`deleted`)
+    automatically. `BroadcastableEvent` is for a *named* thing that happened, whose
+    audience and payload are its own business. Both, neither, or one of each.
+
+### Deferring one to a worker
+
+Implement `QueuedBroadcastableEvent` instead — a marker, nothing else changes:
+
+```php
+final class OrderPaid implements QueuedBroadcastableEvent { /* … */ }
+
+$broadcasting->useQueue(null, 'broadcasting');   // or inject a DelayedQueue
+$broadcasting->event(new OrderPaid($order));     // pushed, not published
+```
+
+Worth it when the publish is slow or unreliable relative to the request — a managed
+Pusher endpoint over HTTP, a fan-out across many channels. **Not** worth it for a
+local Redis `PUBLISH`, which is faster than the queue push that would defer it.
+
+**What is queued is the payload, not the event object.** The resolved channel list,
+event name and payload are serialised; the object never is. That removes a class of
+failure with it — an event holding a model cannot reach a worker after the row was
+deleted, cannot rebuild a stale copy, and cannot fail to unserialise because a class
+moved.
+
+The cost is the mirror image, and it is the thing to know: **`broadcastWith()` runs
+now, in the request.** An event whose payload is meant to describe the state at
+delivery time cannot express that, and should not be queued.
+
+A queued event whose queue is unreachable **throws**. It is not published inline
+instead — that would turn a deliberate "get this out of the request" into the slow
+request somebody was avoiding, on a path that only misbehaves under load and so
+would be found in production.
 
 ---
 
