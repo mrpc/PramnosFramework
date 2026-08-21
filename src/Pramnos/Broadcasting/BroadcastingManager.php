@@ -48,6 +48,11 @@ class BroadcastingManager
     /** Connection excluded from the next broadcast, set by {@see except()}. */
     private ?string $exceptSocketId = null;
 
+    /** Queue for QueuedBroadcastableEvents; resolved lazily when null. */
+    private ?\Pramnos\Queue\DelayedQueue $queue = null;
+
+    private string $queueNamespace = 'broadcasting';
+
     public function __construct()
     {
         // Always register the null driver so setDefault('null') is always valid.
@@ -193,6 +198,83 @@ class BroadcastingManager
         );
 
         $driver->broadcast($channel, $event, $payload);
+    }
+
+    /**
+     * Publish a self-describing event.
+     *
+     * Resolves the channels, the name and the payload from the event itself, so the
+     * three decisions live next to the data they describe rather than being repeated
+     * — and drifting — at every call site.
+     *
+     * An event implementing {@see QueuedBroadcastableEvent} is handed to the queue
+     * instead of published inline; everything else goes out immediately. Any
+     * exclusion set with {@see except()} applies to both paths.
+     *
+     * A queued event whose queue is unreachable **throws** — the exception from the
+     * queue propagates rather than being caught and published inline. Falling back
+     * would turn a deliberate "get this out of the request" into the slow request
+     * somebody was avoiding, on a path that only misbehaves under load and so would
+     * be discovered in production.
+     */
+    public function event(BroadcastableEvent $event): void
+    {
+        $channels = $event->broadcastOn();
+        $name     = $event->broadcastAs();
+
+        // Resolved once: broadcastWith() may be doing real work, and calling it per
+        // channel would multiply that by the size of the audience.
+        $payload  = $event->broadcastWith();
+
+        if ($event instanceof QueuedBroadcastableEvent) {
+            $this->queueEvent($channels, $name, $payload);
+
+            return;
+        }
+
+        foreach ($channels as $channel) {
+            $this->broadcast($channel, $name, $payload);
+        }
+    }
+
+    /**
+     * The queue used for {@see QueuedBroadcastableEvent}s.
+     *
+     * Injectable so an application can point it at its own namespace, and so a test
+     * does not need Redis. Resolved lazily otherwise — constructing a manager must
+     * not require a queue to exist.
+     */
+    public function useQueue(?\Pramnos\Queue\DelayedQueue $queue, string $namespace = 'broadcasting'): static
+    {
+        $this->queue          = $queue;
+        $this->queueNamespace = $namespace;
+
+        return $this;
+    }
+
+    /**
+     * Job type a worker matches to publish a deferred broadcast.
+     */
+    public const QUEUED_EVENT_JOB = 'broadcasting.event';
+
+    /**
+     * @param list<string>        $channels
+     * @param array<string,mixed> $payload
+     */
+    private function queueEvent(array $channels, string $name, array $payload): void
+    {
+        $queue = $this->queue ?? \Pramnos\Queue\DelayedQueue::redis($this->queueNamespace);
+
+        $queue->push(self::QUEUED_EVENT_JOB, [
+            'channels' => $channels,
+            'event'    => $name,
+            'payload'  => $payload,
+            // Carried so the worker can honour toOthers(): the socket id belongs to
+            // the request that caused this, and the worker will never see that
+            // request.
+            'except'   => $this->exceptSocketId,
+            'driver'   => $this->defaultDriver,
+        ]);
     }
 
     /**
