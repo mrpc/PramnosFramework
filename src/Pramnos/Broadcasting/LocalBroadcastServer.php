@@ -80,6 +80,25 @@ class LocalBroadcastServer
     /** @var bool  Main loop flag. */
     private bool $running = false;
 
+    /**
+     * Asked once per loop iteration whether to retire.
+     *
+     * The supervisor stops a worker cooperatively — {@see \Pramnos\Console\DaemonOrchestrator}
+     * drops a `.stop` file beside the lock and expects the worker to notice — and
+     * this loop had no way to notice. It blocked in `stream_select()` and installed
+     * signal handlers, so it was **structurally guaranteed** to be reported
+     * `[stop-timeout]` on every deploy: it ignored the sentinel for the full grace
+     * period, every time, and the line saying so is an error about a worker that was
+     * given no way to comply.
+     *
+     * What that cost, reported from a deployment: the WebSocket worker was never
+     * stopped, never signalled and never reported as anything but healthy — it served
+     * pre-deploy code across deploys, indefinitely.
+     *
+     * @var callable():bool|null
+     */
+    private $shouldStopCheck = null;
+
     /** @var callable|null  Callback invoked each tick (for progress output). */
     private $tickCallback = null;
 
@@ -488,6 +507,13 @@ class LocalBroadcastServer
         $this->running = true;
 
         while ($this->running) {
+            // Asked before the work, not after: a stop noticed at the top of an
+            // iteration retires the process one select-timeout later, rather than
+            // after another full round of accepts, reads and fan-out.
+            if ($this->shouldStopCheck !== null && ($this->shouldStopCheck)() === true) {
+                break;
+            }
+
             $this->loopIteration();
             if (function_exists('pcntl_signal_dispatch')) {
                 pcntl_signal_dispatch();
@@ -628,6 +654,35 @@ class LocalBroadcastServer
     public function useAuthorizer(ConnectionAuthorizer $authorizer): void
     {
         $this->authorizer = $authorizer;
+    }
+
+    /**
+     * Retire the server when $check returns true.
+     *
+     * Asked once per loop iteration, before any work. Wire it to the framework's own
+     * stop protocol:
+     *
+     * ```php
+     * $server->shouldStopUsing(fn (): bool => $this->shouldStop());
+     * ```
+     *
+     * **A seam of its own rather than a check folded into `onTick()`.** `onTick` is
+     * documented as the place for the *application's* per-iteration work, and making
+     * the stop depend on an application remembering to return the right thing from it
+     * is how the protocol became optional in the first place — every consumer writes
+     * the three lines, or does not, and nothing tells them which. The symptom of
+     * getting it wrong is a worker that looks healthy and serves code from before the
+     * deploy.
+     *
+     * **A setter rather than a `run()` parameter**, for the reason {@see useTls()}
+     * already gives: a trailing optional parameter is source-compatible for callers
+     * and fatal for a subclass that overrides the method.
+     *
+     * @param callable():bool $check
+     */
+    public function shouldStopUsing(callable $check): void
+    {
+        $this->shouldStopCheck = $check;
     }
 
     /**

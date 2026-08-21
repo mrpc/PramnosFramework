@@ -557,6 +557,37 @@ Run `broadcast:serve` under the `DaemonOrchestrator` (crash respawn, graceful
 stop, redeploy) by returning a process spec whose tokens invoke it — see the
 [Console Commands guide](Pramnos_Console_Guide.md).
 
+#### Stopping it, and the seam you must wire if you drive the server yourself
+
+The orchestrator stops a worker **cooperatively**: it drops a `.stop` file beside
+the worker's lock and expects the worker to notice. `broadcast:serve` wires that
+for you.
+
+**If your application runs `LocalBroadcastServer` from its own command, you have to
+wire it, and nothing tells you if you do not:**
+
+```php
+$server->shouldStopUsing(fn (): bool => $this->shouldStop());
+```
+
+Without it the server blocks in `stream_select()` and observes only signals, so it
+ignores the sentinel for the whole grace period on **every** deploy and is then
+reported `[stop-timeout]` — an error line about a worker that was given no way to
+comply. On an installation whose orchestrator was also skipping the sentinel check,
+the consequence was worse and was measured: the worker was never stopped, never
+signalled, and never reported as anything but healthy. It served pre-deploy code
+across deploys, indefinitely.
+
+The check is asked **once per iteration, before any work**, so a stop is honoured one
+select-timeout later rather than after another full round of accepts and fan-out.
+Only an explicit `true` stops it — a truthy string from a misspelled call must not
+retire a healthy daemon.
+
+It is a seam of its own and deliberately **not** folded into `onTick()`. `onTick` is
+for the *application's* per-iteration work, and making the stop depend on an
+application remembering to return the right thing from it is how the protocol became
+optional in the first place.
+
 ---
 
 ## Channel authorization
