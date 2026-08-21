@@ -43,10 +43,48 @@ use Pramnos\Http\WebSocket\WebSocketProtocolException;
  */
 class LocalBroadcastServer
 {
+    /**
+     * Bytes a connection may send before the header terminator arrives.
+     *
+     * The handshake buffer was the one unbounded read in this class, and the one an
+     * **unauthenticated** peer controls: `authorizeConnection()` runs after the
+     * headers are parsed, which cannot happen until the request is complete. So a
+     * client that connects and writes without ever sending a blank line was appended
+     * to for as long as it kept writing — and reaching `memory_limit` in a
+     * single-process daemon is not a slow client, it is a fatal that takes every
+     * other connected client with it.
+     *
+     * 16 KiB is generous for a WebSocket upgrade; nginx allows 8 KiB for the
+     * equivalent.
+     */
+    public const HANDSHAKE_HEADER_MAX = 16384;
+
+    /**
+     * Bytes an HTTP API request body may carry.
+     *
+     * A separate number because it answers a different question: a batch of events is
+     * legitimately larger than a header block, so one limit cannot serve both.
+     *
+     * Checked against `Content-Length` **as soon as the headers are complete**, so an
+     * oversized body is refused before a byte of it is buffered rather than after.
+     * And refused rather than truncated — a truncated body fails `body_md5` and reads
+     * as tampering, which is the worst available answer.
+     */
+    public const API_BODY_MAX = 1048576;
+
+    /**
+     * Seconds a connection may stay in the `handshaking` state.
+     *
+     * Independent of size: a connection that sends one byte and stops holds a slot in
+     * `$clients` for ever, because nothing ages out an unfinished handshake. Ten
+     * seconds is far longer than any real upgrade and far shorter than for ever.
+     */
+    public const HANDSHAKE_TIMEOUT = 10;
+
     /** @var resource|null Server socket. */
     private $serverSocket = null;
 
-    /** @var array<int, array{socket:resource, state:string, buffer:string, channels:string[], socketId:string, pingAt:int, assembler:?MessageAssembler}> */
+    /** @var array<int, array{socket:resource, state:string, buffer:string, channels:string[], socketId:string, pingAt:int, connectedAt:int, assembler:?MessageAssembler}> */
     private array $clients = [];
 
     /** @var array<string, int[]> channel → list of client IDs */
@@ -1110,6 +1148,9 @@ class LocalBroadcastServer
             'channels' => [],
             'socketId' => "{$id}.{$this->nextSocketId}",
             'pingAt'   => time() + 30,
+            // For the handshake deadline: nothing else ages out a connection that
+            // opened, sent a byte, and stopped.
+            'connectedAt' => time(),
             // Created once the handshake completes; frames cannot arrive before.
             'assembler' => null,
         ];
@@ -1132,6 +1173,19 @@ class LocalBroadcastServer
 
         if ($client['state'] === 'handshaking') {
             $client['buffer'] .= $data;
+
+            // Refused before the request is complete, which is the only point at
+            // which refusing is possible: everything that could authenticate this
+            // peer is in headers that have not arrived.
+            if (
+                strlen($client['buffer']) > self::HANDSHAKE_HEADER_MAX
+                && !str_contains($client['buffer'], "\r\n\r\n")
+            ) {
+                $this->sendHttpError($client['socket'], 431, 'Request Header Fields Too Large');
+                $this->disconnectClient($id);
+                return;
+            }
+
             $this->processHandshake($id);
         } else {
             // The assembler owns the partial-frame buffer from here on.
@@ -1756,6 +1810,8 @@ class LocalBroadcastServer
 
     private function sendKeepalives(): void
     {
+        $this->retireStalledHandshakes();
+
         $now = time();
         foreach ($this->clients as $id => $client) {
             if ($client['state'] !== 'connected') {
@@ -1775,6 +1831,28 @@ class LocalBroadcastServer
     // =========================================================================
     // Connection management
     // =========================================================================
+
+    /**
+     * Drop connections that opened and never finished their handshake.
+     *
+     * Size limits do not cover this: a peer that sends one byte and stops is under
+     * every ceiling and holds a slot in `$clients` for ever. The loop already walks
+     * its clients each iteration for keepalives, which is where the check belongs.
+     */
+    private function retireStalledHandshakes(): void
+    {
+        $cutoff = time() - self::HANDSHAKE_TIMEOUT;
+
+        foreach ($this->clients as $id => $client) {
+            if (
+                ($client['state'] ?? '') === 'handshaking'
+                && ($client['connectedAt'] ?? PHP_INT_MAX) < $cutoff
+            ) {
+                $this->sendHttpError($client['socket'], 408, 'Request Timeout');
+                $this->disconnectClient($id);
+            }
+        }
+    }
 
     private function disconnectClient(int $id): void
     {
@@ -1853,13 +1931,31 @@ class LocalBroadcastServer
         // body_md5 would reject it as tampering. Wait for the rest instead: the
         // buffer keeps accumulating and this runs again on the next read.
         $headers = $this->parseHttpHeaders($request);
+
         if (isset($headers['content-length'])) {
             $expected = (int) $headers['content-length'];
+
+            // Checked the moment the headers are complete, so an oversized body is
+            // refused before any of it is buffered. Refused rather than truncated: a
+            // truncated body fails body_md5 and reads as tampering.
+            if ($expected > self::API_BODY_MAX) {
+                $this->sendHttpError($client['socket'], 413, 'Payload Too Large');
+                $this->disconnectClient($id);
+                return true;
+            }
+
             if (strlen($body) < $expected) {
                 return true;    // handled in the sense of "not an error yet"
             }
             $body = substr($body, 0, $expected);
         }
+
+        // No Content-Length needs no ceiling of its own: nothing waits for such a
+        // body, so it is dispatched on the read that completed the headers and cannot
+        // accumulate across reads. It also cannot be signed — body_md5 needs a
+        // complete body and nothing declares where this one ends — so it is refused
+        // by the signature check a moment later. The accumulation only ever happens
+        // for a declared length, which is the case bounded above.
 
         $result = $this->httpApi->handle(
             $method,
