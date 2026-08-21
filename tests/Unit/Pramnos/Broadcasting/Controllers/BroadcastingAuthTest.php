@@ -586,4 +586,112 @@ class BroadcastingAuthTest extends TestCase
         $this->assertContains('postAuth', $controller->actions);
         $this->assertContains('display', $controller->actions, 'the inherited default survives');
     }
+
+    /**
+     * The controller builds an encrypter from `broadcasting.encryption_key`, so an
+     * encrypted channel's token carries the per-channel key.
+     */
+    public function testResolvesTheEncrypterFromConfig(): void
+    {
+        // Arrange
+        $key      = base64_encode(str_repeat("\x00", 32));
+        $channels = (new ChannelRegistry())->channel('room', fn (): bool => true);
+        $this->post(['socket_id' => '1.2', 'channel_name' => 'private-encrypted-room']);
+
+        $controller = $this->encryptingController($channels, $key);
+
+        // Act
+        [$status, $body] = $this->call($controller);
+
+        // Assert
+        $this->assertSame(200, $status);
+        $this->assertArrayHasKey('shared_secret', $body);
+        $this->assertSame(
+            \Pramnos\Broadcasting\Encryption\ChannelEncrypter::fromBase64($key)
+                ->sharedSecretForClient('private-encrypted-room'),
+            $body['shared_secret']
+        );
+    }
+
+    /**
+     * An encrypted channel with no key configured is a server error, not a denial.
+     *
+     * The signer refuses rather than issuing a token without `shared_secret`, because
+     * such a token produces a client that subscribes successfully and then silently
+     * drops every message — a channel that looks connected and delivers nothing.
+     */
+    public function testEncryptedChannelWithoutAKeyIsAServerError(): void
+    {
+        // Arrange
+        $channels = (new ChannelRegistry())->channel('room', fn (): bool => true);
+        $this->post(['socket_id' => '1.2', 'channel_name' => 'private-encrypted-room']);
+
+        // Act
+        [$status, $body] = $this->call($this->encryptingController($channels, ''));
+
+        // Assert
+        $this->assertSame(500, $status);
+        $this->assertSame('server_misconfigured', $body['error']);
+    }
+
+    /**
+     * An unusable key is treated as absent — logged, and encrypted channels then fail
+     * visibly, while plain private channels keep working.
+     */
+    public function testUnusableKeyLeavesPrivateChannelsWorking(): void
+    {
+        // Arrange
+        $channels = (new ChannelRegistry())->channel('room', fn (): bool => true);
+
+        // A private channel still signs.
+        $this->post(['socket_id' => '1.2', 'channel_name' => 'private-room']);
+        [$privateStatus] = $this->call($this->encryptingController($channels, 'not base64 !!!'));
+
+        // An encrypted one does not.
+        $this->post(['socket_id' => '1.2', 'channel_name' => 'private-encrypted-room']);
+        [$encryptedStatus] = $this->call($this->encryptingController($channels, 'not base64 !!!'));
+
+        // Assert
+        $this->assertSame(200, $privateStatus);
+        $this->assertSame(500, $encryptedStatus);
+    }
+
+    /**
+     * A controller whose applicationInfo carries an encryption key, built through the
+     * real constructor path so encrypter() is the one under test.
+     */
+    private function encryptingController(ChannelRegistry $channels, string $encryptionKey): Broadcasting
+    {
+        $container = new \Pramnos\Application\Container();
+        $app = new class($container, $encryptionKey) extends \Pramnos\Application\Application {
+            public function __construct(\Pramnos\Application\Container $c, string $key)
+            {
+                $this->_data['container'] = $c;
+                $this->applicationInfo    = [
+                    'broadcasting' => [
+                        'encryption_key' => $key,
+                        'pusher'         => ['app_key' => 'test-key', 'app_secret' => 'test-secret'],
+                    ],
+                    'features'     => ['broadcasting'],
+                ];
+            }
+        };
+
+        return new class($app, $channels) extends Broadcasting {
+            public function __construct($application, private ChannelRegistry $testChannels)
+            {
+                $this->application = $application;
+            }
+
+            protected function channels(): ChannelRegistry
+            {
+                return $this->testChannels;
+            }
+
+            protected function resolveUser()
+            {
+                return (object) ['userid' => 5];
+            }
+        };
+    }
 }

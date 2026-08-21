@@ -9,6 +9,7 @@ use Pramnos\Broadcasting\Apps\AppRegistryInterface;
 use Pramnos\Broadcasting\Apps\AppSource;
 use Pramnos\Broadcasting\Auth\ChannelRegistry;
 use Pramnos\Broadcasting\Auth\PusherAuthSigner;
+use Pramnos\Broadcasting\Encryption\ChannelEncrypter;
 use Pramnos\Http\Request;
 use Pramnos\Http\Response;
 use Pramnos\User\User;
@@ -115,7 +116,8 @@ class Broadcasting extends Controller
         }
 
         try {
-            $body = (new PusherAuthSigner($app))->signFor($socketId, $channel, $authorization);
+            $body = (new PusherAuthSigner($app, $this->encrypter()))
+                ->signFor($socketId, $channel, $authorization);
         } catch (\RuntimeException $e) {
             \Pramnos\Logs\Logger::log(
                 'Broadcasting auth could not sign: ' . $e->getMessage(),
@@ -169,6 +171,36 @@ class Broadcasting extends Controller
         $key      = trim((string) Request::getInstance()->get('app_key', '', 'post'));
 
         return $key === '' ? $registry->defaultApp() : $registry->findByKey($key);
+    }
+
+    /**
+     * The channel encrypter, when one is configured.
+     *
+     * Needed only for `private-encrypted-` channels, whose subscriber must be handed
+     * the per-channel key alongside its token.
+     */
+    protected function encrypter(): ?ChannelEncrypter
+    {
+        $info = $this->application?->applicationInfo ?? [];
+        $key  = (string) (($info['broadcasting']['encryption_key'] ?? '') ?: '');
+
+        if ($key === '') {
+            return null;
+        }
+
+        try {
+            return ChannelEncrypter::fromBase64($key);
+        } catch (\RuntimeException $e) {
+            // A bad key is reported once, here, rather than throwing on every
+            // request: the endpoint then refuses encrypted channels with a 500 and
+            // keeps serving the private ones, which is the smaller failure.
+            \Pramnos\Logs\Logger::log(
+                'Broadcasting: encryption key is unusable: ' . $e->getMessage(),
+                'broadcasting'
+            );
+
+            return null;
+        }
     }
 
     protected function appRegistry(): AppRegistryInterface

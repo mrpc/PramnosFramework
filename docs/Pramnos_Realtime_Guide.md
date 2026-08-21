@@ -17,6 +17,7 @@ use_cases:
   - Serving wss:// without putting a proxy in front
   - Defining an event once instead of repeating channel and payload at every call site
   - Monitoring a running WebSocket daemon, or telling a throttled client from a quiet one
+  - Sending a payload the relay itself must not be able to read
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -734,6 +735,61 @@ once. So the endpoint decides and signs; the daemon only verifies an HMAC.
 
 That is not a compromise made for this framework. It is why the Pusher protocol has
 an auth endpoint at all.
+
+---
+
+## Encrypted channels
+
+A `private-` channel is private because the **server** checks who may subscribe. A
+`private-encrypted-` channel adds the thing that check cannot give you: the payload
+is unreadable to everything between publisher and subscriber — including the
+WebSocket daemon, which relays ciphertext it cannot open, and including a managed
+Pusher or Reverb server you do not operate.
+
+That is the whole reason to reach for it: **it moves the trust boundary off the
+relay.** If you run the daemon yourself and trust it, `private-` is already enough.
+
+```php
+'broadcasting' => [
+    // base64_encode(random_bytes(32))
+    'encryption_key' => 'PU1FbXBsZUtleUV4YW1wbGVLZXlFeGFtcGxlS2U=',
+],
+```
+
+Nothing else changes. Name the channel with the prefix, and publish as usual:
+
+```php
+$broadcasting->broadcast('private-encrypted-patient-notes.17', 'note.added', $payload);
+```
+
+`pusher-js` decrypts these natively, so there is **no client-side code** — the wire
+format is Pusher's: a per-channel key of `sha256(channel_name || master_key)`, the
+payload sealed with NaCl secretbox, sent as `{nonce, ciphertext}`. The auth endpoint
+hands the subscriber the same per-channel key as `shared_secret`, which is why the
+derivation is a pure function of the channel name: both ends compute it
+independently and it never travels over the socket.
+
+!!! danger "Without a key configured, the prefix does nothing"
+    A broadcast to a `private-encrypted-` channel with no `encryption_key` set goes
+    out **in the clear**. The prefix is a contract with the client, and only the key
+    makes the server keep its half — so a deployment that names channels this way and
+    never sets a key has encryption in the name only. There is a test pinning exactly
+    that behaviour, so it cannot change quietly.
+
+    Authorizing such a channel with no key **throws**, because the alternative is
+    worse: a token without `shared_secret` produces a client that subscribes
+    successfully and then silently drops every message it cannot decrypt — a channel
+    that looks connected and delivers nothing.
+
+### What it does not protect
+
+**The channel name travels in the clear, and so does the event name.** Only the
+payload is encrypted. `private-encrypted-patient.4417` still tells a relay operator
+that patient 4417 exists and that something happened to them. Put nothing in a
+channel name that the payload is being encrypted to hide.
+
+Rotating the master key changes every channel's key, so anything in flight becomes
+undecryptable. Treat it as a one-time secret, not a rotating credential.
 
 ---
 

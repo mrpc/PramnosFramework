@@ -96,6 +96,25 @@ class BroadcastingServiceProvider extends ServiceProvider
                 }
             }
 
+            // End-to-end encryption for private-encrypted- channels. Absent unless
+            // a key is configured, and a broadcast to such a channel then goes out
+            // in the clear — the prefix alone does nothing, so this is what makes
+            // the server keep its half of the contract with the client.
+            $encryptionKey = (string) ($config['encryption_key'] ?? '');
+            if ($encryptionKey !== '') {
+                try {
+                    $manager->useEncryption(
+                        \Pramnos\Broadcasting\Encryption\ChannelEncrypter::fromBase64($encryptionKey)
+                    );
+                } catch (\Throwable $e) {
+                    \Pramnos\Logs\Logger::log(
+                        'Broadcasting: encryption key unusable, encrypted channels will not be '
+                        . 'encrypted: ' . $e->getMessage(),
+                        'broadcasting',
+                    );
+                }
+            }
+
             // Set the default driver
             try {
                 $manager->setDefault($default);
