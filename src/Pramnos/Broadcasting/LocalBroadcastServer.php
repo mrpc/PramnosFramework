@@ -39,24 +39,27 @@ use Pramnos\Http\WebSocket\WebSocketProtocolException;
  * ## The client ceiling is `FD_SETSIZE`, and it fails closed for everybody at once
  *
  * `stream_select()` is `select(2)`, whose descriptor sets are fixed-size bitmaps
- * bounded by `FD_SETSIZE` — 1024 in a typical build, and a bound on descriptor
- * **numbers** rather than on how many you watch.
+ * bounded by `FD_SETSIZE` — 1024 in a typical build, and a bound on the descriptor
+ * **numbers** in the set rather than on how many are in it. Past it the call **returns
+ * false** and watches nothing: not a partial result, not a skipped stream.
  *
- * **How it fails is not what this docblock first claimed.** It said the call "returns
- * false, so the loop stops serving every connected client simultaneously". PHP's own
- * diagnostic is per descriptor — *"It is set to %d, but you have descriptors numbered
- * at least as high as %d"*, emitted by `_php_emit_fd_setsize_warning` — so a
- * descriptor above the ceiling is warned about and **left out of the set**: that
- * stream is simply never reported readable. Not a smaller failure than a wholesale
- * one, a differently-shaped one — *this client is never read, silently* rather than
- * *everybody stops*.
+ * Measured at the boundary rather than inferred, in a container with `nofile=4096`
+ * and 1120 descriptors open:
  *
- * The distinction decides what to do at 90%, which is why it is here rather than
- * left as a detail: refusing new connections above the limit is the answer to a
- * per-descriptor skip, while shedding load is the answer to a wholesale stop. Read
- * from PHP's strings and its source shape rather than measured at the boundary — a
- * consuming project has offered to run that measurement in an isolated container, and
- * this paragraph should be replaced by its result.
+ *   - a set of one low fd **and** one high fd → `false`, with
+ *     *"It is set to 1024, but you have descriptors numbered at least as high as 1118"*
+ *   - the same set with only the low fd → `1`, and no warning
+ *
+ * The control case is the informative half. **1120 descriptors were open while the
+ * call answered normally**, so what matters is the numbers in the set and not what the
+ * process holds. Counting open descriptors is still the right proxy, for a mechanism
+ * rather than a coincidence: a new socket takes the lowest free number, so every other
+ * open file pushes the watched sockets' numbers up. Gaps in the table are exactly what
+ * keep it a proxy.
+ *
+ * And on failure **PHP leaves the arrays untouched** — `false` came back with both
+ * streams still listed in the read set. A loop that acts on them without checking the
+ * return value sees every client as readable and reads from none.
  *
  * Two things make that worth stating in this docblock rather than leaving to
  * experience. It reads as absent until it is hit — `ulimit -n` is commonly a million,
@@ -335,6 +338,9 @@ class LocalBroadcastServer
         'client_events_relayed'  => 0,
         'client_events_refused'  => 0,
         'webhook_events_queued'  => 0,
+        // Distinguishes "nothing happened" from "I could not watch anybody". A
+        // rising count with a flat connection count is the far side of the ceiling.
+        'select_failures'        => 0,
     ];
 
     /** Unix time this object was constructed, or run() was called. */
@@ -387,6 +393,12 @@ class LocalBroadcastServer
 
     /** Whether the descriptor-ceiling warning has already been logged. */
     private bool $descriptorWarningLogged = false;
+
+    /** Unix time of the last select-failure log line, 0 before the first. */
+    private int $lastSelectFailureLogAt = 0;
+
+    /** Failure count at the last log line, so repeats can report a delta. */
+    private int $selectFailuresAtLastLog = 0;
 
     /** Unix time of the last gossip publication. */
     private int $lastGossipAt = 0;
@@ -1196,10 +1208,45 @@ class LocalBroadcastServer
 
         $write  = null;
         $except = null;
-        // 100 ms select timeout so we can poll the log file frequently enough
-        $changed = @stream_select($read, $write, $except, 0, 100_000);
+        // 100 ms select timeout so we can poll the log file frequently enough.
+        //
+        // Wrapped, because this does not only return false: given a set PHP considers
+        // unusable — every entry a closed resource, say — it throws `ValueError: No
+        // stream arrays were passed`, and `@` suppresses warnings rather than
+        // exceptions. Unhandled that is a fatal in the one loop the whole server is,
+        // so it is treated as what it is: a select that could not watch anybody.
+        try {
+            $changed = @stream_select($read, $write, $except, 0, 100_000);
+        } catch (\ValueError) {
+            $changed = false;
+        }
 
-        if ($changed === false || $changed === 0) {
+        // `false` and `0` are not the same answer and used to share this branch.
+        //
+        // `0` is "nothing happened". `false` is "I could not watch", and past
+        // FD_SETSIZE it is permanent — so a node that crossed the ceiling an hour ago
+        // was spinning every 100 ms serving nobody and looking exactly like an idle
+        // one: same branch, `@` suppressing PHP's only diagnostic, and the approach
+        // warning logged once per process and long gone. Reported by a project that
+        // measured the boundary and then went looking for what happens on the far
+        // side of it.
+        if ($changed === false) {
+            $this->counters['select_failures']++;
+            $this->reportSelectFailure(count($read));
+
+            // Deliberately **not** falling through to the read loop below. On failure
+            // PHP leaves the arrays untouched — measured: `false` with both streams
+            // still listed in $read — so a loop that acted on them would treat every
+            // client as readable and read from none of them.
+            $this->drainRedisIngest();
+            $this->pollLogFile();
+            $this->sendKeepalives();
+            $this->gossipState();
+            $this->flushWebhooks();
+            return;
+        }
+
+        if ($changed === 0) {
             $this->drainRedisIngest();
             $this->pollLogFile();
             $this->sendKeepalives();
@@ -1317,6 +1364,49 @@ class LocalBroadcastServer
         // this is short by one, and being short by one on a cliff warning is the
         // direction that matters.
         $this->warnIfApproachingDescriptorCeiling();
+    }
+
+    /**
+     * Report a `stream_select()` failure, distinguishing the cliff from a blip.
+     *
+     * Two very different causes return `false`. A signal arriving mid-call (`EINTR`)
+     * is routine for a daemon that handles SIGTERM and needs no comment. Exceeding
+     * `FD_SETSIZE` is permanent and means this process is serving nobody — and looked
+     * identical to an idle loop until this existed.
+     *
+     * **The first failure is logged immediately**, which is what makes the crossing
+     * observable at the moment it happens rather than only in the approach. Repeats
+     * are throttled and carry a count, because the loop turns over every 100 ms and
+     * ten lines a second buries the signal as effectively as silence does. No
+     * information is lost: the count says how many there were.
+     *
+     * It does not stop the daemon, and that is a deliberate omission rather than an
+     * oversight. Retiring would in fact help — a fresh process gets low descriptor
+     * numbers again — but it drops every connection to do it, and whether that beats
+     * serving nobody is a deployment's call, not this class's. `select_failures` is in
+     * {@see stats()} so a health check can make it.
+     */
+    private function reportSelectFailure(int $watched): void
+    {
+        $now = time();
+
+        if ($this->lastSelectFailureLogAt !== 0 && $now - $this->lastSelectFailureLogAt < 30) {
+            return;
+        }
+
+        $since = $this->counters['select_failures'] - $this->selectFailuresAtLastLog;
+
+        $this->lastSelectFailureLogAt   = $now;
+        $this->selectFailuresAtLastLog  = $this->counters['select_failures'];
+
+        \Pramnos\Logs\Logger::log(
+            'Broadcasting: stream_select() failed ' . $since . ' time(s) with ' . $watched
+            . ' descriptors in the set, ceiling ' . self::descriptorCeiling() . '. '
+            . 'Past the ceiling this is permanent and the loop is serving nobody — '
+            . 'a signal arriving mid-call is transient and harmless. '
+            . 'select_failures in the metrics endpoint distinguishes the two over time.',
+            'broadcasting'
+        );
     }
 
     /**

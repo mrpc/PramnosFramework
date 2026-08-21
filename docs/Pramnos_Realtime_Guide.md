@@ -1167,19 +1167,27 @@ get wrong:
   Redis and log handles has fd numbers above its socket count. `isNearDescriptorCeiling()`
   takes the greater of what you pass and what `/proc/self/fd` reports, for exactly this
   reason — a consumer measured the gap at 58 feeds costing 69 descriptors.
-- **The failure is a per-descriptor skip, not a wholesale stop.** A descriptor above the
-  ceiling is warned about and left out of the set, so *that* stream is never reported
-  readable. Which means the response at 90% is to refuse new connections rather than to
-  shed load.
+- **The failure is wholesale.** Past the ceiling `stream_select()` returns `false` and
+  watches nothing: not a partial result, not a skipped stream. **And it leaves the
+  arrays untouched** — so a loop that acts on them without checking the return value
+  sees every client as readable and reads from none.
 
-!!! note "That last point is read from PHP's strings, not measured at the boundary"
-    An earlier version of this section said the call returns `false` and stops serving
-    everybody. PHP emits a per-descriptor warning
-    (`_php_emit_fd_setsize_warning`) and skips the offending stream, which is a
-    differently-shaped failure rather than a smaller one — *this client is never read,
-    silently* instead of *everybody stops* — and the two call for opposite responses.
-    A consuming project has offered to measure it at the boundary in an isolated
-    container; this note should be replaced by that number.
+!!! success "Measured at the boundary"
+    In a container with `nofile=4096` and 1120 descriptors open: a set of one low fd
+    **and** one high fd returns `false` with *"It is set to 1024, but you have
+    descriptors numbered at least as high as 1118"*; the same set with only the low fd
+    returns `1` and no warning.
+
+    The control case is the informative half. **1120 descriptors were open while the
+    call answered normally**, so what matters is the numbers in the set, not what the
+    process holds. Counting open descriptors is still the right proxy — for a mechanism
+    rather than a coincidence: a new socket takes the lowest free number, so every
+    other open file pushes the watched sockets' numbers up. Gaps in the table are
+    exactly what keep it a proxy.
+
+    This section said `false` first, was "corrected" to a per-descriptor skip on the
+    strength of PHP's strings, and is now back to `false` on the strength of the
+    measurement. Both corrections came from the project that ran it.
 
 Each connection is one descriptor, plus the listening socket and any Redis ingest
 stream. A warning is logged once at 90% of the ceiling
@@ -1199,6 +1207,14 @@ rather than discovering the cliff from it.
 
     Count everything in the set, not only the interesting sockets: a control pipe is
     a descriptor too, and `select(2)` does not care which you consider incidental.
+
+    **And check the return value.** On failure PHP leaves your arrays untouched, so a
+    loop that iterates `$read` without testing for `false` treats every stream as
+    readable and reads from none of them. Distinguish `false` from `0` while you are
+    there: `0` is "nothing happened" and `false` past the ceiling is permanent, so
+    folding them together turns a node serving nobody into one that looks idle. The
+    framework's own loop did exactly that until it was measured — `select_failures` in
+    the metrics endpoint is what came of it.
 
     Use the helper rather than re-deriving 90% yourself: it gives you one definition of
     "close", and it counts the descriptors the process *holds* as well as the ones you

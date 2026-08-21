@@ -363,14 +363,13 @@ class DescriptorCeilingTest extends TestCase
             $doc,
             'the old soft-sounding figure must be gone'
         );
-        // And it must describe the failure shape PHP actually has: a per-descriptor
-        // skip, not a wholesale false. The two call for opposite responses at 90%.
-        $this->assertStringContainsString('never read, silently', $doc);
-        $this->assertStringNotContainsString(
-            'it returns false**, so the loop stops serving',
-            $doc,
-            'the wholesale-failure claim was wrong and must not come back'
-        );
+        // And the failure shape, which took two corrections to get right: first
+        // stated as a wholesale false, "corrected" to a per-descriptor skip on the
+        // strength of PHP's strings, then measured at the boundary and found to be
+        // wholesale after all. The measurement is what the docblock now cites.
+        $this->assertStringContainsString('not a partial result, not a skipped stream', $doc);
+        $this->assertStringContainsString('nofile=4096', $doc, 'the measurement, not an inference');
+        $this->assertStringContainsString('leaves the arrays untouched', $doc);
     }
 
     /**
@@ -422,5 +421,143 @@ class DescriptorCeilingTest extends TestCase
             'precondition: one short is not close'
         );
         $this->assertFalse($this->warned($server), 'and the server agrees');
+    }
+
+    // -------------------------------------------------------------------------
+    // The far side of the cliff
+    // -------------------------------------------------------------------------
+
+    /**
+     * A select failure is counted, so a node past the ceiling is distinguishable from
+     * an idle one.
+     *
+     * They used to share a branch. `0` means "nothing happened"; `false` means "I
+     * could not watch", and past `FD_SETSIZE` that is permanent — so a node that
+     * crossed an hour ago spun every 100 ms serving nobody and looked exactly like a
+     * quiet one: same code path, `@` suppressing PHP's only diagnostic, and the
+     * approach warning logged once per process and long since scrolled away.
+     */
+    public function testSelectFailuresAreCountedSeparatelyFromIdleTicks(): void
+    {
+        // Arrange
+        $server = new LocalBroadcastServer('key', null, new AllowAllAuthorizer());
+
+        // Act — a closed resource in the read set makes stream_select() fail
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
+        fclose($pair[0]);
+        fclose($pair[1]);
+
+        (new \ReflectionProperty($server, 'clients'))->setValue($server, [
+            1 => [
+                'socket' => $pair[1], 'state' => 'connected', 'buffer' => '',
+                'channels' => [], 'socketId' => '1.1', 'pingAt' => time() + 30,
+                'connectedAt' => time(), 'assembler' => null,
+            ],
+        ]);
+        (new \ReflectionProperty($server, 'serverSocket'))->setValue($server, $pair[0]);
+
+        (new \ReflectionMethod($server, 'loopIteration'))->invoke($server);
+
+        // Assert
+        $this->assertSame(
+            1,
+            $server->stats()['select_failures'],
+            'a failed select must be counted, not folded into an idle tick'
+        );
+    }
+
+    /**
+     * An ordinary idle tick does not count as a failure.
+     *
+     * Without this the counter is decoration: every 100 ms tick would increment it and
+     * a real failure would be invisible in the noise.
+     */
+    public function testAnIdleTickIsNotAFailure(): void
+    {
+        // Arrange — a live listener, nothing to read
+        $server   = new LocalBroadcastServer('key', null, new AllowAllAuthorizer());
+        $listener = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($listener);
+        $this->sockets[] = $listener;
+
+        (new \ReflectionProperty($server, 'serverSocket'))->setValue($server, $listener);
+
+        // Act
+        (new \ReflectionMethod($server, 'loopIteration'))->invoke($server);
+
+        // Assert
+        $this->assertSame(0, $server->stats()['select_failures']);
+    }
+
+    /**
+     * The first failure is reported immediately; repeats are throttled and carry a
+     * count.
+     *
+     * Immediate, because the whole point is to be observable at the moment the ceiling
+     * is crossed rather than only in the approach. Throttled, because the loop turns
+     * over every 100 ms and ten lines a second buries the signal as effectively as
+     * silence — and the count means nothing is lost to the throttle.
+     */
+    public function testTheFirstFailureIsReportedImmediatelyAndRepeatsAreThrottled(): void
+    {
+        // Arrange
+        $server = new LocalBroadcastServer('key', null, new AllowAllAuthorizer());
+        $report = new \ReflectionMethod($server, 'reportSelectFailure');
+        $lastAt = new \ReflectionProperty($server, 'lastSelectFailureLogAt');
+        $counters = new \ReflectionProperty($server, 'counters');
+
+        $bump = static function () use ($counters, $server): void {
+            $c = $counters->getValue($server);
+            $c['select_failures']++;
+            $counters->setValue($server, $c);
+        };
+
+        // Act — first failure
+        $bump();
+        $report->invoke($server, 5);
+        $firstLoggedAt = $lastAt->getValue($server);
+
+        // Assert
+        $this->assertGreaterThan(0, $firstLoggedAt, 'the first failure is reported at once');
+
+        // Act — immediate repeats
+        $bump();
+        $report->invoke($server, 5);
+
+        // Assert — the throttle held, so the log timestamp did not move
+        $this->assertSame($firstLoggedAt, $lastAt->getValue($server));
+
+        // Act — past the throttle window
+        $lastAt->setValue($server, time() - 31);
+        $atLastLog = new \ReflectionProperty($server, 'selectFailuresAtLastLog');
+        $before    = $atLastLog->getValue($server);
+        $bump();
+        $bump();
+        $report->invoke($server, 5);
+
+        // Assert — asserted on the bookkeeping rather than the timestamp, which would
+        // be the same second and prove nothing.
+        $this->assertGreaterThan(
+            $before,
+            $atLastLog->getValue($server),
+            'the throttle reopens, and the delta carries the failures it swallowed'
+        );
+    }
+
+    /**
+     * The metrics endpoint carries the counter, because the response to a permanent
+     * failure is a deployment's decision rather than this class's.
+     *
+     * Retiring the process would help — a fresh one gets low descriptor numbers again
+     * — but it drops every connection to do it, and whether that beats serving nobody
+     * is not a question the server should answer on its own.
+     */
+    public function testTheFailureCountIsExposedForAHealthCheck(): void
+    {
+        // Assert
+        $this->assertArrayHasKey(
+            'select_failures',
+            (new LocalBroadcastServer('key'))->stats()
+        );
     }
 }
