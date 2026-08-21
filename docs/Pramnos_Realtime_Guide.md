@@ -477,6 +477,42 @@ change that would have surfaced it — as stale cues for every WebSocket client 
 deploy. Cursor persistence and correct ephemeral handling were mutually exclusive; they are not
 now.
 
+### Limits on the pre-authentication read
+
+Everything after the handshake was bounded from the start — 8 MiB per frame, a
+separate ceiling for a reassembled message, and a framing violation closes the
+connection. The handshake itself was the one unbounded read, and the one an
+**unauthenticated** peer controls: `authorizeConnection()` runs after the headers are
+parsed, which cannot happen until the request is complete.
+
+In a single-process daemon that is not a slow client. Reaching `memory_limit` is a
+fatal that takes every connected client with it, and the supervisor then restarts a
+worker whose clients all re-handshake at once.
+
+| Limit | | On breach |
+|---|---|---|
+| `HANDSHAKE_HEADER_MAX` | 16 KiB before the header terminator | `431`, disconnect |
+| `API_BODY_MAX` | 1 MiB declared `Content-Length` | `413`, disconnect |
+| `HANDSHAKE_TIMEOUT` | 10 s in the `handshaking` state | `408`, disconnect |
+
+Two numbers rather than one, because they answer different questions: a batch of
+events is legitimately larger than a header block.
+
+**The body is refused, never truncated.** A truncated body fails `body_md5` and reads
+as tampering, which is the worst available answer — so the check is against the
+*declared* length, the moment the headers are complete, before a byte of the body is
+buffered.
+
+**A body with no `Content-Length` needs no ceiling**, and that is worth knowing rather
+than assuming: nothing waits for one, so it is dispatched on the read that completed
+the headers and cannot grow across reads. It also cannot be signed, so it is refused
+by the signature check a moment later.
+
+The **deadline** is separate from both, because size limits do not cover a peer that
+sends one byte and stops: that is under every ceiling and would hold a slot for ever,
+since nothing ages out an unfinished handshake. An established connection is never
+touched by it, however long it has been connected.
+
 ### Authentication
 
 By default the server is permissive (`AllowAllAuthorizer`) for local dev. In
