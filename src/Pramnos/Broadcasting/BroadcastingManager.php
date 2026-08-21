@@ -48,6 +48,9 @@ class BroadcastingManager
     /** Connection excluded from the next broadcast, set by {@see except()}. */
     private ?string $exceptSocketId = null;
 
+    /** Encrypts payloads for `private-encrypted-` channels, when configured. */
+    private ?\Pramnos\Broadcasting\Encryption\ChannelEncrypter $encrypter = null;
+
     /** Queue for QueuedBroadcastableEvents; resolved lazily when null. */
     private ?\Pramnos\Queue\DelayedQueue $queue = null;
 
@@ -176,6 +179,17 @@ class BroadcastingManager
     {
         $driver = $this->driver();
 
+        if (
+            $this->encrypter !== null
+            && \Pramnos\Broadcasting\Encryption\ChannelEncrypter::isEncrypted($channel)
+        ) {
+            // Encrypted here rather than in the driver, so it happens exactly once
+            // regardless of which driver is active and whichever process ends up
+            // relaying it. The daemon then forwards ciphertext it cannot read, which
+            // is the point.
+            $payload = $this->encrypter->encrypt($channel, $payload);
+        }
+
         if ($this->exceptSocketId === null) {
             $driver->broadcast($channel, $event, $payload);
             return;
@@ -244,6 +258,30 @@ class BroadcastingManager
      * does not need Redis. Resolved lazily otherwise — constructing a manager must
      * not require a queue to exist.
      */
+    /**
+     * Encrypt payloads published to `private-encrypted-` channels.
+     *
+     * Without an encrypter, a broadcast to such a channel goes out in the clear —
+     * the name alone does nothing. That is worth knowing: the prefix is a contract
+     * with the client, and only this makes the server keep its half of it.
+     */
+    public function useEncryption(
+        ?\Pramnos\Broadcasting\Encryption\ChannelEncrypter $encrypter
+    ): static {
+        $this->encrypter = $encrypter;
+
+        return $this;
+    }
+
+    /**
+     * The configured encrypter, if any — for an auth endpoint that has to hand the
+     * subscriber its per-channel key.
+     */
+    public function encrypter(): ?\Pramnos\Broadcasting\Encryption\ChannelEncrypter
+    {
+        return $this->encrypter;
+    }
+
     public function useQueue(?\Pramnos\Queue\DelayedQueue $queue, string $namespace = 'broadcasting'): static
     {
         $this->queue          = $queue;

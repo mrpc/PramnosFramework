@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Broadcasting\Auth;
 
 use Pramnos\Broadcasting\Apps\BroadcastApp;
+use Pramnos\Broadcasting\Encryption\ChannelEncrypter;
 
 /**
  * Produces the channel-authorization token a Pusher-protocol client presents when
@@ -31,8 +32,14 @@ use Pramnos\Broadcasting\Apps\BroadcastApp;
  */
 final class PusherAuthSigner
 {
-    public function __construct(private readonly BroadcastApp $app)
-    {
+    /**
+     * @param ChannelEncrypter|null $encrypter Needed only to authorize
+     *        `private-encrypted-` channels, which must carry the per-channel key.
+     */
+    public function __construct(
+        private readonly BroadcastApp $app,
+        private readonly ?ChannelEncrypter $encrypter = null,
+    ) {
     }
 
     /**
@@ -98,7 +105,25 @@ final class PusherAuthSigner
             return $this->signPresence($socketId, $channel, $authorization);
         }
 
-        return $this->signPrivate($socketId, $channel);
+        $body = $this->signPrivate($socketId, $channel);
+
+        if (ChannelEncrypter::isEncrypted($channel)) {
+            if ($this->encrypter === null) {
+                // Refused rather than signed without the key. A token for an
+                // encrypted channel with no shared_secret produces a client that
+                // subscribes successfully and then silently drops every message it
+                // cannot decrypt — a channel that looks connected and delivers
+                // nothing.
+                throw new \RuntimeException(
+                    'Channel "' . $channel . '" is an encrypted channel, but no encryption '
+                    . 'key is configured. Set broadcasting.encryption_key.'
+                );
+            }
+
+            $body['shared_secret'] = $this->encrypter->sharedSecretForClient($channel);
+        }
+
+        return $body;
     }
 
     private function sign(string $payload): string
