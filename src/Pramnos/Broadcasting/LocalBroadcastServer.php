@@ -154,6 +154,22 @@ class LocalBroadcastServer
      */
     private string $clusterIngestChannel = '';
 
+    /**
+     * How old a relayed client event may be, in milliseconds.
+     *
+     * A client event is a transient cue — somebody is typing, a cursor moved — with no
+     * timestamp of its own, and a receiver sets state from *arrival* time. So a stale
+     * one does not merely arrive late, it asserts something false: that a person who
+     * stopped typing minutes ago is typing now.
+     *
+     * That cannot happen while gossip is live pub/sub, and it is exactly what happens
+     * the day an operator persists ingest cursors and a node replays a backlog after
+     * a deploy — stale "someone is typing…" for every client on the node at once. A
+     * consuming application hit this on its SSE path and filters cues at 30 seconds;
+     * this is the same judgement on the cluster path, made where the id is available.
+     */
+    private int $clientEventMaxAgeMs = 30_000;
+
     /** Seconds between full-state gossip messages. */
     private int $gossipInterval = 30;
 
@@ -638,6 +654,18 @@ class LocalBroadcastServer
     }
 
     /**
+     * How old a client event relayed from another node may be, in seconds.
+     *
+     * Zero disables the check, which is right only for an application whose client
+     * events carry their own timestamps and are filtered downstream. See
+     * {@see $clientEventMaxAgeMs} for what the check is protecting against.
+     */
+    public function relayedClientEventMaxAge(int $seconds): void
+    {
+        $this->clientEventMaxAgeMs = max(0, $seconds) * 1000;
+    }
+
+    /**
      * Send one gossip message, stamped with this node's identity and clock.
      *
      * Free when not clustered: the guard means a single-node deployment does no work
@@ -735,6 +763,21 @@ class LocalBroadcastServer
             case 'client_event':
                 $channel = (string) ($message['channel'] ?? '');
                 $event   = (string) ($message['event'] ?? '');
+
+                // Dropped rather than relayed late. Unlike a presence delta, whose
+                // meaning is a state that either still holds or has been superseded,
+                // a cue's meaning depends on when it was published — and nothing
+                // downstream can tell.
+                // The window guard comes first: zero means "no limit", and reading
+                // it as a zero-length window would drop every relayed cue instead —
+                // the opposite of what disabling a check should do.
+                if (
+                    $this->clientEventMaxAgeMs > 0
+                    && $ts > 0
+                    && (int) round(microtime(true) * 1000) - $ts > $this->clientEventMaxAgeMs
+                ) {
+                    return;
+                }
 
                 // The same guards as a local client event, because a peer's
                 // enforcement is not something to take on trust: a compromised or

@@ -1034,6 +1034,20 @@ counting nodes, not channels.
 on trust: a compromised or misconfigured node cannot publish onto a public channel
 here, or inject an application event name.
 
+**And it is dropped if it is stale**, older than 30 seconds by default
+(`relayedClientEventMaxAge()`; zero disables the check). A cue carries no timestamp
+of its own and a receiver sets state from *arrival* time, so a late one does not
+merely arrive late — it asserts that somebody who stopped typing minutes ago is
+typing now. That cannot happen while gossip is live pub/sub; it happens the day an
+operator persists ingest cursors and a node replays a backlog after a deploy, as
+stale "someone is typing…" for every client on the node at once.
+
+Presence deltas are deliberately **not** age-filtered. A delta's meaning is a state
+that either still holds or has been superseded — and a message older than the
+sending node's last accepted one is already refused — while a cue's meaning depends
+on when it was published. Filtering deltas by age would drop a legitimate membership
+change from a node whose clock is behind.
+
 **The pairing rule applies to gossip.** It travels on the backplane, so the
 primitive that publishes it must be the one the ingest reads. `broadcast:serve` wires
 both together — a `RedisDriver` (`PUBLISH`) against `RedisSubscriberSocket`

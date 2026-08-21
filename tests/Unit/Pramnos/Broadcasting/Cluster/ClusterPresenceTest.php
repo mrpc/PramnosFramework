@@ -608,4 +608,96 @@ class ClusterPresenceTest extends TestCase
         $this->assertSame([], $this->bus);
         $this->assertSame(['7'], array_map('strval', array_keys($server->presenceMembers('presence-room'))));
     }
+
+    /**
+     * A relayed client event that is too old is dropped, not delivered late.
+     *
+     * A cue carries no timestamp of its own and a receiver sets state from arrival
+     * time, so a stale one asserts something false: that somebody who stopped typing
+     * minutes ago is typing now. This cannot happen while gossip is live pub/sub — it
+     * is what happens the day cursors are persisted and a node replays a backlog after
+     * a deploy, as stale "someone is typing…" for every client on the node at once.
+     *
+     * A consuming application hit exactly this on its SSE path and filters cues at 30
+     * seconds; this is the same judgement on the cluster path.
+     */
+    public function testAStaleRelayedClientEventIsDropped(): void
+    {
+        // Arrange
+        [$nodeA, $endsA] = $this->node('a', 1);
+        $nodeA->allowClientEvents(true);
+        $this->subscribe($nodeA, 1, 'private-room');
+        $this->frames($endsA[1]);
+
+        $handle = new \ReflectionMethod($nodeA, 'handleClusterMessage');
+        $nowMs  = (int) round(microtime(true) * 1000);
+
+        // Act — one fresh, one from a minute ago
+        $handle->invoke($nodeA, [
+            'type' => 'client_event', 'node' => 'b', 'ts' => $nowMs,
+            'channel' => 'private-room', 'event' => 'client-fresh', 'data' => '{}',
+        ]);
+        $handle->invoke($nodeA, [
+            'type' => 'client_event', 'node' => 'b', 'ts' => $nowMs - 60_000,
+            'channel' => 'private-room', 'event' => 'client-stale', 'data' => '{}',
+        ]);
+
+        // Assert
+        $names = array_column($this->frames($endsA[1]), 'event');
+        $this->assertContains('client-fresh', $names);
+        $this->assertNotContains('client-stale', $names, 'a cue older than the window must not arrive');
+    }
+
+    /**
+     * A presence delta is *not* age-filtered.
+     *
+     * The asymmetry is deliberate and is the point of the previous test: a delta's
+     * meaning is a state that either still holds or has been superseded — and
+     * ClusterState already refuses one older than the node's last accepted message —
+     * while a cue's meaning depends on when it was published. Filtering deltas by age
+     * would drop a legitimate membership change from a node whose clock is behind.
+     */
+    public function testAnOldPresenceDeltaIsStillApplied(): void
+    {
+        // Arrange
+        [$nodeA, , ] = $this->node('a', 0);
+
+        // Act — a join stamped well in the past
+        (new \ReflectionMethod($nodeA, 'handleClusterMessage'))->invoke($nodeA, [
+            'type' => 'join', 'node' => 'b', 'ts' => 1,
+            'channel' => 'presence-room', 'user_id' => '9',
+        ]);
+
+        // Assert
+        $this->assertSame(
+            ['9'],
+            array_map('strval', array_keys($nodeA->presenceMembers('presence-room')))
+        );
+    }
+
+    /**
+     * The relay window is configurable, and zero disables the check.
+     *
+     * Zero is right only for an application whose client events carry their own
+     * timestamps and are filtered downstream — which is a real design, and not one to
+     * override from here.
+     */
+    public function testTheRelayWindowIsConfigurable(): void
+    {
+        // Arrange
+        [$nodeA, $endsA] = $this->node('a', 1);
+        $nodeA->allowClientEvents(true);
+        $nodeA->relayedClientEventMaxAge(0);
+        $this->subscribe($nodeA, 1, 'private-room');
+        $this->frames($endsA[1]);
+
+        // Act — an ancient cue, with the check disabled
+        (new \ReflectionMethod($nodeA, 'handleClusterMessage'))->invoke($nodeA, [
+            'type' => 'client_event', 'node' => 'b', 'ts' => 1,
+            'channel' => 'private-room', 'event' => 'client-ancient', 'data' => '{}',
+        ]);
+
+        // Assert
+        $this->assertContains('client-ancient', array_column($this->frames($endsA[1]), 'event'));
+    }
 }
