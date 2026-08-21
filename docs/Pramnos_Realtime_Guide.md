@@ -855,17 +855,24 @@ hands the subscriber the same per-channel key as `shared_secret`, which is why t
 derivation is a pure function of the channel name: both ends compute it
 independently and it never travels over the socket.
 
-!!! danger "Without a key configured, the prefix does nothing"
-    A broadcast to a `private-encrypted-` channel with no `encryption_key` set goes
-    out **in the clear**. The prefix is a contract with the client, and only the key
-    makes the server keep its half — so a deployment that names channels this way and
-    never sets a key has encryption in the name only. There is a test pinning exactly
-    that behaviour, so it cannot change quietly.
+!!! danger "Without a key configured, both halves refuse"
+    **Publishing** to a `private-encrypted-` channel with no `encryption_key` throws.
+    **Authorizing** one throws too.
 
-    Authorizing such a channel with no key **throws**, because the alternative is
-    worse: a token without `shared_secret` produces a client that subscribes
-    successfully and then silently drops every message it cannot decrypt — a channel
-    that looks connected and delivers nothing.
+    The publish half used to send the payload in the clear, documented as a deliberate
+    decision on the reasoning that the prefix alone does nothing. A consuming project
+    asked whether that was the decision we wanted, and it was not: the two halves of
+    one feature disagreed, and the publish half had the worse failure. A visible
+    exception costs a request; silent plaintext on a channel whose whole purpose is
+    that the relay cannot read it costs the thing the feature exists to protect.
+
+    There is no legitimate case for the old behaviour either — `pusher-js` decrypts a
+    `private-encrypted-` channel natively, so a plaintext payload on one does not
+    merely leak, it also does not arrive.
+
+    Authorizing without a key throws because a token with no `shared_secret` produces a
+    client that subscribes successfully and then silently drops every message it cannot
+    decrypt — a channel that looks connected and delivers nothing.
 
 ### What it does not protect
 
@@ -1141,6 +1148,33 @@ where every node believes it is alone, with nothing in any log.
 
 **Nothing changes for a single daemon.** With clustering off there is no gossip and
 no per-presence-change work at all.
+
+### The number that decides whether you need this
+
+`stream_select()` is `select(2)`, whose descriptor sets are fixed-size bitmaps bounded
+by **`FD_SETSIZE`, typically 1024**. Past it the call does not degrade and does not
+return a partial result: it returns `false`, so the loop stops serving **every**
+connected client at once.
+
+So a single daemon is a cliff rather than a slope, and roughly a thousand concurrent
+clients per node is the ceiling to size against. Two things make it easy to miss, and
+both were reported by a deployment that went looking for the number rather than
+waiting for it:
+
+- **It reads as absent until it is hit.** `ulimit -n` is commonly a million, so nothing
+  in the environment suggests a bound near a thousand — and it is the wrong number
+  anyway: it bounds how many descriptors the process may *hold*, not how many
+  `select(2)` can *watch*.
+- **The failure is not the one the number suggests.** A thousand-client node does not
+  get slower; it stops.
+
+Each connection is one descriptor, plus the listening socket and any Redis ingest
+stream. A warning is logged once at 90% of the ceiling
+(`LocalBroadcastServer::CLIENT_WARN_RATIO`), so an operator has time to add a node
+rather than discovering the cliff from it.
+
+**This is the main reason to reach for clustering.** Past that ceiling, more nodes is
+the answer; a bigger one does not exist.
 
 ---
 

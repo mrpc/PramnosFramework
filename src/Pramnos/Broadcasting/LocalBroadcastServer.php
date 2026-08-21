@@ -33,7 +33,30 @@ use Pramnos\Http\WebSocket\WebSocketProtocolException;
  * Limitations (intentional — this is a dev tool):
  *  - Single-threaded (stream_select event loop)
  *  - TLS is available via useTls(), but its handshake is synchronous — see there
- *  - Up to ~100 concurrent connections without tuning
+ *  - **A hard per-node client ceiling of `FD_SETSIZE`, typically 1024.** See below;
+ *    this is the number to size a deployment against, and it is a cliff.
+ *
+ * ## The client ceiling is `FD_SETSIZE`, and it fails closed for everybody at once
+ *
+ * `stream_select()` is `select(2)`, whose descriptor sets are fixed-size bitmaps
+ * bounded by `FD_SETSIZE` — 1024 in a typical build. Past it the call does not
+ * degrade or return a partial result: **it returns false**, so the loop stops serving
+ * every connected client simultaneously.
+ *
+ * Two things make that worth stating in this docblock rather than leaving to
+ * experience. It reads as absent until it is hit — `ulimit -n` is commonly a million,
+ * so nothing in the environment suggests a limit near a thousand. And the failure is
+ * not the one the number suggests: a thousand-client node does not get slower, it
+ * stops.
+ *
+ * Each connection is one descriptor, plus the listening socket and any Redis ingest
+ * stream — so the usable client count is `FD_SETSIZE` minus a couple. A warning is
+ * logged once as the count approaches it ({@see CLIENT_WARN_RATIO}).
+ *
+ * **This is the main reason to reach for {@see useCluster()}**, and the honest way to
+ * size against it: past roughly a thousand concurrent clients per node, more nodes is
+ * the answer rather than a bigger one. Measured and reported by a deployment that went
+ * looking for the number rather than waiting for it.
  *
  * Auth is pluggable via a {@see \Pramnos\Broadcasting\Auth\ConnectionAuthorizer}
  * (default {@see \Pramnos\Broadcasting\Auth\AllowAllAuthorizer}; pass a
@@ -80,6 +103,29 @@ class LocalBroadcastServer
      * seconds is far longer than any real upgrade and far shorter than for ever.
      */
     public const HANDSHAKE_TIMEOUT = 10;
+
+    /**
+     * Fraction of the descriptor ceiling at which a warning is logged.
+     *
+     * Once, not per accept: a node at the ceiling is accepting connections as fast as
+     * it can, and a line per connection would bury the one that matters under
+     * thousands of copies of itself.
+     */
+    public const CLIENT_WARN_RATIO = 0.9;
+
+    /**
+     * The descriptor ceiling `stream_select()` is bounded by.
+     *
+     * Read from the constant PHP exposes when it has one, and otherwise the value
+     * every mainstream build uses. **Not** read from `ulimit -n`: that bounds how many
+     * descriptors the process may hold, which on a normal host is orders of magnitude
+     * higher and has nothing to do with how many `select(2)` can watch. Confusing the
+     * two is exactly how this ceiling stays invisible until it is hit.
+     */
+    public static function descriptorCeiling(): int
+    {
+        return defined('FD_SETSIZE') ? (int) constant('FD_SETSIZE') : 1024;
+    }
 
     /** @var resource|null Server socket. */
     private $serverSocket = null;
@@ -229,6 +275,9 @@ class LocalBroadcastServer
 
     /** Seconds between full-state gossip messages. */
     private int $gossipInterval = 30;
+
+    /** Whether the descriptor-ceiling warning has already been logged. */
+    private bool $descriptorWarningLogged = false;
 
     /** Unix time of the last gossip publication. */
     private int $lastGossipAt = 0;
@@ -1154,6 +1203,45 @@ class LocalBroadcastServer
             // Created once the handshake completes; frames cannot arrive before.
             'assembler' => null,
         ];
+
+        // After the client is registered, not before: counted before the assignment
+        // this is short by one, and being short by one on a cliff warning is the
+        // direction that matters.
+        $this->warnIfApproachingDescriptorCeiling();
+    }
+
+    /**
+     * Log once when the connection count nears the `select(2)` ceiling.
+     *
+     * The point of warning at all is that the ceiling is a cliff: past `FD_SETSIZE`,
+     * `stream_select()` returns false and the loop stops serving *every* client, not
+     * the marginal one. An operator who sees this line has time to add a node; one who
+     * does not sees a healthy-looking daemon that abruptly serves nobody.
+     */
+    private function warnIfApproachingDescriptorCeiling(): void
+    {
+        if ($this->descriptorWarningLogged) {
+            return;
+        }
+
+        $ceiling = self::descriptorCeiling();
+
+        // The listening socket and any ingest stream sit in the same set.
+        $watched = count($this->clients) + 1 + ($this->redisIngest !== null ? 1 : 0);
+
+        if ($watched < (int) floor($ceiling * self::CLIENT_WARN_RATIO)) {
+            return;
+        }
+
+        $this->descriptorWarningLogged = true;
+
+        \Pramnos\Logs\Logger::log(
+            'Broadcasting: ' . $watched . ' of ' . $ceiling . ' watchable descriptors in use. '
+            . 'stream_select() is select(2) and returns false past FD_SETSIZE, which stops '
+            . 'serving every connected client at once rather than degrading. Add a node '
+            . '(broadcasting.cluster.enabled) rather than raising a limit.',
+            'broadcasting'
+        );
     }
 
     private function readClient(mixed $socket): void

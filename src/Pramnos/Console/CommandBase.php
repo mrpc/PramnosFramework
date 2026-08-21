@@ -139,6 +139,42 @@ abstract class CommandBase extends Command
         return $base . '/var/' . $this->getJobName();
     }
 
+    /** Environment variable the supervisor uses to hand down the resolved lock path. */
+    public const LOCK_FILE_ENV = 'PRAMNOS_JOB_LOCK_FILE';
+
+    /**
+     * The lock path this command must actually use.
+     *
+     * **The supervisor's answer wins, and that is the whole point of this method.**
+     * `DaemonOrchestrator` writes the `.stop` sentinel beside the `lockFile` declared
+     * in a worker's desired-process entry; the worker used to find its own path
+     * through {@see getJobLockFilePath()}, which has its own default and is
+     * overridable. Two independent computations of one path, and **nothing could
+     * notice when they disagreed**: a sentinel read where nothing writes is
+     * indistinguishable from no sentinel — no error, no log, a worker reporting itself
+     * healthy while it ignores every stop request.
+     *
+     * That is not hypothetical. It was reported by a project whose loop workers
+     * overrode `getJobLockFilePath()` to match their supervisor and whose realtime
+     * worker did not, so adopting the stop seam landed as a no-op — the fix for a
+     * silent failure reproduced it, in the project that had just filed it.
+     *
+     * So when the orchestrator spawns a worker it exports {@see LOCK_FILE_ENV}, and
+     * this reads it in preference to anything the command computes. An override that
+     * disagrees is now impossible rather than imperceptible. Run by hand, with no
+     * supervisor, the override applies exactly as before.
+     */
+    final protected function resolvedJobLockFilePath(): string
+    {
+        $fromSupervisor = getenv(self::LOCK_FILE_ENV);
+
+        if (is_string($fromSupervisor) && $fromSupervisor !== '') {
+            return $fromSupervisor;
+        }
+
+        return $this->getJobLockFilePath();
+    }
+
     /**
      * Lock files older than this many seconds are treated as stale.
      */
@@ -165,7 +201,7 @@ abstract class CommandBase extends Command
     {
         return $this->workerLock ??= new WorkerLock(
             $this->getJobName(),
-            $this->getJobLockFilePath(),
+            $this->resolvedJobLockFilePath(),
             $this->getLockStaleSeconds()
         );
     }
@@ -209,7 +245,7 @@ abstract class CommandBase extends Command
 
     protected function checkIfRunning(): bool
     {
-        $file = $this->getJobLockFilePath();
+        $file = $this->resolvedJobLockFilePath();
         if (!file_exists($file)) {
             return false;
         }
@@ -271,7 +307,7 @@ abstract class CommandBase extends Command
 
     protected function startJob(): void
     {
-        $file = $this->getJobLockFilePath();
+        $file = $this->resolvedJobLockFilePath();
         $dir  = dirname($file);
         if (!is_dir($dir)) {
             @mkdir($dir, 0777, true);
@@ -307,7 +343,7 @@ abstract class CommandBase extends Command
     protected function beginJob(OutputInterface $output, bool $registerShutdown = true): bool
     {
         if ($this->checkIfRunning()) {
-            $file = $this->getJobLockFilePath();
+            $file = $this->resolvedJobLockFilePath();
             $time = date('d/m/Y H:i:s', (int)filemtime($file));
             $output->writeln('<error>Command is already running. Started at: ' . $time . '</error>');
             return false;
@@ -328,7 +364,7 @@ abstract class CommandBase extends Command
         // Tell systemd we are shutting down on purpose (no-op off Type=notify).
         $this->systemd()->stopping();
 
-        $file = $this->getJobLockFilePath();
+        $file = $this->resolvedJobLockFilePath();
         // Mark the lock released, then remove the file — commands (and the
         // orchestrator's restart paths) expect the lock gone after endJob().
         $this->workerLock()->release();

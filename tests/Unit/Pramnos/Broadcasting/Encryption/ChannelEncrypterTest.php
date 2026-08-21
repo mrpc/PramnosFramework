@@ -320,25 +320,61 @@ class ChannelEncrypterTest extends TestCase
     }
 
     /**
-     * Without an encrypter, a broadcast to an encrypted channel goes out in the
-     * clear.
+     * Without an encrypter, a broadcast to an encrypted channel is refused.
      *
-     * Asserted because it is the trap: the prefix is a contract with the client, and
-     * only the configured key makes the server keep its half. A deployment that
-     * names channels `private-encrypted-` and never sets a key has encryption in the
-     * name only.
+     * **This is a reversal.** It used to publish plaintext under a channel name that
+     * promises otherwise, documented and pinned by a test as a deliberate decision on
+     * the reasoning that the prefix alone does nothing.
+     *
+     * A consuming project asked whether that was the decision we wanted — noting that
+     * authorizing such a channel without a key already throws, and that a wrong-length
+     * key is refused at construction, both on the reasoning that a realtime feature
+     * failing on its first real event fails in front of users. The two halves of one
+     * feature disagreed, and the publish half had the worse failure: a visible
+     * exception costs a request, while silent plaintext on a channel whose whole
+     * purpose is that the relay cannot read it costs the thing the feature exists to
+     * protect.
+     *
+     * There is no legitimate case for the old behaviour: `pusher-js` decrypts a
+     * `private-encrypted-` channel natively, so a plaintext payload on one does not
+     * merely leak — it also does not arrive.
      */
-    public function testWithoutAnEncrypterTheChannelIsNotEncrypted(): void
+    public function testWithoutAnEncrypterAnEncryptedChannelIsRefused(): void
+    {
+        // Arrange
+        $fake    = new FakeDriver();
+        $manager = (new BroadcastingManager())->addDriver($fake)->setDefault('fake');
+
+        // Act & Assert
+        try {
+            $manager->broadcast('private-encrypted-room', 'e', ['secret' => 'exposed']);
+            $this->fail('publishing to an encrypted channel with no key must be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('published in the clear', $e->getMessage());
+        }
+
+        $fake->assertNothingBroadcast();
+    }
+
+    /**
+     * The refusal is scoped to encrypted channels: everything else is untouched.
+     *
+     * An installation with no encryption key configured — which is most of them — must
+     * be entirely unaffected.
+     */
+    public function testChannelsWithoutThePrefixAreUnaffected(): void
     {
         // Arrange
         $fake    = new FakeDriver();
         $manager = (new BroadcastingManager())->addDriver($fake)->setDefault('fake');
 
         // Act
-        $manager->broadcast('private-encrypted-room', 'e', ['secret' => 'exposed']);
+        $manager->broadcast('private-room', 'e', ['open' => 'visible']);
+        $manager->broadcast('presence-room', 'e', []);
+        $manager->broadcast('updates', 'e', []);
 
         // Assert
-        $this->assertSame(['secret' => 'exposed'], $fake->recorded()[0]['payload']);
+        $fake->assertBroadcastCount(3);
     }
 
     /**
