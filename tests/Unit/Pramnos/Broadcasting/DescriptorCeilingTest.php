@@ -577,15 +577,19 @@ class DescriptorCeilingTest extends TestCase
     /**
      * The failure branch pauses, so a node past the ceiling is not a hot loop.
      *
-     * **The two ways this can fail have different timings**, which is why the first
-     * version of this test was worthless — measured:
+     * **What decides whether the call waited is whether anything in the set was
+     * ready**, not which error it was — measured:
      *
-     *   past FD_SETSIZE         → returns false *immediately*, ~1,377,387 iterations/s
-     *   invalid resource in set → throws TypeError after the *full* timeout, 100.4 ms
+     *   live descriptor past FD_SETSIZE          → false,     0 ms
+     *   live *quiet* descriptor + invalid entry  → TypeError, 101 ms
+     *   live *readable* descriptor + invalid one → TypeError, 0 ms
+     *   every entry invalid                      → ValueError, 0 ms
      *
-     * A test can produce the second shape cheaply and the first only by opening a
-     * thousand descriptors. So the first version asserted elapsed time against the
-     * shape that is already paced, and **passed with the pause removed** — verified.
+     * A test can produce the quiet-invalid shape cheaply, and that one waits — so the
+     * first version of this test asserted elapsed time against a shape that paces
+     * itself, and **passed with the pause removed**, verified by removing it. The
+     * shapes that spin need either a thousand descriptors or a readable client on
+     * every pass.
      *
      * This asserts the pause is taken instead, through the seam that exists for the
      * purpose. Not as good as measuring the real shape, and better than an assertion

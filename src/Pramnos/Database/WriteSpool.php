@@ -116,6 +116,27 @@ class WriteSpool
      */
     protected const REPORTED_ERRORS = 3;
 
+    /**
+     * Attempts allowed for a failure that cannot resolve itself.
+     *
+     * A constraint violation is not a transient write failure: a row whose foreign
+     * key parent was deleted while it waited will never become writable, and retrying
+     * it four more times reaches on the fifth minute a conclusion that was available
+     * on the first.
+     *
+     * **Two rather than one**, and the reason is the case that is not permanent: this
+     * spool groups rows by table and has no dependency ordering, so a child row can
+     * legitimately fail because its parent is still sitting in the spool. One retry
+     * covers a parent landing in the next drain; a budget of one would park rows that
+     * were about to become writable.
+     *
+     * Reported by a deployment where 40 rows failed once a minute for five minutes on
+     * `Key (tokenid)=(844) is not present in table "usertokens"` before being parked —
+     * five minutes of a failing scheduled task to establish something the first error
+     * already said.
+     */
+    public const CONSTRAINT_MAX_ATTEMPTS = 2;
+
     /** @var int|null Overrides DEFAULT_MAX_ATTEMPTS when set. */
     protected static ?int $maxAttempts = null;
 
@@ -1084,7 +1105,7 @@ class WriteSpool
         }
     }
 
-    protected static function park(string $table, array $row, string $error): void
+    protected static function park(string $table, array $row, string $error, int $attempts = 0): void
     {
         $directory = static::directory();
 
@@ -1095,7 +1116,10 @@ class WriteSpool
         $payload = json_encode(
             [
                 'parked_at' => date('c'),
-                'attempts'  => static::maxAttempts(),
+                // The attempts actually spent, not the configured maximum: a
+                // constraint violation is parked on a shorter budget and recording
+                // the default would misreport how hard this was tried.
+                'attempts'  => $attempts,
                 'error'     => $error,
                 'row'       => $row,
             ],
@@ -1189,12 +1213,21 @@ class WriteSpool
                 $stats['failed']++;
                 $attempts++;
 
+                // A failure that cannot resolve itself gets a much shorter budget.
+                // The docblock below has always said a deleted foreign key parent
+                // "cannot become writable by being tried again" — and then applied
+                // that reasoning only at the fifth attempt, so five minutes of failing
+                // scheduled task established what the first error had already said.
+                $budget = static::isPermanentWriteFailure($ex)
+                    ? min($max > 0 ? $max : static::CONSTRAINT_MAX_ATTEMPTS, static::CONSTRAINT_MAX_ATTEMPTS)
+                    : $max;
+
                 // Out of attempts: set aside rather than requeued. A row whose
                 // foreign key was deleted while it waited cannot become writable
                 // by being tried again, and trying it again is what turned one
                 // installation's log into 209 identical errors a minute, for ever.
-                if ($max > 0 && $attempts >= $max) {
-                    static::park($table, $row, $ex->getMessage());
+                if ($budget > 0 && $attempts >= $budget) {
+                    static::park($table, $row, $ex->getMessage(), $attempts);
                     $stats['parked']++;
                     static::collectError($stats, $ex->getMessage());
                     continue;
@@ -1240,6 +1273,44 @@ class WriteSpool
     protected static function persist(string $table, array $row): void
     {
         static::writeNow($table, static::applyTransformer($table, $row));
+    }
+
+    /**
+     * Is this failure one that retrying cannot fix?
+     *
+     * Integrity constraint violations only. Everything else — a dropped connection, a
+     * lock timeout, a full disk — is exactly what the retry budget exists for, and
+     * misclassifying one of those parks data that would have been written.
+     *
+     * So the test is deliberately narrow and biased: a false negative costs the extra
+     * retries this method exists to avoid, while a false positive parks a writable
+     * row. Matched on SQLSTATE class 23 where the driver surfaces it, and otherwise on
+     * the wording both engines use, because the exception reaching here is a framework
+     * one carrying a message rather than a driver exception carrying a code.
+     */
+    protected static function isPermanentWriteFailure(\Throwable $error): bool
+    {
+        $message = strtolower($error->getMessage());
+
+        // PostgreSQL and MySQL both put the constraint class in the text when they
+        // have nowhere else to put it.
+        foreach ([
+            'violates foreign key constraint',
+            'violates unique constraint',
+            'violates not-null constraint',
+            'violates check constraint',
+            'duplicate entry',
+            'cannot add or update a child row',
+            'cannot delete or update a parent row',
+            'integrity constraint violation',
+        ] as $needle) {
+            if (str_contains($message, $needle)) {
+                return true;
+            }
+        }
+
+        // SQLSTATE class 23 is the integrity-constraint class in both engines.
+        return preg_match('/\bsqlstate\[?23\d{3}\]?/', $message) === 1;
     }
 
     /**

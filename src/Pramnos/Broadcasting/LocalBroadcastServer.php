@@ -1253,19 +1253,24 @@ class LocalBroadcastServer
             $this->counters['select_failures']++;
             $this->reportSelectFailure(count($read));
 
-            // Supplies the pause the call did not, because **one of the two ways this
-            // can fail does not wait**. Measured, and they differ:
+            // Supplies the pause the call did not. **What decides whether it waited is
+            // not which error it was — it is whether anything in the set was ready:**
             //
-            //   past FD_SETSIZE          → returns false *immediately*, ~1,377,387
-            //                              iterations/second
-            //   invalid resource in set  → throws TypeError after the *full* timeout,
-            //                              100.4 ms, already paced
+            //   live descriptor past FD_SETSIZE          → false,     0 ms, never waits
+            //   live *quiet* descriptor + invalid entry  → TypeError, 101 ms
+            //   live *readable* descriptor + invalid one → TypeError, 0 ms
+            //   every entry invalid                      → ValueError, 0 ms
             //
-            // So the hot loop is specific to the ceiling case, and it is the one that
-            // matters: it is permanent, while a bad resource in the set is a bug that
-            // shows up at once. Without this, that node runs drainRedisIngest(), a
+            // So the invalid-resource path is paced *while the loop is quiet*, and
+            // under load — a readable client on every pass — it throws at 0 ms and
+            // spins exactly like the ceiling case. Both funnel into this branch, so
+            // there is no gap; the wording matters because "already paced" reads as a
+            // property of the path and is the sentence somebody would later use to
+            // narrow this pause to the ceiling case alone.
+            //
+            // Without it, a node past the ceiling runs drainRedisIngest(), a
             // pollLogFile() stat, sendKeepalives(), gossipState() and flushWebhooks()
-            // 1.4 million times a second while serving nobody.
+            // about 1.4 million times a second while serving nobody.
             //
             // It is also the real argument for throttling the log rather than writing
             // a line per failure: at that rate the log was never the expensive part,
@@ -1409,10 +1414,12 @@ class LocalBroadcastServer
      * Pause after a failed select, so the failure branch cannot become a hot loop.
      *
      * A seam rather than a bare `usleep()` because the alternative is untestable: the
-     * only failure shape a test can produce cheaply — an invalid resource in the set —
-     * already waits the full timeout before throwing, so wall-clock cannot tell a
-     * paced branch from a spinning one. The shape that *does* spin needs a thousand
-     * open descriptors to reach.
+     * only failure shape a test can produce cheaply — an invalid resource in the set,
+     * with the loop quiet — waits the full timeout before throwing, so wall-clock
+     * cannot tell a paced branch from a spinning one. The shape that spins on every
+     * pass needs a thousand open descriptors to reach. (Give that same shape a
+     * *readable* descriptor and it throws at 0 ms and spins too, which is why the
+     * pause is not conditional on the error being the ceiling one.)
      *
      * The first version of that test asserted elapsed time and passed with the pause
      * removed. This is what replaced it.
