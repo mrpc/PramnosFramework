@@ -123,6 +123,139 @@ class DescriptorCeilingTest extends TestCase
     }
 
     /**
+     * PHP does not expose FD_SETSIZE, so the accessor is a documented constant rather
+     * than a measurement — and saying otherwise is what got corrected.
+     *
+     * The value of centralising it is real: one place to read, one place to correct.
+     * The durability that was claimed for it is not, and a consumer adopted it on that
+     * claim. Pinned so the docblock and the code cannot drift apart again.
+     */
+    public function testTheCeilingIsAConstantAndPhpDoesNotExposeIt(): void
+    {
+        // Assert
+        $this->assertFalse(
+            defined('FD_SETSIZE'),
+            'if PHP ever exposes this, descriptorCeiling() should read it and this test should change'
+        );
+        $this->assertSame(1024, LocalBroadcastServer::descriptorCeiling());
+    }
+
+    /**
+     * An installation on a build with a different --enable-fd-setsize can correct it.
+     *
+     * The honest answer to "it is just the literal": make the one place worth having
+     * correctable, since PHP offers nothing to read.
+     */
+    public function testTheCeilingIsOverridable(): void
+    {
+        try {
+            // Act
+            LocalBroadcastServer::useDescriptorCeiling(4096);
+
+            // Assert
+            $this->assertSame(4096, LocalBroadcastServer::descriptorCeiling());
+            $this->assertTrue(LocalBroadcastServer::isNearDescriptorCeiling(4000));
+            $this->assertFalse(LocalBroadcastServer::isNearDescriptorCeiling(100));
+        } finally {
+            LocalBroadcastServer::useDescriptorCeiling(null);
+        }
+
+        $this->assertSame(1024, LocalBroadcastServer::descriptorCeiling(), 'null restores the default');
+    }
+
+    /**
+     * A nonsensical override is ignored rather than believed.
+     *
+     * A zero or negative ceiling would make every count "near", so the warning would
+     * fire on the first connection and be worthless from then on.
+     */
+    public function testANonsensicalCeilingIsIgnored(): void
+    {
+        try {
+            // Act
+            LocalBroadcastServer::useDescriptorCeiling(0);
+
+            // Assert
+            $this->assertSame(1024, LocalBroadcastServer::descriptorCeiling());
+        } finally {
+            LocalBroadcastServer::useDescriptorCeiling(null);
+        }
+    }
+
+    /**
+     * The descriptors the process holds are counted, not only the ones it watches.
+     *
+     * `select(2)` bounds descriptor *numbers* — PHP's own diagnostic says "you have
+     * descriptors numbered at least as high as" — so a daemon holding a database
+     * connection, a Redis handle and a log file has fd numbers above its watched
+     * count. A warning computed from the count alone fires late by that margin, and a
+     * consumer measured the gap: 58 feeds, 69 descriptors.
+     */
+    public function testHeldDescriptorsAreCountedNotOnlyWatchedOnes(): void
+    {
+        $held = LocalBroadcastServer::openDescriptorCount();
+
+        if ($held === null) {
+            $this->markTestSkipped('/proc/self/fd is unavailable, so the proxy cannot be exercised.');
+        }
+
+        // Arrange — a ceiling low enough that what this process already holds is
+        // "near" on its own, with nothing watched at all.
+        try {
+            LocalBroadcastServer::useDescriptorCeiling(max(2, (int) ceil($held / 0.9)));
+
+            // Act & Assert — zero watched, and still near, because the process holds
+            // descriptors the watched count cannot see.
+            $this->assertTrue(
+                LocalBroadcastServer::isNearDescriptorCeiling(0),
+                'held descriptors must count towards the ceiling'
+            );
+        } finally {
+            LocalBroadcastServer::useDescriptorCeiling(null);
+        }
+    }
+
+    /**
+     * The greater of the two is used, so a caller watching more than the process holds
+     * is still answered from its own number.
+     */
+    public function testTheGreaterOfWatchedAndHeldIsUsed(): void
+    {
+        try {
+            LocalBroadcastServer::useDescriptorCeiling(1000);
+
+            // Act & Assert — 950 watched is near regardless of what is held
+            $this->assertTrue(LocalBroadcastServer::isNearDescriptorCeiling(950));
+        } finally {
+            LocalBroadcastServer::useDescriptorCeiling(null);
+        }
+    }
+
+    /**
+     * The open-descriptor count moves with the descriptors actually opened.
+     *
+     * Proves the proxy reads something real rather than a constant.
+     */
+    public function testTheOpenDescriptorCountTracksOpenedDescriptors(): void
+    {
+        $before = LocalBroadcastServer::openDescriptorCount();
+
+        if ($before === null) {
+            $this->markTestSkipped('/proc/self/fd is unavailable.');
+        }
+
+        // Arrange & Act
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
+        $this->sockets[] = $pair[0];
+        $this->sockets[] = $pair[1];
+
+        $after = LocalBroadcastServer::openDescriptorCount();
+
+        // Assert
+        $this->assertGreaterThan($before, $after);
+    }
+
+    /**
      * Well below the ceiling, nothing is logged.
      *
      * A warning that fires early is a warning nobody reads.
@@ -229,6 +362,14 @@ class DescriptorCeilingTest extends TestCase
             '~100 concurrent connections',
             $doc,
             'the old soft-sounding figure must be gone'
+        );
+        // And it must describe the failure shape PHP actually has: a per-descriptor
+        // skip, not a wholesale false. The two call for opposite responses at 90%.
+        $this->assertStringContainsString('never read, silently', $doc);
+        $this->assertStringNotContainsString(
+            'it returns false**, so the loop stops serving',
+            $doc,
+            'the wholesale-failure claim was wrong and must not come back'
         );
     }
 

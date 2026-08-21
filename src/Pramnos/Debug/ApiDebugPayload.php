@@ -49,7 +49,12 @@ class ApiDebugPayload
     {
         $bar     = DebugBar::getInstance();
         $request = [
-            'time'   => round((microtime(true) - self::startTime()) * 1000, 2),
+            // Clamped at zero: a duration is two clock reads, and the reference is
+            // whatever $_SERVER['REQUEST_TIME_FLOAT'] holds — which a caller may set,
+            // and which need not precede the read below. A request that reports having
+            // taken -0.01 ms tells nobody anything, and it broke a full-suite run
+            // exactly once, on ordering, having passed in isolation every time.
+            'time'   => max(0.0, round((microtime(true) - self::startTime()) * 1000, 2)),
             'memory' => round(memory_get_peak_usage(true) / 1048576, 2),
         ];
 

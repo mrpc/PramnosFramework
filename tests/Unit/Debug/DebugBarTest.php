@@ -135,6 +135,11 @@ class DebugBarTest extends TestCase
         // Not `> 0`: `REQUEST_TIME_FLOAT` is read from $_SERVER, and a test
         // elsewhere in a full run clears it — the payload then measures from
         // "now" and honestly reports 0.
+        //
+        // It reported -0.01 once, in a full run, on ordering. A duration is two clock
+        // reads against a reference a caller can set, so it is now clamped at the
+        // source: negative elapsed time tells nobody anything, and a test is the wrong
+        // place to absorb it.
         $this->assertGreaterThanOrEqual(0, $payload['request']['time']);
 
         // Cleanup

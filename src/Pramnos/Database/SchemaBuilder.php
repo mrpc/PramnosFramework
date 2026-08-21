@@ -1064,11 +1064,18 @@ class SchemaBuilder
      * Two backends, two answers, one question — which is the whole point of
      * asking it here rather than at each call site.
      *
-     * On TimescaleDB the refresh is a background job. It cannot be found by the
-     * view's name: `timescaledb_information.jobs` records the *materialization*
-     * hypertable (`_timescaledb_internal._materialized_hypertable_N`), so the
-     * lookup has to go through `continuous_aggregates` to get from one to the
-     * other.
+     * On TimescaleDB the refresh is a background job, and **which name
+     * `timescaledb_information.jobs` records depends on the version**, so the
+     * lookup accepts either. Measured: 2.19.3 records the *materialization*
+     * hypertable (`_timescaledb_internal._materialized_hypertable_N`); 2.26.4
+     * records the continuous aggregate's own view schema and name.
+     *
+     * This docblock used to assert that the job "cannot be found by the view's
+     * name" as settled fact. It was true when written and false by 2.26, and the
+     * consequence was not a wrong answer but a *constant* one: the join matched
+     * nothing for every aggregate, so this check — whose only job is to make policy
+     * creation idempotent — had never once returned true on such an installation.
+     * See the query for what that cost.
      *
      * Everywhere else the "aggregate" is a materialized view that PostgreSQL
      * never refreshes on its own, and the refresh is a row in
@@ -1085,13 +1092,43 @@ class SchemaBuilder
         if ($this->capabilities->hasTimescaleDB()) {
             [$schema, $name] = $this->splitTable($view);
 
+            // Joined on **either** pairing, because TimescaleDB changed which one
+            // `timescaledb_information.jobs` reports and both are in the field.
+            //
+            // Measured, on two versions:
+            //
+            //   2.19.3 — hypertable_schema/name = _timescaledb_internal /
+            //            _materialized_hypertable_N, the materialization hypertable
+            //   2.26.4 — hypertable_schema/name = the continuous aggregate's own
+            //            view schema and name
+            //
+            // The original join used the materialization pairing and its docblock
+            // stated the premise outright: the job "cannot be found by the view's
+            // name". True when it was written, false on 2.26. There it matched
+            // nothing, for every continuous aggregate, always — so the check that
+            // exists to make policy creation idempotent had never once been taken,
+            // and the repair re-added a policy that already existed on every schedule
+            // cycle: three stack traces per cycle, and an errors counter in every
+            // worker's lock file that could never read zero.
+            //
+            // Nothing was broken, which is exactly why it would never have been
+            // fixed. The cost is that a real fault had to compete with it for
+            // attention.
+            //
+            // Accepting both rather than swapping one for the other, because swapping
+            // would have broken every 2.19-era installation in the same silent way —
+            // including this project's own dev stack. Reported with the 2.26
+            // measurement and the instinct to check the older behaviour first, which
+            // is what made this the right shape.
             $result = $this->db->query(
                 $this->db->prepareQuery(
                     "SELECT COUNT(*) AS cnt
                        FROM timescaledb_information.jobs j
                        JOIN timescaledb_information.continuous_aggregates c
-                         ON j.hypertable_schema = c.materialization_hypertable_schema
-                        AND j.hypertable_name   = c.materialization_hypertable_name
+                         ON (j.hypertable_schema = c.materialization_hypertable_schema
+                             AND j.hypertable_name = c.materialization_hypertable_name)
+                         OR (j.hypertable_schema = c.view_schema
+                             AND j.hypertable_name = c.view_name)
                       WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
                         AND c.view_schema = %s AND c.view_name = %s",
                     $schema,
