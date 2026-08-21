@@ -304,6 +304,13 @@ class BroadcastServe extends CommandBase
         // Cooperative stop on SIGTERM (systemd stop / deploy) or SIGINT (Ctrl+C):
         // break the blocking server loop by stopping the WebSocket server. One
         // reusable primitive (SignalStop) instead of a hand-rolled pcntl pair.
+        // The cooperative half of the stop protocol. installStopSignals() below
+        // covers SIGTERM/SIGINT; this covers the supervisor's `.stop` sentinel, which
+        // this daemon previously had no way to observe — so it was reported
+        // [stop-timeout] on every deploy, and on an installation whose orchestrator
+        // skipped the sentinel check it was never stopped at all.
+        $this->wsServer->shouldStopUsing(fn (): bool => $this->shouldStop());
+
         $this->installStopSignals(function () use ($output): void {
             $output->writeln('');
             $output->writeln('<comment>Caught stop signal — shutting down.</comment>');
