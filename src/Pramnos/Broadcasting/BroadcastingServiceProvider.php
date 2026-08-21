@@ -14,6 +14,7 @@ use Pramnos\Broadcasting\Drivers\LogDriver;
 use Pramnos\Broadcasting\Drivers\NullDriver;
 use Pramnos\Broadcasting\Drivers\PusherDriver;
 use Pramnos\Broadcasting\Drivers\RedisDriver;
+use Pramnos\Broadcasting\Drivers\RedisStreamDriver;
 
 /**
  * Bootstraps the broadcasting feature.
@@ -77,6 +78,14 @@ class BroadcastingServiceProvider extends ServiceProvider
             // broadcast/subscribe time if the phpredis extension is missing.
             $manager->addDriver(new RedisDriver($config['redis'] ?? []));
 
+            // The stream backplane, registered on the same terms as pub/sub. It was
+            // documented as a selectable driver — "use this one for SSE", because it
+            // can replay a reconnect window — and never registered, so
+            // `default => 'redis-stream'` threw, was caught below, and fell back to
+            // the null driver. An application that followed the guide broadcast
+            // nothing, and said so in one log line.
+            $manager->addDriver(new RedisStreamDriver($config['redis'] ?? []));
+
             // Database polling backplane — only when a DB connection is available.
             if (($config['database'] ?? null) !== null && isset($app->database) && $app->database) {
                 $table = is_array($config['database']) ? ($config['database']['table'] ?? 'broadcast_events') : 'broadcast_events';
@@ -121,8 +130,12 @@ class BroadcastingServiceProvider extends ServiceProvider
             } catch (\InvalidArgumentException) {
                 // Configured driver not available — fall back to null
                 $manager->setDefault('null');
+                // The available names are in the message because the symptom of
+                // landing here is an application that broadcasts nothing, and the
+                // cause is usually one character.
                 \Pramnos\Logs\Logger::log(
-                    "Broadcasting: unknown driver '{$default}', falling back to null.",
+                    "Broadcasting: unknown driver '{$default}', falling back to null. "
+                    . 'Available: ' . implode(', ', $manager->getDriverNames()) . '.',
                     'broadcasting',
                 );
             }

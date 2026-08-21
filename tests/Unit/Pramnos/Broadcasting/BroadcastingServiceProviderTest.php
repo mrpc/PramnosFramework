@@ -268,4 +268,82 @@ class BroadcastingServiceProviderTest extends TestCase
         $this->expectException(\Throwable::class);
         $app->container->get('broadcasting.apps');
     }
+
+    // -------------------------------------------------------------------------
+    // The stream driver
+    // -------------------------------------------------------------------------
+
+    /**
+     * `redis-stream` is a selectable driver.
+     *
+     * It was documented as one — "use this one for SSE", because it can replay a
+     * reconnect window — and never registered. So `default => 'redis-stream'` threw,
+     * was caught by the fallback, and the application ran on the **null** driver:
+     * every broadcast discarded, with one log line. An application that followed the
+     * guide broadcast nothing.
+     */
+    public function testTheStreamDriverIsRegisteredAndSelectable(): void
+    {
+        // Arrange
+        $app = $this->makeAppWithFeatures(
+            ['default' => 'redis-stream', 'redis' => ['prefix' => 'app:']],
+            ['broadcasting']
+        );
+
+        // Act
+        (new BroadcastingServiceProvider($app))->register();
+        $manager = $app->container->get('broadcasting');
+
+        // Assert
+        $this->assertContains('redis-stream', $manager->getDriverNames());
+        $this->assertSame(
+            'redis-stream',
+            $manager->driver()->name(),
+            'the configured driver must be the active one, not the null fallback'
+        );
+    }
+
+    /**
+     * Both Redis backplanes are always registered, so switching is a config change
+     * rather than a code change.
+     *
+     * Registered unconditionally because the connection is opened lazily: selecting
+     * one only fails at broadcast time, and only if phpredis is missing.
+     */
+    public function testBothRedisBackplanesAreAlwaysAvailable(): void
+    {
+        // Arrange
+        $app = $this->makeAppWithFeatures([], ['broadcasting']);
+
+        // Act
+        (new BroadcastingServiceProvider($app))->register();
+        $names = $app->container->get('broadcasting')->getDriverNames();
+
+        // Assert
+        $this->assertContains('redis', $names);
+        $this->assertContains('redis-stream', $names);
+    }
+
+    /**
+     * An unknown driver name still falls back to null, and the log now names the
+     * alternatives.
+     *
+     * Falling back rather than throwing keeps a misconfigured application bootable,
+     * which is the right trade — but the symptom is an application that broadcasts
+     * nothing, and the cause is usually one character. The available names are the
+     * cheapest possible shortcut to the diagnosis.
+     */
+    public function testAnUnknownDriverStillFallsBackToNull(): void
+    {
+        // Arrange
+        $app = $this->makeAppWithFeatures(['default' => 'redis-streams'], ['broadcasting']);
+
+        // Act
+        (new BroadcastingServiceProvider($app))->register();
+        $manager = $app->container->get('broadcasting');
+
+        // Assert — the typo lands on null, and the real name was available
+        $this->assertSame('null', $manager->driver()->name());
+        $this->assertContains('redis-stream', $manager->getDriverNames());
+    }
 }

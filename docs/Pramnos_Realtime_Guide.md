@@ -150,7 +150,10 @@ migration can move publishers and consumers over incrementally.
       Pub/sub, so it keeps **no history**: an event published while nobody is
       subscribed is not delivered later.
     - **redis-stream** — the same envelope on a Redis **Stream**, which can be
-      replayed. Use this one for SSE, where every reconnect opens a gap; see
+      replayed. Registered and selectable as `default => 'redis-stream'` — it was
+      documented here before it was registered, so choosing it fell back to the
+      **null** driver and discarded every broadcast. Use this one for SSE, where
+      every reconnect opens a gap; see
       [Reconnecting, and the events published during it](#reconnecting-and-the-events-published-during-it).
     - **database** — appends to a `broadcast_events` table and polls it (for hosts
       without Redis). Run the shipped `broadcasting` migration to create the table.
@@ -407,6 +410,21 @@ $server->useRedisIngest(new RedisStreamSocket(
 
 `useRedisIngest()` accepts either implementation — it takes the
 `RedisIngestInterface` they share.
+
+!!! tip "`broadcast:serve` now pairs them for you"
+    The shipped daemon reads `broadcasting.default` and picks the matching ingest —
+    `XREAD` for `redis-stream`, `SUBSCRIBE` for `redis` — and its banner names both:
+
+    ```
+    Redis ingest: app:chat.updates via XREAD (backplane: redis-stream)
+    ```
+
+    It used to hard-code pub/sub, which meant an installation that wanted SSE replay
+    (and therefore the stream driver) **could not use this command at all**. One
+    project wrote its own daemon for exactly that reason. If yours did too, the
+    shipped one may now be enough.
+
+    Wiring `LocalBroadcastServer` yourself is still your pairing to get right.
 
 **A stream reader can survive a restart of the daemon** — its position is a cursor, not a
 subscription. A worker restarted mid-deploy with `SUBSCRIBE` misses everything published while

@@ -13,6 +13,8 @@ use Pramnos\Broadcasting\Auth\AppRegistryAuthorizer;
 use Pramnos\Broadcasting\Cluster\ClusterState;
 use Pramnos\Broadcasting\Cluster\RedisClusterTransport;
 use Pramnos\Broadcasting\Drivers\RedisDriver;
+use Pramnos\Broadcasting\Drivers\RedisStreamDriver;
+use Pramnos\Broadcasting\RedisStreamSocket;
 use Pramnos\Broadcasting\Http\ServerApi;
 use Pramnos\Broadcasting\Webhooks\QueueWebhookDispatcher;
 use Pramnos\Broadcasting\Webhooks\WebhookSigner;
@@ -261,6 +263,16 @@ class BroadcastServe extends CommandBase
         $prefix      = (string) ($redisConfig['prefix'] ?? '');
         $prefixed    = array_map(static fn (string $c): string => $prefix . $c, $channels);
 
+        // **The ingest follows the driver, rather than being chosen independently of
+        // it.** This is the pairing rule the docs state twice, applied here instead of
+        // left to the operator: a `SUBSCRIBE` on a key that only ever receives `XADD`
+        // is a perfectly healthy subscription that is never delivered anything — no
+        // error, no warning, no events. Hard-coding pub/sub meant an installation that
+        // wanted SSE replay (which needs the stream driver) could not use this command
+        // at all, and one consumer wrote its own daemon for exactly that reason.
+        $backplane = (string) ($config['default'] ?? 'null');
+        $usesStream = $backplane === 'redis-stream';
+
         // Clustering: share presence membership and relay client events between
         // nodes. Its gossip travels on the backplane, so the cluster channel joins
         // the ingest's subscription list — and the transport publishes with a
@@ -278,7 +290,13 @@ class BroadcastServe extends CommandBase
             $state = new ClusterState($nodeId, $interval * 3 * 1000);
 
             $this->wsServer->useCluster(
-                new RedisClusterTransport(new RedisDriver($redisConfig), $clusterChannel),
+                new RedisClusterTransport(
+                    // The same primitive as the ingest below, for the same reason:
+                    // gossip published with XADD and read with SUBSCRIBE gives a
+                    // cluster where every node believes it is alone.
+                    $usesStream ? new RedisStreamDriver($redisConfig) : new RedisDriver($redisConfig),
+                    $clusterChannel
+                ),
                 $state,
                 $prefix . $clusterChannel,
                 $interval
@@ -297,8 +315,15 @@ class BroadcastServe extends CommandBase
         }
 
         if ($prefixed !== []) {
-            $this->wsServer->useRedisIngest(new RedisSubscriberSocket($redisConfig, $prefixed));
-            $output->writeln('  Redis ingest: <info>' . implode(', ', $prefixed) . '</info>');
+            $this->wsServer->useRedisIngest($usesStream
+                ? new RedisStreamSocket($redisConfig, $prefixed)
+                : new RedisSubscriberSocket($redisConfig, $prefixed));
+
+            $output->writeln(
+                '  Redis ingest: <info>' . implode(', ', $prefixed) . '</info>'
+                . ' via <info>' . ($usesStream ? 'XREAD' : 'SUBSCRIBE') . '</info>'
+                . ' (backplane: ' . $backplane . ')'
+            );
         }
 
         // Cooperative stop on SIGTERM (systemd stop / deploy) or SIGINT (Ctrl+C):

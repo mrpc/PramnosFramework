@@ -1069,4 +1069,82 @@ class BroadcastServeTest extends TestCase
         $this->assertStringContainsString('Transport: wss://', $display);
         $this->assertStringContainsString('handshake is synchronous', $display);
     }
+
+    // =========================================================================
+    // The ingest follows the driver
+    // =========================================================================
+
+    /**
+     * With the pub/sub backplane, the ingest reads with SUBSCRIBE.
+     */
+    public function testIngestUsesSubscribeForThePubSubBackplane(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['default' => 'redis', 'redis' => ['prefix' => 'app:']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute(['--channels' => 'chat.updates']);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('app:chat.updates', $display);
+        $this->assertStringContainsString('via SUBSCRIBE', $display);
+    }
+
+    /**
+     * With the stream backplane, the ingest reads with XREAD.
+     *
+     * This is the pairing rule applied instead of left to the operator. A SUBSCRIBE on
+     * a key that only ever receives XADD is a perfectly healthy subscription that is
+     * never delivered anything — no error, no warning, no events — and hard-coding
+     * pub/sub meant an installation wanting SSE replay could not use this command at
+     * all. One consumer wrote its own daemon for exactly that reason.
+     */
+    public function testIngestUsesXreadForTheStreamBackplane(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['default' => 'redis-stream', 'redis' => ['prefix' => 'app:']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute(['--channels' => 'chat.updates']);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('via XREAD', $display);
+        $this->assertStringContainsString('backplane: redis-stream', $display);
+    }
+
+    /**
+     * The banner names the primitive and the backplane together.
+     *
+     * Both, because the failure this prevents is silent: an operator reading only the
+     * channel list cannot tell a working ingest from one subscribed to a key nothing
+     * publishes to.
+     */
+    public function testTheBannerNamesThePrimitiveAndTheBackplane(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(['default' => 'redis'], ['broadcasting']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute(['--channels' => 'x']);
+
+        // Assert
+        $this->assertMatchesRegularExpression(
+            '/Redis ingest: .*via SUBSCRIBE \(backplane: redis\)/',
+            $tester->getDisplay()
+        );
+    }
 }
