@@ -178,6 +178,22 @@ class BroadcastServe extends CommandBase
             );
         }
 
+        // Direct wss://, when a certificate is configured. Reported either way:
+        // an operator needs to know whether the port they are about to point
+        // clients at speaks ws:// or wss://, and getting it wrong looks like a
+        // network fault rather than a scheme mismatch.
+        $tls = is_array($config['websocket']['tls'] ?? null) ? $config['websocket']['tls'] : [];
+        if (($tls['local_cert'] ?? '') !== '') {
+            $this->wsServer->useTls($tls);
+            $output->writeln('  Transport: <info>wss:// (TLS terminated here)</info>');
+            $output->writeln(
+                '             <comment>the TLS handshake is synchronous — put a proxy in '
+                . 'front if connection churn is high</comment>'
+            );
+        } else {
+            $output->writeln('  Transport: <comment>ws:// (plain TCP)</comment>');
+        }
+
         // The HTTP API and the webhooks both hang off the app registry: the API
         // authenticates each request against it, and the webhook signer needs one
         // app's secret. Built once here so the daemon does not resolve them per

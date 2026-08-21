@@ -401,7 +401,10 @@ class LocalBroadcastServerTest extends TestCase
 
         $server2 = new LocalBroadcastServer('test-key');
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Cannot bind on 127.0.0.1:26002');
+        // The transport is part of the message since useTls() made it variable: an
+        // operator reading a bind failure needs to know whether the process was
+        // trying to open a ws:// or a wss:// listener.
+        $this->expectExceptionMessage('Cannot bind on tcp://127.0.0.1:26002');
         $server2->run('127.0.0.1', 26002);
 
         fclose($server1Socket);
