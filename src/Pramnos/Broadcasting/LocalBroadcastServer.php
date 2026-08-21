@@ -30,7 +30,7 @@ use Pramnos\Http\WebSocket\WebSocketProtocolException;
  *
  * Limitations (intentional — this is a dev tool):
  *  - Single-threaded (stream_select event loop)
- *  - No TLS (plain TCP only)
+ *  - TLS is available via useTls(), but its handshake is synchronous — see there
  *  - Up to ~100 concurrent connections without tuning
  *
  * Auth is pluggable via a {@see \Pramnos\Broadcasting\Auth\ConnectionAuthorizer}
@@ -105,6 +105,13 @@ class LocalBroadcastServer
     /** Max client events one connection may send per second. */
     private int $clientEventsPerSecond = 10;
 
+    /**
+     * SSL stream-context options, when serving `wss://` directly.
+     *
+     * @var array<string,mixed>|null
+     */
+    private ?array $tlsContext = null;
+
     /** The HTTP API, when one is installed. Absent unless explicitly enabled. */
     private ?ServerApi $httpApi = null;
 
@@ -174,6 +181,45 @@ class LocalBroadcastServer
     }
 
     /**
+     * Serve `wss://` directly, with the given SSL stream-context options.
+     *
+     * ```php
+     * $server->useTls([
+     *     'local_cert'  => '/etc/ssl/realtime/fullchain.pem',
+     *     'local_pk'    => '/etc/ssl/realtime/privkey.pem',
+     *     'passphrase'  => null,
+     * ]);
+     * ```
+     *
+     * A setter rather than a third parameter on {@see run()}: adding one would be
+     * source-compatible for callers and fatal for any subclass overriding `run()`,
+     * and this codebase already subclasses this class in its own tests. It also
+     * matches the `useX()` idiom the rest of the configuration uses.
+     *
+     * ## The honest tradeoff
+     *
+     * **The TLS handshake happens synchronously in `accept()`.** This is a
+     * single-threaded loop, so a client that is slow to complete its handshake
+     * holds up every other connection for the duration — and a handshake is
+     * dramatically more expensive than a TCP accept. On a deploy, when every client
+     * reconnects at once, that cost arrives all together.
+     *
+     * So this is the right choice for a small deployment that would rather not run
+     * a proxy, and the wrong one for high connection churn. There, terminate TLS in
+     * front (nginx, Caddy, a load balancer) and leave this server on plain TCP
+     * behind it — the proxy has a thread pool and this does not. Written down
+     * because "the framework supports wss://" reads like a recommendation, and for
+     * a busy install it is not one.
+     *
+     * @param array<string,mixed> $context SSL context options, per PHP's SSL
+     *                                     transport. `local_cert` is required.
+     */
+    public function useTls(array $context): void
+    {
+        $this->tlsContext = $context;
+    }
+
+    /**
      * Serve the Pusher-compatible HTTP API on the same port.
      *
      * **Opt-in, because it opens a publish path.** A signed request can broadcast
@@ -219,6 +265,67 @@ class LocalBroadcastServer
     }
 
     /**
+     * Create the listening socket — `tcp://` normally, `ssl://` once
+     * {@see useTls()} has been called.
+     *
+     * Separate from {@see run()} because run() blocks in its event loop, so this is
+     * the only way to assert what was bound and with which context. Overridable for
+     * the same reason.
+     *
+     * @return resource
+     * @throws \RuntimeException When the socket cannot be created — a port in use,
+     *         or a certificate PHP will not load.
+     */
+    protected function createServerSocket(string $host, int $port)
+    {
+        if ($this->tlsContext !== null) {
+            // PHP does **not** load the certificate when the listener is created —
+            // it loads it per accepted connection. So a wrong `local_cert` path
+            // produces a server that binds, reports itself healthy, and then fails
+            // every single handshake, with the operator looking at a port that is
+            // definitely open. Checked here so that becomes a startup failure.
+            foreach (['local_cert', 'local_pk'] as $option) {
+                $path = (string) ($this->tlsContext[$option] ?? '');
+                if ($path !== '' && !is_readable($path)) {
+                    throw new \RuntimeException(
+                        'TLS is configured but ' . $option . ' "' . $path
+                        . '" is not readable; refusing to start a wss:// listener that '
+                        . 'would fail every handshake.'
+                    );
+                }
+            }
+
+            if ((string) ($this->tlsContext['local_cert'] ?? '') === '') {
+                throw new \RuntimeException(
+                    'TLS is configured without a local_cert; refusing to start a wss:// '
+                    . 'listener that would fail every handshake.'
+                );
+            }
+        }
+
+        $transport = $this->tlsContext === null ? 'tcp' : 'ssl';
+        $context   = stream_context_create(
+            $this->tlsContext === null ? [] : ['ssl' => $this->tlsContext]
+        );
+
+        $socket = @stream_socket_server(
+            "{$transport}://{$host}:{$port}",
+            $errno,
+            $errstr,
+            STREAM_SERVER_BIND | STREAM_SERVER_LISTEN,
+            $context
+        );
+
+        if ($socket === false) {
+            throw new \RuntimeException(
+                "Cannot bind on {$transport}://{$host}:{$port} — {$errstr} ({$errno})"
+            );
+        }
+
+        return $socket;
+    }
+
+    /**
      * Start the server and block until stop() is called or a fatal error occurs.
      *
      * @param string $host  Bind address (default: 0.0.0.0)
@@ -227,16 +334,7 @@ class LocalBroadcastServer
      */
     public function run(string $host = '0.0.0.0', int $port = 6001): void
     {
-        $this->serverSocket = @stream_socket_server(
-            "tcp://{$host}:{$port}",
-            $errno,
-            $errstr,
-            STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
-        );
-
-        if ($this->serverSocket === false) {
-            throw new \RuntimeException("Cannot bind on {$host}:{$port} — {$errstr} ({$errno})");
-        }
+        $this->serverSocket = $this->createServerSocket($host, $port);
 
         stream_set_blocking($this->serverSocket, false);
 

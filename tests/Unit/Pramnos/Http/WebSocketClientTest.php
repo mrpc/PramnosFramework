@@ -557,20 +557,27 @@ class WebSocketClientTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * With no stream factory, the client opens a real socket — and a refused
+     * With no stream factory, the client opens a real socket — and a failed
      * connection is reported with the remote address in the message.
      *
      * Covers the production openSocket() path, which the injected-factory tests
-     * above deliberately bypass. Port 1 is reserved and never listening.
+     * above deliberately bypass.
+     *
+     * The host is under `.invalid`, which RFC 2606 reserves so that it can never
+     * resolve. An earlier version of this test used `127.0.0.1:1` on the assumption
+     * that a reserved low port is never listening — and it failed in CI because
+     * another test in this suite had left a server bound there. "Nothing is
+     * listening on that port" is a property of the machine; "this name does not
+     * resolve" is a property of the standard.
      */
     public function testRealConnectFailureReportsRemote(): void
     {
         // Arrange
-        $client = new WebSocketClient('ws://127.0.0.1:1/socket', [], 0.5);
+        $client = new WebSocketClient('ws://nonexistent.invalid:80/socket', [], 0.5);
 
         // Act & Assert
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/Cannot connect to tcp:\/\/127\.0\.0\.1:1/');
+        $this->expectExceptionMessageMatches('/Cannot connect to tcp:\/\/nonexistent\.invalid:80/');
         $client->connect();
     }
 
@@ -718,17 +725,19 @@ class WebSocketClientTest extends TestCase
     /**
      * A wss:// URL is parsed as TLS and defaults to port 443.
      *
-     * Asserted through the failure message because completing a real TLS
-     * handshake needs a certificate; the address is what the scheme decides.
+     * Asserted through the failure message because completing a real TLS handshake
+     * needs a certificate and a peer; the transport and port are what the scheme
+     * decides, and that is what is under test. The host is a reserved `.invalid`
+     * name so the failure cannot depend on what happens to be listening locally.
      */
     public function testWssDefaultsToTlsOnPort443(): void
     {
-        // Arrange: 127.0.0.1:443 is not listening in the test container.
-        $client = new WebSocketClient('wss://127.0.0.1/socket', [], 0.5);
+        // Arrange
+        $client = new WebSocketClient('wss://nonexistent.invalid/socket', [], 0.5);
 
         // Act & Assert
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/ssl:\/\/127\.0\.0\.1:443/');
+        $this->expectExceptionMessageMatches('/ssl:\/\/nonexistent\.invalid:443/');
         $client->connect();
     }
 

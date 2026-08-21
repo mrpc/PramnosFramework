@@ -14,6 +14,7 @@ use_cases:
   - Publishing an event from a deploy script or a service in another language
   - Finding out which channels are occupied, or who is in one, from outside the daemon
   - Reacting when a room becomes empty, or when a user's last connection goes
+  - Serving wss:// without putting a proxy in front
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -900,6 +901,54 @@ A driver that does not implement `Drivers\ExcludesSocketInterface` — a third-p
 dropping the event, but the only visible symptom is one user seeing a duplicate of
 something they just did, which reads as an application bug rather than a driver
 capability gap.
+
+---
+
+## Serving `wss://` directly
+
+```php
+'broadcasting' => [
+    'websocket' => [
+        'tls' => [
+            'local_cert' => '/etc/ssl/realtime/fullchain.pem',
+            'local_pk'   => '/etc/ssl/realtime/privkey.pem',
+        ],
+    ],
+],
+```
+
+`broadcast:serve` then reports `Transport: wss:// (TLS terminated here)`. Without a
+`local_cert` it stays on plain TCP and says so — an operator needs to know which
+scheme the port speaks, and getting it wrong presents as a network fault rather than
+a scheme mismatch.
+
+!!! warning "The TLS handshake is synchronous, and this loop is single-threaded"
+    A client slow to complete its handshake holds up **every other connection** for
+    the duration, and a handshake is dramatically more expensive than a TCP accept.
+    On a deploy, when every client reconnects at once, that cost arrives together.
+
+    So this is right for a small deployment that would rather not run a proxy, and
+    wrong for high connection churn. There, terminate TLS in front (nginx, Caddy, a
+    load balancer) and leave this server on plain TCP behind it: the proxy has a
+    thread pool and this does not.
+
+    Said plainly because "the framework supports `wss://`" reads like a
+    recommendation, and for a busy install it is not one.
+
+### An unreadable certificate stops the daemon
+
+**PHP does not load the certificate when the listener is created — it loads it per
+accepted connection.** So a wrong `local_cert` path would otherwise bind
+successfully, report itself healthy, and fail every single handshake, with the
+operator staring at a port that is definitely open.
+
+The paths are therefore checked at startup, and TLS configured without a
+`local_cert` is refused outright:
+
+```
+TLS is configured but local_cert "/etc/ssl/realtime/fullchain.pem" is not readable;
+refusing to start a wss:// listener that would fail every handshake.
+```
 
 ---
 
