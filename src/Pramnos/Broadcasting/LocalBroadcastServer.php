@@ -127,6 +127,32 @@ class LocalBroadcastServer
         return defined('FD_SETSIZE') ? (int) constant('FD_SETSIZE') : 1024;
     }
 
+    /**
+     * Whether $watched descriptors is close enough to the ceiling to act on.
+     *
+     * **Deliberately usable from outside this class.** Any application holding
+     * sockets in its own `stream_select()` loop — an outbound feed worker
+     * multiplexing SSE readers and a {@see \Pramnos\Http\WebSocketClient}, for
+     * instance — has the same cliff and none of this server's warning. One consumer
+     * had already borrowed {@see descriptorCeiling()} for exactly that and was
+     * re-deriving the 90% itself, which is one definition of "close" per application
+     * and a number that drifts.
+     *
+     * Count everything in the select set, not only the interesting sockets: a
+     * listening socket, an ingest stream and a control pipe are descriptors too, and
+     * `select(2)` does not care which of them you consider incidental.
+     *
+     * It lives here rather than somewhere more neutral because the sibling already
+     * does and a consumer has already reached for it. Moving both would be tidier and
+     * would break them.
+     *
+     * @param int $watched How many descriptors the loop passes to stream_select().
+     */
+    public static function isNearDescriptorCeiling(int $watched): bool
+    {
+        return $watched >= (int) floor(self::descriptorCeiling() * self::CLIENT_WARN_RATIO);
+    }
+
     /** @var resource|null Server socket. */
     private $serverSocket = null;
 
@@ -1229,7 +1255,9 @@ class LocalBroadcastServer
         // The listening socket and any ingest stream sit in the same set.
         $watched = count($this->clients) + 1 + ($this->redisIngest !== null ? 1 : 0);
 
-        if ($watched < (int) floor($ceiling * self::CLIENT_WARN_RATIO)) {
+        // Through the shared helper, so this server and an application's own loop
+        // cannot disagree about what "close" means.
+        if (!self::isNearDescriptorCeiling($watched)) {
             return;
         }
 

@@ -1173,6 +1173,25 @@ stream. A warning is logged once at 90% of the ceiling
 (`LocalBroadcastServer::CLIENT_WARN_RATIO`), so an operator has time to add a node
 rather than discovering the cliff from it.
 
+!!! tip "Your own select loop has the same cliff"
+    An application holding sockets in its own `stream_select()` loop — an outbound
+    feed worker multiplexing SSE readers and a `WebSocketClient`, say — hits the same
+    ceiling with none of this server's warning. Both numbers are public:
+
+    ```php
+    if (LocalBroadcastServer::isNearDescriptorCeiling(count($everythingInMySelectSet))) {
+        // add a worker rather than a feed
+    }
+    ```
+
+    Count everything in the set, not only the interesting sockets: a control pipe is
+    a descriptor too, and `select(2)` does not care which you consider incidental.
+
+    Use the helper rather than re-deriving 90% against a literal `1024` — that
+    stops agreeing the day PHP is rebuilt, and gives you one definition of "close"
+    per application. Reported by a consumer who had borrowed the ceiling and was
+    computing the rest itself.
+
 **This is the main reason to reach for clustering.** Past that ceiling, more nodes is
 the answer; a bigger one does not exist.
 

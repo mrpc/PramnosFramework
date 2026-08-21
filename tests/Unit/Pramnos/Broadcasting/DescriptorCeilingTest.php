@@ -231,4 +231,55 @@ class DescriptorCeilingTest extends TestCase
             'the old soft-sounding figure must be gone'
         );
     }
+
+    /**
+     * The "close enough" question has one answer, shared with anything that asks.
+     *
+     * An application holding sockets in its own `stream_select()` loop has the same
+     * cliff and none of this server's warning. One consumer had already borrowed
+     * `descriptorCeiling()` for exactly that and was re-deriving the 90% itself —
+     * which is one definition of "close" per application, and a number that drifts.
+     */
+    public function testTheClosenessTestIsSharedAndAgreesWithTheServersOwn(): void
+    {
+        // Arrange
+        $ceiling   = LocalBroadcastServer::descriptorCeiling();
+        $threshold = (int) floor($ceiling * LocalBroadcastServer::CLIENT_WARN_RATIO);
+
+        // Act & Assert — the boundary, from both sides
+        $this->assertFalse(LocalBroadcastServer::isNearDescriptorCeiling($threshold - 1));
+        $this->assertTrue(LocalBroadcastServer::isNearDescriptorCeiling($threshold));
+        $this->assertTrue(LocalBroadcastServer::isNearDescriptorCeiling($ceiling));
+
+        // And a count far below, which is where a healthy application sits: one
+        // consumer measured 69 descriptors for 58 feeds, about 7% of the ceiling.
+        $this->assertFalse(LocalBroadcastServer::isNearDescriptorCeiling(69));
+    }
+
+    /**
+     * The server's own warning goes through the shared helper, so the two cannot
+     * disagree.
+     *
+     * Asserted by construction rather than by value: the warning fires exactly where
+     * the helper says it should, at the boundary.
+     */
+    public function testTheServerWarningUsesTheSharedThreshold(): void
+    {
+        // Arrange — one client short of the point the helper calls close, counting
+        // the listener
+        $threshold = (int) floor(
+            LocalBroadcastServer::descriptorCeiling() * LocalBroadcastServer::CLIENT_WARN_RATIO
+        );
+        [$server, $port] = $this->serverWithClients($threshold - 3);
+
+        // Act — after the accept: threshold-2 clients + 1 listener = threshold-1
+        $this->accept($server, $port);
+
+        // Assert
+        $this->assertFalse(
+            LocalBroadcastServer::isNearDescriptorCeiling($threshold - 1),
+            'precondition: one short is not close'
+        );
+        $this->assertFalse($this->warned($server), 'and the server agrees');
+    }
 }
