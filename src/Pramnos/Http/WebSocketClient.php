@@ -45,8 +45,13 @@ use Pramnos\Http\WebSocket\WebSocketProtocolException;
  * `activity_timeout`, its channel auth — those belong to whoever is speaking
  * Pusher. This is the same split as {@see Client} and the APIs it calls: a
  * `PusherClient` here would be a guess about one provider, while a WebSocket
- * client is what every provider needs. {@see
- * \Pramnos\Broadcasting\PusherProtocolClient} is that layer, built on this one.
+ * client is what every provider needs.
+ *
+ * The Pusher handshake is a short exchange on top of this — send
+ * `pusher:subscribe` once `pusher:connection_established` arrives, and answer
+ * `pusher:ping`, which is the *application-layer* ping and distinct from the
+ * protocol ping {@see read()} already handles. The Realtime guide's *Consuming
+ * somebody else's WebSocket* section spells it out.
  */
 class WebSocketClient
 {
