@@ -18,6 +18,7 @@ use_cases:
   - Defining an event once instead of repeating channel and payload at every call site
   - Monitoring a running WebSocket daemon, or telling a throttled client from a quiet one
   - Sending a payload the relay itself must not be able to read
+  - Running more than one WebSocket daemon behind a load balancer
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -962,6 +963,88 @@ capability gap.
 
 ---
 
+## Running more than one daemon
+
+Two daemons behind a load balancer both receive application events from the
+backplane, so **ordinary broadcasts already fan out correctly** with no
+configuration. What does not, without this, is anything the daemon holds in its own
+memory: **presence membership and client events are per-process.** A user connected
+to node A does not appear in the member list node B serves, and a whisper on A never
+reaches B. Neither failure says anything — the counts are simply wrong.
+
+```php
+'broadcasting' => [
+    'cluster' => [
+        'enabled'  => true,
+        'channel'  => '__pramnos_cluster',   // gossip channel
+        'interval' => 30,                    // seconds between full-state messages
+        'node_id'  => null,                  // generated when absent
+    ],
+],
+```
+
+```
+$ php bin/pramnos broadcast:serve
+  Cluster: node 4f2a9c1b7e03, gossip on app:__pramnos_cluster every 30s
+           presence is eventually consistent; member webhooks are per-node
+  Redis ingest: app:chat.updates, app:__pramnos_cluster
+```
+
+### How it works, and why in two mechanisms
+
+Nodes gossip over the same backplane the application uses, in two kinds of message —
+and the split is the design, not an optimisation:
+
+**Deltas** (`join`, `leave`, `client_event`) carry one change and arrive immediately,
+so a member appears on the other nodes as fast as the backplane moves a message.
+They are the latency mechanism.
+
+**Full state**, republished every `interval`, *replaces* a node's entry wholesale.
+That is the correctness mechanism: whatever a node missed — restarted mid-gossip, a
+dropped pub/sub message, a subscription that reconnected — it is right again within
+one interval. **No individual delta has to be reliable**, which is what makes this
+safe to build on pub/sub at all.
+
+A node silent for **three intervals** is written off and its members are dropped,
+with the departures announced. Otherwise a killed node leaves a room full of people
+who are not there: a member list that only ever grows. Three, not one, so a single
+late message cannot evict a healthy peer. A node with only empty channels sends a
+heartbeat instead of a state message, or it would look dead, be pruned, and reappear
+on its next join — churning the member list of every channel it does serve.
+
+A late-arriving delta cannot resurrect a departed member: every message carries the
+sending node's clock, and anything older than that node's last accepted message is
+dropped.
+
+### What to know before turning it on
+
+!!! warning "Presence becomes eventually consistent"
+    A join reaches the other nodes as fast as the backplane moves a message, which is
+    fast — but the guarantee is "correct within one interval", not "correct
+    instantly". If a room's count must never be transiently low, this is not the
+    mechanism for it.
+
+**Member webhooks are per-node.** Each node reports only the members whose
+connections it owns, so exactly one node reports each member: no coordination, no
+double-reporting. **`channel_occupied` / `channel_vacated` are also per-node** —
+each reports its own occupancy — so a receiver counting them across a cluster is
+counting nodes, not channels.
+
+**A relayed client event is re-checked locally.** A peer's enforcement is not taken
+on trust: a compromised or misconfigured node cannot publish onto a public channel
+here, or inject an application event name.
+
+**The pairing rule applies to gossip.** It travels on the backplane, so the
+primitive that publishes it must be the one the ingest reads. `broadcast:serve` wires
+both together — a `RedisDriver` (`PUBLISH`) against `RedisSubscriberSocket`
+(`SUBSCRIBE`) — but if you wire a cluster yourself, mixing them gives you a cluster
+where every node believes it is alone, with nothing in any log.
+
+**Nothing changes for a single daemon.** With clustering off there is no gossip and
+no per-presence-change work at all.
+
+---
+
 ## Serving `wss://` directly
 
 ```php
@@ -1288,6 +1371,9 @@ them from anybody else's POST, so it either trusts every caller or rejects yours
     tenant, or namespace the channel names themselves (`tenant-42-room`). Stated here
     because it is the kind of limit that is invisible until two tenants pick the same
     room name.
+
+    This is about **apps**, not nodes. Several daemons serving the *same* app are
+    supported — see [Running more than one daemon](#running-more-than-one-daemon).
 
 ---
 

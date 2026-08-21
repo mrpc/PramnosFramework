@@ -10,6 +10,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Application\Application;
 use Pramnos\Broadcasting\Apps\AppSource;
 use Pramnos\Broadcasting\Auth\AppRegistryAuthorizer;
+use Pramnos\Broadcasting\Cluster\ClusterState;
+use Pramnos\Broadcasting\Cluster\RedisClusterTransport;
+use Pramnos\Broadcasting\Drivers\RedisDriver;
 use Pramnos\Broadcasting\Http\ServerApi;
 use Pramnos\Broadcasting\Webhooks\QueueWebhookDispatcher;
 use Pramnos\Broadcasting\Webhooks\WebhookSigner;
@@ -253,10 +256,47 @@ class BroadcastServe extends CommandBase
             'trim',
             explode(',', (string) ($input->getOption('channels') ?? ''))
         )));
-        if ($channels !== []) {
-            $redisConfig = is_array($config['redis'] ?? null) ? $config['redis'] : [];
-            $prefix      = (string) ($redisConfig['prefix'] ?? '');
-            $prefixed    = array_map(static fn (string $c): string => $prefix . $c, $channels);
+
+        $redisConfig = is_array($config['redis'] ?? null) ? $config['redis'] : [];
+        $prefix      = (string) ($redisConfig['prefix'] ?? '');
+        $prefixed    = array_map(static fn (string $c): string => $prefix . $c, $channels);
+
+        // Clustering: share presence membership and relay client events between
+        // nodes. Its gossip travels on the backplane, so the cluster channel joins
+        // the ingest's subscription list — and the transport publishes with a
+        // RedisDriver (PUBLISH) because the ingest reads with SUBSCRIBE. Mixing the
+        // two primitives produces a cluster where every node believes it is alone,
+        // with nothing in any log.
+        $clusterConfig = is_array($config['cluster'] ?? null) ? $config['cluster'] : [];
+        if ((bool) ($clusterConfig['enabled'] ?? false)) {
+            $clusterChannel = (string) ($clusterConfig['channel'] ?? '__pramnos_cluster');
+            $interval       = max(1, (int) ($clusterConfig['interval'] ?? 30));
+            $nodeId         = (string) ($clusterConfig['node_id'] ?? '') ?: bin2hex(random_bytes(6));
+
+            // Three intervals of silence before a node is written off, so one late
+            // message cannot evict a healthy peer.
+            $state = new ClusterState($nodeId, $interval * 3 * 1000);
+
+            $this->wsServer->useCluster(
+                new RedisClusterTransport(new RedisDriver($redisConfig), $clusterChannel),
+                $state,
+                $prefix . $clusterChannel,
+                $interval
+            );
+
+            $prefixed[] = $prefix . $clusterChannel;
+
+            $output->writeln(
+                '  Cluster: <info>node ' . $nodeId . '</info>, gossip on '
+                . $prefix . $clusterChannel . ' every ' . $interval . 's'
+            );
+            $output->writeln(
+                '           <comment>presence is eventually consistent; member webhooks '
+                . 'are per-node</comment>'
+            );
+        }
+
+        if ($prefixed !== []) {
             $this->wsServer->useRedisIngest(new RedisSubscriberSocket($redisConfig, $prefixed));
             $output->writeln('  Redis ingest: <info>' . implode(', ', $prefixed) . '</info>');
         }
