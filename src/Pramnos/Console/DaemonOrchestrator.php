@@ -784,6 +784,24 @@ abstract class DaemonOrchestrator extends CommandBase
     protected function startDesiredProcess(string $phpBinary, array $desiredProcess): int
     {
         $this->ensureLogsDir();
+
+        $pid = (int) trim((string) shell_exec(
+            $this->buildSpawnShellCommand($phpBinary, $desiredProcess)
+        ));
+
+        return max(0, $pid);
+    }
+
+    /**
+     * The shell command used to spawn a worker.
+     *
+     * Separate from {@see startDesiredProcess()} because that one runs it: this is the
+     * only place the exported environment can be asserted without starting a process.
+     *
+     * @param array<string, mixed> $desiredProcess
+     */
+    protected function buildSpawnShellCommand(string $phpBinary, array $desiredProcess): string
+    {
         $logFile = $this->getProcessLogFile($desiredProcess);
 
         if (isset($desiredProcess['shellCommand'])) {
@@ -795,9 +813,20 @@ abstract class DaemonOrchestrator extends CommandBase
                 . ' ' . $this->buildShellTokens($tokens);
         }
 
-        $shell = 'nohup setsid ' . $command . ' >> ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
-        $pid   = (int)trim((string)shell_exec($shell));
-        return max(0, $pid);
+        // Hand the resolved lock path down rather than letting the child compute its
+        // own. Both ends used to resolve it independently — the orchestrator from the
+        // declared `lockFile`, the worker from CommandBase::getJobLockFilePath() — and
+        // a disagreement was undetectable: a sentinel read where nothing writes is
+        // indistinguishable from no sentinel, so the worker reported itself healthy
+        // and ignored every stop request. Exporting it makes an override that
+        // disagrees impossible instead of imperceptible.
+        $lockFile = (string) ($desiredProcess['lockFile'] ?? '');
+        $exports  = $lockFile === ''
+            ? ''
+            : \Pramnos\Console\CommandBase::LOCK_FILE_ENV . '=' . escapeshellarg($lockFile) . ' ';
+
+        return 'nohup setsid ' . $exports . $command
+            . ' >> ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
     }
 
     /**

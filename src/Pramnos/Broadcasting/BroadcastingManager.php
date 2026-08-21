@@ -179,10 +179,26 @@ class BroadcastingManager
     {
         $driver = $this->driver();
 
-        if (
-            $this->encrypter !== null
-            && \Pramnos\Broadcasting\Encryption\ChannelEncrypter::isEncrypted($channel)
-        ) {
+        if (\Pramnos\Broadcasting\Encryption\ChannelEncrypter::isEncrypted($channel)) {
+            if ($this->encrypter === null) {
+                // Refused rather than sent in the clear.
+                //
+                // This used to publish plaintext under a channel name that promises
+                // otherwise, documented and pinned by a test as a deliberate
+                // decision. A consuming project asked whether it was the decision we
+                // wanted, and it was not: authorizing such a channel without a key
+                // already throws, so the two halves of one feature disagreed — and
+                // the publish half had the worse failure of the two. A visible
+                // exception costs a request; silent plaintext on a channel whose
+                // whole purpose is that the relay cannot read it costs the thing the
+                // feature exists to protect.
+                throw new \RuntimeException(
+                    'Channel "' . $channel . '" is an encrypted channel, but no encryption key '
+                    . 'is configured, so its payload would be published in the clear. Set '
+                    . 'broadcasting.encryption_key, or do not use the private-encrypted- prefix.'
+                );
+            }
+
             // Encrypted here rather than in the driver, so it happens exactly once
             // regardless of which driver is active and whichever process ends up
             // relaying it. The daemon then forwards ciphertext it cannot read, which

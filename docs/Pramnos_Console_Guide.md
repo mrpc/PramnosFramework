@@ -220,6 +220,27 @@ exactly as written, so there is nothing to build and nothing to serve.
 These commands change an **existing** project after it was scaffolded — no need to re-run
 `init`. They are BC-safe and idempotent (re-running does nothing new).
 
+!!! warning "The supervisor decides the lock path, not the worker"
+    `DaemonOrchestrator` writes the `.stop` sentinel beside the `lockFile` declared in
+    a worker's desired-process entry, and exports that path to the child as
+    `PRAMNOS_JOB_LOCK_FILE`. `CommandBase` reads it in preference to anything the
+    command computes, so **an override cannot disagree with the supervisor.**
+
+    It used to. The worker resolved its own path through `getJobLockFilePath()`, which
+    has its own default (`ROOT/var/<job>`) and is overridable — two independent
+    computations of one path, and nothing could notice when they diverged: **a sentinel
+    read where nothing writes is indistinguishable from no sentinel.** No error, no
+    log, a worker reporting itself healthy while ignoring every stop request.
+
+    Reported by a project whose loop workers overrode the method to match their
+    supervisor and whose realtime worker did not, so adopting the WebSocket stop seam
+    landed as a no-op — the fix for a silent failure reproduced it, in the project that
+    had just filed it.
+
+    `getJobLockFilePath()` stays overridable: it is a legitimate application default,
+    and it still applies when a command is run by hand with no supervisor. What is no
+    longer overridable is the part that prefers the supervisor's answer.
+
 !!! info "`features` from `app.php` are active on the CLI too"
     A command — and any daemon it runs — sees the same feature state as the web
     application: `FeatureRegistry::isEnabled('authserver')` answers from the
