@@ -7,6 +7,8 @@ namespace Pramnos\Broadcasting;
 use Pramnos\Broadcasting\Auth\AllowAllAuthorizer;
 use Pramnos\Broadcasting\Auth\ConnectionAuthorizer;
 use Pramnos\Broadcasting\Auth\PresenceAuthorizer;
+use Pramnos\Broadcasting\Cluster\ClusterState;
+use Pramnos\Broadcasting\Cluster\ClusterTransportInterface;
 use Pramnos\Broadcasting\Http\ServerApi;
 use Pramnos\Broadcasting\Webhooks\WebhookDispatcherInterface;
 use Pramnos\Http\WebSocket\FrameCodec;
@@ -135,6 +137,28 @@ class LocalBroadcastServer
 
     /** The HTTP API, when one is installed. Absent unless explicitly enabled. */
     private ?ServerApi $httpApi = null;
+
+    /** Gossip transport, when this node is part of a cluster. */
+    private ?ClusterTransportInterface $cluster = null;
+
+    /** What the other nodes are believed to hold. */
+    private ?ClusterState $clusterState = null;
+
+    /**
+     * The gossip channel as the *ingest* delivers it.
+     *
+     * Not the same string the transport publishes to: a driver prefixes on the way
+     * out and the ingest sees the prefixed name. Told to us explicitly rather than
+     * guessed, because a wrong guess here does not error — it makes every gossip
+     * message look like an application event and fan it out to browsers.
+     */
+    private string $clusterIngestChannel = '';
+
+    /** Seconds between full-state gossip messages. */
+    private int $gossipInterval = 30;
+
+    /** Unix time of the last gossip publication. */
+    private int $lastGossipAt = 0;
 
     /** Where lifecycle notifications go, when anywhere. */
     private ?WebhookDispatcherInterface $webhooks = null;
@@ -280,6 +304,53 @@ class LocalBroadcastServer
     public function useHttpApi(ServerApi $api): void
     {
         $this->httpApi = $api;
+    }
+
+    /**
+     * Join a cluster: share presence membership and relay client events between
+     * nodes.
+     *
+     * Without this, two daemons behind a load balancer both receive application
+     * events from the backplane — so ordinary broadcasts already work — but presence
+     * membership and client events are per-process. A user connected to node A does
+     * not appear in the member list node B serves, and a whisper on A never reaches
+     * B. Neither failure says anything: the counts are simply wrong.
+     *
+     * ## What this makes true, and what it does not
+     *
+     * Presence becomes **eventually consistent**. A join reaches the other nodes as
+     * fast as the backplane moves a message, which is fast; a node's *full* state is
+     * republished every `$intervalSeconds`, and that is what repairs anything a node
+     * missed. So a member list is right within one interval in the worst case, not
+     * instantly in every case. If a room's count must never be transiently low, this
+     * is not the mechanism for it.
+     *
+     * `member_added` / `member_removed` **webhooks** stay local: each node reports
+     * only the members whose connections it owns. That needs no coordination and
+     * cannot double-report. `channel_occupied` / `channel_vacated` are also per-node
+     * — each node reports its own occupancy — so a receiver counting them across a
+     * cluster is counting nodes, not channels.
+     *
+     * @param ClusterTransportInterface $transport      Must not block; see the interface.
+     * @param ClusterState              $state          Holds the peers' membership.
+     * @param string                    $ingestChannel  The gossip channel *as the
+     *        ingest delivers it* — prefixed, if the driver prefixes. Defaults to the
+     *        transport's own name, which is correct only when there is no prefix.
+     * @param int                       $intervalSeconds Full-state period. The
+     *        state's TTL must be a multiple of this, or one late message evicts a
+     *        healthy node.
+     */
+    public function useCluster(
+        ClusterTransportInterface $transport,
+        ClusterState $state,
+        string $ingestChannel = '',
+        int $intervalSeconds = 30
+    ): void {
+        $this->cluster              = $transport;
+        $this->clusterState         = $state;
+        $this->clusterIngestChannel = $ingestChannel !== '' ? $ingestChannel : $transport->channel();
+        $this->gossipInterval       = max(1, $intervalSeconds);
+        $this->lastGossipAt         = 0;
     }
 
     /**
@@ -567,6 +638,214 @@ class LocalBroadcastServer
     }
 
     /**
+     * Send one gossip message, stamped with this node's identity and clock.
+     *
+     * Free when not clustered: the guard means a single-node deployment does no work
+     * per presence change.
+     *
+     * @param array<string,mixed> $message
+     */
+    private function gossip(array $message): void
+    {
+        if ($this->cluster === null || $this->clusterState === null) {
+            return;
+        }
+
+        $this->cluster->publish($message + [
+            'node' => $this->clusterState->nodeId(),
+            'ts'   => (int) round(microtime(true) * 1000),
+        ]);
+    }
+
+    /**
+     * Apply a gossip message from a peer.
+     *
+     * @param array<string,mixed> $message
+     */
+    private function handleClusterMessage(array $message): void
+    {
+        if ($this->clusterState === null) {
+            return;
+        }
+
+        $node = (string) ($message['node'] ?? '');
+        $ts   = (int) ($message['ts'] ?? 0);
+
+        switch ((string) ($message['type'] ?? '')) {
+            case 'state':
+                $channels = is_array($message['channels'] ?? null) ? $message['channels'] : [];
+                $before   = $this->clusterState->remoteChannels();
+
+                if (!$this->clusterState->applyState($node, $channels, $ts)) {
+                    return;
+                }
+
+                // A full state can both add and remove members, and reconciling it
+                // member-by-member against the previous view would mean holding two
+                // copies of every channel. It is the repair mechanism, not the
+                // notification mechanism: clients learn from the deltas, and get the
+                // corrected list on their next subscribe.
+                unset($before);
+                break;
+
+            case 'join':
+                $channel = (string) ($message['channel'] ?? '');
+                $userId  = (string) ($message['user_id'] ?? '');
+                if ($channel === '' || $userId === '') {
+                    return;
+                }
+
+                // Decided before applying: if the user is already visible here, this
+                // is a second connection somewhere and not an arrival.
+                $announce = !$this->userIsPresentAnywhere($channel, $userId);
+
+                if (!$this->clusterState->applyJoin(
+                    $node,
+                    $channel,
+                    $userId,
+                    is_array($message['info'] ?? null) ? $message['info'] : [],
+                    $ts
+                )) {
+                    return;
+                }
+
+                if ($announce) {
+                    $this->announceMember($channel, 'member_added', $userId, $message['info'] ?? []);
+                }
+                break;
+
+            case 'leave':
+                $channel = (string) ($message['channel'] ?? '');
+                $userId  = (string) ($message['user_id'] ?? '');
+                if ($channel === '' || $userId === '') {
+                    return;
+                }
+
+                if (!$this->clusterState->applyLeave($node, $channel, $userId, $ts)) {
+                    return;
+                }
+
+                // Decided after applying: the user has left only if nothing else,
+                // here or on another node, still reports them.
+                if (!$this->userIsPresentAnywhere($channel, $userId)) {
+                    $this->announceMember($channel, 'member_removed', $userId, []);
+                }
+                break;
+
+            case 'client_event':
+                $channel = (string) ($message['channel'] ?? '');
+                $event   = (string) ($message['event'] ?? '');
+
+                // The same guards as a local client event, because a peer's
+                // enforcement is not something to take on trust: a compromised or
+                // misconfigured node must not be able to publish onto a public
+                // channel here.
+                if (
+                    $event === ''
+                    || !str_starts_with($event, 'client-')
+                    || (!str_starts_with($channel, 'private-') && !str_starts_with($channel, 'presence-'))
+                ) {
+                    return;
+                }
+
+                $this->relayToChannel($channel, $event, (string) ($message['data'] ?? '{}'));
+                break;
+
+            case 'heartbeat':
+                $this->clusterState->applyHeartbeat($node, $ts);
+                break;
+        }
+    }
+
+    /**
+     * Tell local subscribers about a member arriving or leaving on another node.
+     *
+     * No webhook: those stay with the node that owns the connection, so exactly one
+     * node reports each member and no cross-node deduplication is needed.
+     *
+     * @param array<string,mixed>|mixed $info
+     */
+    private function announceMember(string $channel, string $name, string $userId, mixed $info): void
+    {
+        $member = ['user_id' => $userId];
+
+        if (is_array($info) && $info !== []) {
+            $member['user_info'] = $info;
+        }
+
+        // -1 excludes nothing: every local subscriber should hear about a remote
+        // member, since none of them is the one that arrived.
+        $this->sendToChannelExcept($channel, 'pusher_internal:' . $name, $member, -1);
+    }
+
+    /**
+     * Deliver a pre-encoded event body to every local subscriber of $channel.
+     */
+    private function relayToChannel(string $channel, string $event, string $data): void
+    {
+        $payload = json_encode([
+            'event'   => $event,
+            'data'    => $data,
+            'channel' => $channel,
+        ]);
+
+        foreach ($this->subscriptions[$channel] ?? [] as $clientId) {
+            if (isset($this->clients[$clientId])) {
+                $this->wsSend($this->clients[$clientId]['socket'], (string) $payload);
+                $this->counters['messages_sent']++;
+            }
+        }
+    }
+
+    /**
+     * Publish this node's full membership, and drop peers that have gone quiet.
+     *
+     * The full state is the correctness mechanism: whatever a peer missed, it is
+     * right again within one interval, so no individual delta has to be reliable.
+     * A heartbeat is sent even with nothing to report, or a node serving only empty
+     * channels would look dead and be pruned — then reappear on its next join,
+     * churning the member list of every channel it does serve.
+     */
+    private function gossipState(): void
+    {
+        if ($this->cluster === null || $this->clusterState === null) {
+            return;
+        }
+
+        $now = time();
+        if ($now - $this->lastGossipAt < $this->gossipInterval) {
+            return;
+        }
+        $this->lastGossipAt = $now;
+
+        $channels = [];
+        foreach ($this->presence as $channel => $members) {
+            foreach ($members as $member) {
+                $channels[$channel][$member['user_id']] = $member['user_info'] ?? [];
+            }
+        }
+
+        $this->gossip($channels === []
+            ? ['type' => 'heartbeat']
+            : ['type' => 'state', 'channels' => $channels]);
+
+        foreach ($this->clusterState->pruneExpired() as $node => $byChannel) {
+            \Pramnos\Logs\Logger::log(
+                'Broadcasting cluster: node ' . $node . ' expired; dropping its members.',
+                'broadcasting'
+            );
+
+            foreach ($byChannel as $channel => $userIds) {
+                foreach ($userIds as $userId) {
+                    if (!$this->userIsPresentAnywhere((string) $channel, (string) $userId)) {
+                        $this->announceMember((string) $channel, 'member_removed', (string) $userId, []);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Record a lifecycle event, if anybody is listening.
      *
      * The guard is what keeps this free for the deployments that do not use
@@ -630,6 +909,7 @@ class LocalBroadcastServer
             $this->drainRedisIngest();
             $this->pollLogFile();
             $this->sendKeepalives();
+            $this->gossipState();
             $this->flushWebhooks();
             return;
         }
@@ -647,6 +927,7 @@ class LocalBroadcastServer
         $this->drainRedisIngest();
         $this->pollLogFile();
         $this->sendKeepalives();
+        $this->gossipState();
         $this->flushWebhooks();
     }
 
@@ -663,6 +944,21 @@ class LocalBroadcastServer
         foreach ($this->redisIngest->drain() as $msg) {
             $decoded = json_decode($msg['message'], true);
             $except  = null;
+
+            // Gossip is not an application event and must never reach a browser.
+            // Checked before anything else, because everything below fans out.
+            if (
+                $this->cluster !== null
+                && $this->clusterIngestChannel !== ''
+                && $msg['channel'] === $this->clusterIngestChannel
+            ) {
+                $body = is_array($decoded['payload'] ?? null) ? $decoded['payload'] : $decoded;
+                if (is_array($body)) {
+                    $this->handleClusterMessage($body);
+                }
+                continue;
+            }
+
             if (is_array($decoded) && array_key_exists('event', $decoded)) {
                 $event   = (string) $decoded['event'];
                 $payload = $decoded['payload'] ?? [];
@@ -1020,6 +1316,14 @@ class LocalBroadcastServer
             'socket_id' => $this->clients[$id]['socketId'] ?? '',
         ]);
 
+        $this->gossip([
+            'type'      => 'client_event',
+            'channel'   => $channel,
+            'event'     => $event,
+            'data'      => is_string($data) ? $data : json_encode($data),
+            'socket_id' => $this->clients[$id]['socketId'] ?? '',
+        ]);
+
         $payload = json_encode([
             'event'   => $event,
             'data'    => is_string($data) ? $data : json_encode($data),
@@ -1125,9 +1429,16 @@ class LocalBroadcastServer
 
         // Whether this user is newly present has to be decided *before* adding
         // this connection, or a second tab would announce its own arrival.
-        $alreadyPresent = $this->userIsPresent($channel, $member['user_id']);
+        $alreadyPresent = $this->userIsPresentAnywhere($channel, $member['user_id']);
 
         $this->presence[$channel][$id] = $member;
+
+        $this->gossip([
+            'type'    => 'join',
+            'channel' => $channel,
+            'user_id' => $member['user_id'],
+            'info'    => $member['user_info'] ?? [],
+        ]);
 
         // The subscriber's own list includes itself, per the Pusher protocol: a
         // client that had to add itself would show a different room to the person
@@ -1159,6 +1470,13 @@ class LocalBroadcastServer
         $hash = [];
         $ids  = [];
 
+        // Remote members first, so a locally-connected copy of the same person wins
+        // on info — the local view is the fresher of the two by construction.
+        foreach ($this->clusterState?->remoteMembers($channel) ?? [] as $userId => $info) {
+            $hash[$userId] = $info;
+            $ids[$userId]  = (string) $userId;
+        }
+
         foreach ($this->presence[$channel] ?? [] as $member) {
             // Last write wins for a user with several connections. They carry the
             // same identity by construction — the auth endpoint derived it from
@@ -1181,6 +1499,18 @@ class LocalBroadcastServer
                 'count' => count($hash),
             ],
         ];
+    }
+
+    /**
+     * True when $userId is present in $channel anywhere in the cluster.
+     *
+     * Used to decide whether an arrival or a departure is worth announcing. Locally
+     * only would announce a member every node already knows about, once per node.
+     */
+    private function userIsPresentAnywhere(string $channel, string $userId, ?int $ignoreClient = null): bool
+    {
+        return $this->userIsPresent($channel, $userId, $ignoreClient)
+            || ($this->clusterState?->hasRemoteMember($channel, $userId) ?? false);
     }
 
     /** True when some connection on $channel already carries $userId. */
@@ -1213,8 +1543,19 @@ class LocalBroadcastServer
             unset($this->presence[$channel]);
         }
 
-        if (!$this->userIsPresent($channel, $member['user_id'])) {
+        // Gossiped before the announcement is decided, so a peer learns of the
+        // departure even if this node still has another connection for that user and
+        // therefore announces nothing.
+        $this->gossip([
+            'type'    => 'leave',
+            'channel' => $channel,
+            'user_id' => $member['user_id'],
+        ]);
+
+        if (!$this->userIsPresentAnywhere($channel, $member['user_id'])) {
             $this->sendToChannelExcept($channel, 'pusher_internal:member_removed', $member, $id);
+            // Webhook only for a member this node owned: each node reports its own,
+            // which needs no coordination and cannot double-report.
             $this->queueWebhook([
                 'name'    => 'member_removed',
                 'channel' => $channel,

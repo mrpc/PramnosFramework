@@ -916,4 +916,157 @@ class BroadcastServeTest extends TestCase
         // Assert
         $this->assertStringNotContainsString('Webhooks:', $tester->getDisplay());
     }
+
+    // =========================================================================
+    // Clustering
+    // =========================================================================
+
+    /**
+     * Clustering is off unless asked for, and nothing about it is printed.
+     *
+     * Silence is right for a feature nobody enabled, and a single-daemon deployment
+     * is the common case.
+     */
+    public function testExecuteSaysNothingAboutClusteringByDefault(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([], ['broadcasting']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringNotContainsString('Cluster:', $tester->getDisplay());
+    }
+
+    /**
+     * With clustering on, the node id, the gossip channel and the interval are
+     * reported, along with the consistency caveat.
+     *
+     * The caveat belongs in the banner because it changes what the numbers mean: an
+     * operator reading a member count needs to know it is eventually consistent, and
+     * a receiver counting member webhooks needs to know they are per-node.
+     */
+    public function testExecuteReportsClusteringWithItsCaveat(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            [
+                'redis'   => ['prefix' => 'app:'],
+                'cluster' => ['enabled' => true, 'node_id' => 'node-a', 'interval' => 15],
+            ],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Cluster: node node-a', $display);
+        $this->assertStringContainsString('app:__pramnos_cluster every 15s', $display);
+        $this->assertStringContainsString('eventually consistent', $display);
+        $this->assertStringContainsString('per-node', $display);
+    }
+
+    /**
+     * The cluster channel joins the ingest subscription even with no --channels
+     * option.
+     *
+     * Gossip arrives over the backplane, so a clustered node that subscribed to
+     * nothing would publish its own state and never hear anybody else's — every node
+     * believing it was alone, with nothing in any log.
+     */
+    public function testExecuteSubscribesToTheGossipChannelWithoutOtherChannels(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['redis' => ['prefix' => 'app:'], 'cluster' => ['enabled' => true, 'node_id' => 'n']],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('Redis ingest: app:__pramnos_cluster', $tester->getDisplay());
+    }
+
+    /**
+     * A generated node id is used when none is configured, so two nodes on one host
+     * do not collide.
+     */
+    public function testExecuteGeneratesANodeIdWhenNoneIsConfigured(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['cluster' => ['enabled' => true]],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertMatchesRegularExpression('/Cluster: node [0-9a-f]{12}/', $tester->getDisplay());
+    }
+
+    // =========================================================================
+    // Transport
+    // =========================================================================
+
+    /**
+     * Without a certificate the banner says the port speaks plain `ws://`.
+     *
+     * Reported either way because an operator needs to know which scheme the port
+     * they are about to point clients at speaks — getting it wrong presents as a
+     * network fault rather than a scheme mismatch.
+     */
+    public function testExecuteReportsPlainTransportByDefault(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([], ['broadcasting']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringContainsString('Transport: ws:// (plain TCP)', $tester->getDisplay());
+    }
+
+    /**
+     * With a certificate configured, TLS is reported along with its caveat.
+     *
+     * The caveat belongs in the banner: the handshake is synchronous and the loop is
+     * single-threaded, so an operator turning this on for a busy install needs to see
+     * that before the traffic tells them.
+     */
+    public function testExecuteReportsTlsWithItsCaveat(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['websocket' => ['tls' => ['local_cert' => '/etc/ssl/realtime/fullchain.pem']]],
+            ['broadcasting']
+        );
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Transport: wss://', $display);
+        $this->assertStringContainsString('handshake is synchronous', $display);
+    }
 }
