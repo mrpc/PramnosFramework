@@ -125,13 +125,27 @@ class SpoolDrain extends Command
             $kept = $stats['failed'] - $parked;
 
             if ($kept > 0) {
+                // A comment, not an error. A row kept for the next run is the retry
+                // budget being spent, which is the spool working — and reporting it as
+                // a task failure meant the scheduler recorded a failure every minute
+                // until the budget ran out. One deployment read "3 errors in 200
+                // seconds" as three tasks failing when it was one task failing three
+                // times, which is exactly the ambiguity that costs an afternoon.
                 $output->writeln(
-                    '<error>' . number_format($kept) . ' row(s) could not be '
-                    . 'written and were kept for the next run.</error>'
+                    '<comment>' . number_format($kept) . ' row(s) could not be '
+                    . 'written and were kept for the next run.</comment>'
                 );
             }
 
-            return Command::FAILURE;
+            // Parked rows are the failure worth reporting: data has been set aside
+            // and no further attempt will be made, so somebody has to look. Rows
+            // still inside their budget are not — and if they never become writable
+            // they end up parked, so the signal is preserved rather than dropped.
+            if ($parked > 0) {
+                return Command::FAILURE;
+            }
+
+            return Command::SUCCESS;
         }
 
         return Command::SUCCESS;
