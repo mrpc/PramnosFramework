@@ -1210,14 +1210,28 @@ class LocalBroadcastServer
         $except = null;
         // 100 ms select timeout so we can poll the log file frequently enough.
         //
-        // Wrapped, because this does not only return false: given a set PHP considers
-        // unusable — every entry a closed resource, say — it throws `ValueError: No
-        // stream arrays were passed`, and `@` suppresses warnings rather than
-        // exceptions. Unhandled that is a fatal in the one loop the whole server is,
-        // so it is treated as what it is: a select that could not watch anybody.
+        // Wrapped, because this does not only return false, and `@` suppresses
+        // warnings rather than exceptions — unhandled, either throwable below is a
+        // fatal in the one loop the whole server is.
+        //
+        // Which throwable, measured, because the first guard here named the wrong one:
+        //
+        //   every entry invalid (all closed, or null)  → ValueError,
+        //                                                "No stream arrays were passed"
+        //   at least one live entry plus an invalid one → TypeError,
+        //                                                "supplied resource is not a
+        //                                                 valid stream resource"
+        //
+        // `$read` always holds the listening socket, so the **reachable** door here is
+        // the TypeError one and the original `catch (\ValueError)` guarded a door that
+        // cannot open. It looks unreachable today too — every fclose is paired with an
+        // unset in disconnectClient(), and shutdown() runs after the loop — which is
+        // the argument for catching Throwable rather than a narrower type: the point of
+        // a guard in a single-process event loop is the edit that has not happened yet,
+        // and that edit opens the TypeError door.
         try {
             $changed = @stream_select($read, $write, $except, 0, 100_000);
-        } catch (\ValueError) {
+        } catch (\Throwable) {
             $changed = false;
         }
 
@@ -1225,14 +1239,39 @@ class LocalBroadcastServer
         //
         // `0` is "nothing happened". `false` is "I could not watch", and past
         // FD_SETSIZE it is permanent — so a node that crossed the ceiling an hour ago
-        // was spinning every 100 ms serving nobody and looking exactly like an idle
-        // one: same branch, `@` suppressing PHP's only diagnostic, and the approach
-        // warning logged once per process and long gone. Reported by a project that
-        // measured the boundary and then went looking for what happens on the far
-        // side of it.
+        // served nobody while looking exactly like an idle one: same branch, `@`
+        // suppressing PHP's only diagnostic, and the approach warning logged once per
+        // process and long gone.
+        //
+        // Not "spinning every 100 ms", which is how this comment first put it and is
+        // wrong by five orders of magnitude — a failed select does not wait, so it was
+        // spinning about 1.4 million times a second. The number matters because it is
+        // the line somebody reads to judge how much the crossing costs. Both the
+        // measurement and the correction came from the project that went looking for
+        // what happens on the far side of the ceiling.
         if ($changed === false) {
             $this->counters['select_failures']++;
             $this->reportSelectFailure(count($read));
+
+            // Supplies the pause the call did not, because **one of the two ways this
+            // can fail does not wait**. Measured, and they differ:
+            //
+            //   past FD_SETSIZE          → returns false *immediately*, ~1,377,387
+            //                              iterations/second
+            //   invalid resource in set  → throws TypeError after the *full* timeout,
+            //                              100.4 ms, already paced
+            //
+            // So the hot loop is specific to the ceiling case, and it is the one that
+            // matters: it is permanent, while a bad resource in the set is a bug that
+            // shows up at once. Without this, that node runs drainRedisIngest(), a
+            // pollLogFile() stat, sendKeepalives(), gossipState() and flushWebhooks()
+            // 1.4 million times a second while serving nobody.
+            //
+            // It is also the real argument for throttling the log rather than writing
+            // a line per failure: at that rate the log was never the expensive part,
+            // and without the pause the noise simply moves to Redis and the
+            // filesystem.
+            $this->pauseAfterSelectFailure();
 
             // Deliberately **not** falling through to the read loop below. On failure
             // PHP leaves the arrays untouched — measured: `false` with both streams
@@ -1364,6 +1403,23 @@ class LocalBroadcastServer
         // this is short by one, and being short by one on a cliff warning is the
         // direction that matters.
         $this->warnIfApproachingDescriptorCeiling();
+    }
+
+    /**
+     * Pause after a failed select, so the failure branch cannot become a hot loop.
+     *
+     * A seam rather than a bare `usleep()` because the alternative is untestable: the
+     * only failure shape a test can produce cheaply — an invalid resource in the set —
+     * already waits the full timeout before throwing, so wall-clock cannot tell a
+     * paced branch from a spinning one. The shape that *does* spin needs a thousand
+     * open descriptors to reach.
+     *
+     * The first version of that test asserted elapsed time and passed with the pause
+     * removed. This is what replaced it.
+     */
+    protected function pauseAfterSelectFailure(): void
+    {
+        usleep(100_000);
     }
 
     /**

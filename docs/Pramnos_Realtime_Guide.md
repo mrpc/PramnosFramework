@@ -1216,6 +1216,23 @@ rather than discovering the cliff from it.
     framework's own loop did exactly that until it was measured — `select_failures` in
     the metrics endpoint is what came of it.
 
+    **Then pause on the failure branch.** Past `FD_SETSIZE` the call returns `false`
+    *immediately* — the timeout is not applied — so an error branch that does its
+    housekeeping and loops runs it about **1.4 million times a second**. Measured, on a
+    loop whose per-iteration work was a Redis drain, a `stat()` and three no-ops.
+
+    Two failure shapes, two timings, and the difference is worth knowing before you
+    write the branch:
+
+    | | | |
+    |---|---|---|
+    | past `FD_SETSIZE` | returns `false` | immediately — needs your pause |
+    | invalid resource in the set | throws `TypeError` | after the full timeout |
+
+    The second is a bug that announces itself; the first is permanent and quiet. And
+    the throwable is why the framework's loop wraps the call: `@` suppresses warnings,
+    not exceptions, and an uncaught one in a single-process event loop is a fatal.
+
     Use the helper rather than re-deriving 90% yourself: it gives you one definition of
     "close", and it counts the descriptors the process *holds* as well as the ones you
     pass, which your own count cannot see.

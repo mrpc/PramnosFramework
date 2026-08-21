@@ -442,7 +442,20 @@ class DescriptorCeilingTest extends TestCase
         // Arrange
         $server = new LocalBroadcastServer('key', null, new AllowAllAuthorizer());
 
-        // Act — a closed resource in the read set makes stream_select() fail
+        // Act — a **live** listener plus one closed client socket, which is the shape
+        // the real loop can reach: $read always holds the listening socket, so an
+        // invalid entry beside it gives TypeError rather than ValueError. Measured:
+        //
+        //   all entries invalid          → ValueError, "No stream arrays were passed"
+        //   one live entry plus an
+        //   invalid one                  → TypeError, "not a valid stream resource"
+        //
+        // The first version of this test closed everything, which produced ValueError
+        // and exercised a door the loop cannot open.
+        $listener = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($listener);
+        $this->sockets[] = $listener;
+
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
         fclose($pair[0]);
         fclose($pair[1]);
@@ -454,7 +467,7 @@ class DescriptorCeilingTest extends TestCase
                 'connectedAt' => time(), 'assembler' => null,
             ],
         ]);
-        (new \ReflectionProperty($server, 'serverSocket'))->setValue($server, $pair[0]);
+        (new \ReflectionProperty($server, 'serverSocket'))->setValue($server, $listener);
 
         (new \ReflectionMethod($server, 'loopIteration'))->invoke($server);
 
@@ -559,5 +572,123 @@ class DescriptorCeilingTest extends TestCase
             'select_failures',
             (new LocalBroadcastServer('key'))->stats()
         );
+    }
+
+    /**
+     * The failure branch pauses, so a node past the ceiling is not a hot loop.
+     *
+     * **The two ways this can fail have different timings**, which is why the first
+     * version of this test was worthless — measured:
+     *
+     *   past FD_SETSIZE         → returns false *immediately*, ~1,377,387 iterations/s
+     *   invalid resource in set → throws TypeError after the *full* timeout, 100.4 ms
+     *
+     * A test can produce the second shape cheaply and the first only by opening a
+     * thousand descriptors. So the first version asserted elapsed time against the
+     * shape that is already paced, and **passed with the pause removed** — verified.
+     *
+     * This asserts the pause is taken instead, through the seam that exists for the
+     * purpose. Not as good as measuring the real shape, and better than an assertion
+     * that cannot fail.
+     */
+    public function testTheFailureBranchTakesThePause(): void
+    {
+        // Arrange — a live listener plus a closed socket, so select fails
+        $listener = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($listener);
+        $this->sockets[] = $listener;
+
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
+        fclose($pair[0]);
+        fclose($pair[1]);
+
+        $server = new class('key', null, new AllowAllAuthorizer()) extends LocalBroadcastServer {
+            public int $pauses = 0;
+
+            protected function pauseAfterSelectFailure(): void
+            {
+                // Counted rather than taken: three real pauses would add 300 ms to the
+                // suite for no extra proof.
+                $this->pauses++;
+            }
+        };
+
+        (new \ReflectionProperty(LocalBroadcastServer::class, 'clients'))->setValue($server, [
+            1 => [
+                'socket' => $pair[1], 'state' => 'connected', 'buffer' => '',
+                'channels' => [], 'socketId' => '1.1', 'pingAt' => time() + 30,
+                'connectedAt' => time(), 'assembler' => null,
+            ],
+        ]);
+        (new \ReflectionProperty(LocalBroadcastServer::class, 'serverSocket'))
+            ->setValue($server, $listener);
+
+        $loop = new \ReflectionMethod(LocalBroadcastServer::class, 'loopIteration');
+
+        // Act
+        $loop->invoke($server);
+        $loop->invoke($server);
+        $loop->invoke($server);
+
+        // Assert — once per failure, not once per process
+        $this->assertSame(3, $server->stats()['select_failures']);
+        $this->assertSame(3, $server->pauses, 'every failing iteration must pause');
+    }
+
+    /**
+     * An idle tick does not pause twice.
+     *
+     * `stream_select()` already waited its timeout on a `0` return, so pausing again
+     * there would halve the loop's responsiveness for nothing.
+     */
+    public function testAnIdleTickDoesNotPause(): void
+    {
+        // Arrange
+        $listener = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertNotFalse($listener);
+        $this->sockets[] = $listener;
+
+        $server = new class('key', null, new AllowAllAuthorizer()) extends LocalBroadcastServer {
+            public int $pauses = 0;
+
+            protected function pauseAfterSelectFailure(): void
+            {
+                $this->pauses++;
+            }
+        };
+
+        (new \ReflectionProperty(LocalBroadcastServer::class, 'serverSocket'))
+            ->setValue($server, $listener);
+
+        // Act
+        (new \ReflectionMethod(LocalBroadcastServer::class, 'loopIteration'))->invoke($server);
+
+        // Assert
+        $this->assertSame(0, $server->stats()['select_failures']);
+        $this->assertSame(0, $server->pauses);
+    }
+
+    /**
+     * The guard catches what the loop can actually throw.
+     *
+     * The first version caught `\ValueError`, which needs *every* entry in the set to
+     * be invalid — impossible while `$read` holds a live listening socket. The
+     * reachable throwable is `TypeError`. Catching `Throwable` rather than either name
+     * is the point: a guard in a single-process event loop exists for the edit that
+     * has not happened yet, and it should not depend on having predicted which door
+     * that edit opens.
+     */
+    public function testTheGuardCatchesTheReachableThrowable(): void
+    {
+        // Arrange
+        $method = new \ReflectionMethod(LocalBroadcastServer::class, 'loopIteration');
+        $source = (string) file_get_contents(
+            (new \ReflectionClass(LocalBroadcastServer::class))->getFileName()
+        );
+
+        // Assert — the narrow guard must not come back
+        $this->assertStringContainsString('} catch (\Throwable) {', $source);
+        $this->assertStringNotContainsString('} catch (\ValueError) {', $source);
+        $this->assertTrue($method->isPrivate());
     }
 }
