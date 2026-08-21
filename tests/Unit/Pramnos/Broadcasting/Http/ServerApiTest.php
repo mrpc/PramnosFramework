@@ -614,4 +614,63 @@ class ServerApiTest extends TestCase
         // Act & Assert
         $this->assertSame(200, $api->handle('GET', $path, $query)['status']);
     }
+
+    // -------------------------------------------------------------------------
+    // Metrics
+    // -------------------------------------------------------------------------
+
+    /**
+     * GET /metrics reports levels and counters together.
+     *
+     * Both kinds are needed: a gauge that only reports "now" cannot answer "is this
+     * getting worse", and `client_events_refused` beside `client_events_relayed` is
+     * the only way to see a rate limit working at all — refusals are silent on the
+     * wire by design, so without the counter a throttled client looks exactly like a
+     * quiet one.
+     */
+    public function testReportsMetrics(): void
+    {
+        // Arrange
+        $server = $this->server(
+            ['ops' => [1 => 1], 'presence-room' => [2 => 2]],
+            ['presence-room' => [2 => ['user_id' => '7']]]
+        );
+        $api   = new ServerApi($server, $this->registry());
+        $path  = '/apps/' . self::APP_ID . '/metrics';
+        $query = $this->signedQuery('GET', $path);
+
+        // Act
+        $result = $api->handle('GET', $path, $query);
+
+        // Assert
+        $this->assertSame(200, $result['status']);
+        $body = $result['body'];
+
+        foreach ([
+            'connections_total', 'messages_sent', 'client_events_relayed',
+            'client_events_refused', 'webhook_events_queued', 'connections_current',
+            'channels_occupied', 'subscriptions_current', 'presence_channels',
+            'uptime_seconds',
+        ] as $key) {
+            $this->assertArrayHasKey($key, $body, 'missing metric: ' . $key);
+            $this->assertIsInt($body[$key]);
+        }
+
+        $this->assertSame(2, $body['channels_occupied']);
+        $this->assertSame(2, $body['subscriptions_current']);
+        $this->assertSame(1, $body['presence_channels']);
+    }
+
+    /**
+     * Metrics need the same signature as everything else — a connection count is a
+     * useful thing for an outsider to know about a server.
+     */
+    public function testMetricsRequireAuthentication(): void
+    {
+        // Arrange
+        $api = new ServerApi($this->server(), $this->registry());
+
+        // Act & Assert
+        $this->assertSame(401, $api->handle('GET', '/apps/' . self::APP_ID . '/metrics', [])['status']);
+    }
 }

@@ -16,6 +16,7 @@ use_cases:
   - Reacting when a room becomes empty, or when a user's last connection goes
   - Serving wss:// without putting a proxy in front
   - Defining an event once instead of repeating channel and payload at every call site
+  - Monitoring a running WebSocket daemon, or telling a throttled client from a quiet one
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -1070,6 +1071,7 @@ POST /apps/{appId}/batch_events      {batch: [...]}
 GET  /apps/{appId}/channels          ?info=user_count&filter_by_prefix=presence-
 GET  /apps/{appId}/channels/{name}   ?info=user_count,subscription_count
 GET  /apps/{appId}/channels/{name}/users
+GET  /apps/{appId}/metrics
 ```
 
 It is **opt-in**, for the same reason client events are: a signed request can
@@ -1116,6 +1118,37 @@ and it would not have.
 A batch is validated in full before anything is published. A batch that failed
 half-way would have delivered some of its events and reported an error, leaving the
 caller unable to retry safely.
+
+### Metrics
+
+`GET /apps/{appId}/metrics` returns levels and counters together:
+
+| | |
+|---|---|
+| `connections_current`, `channels_occupied`, `subscriptions_current`, `presence_channels` | levels — what is true now |
+| `connections_total`, `messages_sent`, `client_events_relayed`, `client_events_refused`, `webhook_events_queued` | counters, since start |
+| `uptime_seconds` | so a counter can be read as a rate |
+
+Both kinds, because neither is enough alone. "Twelve connected" says nothing about
+whether four thousand have come and gone in the last minute; a counter with no
+uptime says nothing about how fast.
+
+**`client_events_refused` is the one to watch.** Client-event refusals are silent on
+the wire by design — answering each one would hand a browser a cheap way to make the
+server talk — so without this counter a client that has been throttled for an hour is
+indistinguishable from one that is simply quiet. Rising refusals with the feature
+*off* is also worth knowing: something is trying to whisper and nobody enabled it.
+
+`messages_sent` counts **deliveries, not calls**: one broadcast to a room of three is
+three. That is the number that matters when the question is where the process is
+spending its time — and an excluded connection is not counted, because nothing was
+sent to it.
+
+Metrics need the same signature as everything else. A connection count is a useful
+thing for an outsider to know about a server.
+
+Also available in-process as `$server->stats()`, for an `onTick` callback that wants
+to log or export them.
 
 ---
 

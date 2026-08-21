@@ -106,6 +106,27 @@ class LocalBroadcastServer
     private int $clientEventsPerSecond = 10;
 
     /**
+     * Counters, for the metrics endpoint.
+     *
+     * Cumulative where a rate is what matters (`connections_total`), instantaneous
+     * where a level is (`connections_current`, derived on read). A gauge that only
+     * ever reports "now" cannot answer "is this getting worse", and a counter that
+     * resets on restart at least says so through `uptime_seconds`.
+     *
+     * @var array<string,int>
+     */
+    private array $counters = [
+        'connections_total'      => 0,
+        'messages_sent'          => 0,
+        'client_events_relayed'  => 0,
+        'client_events_refused'  => 0,
+        'webhook_events_queued'  => 0,
+    ];
+
+    /** Unix time this object was constructed, or run() was called. */
+    private int $startedAt;
+
+    /**
      * SSL stream-context options, when serving `wss://` directly.
      *
      * @var array<string,mixed>|null
@@ -140,6 +161,7 @@ class LocalBroadcastServer
     ) {
         $this->appKey     = $appKey;
         $this->logFile    = $logFile;
+        $this->startedAt  = time();
         // Default is permissive to preserve local-dev behaviour; production wiring
         // passes a PusherAuthorizer built from the configured key + secret.
         $this->authorizer = $authorizer ?? new AllowAllAuthorizer();
@@ -178,6 +200,34 @@ class LocalBroadcastServer
     public function subscriberCount(string $channel): int
     {
         return count($this->subscriptions[$channel] ?? []);
+    }
+
+    /**
+     * A snapshot of what this process is doing.
+     *
+     * Levels and counters together on purpose: `connections_current` answers "how
+     * busy is it now", `connections_total` against `uptime_seconds` answers "is that
+     * unusual", and `client_events_refused` beside `client_events_relayed` is the
+     * only way to see a rate limit doing its job — refusals are silent on the wire
+     * by design, so without a counter a client that has been throttled for an hour
+     * looks exactly like one that is quiet.
+     *
+     * @return array<string,int>
+     */
+    public function stats(): array
+    {
+        $subscriptions = 0;
+        foreach ($this->subscriptions as $subscribers) {
+            $subscriptions += count($subscribers);
+        }
+
+        return $this->counters + [
+            'connections_current'  => count($this->clients),
+            'channels_occupied'    => count($this->subscriptions),
+            'subscriptions_current' => $subscriptions,
+            'presence_channels'    => count($this->presence),
+            'uptime_seconds'       => max(0, time() - $this->startedAt),
+        ];
     }
 
     /**
@@ -334,6 +384,7 @@ class LocalBroadcastServer
      */
     public function run(string $host = '0.0.0.0', int $port = 6001): void
     {
+        $this->startedAt    = time();
         $this->serverSocket = $this->createServerSocket($host, $port);
 
         stream_set_blocking($this->serverSocket, false);
@@ -433,6 +484,7 @@ class LocalBroadcastServer
 
             if (isset($this->clients[$id])) {
                 $this->wsSend($this->clients[$id]['socket'], $payload);
+                $this->counters['messages_sent']++;
             }
         }
     }
@@ -527,6 +579,7 @@ class LocalBroadcastServer
     {
         if ($this->webhooks !== null) {
             $this->pendingWebhooks[] = $event;
+            $this->counters['webhook_events_queued']++;
         }
     }
 
@@ -655,6 +708,7 @@ class LocalBroadcastServer
         stream_set_blocking($socket, false);
 
         $id = $this->nextSocketId++;
+        $this->counters['connections_total']++;
         $this->clients[$id] = [
             'socket'   => $socket,
             'state'    => 'handshaking', // handshaking | connected | closing
@@ -923,6 +977,7 @@ class LocalBroadcastServer
     private function handleClientEvent(int $id, string $event, array $msg): void
     {
         if (!$this->clientEventsEnabled) {
+            $this->counters['client_events_refused']++;
             return;
         }
 
@@ -935,6 +990,7 @@ class LocalBroadcastServer
             !str_starts_with($channel, 'private-')
             && !str_starts_with($channel, 'presence-')
         ) {
+            $this->counters['client_events_refused']++;
             return;
         }
 
@@ -943,12 +999,16 @@ class LocalBroadcastServer
         // for it — the subscription is the only proof of authorization the daemon
         // holds.
         if (!isset($this->subscriptions[$channel][$id])) {
+            $this->counters['client_events_refused']++;
             return;
         }
 
         if (!$this->consumeClientEventBudget($id)) {
+            $this->counters['client_events_refused']++;
             return;
         }
+
+        $this->counters['client_events_relayed']++;
 
         $data = $msg['data'] ?? [];
 
