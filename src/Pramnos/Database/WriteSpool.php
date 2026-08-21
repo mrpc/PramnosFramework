@@ -1254,8 +1254,52 @@ class WriteSpool
      */
     protected static function writeNow(string $table, array $row): void
     {
-        \Pramnos\Framework\Factory::getDatabase()
-            ->queryBuilder()->table($table)->insert($row);
+        $database = static::database();
+        $written  = $database->queryBuilder()->table($table)->insert($row);
+
+        // **The return value is the whole point of this line.**
+        //
+        // Everything above judges a write by the absence of an exception, and
+        // `Database::execute()` has one documented path that fails without throwing:
+        // a *prepare* failure returns false outside strict mode. Its own comment says
+        // so — "this return-false is the one silent path … so a caller cannot swallow
+        // it" — and this was exactly such a caller, swallowing it.
+        //
+        // The consequence was not a failed write, it was a lost row: no exception
+        // meant `written` was incremented, which meant the spool file was deleted.
+        // Measured on a live stack twice — reported written in 6 ms, absent from the
+        // table, absent from the spool, absent from the parked file. Gone.
+        //
+        // It also explains a second symptom that looked unrelated: a parked-row count
+        // that stopped growing while the underlying condition continued. The rows had
+        // stopped being *seen* as failures, not stopped failing.
+        //
+        // Checked here rather than by enabling strict mode on the connection, because
+        // strict mode changes behaviour for everything else sharing it — a local
+        // check is the smaller change and the reporter's own preference. Throwing
+        // hands the row to the retry and parking machinery that already exists, which
+        // is the behaviour a failed write should always have had.
+        if ($written === false) {
+            $reason = trim((string) ($database->error_text ?? ''));
+
+            throw new \RuntimeException(
+                'spooled write to ' . $table . ' failed without throwing'
+                . ($reason !== '' ? ': ' . $reason : ' (no database error text available)')
+            );
+        }
+    }
+
+    /**
+     * The database a spooled write goes to.
+     *
+     * A seam so {@see writeNow()} can be tested against a write that fails the way
+     * `Database::execute()` fails — by returning false — rather than against a test
+     * double that reimplements the check. The first version of that test did exactly
+     * that, and would have passed with the check removed.
+     */
+    protected static function database(): object
+    {
+        return \Pramnos\Framework\Factory::getDatabase(); // @codeCoverageIgnore
     }
 
     /**
