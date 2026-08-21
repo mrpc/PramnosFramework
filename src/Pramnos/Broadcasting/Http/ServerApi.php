@@ -16,6 +16,7 @@ use Pramnos\Broadcasting\LocalBroadcastServer;
  *     GET  /apps/{appId}/channels                   which channels are occupied
  *     GET  /apps/{appId}/channels/{name}            one channel's occupancy
  *     GET  /apps/{appId}/channels/{name}/users      who is in a presence channel
+ *     GET  /apps/{appId}/metrics                    counters and levels
  *
  * ## Why this exists at all
  *
@@ -92,6 +93,8 @@ final class ServerApi
                 => $this->publishBatch($body),
             $method === 'GET' && $resource === 'channels'
                 => $this->channels($query),
+            $method === 'GET' && $resource === 'metrics'
+                => ['status' => 200, 'body' => $this->server->stats()],
             $method === 'GET' && preg_match('#^channels/([^/]+)/users$#', $resource, $m) === 1
                 => $this->channelUsers(urldecode($m[1])),
             $method === 'GET' && preg_match('#^channels/([^/]+)$#', $resource, $m) === 1
