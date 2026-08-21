@@ -151,11 +151,26 @@ class DaemonLockPathAgreementTest extends TestCase
 
     /**
      * A concrete orchestrator with nothing but the members the abstract class
-     * requires.
+     * requires, writing its spawn log where the test can read it.
      */
-    private function orchestrator(): DaemonOrchestrator
+    private function orchestrator(?string $logFile = null): DaemonOrchestrator
     {
-        return new class extends DaemonOrchestrator {
+        return new class($logFile) extends DaemonOrchestrator {
+            public function __construct(private ?string $logFile)
+            {
+                parent::__construct('test:orchestrator');
+            }
+
+            protected function getProcessLogFile(array $desiredProcess): string
+            {
+                return $this->logFile ?? parent::getProcessLogFile($desiredProcess);
+            }
+
+            protected function ensureLogsDir(): void
+            {
+                // The test owns its temp directory.
+            }
+
             protected function buildDesiredProcesses(): array
             {
                 return [];
@@ -181,6 +196,36 @@ class DaemonLockPathAgreementTest extends TestCase
                 return $this->buildSpawnShellCommand($php, $spec);
             }
         };
+    }
+
+    /**
+     * Run a built spawn command and return what the child wrote to its log.
+     *
+     * **This is the test that would have caught the regression, and the string
+     * assertions above would not.** `buildSpawnShellCommand()` was extracted precisely
+     * because it is the only place the exported environment can be asserted without
+     * starting a process — and a guard reading the string passed while the string did
+     * not work: `nohup setsid VAR=value php …` puts a shell *assignment* where `setsid`
+     * expects a program, so every worker died with exit 127. The variable was present,
+     * in the wrong place.
+     *
+     * A guard that reads text about a shell cannot tell you the shell accepts it. One
+     * harmless execution can. Both consuming projects reached that conclusion
+     * independently, and it is the general rule: assert the construction, not the name.
+     */
+    private function runSpawn(string $shell, string $logFile): string
+    {
+        shell_exec($shell);
+
+        // The child is backgrounded; wait briefly for it to write and exit.
+        for ($waited = 0; $waited < 50; $waited++) {
+            if (is_file($logFile) && trim((string) file_get_contents($logFile)) !== '') {
+                break;
+            }
+            usleep(100_000);
+        }
+
+        return (string) @file_get_contents($logFile);
     }
 
     /**
@@ -268,5 +313,128 @@ class DaemonLockPathAgreementTest extends TestCase
             strpos($shell, CommandBase::LOCK_FILE_ENV),
             'the assignment must come before the binary'
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Executed, not read
+    // -------------------------------------------------------------------------
+
+    /**
+     * The spawned child actually receives the exported lock path.
+     *
+     * Everything above asserts the *text* of the command. This runs it, because the
+     * regression that shipped was invisible to text: the variable was in the string
+     * and in the wrong place, so `setsid` tried to execute
+     * `PRAMNOS_JOB_LOCK_FILE=/…` as a program and every worker exited 127 — while
+     * reporting success, since `echo $!` yields a pid whatever happened.
+     */
+    public function testTheSpawnedChildActuallyReceivesTheLockPath(): void
+    {
+        // Arrange
+        $dir     = sys_get_temp_dir() . '/pramnos_spawn_' . bin2hex(random_bytes(4));
+        mkdir($dir, 0777, true);
+        $logFile = $dir . '/spawn.log';
+        $lock    = $dir . '/realtime.lock';
+
+        $orchestrator = $this->orchestrator($logFile);
+
+        try {
+            $shell = $orchestrator->buildSpawn(PHP_BINARY, [
+                'id'       => 'realtime',
+                'lockFile' => $lock,
+                // A child that reports what it was given, instead of a real worker.
+                'shellCommand' => escapeshellarg(PHP_BINARY) . ' -r '
+                    . escapeshellarg('echo getenv("' . CommandBase::LOCK_FILE_ENV . '") ?: "ABSENT";'),
+            ]);
+
+            // Act
+            $output = $this->runSpawn($shell, $logFile);
+
+            // Assert
+            $this->assertStringContainsString(
+                $lock,
+                $output,
+                'the child must receive the path; got: ' . trim($output)
+            );
+            $this->assertStringNotContainsString('failed to execute', $output);
+            $this->assertStringNotContainsString('ABSENT', $output);
+        } finally {
+            @unlink($logFile);
+            @unlink($lock);
+            @rmdir($dir);
+        }
+    }
+
+    /**
+     * A spawn with no lock path still runs.
+     *
+     * The other half: the fix must not make `env` mandatory, because a worker with no
+     * declared lock is the ordinary case for one-shot commands.
+     */
+    public function testASpawnWithoutALockPathStillRuns(): void
+    {
+        // Arrange
+        $dir     = sys_get_temp_dir() . '/pramnos_spawn_' . bin2hex(random_bytes(4));
+        mkdir($dir, 0777, true);
+        $logFile = $dir . '/spawn.log';
+
+        $orchestrator = $this->orchestrator($logFile);
+
+        try {
+            $shell = $orchestrator->buildSpawn(PHP_BINARY, [
+                'id'           => 'oneoff',
+                'shellCommand' => escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('echo "RAN";'),
+            ]);
+
+            // Act
+            $output = $this->runSpawn($shell, $logFile);
+
+            // Assert
+            $this->assertStringContainsString('RAN', $output, 'got: ' . trim($output));
+            $this->assertStringNotContainsString('failed to execute', $output);
+        } finally {
+            @unlink($logFile);
+            @rmdir($dir);
+        }
+    }
+
+    /**
+     * A lock path containing a space survives the round trip.
+     *
+     * Escaping and the `env` argument boundary at once: the shape most likely to break
+     * quietly, since a split path would silently point the sentinel check at the first
+     * word.
+     */
+    public function testASpacedLockPathSurvivesTheRoundTrip(): void
+    {
+        // Arrange
+        $dir = sys_get_temp_dir() . '/pramnos spawn ' . bin2hex(random_bytes(4));
+        mkdir($dir, 0777, true);
+        $logFile = $dir . '/spawn.log';
+        $lock    = $dir . '/my realtime.lock';
+
+        $orchestrator = $this->orchestrator($logFile);
+
+        try {
+            $shell = $orchestrator->buildSpawn(PHP_BINARY, [
+                'id'           => 'realtime',
+                'lockFile'     => $lock,
+                'shellCommand' => escapeshellarg(PHP_BINARY) . ' -r '
+                    . escapeshellarg('echo getenv("' . CommandBase::LOCK_FILE_ENV . '") ?: "ABSENT";'),
+            ]);
+
+            // Act
+            $output = $this->runSpawn($shell, $logFile);
+
+            // Assert — the failure check comes first, and it is not decoration:
+            // `setsid`'s own error message quotes the path it could not execute, so
+            // asserting only that the path appears passes on the broken form. The
+            // same trap this whole test file exists to close, one assertion down.
+            $this->assertStringNotContainsString('failed to execute', $output, 'got: ' . trim($output));
+            $this->assertStringContainsString($lock, $output, 'got: ' . trim($output));
+        } finally {
+            @unlink($logFile);
+            @rmdir($dir);
+        }
     }
 }

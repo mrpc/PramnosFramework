@@ -820,12 +820,25 @@ abstract class DaemonOrchestrator extends CommandBase
         // indistinguishable from no sentinel, so the worker reported itself healthy
         // and ignored every stop request. Exporting it makes an override that
         // disagrees impossible instead of imperceptible.
+        //
+        // **Through `env`, and that is not a style choice.** A `VAR=value` prefix is a
+        // shell assignment, valid only at the start of a command — and this string
+        // starts with `nohup setsid`, whose first argument is the program to run. The
+        // first version of this put the assignment after them, so `setsid` tried to
+        // execute `PRAMNOS_JOB_LOCK_FILE=/…` as a binary and every worker died with
+        // exit 127. It reported success regardless, because `echo $!` yields a pid
+        // whatever happened, leaving confirmProcessStartup() as the only thing that
+        // noticed. `env` takes the assignment as an argument, which is what this
+        // position needs.
         $lockFile = (string) ($desiredProcess['lockFile'] ?? '');
-        $exports  = $lockFile === ''
-            ? ''
-            : \Pramnos\Console\CommandBase::LOCK_FILE_ENV . '=' . escapeshellarg($lockFile) . ' ';
+        $launcher = 'nohup setsid ';
 
-        return 'nohup setsid ' . $exports . $command
+        if ($lockFile !== '') {
+            $launcher .= 'env ' . \Pramnos\Console\CommandBase::LOCK_FILE_ENV
+                . '=' . escapeshellarg($lockFile) . ' ';
+        }
+
+        return $launcher . $command
             . ' >> ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
     }
 
