@@ -39,9 +39,24 @@ use Pramnos\Http\WebSocket\WebSocketProtocolException;
  * ## The client ceiling is `FD_SETSIZE`, and it fails closed for everybody at once
  *
  * `stream_select()` is `select(2)`, whose descriptor sets are fixed-size bitmaps
- * bounded by `FD_SETSIZE` — 1024 in a typical build. Past it the call does not
- * degrade or return a partial result: **it returns false**, so the loop stops serving
- * every connected client simultaneously.
+ * bounded by `FD_SETSIZE` — 1024 in a typical build, and a bound on descriptor
+ * **numbers** rather than on how many you watch.
+ *
+ * **How it fails is not what this docblock first claimed.** It said the call "returns
+ * false, so the loop stops serving every connected client simultaneously". PHP's own
+ * diagnostic is per descriptor — *"It is set to %d, but you have descriptors numbered
+ * at least as high as %d"*, emitted by `_php_emit_fd_setsize_warning` — so a
+ * descriptor above the ceiling is warned about and **left out of the set**: that
+ * stream is simply never reported readable. Not a smaller failure than a wholesale
+ * one, a differently-shaped one — *this client is never read, silently* rather than
+ * *everybody stops*.
+ *
+ * The distinction decides what to do at 90%, which is why it is here rather than
+ * left as a detail: refusing new connections above the limit is the answer to a
+ * per-descriptor skip, while shedding load is the answer to a wholesale stop. Read
+ * from PHP's strings and its source shape rather than measured at the boundary — a
+ * consuming project has offered to run that measurement in an isolated container, and
+ * this paragraph should be replaced by its result.
  *
  * Two things make that worth stating in this docblock rather than leaving to
  * experience. It reads as absent until it is hit — `ulimit -n` is commonly a million,
@@ -113,18 +128,76 @@ class LocalBroadcastServer
      */
     public const CLIENT_WARN_RATIO = 0.9;
 
+    /** Overrides the compiled-in default; see {@see useDescriptorCeiling()}. */
+    private static ?int $descriptorCeiling = null;
+
     /**
      * The descriptor ceiling `stream_select()` is bounded by.
      *
-     * Read from the constant PHP exposes when it has one, and otherwise the value
-     * every mainstream build uses. **Not** read from `ulimit -n`: that bounds how many
-     * descriptors the process may hold, which on a normal host is orders of magnitude
-     * higher and has nothing to do with how many `select(2)` can watch. Confusing the
-     * two is exactly how this ceiling stays invisible until it is hit.
+     * **This is a documented constant, not a measurement, and the difference was
+     * mis-stated when it shipped.** PHP does not expose `FD_SETSIZE`
+     * (`defined('FD_SETSIZE')` is false on every build checked), so this returns 1024
+     * — the value every mainstream build compiles with. An earlier version of this
+     * docblock said it was read from PHP "when it has one", and the changelog
+     * recommended it over a local literal on the grounds that a local one *"would stop
+     * agreeing the day PHP is rebuilt"*. That is the one thing it cannot deliver: it
+     * **is** the literal, centralised. Reported by the consumer who adopted it on that
+     * sentence, which is the right way for a claim like that to be caught and the
+     * wrong way for it to have been made.
+     *
+     * The single-definition value is real and worth keeping — one place to correct,
+     * one place to read — so {@see useDescriptorCeiling()} exists for an installation
+     * on a build that differs. `php -i | grep -i fd_setsize` will not tell you;
+     * `--enable-fd-setsize` at compile time is the only place it is chosen.
+     *
+     * **Not** `ulimit -n`: that bounds how many descriptors the process may hold,
+     * which on a normal host is orders of magnitude higher and has nothing to do with
+     * what `select(2)` can watch.
      */
     public static function descriptorCeiling(): int
     {
-        return defined('FD_SETSIZE') ? (int) constant('FD_SETSIZE') : 1024;
+        return self::$descriptorCeiling ?? 1024;
+    }
+
+    /**
+     * Correct the ceiling for an installation whose PHP was built with a different
+     * `--enable-fd-setsize`. Null restores the default.
+     */
+    public static function useDescriptorCeiling(?int $ceiling): void
+    {
+        self::$descriptorCeiling = $ceiling !== null && $ceiling > 0 ? $ceiling : null;
+    }
+
+    /**
+     * How many descriptors this process currently holds, or null when it cannot be
+     * determined.
+     *
+     * Needed because **`select(2)` bounds descriptor *numbers*, not how many you
+     * watch** — PHP's own diagnostic says so in as many words: *"It is set to N, but
+     * you have descriptors numbered at least as high as M."* A long-lived daemon holds
+     * database, Redis and log handles it never passes to `stream_select()`, so its fd
+     * numbers run above its watched-socket count and a warning computed from that
+     * count under-reports by exactly that margin.
+     *
+     * The true quantity — the highest fd number in use — is not reachable from PHP:
+     * casting a stream gives a resource id rather than a descriptor. `/proc/self/fd`
+     * is a much better proxy on Linux, and it is a proxy: it counts open descriptors,
+     * which equals the highest number only when there are no gaps. Better than the
+     * watched count and never worse, which is the bar.
+     *
+     * Both the reasoning and the proxy come from a consuming project that measured its
+     * own loop: 58 feeds, 69 descriptors — eleven the watched count cannot see.
+     */
+    public static function openDescriptorCount(): ?int
+    {
+        if (!is_dir('/proc/self/fd')) {
+            return null;
+        }
+
+        $entries = @scandir('/proc/self/fd');
+
+        // Minus `.` and `..`, and minus the handle scandir itself is holding.
+        return $entries === false ? null : max(0, count($entries) - 3);
     }
 
     /**
@@ -150,7 +223,17 @@ class LocalBroadcastServer
      */
     public static function isNearDescriptorCeiling(int $watched): bool
     {
-        return $watched >= (int) floor(self::descriptorCeiling() * self::CLIENT_WARN_RATIO);
+        // The greater of what the caller watches and what the process actually holds.
+        // `select(2)` is bounded by descriptor *numbers*, so the sockets in a select
+        // set are a floor rather than the quantity: a daemon with a database
+        // connection, a Redis handle and a log file has fd numbers above its watched
+        // count, and a warning computed from the count alone fires late by that
+        // margin. Falls back to the watched count where /proc is absent, which is the
+        // old behaviour rather than no behaviour.
+        $held = self::openDescriptorCount();
+
+        return max($watched, $held ?? 0)
+            >= (int) floor(self::descriptorCeiling() * self::CLIENT_WARN_RATIO);
     }
 
     /** @var resource|null Server socket. */

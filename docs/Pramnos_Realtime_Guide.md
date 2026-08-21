@@ -1152,21 +1152,34 @@ no per-presence-change work at all.
 ### The number that decides whether you need this
 
 `stream_select()` is `select(2)`, whose descriptor sets are fixed-size bitmaps bounded
-by **`FD_SETSIZE`, typically 1024**. Past it the call does not degrade and does not
-return a partial result: it returns `false`, so the loop stops serving **every**
-connected client at once.
+by **`FD_SETSIZE`, typically 1024** — and it bounds descriptor **numbers**, not how
+many you watch. PHP's own diagnostic says so: *"It is set to N, but you have
+descriptors numbered at least as high as M."*
 
-So a single daemon is a cliff rather than a slope, and roughly a thousand concurrent
-clients per node is the ceiling to size against. Two things make it easy to miss, and
-both were reported by a deployment that went looking for the number rather than
-waiting for it:
+So roughly a thousand is the ceiling to size against, and three things make it easy to
+get wrong:
 
 - **It reads as absent until it is hit.** `ulimit -n` is commonly a million, so nothing
   in the environment suggests a bound near a thousand — and it is the wrong number
   anyway: it bounds how many descriptors the process may *hold*, not how many
   `select(2)` can *watch*.
-- **The failure is not the one the number suggests.** A thousand-client node does not
-  get slower; it stops.
+- **Your watched-socket count is a floor, not the quantity.** A daemon holding database,
+  Redis and log handles has fd numbers above its socket count. `isNearDescriptorCeiling()`
+  takes the greater of what you pass and what `/proc/self/fd` reports, for exactly this
+  reason — a consumer measured the gap at 58 feeds costing 69 descriptors.
+- **The failure is a per-descriptor skip, not a wholesale stop.** A descriptor above the
+  ceiling is warned about and left out of the set, so *that* stream is never reported
+  readable. Which means the response at 90% is to refuse new connections rather than to
+  shed load.
+
+!!! note "That last point is read from PHP's strings, not measured at the boundary"
+    An earlier version of this section said the call returns `false` and stops serving
+    everybody. PHP emits a per-descriptor warning
+    (`_php_emit_fd_setsize_warning`) and skips the offending stream, which is a
+    differently-shaped failure rather than a smaller one — *this client is never read,
+    silently* instead of *everybody stops* — and the two call for opposite responses.
+    A consuming project has offered to measure it at the boundary in an isolated
+    container; this note should be replaced by that number.
 
 Each connection is one descriptor, plus the listening socket and any Redis ingest
 stream. A warning is logged once at 90% of the ceiling
@@ -1187,10 +1200,16 @@ rather than discovering the cliff from it.
     Count everything in the set, not only the interesting sockets: a control pipe is
     a descriptor too, and `select(2)` does not care which you consider incidental.
 
-    Use the helper rather than re-deriving 90% against a literal `1024` — that
-    stops agreeing the day PHP is rebuilt, and gives you one definition of "close"
-    per application. Reported by a consumer who had borrowed the ceiling and was
-    computing the rest itself.
+    Use the helper rather than re-deriving 90% yourself: it gives you one definition of
+    "close", and it counts the descriptors the process *holds* as well as the ones you
+    pass, which your own count cannot see.
+
+    **It will not save you from a rebuilt PHP**, and an earlier version of this page
+    claimed it would. `defined('FD_SETSIZE')` is false on every build checked, so
+    `descriptorCeiling()` returns a hard-coded 1024 — it is the literal, centralised.
+    That is still worth having (one place to read, one place to correct) and
+    `useDescriptorCeiling()` exists for a build that differs, but the durability was
+    never there. Caught by the consumer who adopted it on that sentence.
 
 **This is the main reason to reach for clustering.** Past that ceiling, more nodes is
 the answer; a bigger one does not exist.
