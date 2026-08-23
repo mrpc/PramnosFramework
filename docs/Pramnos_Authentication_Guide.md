@@ -155,6 +155,48 @@ if ($currentUser) {
 }
 ```
 
+#### `getCurrentUser()` is a read
+
+It returns the signed-in user, or `false`, and **writes nothing**. Call it as
+often as a request needs to — the theme header and the controller both asking is
+the normal case, and the first call caches the answer on the application so the
+rest are free.
+
+> **Changed 2026-08-23.** It did write. On every call after the first in a
+> request it compared `users.language` with the interface language and, when
+> they differed, overwrote the column and saved the user. Two things followed: a
+> stored language preference was reverted by the act of viewing a page rendered
+> in another language, and on an account with no email address the save could
+> raise from the address validation in `_save()` — so a lookup ended the
+> request. Both are gone. If your application worked around this by keeping its
+> language preference in a column of its own, `users.language` is now safe to
+> use again.
+
+### `users.language` is the user's preference
+
+Nothing in the framework writes `users.language`. It holds whatever your
+application put there, and it is yours to interpret — typically as the language
+the account prefers the interface in.
+
+The framework does not keep it in step with the interface language, and that is
+deliberate: the two answer different questions. `$lang->currentlang()` is the
+language *this request* is being rendered in, which a `?lang=` parameter or a
+session can change for one page view; `users.language` is what the account
+chose. If you want a change of interface language to become the stored
+preference, write it where the choice is made:
+
+```php
+// Wherever your application lets a user pick their language.
+$user = \Pramnos\User\User::getCurrentUser();
+if ($user) {
+    $user->language = $chosen;
+    $user->save();
+}
+```
+
+One place, visible in a diff, and it does not fire on an account that was merely
+looked at.
+
 ### User Data Management
 
 ```php

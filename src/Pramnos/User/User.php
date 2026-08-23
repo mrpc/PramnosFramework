@@ -978,6 +978,12 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      * difference, which is deliberate: the sealing is opt-in by the middleware
      * that knows it is serving an API, and everything else keeps its behaviour.
      *
+     * **This is a read.** It writes nothing, and that is a promise the method
+     * did not keep until 2026-08-23: it used to refresh `users.language` from
+     * the interface language and save() the user. See the comment on the cached
+     * branch below for what that cost. If you need the stored language changed,
+     * change it where the language is chosen.
+     *
      * @return User|boolean
      */
     public static function getCurrentUser()
@@ -1009,18 +1015,33 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             // could not return.
             $app = \Pramnos\Application\Application::currentInstance();
             if ($app && is_object($app->currentUser)) {
-                if (!isset($_SESSION['adminlogin'])
-                    || (int) $_SESSION['adminlogin'] == 0
-                    || (int) $_SESSION['adminlogin']
-                    == $app->currentUser->userid) {
-                    $lang = \Pramnos\Framework\Factory::getLanguage();
-                    $language = $lang->currentlang();
-                    if ($app->currentUser->language != $language) {
-                        $app->currentUser->language = $language;
-                        $app->currentUser->save();
-                    }
-                }
-
+                // Returned as it is. This branch used to compare
+                // `users.language` with the interface language and, when they
+                // differed, overwrite the column and save() — an UPDATE, from a
+                // method whose name promises a read.
+                //
+                // It was reachable through ordinary use, not through some edge:
+                // the first call in a request loads the user and caches it here,
+                // so every call after it took this branch, and a page that asks
+                // who is signed in from both the theme header and its controller
+                // asks twice as a matter of course.
+                //
+                // Two things came of it. `users.language` reads as the user's
+                // *preference*, and this treated it as a cache of the interface
+                // language for whoever looked at them last — so an operator who
+                // chose English in a bilingual admin panel had that choice
+                // reverted by opening the Greek-rendered site, with nothing
+                // saying so. It bit precisely the accounts that had used the
+                // feature, which is the population most likely to be testing it.
+                // And on an account with no email address — ordinary for one an
+                // admin created — the save could raise from _save()'s address
+                // validation, ending a request over a column nobody asked about.
+                //
+                // Nothing else in the framework writes users.language, so it is
+                // now only ever what an application put there. An application
+                // that does want the two kept in step should write the column
+                // where it sets the interface language, once, where a caller can
+                // see it happening.
                 return $app->currentUser;
             }
              // Try to find an override user class
