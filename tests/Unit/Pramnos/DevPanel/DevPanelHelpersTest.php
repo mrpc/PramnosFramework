@@ -406,21 +406,32 @@ class DevPanelHelpersTest extends TestCase
      *
      * This is the primary dev-mode flag for installed applications that run
      * with a hard-coded DEVELOPMENT=true in their bootstrap.
+     *
+     * The constant is defined here, in this test's own process. It used to be
+     * inherited: the test asserted only if some earlier test in the run had
+     * already defined it, and skipped otherwise — so it skipped whenever the
+     * DevPanel tests ran alone, and stopped running entirely once those earlier
+     * tests were isolated. A test that reports "skipped" for the environment it
+     * is meant to create is not testing anything.
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testIsDevModeReturnsTrueWhenDevelopmentConstantIsTrue(): void
     {
-        // Arrange — DEVELOPMENT constant is defined as true in the integration
-        // test bootstrap (tests/fixtures/bootstrap.php or phpunit.xml).
-        // If already true, just assert. If false we cannot un-define it.
-        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
-            // Act
-            $result = $this->controller->pubIsDevMode();
-            // Assert
-            $this->assertTrue($result,
-                'isDevMode() must return true when DEVELOPMENT===true');
-        } else {
-            $this->markTestSkipped('DEVELOPMENT constant is not true in this environment');
+        // Arrange — this process is the developing one, and only this one.
+        if (!defined('DEVELOPMENT')) {
+            define('DEVELOPMENT', true);
         }
+        $this->assertTrue(
+            DEVELOPMENT === true,
+            'this test needs DEVELOPMENT true and its own process to get it'
+        );
+
+        // Act
+        $result = $this->controller->pubIsDevMode();
+
+        // Assert
+        $this->assertTrue($result,
+            'isDevMode() must return true when DEVELOPMENT===true');
     }
 
     /**

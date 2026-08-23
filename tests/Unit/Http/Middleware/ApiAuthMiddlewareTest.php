@@ -34,6 +34,13 @@ class ApiAuthMiddlewareTest extends TestCase
      */
     private const HMAC_KEY = 'unit-test-hmac-key-0123456789abcdef';
 
+    /**
+     * APP_DEBUG as it was before the test, so tearDown can put it back.
+     *
+     * @var string|false
+     */
+    private $originalAppDebug;
+
     protected function setUp(): void
     {
         // The identity is request-scoped, and a test run is one process: a
@@ -44,6 +51,8 @@ class ApiAuthMiddlewareTest extends TestCase
         unset($_SERVER['HTTP_USERAUTH']);
         unset($_SESSION['logged']);
         unset($_SESSION['user']);
+
+        $this->originalAppDebug = getenv('APP_DEBUG');
     }
 
     protected function tearDown(): void
@@ -54,6 +63,15 @@ class ApiAuthMiddlewareTest extends TestCase
         unset($_SERVER['HTTP_USERAUTH']);
         unset($_SESSION['logged']);
         unset($_SESSION['user']);
+
+        // Whether the process is "developing" is ambient state; a test that
+        // changes it puts it back, or it decides the answer for everything that
+        // runs after it.
+        if ($this->originalAppDebug === false) {
+            putenv('APP_DEBUG');
+        } else {
+            putenv('APP_DEBUG=' . $this->originalAppDebug);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -323,9 +341,16 @@ class ApiAuthMiddlewareTest extends TestCase
      * and the envelope must carry a 'data' field with the underlying JWT
      * exception message — covering the catch branch and the optional-data
      * arm of error().
+     *
+     * The detail is disclosed only while developing, so this test says so.
+     * It used to rely on a sibling test file having set APP_DEBUG and left it
+     * set: it passed for `--filter Middleware` and failed for this class alone.
      */
     public function testExpiredTokenReturns403WithExceptionDetail(): void
     {
+        // Arrange — the detail is debug-only.
+        putenv('APP_DEBUG=1');
+
         // Arrange — token expired one hour ago (leeway is only 60 seconds)
         $_SERVER['HTTP_APIKEY']      = 'valid-key';
         $_SERVER['HTTP_ACCESSTOKEN'] = \Pramnos\Auth\JWT::encode(
@@ -344,6 +369,45 @@ class ApiAuthMiddlewareTest extends TestCase
         $this->assertSame('InvalidAccessToken', $decoded['error']);
         $this->assertArrayHasKey('data', $decoded, 'exception message must be exposed as data');
         $this->assertNotEmpty($decoded['data']);
+    }
+
+    /**
+     * The same envelope outside development must withhold the detail.
+     *
+     * What the JWT library says describes the token, not the caller's mistake,
+     * and a rejected caller has already been told everything they are entitled
+     * to. This branch had no test, which is how the one above came to depend on
+     * ambient state unnoticed — nothing asserted that the state mattered.
+     */
+    public function testExpiredTokenWithholdsExceptionDetailOutsideDevelopment(): void
+    {
+        // Arrange — DEVELOPMENT is a constant and cannot be unset, so when it is
+        // true for this process the non-debug branch is unreachable by design.
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            $this->markTestSkipped(
+                'DEVELOPMENT is true for this process, so the detail is '
+                . 'disclosed by design.'
+            );
+        }
+        putenv('APP_DEBUG=0');
+
+        $_SERVER['HTTP_APIKEY']      = 'valid-key';
+        $_SERVER['HTTP_ACCESSTOKEN'] = \Pramnos\Auth\JWT::encode(
+            ['sub' => 42, 'exp' => time() - 3600],
+            self::HMAC_KEY
+        );
+
+        $mw = new ApiAuthMiddleware(fn() => true, self::HMAC_KEY);
+
+        // Act
+        $result  = $mw->handle(Request::create('/api/secure', 'GET'), fn() => 'ok');
+        $decoded = json_decode($result, true);
+
+        // Assert — the rejection is intact, the internals are not shared.
+        $this->assertSame(403, $decoded['status']);
+        $this->assertSame('InvalidAccessToken', $decoded['error']);
+        $this->assertArrayNotHasKey('data', $decoded,
+            'the JWT exception message must not leave the server outside development');
     }
 
     /**

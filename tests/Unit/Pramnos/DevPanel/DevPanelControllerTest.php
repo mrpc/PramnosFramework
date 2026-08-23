@@ -33,6 +33,18 @@ class TestableDevPanelController extends DevPanelController
     }
 }
 
+/**
+ * Runs in separate processes because setUp() does `define('DEVELOPMENT', true)`.
+ *
+ * A constant cannot be undefined, so without isolation this file decided that
+ * the whole test run was "developing" — permanently, for every test that
+ * happened to come after it. Two middleware tests had quietly grown to depend
+ * on it: they asserted that a JWT exception message reaches the client, which
+ * is only true while developing, and they passed in a full-suite run and failed
+ * whenever their own class was run alone. The tests for the opposite branch —
+ * that the detail is withheld in production — could not run at all.
+ */
+#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class DevPanelControllerTest extends TestCase
 {
     private TestableDevPanelController $controller;

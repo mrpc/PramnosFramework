@@ -25,6 +25,13 @@ class UnifiedAuthMiddlewareTest extends TestCase
 {
     private Request $request;
 
+    /**
+     * APP_DEBUG as it was before the test, so tearDown can put it back.
+     *
+     * @var string|false
+     */
+    private $originalAppDebug;
+
     protected function setUp(): void
     {
         $this->request = new Request();
@@ -37,6 +44,20 @@ class UnifiedAuthMiddlewareTest extends TestCase
             $_SERVER['HTTP_X_XSRF_TOKEN'],
         );
         unset($_SESSION['usertoken'], $_SESSION['user'], $_SESSION['logged']);
+
+        $this->originalAppDebug = getenv('APP_DEBUG');
+    }
+
+    protected function tearDown(): void
+    {
+        // Whether the process is "developing" is ambient state, and a test that
+        // changes it has to change it back — otherwise it decides the answer for
+        // every test that runs after it in the same process.
+        if ($this->originalAppDebug === false) {
+            putenv('APP_DEBUG');
+        } else {
+            putenv('APP_DEBUG=' . $this->originalAppDebug);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -418,9 +439,18 @@ class UnifiedAuthMiddlewareTest extends TestCase
      * An RS256-signed token must trigger the public-key lookup branch; with no
      * key file installed in this project the HS256 fallback key fails the
      * signature check and the error envelope must carry the decode detail.
+     *
+     * The detail is debug-only, so this test says so rather than inheriting it.
+     * It used to rely on some earlier test in the same process having defined
+     * DEVELOPMENT or set APP_DEBUG: it passed in a full-suite run and failed
+     * whenever this class was run on its own, which is exactly the run somebody
+     * makes while working on this file.
      */
     public function testRs256TokenTriggersKeyLookupAndDetailInError(): void
     {
+        // Arrange — the detail is only disclosed while developing.
+        putenv('APP_DEBUG=1');
+
         // Arrange — well-formed JWT with alg=RS256 (signature is garbage)
         $header  = rtrim(strtr(base64_encode(json_encode(
             ['typ' => 'JWT', 'alg' => 'RS256']
@@ -450,6 +480,19 @@ class UnifiedAuthMiddlewareTest extends TestCase
     /**
      * Ensure the test database connection and the users/usertokens schema
      * exist for the JWT round-trip tests below.
+     *
+     * **Every caller must run in its own process** (`#[RunInSeparateProcess]`),
+     * and that is not a precaution — it is what makes this method work.
+     * `Database::getInstance()` caches one instance per name in a static, built
+     * from whatever `Factory::getSettings()` returned the first time anybody
+     * asked. Clearing and reloading Settings here cannot reach an instance that
+     * already exists, so in a process where some earlier test had already
+     * opened a database, these tests got that one: mysqli then tried the
+     * default local socket and raised "No such file or directory".
+     *
+     * It passed in a full-suite run and in a single-class run, and failed for
+     * `--filter User` — an ordering nobody runs on purpose and everybody
+     * eventually runs by accident.
      */
     private function bootDatabase(): \Pramnos\Database\Database
     {
@@ -472,6 +515,7 @@ class UnifiedAuthMiddlewareTest extends TestCase
      * Full happy path: extractBearer → JWT::decode OK → loadByToken finds the
      * row → userid > 1 → pipeline continues.
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testValidBearerTokenWithDbRowAuthenticates(): void
     {
         // Arrange — real DB row whose token column holds the JWT itself
@@ -527,6 +571,7 @@ class UnifiedAuthMiddlewareTest extends TestCase
      * with "Token not found or expired" — signature validity alone is not
      * enough; the token must also be active in the database.
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testValidJwtWithoutDbRowIsRejected(): void
     {
         // Arrange — valid signature, no DB row inserted
@@ -553,6 +598,7 @@ class UnifiedAuthMiddlewareTest extends TestCase
      * fall back to the framework \Pramnos\User\User — verified indirectly via
      * the rejected-JWT path (no fatal "class not found" error).
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testUnknownAppNamespaceFallsBackToFrameworkUser(): void
     {
         // Arrange
@@ -580,9 +626,18 @@ class UnifiedAuthMiddlewareTest extends TestCase
      * When the session has a valid CSRF token but $_SESSION['user'] is NOT set,
      * handleSessionCookie() must resolve the user from $_SESSION['uid'] and
      * inject it into the session. Covers lines 207-211 (the user-loading branch).
+     *
+     * Resolving the user reads the database, so this test boots one of its own
+     * in its own process — see {@see bootDatabase()} for why the process
+     * matters. Without that it inherited whichever connection the process
+     * already had, and under `--filter User` that was not a MySQL one.
      */
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
     public function testSessionCookieLoadsUserFromUidWhenUserNotInSession(): void
     {
+        // Arrange — a database this test can actually reach.
+        $this->bootDatabase();
+
         // Arrange — valid CSRF, valid token, but NO $_SESSION['user']
         $csrfToken = bin2hex(random_bytes(16));
         $this->injectSessionCsrf($csrfToken);
@@ -633,12 +688,15 @@ class UnifiedAuthMiddlewareTest extends TestCase
     }
 
     /**
-     * error() with a detail string must include a 'data' key in the response.
-     * This is used by handleBearer() to surface the JWT exception message.
+     * error() with a detail string must include a 'data' key in the response
+     * **while developing**. This is used by handleBearer() to surface the JWT
+     * exception message.
      */
-    public function testErrorWithDetailIncludesDataKey(): void
+    public function testErrorWithDetailIncludesDataKeyWhileDeveloping(): void
     {
-        // Arrange
+        // Arrange — the disclosure is conditional, so the condition is set here
+        // rather than inherited from whatever ran before this test.
+        putenv('APP_DEBUG=1');
         $mw = $this->make();
         $ref = new \ReflectionMethod(UnifiedAuthMiddleware::class, 'error');
 
@@ -650,6 +708,43 @@ class UnifiedAuthMiddlewareTest extends TestCase
         $this->assertArrayHasKey('data', $decoded,
             'error() must include "data" key when a detail string is provided');
         $this->assertSame('Signature invalid', $decoded['data']);
+    }
+
+    /**
+     * The other half of the same rule, and the half that matters in production:
+     * with debugging off, the detail is withheld.
+     *
+     * The detail is whatever the JWT library said — it describes the token, not
+     * the caller's mistake, and an unauthenticated caller has already been told
+     * everything they are entitled to. This branch had no test at all, which is
+     * how the two above came to depend on ambient state without anybody
+     * noticing: nothing asserted that the state mattered.
+     */
+    public function testErrorWithholdsDetailWhenNotDeveloping(): void
+    {
+        // Arrange — explicitly not developing. DEVELOPMENT is a constant and
+        // cannot be unset, so this assertion is only meaningful when it was not
+        // defined true for the process; skip rather than assert something the
+        // environment has already decided.
+        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
+            $this->markTestSkipped(
+                'DEVELOPMENT is true for this process, so detail is disclosed '
+                . 'by design and the non-debug branch cannot be reached.'
+            );
+        }
+        putenv('APP_DEBUG=0');
+        $mw = $this->make();
+        $ref = new \ReflectionMethod(UnifiedAuthMiddleware::class, 'error');
+
+        // Act
+        $json = $ref->invoke($mw, 401, 'InvalidToken', 'Token failed.', 'Signature invalid');
+
+        // Assert — the envelope is intact, minus the detail.
+        $decoded = json_decode($json, true);
+        $this->assertArrayNotHasKey('data', $decoded,
+            'error() must not disclose the detail outside development');
+        $this->assertSame('Token failed.', $decoded['message']);
+        $this->assertSame('InvalidToken', $decoded['error']);
     }
 
     // -------------------------------------------------------------------------
