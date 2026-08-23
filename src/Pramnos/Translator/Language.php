@@ -163,19 +163,64 @@ class Language extends Base
 
     /**
      * Return the translation of a string if exists, or the string itself if
-     * there is no translation
-     * @param string $string
-     * @param mixed $args
+     * there is no translation.
+     *
+     * Any arguments after the key are used to format the translation, in the
+     * printf sense:
+     *
+     * <code>
+     * $lang->_('%s is on air');            // no arguments — returned as it is
+     * $lang->_('%s is on air', 'Aroma');   // 'Aroma is on air'
+     * </code>
+     *
+     * **Formatting only happens when arguments are given.** That is not a
+     * detail: this method used to call sprintf() unconditionally, and with an
+     * *array* as its single argument. Both halves were wrong and they
+     * compounded. A translation containing '%s' looked up with no arguments
+     * became sprintf('%s', []) — an ArgumentCountError, fatal on PHP 8 — and a
+     * caller that did pass arguments got 'Array' printed for the first
+     * placeholder. So a key with a placeholder could not be looked up at all,
+     * and only once a translation for it existed: the string worked in
+     * development against the source language and answered 500 the day the
+     * language file gained the key.
+     *
+     * A mismatch between the placeholders in a translation and the arguments a
+     * call site passes is caught rather than raised. Translations are content,
+     * edited by translators, and a stray '%s' in a language file must not be
+     * able to take a page down; the unformatted translation is returned and the
+     * mismatch is logged.
+     *
+     * @param string $string Key to translate.
+     * @param mixed  $args   First format argument; further arguments are read
+     *                       with func_get_args().
      * @return string
      */
     public function _($string = '', $args = '')
     {
-        if (isset($this->_strings[$string])) {
-            $_args = func_get_args();
-            array_shift($_args);
-            return sprintf($this->_strings[$string], $_args);
-        } else {
+        if (!isset($this->_strings[$string])) {
             return $string;
+        }
+
+        $translation = $this->_strings[$string];
+
+        $_args = func_get_args();
+        array_shift($_args);
+        if ($_args === []) {
+            return $translation;
+        }
+
+        try {
+            return vsprintf($translation, $_args);
+        } catch (\ArgumentCountError | \ValueError $e) {
+            \Pramnos\Logs\Logger::logError(
+                'Translation of "' . $string . '" could not be formatted: '
+                . $e->getMessage() . ' — the translation was returned '
+                . 'unformatted. Check that its placeholders match the '
+                . 'arguments the call site passes.',
+                $e
+            );
+
+            return $translation;
         }
     }
 

@@ -223,6 +223,46 @@ if ($lang->currentlang() === 'greek') {
 }
 ```
 
+### Formatting: what happens with and without arguments
+
+`_()` (and `l()`, which forwards to it) formats the translation **only when you
+pass arguments**. That rule decides three behaviours worth knowing:
+
+```php
+// Language file: '%s is on air' => '%s εκπέμπει τώρα'
+
+$lang->_('%s is on air');           // '%s εκπέμπει τώρα'  — verbatim
+$lang->_('%s is on air', 'Aroma');  // 'Aroma εκπέμπει τώρα'
+```
+
+**No arguments returns the translation as it is**, placeholders included. That is
+what lets a call site look a key up and format it itself, and it is why a key
+with a `%s` in it is safe to translate before every call site is ready.
+
+**Arguments are spread across the placeholders in order** (`vsprintf`
+semantics), so a translation may use positional specifiers to reorder them —
+which is often necessary, since word order differs between languages:
+
+```php
+// 'Welcome %1$s, you have %2$d messages'
+//   => '%2$d μηνύματα σας περιμένουν, %1$s'
+l('Welcome %1$s, you have %2$d messages', $username, $count);
+```
+
+**A mismatch is not fatal.** If a translation asks for more placeholders than the
+call site passes, or contains a specifier that is not valid, the *unformatted*
+translation is returned and the mismatch is written to the error log. Language
+files are content — a translator adding a stray `%s` must not be able to take a
+page down. Check the log if a page shows a raw `%s` where a value belongs.
+
+> **Fixed in this release.** `_()` used to call `sprintf()` on every translation
+> it found, whether or not arguments were given, and passed those arguments as a
+> single array. On PHP 8 both are fatal: looking up a translation containing
+> `%s` with no arguments raised `ArgumentCountError`, and one *with* arguments
+> printed `Array` for the first placeholder. The examples above were in this
+> guide before they worked. If your application worked around it by reading
+> `getlang()` and formatting the string itself, that workaround can now go.
+
 ### Theme Integration
 
 ```php
@@ -470,7 +510,7 @@ $lang->setLang($userLang);
 - `load($language, $path, $setDefault)` - Load language file
 - `setLang($language)` - Set active language
 - `currentlang()` - Get current language code
-- `_($string, ...$args)` - Translate string with parameters
+- `_($string, ...$args)` - Translate a string; formats it with `$args` when any are given, returns it verbatim when none are
 
 #### Management Methods
 - `addlang($strings)` - Add translation strings
