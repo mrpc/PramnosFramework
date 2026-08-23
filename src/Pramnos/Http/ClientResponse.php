@@ -8,11 +8,17 @@ namespace Pramnos\Http;
  */
 class ClientResponse
 {
-    /** @param array<string, string> $headers Normalised lowercase-keyed headers. */
+    /**
+     * @param array<string, string> $headers   Normalised lowercase-keyed headers.
+     * @param bool                  $truncated Whether the client stopped reading
+     *                                         the body before the server had
+     *                                         finished sending it.
+     */
     public function __construct(
         private readonly int    $statusCode,
         private readonly string $body,
-        private readonly array  $headers = []
+        private readonly array  $headers = [],
+        private readonly bool   $truncated = false
     ) {}
 
     // =========================================================================
@@ -91,6 +97,24 @@ class ClientResponse
     public function body(): string
     {
         return $this->body;
+    }
+
+    /**
+     * Did the client stop reading before the server finished sending?
+     *
+     * True after {@see Client::headersOnly()} on a response that had a body, and
+     * after {@see Client::maxResponseBytes()} when the ceiling was reached.
+     * False otherwise, including for a body that happened to fit under the
+     * ceiling — so this answers "is something missing", not "was a limit set".
+     *
+     * A truncated response is a normal outcome rather than a failure: the
+     * status and headers are complete, and {@see body()} holds exactly the
+     * bytes that were read. Check this before parsing a body you expected to be
+     * whole.
+     */
+    public function truncated(): bool
+    {
+        return $this->truncated;
     }
 
     /**

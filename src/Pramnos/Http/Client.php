@@ -60,6 +60,12 @@ class Client
     private bool    $throwOnError   = false;
     private string  $userAgent      = 'PramnosFramework/1.2 (+https://github.com/mrpc/PramnosFramework)';
 
+    /** Stop reading once the final response headers have arrived. */
+    private bool    $headersOnly    = false;
+
+    /** Read at most this many body bytes, or null for no ceiling. */
+    private ?int    $maxBytes       = null;
+
     // =========================================================================
     // Fake registry (used in tests to avoid real network calls)
     // =========================================================================
@@ -301,6 +307,80 @@ class Client
         return $this;
     }
 
+    /**
+     * Stop reading as soon as the final response headers have arrived.
+     *
+     * The response carries the status and the headers, an empty body, and
+     * {@see ClientResponse::truncated()} true. Redirects are still followed —
+     * "final" means the response that ends the chain.
+     *
+     * This is **not** {@see head()}, and the difference is the point.
+     * `head()` sends a different request, and a great many servers answer a
+     * HEAD with 404 or 405 on a path they serve happily over GET — measured at
+     * 17 of 30 on one catalogue of streaming endpoints, so a prober built on
+     * HEAD reports live services as dead. This sends the GET the server
+     * expects and stops listening once it has what it came for.
+     *
+     * <code>
+     * // Is this stream up, and what is it serving?
+     * $r = Client::get($streamUrl)->connectTimeout(2)->timeout(3)
+     *     ->headersOnly()->send();
+     * $r->status();               // 200
+     * $r->header('content-type'); // 'audio/mpeg'
+     * </code>
+     *
+     * Without it, an endpoint that never stops sending — an internet radio
+     * stream, an SSE feed, a `tail -f` over HTTP — has only two endings, and
+     * neither is the one the caller wanted: the timeout, which throws away a
+     * status that arrived in milliseconds, or memory exhaustion, which takes
+     * the process down. Three seconds of a fast stream measured a quarter of a
+     * gigabyte.
+     *
+     * Has no effect on a faked response, which never reaches the network.
+     */
+    public function headersOnly(): static
+    {
+        $this->headersOnly = true;
+        return $this;
+    }
+
+    /**
+     * Read at most $bytes of the response body, then stop.
+     *
+     * **Reaching the ceiling is a normal outcome, not an error.** The response
+     * arrives carrying what was read, and {@see ClientResponse::truncated()}
+     * says so. That is what turns "the process died" into a value the caller
+     * can act on.
+     *
+     * <code>
+     * // Read the first 16 kB of an endless stream — enough for the ICY
+     * // metadata block — and stop.
+     * $r = Client::get($url)->header('Icy-MetaData', '1')
+     *     ->maxResponseBytes(16 * 1024)->send();
+     * $r->truncated();  // true — there was more, we did not want it
+     * </code>
+     *
+     * Reading a bounded prefix is its own use, not an approximation of
+     * {@see headersOnly()}: a caller that needs the headers *and* the first N
+     * bytes has no other way to say so. If both are set, headersOnly wins and
+     * no body is read.
+     *
+     * **There is no default ceiling**, and that is deliberate rather than an
+     * oversight. A default would silently truncate every existing caller that
+     * legitimately downloads something large, and a response that quietly
+     * loses its tail is worse than one that fails loudly. Set the ceiling where
+     * you know what the body should be.
+     *
+     * Has no effect on a faked response, which never reaches the network.
+     *
+     * @param int $bytes Maximum body bytes to keep. Negative is treated as 0.
+     */
+    public function maxResponseBytes(int $bytes): static
+    {
+        $this->maxBytes = max(0, $bytes);
+        return $this;
+    }
+
     // =========================================================================
     // Send
     // =========================================================================
@@ -382,7 +462,7 @@ class Client
                 }
             }
         }
-        return $this->execute($url); // @codeCoverageIgnore
+        return $this->execute($url);
     }
 
     /**
@@ -436,10 +516,15 @@ class Client
 
     /**
      * Make a single curl request and return the parsed response.
-     * Covered by integration tests only — requires a live network endpoint.
+     *
+     * Covered by integration tests, which fork a real socket server — see
+     * tests/Integration/Http/ClientBodyCeilingTest.php and
+     * ClientTransportTest.php. It carried @codeCoverageIgnore until the body
+     * ceiling was added, on the grounds that it needed a live network endpoint;
+     * a forked server is a live network endpoint, and the reasoning had been
+     * excusing the least-tested method in the class.
      *
      * @throws ClientException On curl error.
-     * @codeCoverageIgnore
      */
     private function execute(string $url): ClientResponse
     {
@@ -450,7 +535,17 @@ class Client
             function ($ch, string $header) use (&$responseHeaders): int {
                 $len  = strlen($header);
                 $line = trim($header);
-                if ($line === '' || str_starts_with($line, 'HTTP/')) {
+                if (str_starts_with($line, 'HTTP/')) {
+                    // A new status line means a new response. With
+                    // FOLLOWLOCATION on, curl reports the headers of every hop
+                    // through this callback, and they used to accumulate — so a
+                    // redirected request answered with its redirect's Location
+                    // and Content-Type mixed into the final response's headers.
+                    // Only the last response is the response.
+                    $responseHeaders = [];
+                    return $len;
+                }
+                if ($line === '') {
                     return $len;
                 }
                 if (str_contains($line, ':')) {
@@ -460,6 +555,48 @@ class Client
                 return $len;
             }
         );
+
+        // Body ceiling / early abort. cURL's documented way to stop a transfer
+        // is a write callback that returns a short count, and CURLE_WRITE_ERROR
+        // is therefore the *success* path here — see the errno handling below.
+        $received  = '';
+        $truncated = false;
+        if ($this->headersOnly || $this->maxBytes !== null) {
+            $limit      = $this->headersOnly ? 0 : (int) $this->maxBytes;
+            $headersOnly = $this->headersOnly;
+            $writer = function ($ch, string $chunk) use (
+                &$received, &$truncated, $limit, $headersOnly
+            ): int {
+                $length = strlen($chunk);
+
+                // A redirect's own body is not the response body. Swallow it so
+                // curl can follow the Location rather than aborting on the first
+                // byte of "301 Moved Permanently".
+                $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                if ($status >= 300 && $status < 400) {
+                    return $length;
+                }
+
+                if ($headersOnly) {
+                    $truncated = true;
+                    return 0;
+                }
+
+                $remaining = $limit - strlen($received);
+                if ($remaining <= 0) {
+                    $truncated = true;
+                    return 0;
+                }
+                if ($length > $remaining) {
+                    $received .= substr($chunk, 0, $remaining);
+                    $truncated = true;
+                    return 0;
+                }
+
+                $received .= $chunk;
+                return $length;
+            };
+        }
 
         $curlHeaders = ['User-Agent: ' . $this->userAgent];
         if ($this->contentType !== '') {
@@ -480,6 +617,10 @@ class Client
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 5,
         ];
+
+        if (isset($writer)) {
+            $options[CURLOPT_WRITEFUNCTION] = $writer;
+        }
 
         switch ($this->method) {
             case 'GET':
@@ -509,8 +650,22 @@ class Client
         $error  = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
+        // We stopped on purpose. curl reports our own short write as
+        // CURLE_WRITE_ERROR, and $truncated is set only where this code returned
+        // the short count — so a genuine write failure, which never sets it,
+        // still raises.
+        if ($truncated && $errno === CURLE_WRITE_ERROR) {
+            return new ClientResponse($status, $received, $responseHeaders, true);
+        }
+
         if ($errno !== 0 || $body === false) {
             throw new ClientException($error ?: 'curl request failed', $errno);
+        }
+
+        // With a write callback installed curl_exec() answers true rather than
+        // the body, and the bytes are in $received.
+        if (isset($writer)) {
+            return new ClientResponse($status, $received, $responseHeaders, $truncated);
         }
 
         return new ClientResponse($status, (string) $body, $responseHeaders);
