@@ -455,14 +455,28 @@ class Client
      */
     private function dispatch(string $url): ClientResponse
     {
-        if (!empty(static::$fakes)) {
-            foreach (static::$fakes as $pattern => $fake) {
-                if ($this->matchesPattern($url, $pattern)) {
-                    return is_callable($fake) ? $fake($this) : $fake;
-                }
+        return $this->resolveFake($url) ?? $this->execute($url);
+    }
+
+    /**
+     * The registered fake for $url, or null when none matches.
+     *
+     * Shared with {@see pool()} so that a batched request is faked by the same
+     * rule as a single one — a test of a batching caller that silently went to
+     * the network would be a live network test wearing a fake's clothes.
+     *
+     * A callable fake is invoked here, which is once per attempt: that is what
+     * lets a fake simulate a transient failure and a retry recover from it.
+     */
+    private function resolveFake(string $url): ?ClientResponse
+    {
+        foreach (static::$fakes as $pattern => $fake) {
+            if ($this->matchesPattern($url, $pattern)) {
+                return is_callable($fake) ? $fake($this) : $fake;
             }
         }
-        return $this->execute($url);
+
+        return null;
     }
 
     /**
@@ -528,11 +542,45 @@ class Client
      */
     private function execute(string $url): ClientResponse
     {
+        $state = [];
+        $ch = $this->prepareHandle($url, $state);
+
+        $body  = curl_exec($ch);
+        $errno = curl_errno($ch);
+        $error = curl_error($ch);
+
+        // No curl_close(): deprecated since PHP 8.5, and a no-op since 8.0 —
+        // the handle is released when $ch goes out of scope.
+        return $this->interpret($ch, $errno, $error, $body, $state);
+    }
+
+    /**
+     * Build a fully configured curl handle for this request.
+     *
+     * Split out of {@see execute()} so that {@see pool()} sends its requests
+     * through exactly the same configuration — the same TLS defaults, the same
+     * redirect handling, the same header normalisation and the same body
+     * ceiling. A second place that built handles would be a second HTTP client
+     * with its own opinions, which is precisely what consuming applications
+     * were writing by hand and reporting as a problem.
+     *
+     * @param string               $url
+     * @param array<string, mixed> $state By reference. Receives the keys
+     *                                    'headers', 'received', 'truncated' and
+     *                                    'hasWriter' — the first three written
+     *                                    by the callbacks as the transfer runs,
+     *                                    and all of them read afterwards by
+     *                                    {@see interpret()}.
+     * @return \CurlHandle
+     */
+    private function prepareHandle(string $url, array &$state): \CurlHandle
+    {
         $ch = curl_init();
 
-        $responseHeaders = [];
+        $state = ['headers' => [], 'received' => '', 'truncated' => false];
+
         curl_setopt($ch, CURLOPT_HEADERFUNCTION,
-            function ($ch, string $header) use (&$responseHeaders): int {
+            function ($ch, string $header) use (&$state): int {
                 $len  = strlen($header);
                 $line = trim($header);
                 if (str_starts_with($line, 'HTTP/')) {
@@ -542,7 +590,7 @@ class Client
                     // redirected request answered with its redirect's Location
                     // and Content-Type mixed into the final response's headers.
                     // Only the last response is the response.
-                    $responseHeaders = [];
+                    $state['headers'] = [];
                     return $len;
                 }
                 if ($line === '') {
@@ -550,7 +598,7 @@ class Client
                 }
                 if (str_contains($line, ':')) {
                     [$name, $value] = explode(':', $line, 2);
-                    $responseHeaders[strtolower(trim($name))] = trim($value);
+                    $state['headers'][strtolower(trim($name))] = trim($value);
                 }
                 return $len;
             }
@@ -558,42 +606,51 @@ class Client
 
         // Body ceiling / early abort. cURL's documented way to stop a transfer
         // is a write callback that returns a short count, and CURLE_WRITE_ERROR
-        // is therefore the *success* path here — see the errno handling below.
-        $received  = '';
-        $truncated = false;
+        // is therefore the *success* path here — see the errno handling in
+        // interpret().
         if ($this->headersOnly || $this->maxBytes !== null) {
-            $limit      = $this->headersOnly ? 0 : (int) $this->maxBytes;
+            $limit       = $this->headersOnly ? 0 : (int) $this->maxBytes;
             $headersOnly = $this->headersOnly;
             $writer = function ($ch, string $chunk) use (
-                &$received, &$truncated, $limit, $headersOnly
+                &$state, $limit, $headersOnly
             ): int {
                 $length = strlen($chunk);
 
                 // A redirect's own body is not the response body. Swallow it so
-                // curl can follow the Location rather than aborting on the first
-                // byte of "301 Moved Permanently".
+                // curl can follow the Location rather than aborting on the
+                // first byte of "301 Moved Permanently".
+                //
+                // Not reached on the libcurl this suite runs against, which
+                // drains a followed redirect's body itself rather than offering
+                // it here — verified by deleting this branch and watching the
+                // redirect tests still pass. It stays because libcurl documents
+                // intermediate bodies as reaching the write callback, and the
+                // failure it prevents is silent: the transfer would abort on the
+                // redirect and the caller would get the 302 instead of the page.
+                // @codeCoverageIgnoreStart
                 $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 if ($status >= 300 && $status < 400) {
                     return $length;
                 }
+                // @codeCoverageIgnoreEnd
 
                 if ($headersOnly) {
-                    $truncated = true;
+                    $state['truncated'] = true;
                     return 0;
                 }
 
-                $remaining = $limit - strlen($received);
+                $remaining = $limit - strlen($state['received']);
                 if ($remaining <= 0) {
-                    $truncated = true;
+                    $state['truncated'] = true;
                     return 0;
                 }
                 if ($length > $remaining) {
-                    $received .= substr($chunk, 0, $remaining);
-                    $truncated = true;
+                    $state['received'] .= substr($chunk, 0, $remaining);
+                    $state['truncated'] = true;
                     return 0;
                 }
 
-                $received .= $chunk;
+                $state['received'] .= $chunk;
                 return $length;
             };
         }
@@ -645,29 +702,295 @@ class Client
 
         curl_setopt_array($ch, $options);
 
-        $body   = curl_exec($ch);
-        $errno  = curl_errno($ch);
-        $error  = curl_error($ch);
+        $state['hasWriter'] = isset($writer);
+
+        return $ch;
+    }
+
+    /**
+     * Turn a finished curl transfer into a ClientResponse, or raise.
+     *
+     * Shared by {@see execute()} and {@see pool()}, so that what counts as a
+     * failure is decided in one place rather than twice.
+     *
+     * @param \CurlHandle          $ch
+     * @param int                  $errno curl_errno, or the multi handle's result
+     * @param string               $error curl's message, when there was one
+     * @param bool|string|null     $body  Whatever curl handed back
+     * @param array<string, mixed> $state The bag filled by {@see prepareHandle()}
+     * @return ClientResponse
+     * @throws ClientException
+     */
+    private function interpret(
+        \CurlHandle $ch, int $errno, string $error, bool|string|null $body,
+        array $state
+    ): ClientResponse {
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
         // We stopped on purpose. curl reports our own short write as
-        // CURLE_WRITE_ERROR, and $truncated is set only where this code returned
-        // the short count — so a genuine write failure, which never sets it,
-        // still raises.
-        if ($truncated && $errno === CURLE_WRITE_ERROR) {
-            return new ClientResponse($status, $received, $responseHeaders, true);
+        // CURLE_WRITE_ERROR, and 'truncated' is set only where this code
+        // returned the short count — so a genuine write failure, which never
+        // sets it, still raises.
+        if ($state['truncated'] && $errno === CURLE_WRITE_ERROR) {
+            return new ClientResponse(
+                $status, $state['received'], $state['headers'], true
+            );
         }
 
         if ($errno !== 0 || $body === false) {
             throw new ClientException($error ?: 'curl request failed', $errno);
         }
 
-        // With a write callback installed curl_exec() answers true rather than
-        // the body, and the bytes are in $received.
-        if (isset($writer)) {
-            return new ClientResponse($status, $received, $responseHeaders, $truncated);
+        // With a write callback installed curl answers true rather than the
+        // body, and the bytes are in the state bag.
+        if ($state['hasWriter']) {
+            return new ClientResponse(
+                $status, $state['received'], $state['headers'],
+                $state['truncated']
+            );
         }
 
-        return new ClientResponse($status, (string) $body, $responseHeaders);
+        return new ClientResponse($status, (string) $body, $state['headers']);
+    }
+
+    // =========================================================================
+    // Concurrent requests
+    // =========================================================================
+
+    /**
+     * Send several requests at once and return their responses, keyed as they
+     * went in.
+     *
+     * <code>
+     * $responses = Client::pool([
+     *     'aroma'  => 'https://one.example/status-json.xsl',
+     *     'kosmos' => Client::get('https://two.example/stats?json=1')
+     *         ->connectTimeout(2)->timeout(3)->maxResponseBytes(64 * 1024),
+     * ], concurrency: 8);
+     *
+     * $responses['aroma']->status();   // a ClientResponse …
+     * $responses['kosmos'];            // … or a ClientException for that entry
+     * </code>
+     *
+     * Why it exists. Polling a catalogue one endpoint at a time is not a
+     * cadence, it is a backlog: 200 status endpoints at ~1.1 s each is 218
+     * seconds for one pass, so a poller promising a thirty-second tier was
+     * reaching each station every four minutes and reporting otherwise. Almost
+     * all of that second is spent waiting on somebody else's server, and that
+     * is exactly the wait that overlaps.
+     *
+     * **A failure is a value, not a throw.** Any number of these endpoints are
+     * down at any moment, and one dead host must not abandon the other seven.
+     * An entry that fails at the transport level gets a ClientException *in the
+     * result array*; the pool itself does not raise. An entry that asked for
+     * {@see throwOnError()} is honoured the same way — a failing status becomes
+     * an exception value under that key rather than ending the batch.
+     *
+     * **Per-request options** come from passing a configured Client: anything
+     * the fluent builder can express, including headers, bodies, timeouts and
+     * the body ceiling. A plain string is shorthand for a GET with the
+     * defaults. `$concurrency` is the only setting that belongs to the batch.
+     *
+     * **{@see retry()} is honoured**, in rounds: every entry that failed and
+     * has attempts left is sent again together, after the longest backoff that
+     * round calls for. Entries retry independently, so a neighbour's failure
+     * never costs a re-send.
+     *
+     * **Fakes work.** A key whose URL matches a {@see fake()} pattern is
+     * answered from the fake and never reaches the network, so a test of a
+     * batching caller does not quietly become a live network test.
+     *
+     * The returned array is keyed, not ordered by completion — read it by key.
+     *
+     * @param array<array-key, string|Client> $requests    URL or configured
+     *                                                     Client, per key.
+     * @param int                             $concurrency Requests in flight at
+     *                                                     once; clamped to at
+     *                                                     least 1.
+     * @return array<array-key, ClientResponse|ClientException> Keyed as the
+     *         input was.
+     */
+    public static function pool(array $requests, int $concurrency = 8): array
+    {
+        $concurrency = max(1, $concurrency);
+
+        /** @var array<array-key, Client> $clients */
+        $clients = [];
+        foreach ($requests as $key => $request) {
+            $clients[$key] = $request instanceof self
+                ? $request
+                : static::get((string) $request);
+        }
+
+        $results  = [];
+        $attempts = array_fill_keys(array_keys($clients), 0);
+        $queue    = array_keys($clients);
+
+        while ($queue !== []) {
+            $round = $queue;
+            $queue = [];
+
+            // Faked entries never touch the network, and a callable fake is
+            // invoked once per attempt exactly as it is for a single send().
+            $live = [];
+            foreach ($round as $key) {
+                $client = $clients[$key];
+                $url    = $client->resolveUrl();
+                $fake   = $client->resolveFake($url);
+                if ($fake !== null) {
+                    $results[$key] = $fake;
+                } else {
+                    $live[$key] = $url;
+                }
+            }
+
+            if ($live !== []) {
+                foreach (static::runMulti($clients, $live, $concurrency)
+                    as $key => $result) {
+                    $results[$key] = $result;
+                }
+            }
+
+            // throwOnError turns a failing status into an exception *value*.
+            foreach ($round as $key) {
+                $result = $results[$key];
+                if ($clients[$key]->throwOnError
+                    && $result instanceof ClientResponse
+                    && $result->failed()) {
+                    try {
+                        $result->throw();
+                    } catch (ClientException $e) {
+                        $results[$key] = $e;
+                    }
+                }
+            }
+
+            // The retry policy, batched: everything still failing that has
+            // attempts left goes round again, after the longest delay this
+            // round calls for.
+            $delayMs = 0;
+            foreach ($round as $key) {
+                $client = $clients[$key];
+                $result = $results[$key];
+                $failed = $result instanceof ClientException
+                    || ($result instanceof ClientResponse
+                        && $result->serverError());
+
+                if (!$failed || $attempts[$key] >= $client->retries) {
+                    continue;
+                }
+
+                $attempts[$key]++;
+                $queue[] = $key;
+                $delayMs = max(
+                    $delayMs,
+                    (int) ($client->retryDelayMs * (2 ** ($attempts[$key] - 1)))
+                );
+            }
+
+            if ($queue !== [] && $delayMs > 0) {
+                usleep($delayMs * 1000);
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Run one round of live requests through curl_multi and collect the
+     * outcomes.
+     *
+     * The window holds at most $concurrency transfers open; as each finishes,
+     * the next is added. Handles come from {@see prepareHandle()}, so a pooled
+     * request is configured identically to the same request sent alone.
+     *
+     * @param array<array-key, Client> $clients     Every client in the batch.
+     * @param array<array-key, string> $live        Keys to send now, with their
+     *                                              resolved URLs.
+     * @param int                      $concurrency Transfers in flight.
+     * @return array<array-key, ClientResponse|ClientException>
+     */
+    private static function runMulti(
+        array $clients, array $live, int $concurrency
+    ): array {
+        $multi   = curl_multi_init();
+        $results = [];
+        $states  = [];
+        $handles = [];          // curl handle id => [key, handle]
+        $pending = array_keys($live);
+        $total   = count($pending);
+        $index   = 0;
+
+        $add = static function () use (
+            &$index, &$handles, &$states, $pending, $total, $clients, $live,
+            $multi
+        ): bool {
+            if ($index >= $total) {
+                return false;
+            }
+            $key = $pending[$index++];
+            // Passed by reference into the array: prepareHandle()'s callbacks
+            // write to this bag while the transfer runs, and interpret() reads
+            // it once the transfer is done.
+            $states[$key] = [];
+            $ch = $clients[$key]->prepareHandle($live[$key], $states[$key]);
+            $handles[(int) $ch] = [$key, $ch];
+            curl_multi_add_handle($multi, $ch);
+
+            return true;
+        };
+
+        for ($i = 0; $i < $concurrency; $i++) {
+            if (!$add()) {
+                break;
+            }
+        }
+
+        do {
+            curl_multi_exec($multi, $running);
+            if ($running > 0) {
+                // Blocks until one of the sockets has something to say, so this
+                // is not a spin loop. -1 means curl has nothing to wait on yet.
+                // @codeCoverageIgnoreStart
+                if (curl_multi_select($multi, 1.0) === -1) {
+                    usleep(1000);
+                }
+                // @codeCoverageIgnoreEnd
+            }
+
+            while (($info = curl_multi_info_read($multi)) !== false) {
+                $ch = $info['handle'];
+                $id = (int) $ch;
+                // @codeCoverageIgnoreStart
+                if (!isset($handles[$id])) {
+                    continue;   // not one of ours
+                }
+                // @codeCoverageIgnoreEnd
+                [$key] = $handles[$id];
+
+                $errno = (int) $info['result'];
+                $error = $errno !== 0 ? (string) curl_strerror($errno) : '';
+
+                try {
+                    $results[$key] = $clients[$key]->interpret(
+                        $ch, $errno, $error, curl_multi_getcontent($ch),
+                        $states[$key]
+                    );
+                } catch (ClientException $e) {
+                    // Deliberately a value: one dead host must not abandon the
+                    // rest of the batch.
+                    $results[$key] = $e;
+                }
+
+                curl_multi_remove_handle($multi, $ch);
+                unset($handles[$id]);
+
+                $add();
+            }
+        } while ($running > 0 || $handles !== []);
+
+        curl_multi_close($multi);
+
+        return $results;
     }
 }

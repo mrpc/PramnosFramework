@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Calling a third-party REST API from a controller, model or worker
+  - Polling many endpoints at once instead of one at a time
   - Checking whether a streaming or long-lived endpoint is alive
   - Reading only part of a large or endless HTTP response
   - Writing tests for code that makes outbound HTTP calls
@@ -171,6 +172,63 @@ control, because without it a server that answers with a gigabyte will exhaust
 
 ---
 
+## Several requests at once: `Client::pool()`
+
+One request at a time is fine until you have a catalogue. Polling 200 status
+endpoints at ~1.1 s each takes 218 seconds — and almost all of that second is
+spent waiting on somebody else's server, which is exactly the wait that
+overlaps.
+
+```php
+$responses = Client::pool([
+    'aroma'  => 'https://one.example/status-json.xsl',
+    'kosmos' => Client::get('https://two.example/stats?json=1')
+        ->connectTimeout(2)->timeout(3)->maxResponseBytes(64 * 1024),
+], concurrency: 8);
+
+foreach ($responses as $station => $response) {
+    if ($response instanceof \Pramnos\Http\ClientException) {
+        $this->markUnreachable($station, $response->getMessage());
+        continue;
+    }
+    $this->record($station, $response->json());
+}
+```
+
+**Keyed in, keyed out.** The result array carries the keys you supplied, so you
+never re-derive which answer belongs to whom. It is keyed, not ordered by
+completion — read it by key.
+
+**A failure is a value.** Any number of endpoints are down at any moment, and
+one dead host must not abandon the other seven. An entry that fails at the
+transport level gets a `ClientException` **in the array**; the pool itself never
+raises. Check the type before using a result — that is the one thing a pool
+caller must do that a `send()` caller does not.
+
+**Per-request options** come from passing a configured `Client` instead of a
+string. Anything the fluent builder can express works: headers, bodies,
+timeouts, the body ceiling. A plain string is shorthand for a GET with the
+defaults. `concurrency` is the only setting that belongs to the batch — it is
+the number of requests in flight at once, and everything beyond it is started as
+slots free up.
+
+**`retry()` is honoured**, in rounds: entries that failed and have attempts left
+are re-sent together after the longest backoff that round calls for. Entries
+retry independently, so a neighbour's failure never costs a re-send.
+
+**`throwOnError()` on an entry** becomes an exception *value* under that key,
+not an exception out of `pool()`. The batch always completes.
+
+**Fakes work.** A key whose URL matches a `fake()` pattern is answered from the
+fake and never reaches the network, so a test of a batching caller does not
+quietly become a live network test. Faked and live entries can mix in one batch.
+
+Pooled requests go through the same handle configuration as a single `send()` —
+the same TLS defaults, redirect handling and header normalisation. There is one
+HTTP client here, not two.
+
+---
+
 ## Timeouts and retries
 
 ```php
@@ -320,5 +378,6 @@ for development only — it makes the connection trivially interceptable.
 | `->userAgent(string $agent): static` | Override the User-Agent |
 | `->throwOnError(): static` | Throw on 4xx/5xx instead of returning |
 | `->send(): ClientResponse` | Execute |
+| `Client::pool(array $requests, int $concurrency = 8): array` | Send many at once; returns `ClientResponse\|ClientException` per key |
 | `Client::fake(array $responses): void` | Register test fakes |
 | `Client::resetFakes(): void` | Clear them |

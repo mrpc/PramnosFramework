@@ -227,6 +227,32 @@ class ClientTransportTest extends TestCase
     }
 
     /**
+     * A body on a CUSTOMREQUEST verb reaches the server too.
+     *
+     * POST takes the CURLOPT_POST path and PUT/PATCH/DELETE take
+     * CURLOPT_CUSTOMREQUEST, and each attaches its body separately — so a body
+     * that travels on a POST proves nothing about one on a PUT.
+     */
+    public function testABodyOnAPutReachesTheServer(): void
+    {
+        // Arrange
+        $url = $this->serve(static function (int $i, string $request): string {
+            return self::response(200, $request);
+        });
+
+        // Act
+        $response = Client::put($url)
+            ->json(['listeners' => 41])
+            ->timeout(5)
+            ->send();
+
+        // Assert
+        $echoed = $response->body();
+        $this->assertStringStartsWith('PUT ', $echoed);
+        $this->assertStringContainsString('{"listeners":41}', $echoed);
+    }
+
+    /**
      * A form body is URL-encoded and sent with the form content type.
      */
     public function testFormBodyIsUrlEncoded(): void
