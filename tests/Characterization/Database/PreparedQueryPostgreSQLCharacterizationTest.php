@@ -198,6 +198,128 @@ class PreparedQueryPostgreSQLCharacterizationTest extends TestCase
         $this->assertSame('ok', $row['bound']);
     }
 
+    // ── Comments ────────────────────────────────────────────────────────────
+
+    /**
+     * The reported failure, run against the real server: an apostrophe inside a
+     * block comment must not stop the placeholders after it from binding.
+     *
+     * This is the statement shape that dark-screened a consuming application's
+     * "now playing" page. The scanner was quote-aware but not comment-aware, so
+     * the possessive in "a JOIN's clause" put it into its in-string state and
+     * ':minutes' was left in the SQL unbound; PostgreSQL then answered
+     * 'syntax error at or near ":"' and preparedQuery() returned false.
+     *
+     * Asserted here rather than only in unit form because the invariant that
+     * matters is that the *server* accepts the statement — a rewritten string
+     * that looks right can still be rejected.
+     */
+    public function testApostropheInBlockCommentDoesNotBreakBinding(): void
+    {
+        // Arrange
+        $this->db->preparedQuery(
+            'INSERT INTO pq_items (name, qty) VALUES (:name, :qty)',
+            ['name' => 'commented', 'qty' => 15]
+        );
+
+        // Act
+        $result = $this->db->preparedQuery(
+            "SELECT /* a JOIN's clause */ qty FROM pq_items WHERE name = :name",
+            ['name' => 'commented']
+        );
+
+        // Assert — a Result, not the false that a failed prepare returns.
+        $this->assertNotFalse($result);
+        $this->assertSame(15, $result->fetch()['qty']);
+    }
+
+    /**
+     * The same, through the interval expression from the original report: a
+     * comment, then a placeholder concatenated into a cast. It exercises the
+     * comment state and the '::' cast state in one statement.
+     */
+    public function testCommentBeforeAnIntervalCastBinds(): void
+    {
+        // Arrange / Act
+        $result = $this->db->preparedQuery(
+            "SELECT /* the station's own window */ (:minutes || ' minutes')::interval AS v",
+            ['minutes' => 15]
+        );
+
+        // Assert — 15 minutes round-trips as an interval, so the cast survived.
+        $this->assertNotFalse($result);
+        $this->assertStringContainsString('15', (string) $result->fetch()['v']);
+    }
+
+    /**
+     * A '--' line comment containing an apostrophe, mid-statement. PostgreSQL
+     * needs no space after the dashes, and the scanner must agree.
+     */
+    public function testApostropheInLineCommentDoesNotBreakBinding(): void
+    {
+        // Arrange
+        $this->db->preparedQuery(
+            'INSERT INTO pq_items (name, qty) VALUES (:name, :qty)',
+            ['name' => 'lined', 'qty' => 7]
+        );
+
+        // Act — note the tight '--comment', which is legal here.
+        $result = $this->db->preparedQuery(
+            "SELECT qty FROM pq_items\n--the caller's own note\nWHERE name = :name",
+            ['name' => 'lined']
+        );
+
+        // Assert
+        $this->assertNotFalse($result);
+        $this->assertSame(7, $result->fetch()['qty']);
+    }
+
+    /**
+     * A placeholder commented out with '--' is not bound, and the value list
+     * stays aligned with the placeholders the server actually sees.
+     *
+     * Proven through the positional style, where a miscount is silent rather
+     * than loud: had the commented '?' consumed a binding, 'kept' would have
+     * been bound to the commented slot and the real one would have received
+     * nothing.
+     */
+    public function testCommentedOutPositionalPlaceholderIsIgnored(): void
+    {
+        // Arrange
+        $this->db->preparedQuery(
+            'INSERT INTO pq_items (name, qty) VALUES (?, ?)',
+            ['kept', 3]
+        );
+
+        // Act
+        $result = $this->db->preparedQuery(
+            "SELECT qty FROM pq_items WHERE /* qty = ? */ name = ?",
+            ['kept']
+        );
+
+        // Assert
+        $this->assertNotFalse($result);
+        $this->assertSame(3, $result->fetch()['qty']);
+    }
+
+    /**
+     * PostgreSQL nests block comments, and the server is the authority on that:
+     * if the scanner ended the comment at the inner '*' + '/', the trailing
+     * prose would reach the server as SQL and the statement would fail.
+     */
+    public function testNestedBlockCommentIsAcceptedByTheServer(): void
+    {
+        // Arrange / Act
+        $result = $this->db->preparedQuery(
+            "SELECT /* outer /* inner's */ still comment */ :v AS v",
+            ['v' => 4]
+        );
+
+        // Assert
+        $this->assertNotFalse($result);
+        $this->assertSame('4', (string) $result->fetch()['v']);
+    }
+
     // ── Value binding semantics ─────────────────────────────────────────────
 
     /**

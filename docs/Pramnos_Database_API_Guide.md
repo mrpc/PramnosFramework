@@ -69,6 +69,93 @@ $this->application->database->prepareQuery("SELECT * FROM users WHERE id = ?", [
 
 **Note**: Only `%s` and `%d` are commonly used in the Pramnos framework.
 
+## Real Prepared Statements: `preparedQuery()`
+
+`prepareQuery()` + `query()` interpolates escaped values into the SQL string.
+`preparedQuery()` is different: it runs the statement through the driver's own
+prepared-statement engine (`pg_prepare`/`pg_execute`, or mysqli), so values are
+bound as parameters and never become part of the SQL text.
+
+It is the PDO-style bridge, added for code migrating off a raw `\PDO` handle, and
+it takes the SQL verbatim — PostgreSQL `RETURNING`, `ON CONFLICT`, `DISTINCT ON`
+and stored-function calls all survive untouched.
+
+```php
+$db = \Pramnos\Database\Database::getInstance();
+
+// Named placeholders — a name may repeat, and binds at each occurrence.
+$result = $db->preparedQuery(
+    'SELECT * FROM stations WHERE ownerid = :owner AND status = :status',
+    ['owner' => $userId, 'status' => 1]
+);
+
+// Positional placeholders.
+$result = $db->preparedQuery(
+    'SELECT * FROM stations WHERE id IN (?, ?)',
+    [$first, $second]
+);
+```
+
+The two styles are mutually exclusive within one statement, exactly as with PDO.
+Keys may be written with or without the leading colon (`'owner'` or `':owner'`).
+
+**Return value.** A `Result` on success, or **`false`** when the statement could
+not be prepared. It does not throw for that case unless the connection is in
+strict mode (see [`throwOnError`](#how-database-failures-surface-and-throwonerror)).
+A caller writing `$db->preparedQuery(...) ?: []` to keep a read failure from
+taking a page down is a deliberate pattern — but be aware that it makes a broken
+query and an empty table look the same. Turn on `throwOnError` while developing
+so the difference is loud.
+
+**Missing bindings throw.** A `:name` with no value in the array is a
+programming error and raises `\InvalidArgumentException`, as does a positional
+count that does not match the number of `?`.
+
+### What counts as SQL, and what does not
+
+Both `preparedQuery()` and the `%s`/`%d` engine behind `execute()` have to decide
+which parts of a statement are really SQL before they can find placeholders in
+it. Two kinds of text are skipped:
+
+- **Single-quoted string literals.** `'%'` in a `LIKE` pattern is data, and
+  `':notabind'` is a string, not a placeholder. `''` is an escaped quote and
+  keeps the literal open.
+- **Comments.** `--` and `/* … */` everywhere, plus `#` on MySQL. Nothing inside
+  a comment is read: a placeholder written there is prose, and — the part that
+  matters in practice — **an apostrophe there is just an apostrophe**.
+
+That last point is worth stating plainly, because the parser did not always know
+it:
+
+```php
+// Fine. The possessive in the comment is prose, and :minutes still binds.
+$db->preparedQuery(
+    "SELECT /* a JOIN's clause */ (:minutes || ' minutes')::interval AS v",
+    ['minutes' => 15]
+);
+```
+
+Before this was handled, the apostrophe in `JOIN's` read as the start of a string
+literal, so every placeholder after it was left in the SQL unbound; the statement
+failed and `preparedQuery()` answered `false`. In a consuming application that
+turned a working page into an empty one, with no error anywhere — the read did
+`?: []` and the page truthfully reported that it had no rows.
+
+**The two dialects genuinely disagree**, and the framework follows each server's
+own rule rather than picking one:
+
+| | MySQL | PostgreSQL |
+|---|---|---|
+| `#` to end of line | comment | operator — still SQL |
+| `--` followed by space | comment | comment |
+| `--` with no space (`5--3`) | arithmetic → `8` | comment → `5` |
+| `/* a /* b */ c */` | ends at the first `*/` | nests; ends at the last |
+| `/*!40101 … */` | **executed** — placeholders inside it bind | ordinary comment |
+
+You do not need to do anything with this table; it is here so that a statement
+which behaves differently on two servers has a documented reason. Write comments
+however you like, apostrophes included.
+
 ## Result Handling
 
 **CRITICAL**: Pramnos query results use different patterns for single vs multiple records:

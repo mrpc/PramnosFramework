@@ -1290,37 +1290,40 @@ class Database extends \Pramnos\Framework\Base
         // whichever unprepared query had run last.
         $this->currentQuery = $query;
 
+        // Count and rewrite %X placeholders, but only where the statement is
+        // really SQL. A '%' inside a LIKE pattern ('%display-read-%') is data,
+        // and a '%s' inside a comment is prose; binding either one shifts every
+        // later argument by a slot.
+        //
+        // Both questions are asked of maskInertSql(), which returns a copy of
+        // the same length with literals and comments blanked to NUL — so an
+        // offset found in the mask is the same offset in $query. The regex that
+        // used to do this was quote-aware only, and one apostrophe inside a
+        // comment made it read the rest of the statement as a string literal:
+        // the real %s went uncounted and the prepare failed. See
+        // {@see maskInertSql()} for what that cost.
         $types = array();
-        // Count %X placeholders only outside SQL string literals to avoid
-        // matching % inside LIKE/ILIKE patterns such as '%display-read-%'
-        $maskedQuery = preg_replace("/'(?:''|[^'])*'/s", "''", $query);
-        $numOfTypes = preg_match_all('/\%(i|d|s|b)/i', $maskedQuery, $types);
+        $mask = $this->maskInertSql($query);
+        $numOfTypes = preg_match_all(
+            '/%(i|d|s|b)/i', $mask, $types, PREG_OFFSET_CAPTURE
+        );
         if ($numOfTypes > 0) {
-            if ($this->type == 'postgresql') {
-                $count = 1;
-                $query = preg_replace_callback(
-                    "/'(?:''|[^'])*'|%(i|d|s|b)/si",
-                    function($matches) use (&$count) {
-                        if ($matches[0][0] === "'") {
-                            return $matches[0];
-                        }
-                        return '$' . $count++;
-                    },
-                    $query
-                );
-            } else {
-                $query = preg_replace_callback(
-                    "/'(?:''|[^'])*'|%[idsb]/si",
-                    function($matches) {
-                        if ($matches[0][0] === "'") {
-                            return $matches[0];
-                        }
-                        return '?';
-                    },
-                    $query
-                );
+            $isPg = $this->type == 'postgresql';
+            $rebuilt = '';
+            $cursor = 0;
+            $count = 1;
+            foreach ($types[0] as $match) {
+                $offset = $match[1];
+                $rebuilt .= substr($query, $cursor, $offset - $cursor)
+                    . ($isPg ? '$' . $count++ : '?');
+                $cursor = $offset + strlen($match[0]);
             }
-            $types = implode($types[1]);
+            $query = $rebuilt . substr($query, $cursor);
+            // The captured type letters, in statement order, for mysqli's
+            // bind_param() type string.
+            $types = implode(
+                '', array_map(fn($m) => $m[0], $types[1])
+            );
         }
         if (is_array($types)) {
             $types = '';
@@ -3553,6 +3556,9 @@ class Database extends \Pramnos\Framework\Base
      *   - Positional: "... WHERE id IN (?, ?)"  + [5, 7]
      * Placeholders inside single-quoted string literals are ignored, and ':' in
      * a '::type' cast is never treated as a placeholder — exactly as PDO parses.
+     * Comments are skipped too: '--' / '#' to the end of the line and '/ * ... * /'
+     * to its close, so neither a placeholder nor an apostrophe written in prose
+     * inside a comment is read as SQL.
      *
      * Values bind as real parameters: null binds SQL NULL and booleans bind the
      * driver-native boolean. The returned Result type-casts PostgreSQL
@@ -3584,6 +3590,16 @@ class Database extends \Pramnos\Framework\Base
      * literals are left alone and '::' casts are never mistaken for a :name.
      * Named and positional styles cannot be mixed in one statement (as with PDO).
      *
+     * Which stretches of the statement are inert — string literals and comments
+     * alike — comes from {@see maskInertSql()}, and the comment half of that was
+     * missing long enough to cost a consuming application a blank page. The scan
+     * was quote-aware but not comment-aware, so one apostrophe inside a comment
+     * — the possessive in "a JOIN's clause" — read as the start of a literal and
+     * every ':name' after it was left in the SQL unbound. The statement then
+     * failed, and because {@see preparedQuery()} answers false rather than
+     * throwing, a caller reading `$result ?: []` could not tell that from an
+     * empty table.
+     *
      * @param string $sql
      * @param array  $bindings
      * @return array{0:string,1:array} [rewritten SQL, ordered values]
@@ -3600,30 +3616,19 @@ class Database extends \Pramnos\Framework\Base
             }
         }
 
-        $out       = '';
-        $ordered   = [];
-        $posIndex  = 0;
-        $length    = strlen($sql);
-        $inString  = false; // inside a single-quoted literal
+        $out      = '';
+        $ordered  = [];
+        $posIndex = 0;
+        $length   = strlen($sql);
+        // Where the SQL stops being SQL — string literals and comments — decided
+        // once, by {@see maskInertSql()}, so this loop only has to ask.
+        $mask = $this->maskInertSql($sql);
 
         for ($i = 0; $i < $length; $i++) {
             $char = $sql[$i];
 
-            if ($inString) {
-                $out .= $char;
-                if ($char === "'") {
-                    // '' is an escaped quote inside the literal, stay in-string.
-                    if ($i + 1 < $length && $sql[$i + 1] === "'") {
-                        $out .= $sql[++$i];
-                    } else {
-                        $inString = false;
-                    }
-                }
-                continue;
-            }
-
-            if ($char === "'") {
-                $inString = true;
+            // Inert: inside a literal or a comment. Emitted verbatim, never read.
+            if ($mask[$i] === "\0") {
                 $out .= $char;
                 continue;
             }
@@ -3677,6 +3682,168 @@ class Database extends \Pramnos\Framework\Base
         }
 
         return [$out, $ordered];
+    }
+
+    /**
+     * Return a same-length copy of $sql in which every **inert** byte — one
+     * inside a single-quoted string literal or inside a comment — is replaced
+     * by NUL, and every byte of live SQL is left exactly as it is.
+     *
+     * This is the one place that knows where SQL stops being SQL, and it exists
+     * because that question was previously answered three times with two
+     * different, both-incomplete rules:
+     *
+     *   - {@see prepare()} masked literals with a regex to count '%X'
+     *     placeholders. Quote-aware, comment-blind.
+     *   - {@see bindPlaceholders()} walked the string for ':name' and '?'.
+     *     Quote-aware, comment-blind.
+     *
+     * Comment-blind is not a cosmetic gap. One apostrophe inside a comment —
+     * the possessive in "a JOIN's clause" — reads as the start of a string
+     * literal, so everything after it looks inert and no placeholder in it is
+     * seen again. In a consuming application that turned a working query into
+     * `false`, and because the read path there answers `$result ?: []`, into a
+     * page that said no rows existed. Both callers now ask this method, so a
+     * dialect rule learned once is known everywhere.
+     *
+     * NUL is the filler rather than a space because callers test the mask
+     * byte-for-byte against live SQL: a space would be indistinguishable from
+     * the spaces that real SQL is full of.
+     *
+     * @param  string $sql
+     * @return string Same length as $sql; inert bytes are "\0".
+     */
+    private function maskInertSql(string $sql): string
+    {
+        $length     = strlen($sql);
+        // Asked as "not PostgreSQL" rather than "is MySQL" on purpose: MariaDB
+        // reports itself as mysql today, but any future member of that family
+        // lands on the stricter rules, where fewer things open a comment — and
+        // wrongly masking live SQL is the worse of the two mistakes.
+        $isMysql    = $this->getDriverName() !== 'pgsql';
+        $mask       = '';
+        $inString   = false;
+        $inLine     = false;
+        $blockDepth = 0;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $sql[$i];
+
+            if ($inString) {
+                $mask .= "\0";
+                if ($char === "'") {
+                    // '' is an escaped quote inside the literal, stay in-string.
+                    if ($i + 1 < $length && $sql[$i + 1] === "'") {
+                        $mask .= "\0";
+                        $i++;
+                    } else {
+                        $inString = false;
+                    }
+                }
+                continue;
+            }
+
+            if ($inLine) {
+                // The newline itself ends the comment and is live whitespace.
+                $mask .= $char === "\n" ? $char : "\0";
+                if ($char === "\n") {
+                    $inLine = false;
+                }
+                continue;
+            }
+
+            if ($blockDepth > 0) {
+                if ($char === '*' && $i + 1 < $length && $sql[$i + 1] === '/') {
+                    $mask .= "\0\0";
+                    $i++;
+                    $blockDepth--;
+                    continue;
+                }
+                // PostgreSQL nests block comments; MySQL does not, so only the
+                // former counts an inner '/*' as opening a further level.
+                if (!$isMysql
+                    && $char === '/' && $i + 1 < $length && $sql[$i + 1] === '*') {
+                    $mask .= "\0\0";
+                    $i++;
+                    $blockDepth++;
+                    continue;
+                }
+                $mask .= "\0";
+                continue;
+            }
+
+            if ($this->opensLineComment($sql, $i, $isMysql)) {
+                $inLine = true;
+                $mask .= "\0";
+                continue;
+            }
+
+            // '/*!' on MySQL is a version-gated *executable* comment: the server
+            // runs the SQL inside it, so it is live and must not be masked.
+            if ($char === '/' && $i + 1 < $length && $sql[$i + 1] === '*'
+                && !($isMysql && $i + 2 < $length && $sql[$i + 2] === '!')) {
+                $blockDepth = 1;
+                $mask .= "\0\0";
+                $i++;
+                continue;
+            }
+
+            if ($char === "'") {
+                $inString = true;
+                $mask .= "\0";
+                continue;
+            }
+
+            $mask .= $char;
+        }
+
+        return $mask;
+    }
+
+    /**
+     * Does a line comment start at $offset?
+     *
+     * The two dialects disagree, and the difference is not cosmetic:
+     *
+     *   - PostgreSQL: '--' always begins a comment, so "5--3" is 5, not 8.
+     *   - MySQL: '--' begins one only when followed by whitespace or the end of
+     *     the statement, so "5--3" is 8 — the second '-' is a unary minus.
+     *     MySQL alone also treats '#' as a comment; in PostgreSQL it is an
+     *     operator character.
+     *
+     * Reading '--' as a comment where the server would not means every
+     * placeholder to the end of the line stops being bound; reading it as SQL
+     * where the server would not means an apostrophe inside prose flips the
+     * scanner into its in-string state. Both were reachable, so both dialects
+     * are answered rather than one rule guessed for the pair.
+     *
+     * @param string $sql
+     * @param int    $offset  Index of the character being examined.
+     * @param bool   $isMysql Whether this connection speaks MySQL.
+     * @return bool
+     */
+    private function opensLineComment(
+        string $sql, int $offset, bool $isMysql
+    ): bool {
+        $char = $sql[$offset];
+
+        if ($char === '#') {
+            return $isMysql;
+        }
+
+        if ($char !== '-'
+            || $offset + 1 >= strlen($sql) || $sql[$offset + 1] !== '-') {
+            return false;
+        }
+
+        if (!$isMysql) {
+            return true;
+        }
+
+        // MySQL: '--' needs whitespace (or nothing) after it to be a comment.
+        $after = $offset + 2 < strlen($sql) ? $sql[$offset + 2] : ' ';
+
+        return trim($after) === '';
     }
 
 }
