@@ -6,6 +6,7 @@ use_cases:
   - Checking hypertable state from code
   - Setting up data retention on MySQL or plain PostgreSQL
   - Changing a chunk, compression or retention interval after the fact
+  - Choosing segmentby and orderby so compression actually compresses
 ---
 
 # Hypertables: declaring them, and repairing them later
@@ -57,6 +58,42 @@ two disagree silently.
 | `applications.application_stats` | `time` | 14 days | 60 days | 3 years |
 
 This table is documentation. The registry is the source.
+
+### Choosing `segmentby`: a measurement worth repeating
+
+TimescaleDB compresses in batches of up to 1000 rows **per segment**. Which columns
+go in `segmentby` therefore decides whether compression compresses at all — and
+getting it wrong is not a small loss.
+
+Measured on 2 M changelog rows, 12 entities, 240 000 records over 30 days
+(`tests/Benchmarks/changelog_compression.php`):
+
+| `segmentby` | chunk | ratio | stored | compress | per-row | recent |
+|---|---|---|---|---|---|---|
+| `entity` | 7 days | **12.82** | **37.5 MB** | 5.8 s | 11.0 ms | 4.8 ms |
+| `entity` | 1 day | 10.02 | 48.7 MB | 4.6 s | 12.7 ms | 2.6 ms |
+| `entity, itemid` | 7 days | 0.89 | 543 MB | 74.6 s | 16.8 ms | 176 ms |
+| `entity, itemid` | 1 day | **0.59** | 822 MB | 133.6 s | **2.2 ms** | 53 ms |
+
+**A ratio below 1 means compression made the table larger.** A change log is sparse
+per record — one row changes a handful of times a day — so `itemid` in `segmentby`
+produces segments of a few rows each, far below the batch size, and the per-segment
+overhead exceeds the saving. 822 MB against 37.5 MB for identical data, and 133
+seconds of CPU against 6.
+
+The rule that follows, and it generalises past this table:
+
+- **`segmentby`**: columns you filter on that have *few* distinct values.
+- **`orderby`**: the high-cardinality column first. Compressed batches carry min/max
+  metadata for `orderby` columns, so a filter on one skips batches without
+  decompressing them — which is how the layout above stays fast on a per-row lookup
+  while keeping `itemid` out of `segmentby`.
+
+The exception is real and visible in the table: `entity, itemid` at 1-day chunks
+wins the per-row lookup, 2.2 ms against 11.0 ms, because the segment is located
+directly. It costs 22× the disk and compression that does not compress — worth it
+only for a log read constantly and kept briefly, and that is what the overrides
+below are for.
 
 ### Retuning one without editing the framework
 

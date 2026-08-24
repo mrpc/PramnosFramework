@@ -412,13 +412,36 @@ class HypertableRegistry
                 'feature'        => 'auth',
             ],
             // The change log's three populations. Declared here rather than in the
-            // migration so an application can retune them from app.php — the numbers
-            // below are a starting point taken from the reference application, and no
-            // single retention fits every installation's write rate.
+            // migration so an application can retune them from app.php — no single
+            // retention fits every installation's write rate.
             //
-            // Compression is declared for the two that keep months of rows. The trace
-            // table has none: at three days nothing lives long enough for compression to
-            // repay the CPU it costs.
+            // `segmentby entity` with the high-cardinality `itemid` first in `orderby`,
+            // rather than the reference application's `segmentby itemtype, itemid`.
+            // Measured on 2 M rows, 12 entities, 240 k records over 30 days
+            // (tests/Benchmarks/changelog_compression.php):
+            //
+            // |            | ratio | stored  | compress | per-row | recent |
+            // |------------|-------|---------|----------|---------|--------|
+            // | this, 7d   | 12.82 |  37.5MB |     5.8s |  11.0ms |  4.8ms |
+            // | this, 1d   | 10.02 |  48.7MB |     4.6s |  12.7ms |  2.6ms |
+            // | itemid, 7d |  0.89 | 543.0MB |    74.6s |  16.8ms | 176ms  |
+            // | itemid, 1d |  0.59 | 822.0MB |   133.6s |   2.2ms | 53ms   |
+            //
+            // A ratio below 1 means compression made the table **larger**. A change log
+            // is sparse per record, so `itemid` in `segmentby` produces segments of a
+            // few rows each — far below the 1000-row batch Timescale compresses into —
+            // and the per-segment overhead then exceeds the saving. 822 MB against
+            // 37.5 MB for the same rows.
+            //
+            // The one thing that layout wins is the per-row lookup at 1-day chunks,
+            // 2.2 ms against 11.0 ms, because `itemid` in `segmentby` locates the
+            // segment directly. It costs 22x the disk and compression that does not
+            // compress, so it is not the default — but it is the right answer for a log
+            // read constantly and kept briefly, which is what `loadOverridesFromConfig()`
+            // is for.
+            //
+            // The trace table gets no compression at all: at three days nothing lives
+            // long enough for it to repay the CPU.
             'pramnos.changelog' => [
                 'time_column'     => 'created_at',
                 'chunk_interval'  => '7 days',

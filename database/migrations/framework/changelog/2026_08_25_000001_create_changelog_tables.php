@@ -108,6 +108,9 @@ class CreateChangelogTables extends Migration
             $table->index(['userid', 'created_at'], 'idx_changelog_user');
         });
 
+        // segmentby entity, with the high-cardinality itemid first in orderby — measured,
+        // see HypertableRegistry. The alternative that puts itemid in segmentby compresses
+        // to a ratio below 1: it makes the table larger.
         $this->partition($schema, 'pramnos.changelog', '7 days', 'entity', 'itemid, created_at DESC');
     }
 

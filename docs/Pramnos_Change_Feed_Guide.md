@@ -361,6 +361,11 @@ are kept weeks, so most rows have none.
 a compressed hypertable, both measured in this repository. `spool:drain` writes them
 in batches a minute later, and the framework's own schedule already runs it.
 
+On disk, 2 M rows compress to **37.5 MB** — a ratio of 12.8 — with the declared
+layout. The obvious alternative layout stores the same rows in 822 MB, because
+compression there makes the table *larger*; see
+[choosing `segmentby`](Pramnos_Hypertable_Guide.md#choosing-segmentby-a-measurement-worth-repeating).
+
 ---
 
 ## Broadcasting model changes
