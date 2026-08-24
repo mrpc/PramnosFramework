@@ -1062,6 +1062,46 @@ if ($this->application->database->type === 'postgresql') {
 
 ### Transaction Management
 
+#### Transactions announce themselves
+
+`commitTransaction()` and `rollbackTransaction()` fire an event, so code that has
+been holding work until the outcome is known can act on it without every call site
+remembering to tell it:
+
+```php
+use Pramnos\Event\ChangeFeed;
+use Pramnos\Event\Event;
+
+Event::listen(ChangeFeed::EVENT_COMMITTED,   fn() => /* rows are durable */);
+Event::listen(ChangeFeed::EVENT_ROLLED_BACK, fn() => /* drop what you held */);
+```
+
+| Event | Name | When |
+|---|---|---|
+| `ChangeFeed::EVENT_COMMITTED` | `database.transaction.committed` | after a **successful** `COMMIT` |
+| `ChangeFeed::EVENT_ROLLED_BACK` | `database.transaction.rolledback` | after `ROLLBACK`, **whether or not it succeeded** |
+
+The asymmetry is deliberate. A `COMMIT` that failed leaves rows that may not be
+there, so nothing is announced. A `ROLLBACK` that failed is still a reason to drop
+held work: "I could not undo that" is not grounds for announcing it, because a
+listener that has written an audit row cannot take it back either.
+
+By the time a listener runs, `inTransaction()` already answers `false`. A listener
+that goes on to write or publish is therefore outside the transaction it came from,
+which is what stops a re-entrant listener from buffering into a transaction that has
+ended.
+
+The names are for what happened, not for who listens: the [change
+feed](Pramnos_Change_Feed_Guide.md) uses them to release the model changes it held,
+and cache invalidation or an outbox wants the same seam.
+
+!!! warning "One flag, not a depth counter"
+    `inTransaction()` tracks state set by `startTransaction()` /
+    `commitTransaction()` / `rollbackTransaction()`. It does not count depth, so a
+    nested `startTransaction()` followed by the inner commit fires the committed
+    event while the outer transaction is still open. And a raw `BEGIN` issued
+    through `query()` is not tracked at all.
+
 #### Advanced Transaction Patterns
 
 ```php

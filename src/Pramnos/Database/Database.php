@@ -3253,6 +3253,20 @@ class Database extends \Pramnos\Framework\Base
         try {
             $ok = $this->runQuery('COMMIT') !== false;
             $this->transactionActive = false;
+
+            if ($ok) {
+                // Named for what happened, not for who listens. The change feed uses it
+                // to release the changes it held; cache invalidation and outbox patterns
+                // want the same seam, and none of them belong in this method.
+                //
+                // Fired only on success: a COMMIT that failed leaves rows that may not
+                // be there, and telling listeners otherwise is worse than telling them
+                // nothing.
+                \Pramnos\Event\Event::fire(
+                    \Pramnos\Event\ChangeFeed::EVENT_COMMITTED
+                );
+            }
+
             return $ok;
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError("Failed to commit transaction: " . $ex->getMessage(), $ex);
@@ -3274,6 +3288,16 @@ class Database extends \Pramnos\Framework\Base
         try {
             $ok = $this->runQuery('ROLLBACK') !== false;
             $this->transactionActive = false;
+
+            // Fired regardless of $ok, unlike the commit above. A ROLLBACK that itself
+            // failed is not a reason to keep holding changes whose rows may or may not
+            // exist — the safe reading of "I could not undo that" is still "do not
+            // announce it", because a listener that writes an audit row cannot take it
+            // back either.
+            \Pramnos\Event\Event::fire(
+                \Pramnos\Event\ChangeFeed::EVENT_ROLLED_BACK
+            );
+
             return $ok;
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError("Failed to rollback transaction: " . $ex->getMessage(), $ex);
