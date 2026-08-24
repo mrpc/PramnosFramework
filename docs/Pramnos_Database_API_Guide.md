@@ -108,6 +108,27 @@ Code generators do this, because the framework's documented order of work is
 the schema changed, and an hour-old answer describes the table as it was before
 the migration.
 
+On PostgreSQL, `PrimaryKey` and `ForeignKey` come back as booleans rather than
+MySQL's `'PRI'` / `1`; `ForeignTable` and `ForeignColumn` name the referenced
+table and column on both. Code reading these should accept either spelling —
+`true`, `'t'` and `1` all mean yes, depending on how the row was cast on the way
+out.
+
+> **Fixed 2026-08-24 on PostgreSQL, two faults in the flags.** `ForeignKey` was
+> computed from `information_schema.constraint_column_usage`, and for a FOREIGN
+> KEY that view lists the column of the **referenced** table — so on
+> `streams(station_id) → stations(id)` the flag was true on `id`, the primary
+> key, and false on `station_id`. It was never true for a foreign key on any
+> table, so every generator gated on it saw none: the SPA form rendered a number
+> input where its searchable picker belongs, the MVC form a bare input instead of
+> its select2, and `unsigned` is decided from the same flag so generated
+> migrations differed too. `ForeignTable` beside it was correct all along.
+>
+> `PrimaryKey` answered correctly through the old view by coincidence — for a
+> PRIMARY KEY constraint it *does* list the table's own columns — so the two
+> looked symmetric while one of them was luck. Both now read
+> `key_column_usage`, which is the view that lists what this table constrains.
+
 > **Fixed 2026-08-24, three faults in one method.** Nothing invalidated the
 > cache at all, so the sequence above wrote a model and a form for the old
 > columns and reported success — and because the store is shared, re-running the

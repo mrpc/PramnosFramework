@@ -2073,8 +2073,20 @@ abstract class MakeCommandBase extends Command
             $database = \Pramnos\Database\Database::getInstance();
             $result   = $database->getColumns($table, $this->schema, false, true);
             while ($result->fetch()) {
+                // 'Key' and 'Column_key' are the MySQL projection's names;
+                // PostgreSQL answers 'PrimaryKey' as a boolean, and this used to
+                // read only the first two — so the loop could never match on
+                // PostgreSQL and the convention below was the answer for every
+                // table. Measured against one application's schema: of 88
+                // single-column primary keys the convention got 3 right.
+                //
+                // It matters more than a wrong default usually does, because the
+                // read path never touches the key: a generated CRUD listed
+                // perfectly and failed on the first save or delete, after
+                // somebody had started trusting it.
                 if (($result->fields['Key'] ?? '') === 'PRI'
-                    || ($result->fields['Column_key'] ?? '') === 'PRI') {
+                    || ($result->fields['Column_key'] ?? '') === 'PRI'
+                    || self::isTruthyFlag($result->fields['PrimaryKey'] ?? null)) {
                     return $result->fields['Field'];
                 }
             }
@@ -2082,7 +2094,47 @@ abstract class MakeCommandBase extends Command
             // fall through to the convention
         }
 
-        return rtrim($table, 's') . 'id';
+        // The prefix placeholder is not part of a column name. This fallback
+        // used to leave it in, so an unresolved table gave
+        // `#PREFIX#thingid` — and interpolated into a generated PHP view a `#`
+        // opens a comment, which swallows the rest of the line and turns the
+        // file into a parse error. It went unnoticed because the only caller
+        // reaching this path with a `#PREFIX#` name used the convention helper
+        // instead, which has always stripped it.
+        //
+        // Singularised and lowercased the same way {@see
+        // \Pramnos\Console\Make\BlueprintCompiler::getSingularPrimaryKey()}
+        // does, so the two agree: they are the same convention, and a caller
+        // that asks one and then the other must not get two answers.
+        $clean = str_replace('#PREFIX#', '', $table);
+
+        return strtolower(rtrim($clean, 's')) . 'id';
+    }
+
+    /**
+     * Is a driver's boolean-ish flag true?
+     *
+     * PostgreSQL reports booleans through this layer as `true`, `'t'` or `'1'`
+     * depending on how the row was cast on the way out, and MySQL as `1`. A
+     * check written for one of those spellings silently answers false for the
+     * others, which is the shape of the bug this exists to stop repeating:
+     * `introspectTableAsWizardColumns()` already spells out two of them at each
+     * of its own flag checks.
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    protected static function isTruthyFlag($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return in_array(
+            is_scalar($value) ? strtolower((string) $value) : '',
+            ['t', 'true', '1', 'yes'],
+            true
+        );
     }
 
     /**
@@ -2386,7 +2438,18 @@ abstract class MakeCommandBase extends Command
             // generator so there is a single admin-style view code path.
             [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
             $ui         = $this->detectUiSetup();
-            $primaryKey = $this->getSingularPrimaryKey($tableName);
+            // Asked of the table, not guessed from its name. This is the
+            // existing-table branch — the error above proves it exists — so the
+            // key is a fact rather than a convention, and the convention is
+            // wrong far more often than it looks: of 88 single-column primary
+            // keys in one application's schema it gets 3 right. The generated
+            // edit and delete actions are built from this, so a wrong answer
+            // produces views that list correctly and cannot write.
+            //
+            // The wizard paths keep using getSingularPrimaryKey(), and should:
+            // there the table does not exist yet and the migration about to be
+            // written is what will name its key.
+            $primaryKey = $this->primaryKeyFor($tableName);
 
             return $this->createViewsFromWizard(
                 $name, $columns, $foreignKeys, $primaryKey, $ui
@@ -2497,7 +2560,7 @@ abstract class MakeCommandBase extends Command
             while ($result->fetch()) {
                 $primary = false;
                 if ($database->type == 'postgresql') {
-                    if ($result->fields['PrimaryKey'] == 't' || $result->fields['PrimaryKey'] === true) {
+                    if (self::isTruthyFlag($result->fields['PrimaryKey'] ?? null)) {
                         $primaryKey = $result->fields['Field'];
                         $primary = true;
                     }
@@ -2810,21 +2873,26 @@ $routeTokens = [
         while ($result->fetch()) {
             $field = $result->fields['Field'];
 
-            // Primary key — driver-specific flag names.
+            // Primary and foreign key — the flag names differ by driver, and
+            // the *spelling* of a PostgreSQL boolean through this layer differs
+            // by how the row was cast on the way out. Both questions go through
+            // isTruthyFlag() so a fourth spelling cannot be missed at one of the
+            // three places that used to ask by hand.
             $isPrimary = false;
             if ($database->type == 'postgresql') {
-                $isPrimary = ($result->fields['PrimaryKey'] == 't'
-                    || $result->fields['PrimaryKey'] === true);
+                $isPrimary = self::isTruthyFlag(
+                    $result->fields['PrimaryKey'] ?? null
+                );
             } elseif (isset($result->fields['Key'])
                 && $result->fields['Key'] == 'PRI') {
                 $isPrimary = true;
             }
 
-            // Foreign key — driver-specific flag names.
             $isForeignKey = false;
             if ($database->type == 'postgresql') {
-                $isForeignKey = ($result->fields['ForeignKey'] == 't'
-                    || $result->fields['ForeignKey'] === true);
+                $isForeignKey = self::isTruthyFlag(
+                    $result->fields['ForeignKey'] ?? null
+                );
             } else {
                 $isForeignKey = !empty($result->fields['ForeignKey']);
             }

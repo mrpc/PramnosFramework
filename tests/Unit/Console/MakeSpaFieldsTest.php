@@ -97,6 +97,12 @@ class SpaFieldsProbe extends MakeCommandBase
  * count, not against zero).
  */
 #[\PHPUnit\Framework\Attributes\Group('mysql')]
+// Its own processes. Database::getInstance() caches one instance per name in a
+// static built from whichever settings were loaded first, so a class that loads
+// MySQL settings in setUp still gets whatever connection the process already
+// had — and under a filter that also selects a PostgreSQL class, that is a
+// PostgreSQL one. The failures then read as generator bugs.
+#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class MakeSpaFieldsTest extends TestCase
 {
     private SpaFieldsProbe $command;

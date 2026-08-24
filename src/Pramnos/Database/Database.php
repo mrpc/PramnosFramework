@@ -3334,10 +3334,32 @@ class Database extends \Pramnos\Framework\Base
             $sql = $this->prepareQuery(
                 "SELECT column_name as \"Field\", data_type as \"Type\", character_maximum_length, is_nullable as \"Null\", column_default, "
                 . "(SELECT col_description((SELECT oid FROM pg_class WHERE relname = '" . $actualTableName . "' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '" . $schemaToUse . "')), a.ordinal_position)) AS \"Comment\", "
+                // Both flags read key_column_usage, which lists the columns
+                // *this* table constrains.
+                //
+                // ForeignKey used to read constraint_column_usage, and for a
+                // FOREIGN KEY that view lists the column of the **referenced**
+                // table. So on `streams(station_id) → stations(id)` the flag came
+                // back true on `id` — the primary key — and false on
+                // `station_id`, the actual foreign key. It was never true for a
+                // foreign key on any table, so every generator gated on it saw
+                // no foreign keys at all: the SPA form rendered a number input
+                // where its searchable picker belongs, the MVC form rendered a
+                // bare input instead of its select2, and `unsigned` was decided
+                // from the same flag, so generated migrations differed too.
+                // ForeignTable and ForeignColumn, in the same row, were correct
+                // all along — only the flag disagreed with them.
+                //
+                // PrimaryKey answered correctly through the old view, because for
+                // a PRIMARY KEY constraint constraint_column_usage does list the
+                // table's own columns. That made the two look symmetric while one
+                // of them was a coincidence, so it moves too: measured identical
+                // on single and composite keys, and now right for the same reason
+                // as its neighbour rather than by accident.
                 . "column_name in ( "
-                . "    SELECT column_name "
+                . "    SELECT kcu.column_name "
                 . "    FROM information_schema.table_constraints tc "
-                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                . "    JOIN information_schema.key_column_usage AS kcu USING (constraint_schema, constraint_name) "
                 . "    WHERE constraint_type = 'PRIMARY KEY' "
                 . "    AND tc.table_name = '" . $actualTableName . "'"
                 . "    AND tc.table_schema = '" . $schemaToUse . "'"
@@ -3345,11 +3367,11 @@ class Database extends \Pramnos\Framework\Base
                 . "EXISTS ( "
                 . "    SELECT 1 "
                 . "    FROM information_schema.table_constraints tc "
-                . "    JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) "
+                . "    JOIN information_schema.key_column_usage AS kcu USING (constraint_schema, constraint_name) "
                 . "    WHERE tc.constraint_type = 'FOREIGN KEY' "
                 . "    AND tc.table_name = '" . $actualTableName . "'"
                 . "    AND tc.table_schema = '" . $schemaToUse . "'"
-                . "    AND ccu.column_name = a.column_name"
+                . "    AND kcu.column_name = a.column_name"
                 . ") as \"ForeignKey\", "
                 . "COALESCE((SELECT kcu2.table_name "
                 . "    FROM information_schema.referential_constraints rc "
@@ -3787,6 +3809,7 @@ class Database extends \Pramnos\Framework\Base
         // lands on the stricter rules, where fewer things open a comment — and
         // wrongly masking live SQL is the worse of the two mistakes.
         $isMysql    = $this->getDriverName() !== 'pgsql';
+
         $mask       = '';
         $inString   = false;
         $inLine     = false;
