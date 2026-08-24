@@ -6,6 +6,7 @@ use_cases:
   - Working on a SPA front end and its JSON API
   - Rendering a server-rendered page from a service, without an ActiveRecord model
   - Using a Model from a service, a queue worker or an attribute-routed controller
+  - Adapting the scaffolded SPA API client to an app that authenticates differently
 ---
 
 # Pramnos Application Styles Guide
@@ -173,6 +174,43 @@ check per request.
 > capability reachable. It was documented in the Debugging and Upgrade guides and not here, which
 > is the half that was actually missing: on this page, where a project that will hit it is
 > standing.
+
+### What the scaffolded API client assumes — and what to replace
+
+`scaffold:spa` writes `frontend/lib/api.js`, and it speaks **the framework's own
+API contract**, not HTTP in general. That is the right default for a project
+built on `Pramnos\Application\Api`, and the wrong one for a Services + API + SPA
+project that routes with `#[Route]` and authenticates with
+`Authorization: Bearer`. It shares none of it.
+
+Stated plainly, so the divergence is a decision rather than a discovery:
+
+| The stub does this | An attribute-routed, Bearer app replaces it with |
+| --- | --- |
+| `apiKey` header on every request, derived from `md5(str_replace('/api/', '/', getUrl()))` and injected as `window.__PRAMNOS__` | nothing — there is no API-key layer to satisfy |
+| `accessToken` header for a bearer session (the framework's own header name) | `Authorization: Bearer <token>` |
+| `POST /account/login`, `/account/login2fa`, `GET /me` | your own auth endpoints |
+| `credentials: 'same-origin'`, so a website session authenticates the SPA | keep it if `UnifiedAuthMiddleware` serves your web session too; drop it for a token-only API |
+
+What is worth keeping in either case, because none of it is contract-specific:
+the `ApiError` class with the HTTP status attached, so a screen reacts to `401`
+and `422` instead of parsing messages; the `204` handling; and the debug-panel
+recording (`record`, `reportError` from `./debug.js`) that feeds the SPA debug
+panel. Rewriting the transport and keeping those is the smaller job.
+
+**`create:api-client` supersedes the stub for the endpoints themselves.** It
+generates one typed function per documented operation from the OpenAPI document
+— see [Typed endpoints from the OpenAPI
+document](#typed-endpoints-from-the-openapi-document) — and it delegates to
+`lib/api.js` for the transport. So the split is: the generator owns the
+endpoints, and `lib/api.js` is yours to adapt to how your application
+authenticates.
+
+> Filed by a project building a Svelte admin panel against the scaffolding,
+> which wrote its own client and reported that the docs presented the stub as
+> *the* contract without saying which parts assume `src/Api/`. This is not a
+> bug in the stub — it is legitimate divergence — but a reader meeting it should
+> not have to derive that from the code.
 
 ### Using a Model outside an MVC request
 
