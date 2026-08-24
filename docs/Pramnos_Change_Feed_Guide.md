@@ -4,6 +4,7 @@ use_cases:
   - Replacing a Hasura subscription with the framework's own WebSocket
   - Writing an audit log of every change a model makes
   - Reacting in application code when any model is saved or deleted
+  - Turning a model save into a live update in the browser
 ---
 
 # Pramnos Change Feed Guide
@@ -274,6 +275,67 @@ ChangeFeed::pending();   // how many changes are waiting for a commit
 ChangeFeed::flush();     // deliver them now
 ChangeFeed::discard();   // drop them
 ChangeFeed::reset();     // tests only — clears the buffer and the boot flag
+```
+
+---
+
+## Broadcasting model changes
+
+With the `broadcasting` feature enabled, changes reach channels with **no further
+wiring**. A model that sets `$emitChanges` is one property away from a live browser:
+
+```php
+// app.php
+'features' => ['broadcasting'],
+
+// the model
+protected $emitChanges = true;
+protected $changeEntity = 'wcm-device';
+```
+
+```js
+PramnosEcho.private('wcm-device')
+    .listen('model.changed', debounce(refetchList, 150));
+```
+
+One event name on the wire — `model.changed` — so a client binds once per channel
+and switches on `op`.
+
+### Replacing a Hasura subscription
+
+This is the shape that replaces a WebSocket-to-the-database subscription:
+
+1. enable `broadcasting`; `transport: websocket`, `default: redis`
+2. run `broadcast:serve` under the daemon orchestrator
+3. add a [`ChannelRegistry`](Pramnos_Realtime_Guide.md#channel-authorization) rule for
+   `private-<entity>`
+4. set `$emitChanges = true` on the models the front-end watches
+5. replace the subscription with the two lines above
+
+What you give up, stated plainly:
+
+- **No ad-hoc query language.** The front-end needs API endpoints. Every `Model`
+  implements `ApiListSource`, so the refetch is cheap to wire — but it has to exist.
+- **No row-level permission on the stream.** The refetch goes through the API, which
+  has them. Per-tenant channels are a precondition for turning `$broadcastFields` on.
+- **No initial snapshot.** One GET on mount.
+- **Changes not made through a model do not emit** — raw SQL, bulk
+  `queryBuilder()->update()`/`delete()`, migrations, `WriteSpool`,
+  `DeferredWriteQueue`, or another service writing to the same database. A database
+  cannot be replaced by a model feed for those, and the only equivalent is Postgres
+  logical replication.
+- **A WebSocket reconnect loses what happened during it**, unless the backplane is
+  `RedisStreamDriver` and the transport is SSE, which replays. Another reason the
+  identifiers-only payload wins: a missed event costs a stale list until the next
+  one, not a corrupted local store.
+
+### Turning it off
+
+The broadcaster is one listener among however many are registered. Removing it does
+not affect the feed:
+
+```php
+Event::forget(ChangeFeed::EVENT);   // and re-register what you do want
 ```
 
 ---

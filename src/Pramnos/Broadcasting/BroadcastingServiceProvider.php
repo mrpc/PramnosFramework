@@ -184,7 +184,15 @@ class BroadcastingServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Nothing to boot at framework level.
+        // Model changes reach channels without an application wiring anything. A model
+        // that sets $emitChanges is then one property away from a live browser, which is
+        // the point of the feed — and the alternative, a registration every project has
+        // to remember, is a feature that silently does nothing in most of them.
+        //
+        // Registering a listener costs nothing when no model emits: the feed fires only
+        // when one does.
+        ChangeBroadcaster::listen();
+
         // Application providers can call $app->getContainer()->get('broadcasting')
         // to add custom drivers after register() has run.
     }

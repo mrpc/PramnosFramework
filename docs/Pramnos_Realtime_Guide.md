@@ -102,6 +102,15 @@ $broadcasting->broadcast(
 );
 ```
 
+!!! tip "For `Pramnos\Application\Model`, prefer the change feed"
+    The trait below is for `OrmModel` and has to be called by hand. Every model gets
+    the same thing from one property, with an identifiers-only payload by default —
+    see the [Model Change Feed Guide](Pramnos_Change_Feed_Guide.md).
+
+    ```php
+    protected $emitChanges = true;
+    ```
+
 Models can broadcast their own lifecycle events with the `Broadcastable` trait:
 
 ```php
