@@ -321,6 +321,32 @@ re-renders. Only sensible if renders are cheap enough not to need protecting.
   `debugHeader` is true. Leave it on — it is how you find out the cache is not
   working — and turn it off if you would rather not advertise the arrangement.
 
+### When you need to know *why*
+
+`'debugDetail' => true` adds three more:
+
+| Header | |
+|---|---|
+| `X-Pramnos-Cache-Key` | the key the entry is actually stored under |
+| `X-Pramnos-Cache-TTL` | its lifetime in seconds |
+| `X-Pramnos-Cache-Expires` | when it dies, as an HTTP date |
+
+The key is the useful one. When a page is not cached the way you expect, the
+question is almost always *"under what key did it go in?"* — and with `ignoreQuery`,
+`varyBy` and `varyQuery` all feeding it, not being able to see the key means
+debugging by guesswork.
+
+```bash
+curl -sD- -o /dev/null 'https://example.test/directory?utm_source=x' | grep -i x-pramnos
+```
+
+**Off by default**, unlike `debugHeader`. `HIT` and `Age` are ordinary things for a
+cache to say; the key is internal, and publishing it to every visitor hands anybody
+probing for cache-key collisions the normalisation rules for free.
+
+Headers rather than an HTML comment: a body is what snapshot tools diff and what a
+search engine indexes, and debug information does not belong in a stored page.
+
 ---
 
 ## Serving before the application boots
@@ -404,7 +430,8 @@ Three things to know:
 | `lockTtl` | `30` | `0` disables locking |
 | `gzip` | `true` | |
 | `etag` | `true` | |
-| `debugHeader` | `true` | |
+| `debugHeader` | `true` | `X-Pramnos-Cache` and `Age` |
+| `debugDetail` | `false` | adds the key, TTL and expiry |
 | `writer` | `'cache'` | or `'static'` |
 | `staticRoot` | `ROOT . '/www/cache'` | |
 | `headerWhitelist` | `content-type`, `content-language`, `link`, `vary` | the only response headers replayed |
@@ -452,8 +479,9 @@ Then, in order, and each is one line:
    `skipWhileDebugging` above.
 4. Check the status is on `statuses` — a redirect is not cached by default.
 5. `X-Pramnos-Cache` absent on a request you expected to hit means the lookup did
-   not find an entry: compare `$cache->keyFor($request)` across the two requests
-   you expected to share a page.
+   not find an entry. Turn on `debugDetail` and compare `X-Pramnos-Cache-Key`
+   across the two requests you expected to share a page — that is the answer
+   almost every time.
 
 ## See also
 

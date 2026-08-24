@@ -129,7 +129,19 @@ final class PageCache
             'gzip'           => true,
             'etag'           => true,
             'debugHeader'    => true,
-            'debugComment'   => false,
+            // The diagnostics somebody actually needs when a page is not cached the way
+            // they expect: which key it went under, how long it lives, when it dies.
+            //
+            // Off by default, unlike debugHeader. `X-Pramnos-Cache: HIT` and `Age` are
+            // ordinary things for a cache to say; the key is internal, and publishing it
+            // to every visitor hands anybody probing for cache-key collisions the
+            // normalisation rules for free.
+            //
+            // Replaces `debugComment`, which was declared here and read nowhere — anybody
+            // who set it got nothing and no explanation. It is not reinstated as a body
+            // comment either: a body is what snapshot tools diff and what a search engine
+            // indexes, and debug information does not belong in a stored page.
+            'debugDetail'    => false,
             'writer'         => 'cache',
             'staticRoot'     => '',
             'headerWhitelist' => [
@@ -252,12 +264,12 @@ final class PageCache
             }
 
             $this->stats['stale']++;
-            return $this->responseFrom($entry, $request, 'STALE', $age);
+            return $this->responseFrom($entry, $request, 'STALE', $age, $key);
         }
 
         $this->stats['hit']++;
 
-        return $this->responseFrom($entry, $request, 'HIT', $age);
+        return $this->responseFrom($entry, $request, 'HIT', $age, $key);
     }
 
     /**
@@ -673,7 +685,7 @@ final class PageCache
      * is the cheapest possible hit: no body over the wire, and nothing rendered.
      */
     private function responseFrom(
-        array $entry, Request $request, string $state, int $age
+        array $entry, Request $request, string $state, int $age, ?string $key = null
     ): Response {
         $etag = $entry['etag'] ?? null;
 
@@ -684,7 +696,7 @@ final class PageCache
             // 304 exists to save.
             return $this->decorate(
                 Response::make('', 304)->withHeader('ETag', $etag),
-                $entry, $state . '-304', $age
+                $entry, $state . '-304', $age, $key
             );
         }
 
@@ -712,7 +724,7 @@ final class PageCache
             $response = $response->withHeader('ETag', $etag);
         }
 
-        return $this->decorate($response, $entry, $state, $age);
+        return $this->decorate($response, $entry, $state, $age, $key);
     }
 
     /**
@@ -789,7 +801,7 @@ final class PageCache
      * them.
      */
     private function decorate(
-        Response $response, array $entry, string $state, int $age
+        Response $response, array $entry, string $state, int $age, ?string $key = null
     ): Response {
         if ($this->config['gzip']) {
             $response = $response->withRawHeader(
@@ -801,9 +813,30 @@ final class PageCache
             return $response;
         }
 
-        return $response
+        $response = $response
             ->withHeader('X-Pramnos-Cache', $state)
             ->withHeader('Age', (string) max(0, $age));
+
+        if (!$this->config['debugDetail']) {
+            return $response;
+        }
+
+        // When a page is not cached the way somebody expects, the question is almost
+        // always "under what key did it go in?" — and with ignoreQuery, varyBy and
+        // varyQuery all feeding the key, not being able to see it means debugging by
+        // guesswork.
+        $ttl = (int) ($entry['ttl'] ?? $this->config['ttl']);
+
+        if ($key !== null) {
+            $response = $response->withHeader('X-Pramnos-Cache-Key', $key);
+        }
+
+        return $response
+            ->withHeader('X-Pramnos-Cache-TTL', (string) $ttl)
+            ->withHeader(
+                'X-Pramnos-Cache-Expires',
+                gmdate('D, d M Y H:i:s \G\M\T', (int) ($entry['created'] ?? time()) + $ttl)
+            );
     }
 
     /**

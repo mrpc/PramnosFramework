@@ -109,6 +109,119 @@ class PageCacheTest extends TestCase
         return Response::make($body, $status);
     }
 
+    // ── Debug headers ───────────────────────────────────────────────────────
+
+    /**
+     * By default a hit says what it is and how old, and nothing more.
+     *
+     * `X-Pramnos-Cache` and `Age` are ordinary things for a cache to say. The key is
+     * internal, and shipping it to every visitor hands anybody probing for cache-key
+     * collisions the normalisation rules for free — so the detail headers are off unless
+     * asked for.
+     */
+    public function testTheDefaultDebugHeadersDoNotIncludeTheKey(): void
+    {
+        // Arrange
+        $cache = $this->cache();
+        $cache->store($this->request('/stations'), $this->page());
+
+        // Act
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertSame('HIT', $hit->getHeaderLine('X-Pramnos-Cache'));
+        // getHeaderLine() answers null for a header that was never set, so these assert
+        // absence rather than emptiness — a header present and blank would be a different
+        // bug and must not pass here.
+        $this->assertNull($hit->getHeaderLine('X-Pramnos-Cache-Key'));
+        $this->assertNull($hit->getHeaderLine('X-Pramnos-Cache-TTL'));
+    }
+
+    /**
+     * `debugDetail` adds the key, the TTL and the expiry.
+     *
+     * When a page is not cached the way somebody expects, the question is almost always
+     * "under what key did it go in?" — and with `ignoreQuery`, `varyBy` and `varyQuery`
+     * all feeding the key, not being able to see it means debugging by guesswork.
+     */
+    public function testDebugDetailAddsTheKeyTheTtlAndTheExpiry(): void
+    {
+        // Arrange
+        $cache   = $this->cache(['debugDetail' => true, 'ttl' => 600]);
+        $request = $this->request('/stations');
+        $cache->store($request, $this->page());
+
+        // Act
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertSame($cache->keyFor($this->request('/stations')), $hit->getHeaderLine('X-Pramnos-Cache-Key'));
+        $this->assertSame('600', $hit->getHeaderLine('X-Pramnos-Cache-TTL'));
+        $this->assertNotEmpty($hit->getHeaderLine('X-Pramnos-Cache-Expires'));
+    }
+
+    /**
+     * The key in the header is the key the entry is stored under.
+     *
+     * A header showing a *recomputed* key would agree with itself and disagree with
+     * reality — which is the one thing it exists to rule out, since the whole reason to
+     * look is a suspicion that two requests are keying differently.
+     */
+    public function testTheKeyHeaderMatchesTheStoredEntry(): void
+    {
+        // Arrange
+        $cache = $this->cache(['debugDetail' => true]);
+        $cache->store($this->request('/stations?b=2&a=1'), $this->page());
+
+        // Act — the same page reached with the parameters in the other order
+        $hit = $cache->lookup($this->request('/stations?a=1&b=2'));
+
+        // Assert
+        $this->assertNotNull($hit, 'normalisation must make these one entry');
+        $this->assertSame(
+            $cache->keyFor($this->request('/stations?b=2&a=1')),
+            $hit->getHeaderLine('X-Pramnos-Cache-Key')
+        );
+    }
+
+    /**
+     * With debugHeader off, no detail headers either.
+     *
+     * `debugDetail` is additional information about the cache, not a second switch that
+     * turns the cache's own headers back on.
+     */
+    public function testDebugDetailIsSilentWhenDebugHeaderIsOff(): void
+    {
+        // Arrange
+        $cache = $this->cache(['debugHeader' => false, 'debugDetail' => true]);
+        $cache->store($this->request('/stations'), $this->page());
+
+        // Act
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertNull($hit->getHeaderLine('X-Pramnos-Cache'));
+        $this->assertNull($hit->getHeaderLine('X-Pramnos-Cache-Key'));
+    }
+
+    /**
+     * `debugComment` is gone rather than still declared and ignored.
+     *
+     * It sat in the defaults and was read nowhere, so anybody who set it got nothing and
+     * no explanation. A configuration key that does not exist is a clearer answer than
+     * one that silently does nothing.
+     */
+    public function testTheDeadDebugCommentKeyIsGone(): void
+    {
+        // Act
+        $defaults = PageCache::defaults();
+
+        // Assert
+        $this->assertArrayNotHasKey('debugComment', $defaults);
+        $this->assertArrayHasKey('debugDetail', $defaults);
+        $this->assertFalse($defaults['debugDetail'], 'the key is internal; it stays off by default');
+    }
+
     // ── The debug toolbar ───────────────────────────────────────────────────
 
     /**
