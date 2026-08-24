@@ -3428,11 +3428,46 @@ class Database extends \Pramnos\Framework\Base
         // then write a model and a form for the old columns and report success.
         // The cache store is shared (files, redis), so the staleness outlives
         // the process and re-running the command does not clear it either.
-        $cacheKey = 'schema_columns_' . $tableName;
-
         return $this->query(
-            $sql, !$fresh, 3600, $cacheKey, false, $skipDataFix
+            $sql, !$fresh, 3600, self::columnCacheCategory($tableName),
+            false, $skipDataFix
         );
+    }
+
+    /**
+     * The cache category {@see getColumns()} stores a table's schema under.
+     *
+     * One place, because a flush that computes the key differently from the read
+     * is a flush that does nothing — silently.
+     */
+    public static function columnCacheCategory(string $tableName): string
+    {
+        return 'schema_columns_' . $tableName;
+    }
+
+    /**
+     * Forget a table's cached schema.
+     *
+     * Called by every DDL method on {@see SchemaBuilder}, so a migration
+     * invalidates what it changed without anybody having to remember — which
+     * matters most for the caller that reads it minutes later: a code generator
+     * still reads fresh (see `$fresh` above), but an application that ran a
+     * migration and then reads columns in the same hour now sees the new ones.
+     *
+     * Best effort by design. A cache that cannot be reached cannot be serving a
+     * stale answer either, and a migration must not fail over a flush.
+     *
+     * @param string $tableName Table whose schema changed, unresolved prefix and
+     *                          all — the same string getColumns() was given.
+     * @return void
+     */
+    public function forgetColumns(string $tableName): void
+    {
+        try {
+            $this->cacheflush(self::columnCacheCategory($tableName));
+        } catch (\Throwable) {
+            // See above.
+        }
     }
 
     /**

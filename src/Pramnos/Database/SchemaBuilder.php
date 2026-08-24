@@ -152,6 +152,7 @@ class SchemaBuilder
         if ($mysql) {
             $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         }
+        $this->forgetCachedSchema($table);
     }
 
     /** @deprecated Use createTable() */
@@ -188,6 +189,7 @@ class SchemaBuilder
         foreach ($this->getGrammar()->compileAlter($blueprint, $resolved) as $sql) {
             $this->db->query($sql);
         }
+        $this->forgetCachedSchema($table);
     }
 
     /**
@@ -200,6 +202,7 @@ class SchemaBuilder
     {
         $resolved = $this->resolveTable($table);
         $this->db->query($this->getGrammar()->compileDrop($resolved));
+        $this->forgetCachedSchema($table);
     }
 
     /**
@@ -222,6 +225,7 @@ class SchemaBuilder
         if ($mysql) {
             $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         }
+        $this->forgetCachedSchema($table);
     }
 
     /** @deprecated Use dropTableIfExists() */
@@ -245,6 +249,33 @@ class SchemaBuilder
                 $this->resolveTable($to)
             )
         );
+        $this->forgetCachedSchema($from);
+        $this->forgetCachedSchema($to);
+    }
+
+    /**
+     * Tell the connection that a table's schema has changed.
+     *
+     * `Database::getColumns()` caches an introspection for an hour on the
+     * grounds that schemas rarely change. They do not — but the moment one does
+     * is exactly the moment somebody asks again, and nothing was invalidating
+     * it. Code generators read fresh for that reason; every other caller in the
+     * process was left with the old answer for up to an hour, and with a shared
+     * cache store the staleness outlived the process.
+     *
+     * Flushed under both the raw and the resolved table name, because
+     * getColumns() caches under whatever string it was handed: a caller passing
+     * `#PREFIX#things` and one passing `pramnos_things` are two entries for one
+     * table.
+     */
+    private function forgetCachedSchema(string $table): void
+    {
+        $this->db->forgetColumns($table);
+
+        $resolved = $this->resolveTable($table);
+        if ($resolved !== $table) {
+            $this->db->forgetColumns($resolved);
+        }
     }
 
     /**

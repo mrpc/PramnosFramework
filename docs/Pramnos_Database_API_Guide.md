@@ -4,6 +4,7 @@ use_cases:
   - Handling a query result set
   - Deciding between raw SQL and the fluent query builder
   - Diagnosing a query that returns nothing or the wrong rows
+  - Reading a table's columns, types or foreign keys from code
 ---
 
 # Pramnos Database API Guide
@@ -68,6 +69,54 @@ $this->application->database->prepareQuery("SELECT * FROM users WHERE id = ?", [
 - `%%` - Literal % character
 
 **Note**: Only `%s` and `%d` are commonly used in the Pramnos framework.
+
+## Reading a table's schema: `getColumns()`
+
+```php
+$result = $db->getColumns('stations');
+while ($result->fetch()) {
+    $result->fields['Field'];       // column name
+    $result->fields['Type'];        // 'varchar'      — the bare type
+    $result->fields['ColumnType'];  // 'varchar(255)' — as declared (MySQL)
+    $result->fields['Null'];        // 'YES' / 'NO'
+    $result->fields['Comment'];
+    $result->fields['Key'];         // 'PRI' on the primary key
+    $result->fields['ForeignKey'], $result->fields['ForeignTable'];
+}
+```
+
+Columns come back **in the order the table declares them**, and the result is
+**cached for an hour** per table, because a schema rarely changes and
+introspection is not cheap.
+
+Two things follow from that cache, and both have a name:
+
+**A schema change through the schema builder invalidates it.** Every DDL method
+on `SchemaBuilder` — `createTable()`, `alterTable()`, `dropTable()`,
+`dropTableIfExists()`, `renameTable()` — flushes the table it touched, so a
+migration is visible to the next read. A raw `$db->query('ALTER TABLE …')` does
+not; call `$db->forgetColumns($table)` yourself if you do that.
+
+**Pass `$fresh` when a stale answer would be wrong rather than merely old:**
+
+```php
+$db->getColumns($table, $schema, false, true);   // never from the cache
+```
+
+Code generators do this, because the framework's documented order of work is
+`create:migration`, migrate, `create:crud` — so a generator runs minutes after
+the schema changed, and an hour-old answer describes the table as it was before
+the migration.
+
+> **Fixed 2026-08-24, three faults in one method.** Nothing invalidated the
+> cache at all, so the sequence above wrote a model and a form for the old
+> columns and reported success — and because the store is shared, re-running the
+> command did not clear it either. Neither query had an `ORDER BY`, so column
+> order was whatever the server felt like, usually alphabetical. And only
+> `DATA_TYPE` was selected on MySQL, so `tinyint(1)` — the boolean convention —
+> arrived as `tinyint` and every generated form rendered every boolean column as
+> a number input. `ColumnType` is the declared type; `Type` is unchanged for
+> callers that read it.
 
 ## Real Prepared Statements: `preparedQuery()`
 

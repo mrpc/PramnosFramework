@@ -19,6 +19,21 @@ abstract class AbstractAdapter implements AdapterInterface
     protected $prefix = '';
     
     /**
+     * The category the current operation belongs to.
+     *
+     * Set by {@see \Pramnos\Cache\Cache} before each adapter call, because the
+     * category is chosen per call and an adapter instance is shared. It is here
+     * rather than being re-derived from the key: {@see FileAdapter} used to
+     * recover it by splitting the key on its first underscore, which is right
+     * for `userlist_<id>` and wrong for `schema_columns_things_<id>` — the
+     * entry went into a directory called `schema` and `clear()` then looked for
+     * one called `schema_columns_things`, found nothing, and reported success.
+     *
+     * @var string
+     */
+    protected $category = '';
+
+    /**
      * Key for category hashes
      * @var string
      */
@@ -56,6 +71,24 @@ abstract class AbstractAdapter implements AdapterInterface
     public function getPrefix()
     {
         return $this->prefix;
+    }
+
+    /**
+     * Set the category the next operation belongs to.
+     *
+     * Write-only on purpose. Nothing needs to ask an adapter which category it
+     * is on — the caller always knows, because it just set it — and a
+     * `getCategory()` here would collide in meaning with
+     * {@see \Pramnos\Cache\Cache::getCategory()}, which is a sanitiser that
+     * takes a category and returns a cleaned copy of it.
+     *
+     * @param string $category
+     * @return self
+     */
+    public function setCategory($category)
+    {
+        $this->category = (string) $category;
+        return $this;
     }
     
     /**

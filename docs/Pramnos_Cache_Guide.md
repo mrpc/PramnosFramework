@@ -4,6 +4,7 @@ use_cases:
   - Choosing or configuring a cache backend
   - Invalidating cached data correctly
   - Diagnosing stale or missing cache entries
+  - Clearing one cache category without touching the others
 ---
 
 # Pramnos Cache System Guide
@@ -201,6 +202,33 @@ categories are different entries, and `clear($category)` removes one category wi
 touching the others. If you want a value shared between subsystems, give them the same
 category deliberately rather than relying on them colliding.
 
+**A category may contain underscores.** `user_42`, `schema_columns_things` and
+`report_daily_sales` are all fine, and `clear()` removes exactly the one you name.
+
+> **Fixed 2026-08-24.** They were not fine. The file adapter chose the directory
+> for an entry by splitting its key on the first underscore — and the key is
+> `{category}_{id}` — so `schema_columns_things_<id>.sql` was written into a
+> directory called `schema`, while `clear('schema_columns_things')` looked for
+> one called `schema_columns_things`, found nothing, deleted nothing and
+> returned as though it had worked. **Every category with an underscore in its
+> name was permanently unclearable, silently**, and its entries went on being
+> served until they expired.
+>
+> The framework's own categories are all single words, which is why it went
+> unnoticed for so long — but the *example a few sections down in this guide*
+> recommended `$cache->category = 'user_' . $userId`, which is the broken shape.
+> The adapter is now told its category rather than recovering it from the key,
+> and `clear()` also sweeps the place the old layout misfiled entries, so
+> upgrading does not leave a pile of them behind.
+>
+> Entries written under the old layout are read from the old path once more only
+> if nothing clears them first; for a cache, missing and being rewritten is the
+> correct outcome rather than a migration.
+>
+> The other adapters were checked, not assumed: Redis, Memcached and the array
+> store all match the category against the key with a separator anchor, so none
+> of them had this. It was the file adapter's directory derivation alone.
+
 ### Cache with Timeouts
 
 ```php
@@ -347,12 +375,20 @@ $cache->save($userData, 'user_profile_' . $userId);
 $cache->save($userSettings, 'user_settings_' . $userId);
 $cache->save($userPermissions, 'user_permissions_' . $userId);
 
-// Group related data
+// Group related data. An underscore in the category is fine — everything under
+// `user_42` is removed by `clear('user_42')` and nothing else is touched.
 $cache->category = 'user_' . $userId;
 $cache->save($profileData, 'profile');
 $cache->save($settingsData, 'settings');
 $cache->save($permissionsData, 'permissions');
+
+// ...and this is how you drop all of it when that user changes:
+$cache->clear('user_' . $userId);
 ```
+
+> Before 2026-08-24 the `clear()` on the last line removed nothing, because the
+> category contains an underscore — see the note under
+> [Categories and Organization](#categories-and-organization).
 
 ### Batch Operations
 

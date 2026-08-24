@@ -499,6 +499,33 @@ class Cache extends \Pramnos\Framework\Base
     }
 
     /**
+     * Hand the adapter the prefix and category this operation belongs to.
+     *
+     * An adapter instance is shared while the prefix and category are chosen
+     * per call — `Database::cacheRead()` sets both on the Cache object right
+     * before reading — so the adapter has to be told, every time, or it acts on
+     * whatever it was constructed with.
+     *
+     * The category in particular used to be recovered by the file adapter from
+     * the key, by splitting on the first underscore. That is right for
+     * `userlist_<id>` and wrong for `schema_columns_things_<id>`, so those
+     * entries were written into a directory called `schema` while `clear()`
+     * looked in one called `schema_columns_things` — a flush that matched
+     * nothing and said nothing.
+     *
+     * @return void
+     */
+    protected function syncAdapter()
+    {
+        if ($this->adapter === null) {
+            return;
+        }
+
+        $this->adapter->setPrefix($this->prefix);
+        $this->adapter->setCategory((string) $this->category);
+    }
+
+    /**
      * Get the current adapter
      * @return AdapterInterface
      */
@@ -664,6 +691,8 @@ class Cache extends \Pramnos\Framework\Base
         $this->_id = $id;
         $this->_cachename = $this->_generateCacheName($id);
 
+        $this->syncAdapter();
+
         return $this->adapter ? $this->adapter->load($this->_cachename, $this->timeout) : false;
     }
 
@@ -681,6 +710,7 @@ class Cache extends \Pramnos\Framework\Base
         $this->_id = $id;
         $this->_cachename = $this->_generateCacheName($id);
 
+        $this->syncAdapter();
         $result = $this->adapter ? $this->adapter->delete($this->_cachename) : false;
 
         return $result;
@@ -693,6 +723,8 @@ class Cache extends \Pramnos\Framework\Base
      */
     public function clear($category = '')
     {
+        $this->syncAdapter();
+
         return $this->adapter ? $this->adapter->clear($category) : false;
     }
 
@@ -753,6 +785,8 @@ class Cache extends \Pramnos\Framework\Base
 
         $this->_id = $id ?? $this->_id;
         $this->_cachename = $this->_generateCacheName($this->_id);
+
+        $this->syncAdapter();
 
         return $this->adapter ? $this->adapter->save($this->_cachename, $this->data, $this->timeout) : false;
     }

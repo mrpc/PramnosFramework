@@ -112,17 +112,13 @@ class FileAdapter extends AbstractAdapter
      */
     protected function getFilePath($key, $createDir = true)
     {
-        $parts = explode('_', $key);
         $prefix = '';
-        $category = '';
 
         if ($this->prefix != '') {
             $prefix = $this->sanitizeName($this->prefix);
         }
 
-        if (count($parts) > 1) {
-            $category = $parts[0];
-        }
+        $category = $this->categoryDirectory($key);
 
         $path = $this->cacheDir;
 
@@ -153,6 +149,39 @@ class FileAdapter extends AbstractAdapter
         }
 
         return $path . DIRECTORY_SEPARATOR . $key;
+    }
+
+    /**
+     * The directory an entry belongs in.
+     *
+     * **The category as it was given, not as the key can be parsed.** This used
+     * to be `explode('_', $key)[0]`, which is right only for a category with no
+     * underscore in it. For `schema_columns_things` the entry went into a
+     * directory called `schema`, and {@see clear()} — which builds its path from
+     * the category it was handed — then looked for `schema_columns_things`,
+     * found nothing, and reported success. Every such category was permanently
+     * unclearable, silently.
+     *
+     * Somebody had already met the same parsing: `Cache::_generateCacheName()`
+     * strips underscores out of the *prefix* before building the key, for
+     * exactly this reason, and did not do the same for the category.
+     *
+     * The key-splitting fallback remains for a caller that reaches an adapter
+     * directly without going through Cache — that is how the adapters are
+     * unit-tested, and losing it would change what those keys resolve to.
+     *
+     * @param  string $key
+     * @return string Sanitised directory name, or '' for the prefix root.
+     */
+    protected function categoryDirectory($key)
+    {
+        if ($this->category !== '') {
+            return $this->sanitizeName($this->category);
+        }
+
+        $parts = explode('_', $key);
+
+        return count($parts) > 1 ? $parts[0] : '';
     }
 
     /**
@@ -276,24 +305,73 @@ class FileAdapter extends AbstractAdapter
      */
     public function clear($category = '')
     {
-        $path = $this->cacheDir;
+        if ($category === '') {
+            $category = $this->category;
+        }
 
+        $root = $this->cacheDir;
         if ($this->prefix != '') {
-            $path .= DIRECTORY_SEPARATOR . $this->sanitizeName($this->prefix);
+            $root .= DIRECTORY_SEPARATOR . $this->sanitizeName($this->prefix);
         }
 
-        if ($category != '') {
-            $path .= DIRECTORY_SEPARATOR . $this->sanitizeName($category);
-        }
+        $path = $category === ''
+            ? $root
+            : $root . DIRECTORY_SEPARATOR . $this->sanitizeName($category);
 
         if (is_dir($path)) {
-            $files = $this->listDirectoryFiles($path);
-            foreach ($files as $file) {
+            foreach ($this->listDirectoryFiles($path) as $file) {
                 unlink($file);
             }
             $this->cleanEmptyDirectories($path);
         }
+
+        // Entries written by the old layout, which put a category with an
+        // underscore in it into a directory named after its first segment —
+        // `schema_columns_things_<id>.sql` inside `schema/`. Without this sweep
+        // a flush would leave every one of them in place, and they would go on
+        // being served until they expired. Matched on the file name, which is
+        // where the whole category has always been, so it is exact rather than
+        // a prefix guess.
+        if ($category !== '') {
+            $this->clearLegacyLayout($root, $category);
+        }
+
         $this->cleanup();
+    }
+
+    /**
+     * Delete entries an older version of {@see getFilePath()} misfiled.
+     *
+     * Looks in the directory that version would have chosen — the category's
+     * first underscore-separated segment — for files whose name begins with the
+     * full category. A file called `schema_columns_things_<id>.sql` belongs to
+     * category `schema_columns_things` and to no other, because the separator
+     * after the category is the same `_` the name is built with.
+     *
+     * @param  string $root     The prefix root inside the cache directory.
+     * @param  string $category The category being cleared.
+     * @return void
+     */
+    protected function clearLegacyLayout($root, $category)
+    {
+        $sanitised = $this->sanitizeName($category);
+        $segment   = explode('_', $sanitised)[0];
+
+        if ($segment === $sanitised) {
+            return;   // no underscore: the directory above was the right one
+        }
+
+        $legacy = $root . DIRECTORY_SEPARATOR . $segment;
+        if (!is_dir($legacy)) {
+            return;
+        }
+
+        foreach ($this->listDirectoryFiles($legacy) as $file) {
+            if (str_starts_with(basename($file), $sanitised . '_')) {
+                unlink($file);
+            }
+        }
+        $this->cleanEmptyDirectories($legacy);
     }
 
     /**
