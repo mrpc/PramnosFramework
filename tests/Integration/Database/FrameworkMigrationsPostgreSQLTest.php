@@ -1132,6 +1132,104 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
+     * authserver.audit_log must be a compressed hypertable with a 64-bit key.
+     *
+     * All four properties are things the migration only gets one chance at. The table is
+     * created once and then left alone for ever — the migration returns early on any
+     * database that already has it, deliberately, because converting a live audit table
+     * means rebuilding its primary key and rewriting every row under lock. So whatever a
+     * fresh installation gets here is what it keeps.
+     *
+     * The **absence** of a retention policy is asserted alongside the presence of the
+     * others, and is the assertion most worth having. An audit trail is the one table
+     * where the framework dropping old rows on its own initiative would be wrong, and a
+     * retention policy added later by someone tidying up the declaration would do exactly
+     * that — silently, months after the rows it deleted mattered.
+     */
+    public function testAuthserverAuditLogIsACompressedHypertable(): void
+    {
+        // Arrange
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverRolesTable')->up();
+        $this->loadMigration('authserver', 'CreateAuthserverPermissionsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('authserver', 'CreateOrganizationsTable')->up();
+
+        // Act
+        $this->loadMigration('authserver', 'CreateAuthserverAuditLogTable')->up();
+
+        // Assert — a 64-bit key. Widening one after the fact means decompressing every
+        // chunk and rebuilding the primary key, which is a migration nobody wants to
+        // write twice.
+        $this->assertColumnType('audit_log', 'auditid', 'bigint', 'authserver',
+            'auditid must be BIGINT: an INTEGER key on an append-only audit table is a '
+            . 'cliff at 2.1 billion rows');
+
+        // Assert — the partition column is part of the primary key, which TimescaleDB
+        // requires and which is the reason the PK is composite at all.
+        $pk = $this->db->query(
+            "SELECT a.attname AS col
+               FROM pg_index i
+               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+              WHERE i.indrelid = 'authserver.audit_log'::regclass AND i.indisprimary
+              ORDER BY a.attname"
+        );
+        $pkColumns = [];
+        while ($pk->fetch()) {
+            $pkColumns[] = $pk->fields['col'];
+        }
+        $this->assertSame(['auditid', 'event_timestamp'], $pkColumns,
+            'the primary key must include the partition column');
+
+        // Assert — it is a hypertable
+        $this->assertTrue($this->isHypertable('audit_log', 'authserver'),
+            'audit_log must be a TimescaleDB hypertable partitioned by event_timestamp');
+
+        // Assert — compression is configured, segmented the way the migration asks.
+        //
+        // Read through hypertable_compression_settings, which reports segmentby and
+        // orderby as they were declared. The similarly named
+        // `timescaledb_information.compression_settings` is a different view — one row
+        // per column, with index positions rather than the expressions — and asking it
+        // for `segmentby` fails outright.
+        $settings = $this->db->query(
+            "SELECT segmentby, orderby
+               FROM timescaledb_information.hypertable_compression_settings
+              WHERE hypertable::text = 'authserver.audit_log'
+              LIMIT 1"
+        );
+        $this->assertNotNull($settings, 'compression must be enabled on audit_log');
+        $this->assertStringContainsString('event_type', (string) $settings->fields['segmentby'],
+            'compression must segment by event_type: it is what every "what happened to '
+            . 'X" query filters on, and low-cardinality enough to compress well');
+        $this->assertStringContainsString('event_timestamp', (string) $settings->fields['orderby'],
+            'compressed batches must be ordered by time, so a recent-events query can '
+            . 'skip old batches without decompressing them');
+
+        // Assert — a compression policy runs, so "kept for ever" stays affordable
+        $compression = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM timescaledb_information.jobs
+              WHERE hypertable_schema = 'authserver'
+                AND hypertable_name = 'audit_log'
+                AND proc_name = 'policy_compression'"
+        );
+        $this->assertSame(1, (int) $compression->fields['cnt'],
+            'audit_log must have a compression policy');
+
+        // Assert — and NO retention policy. The framework must never decide on its own
+        // to delete audit rows.
+        $retention = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM timescaledb_information.jobs
+              WHERE hypertable_schema = 'authserver'
+                AND hypertable_name = 'audit_log'
+                AND proc_name = 'policy_retention'"
+        );
+        $this->assertSame(0, (int) $retention->fields['cnt'],
+            'audit_log must have no retention policy: dropping audit rows is never the '
+            . 'framework\'s decision to make');
+    }
+
+    /**
      * authserver.audit_log must use the polymorphic actor/target/object schema.
      * old_values and new_values must be JSONB (GIN-indexable snapshots).
      * event_timestamp must be TIMESTAMPTZ (timezone-aware audit record).

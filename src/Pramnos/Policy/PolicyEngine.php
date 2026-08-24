@@ -17,7 +17,7 @@ use Pramnos\Database\Database;
  *
  * | Type               | Action |
  * |---|---|
- * | `retention`        | Deletes rows older than `config.interval` from `config.time_column`. |
+ * | `retention`        | Deletes rows older than `config.interval` from `config.time_column`, in bounded batches. |
  * | `aggregate_refresh`| Re-populates a materialized view or cache table. |
  * | `compression`      | No-op on MySQL/PG (no native compression). |
  * | `cache_rebuild`    | Truncates and re-fills a cache/summary table via a SELECT query. |
@@ -44,6 +44,27 @@ class PolicyEngine
 
     /** Logical name — resolved per-backend via SchemaBuilder::resolveTableName(). */
     private const POLICY_TABLE_LOGICAL = 'pramnos.framework_policies';
+
+    /**
+     * Rows deleted per statement by a retention policy, unless the policy says otherwise.
+     *
+     * Overridable per policy through `config.batch`, which is also how the batching is
+     * tested: proving a statement is bounded needs a table that takes several passes, and
+     * a configurable batch makes that twenty-five rows instead of tens of thousands.
+     */
+    private const RETENTION_BATCH = 5000;
+
+    /**
+     * Batches per run, per policy.
+     *
+     * A table with months of backlog is not cleared in one pass, on purpose. The engine
+     * runs on a schedule, so the remainder goes in the next run; holding the daemon for
+     * an hour on its first execution would look exactly like a hang.
+     */
+    private const RETENTION_MAX_BATCHES = 200;
+
+    /** Ceiling on both, so a bad config cannot turn one policy into an unbounded delete. */
+    private const RETENTION_BATCH_MAX = 100000;
 
     /** Resolved physical table name (e.g. pramnos_framework_policies on MySQL). */
     private string $policyTableName;
@@ -213,6 +234,21 @@ class PolicyEngine
         }
     }
 
+    /**
+     * Delete rows older than the policy's interval, in bounded batches.
+     *
+     * This used to be a single unbounded `DELETE`. On a table with any real backlog that
+     * is one statement holding locks for as long as it takes — in a daemon, against a
+     * table the application is still writing to. Nothing surfaces it either: the policy
+     * reports `ok` when it finally returns, however long that was.
+     *
+     * Batching costs one cheap existence check per pass and turns the same work into
+     * statements short enough to interleave with everything else.
+     *
+     * The loop stops on the **existence check**, not on a row count: `query()` does not
+     * report affected rows uniformly across the two backends here, and a loop that
+     * mistakes "I cannot tell" for "nothing left" stops early and silently under-prunes.
+     */
     private function executeRetention(PolicyRecord $policy): void
     {
         $interval   = $policy->config['interval']    ?? '30 days';
@@ -222,19 +258,79 @@ class PolicyEngine
         $target     = $this->quoteIdentifier($policy->target);
         $timeColumn = $this->quoteIdentifier($timeColumn);
 
-        if ($this->db->type === 'postgresql' || $this->db->type === 'timescaledb') {
-            $this->db->query(
-                "DELETE FROM {$target}
-                 WHERE {$timeColumn} < NOW() - INTERVAL '{$interval}'"
-            );
-        } else {
+        $isPostgres = $this->db->type === 'postgresql'
+            || $this->db->type === 'timescaledb';
+
+        $cutoff = $isPostgres
+            ? "NOW() - INTERVAL '{$interval}'"
             // MySQL INTERVAL syntax: INTERVAL 30 DAY (no quotes, space-separated)
-            $mysqlInterval = $this->toMySQLInterval($interval);
-            $this->db->query(
-                "DELETE FROM {$target}
-                 WHERE {$timeColumn} < DATE_SUB(NOW(), INTERVAL {$mysqlInterval})"
-            );
+            : 'DATE_SUB(NOW(), INTERVAL ' . $this->toMySQLInterval($interval) . ')';
+
+        $batch      = $this->positiveInt(
+            $policy->config['batch'] ?? null,
+            self::RETENTION_BATCH,
+            self::RETENTION_BATCH_MAX
+        );
+        $maxBatches = $this->positiveInt(
+            $policy->config['max_batches'] ?? null,
+            self::RETENTION_MAX_BATCHES,
+            self::RETENTION_MAX_BATCHES
+        );
+
+        for ($pass = 0; $pass < $maxBatches; $pass++) {
+            if (!$this->hasRowsOlderThan($target, $timeColumn, $cutoff)) {
+                return;
+            }
+
+            if ($isPostgres) {
+                // PostgreSQL has no LIMIT on DELETE. Selecting the physical row ids first
+                // bounds it without a subquery over the primary key, which this method
+                // does not know the name of.
+                $this->db->query(
+                    "DELETE FROM {$target} WHERE ctid IN ("
+                    . "SELECT ctid FROM {$target} WHERE {$timeColumn} < {$cutoff} "
+                    . "LIMIT {$batch})"
+                );
+            } else {
+                $this->db->query(
+                    "DELETE FROM {$target} WHERE {$timeColumn} < {$cutoff} LIMIT {$batch}"
+                );
+            }
         }
+    }
+
+    /**
+     * A positive integer from config, or the default — never zero, never unbounded.
+     *
+     * Both values end up inside a `LIMIT`, so they are clamped rather than trusted: a
+     * batch of `0` is a loop that deletes nothing for two hundred passes, and a batch
+     * read from a config file is exactly where a `-1` or a string arrives.
+     */
+    private function positiveInt(mixed $value, int $default, int $ceiling): int
+    {
+        $n = is_numeric($value) ? (int) $value : 0;
+
+        if ($n < 1) {
+            $n = $default;
+        }
+
+        return min($n, $ceiling);
+    }
+
+    /**
+     * Is there at least one row older than the cutoff?
+     *
+     * `SELECT 1 … LIMIT 1` rather than `COUNT(*)`: the question is existence, and on a
+     * table large enough to need batching a count is exactly the scan the batching exists
+     * to avoid.
+     */
+    private function hasRowsOlderThan(string $target, string $timeColumn, string $cutoff): bool
+    {
+        $result = $this->db->query(
+            "SELECT 1 AS present FROM {$target} WHERE {$timeColumn} < {$cutoff} LIMIT 1"
+        );
+
+        return $result && isset($result->fields['present']);
     }
 
     private function executeAggregateRefresh(PolicyRecord $policy): void

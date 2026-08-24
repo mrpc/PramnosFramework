@@ -222,6 +222,20 @@ class CreateAuthserverRbacFunctions extends Migration
         );
 
         // 5. Insert an audit_log row
+        //
+        // Dropped first, because the return type changed from INTEGER to BIGINT and
+        // PostgreSQL refuses to let CREATE OR REPLACE change one. Without this, re-running
+        // the migration against a database that already has the older function fails with
+        // "cannot change return type of existing function" — and a migration that only
+        // works on a database that has never seen it is not a migration.
+        //
+        // Same signature the down() method uses, matched on argument types rather than
+        // the return type, which is what DROP FUNCTION compares.
+        $db->query(
+            'DROP FUNCTION IF EXISTS authserver.log_audit_event('
+            . 'VARCHAR, BIGINT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, '
+            . 'JSONB, JSONB, JSONB, INTEGER) CASCADE'
+        );
         $db->query(
             "CREATE OR REPLACE FUNCTION authserver.log_audit_event(
                  p_event_type          VARCHAR(50),
@@ -235,9 +249,13 @@ class CreateAuthserverRbacFunctions extends Migration
                  p_new_values          JSONB        DEFAULT NULL,
                  p_metadata            JSONB        DEFAULT NULL,
                  p_organization_context INTEGER     DEFAULT NULL
-             ) RETURNS INTEGER AS \$\$
+             ) RETURNS BIGINT AS \$\$
              DECLARE
-                 new_auditid INTEGER;
+                 -- BIGINT, matching audit_log.auditid. An INTEGER here would hold every
+                 -- value the column can produce only until the column outgrew it, and
+                 -- then fail at the point of writing an audit row — the worst place for
+                 -- a numeric overflow to surface.
+                 new_auditid BIGINT;
              BEGIN
                  INSERT INTO authserver.audit_log (
                      event_type, actor_userid, actor_type,

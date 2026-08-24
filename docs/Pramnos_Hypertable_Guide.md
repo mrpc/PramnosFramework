@@ -56,6 +56,36 @@ two disagree silently.
 
 This table is documentation. The registry is the source.
 
+### One hypertable that is deliberately not in the registry
+
+`authserver.audit_log` is created as a hypertable — 7-day chunks, compressed after
+90 days — by its own migration, and is **not declared in the registry**.
+
+| Table | Time column | Chunk | Compress after | Retention |
+|---|---|---|---|---|
+| `authserver.audit_log` | `event_timestamp` | 7 days | 90 days | **none** |
+
+Two deliberate absences, and both are the point:
+
+**No retention.** An audit trail is the one table where the framework deciding to
+drop old rows would be wrong. An installation that wants a retention policy adds
+one itself, knowing what it is buying.
+
+**Not in the registry**, because the registry is what `timescale:ensure` reads —
+and a declaration there would convert existing installations. Converting a live
+audit table means dropping and rebuilding its primary key and rewriting every row
+into chunks, under lock, on a table that other things hold foreign keys into. The
+migration guards on `hasTable()` and leaves such a database exactly as it is.
+
+The cost is that `timescale:ensure` will not report drift on this table. That was
+judged the better half of the trade: the alternative is rewriting somebody's audit
+log because they ran a maintenance command.
+
+**On an existing installation** the table stays a plain table with a 32-bit
+`auditid`. Widening it later is possible but is a maintenance-window job —
+decompress, rebuild the primary key, recompress — so if you are running one and
+expect volume, plan it rather than discover it.
+
 ## Repairing a database
 
 ```bash
