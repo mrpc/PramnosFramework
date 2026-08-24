@@ -4,6 +4,7 @@ use_cases:
   - Repairing a database whose hypertables were never created
   - Writing late-arriving data into a compressed chunk
   - Checking hypertable state from code
+  - Setting up data retention on MySQL or plain PostgreSQL
 ---
 
 # Hypertables: declaring them, and repairing them later
@@ -161,6 +162,50 @@ retention policy for a table that did not ask for one deletes data.
 
 Your table must have the partitioning column in its primary key, and in every
 unique constraint. `PRIMARY KEY (id, measured_at)`, not `PRIMARY KEY (id)`.
+
+## Retention without TimescaleDB
+
+`SchemaBuilder::addRetentionPolicy()` is not Timescale-only. Without the extension
+it registers a row in `pramnos.framework_policies`, and
+`Pramnos\Policy\PolicyEngine` — run by the `service:policy-engine` daemon —
+executes it as an ordinary `DELETE`. So a declared retention works on MySQL and
+plain PostgreSQL too; only the mechanism differs.
+
+| | TimescaleDB | MySQL / plain PostgreSQL |
+|---|---|---|
+| Mechanism | `add_retention_policy()` drops whole chunks | `PolicyEngine` deletes rows |
+| Granularity | chunk boundaries | exact, by the time column |
+| Runs from | the extension's own scheduler | `service:policy-engine` |
+
+### It deletes in batches, and you can size them
+
+A retention `DELETE` on a table with real backlog is the kind of statement that
+holds locks for as long as it takes — in a daemon, against a table the application
+is still writing to. So the engine issues bounded statements and repeats them:
+
+```php
+$engine->register('retention', 'changelog', [
+    'interval'    => '90 days',
+    'time_column' => 'created_at',
+    'batch'       => 5000,   // rows per statement; the default
+    'max_batches' => 200,    // passes per run; the default
+]);
+```
+
+`batch × max_batches` is the most one run will remove. A table with more backlog
+than that is **not** cleared in one pass, deliberately: the engine runs on a
+schedule and the rest goes next time. Holding the daemon for an hour on its first
+execution looks exactly like a hang, and gets it killed.
+
+Both values are clamped to something sensible. A `batch` of `0` from a config file
+would otherwise be a loop that deletes nothing for two hundred passes while
+reporting success — the quietest failure available.
+
+!!! note "Two different statements underneath"
+    PostgreSQL has no `LIMIT` on `DELETE`, so the bounded form selects physical row
+    ids first — `DELETE FROM t WHERE ctid IN (SELECT ctid FROM t WHERE … LIMIT n)`.
+    MySQL uses `DELETE … LIMIT n`. Same behaviour, different SQL, and both are
+    covered by the integration suite for that reason.
 
 ## Writing late data into a compressed table
 
