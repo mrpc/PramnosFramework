@@ -50,10 +50,12 @@ class AllowedMethodsForAPathTest extends TestCase
     /**
      * A request for a URI with a given method.
      *
-     * `PHP_SELF` is pinned to `/index.php` because the Request constructor
-     * strips the front controller's directory from the URI, and under PHPUnit
-     * that directory is the path to `vendor/bin/phpunit` — which would truncate
-     * every URI in this file.
+     * `PHP_SELF` is set to `/index.php` because that is what a web request looks
+     * like, not to work around anything. It used to be a workaround: the Request
+     * constructor stripped `dirname(PHP_SELF)` from the URI unconditionally, and
+     * under PHPUnit that is `…/vendor/bin`, so every URI here lost its first 23
+     * characters. Fixed on 2026-08-24 — the strip now applies only when the
+     * request really does start with that directory.
      */
     private function requestFor(string $uri, string $method): Request
     {

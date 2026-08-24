@@ -110,14 +110,64 @@ class Request extends Base
      */
     protected static $flashErrors = null;
 
+    /**
+     * The shared instance, for {@see getInstance()}.
+     *
+     * A property rather than a function-static so {@see resetInstance()} can
+     * reach it. A static inside the method cannot be cleared from anywhere
+     * else, which is why a test run could only ever have one request.
+     *
+     * @var Request|null
+     */
+    protected static $instance = null;
+
+    /**
+     * The shared Request for this process.
+     *
+     * @return Request
+     */
     public static function &getInstance()
     {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = new Request();
+        if (!is_object(self::$instance)) {
+            self::$instance = new Request();
         }
 
-        return $instance;
+        return self::$instance;
+    }
+
+    /**
+     * Forget the shared Request and everything derived from it.
+     *
+     * A request is per request, and a test run is one process — so a suite that
+     * exercises routing, controllers or input has to be able to start a second
+     * one. It could not: the instance lived in a function-static, which nothing
+     * outside the method can reach, and the URI, method and raw body are class
+     * statics that outlive it. A test could construct `new Request()` to refresh
+     * those, but every caller that goes through `getInstance()` — which is most
+     * of the framework — kept the first one.
+     *
+     * A consuming application added this to its own copy in `vendor/` rather
+     * than filing it, which is how it was found.
+     *
+     * Resets the derived state too, because leaving `$requestUri` behind would
+     * hand the next request the previous one's address — the failure this is
+     * meant to prevent, arriving one step later.
+     *
+     * @return void
+     */
+    public static function resetInstance(): void
+    {
+        self::$instance = null;
+        self::$requestUri = '';
+        self::$requestMethod = 'GET';
+        self::$rawInput = null;
+        self::$originalRequest = '';
+        self::$originalRequestNoChange = '';
+        self::$_controller = '';
+        self::$action = '';
+        self::$putData = array();
+        self::$deleteData = array();
+        self::$patchData = array();
     }
 
     /**
@@ -312,7 +362,23 @@ class Request extends Base
      */
     public function calcParams($requestParam=null)
     {
-        $_GET = array();
+        /**
+         * What was in `$_GET` before this ran is kept.
+         *
+         * This method used to empty `$_GET` outright and then rebuild it from
+         * the request — the path segments it decodes into named parameters, and
+         * the query string. That is right for the keys it produces and wrong for
+         * every other key: anything a front controller, a middleware, a rewrite
+         * rule or a test had put there was discarded, silently, with no way for
+         * the caller to know it had happened.
+         *
+         * `r` is dropped because it is the front controller's own routing
+         * parameter and never belonged to the application — the constructor
+         * unsets it for the same reason.
+         */
+        $preserved = is_array($_GET) ? $_GET : array();
+        unset($preserved['r']);
+        $_GET = $preserved;
         if ($requestParam == null){
             $requestParam=self::$originalRequest;
         }
@@ -320,7 +386,23 @@ class Request extends Base
         $request = rtrim($requestParam, '/');
         $parsedUrl = parse_url($_SERVER['REQUEST_URI']);
         if (is_array($parsedUrl) && isset($parsedUrl['query'])) {
-            parse_str($parsedUrl['query'], $_GET);
+            /**
+             * Merged into `$_GET`, not written over it.
+             *
+             * `parse_str($query, $_GET)` **replaces** the array. Usually that is
+             * a no-op, because `$_GET` already holds the parsed query string —
+             * but not always, and the exceptions are the ones that matter:
+             * anything a front controller, a middleware or a rewrite put there
+             * before this ran was silently discarded, and so was anything a test
+             * had arranged.
+             *
+             * The query string wins on a key it defines, which is what the
+             * original assignment did for every key it produced; keys it does
+             * not mention are left alone, which is the part that was wrong.
+             */
+            $fromQuery = [];
+            parse_str($parsedUrl['query'], $fromQuery);
+            $_GET = array_merge($_GET, $fromQuery);
         }
         unset($parsedUrl);
         $slashes = substr_count($request, '/');
@@ -382,17 +464,43 @@ class Request extends Base
         if (isset($_SERVER['REQUEST_URI'])) {
             self::$requestUri = trim($_SERVER['REQUEST_URI'], '/');
             /**
-             * Clean up the request url in case the app runs under a
-             * subdirectory
+             * Strip the front controller's directory, for an application that
+             * runs under a subdirectory — but only when it really is one.
+             *
+             * This used to cut `strlen(dirname($_SERVER['PHP_SELF']))`
+             * characters off the front of the URI unconditionally, on the
+             * assumption that PHP_SELF is a web path. It is not always:
+             *
+             *   - Under the CLI — a console command, a daemon, a test runner —
+             *     PHP_SELF is the script's filesystem path. Under PHPUnit that
+             *     is `…/vendor/bin/phpunit`, whose dirname is 23 characters, so
+             *     **every URI lost its first 23 characters**. Two projects have
+             *     now written the same workaround for it: this repository's own
+             *     routing tests pin `PHP_SELF` to `/index.php` before
+             *     constructing a Request, with a comment explaining why, and a
+             *     consuming application patched this method in its `vendor/`
+             *     directory rather than filing it.
+             *   - A relative PHP_SELF gives a dirname of `.`, one character,
+             *     which silently eats the first character of the path.
+             *
+             * The rule is now the one the intent implies: strip the directory
+             * only when the request actually starts with it. A prefix that is
+             * not a prefix is not a subdirectory, whatever PHP_SELF says.
              */
             if (isset($_SERVER['PHP_SELF'])) {
-                self::$requestUri = trim(
-                    substr(
-                        $_SERVER['REQUEST_URI'],
-                        strlen(dirname($_SERVER['PHP_SELF']))
-                    ),
-                    "/"
+                $directory = rtrim(
+                    str_replace('\\', '/', dirname($_SERVER['PHP_SELF'])),
+                    '/'
                 );
+                if ($directory !== ''
+                    && $directory !== '.'
+                    && str_starts_with($_SERVER['REQUEST_URI'], $directory . '/')
+                ) {
+                    self::$requestUri = trim(
+                        substr($_SERVER['REQUEST_URI'], strlen($directory)),
+                        '/'
+                    );
+                }
             }
         }
         self::$requestUri = str_replace('?{}', '', self::$requestUri);
