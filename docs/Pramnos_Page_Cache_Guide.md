@@ -263,10 +263,27 @@ re-renders. Only sensible if renders are cheap enough not to need protecting.
 `etag` and `gzip` are on by default.
 
 - A matching `If-None-Match` is answered with a **304 and no body** — the
-  cheapest possible hit.
+  cheapest possible hit. The 304 carries the `ETag`, as RFC 7232 §4.1 requires.
+  `If-None-Match` is parsed rather than compared: a list (`"a", "b"`), a weak
+  validator (`W/"a"`) and `*` are all understood.
 - The gzipped copy is built **once at store time**, not per hit, and served to
   clients that accept it. After the render itself this is most of the CPU a page
   cache saves.
+- **With `gzip` on, `Vary: Accept-Encoding` is always sent** — on the compressed
+  and the uncompressed response alike. One URL then has two bodies, and any
+  shared cache in front of the application must be told, or it will store one
+  variant and hand it to a client that asked for the other. A client that sent no
+  `Accept-Encoding` receiving compressed bytes is the classic "broken for some
+  people only" report, and it never reproduces locally.
+
+    A `Vary` your application already sends is merged, not replaced. With `gzip`
+    off nothing is added, because there is then one body per URL and a needless
+    `Vary` costs hit rate in every cache downstream.
+
+    If your web server already compresses — `mod_deflate`, `gzip on` — prefer
+    `'gzip' => false` and let it do the work; it emits the correct `Vary` itself,
+    and you avoid storing two copies of every page.
+
 - `X-Pramnos-Cache: HIT | STALE | HIT-304` and `Age:` are sent while
   `debugHeader` is true. Leave it on — it is how you find out the cache is not
   working — and turn it off if you would rather not advertise the arrangement.

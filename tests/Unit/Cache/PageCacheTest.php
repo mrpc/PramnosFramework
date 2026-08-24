@@ -1152,6 +1152,218 @@ class PageCacheTest extends TestCase
         $this->assertSame('plain', $hit->getBody());
     }
 
+    // ── Vary, and the shared cache in front of us ───────────────────────────
+
+    /**
+     * A gzip-capable cache always declares `Vary: Accept-Encoding`.
+     *
+     * With `gzip` on, one URL has two bodies and the choice is made from a
+     * request header. A shared cache in front of the application — a CDN, a
+     * corporate proxy — that is not told this will store one variant and serve
+     * it to a client that asked for the other: compressed bytes to a client that
+     * will not decompress them. "The page is broken, but only for some people",
+     * and it never reproduces locally.
+     *
+     * **Asserted on both branches**, which is the whole point. A shared cache
+     * that saw the plain copy first has the identical problem in reverse, so a
+     * `Vary` emitted only alongside `Content-Encoding` fixes half of it.
+     *
+     * Reported by a consuming application hours after this feature shipped. The
+     * original tests exercised both branches and asserted `Content-Encoding` on
+     * each — which is exactly how a missing header survives a green suite.
+     *
+     * The reversal that reddens this: remove the `Vary` block from
+     * `decorate()`.
+     *
+     * @return array<string,array{string|null}>
+     */
+    public static function acceptEncodingProvider(): array
+    {
+        return [
+            'a client that accepts gzip'     => ['gzip, deflate, br'],
+            'a client that does not'         => [null],
+            'a client that sends it empty'   => [''],
+            'a client that accepts only br'  => ['br'],
+        ];
+    }
+
+    #[DataProvider('acceptEncodingProvider')]
+    public function testVaryIsAlwaysDeclaredWhenGzipIsEnabled(?string $accept): void
+    {
+        // Arrange
+        $cache = $this->cache(['gzip' => true]);
+        $cache->store($this->request('/stations'), $this->page(str_repeat('<p>x</p>', 40)));
+
+        // Act
+        if ($accept === null) {
+            unset($_SERVER['HTTP_ACCEPT_ENCODING']);
+        } else {
+            $_SERVER['HTTP_ACCEPT_ENCODING'] = $accept;
+        }
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertStringContainsStringIgnoringCase(
+            'Accept-Encoding', (string) $hit->getHeaderLine('Vary')
+        );
+    }
+
+    /**
+     * A `Vary` the application already sent is kept, not replaced.
+     *
+     * Dropping a page's own `Vary: Accept-Language` to add ours would break the
+     * caching of exactly the pages that were careful about it.
+     */
+    public function testAnApplicationVaryIsMergedRatherThanOverwritten(): void
+    {
+        // Arrange — `vary` is on the header whitelist, so it is stored.
+        $cache = $this->cache(['gzip' => true]);
+        $cache->store(
+            $this->request('/stations'),
+            $this->page('<html>x</html>')->withHeader('Vary', 'Accept-Language')
+        );
+
+        // Act
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $vary = strtolower((string) $hit->getHeaderLine('Vary'));
+        $this->assertStringContainsString('accept-language', $vary);
+        $this->assertStringContainsString('accept-encoding', $vary);
+    }
+
+    /**
+     * It is not added twice when the application already declared it.
+     *
+     * `Vary: Accept-Encoding, Accept-Encoding` is legal and pointless, and it is
+     * the sort of thing that makes a header diff unreadable while looking like a
+     * bug to whoever is reading it.
+     */
+    public function testVaryIsNotDuplicated(): void
+    {
+        // Arrange
+        $cache = $this->cache(['gzip' => true]);
+        $cache->store(
+            $this->request('/stations'),
+            $this->page('<html>x</html>')->withHeader('Vary', 'accept-encoding')
+        );
+
+        // Act
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertSame(
+            1, substr_count(strtolower((string) $hit->getHeaderLine('Vary')), 'accept-encoding')
+        );
+    }
+
+    /**
+     * With gzip off there is one body per URL, so nothing is added.
+     *
+     * A `Vary` nobody needs costs hit rate in every shared cache downstream,
+     * which is the opposite of the point.
+     */
+    public function testNoVaryIsAddedWhenGzipIsDisabled(): void
+    {
+        // Arrange
+        $cache = $this->cache(['gzip' => false]);
+        $cache->store($this->request('/stations'), $this->page('<html>x</html>'));
+
+        // Act
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertFalse($hit->hasHeader('Vary'));
+    }
+
+    /** A page that already varies on everything is left saying so. */
+    public function testAWildcardVaryIsLeftAlone(): void
+    {
+        // Arrange
+        $cache = $this->cache(['gzip' => true]);
+        $cache->store(
+            $this->request('/stations'),
+            $this->page('<html>x</html>')->withHeader('Vary', '*')
+        );
+
+        // Act
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertSame('*', $hit->getHeaderLine('Vary'));
+    }
+
+    // ── Conditional requests ────────────────────────────────────────────────
+
+    /**
+     * The 304 carries the ETag.
+     *
+     * RFC 7232 §4.1. Without it a client cannot tell which of its stored copies
+     * has just been confirmed fresh, and some re-download on the next cycle —
+     * losing the round trip the 304 exists to save.
+     *
+     * The reversal that reddens this: drop the `withHeader('ETag', …)` from the
+     * 304 branch of `responseFrom()`.
+     */
+    public function testThe304CarriesTheEtag(): void
+    {
+        // Arrange
+        $cache = $this->cache();
+        $cache->store($this->request('/stations'), $this->page('<html>x</html>'));
+        $etag = $cache->lookup($this->request('/stations'))->getHeaderLine('ETag');
+
+        // Act
+        $_SERVER['HTTP_IF_NONE_MATCH'] = $etag;
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertSame(304, $hit->getStatusCode());
+        $this->assertSame($etag, $hit->getHeaderLine('ETag'));
+    }
+
+    /**
+     * `If-None-Match` is understood in the shapes clients actually send it.
+     *
+     * A list is legal and common from a client holding several variants; `W/`
+     * marks a weak validator, and for whole stored bytes there is no strong
+     * comparison to fail; `*` matches anything stored. Mishandling any of them
+     * is not a correctness bug — the answer falls back to a 200 — but it throws
+     * away the saving the ETag was added for, silently.
+     *
+     * @return array<string,array{string,bool}>
+     */
+    public static function ifNoneMatchProvider(): array
+    {
+        return [
+            'the exact tag'        => ['%ETAG%', true],
+            'a weak tag'           => ['W/%ETAG%', true],
+            'a list containing it' => ['"other", %ETAG%', true],
+            'a list, ours first'   => ['%ETAG%, "other"', true],
+            'a wildcard'           => ['*', true],
+            'a list without it'    => ['"a", "b"', false],
+            'a different tag'      => ['"nope"', false],
+            'empty'                => ['', false],
+        ];
+    }
+
+    #[DataProvider('ifNoneMatchProvider')]
+    public function testIfNoneMatchIsParsedNotJustCompared(
+        string $header, bool $expect304
+    ): void {
+        // Arrange
+        $cache = $this->cache();
+        $cache->store($this->request('/stations'), $this->page('<html>x</html>'));
+        $etag = $cache->lookup($this->request('/stations'))->getHeaderLine('ETag');
+
+        // Act
+        $_SERVER['HTTP_IF_NONE_MATCH'] = str_replace('%ETAG%', $etag, $header);
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertSame($expect304 ? 304 : 200, $hit->getStatusCode());
+    }
+
     /** The debug header can be switched off. */
     public function testTheDebugHeaderCanBeDisabled(): void
     {

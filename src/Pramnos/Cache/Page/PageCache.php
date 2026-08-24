@@ -629,11 +629,14 @@ final class PageCache
     ): Response {
         $etag = $entry['etag'] ?? null;
 
-        if ($etag !== null
-            && ($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') !== ''
-            && trim((string) $_SERVER['HTTP_IF_NONE_MATCH']) === $etag) {
+        if ($etag !== null && $this->ifNoneMatchMatches($etag)) {
+            // RFC 7232 §4.1: a 304 carries the validator. Without it some
+            // clients cannot tell what they have been told is still fresh and
+            // re-download on the next cycle — losing exactly the round trip the
+            // 304 exists to save.
             return $this->decorate(
-                Response::make('', 304), $entry, $state . '-304', $age
+                Response::make('', 304)->withHeader('ETag', $etag),
+                $entry, $state . '-304', $age
             );
         }
 
@@ -664,10 +667,88 @@ final class PageCache
         return $this->decorate($response, $entry, $state, $age);
     }
 
-    /** The debug headers, when they are wanted. */
+    /**
+     * Whether the request's `If-None-Match` covers this entry's ETag.
+     *
+     * Three things beyond a string comparison, because a conditional request is
+     * written by a client and arrives in whatever shape that client prefers:
+     *
+     * - **A list.** `If-None-Match: "a", "b"` is legal and common from a client
+     *   that holds more than one variant.
+     * - **A weak validator.** `W/"a"` and `"a"` are the same entity for this
+     *   purpose — a page cache serves whole stored bytes, so there is no strong
+     *   comparison to fail.
+     * - **`*`**, which matches any stored representation.
+     *
+     * Getting any of these wrong is not a correctness bug — the answer falls
+     * back to a full 200 — but it silently throws away the saving the ETag was
+     * added for, which is the kind of thing nobody notices.
+     */
+    private function ifNoneMatchMatches(string $etag): bool
+    {
+        $header = trim((string) ($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+        if ($header === '') {
+            return false;
+        }
+
+        if ($header === '*') {
+            return true;
+        }
+
+        $normalise = static function (string $tag): string {
+            $tag = trim($tag);
+            if (stripos($tag, 'W/') === 0) {
+                $tag = substr($tag, 2);
+            }
+
+            return trim($tag);
+        };
+
+        $mine = $normalise($etag);
+        foreach (explode(',', $header) as $candidate) {
+            if ($normalise($candidate) === $mine) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The headers this cache adds on the way out: `Vary`, and the debug pair.
+     *
+     * **`Vary: Accept-Encoding` is not optional.** When `gzip` is on, one URL has
+     * two bodies and the choice is made from a request header — so a shared cache
+     * in front of the application (a CDN, a corporate proxy, a reverse proxy)
+     * must be told, or it will store one variant and serve it to a client that
+     * asked for the other. A client that sent no `Accept-Encoding` then receives
+     * compressed bytes it will not decompress: the classic "the page is broken,
+     * but only for some people" report, which never reproduces locally.
+     *
+     * Emitted on **both** branches, not only the compressed one. A shared cache
+     * that happened to see the plain copy first has the identical problem in
+     * reverse, and it is the same URL either way.
+     *
+     * The `headerWhitelist` does not cover this even though `vary` is on it: that
+     * preserves a `Vary` the *application* sent, and compression is this class's
+     * decision, so the application has no reason to know it must declare it.
+     * Reported by a consuming application within hours of the feature shipping —
+     * the tests exercised both branches and asserted `Content-Encoding` on each,
+     * which is precisely how a missing header survives a green suite.
+     *
+     * An application `Vary` is merged rather than overwritten; dropping its
+     * `Cookie` or `Accept-Language` would break the caching of a page that needs
+     * them.
+     */
     private function decorate(
         Response $response, array $entry, string $state, int $age
     ): Response {
+        if ($this->config['gzip']) {
+            $response = $response->withRawHeader(
+                'Vary', $this->mergedVary($response->getHeaderLine('Vary'))
+            );
+        }
+
         if (!$this->config['debugHeader']) {
             return $response;
         }
@@ -675,6 +756,30 @@ final class PageCache
         return $response
             ->withHeader('X-Pramnos-Cache', $state)
             ->withHeader('Age', (string) max(0, $age));
+    }
+
+    /**
+     * `Accept-Encoding` added to whatever `Vary` the page already declared,
+     * without duplicating it.
+     */
+    private function mergedVary(?string $existing): string
+    {
+        $fields = [];
+        foreach (explode(',', (string) $existing) as $field) {
+            $field = trim($field);
+            if ($field !== '') {
+                $fields[strtolower($field)] = $field;
+            }
+        }
+
+        // A page that already varies on everything needs nothing added.
+        if (isset($fields['*'])) {
+            return '*';
+        }
+
+        $fields['accept-encoding'] = 'Accept-Encoding';
+
+        return implode(', ', $fields);
     }
 
     /**
