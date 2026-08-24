@@ -429,8 +429,16 @@ Any `Set-Cookie` at all means nothing will ever be stored. `PHPSESSID` is the
 usual culprit and it is not something the application wrote: the framework starts
 a session in `Application::init()` on every request unless told otherwise, and
 without turning that off the page cache and the session are mutually exclusive as
-shipped. The [Framework Guide](Pramnos_Framework_Guide.md) covers how to decline
-it.
+shipped.
+
+```php
+// app/app.php
+'session'          => 'lazy',   // no session for a visitor who has none
+'session_tracking' => false,    // no tracking cookies either
+```
+
+See [declining the automatic session](Pramnos_Framework_Guide.md#declining-the-automatic-session)
+for what lazy mode does and does not change.
 
 Then, in order, and each is one line:
 

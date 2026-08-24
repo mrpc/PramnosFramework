@@ -6,6 +6,8 @@ use_cases:
   - Handling errors or registering an exception handler
   - Telling the user what happened after a redirect (flash messages)
   - Reading application configuration in app/app.php
+  - Serving anonymous traffic from cache when the framework starts a session
+  - Turning off framework behaviour an application does not want
 ---
 
 # Pramnos Framework Guide
@@ -443,6 +445,105 @@ return [
 ];
 ```
 
+
+## Declining the automatic session
+
+`Application::init()` starts a session on every request. That is the right default
+for an application whose pages are mostly signed-in, and the wrong one for a site
+serving anonymous traffic: every response carries `Set-Cookie: PHPSESSID`, including
+a page render for a visitor who will never read or write a thing.
+
+**That is what stops the page cache from ever storing anything.**
+[`PageCache`](Pramnos_Page_Cache_Guide.md) refuses to store a response that sets a
+cookie — correctly, because such a response is per-visitor in its body too. So the
+two features are mutually exclusive until you say otherwise:
+
+```php
+// app/app.php
+return [
+    'session' => 'lazy',
+    ...
+];
+```
+
+Check what you are actually sending:
+
+```bash
+curl -D- -o /dev/null -s https://example.test/ | grep -i set-cookie
+```
+
+### What "lazy" means, and what it does not
+
+It means **do not create a session for a visitor who has none**. A request arriving
+with a session cookie still starts one at exactly the point it always did.
+
+That distinction is the whole reason the mode is usable. Around two hundred places
+in the framework read `$_SESSION` directly — `Session::staticIsLogged()` above all —
+and "never start one" would report every signed-in visitor as anonymous until
+something happened to call a token helper.
+
+| Request | Eager (default) | Lazy |
+|---|---|---|
+| Anonymous, no cookie | session started, `Set-Cookie` sent | no session, no cookie, **cacheable** |
+| Carrying a session cookie | session started | session started |
+| Signs in during the request | session started | started by the login path |
+
+### If your application writes to `$_SESSION`
+
+Call `ensureStarted()` first, on any request that may not have a session yet:
+
+```php
+$this->application->session->ensureStarted();
+$_SESSION['wizard_step'] = 2;
+```
+
+It is idempotent and costs one `session_status()` check when a session already
+exists.
+
+!!! warning "A write without it is lost silently"
+    PHP will happily let you write to `$_SESSION` when no session has been started.
+    The value goes into a plain array and disappears at the end of the request —
+    no error, no warning. **This is why the mode is opt-in rather than the
+    default.**
+
+The framework's own write paths already call it: signing in, the pending two-factor
+step, passkey challenges, validation errors and old input, flash messages and
+errors, and `?lang=`.
+
+## Declining session tracking
+
+`SessionTrackingMiddleware` records visitors in the `sessions` table. It runs
+automatically unless the application **names** it in `middleware` — so, until this
+key existed, the way to switch it off was to declare it and then arrange not to run
+it, in two places, each needing a comment explaining the other.
+
+```php
+// app/app.php
+return [
+    'session_tracking' => false,
+    ...
+];
+```
+
+Omission is not refusal, and one application learned that the expensive way: its
+config carried the comment *"session tracking is deliberately NOT wired"* while the
+middleware had been running the whole time — two cookies and a database upsert on
+every request, crawler hits included — and a passing test guarded the claim while
+the behaviour was the opposite.
+
+Accepts the spellings a config file actually contains: `false`, `0`, `'0'`,
+`'false'`, `'no'`, `'off'` and `''` all decline. `true`, `1`, `'yes'`, `'on'` leave
+it on, as does omitting the key.
+
+The two inference rules still work and are still checked, after this one: naming the
+middleware in `middleware`, or registering the deprecated `Addon\System\Session`.
+An explicit answer is never overruled by a guess about one.
+
+!!! tip "Is anything reading the table?"
+    Session tracking earns its cost when something reads `sessions` — an active
+    devices screen, an admin presence view. If your application answers those from
+    somewhere else, this is two cookies and one write per request for a table with
+    no reader.
 
 ## Flash messages and errors
 

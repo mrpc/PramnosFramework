@@ -431,6 +431,64 @@ class Application extends Base
     }
 
     /**
+     * Should the session wait until something actually uses it?
+     *
+     * ```php
+     * // app/app.php
+     * return ['session' => 'lazy', ...];
+     * ```
+     *
+     * Off by default, and deliberately not the other way round. Two hundred-odd places in
+     * this framework read `$_SESSION` directly, and an application may well have as many
+     * of its own; changing what they find on an upgrade is not something a minor release
+     * gets to do.
+     *
+     * ## What "lazy" means, and what it does not
+     *
+     * It means *do not create a session for a visitor who has none*. A request arriving
+     * with a session cookie still starts one at exactly the point it always did, so
+     * everything reading `$_SESSION` — `Session::staticIsLogged()` first among them —
+     * behaves as before for anybody who has ever had a session.
+     *
+     * The naive reading, "never start one", would have `staticIsLogged()` report every
+     * signed-in visitor as anonymous until something happened to call a token helper.
+     * That is a mode nobody could turn on.
+     *
+     * ## Why it exists
+     *
+     * `init()` started a session unconditionally, so every response carried
+     * `Set-Cookie: PHPSESSID` — including a page render for an anonymous visitor who
+     * never reads or writes a thing. {@see \Pramnos\Cache\Page\PageCache} refuses to
+     * store a response that sets a cookie, correctly, because such a response is
+     * per-visitor in its body too. So the page cache and the session were mutually
+     * exclusive as shipped, and an application turning the cache on found it stored
+     * nothing for a reason in two lines it did not write.
+     *
+     * Reported from a consuming application that had removed every other cookie it set:
+     * one `Set-Cookie` left on an anonymous page, and it was this one.
+     *
+     * ## What an application has to do
+     *
+     * Anything of its own writing `$_SESSION` on a request that may not have a session
+     * must call `$app->session->ensureStarted()` first. The framework's own write paths
+     * already do. A write without it goes into a plain array and is gone at the end of
+     * the request — silently, which is the whole reason this is opt-in.
+     *
+     * @return bool
+     */
+    protected function lazySessionEnabled(): bool
+    {
+        $configured = $this->applicationInfo['session'] ?? null;
+        if (is_string($configured)) {
+            return strtolower($configured) === 'lazy';
+        }
+
+        $setting = Settings::getSetting('session');
+
+        return is_string($setting) && strtolower($setting) === 'lazy';
+    }
+
+    /**
      * Can this document put a theme to use?
      *
      * `html`, `amp` and `print` render a page, and therefore a theme — a
@@ -548,7 +606,11 @@ class Application extends Base
          */
         $sessionStart = microtime(true);
         $this->session = \Pramnos\Http\Session::getInstance();
-        $this->session->start();
+        if ($this->lazySessionEnabled()) {
+            $this->session->startIfPresent();
+        } else {
+            $this->session->start();
+        }
         $sessionEnd = microtime(true);
 
         // From here the collectors exist, so the phases can be reported. Each
@@ -567,6 +629,11 @@ class Application extends Base
 
         //End of set session defaults
         if (isset($_GET['lang']) == true) {
+            // Remembering the choice is the point, so this is a write and needs somewhere
+            // to write to. Under lazy mode a first-time visitor has no session yet, and
+            // without this `?lang=` would appear to work for one page and then forget —
+            // the kind of half-broken that gets the whole mode switched back off.
+            $this->session->ensureStarted();
             $_SESSION['language'] = $_GET['lang'];
             $this->language = $_GET['lang'];
         }
@@ -633,6 +700,35 @@ class Application extends Base
 
     private function bootSessionTracking(): void
     {
+        // The key that means what it says.
+        //
+        // Until it existed, the only way to decline session tracking was to *name* the
+        // middleware in `middleware` — so switching a feature off meant declaring it, and
+        // then arranging not to run it. A consuming application did exactly that across
+        // two files, each with a comment explaining the other, because either half alone
+        // reads as a mistake.
+        //
+        // It also cost them the thing that shape is supposed to prevent: their app.php
+        // carried the comment "NO SessionTrackingMiddleware … deliberately NOT wired" and
+        // it had been running the whole time — two cookies and an upsert into `sessions`
+        // on every request, crawlers included — because omission is not refusal. They had
+        // a passing test guarding the claim while the behaviour was the opposite.
+        //
+        // Checked first, before the two inference rules below, so an explicit answer is
+        // never overruled by a guess about one.
+        // `null` as the default, explicitly: getSetting()'s own default is `false`, so
+        // reading it without one turns "this application never mentioned the key" into
+        // "this application declined" — which would have switched tracking off for every
+        // installation on upgrade. Caught by the test asserting the default is unchanged,
+        // which is the only reason that test exists.
+        $configured = $this->applicationInfo['session_tracking']
+            ?? Settings::getSetting('session_tracking', null);
+        if ($configured !== null
+            && !in_array($configured, [true, 1, '1', 'true', 'yes', 'on'], true)
+        ) {
+            return;
+        }
+
         $mwClass = \Pramnos\Http\Middleware\SessionTrackingMiddleware::class;
 
         // Skip when an explicit middleware pipeline will run it.
