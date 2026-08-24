@@ -480,11 +480,40 @@ halves this project actually needs:
 | `spa` | model + API controller + routes + a front-end screen |
 | `hybrid` | both, over **one** model — a single domain object, two controllers |
 
-The screen lands in `frontend/screens/` (or `www/assets/js/screens/` without a
-build step) and registers itself in `screens/registry.js`, which the application
-reads to build its navigation. Its list uses the model's `getApiList()` pipeline,
-so paging and search are the server's. `--target=mvc|spa|both` overrides the
-choice for one run.
+The screen lands in your `spa_source_dir` — `frontend/screens/` by default, or
+`www/assets/js/screens/` without a build step — and registers itself in
+`screens/registry.js`, which the application reads to build its navigation.
+`--target=mvc|spa|both` overrides the style's choice for one run.
+
+**What the SPA screen actually is**, on the Svelte stack: a list that sorts,
+searches and pages on the server through the model's `getApiList()` pipeline,
+with its state in the URL, over a form whose every control matches the column's
+*type* — a checkbox for a boolean, a date input for a date, a textarea for text,
+a searchable picker for a foreign key, the `COLUMN COMMENT` as the label and
+`NOT NULL` as `required`. It comes from the same introspection the MVC generator
+reads, so the screen matches the migration that created the table.
+
+> **Before 2026-08-24 it was `<input type="text">` for every column**, because
+> the SPA path was handed column *names* while the MVC path was handed their
+> types. A text box over a boolean stores the string `"on"`; over a foreign key
+> it asks for a numeric id with nothing on screen that could supply one; over a
+> timestamp it is accepted and the insert fails at the database.
+
+Two more doors on the front end, the counterparts of `create:view` and
+`create:service`:
+
+```bash
+./myapp create:screen Dashboard --blank      # a screen with no list
+./myapp create:component StatusBadge         # a component *and its test*
+```
+
+The screen imports five shared components — `DataTable`, `Pagination`,
+`ConfirmDialog`, `Field` and `lib/i18n.svelte.js` — written once per project and
+never overwritten afterwards, because the value of shipping a `DataTable` is
+that you extend it. `project:resync --spa-components` takes a newer version when
+you want one. See the [Console
+Guide](Pramnos_Console_Guide.md#front-end-generation-spa-projects) for the
+control-per-type table and the components' contracts.
 
 ### The shell is a page, not a view
 

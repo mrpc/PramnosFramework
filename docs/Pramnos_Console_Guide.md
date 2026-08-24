@@ -2,6 +2,7 @@
 use_cases:
   - Running a built-in console command
   - Generating a model, controller, view, API or full CRUD set
+  - Generating a Svelte screen or component for a SPA project
   - Writing a new console command
   - Refreshing framework-owned files in an existing project (project:resync)
   - Finding out what `init` scaffolds, including the files aimed at AI assistants
@@ -23,7 +24,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 
 | Namespace | Purpose | Examples |
 |---|---|---|
-| `create:` | Code generation (models, controllers, views, APIs, migrations, tasks, commands, …) | `create:model`, `create:crud`, `create:command`, `create:task` |
+| `create:` | Code generation (models, controllers, views, screens, components, APIs, migrations, tasks, commands, …) | `create:model`, `create:crud`, `create:screen`, `create:component`, `create:command`, `create:task` |
 | `migrate`, `migrate:` | Database schema migrations | `migrate`, `migrate:status`, `migrate:rollback` |
 | `project:` | **Set up / reconfigure an existing project** without re-running `init` | `project:reconfigure`, `project:install`, `project:publish-views`, `project:git-webhook` |
 | `logs:` | Log-file tooling | `logs:convert` |
@@ -830,6 +831,105 @@ The full set:
 - `<view>.html.php` - List view (renders the controller's server-side DataTable)
 - `edit.html.php` - Create/edit form
 - `show.html.php` - Detail view
+
+## Front-End Generation (SPA projects)
+
+The counterparts of `create:view` and `create:service`, for the Svelte stack.
+
+### `create:screen`
+
+```bash
+php bin/pramnos create:screen Invoices --table=invoices   # a CRUD screen
+php bin/pramnos create:screen Dashboard --blank           # no list
+php bin/pramnos create:screen Invoices --resource=invoice  # over an endpoint
+```
+
+With `--table` it produces exactly what `create:crud` produces for its
+front-end half, and nothing else: no model, no API controller, no routes. That
+is the case where the API already exists — hand-written, or somebody else's —
+and only the screen is missing.
+
+`--blank` writes a screen with no list, for a dashboard, a report or a settings
+page. The generated CRUD screen is a poor starting point for those: two thirds
+of it is list plumbing to delete, and what remains imports components it no
+longer uses.
+
+Every screen registers itself in `screens/registry.js`, so it is reachable
+without editing `App.svelte`. A screen the registry does not name is a file the
+bundler does not even include.
+
+> Before this command existed, `createSpaScreen()` was reachable only through
+> `create:crud` — so the way to add a dashboard was to generate a CRUD for a
+> table you did not want and delete most of it. `create:view` exists on the MVC
+> side for exactly that reason.
+
+### `create:component`
+
+```bash
+php bin/pramnos create:component StatusBadge
+```
+
+Writes **two** files: `components/StatusBadge.svelte` and
+`__tests__/StatusBadge.test.js`. The test is the point of the command rather
+than a nicety — `create:service` writes a test stub, which is why services in a
+scaffolded project have tests, and the front end had no such command, which is
+why components did not.
+
+The name is used as you typed it (`sales-report` becomes `SalesReport`); it is
+not singularised or pluralised, because a component is not a database table.
+
+### What `create:crud` generates for a SPA
+
+The screen is a peer of the generated API controller, and every control matches
+the column's **type**, read from the same introspection the MVC generator uses:
+
+| Column | Control |
+|---|---|
+| `boolean` / `tinyint(1)` | checkbox |
+| `text` / `longtext` / `json` | textarea |
+| `date` | `<input type="date">` |
+| `datetime` / `timestamp` | `<input type="datetime-local">`, converted to the space form the database wants |
+| `integer` / `decimal` / `float` | `<input type="number">`, with `step="any"` where fractions are allowed |
+| a foreign key | a searchable picker against the referenced resource's own list endpoint |
+
+The `COLUMN COMMENT` becomes the field's label, `NOT NULL` becomes `required`,
+and a blank nullable field is saved as `null` rather than `''` — they compare,
+sort and `COALESCE` differently, and a form that cannot express the difference
+converts every unset optional column to `''` on the first save.
+
+Columns in the generator's exclusion list — `password`, `salt`, `apikey`,
+`token`, the model-maintained timestamps — are never offered.
+
+The list sorts, searches and pages **on the server**, and its state lives in the
+URL: a link to "page 3, sorted by listeners" is a link somebody can send, and a
+background re-read leaves the reader where they were.
+
+### The shared components
+
+A generated screen imports five files, written once per project and **never
+overwritten** afterwards:
+
+| File | What it is |
+|---|---|
+| `components/DataTable.svelte` | Table + card layouts from one column definition; consumes `ApiListResponse::paginated()` |
+| `components/Pagination.svelte` | Numbered, windowed, keyboard-reachable |
+| `components/ConfirmDialog.svelte` | Focus trap, Escape, optional typed-phrase mode |
+| `components/Field.svelte` | The control-per-type renderer described above |
+| `lib/i18n.svelte.js` | `t()` / `tHtml()`, a client for the framework's own catalogue |
+
+Each ships with its test, into the project's `__tests__/` — where the project's
+Vitest runner will actually run them.
+
+They stop being the framework's files the moment they exist, because the whole
+value of shipping a `DataTable` is that a project extends it. To take a newer
+version deliberately:
+
+```bash
+php bin/pramnos project:resync --spa-components          # report what differs
+php bin/pramnos project:resync --spa-components --all    # overwrite local edits
+```
+
+It is **not** included in a plain `project:resync`, for the same reason.
 
 ### Generated View Examples
 

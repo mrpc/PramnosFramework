@@ -3,6 +3,8 @@ use_cases:
   - Translating strings or adding a language
   - Choosing between the translation helper functions
   - Discovering untranslated strings in the codebase
+  - Translating a SPA or Svelte front end from the same catalogue
+  - Listing the languages an installation ships
 ---
 
 # Pramnos Framework - Internationalization (i18n) Guide
@@ -262,6 +264,62 @@ page down. Check the log if a page shows a raw `%s` where a value belongs.
 > printed `Array` for the first placeholder. The examples above were in this
 > guide before they worked. If your application worked around it by reading
 > `getlang()` and formatting the string itself, that workaround can now go.
+
+### Translating a front end from the same catalogue
+
+A SPA cannot call `_()`. Without an endpoint a front end either ships no
+translation at all or grows a **second** catalogue — and a second catalogue
+means a string that moves between a component and a controller loses its
+translation, silently, in whichever direction it moved.
+
+So `scaffold:spa` writes a controller answering `GET {apiPrefix}/language`,
+which serves this installation's own map, and `lib/i18n.svelte.js` is a client
+for it:
+
+```js
+import { t, tHtml, loadLanguage, availableLanguages } from './lib/i18n.svelte.js';
+
+await loadLanguage();            // the signed-in account's language
+await loadLanguage('greek');     // or a named one, for the sign-in screen
+
+t('Save');                       // 'Αποθήκευση'
+t('%s is on air', 'Aroma');      // same key, same %s rule as _()
+```
+
+Same key (the English source), same fallback (the key itself), same `%s`
+substitution. A string translated for a server-rendered page is translated for a
+screen.
+
+Three properties worth knowing:
+
+- **`tHtml()` keeps the translation's markup live and escapes what is
+  substituted into it.** Some translations carry `<strong>`; a value arriving at
+  run time from an API or another user is script. A translator writing a tag is
+  trusted; a runtime value is not.
+- **The endpoint is unauthenticated.** The sign-in screen needs its labels, and
+  a catalogue is the same text the server-rendered pages emit to anybody.
+- **A language nobody ships is refused, not substituted.** `load()` falls back
+  to English on its own, so an endpoint that reported the request as applied
+  would leave a client believing it is in Greek and never asking again.
+
+It is written only when `app/language/` exists — a project with no catalogue
+does not need an endpoint over an empty array, and `t()` returning its own key is
+already correct with no endpoint at all.
+
+### Listing the languages an installation ships
+
+```php
+$languages = \Pramnos\Translator\Language::getLanguages();   // ['english', 'greek']
+```
+
+It looks where `load()` looks: `LANGPATH`, then `app/language/`, then
+`ROOT/language/`, merged and de-duplicated.
+
+> **Fixed 2026-08-24.** It scanned `ROOT/language` and nothing else, while
+> `load()` reads `app/language` first — the layout `init` actually generates. So
+> on a normal project it threw *"Languages directory does not exist"* while
+> `_()` was translating happily, and anything offering a language picker had
+> nothing to put in it.
 
 ### Theme Integration
 
