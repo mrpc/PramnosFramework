@@ -130,7 +130,7 @@ abstract class DaemonOrchestrator extends CommandBase
         $desired = $this->buildDesiredProcesses();
 
         if (!$this->includeScheduler()) {
-            return $desired;
+            return $this->withBroadcastServer($desired);
         }
 
         // A console that does not have `work` cannot run it, and a supervised
@@ -143,7 +143,7 @@ abstract class DaemonOrchestrator extends CommandBase
         // applies.
         $console = $this->getApplication();
         if ($console !== null && !$console->has('work')) {
-            return $desired;
+            return $this->withBroadcastServer($desired);
         }
 
         // An application that already supervises `work` — under any id — keeps
@@ -153,13 +153,121 @@ abstract class DaemonOrchestrator extends CommandBase
         // reporting itself as unhealthy for ever.
         foreach ($desired as $process) {
             if ($this->isSchedulerProcess($process)) {
-                return $desired;
+                return $this->withBroadcastServer($desired);
             }
         }
 
         $desired[] = $this->schedulerProcess();
 
+        return $this->withBroadcastServer($desired);
+    }
+
+    /**
+     * Add the WebSocket daemon when the application serves realtime over one.
+     *
+     * Same reasoning as the scheduler above, and the same accident waiting to happen.
+     * `broadcast:serve` is the process that turns a published event into a frame in a
+     * browser; without it every subscription is a perfectly healthy socket that never
+     * receives anything, and there is no error anywhere to say so — the publish
+     * succeeded, the channel exists, the client connected.
+     *
+     * Only when the configuration says WebSocket. An application on the SSE transport
+     * needs no daemon, and supervising one it never asked for would sit failing to bind
+     * a port and reporting itself unhealthy for ever.
+     *
+     * @param  array<int, array<string, mixed>> $desired
+     * @return array<int, array<string, mixed>>
+     */
+    protected function withBroadcastServer(array $desired): array
+    {
+        if (!$this->includeBroadcastServer()) {
+            return $desired;
+        }
+
+        $console = $this->getApplication();
+        if ($console !== null && !$console->has('broadcast:serve')) {
+            return $desired;
+        }
+
+        // An application already supervising it — under any id — keeps its own entry,
+        // whatever options it passes.
+        foreach ($desired as $process) {
+            if ($this->isBroadcastServerProcess($process)) {
+                return $desired;
+            }
+        }
+
+        $desired[] = $this->broadcastServerProcess();
+
         return $desired;
+    }
+
+    /**
+     * Whether the orchestrator supervises the WebSocket daemon.
+     *
+     * True only when `broadcasting.transport` is `websocket`. Override to take it over
+     * by hand — to pass `--channels`, a TLS certificate, or a non-default port.
+     */
+    protected function includeBroadcastServer(): bool
+    {
+        $config = [];
+
+        try {
+            $app = \Pramnos\Application\Application::currentInstance();
+            if ($app !== null) {
+                $config = $app->applicationInfo['broadcasting'] ?? [];
+            }
+        } catch (\Throwable) {
+            // No application here — a test, or a subclass used directly. Nothing to
+            // supervise on its behalf.
+            return false;
+        }
+
+        return is_array($config)
+            && strtolower((string) ($config['transport'] ?? '')) === 'websocket';
+    }
+
+    /**
+     * Is this entry already the WebSocket daemon?
+     *
+     * @param array<string, mixed> $process
+     */
+    protected function isBroadcastServerProcess(array $process): bool
+    {
+        if ((string) ($process['id'] ?? '') === 'broadcast') {
+            return true;
+        }
+
+        $tokens = (array) ($process['tokens'] ?? []);
+        if (in_array('broadcast:serve', $tokens, true)) {
+            return true;
+        }
+
+        $shell = (string) ($process['shellCommand'] ?? '');
+
+        return $shell !== '' && str_contains($shell, 'broadcast:serve');
+    }
+
+    /**
+     * The supervised entry for `broadcast:serve`.
+     *
+     * `broadcast:serve` wires the orchestrator's cooperative stop itself, so the health
+     * checks and the graceful-restart protocol apply to it unchanged.
+     *
+     * @return array<string, mixed>
+     */
+    protected function broadcastServerProcess(): array
+    {
+        $base = defined('ROOT') ? \ROOT : sys_get_temp_dir();
+
+        return [
+            'id'       => 'broadcast',
+            'daemon'   => 'broadcast',
+            'workerId' => 'broadcast-1',
+            'lockFile' => $base . '/var/pramnos-broadcast-serve.lock',
+            'tokens'   => ['broadcast:serve'],
+            'profile'  => 'WebSocket broadcasting server',
+        ];
     }
 
     /**

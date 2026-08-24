@@ -627,3 +627,25 @@ spawns and supervises the workers from `buildDesiredProcesses()`.
 - [Console Guide](Pramnos_Console_Guide.md) — command scaffolding, dashboards, terminal helpers.
 - [Queue Guide](Pramnos_Queue_Guide.md) — the delayed-queue capability (`DelayedQueue`).
 - [Realtime Guide](Pramnos_Realtime_Guide.md) — `broadcast:serve` (a `CommandBase` worker).
+
+### `broadcast:serve` is supervised for you
+
+When `broadcasting.transport` is `websocket`, the orchestrator adds the WebSocket
+daemon to what it supervises, the same way it adds the schedule worker. An
+application does not have to declare it.
+
+That is not convenience. `broadcast:serve` is the process that turns a published
+event into a frame in a browser; without it every subscription is a perfectly
+healthy socket that never receives anything — the publish succeeded, the channel
+exists, the client connected, and nothing anywhere says what is missing.
+
+An application that declares its own entry keeps it, recognised by the
+`broadcast:serve` token or by the command line, so passing `--channels`, a
+certificate or a different port works as before. To take it over entirely:
+
+```php
+protected function includeBroadcastServer(): bool
+{
+    return false;
+}
+```

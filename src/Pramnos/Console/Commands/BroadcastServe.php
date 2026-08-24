@@ -24,10 +24,17 @@ use Pramnos\Broadcasting\RedisSubscriberSocket;
 use Pramnos\Console\CommandBase;
 
 /**
- * Local-dev WebSocket broadcasting server.
+ * The WebSocket broadcasting server.
  *
- * Starts a pure-PHP WebSocket server that implements the Pusher wire protocol
- * (v7), so pramnos-echo.js clients can connect without any driver change.
+ * Starts a pure-PHP WebSocket server implementing the Pusher wire protocol (v7), so
+ * pramnos-echo.js and pusher-js clients connect without any driver change.
+ *
+ * It was written as a development convenience and has not been one for a while: it
+ * serves `wss://` directly, clusters across nodes, authorises private and presence
+ * channels against AuthServer app keys, dispatches webhooks, and wires the daemon
+ * orchestrator's cooperative stop. The old wording is corrected here because a docblock
+ * saying "local-dev" is exactly how somebody concludes the framework does not ship one
+ * and stands a second WebSocket stack up beside the working one.
  *
  * The server receives broadcasts from the application in one of two ways:
  *
@@ -77,7 +84,7 @@ class BroadcastServe extends CommandBase
     {
         $this
             ->setName('broadcast:serve')
-            ->setDescription('Start a local-dev WebSocket broadcasting server (Pusher-compatible, no Ratchet required)')
+            ->setDescription('Start the WebSocket broadcasting server (Pusher-compatible, no Ratchet required)')
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Bind address', '0.0.0.0')
             ->addOption('port', 'p', InputOption::VALUE_REQUIRED, 'Listen port', '6001')
             ->addOption(
@@ -272,6 +279,26 @@ class BroadcastServe extends CommandBase
         // at all, and one consumer wrote its own daemon for exactly that reason.
         $backplane = (string) ($config['default'] ?? 'null');
         $usesStream = $backplane === 'redis-stream';
+
+        // The pairing rule above settles *which* Redis primitive to read with. It cannot
+        // help when the application publishes somewhere else entirely — a `log`, `pusher`
+        // or `null` backplane with `--channels` asked for here opens a healthy
+        // subscription to a Redis nobody writes to.
+        //
+        // The symptom is identical to the mismatch above and identical to a working
+        // daemon with no traffic: connections succeed, channels exist, and nothing ever
+        // arrives. Said out loud at startup, where somebody is looking, rather than
+        // discovered from an empty browser hours later.
+        if ($channels !== [] && !str_starts_with($backplane, 'redis')) {
+            $output->writeln(
+                '<error>  Ingest: --channels reads from Redis, but broadcasting.default '
+                . 'is "' . $backplane . '" — nothing publishes there.</error>'
+            );
+            $output->writeln(
+                '          <comment>Set broadcasting.default to redis or redis-stream, '
+                . 'or drop --channels and tail the log file instead.</comment>'
+            );
+        }
 
         // Clustering: share presence membership and relay client events between
         // nodes. Its gossip travels on the backplane, so the cluster channel joins
