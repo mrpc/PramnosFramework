@@ -905,7 +905,7 @@ three times:
 
 The cost is not in the fixture. It is in the saves.
 
-#### `cacheflush()` is O(keyspace), and `Model::_save()` calls it twice
+#### `cacheflush()` is O(keyspace), and every save pays for one
 
 | | |
 | --- | --- |
@@ -921,10 +921,19 @@ narrow — `prefix + category_*` — but `SCAN` with a `MATCH` **still traverses
 whole keyspace**: `MATCH` filters what is returned, not what is walked. So
 clearing one category costs the same as clearing all of them.
 
-`Model::_save()` calls `cacheflush()` once for the record's own key and once for
-the category, so **every model save is two full Redis traversals**. That is the
-1.3 s per test above, and it is not a test problem — it is what every save costs
-in production.
+Counted against the code rather than recalled — an earlier revision of this
+section said `_save()` called it twice, and it does not:
+
+| `Model` path | `cacheflush()` calls |
+| --- | --- |
+| insert (`_save`, line 413) | 1 — the category |
+| update (`_save`, lines 430/433) | 1 — the record's key, or the category as fallback |
+| delete (`_delete`, lines 595–596) | **2** — the record's key *and* the category |
+
+So **every save is one full Redis traversal and every delete is two**. That is the
+1.3 s per test above, and it is not a test problem — it is what every write costs
+in production. The multiplier is smaller than first written; the per-call number
+is not, and it is the per-call number that makes this worth fixing.
 
 This page has met this number before. Item 3b measured `cacheflush()` at **85 ms**
 and removed the calls from two test classes that did not need them. It is 268 ms

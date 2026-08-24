@@ -108,9 +108,13 @@ pattern — the pattern is already narrow, but **`SCAN` with a `MATCH` still wal
 the entire keyspace**. `MATCH` filters what comes back, not what is traversed. So
 clearing one category costs what clearing all of them costs.
 
-`Model::_save()` calls `cacheflush()` twice — once for the record's key, once for
-the category — so **every model save is two full Redis traversals**, in
-production as much as in the suite.
+`Model` calls `cacheflush()` on every write: once per save (the category on
+insert, the record's key on update) and **twice** per delete. So a save is one
+full Redis traversal and a delete is two, in production as much as in the suite.
+
+*(Corrected: this first said `_save()` called it twice. Counted against the code,
+it does not — the two-call site is `_delete()`. The per-call 268 ms is what makes
+this worth fixing, and that number stands.)*
 
 The performance page has met this number before: it measured `cacheflush()` at
 85 ms and removed the calls from two test classes that did not need them. It is
