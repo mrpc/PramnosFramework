@@ -3,6 +3,7 @@ use_cases:
   - Adding CSS/JS assets or meta tags to a page
   - Serving the same controller output as HTML, JSON or another format
   - Working with the Document object or SEO metadata
+  - Migrating a theme from the legacy document to the modern one
 ---
 
 # Pramnos Framework - Document & Output System Guide
@@ -386,6 +387,44 @@ $doc->enqueueStyle('jquery-ui');
 $doc->enqueueStyle('bootstrap');
 $doc->enqueueStyle('datatables');
 ```
+
+### What the framework does *not* inject, and why
+
+`Html::render()` emits one thing you did not ask for: a two-line inline script
+that replaces `class="no-js"` on `<html>` with `js`, so a stylesheet can style
+the no-JavaScript case. It is inline because a round trip to decide whether
+JavaScript exists would arrive after the page had already been painted.
+
+**It does not inject modernizr, and that is deliberate.** The legacy
+`pramnos_document_html` carried `public $modernizr = true;` and emitted
+`<script src="…media/js/modernizr.min.js">` into every page. The modern document
+does not, for two reasons:
+
+- **The framework does not ship that file.** A project scaffolded by `init` has
+  no `media/js/modernizr.min.js`, so an unconditional injection would be a 404
+  on every page of every new project.
+- **A page's assets are the application's decision.** That is what the registry
+  above is for — a default that cannot be seen in the calling code is a default
+  nobody knows to turn off.
+
+If you are migrating from the legacy document and your CSS depends on
+modernizr's feature classes (`touch`/`no-touch` and the rest — the narrow
+`no-js`/`js` flip is already covered), add it explicitly:
+
+```php
+// Anywhere the theme's header is composed. Works identically on the legacy
+// document and the modern one, so it is safe to add before you migrate.
+$document->addHeadContent(
+    '<script async src="' . sURL . 'media/js/modernizr.min.js"></script>'
+);
+```
+
+The same applies to the legacy `$reset` / reset.css injection.
+
+> Raised as a filing by a project migrating off the legacy document, which asked
+> for either the feature back or a written statement that it went on purpose.
+> This is the statement — and the snippet above is that project's own
+> workaround, which is the right shape and needs no framework change.
 
 ### Asset Dependencies
 
