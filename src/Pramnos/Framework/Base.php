@@ -101,6 +101,17 @@ class Base
     protected function addError($error)
     {
         $this->_errors[] = $error;
+        // A flash message exists to survive a redirect, so it needs a session to survive
+        // in. The `isset()` guard below used to make this a silent no-op whenever there
+        // was none — almost never, because init() always started one. Under lazy sessions
+        // it would become common, and an error the user is never shown is worse than a
+        // cookie on a page that was about to redirect anyway.
+        //
+        // The cost of being wrong here is a session on a page that could have been
+        // cached, so it was worth checking who actually calls this: all 107 call sites in
+        // the framework are controllers flashing before a redirect, none are models on a
+        // render path. A page that must stay cacheable should not be flashing.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         if (isset($_SESSION)) {
             $_SESSION['_errors'] = $this->_errors;
         }
@@ -115,6 +126,8 @@ class Base
     protected function addMessage($message)
     {
         $this->_messages[] = $message;
+        // Same reasoning as addError(): a message nobody sees is the worse failure.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         if (isset($_SESSION)) {
             $_SESSION['_messages'] = $this->_messages;
         }

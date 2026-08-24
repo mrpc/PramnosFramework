@@ -65,6 +65,7 @@ class User extends \Pramnos\Addon\Addon
         if ($info['status'] != true) {
             return false;
         }
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         $_SESSION['logged'] = true;
         $_SESSION['uid'] = $info['uid'];
         $_SESSION['username'] = $info['username'];

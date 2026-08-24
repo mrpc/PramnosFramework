@@ -113,6 +113,10 @@ class ValidationRedirectMiddleware implements MiddlewareInterface
             return $next($request);
         } catch (ValidationException $exception) {
             if (session_status() === PHP_SESSION_ACTIVE) {
+                // Read back by the page being redirected to, so it needs a session to
+                // survive in — a failed form that redirects to a page with no errors on
+                // it looks like the form silently succeeded.
+                \Pramnos\Http\Session::getInstance()->ensureStarted();
                 $_SESSION['_validation_errors'] = $exception->errors();
                 $_SESSION['_old_input']         = $request->allCurrent();
             }

@@ -228,9 +228,11 @@ abstract class FormRequest
         // @codeCoverageIgnoreStart
         // This method calls exit() — unreachable in unit tests without process
         // isolation. Override in a test subclass if the redirect path needs testing.
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        // Through the framework's Session rather than a bare session_start(): that one
+        // ignored the cookie parameters start() sets — secure, httponly, samesite — so a
+        // validation failure was the one request that got a laxer session cookie than
+        // every other. It also gives lazy mode a single seam to hook.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         $_SESSION[$this->errorsSessionKey]   = $errors;
         $_SESSION[$this->oldInputSessionKey] = $oldInput;
 

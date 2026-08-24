@@ -92,6 +92,8 @@ class Passkey extends Controller
         $options = $this->service()->beginRegistration($user, $label !== '' ? $label : null);
 
         // Remember which challenge this session issued.
+        // Verified on the next request, so it has to outlive this one.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         $_SESSION[self::S_REG_CHALLENGE] = $options->challenge;
 
         return Response::json(['options' => $options->toClientArray()], 200);
@@ -143,6 +145,8 @@ class Passkey extends Controller
 
         $options = $this->service()->beginAuthentication($userId);
 
+        // Verified on the next request, and a passkey login begins with no session.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         $_SESSION[self::S_LOGIN_CHALLENGE] = $options->challenge;
         $_SESSION[self::S_LOGIN_USERID]    = $userId;
 

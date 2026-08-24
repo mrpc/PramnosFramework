@@ -194,13 +194,59 @@ class Session extends Base
      * Ensure the session is started and the CSRF token is initialized.
      * This keeps the Session public API safe even if callers did not invoke
      * start() explicitly before using token helpers.
+     *
+     * Public since lazy mode: anything that is about to write to `$_SESSION` on a
+     * request that may not have a session yet calls this first. Idempotent, and one
+     * `session_status()` check when there is already one.
+     *
      * @return void
      */
-    private function ensureStarted()
+    public function ensureStarted()
     {
         if (session_status() !== PHP_SESSION_ACTIVE || empty($this->_token)) {
             $this->start();
         }
+    }
+
+    /**
+     * Is the visitor already carrying a session, or would starting one create it?
+     *
+     * The distinction is what makes lazy mode safe. A request arriving with a session
+     * cookie has state waiting for it, and the two hundred-odd places in this framework
+     * that read `$_SESSION` directly must find it — `staticIsLogged()` above all, which
+     * would otherwise report every signed-in visitor as anonymous. A request arriving
+     * without one has nothing to lose by not being given a session it never asked for.
+     *
+     * Reads the cookie rather than `session_status()`, because the point is to answer
+     * *before* anything has started a session.
+     *
+     * @return bool
+     */
+    public static function hasExistingCookie(): bool
+    {
+        $name = session_name();
+
+        return $name !== false && isset($_COOKIE[$name]) && $_COOKIE[$name] !== '';
+    }
+
+    /**
+     * Start the session, but only for a visitor who already has one.
+     *
+     * What lazy mode calls instead of {@see start()}. A returning visitor gets exactly
+     * what they got before; a first-time anonymous one gets no session and therefore no
+     * `Set-Cookie`, which is the whole reason the page cache could never store anything.
+     *
+     * @return bool Whether a session was started
+     */
+    public function startIfPresent(): bool
+    {
+        if (!static::hasExistingCookie()) {
+            return false;
+        }
+
+        $this->start();
+
+        return true;
     }
 
 

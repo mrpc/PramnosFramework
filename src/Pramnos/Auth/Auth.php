@@ -480,6 +480,11 @@ class Auth extends \Pramnos\Framework\Base
         // planted beforehand is worthless. `session.use_strict_mode` blocks only
         // the version of this attack where the attacker invents an id; this
         // blocks the version where they first get a real one from the server.
+        // Signing in is the moment a visitor stops being anonymous, so this is where a
+        // lazy session has to exist. Before regenerateId(), which returns false without an
+        // active session — so under lazy mode the fixation defence and the four writes
+        // below would both have quietly done nothing.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         \Pramnos\Http\Session::getInstance()->regenerateId();
 
         $_SESSION['logged']   = true;

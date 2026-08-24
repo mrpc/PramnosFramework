@@ -233,6 +233,9 @@ class PasskeyService implements PasskeyServiceInterface
     protected function storeChallenge(string $type, string $challenge, array $data): void
     {
         $this->sessionStart();
+        // The challenge is checked on a later request; without a session there is
+        // nothing to check it against and every passkey ceremony fails.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
         $_SESSION[$this->challengeKey($type, $challenge)] = [
             'data'    => $data,
             'expires' => time() + self::CHALLENGE_TTL,

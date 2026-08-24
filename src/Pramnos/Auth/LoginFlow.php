@@ -343,6 +343,10 @@ class LoginFlow
     /** Stash the pending step-up so a completion call can pick it up. */
     protected function beginStepUp(int $userId, bool $remember, string $identifier): void
     {
+        // The completion call is a second request; without a session there is nothing
+        // for it to pick this up from, and the step-up would restart for ever.
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
+
         $_SESSION[static::S_PENDING_USER]       = $userId;
         $_SESSION[static::S_PENDING_REMEMBER]   = $remember;
         $_SESSION[static::S_PENDING_IDENTIFIER] = $identifier;
