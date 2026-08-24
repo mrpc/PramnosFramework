@@ -102,6 +102,7 @@ nav:
     - API Guide: Pramnos_API_Guide.md
     - HTTP Client (outbound requests): Pramnos_Http_Client_Guide.md
     - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
+    - Model Change Feed: Pramnos_Change_Feed_Guide.md
     - Queues: Pramnos_Queue_Guide.md
     - Email: Pramnos_Email_Guide.md
     - Media: Pramnos_Media_Guide.md
