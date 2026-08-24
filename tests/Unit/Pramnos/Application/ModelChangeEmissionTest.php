@@ -429,6 +429,53 @@ class ModelChangeEmissionTest extends TestCase
     }
 
     /**
+     * A model with no table saves without a fatal, and reports no changes.
+     *
+     * `$itemdata` is built inside the `_dbtable != NULL` block, so a model without a
+     * table never defines it — and the loop that builds `_lastChanges` ran over an
+     * undefined variable.
+     *
+     * Narrow, and worth the one token it costs: the constructor fills `_dbtable` in when
+     * a model leaves it null, so the only way here is code that clears the property after
+     * construction. That is a fatal in the method every save goes through, reached by
+     * something that reads like a reasonable thing to do.
+     *
+     * `_lastChanges` is an array afterwards rather than absent: a caller reading it does
+     * not want to discover that "no table" is the one case where it is not there.
+     */
+    public function testAModelWithNoTableSavesWithoutAFatal(): void
+    {
+        // Arrange
+        $model = new class (ServiceController::shared()) extends Model {
+            /**
+             * Cleared after construction, which is the only way to reach this.
+             *
+             * The constructor fills `_dbtable` in when a model leaves it null, so a
+             * declared `protected $_dbtable = null` never survives to `_save()`. What
+             * does reach it is code that clears the property later — a model choosing at
+             * runtime that it has nothing to persist.
+             */
+            public function withoutATable(): void
+            {
+                $this->_dbtable = null;
+            }
+
+            public function save(): void
+            {
+                $this->_save();
+            }
+        };
+        $model->withoutATable();
+
+        // Act
+        $model->save();
+
+        // Assert
+        $this->assertSame([], $model->getLastSaveChanges());
+        $this->assertSame([], $this->received, 'a model with no table has nothing to announce');
+    }
+
+    /**
      * The value object names the class and the table it came from.
      *
      * A listener handling several models needs both: the class to know what it is looking

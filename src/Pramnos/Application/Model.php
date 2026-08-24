@@ -542,7 +542,16 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         }
         if (!isset($changes)) {
             $changes = array();
-            foreach ($itemdata as $item) {
+            // `$itemdata` is built inside the `$this->_dbtable != NULL` block above, so a
+            // model without a table never defines it — and this loop then ran over an
+            // undefined variable. Harmless while every model declared a table, which is
+            // why it survived; a fatal the moment one did not, in the method every save
+            // goes through.
+            //
+            // The empty default rather than a guard around the loop, so `_lastChanges`
+            // is an array on every path. A caller reading it does not want to find out
+            // that "no table" is the one case where it is not there.
+            foreach ($itemdata ?? array() as $item) {
                 $field = $item['fieldName'];
                 $changes[$field] = array(
                     'old' => null,
