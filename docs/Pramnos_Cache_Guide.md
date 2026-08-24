@@ -229,6 +229,47 @@ category deliberately rather than relying on them colliding.
 > store all match the category against the key with a separator anchor, so none
 > of them had this. It was the file adapter's directory derivation alone.
 
+#### What clearing a category costs
+
+On Redis, `clear($category)` costs **the size of the category** — it reads a set
+holding that category's own keys and deletes them.
+
+It used to cost the size of the whole database, and the reason is worth knowing
+because it catches people writing their own invalidation:
+
+```php
+// Looks narrow. Is not.
+$cursor = null;
+do { $keys = $redis->scan($cursor, 'myprefix_views_*', 500); } while ($cursor);
+```
+
+**`MATCH` filters what `SCAN` returns, not what it traverses.** Every call walks
+the entire keyspace regardless of how specific the pattern is, so the cost is a
+function of everything else sharing the Redis database — other categories,
+sessions, rate limiters, another application. Measured with the category held at
+40 keys:
+
+| keyspace | `SCAN` + `MATCH` | `SMEMBERS` + `DEL` |
+| --- | --- | --- |
+| 1,000 | 0.6 ms | 0.29 ms |
+| 100,000 | 15.8 ms | 0.27 ms |
+| 500,000 | **128.7 ms** | **0.85 ms** |
+
+`Model` clears on every write, so this was on the path of every save.
+
+Two consequences to know about:
+
+- **A key written into a category's namespace by something other than the
+  adapter is no longer removed by `clear($category)`.** That is the cost of not
+  searching. If you write to Redis directly and want the framework to invalidate
+  it, write it through the adapter — or clear it yourself.
+- **On an existing installation, the first `clear()` of each category still
+  scans**, once, to catch keys written before the index existed. After that the
+  category is never scanned again. Nothing to run; it happens on its own.
+
+The other adapters are unchanged: Memcached cannot enumerate keys at all, and the
+file and array stores do not scan a keyspace, so none of them had this cost.
+
 ### Cache with Timeouts
 
 ```php

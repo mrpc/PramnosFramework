@@ -95,39 +95,46 @@ Profiling instead of guessing:
 | `setUp()` in total | **3.3 ms** |
 | every test, including ones that assert almost nothing | **1.0 – 1.9 s** |
 
-The cost is in the saves. And underneath the saves:
+The cost was attributed to the saves. **That attribution is withdrawn** — see the
+correction immediately below.
+
+> **Corrected 2026-08-24.** The 268 ms below does not reproduce. Re-measured, the
+> suite's cache resolves to `FileAdapter` — the fixtures configure no cache method
+> — and a category clear there is **0.05 ms**. So this number was not measured
+> where it says it was, and the conclusion that `cacheflush()` explains the 1.0–1.9 s
+> per test is **withdrawn**; that cost is currently unexplained. The mechanism
+> described below is real and was fixed the same day — see
+> *[Clearing one cache category cost the whole database](2026-08-24-clearing-one-category-cost-the-whole-database.md)*
+> for the measurements that do reproduce (128.7 ms against a 500,000-key
+> keyspace, flat under 1 ms after).
 
 | | |
 |---|---|
-| `$cache->clear('mails')` | **268 ms** |
-| `$db->cacheflush('mails')` | 293 ms |
+| `$cache->clear('mails')` | ~~**268 ms**~~ — see above |
+| `$db->cacheflush('mails')` | ~~293 ms~~ |
 
-Measured with the file cache directory **empty**, so it is not a directory walk.
-The configured method resolves to Redis, and clearing a category deletes by
-pattern — the pattern is already narrow, but **`SCAN` with a `MATCH` still walks
-the entire keyspace**. `MATCH` filters what comes back, not what is traversed. So
-clearing one category costs what clearing all of them costs.
+Clearing a category deleted by pattern — the pattern is narrow, but **`SCAN` with
+a `MATCH` still walks the entire keyspace**. `MATCH` filters what comes back, not
+what is traversed. So clearing one category cost what clearing all of them cost:
+that part was right, and it is what got fixed.
 
 `Model` calls `cacheflush()` on every write: once per save (the category on
 insert, the record's key on update) and **twice** per delete. So a save is one
 full Redis traversal and a delete is two, in production as much as in the suite.
 
 *(Corrected: this first said `_save()` called it twice. Counted against the code,
-it does not — the two-call site is `_delete()`. The per-call 268 ms is what makes
-this worth fixing, and that number stands.)*
+it does not — the two-call site is `_delete()`.)*
 
-The performance page has met this number before: it measured `cacheflush()` at
-85 ms and removed the calls from two test classes that did not need them. It is
-268 ms now, and this time the calls are inside `Model`, where no test can remove
-them.
+The performance page has met a number like this before: it measured `cacheflush()`
+at 85 ms against the **file** cache and removed the calls from two test classes
+that did not need them. That was a directory scan and is unrelated to the keyspace
+traversal described here.
 
-**Not fixed here, on purpose.** The repair is a different invalidation design — a
-Redis set per category holding its own keys, so a flush becomes `SMEMBERS` plus
-`DEL` and costs the size of the category rather than the size of the database.
-That is a correctness-sensitive change to the cache layer and it deserves its own
-work, its own measurements and its own tests. It is written up in the
-[performance page](../../Pramnos_Test_Suite_Performance.md) because the
-measurement is the expensive part and it is now done.
+**Not fixed here, on purpose** — and fixed later the same day, once the
+measurement had been redone properly. A Redis set per category holding its own
+keys, so a flush is `SMEMBERS` plus `DEL` and costs the size of the category
+rather than the size of the database. See
+*[Clearing one cache category cost the whole database](2026-08-24-clearing-one-category-cost-the-whole-database.md)*.
 
 Worth knowing before picking it up: this only began costing anything when the SQL
 cache started working at all. `Cache::getInstance()`'s method default went from

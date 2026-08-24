@@ -905,24 +905,36 @@ three times:
 
 The cost is not in the fixture. It is in the saves.
 
-#### `cacheflush()` is O(keyspace), and every save pays for one
+#### `cacheflush()` was O(keyspace) — fixed 2026-08-24
 
-| | |
-| --- | --- |
-| `Settings::getSetting('cache')` | 0.00 ms |
-| `Cache::getInstance()` (same category) | 0.32 ms |
-| **`$cache->clear('mails')`** | **268 ms** |
-| `$db->cacheflush('mails')` | 293 ms |
+**The 268 ms figure this section carried was wrong, and the correction is worth
+more than the number was.** It was recorded against `$cache->clear('mails')` and
+attributed to this test class. It does not reproduce: re-measured, the suite's
+cache resolves to **`FileAdapter`**, not Redis — the fixtures configure no cache
+method — and a category clear there is **0.05 ms**. So whatever the 1.0–1.9 s per
+test above is, `cacheflush()` is not it, and that attribution is withdrawn.
 
-Measured with the file cache directory **empty**, so it is not a directory walk.
-The configured method is `false`, which resolves to Redis, and
-`RedisAdapter::clear($category)` deletes by pattern. The pattern is already
-narrow — `prefix + category_*` — but `SCAN` with a `MATCH` **still traverses the
-whole keyspace**: `MATCH` filters what is returned, not what is walked. So
-clearing one category costs the same as clearing all of them.
+What *is* real is the mechanism, and it is measurable. `RedisAdapter::clear($category)`
+deleted by pattern, and `SCAN` with a `MATCH` **traverses the whole keyspace**:
+`MATCH` filters what is returned, not what is walked. So the cost was a function
+of everything else sharing the Redis database — other categories, sessions, rate
+limiters, another application — and not of the category being cleared.
 
-Counted against the code rather than recalled — an earlier revision of this
-section said `_save()` called it twice, and it does not:
+Measured directly, category held at 40 keys:
+
+| keyspace | `SCAN` + `MATCH` | `SMEMBERS` + `DEL` | |
+| --- | --- | --- | --- |
+| 1,000 | 0.6 ms | 0.29 ms | 2× |
+| 10,000 | 1.2 ms | 0.70 ms | 2× |
+| 100,000 | 15.8 ms | 0.27 ms | 58× |
+| 500,000 | **128.7 ms** | **0.85 ms** | **151×** |
+
+One column is linear in the size of the database; the other is flat. At the size
+a real installation reaches, the difference stops being an optimisation.
+
+And `Model` clears on every write — counted against the code rather than recalled,
+because an earlier revision of this section said `_save()` called it twice and it
+does not:
 
 | `Model` path | `cacheflush()` calls |
 | --- | --- |
@@ -930,14 +942,28 @@ section said `_save()` called it twice, and it does not:
 | update (`_save`, lines 430/433) | 1 — the record's key, or the category as fallback |
 | delete (`_delete`, lines 595–596) | **2** — the record's key *and* the category |
 
-So **every save is one full Redis traversal and every delete is two**. That is the
-1.3 s per test above, and it is not a test problem — it is what every write costs
-in production. The multiplier is smaller than first written; the per-call number
-is not, and it is the per-call number that makes this worth fixing.
+**Fixed.** `RedisAdapter` now keeps a set per category holding its own keys, so a
+clear is `SMEMBERS` plus `DEL` and costs the size of the category. Three details
+carry the correctness:
 
-This page has met this number before. Item 3b measured `cacheflush()` at **85 ms**
-and removed the calls from two test classes that did not need them. It is 268 ms
-now, and this time the calls are inside `Model` where no test can remove them.
+- **The set outlives its newest member.** Every save pushes its expiry to an hour
+  past that entry's TTL, which both bounds the set's growth in a category that is
+  written constantly and never cleared, and guarantees it is never the first thing
+  to go. An entry saved with no expiry makes the set permanent, because there is
+  then a member that will never leave on its own.
+- **An installation that predates the index still gets its old keys removed.**
+  Keys written before the set existed are in no set. A per-category *marker*
+  decides: no marker means scan once, the old way, then write the marker. So the
+  crossover happens exactly once per category and no category is ever scanned
+  twice. Deciding by "is the set empty?" instead would scan on every clear of an
+  idle category — which is the common case.
+- **A key written into the category's namespace by something other than the
+  adapter is no longer swept.** That is the honest cost of not searching, it is
+  pinned by a test, and the crossover scan is what makes it safe on upgrade.
+
+Item 3b on this page measured `cacheflush()` at **85 ms** against the file cache
+and removed the calls from two test classes that did not need them. That number
+was a directory scan and is unrelated to this one.
 
 **Not fixed here, deliberately.** The repair is a different invalidation design —
 a Redis SET per category holding its own keys, so a flush is `SMEMBERS` + `DEL`

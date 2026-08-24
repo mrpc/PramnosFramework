@@ -165,22 +165,134 @@ class RedisAdapter extends AbstractAdapter
             
             if ($timeout > 0) {
                 $this->redis->setex(
-                    $key, 
-                    $timeout, 
+                    $key,
+                    $timeout,
                     serialize($entry)
                 );
             } else {
                 $this->redis->set(
-                    $key, 
+                    $key,
                     serialize($entry)
                 );
             }
-            
+
+            $this->indexInCategory($key, (int) $timeout);
+
             return true;
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
+    }
+
+    /**
+     * Record this key as a member of its category, so the category can later be
+     * cleared without asking Redis to look for it.
+     *
+     * **Why this exists.** `clear($category)` used to delete by pattern, and
+     * `SCAN … MATCH` is not the narrow operation it reads as: **`MATCH` filters
+     * what is returned, not what is traversed.** Every call walks the whole
+     * keyspace — every key of every application sharing the database — so
+     * clearing one category costs exactly what clearing all of them costs.
+     * Measured at **268 ms** against a database that was not even large, with
+     * the file cache empty so it was not a directory walk.
+     *
+     * `Model` clears on every write — once per save, twice per delete — so that
+     * was the price of a save in production, and it grew with the size of the
+     * database rather than with the size of the category.
+     *
+     * With a set per category the flush is `SMEMBERS` plus `DEL`: the size of
+     * the category. See {@see clear()} for how an installation that predates
+     * this crosses over safely.
+     *
+     * **The set's expiry is pushed forward on every save**, to one hour past the
+     * newest entry's own TTL. That is what stops it growing without bound in a
+     * category that is written constantly and never cleared — dead members would
+     * otherwise accumulate for ever. Because each save extends it, the set
+     * always outlives every member; when the writing stops, the last member
+     * expires before the set does. An entry saved with no expiry makes the set
+     * permanent too, since there is then a member that will never go away on its
+     * own.
+     *
+     * A key removed by {@see delete()} or expired by its own TTL stays in the
+     * set as a dead member until the next clear — `DEL` on a key that is not
+     * there costs nothing, so the only price is a little memory and a slightly
+     * larger `SMEMBERS`, and the expiry above bounds it. Removing each one at
+     * delete time would add a round trip to every delete to save that.
+     *
+     * @param string $key     The full, prefixed key that was just written.
+     * @param int    $timeout The entry's TTL in seconds; 0 or less means never.
+     */
+    protected function indexInCategory($key, $timeout)
+    {
+        if ($this->category === '') {
+            return;
+        }
+
+        $index = $this->categoryIndexKey($this->category);
+
+        $this->redis->sAdd($index, $key);
+
+        if ($timeout > 0) {
+            $this->redis->expire($index, $timeout + 3600);
+        } else {
+            $this->redis->persist($index);
+        }
+
+        // The marker says "this category is indexed, do not go looking". It
+        // outlives the set itself — an empty category must still take the fast
+        // path — and it is what makes the one-time crossover in clear() happen
+        // once rather than on every call.
+        $this->redis->set($this->categoryMarkerKey($this->category), 1);
+    }
+
+    /**
+     * The set holding one category's keys.
+     *
+     * `:` as the separator is deliberate: category names are sanitised down to
+     * `\w` and `-`, so a colon can never appear in one. An entry key is
+     * `prefix + category + '_' + hash`, which therefore cannot collide with
+     * this no matter what a category is called — including a category named
+     * `catindex_something`.
+     *
+     * @param string $category
+     * @return string
+     */
+    protected function categoryIndexKey($category)
+    {
+        return $this->prefix . 'catindex:' . $this->sanitizeCategory($category);
+    }
+
+    /**
+     * The marker that says a category's set is authoritative.
+     *
+     * @param string $category
+     * @return string
+     */
+    protected function categoryMarkerKey($category)
+    {
+        return $this->prefix . 'catindexed:' . $this->sanitizeCategory($category);
+    }
+
+    /**
+     * Category names as they appear inside a key.
+     *
+     * Kept in one place because {@see clear()} and the index must agree
+     * exactly; they were two copies of this expression, and a category whose
+     * name they sanitised differently would be indexed under one name and
+     * cleared under another — which looks like a cache that ignores
+     * invalidation.
+     *
+     * @param string $category
+     * @return string
+     */
+    protected function sanitizeCategory($category)
+    {
+        return preg_replace(
+            array('/\s+/', '/[^\w\-]/'),
+            array('_', ''),
+            (string) $category
+        );
     }
     
     /**
@@ -598,26 +710,73 @@ class RedisAdapter extends AbstractAdapter
 
             return $this->deleteByPattern($this->prefix . '*');
         } else {
-            // Clear cache entries for the specific category
             try {
-                // Sanitize the category name to match how keys are stored
-                $sanitizedCategory = preg_replace(
-                    array('/\s+/', '/[^\w\-]/'),
-                    array('_', ''),
-                    $category
-                );
-                
-                // Find all keys that match this category. keys() below scans;
-                // the raw KEYS command walks the whole keyspace in one blocking
-                // pass, which stalls every other client on a large database.
-                return $this->deleteByPattern(
-                    $this->prefix . $sanitizedCategory . '_*'
-                );
+                return $this->clearCategory($category);
             } catch (\Exception $ex) {
                 \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
             }
         }
+    }
+
+    /**
+     * Clear one category, by reading its own index rather than searching for it.
+     *
+     * Costs the size of the category. The pattern scan it replaces cost the size
+     * of the **database**, because `SCAN … MATCH` filters what it returns and
+     * not what it walks — see {@see indexInCategory()} for the measurement and
+     * why every model write was paying it.
+     *
+     * ## Crossing over from an installation that has no indexes
+     *
+     * The index only knows about keys written since it existed, so on an
+     * existing installation the first clear must still find the keys written
+     * before the upgrade. Deciding that by "is the set empty?" would be wrong
+     * twice over: an empty set is also what a category with nothing cached
+     * looks like, so every clear of an idle category would pay the 268 ms again
+     * — and that is precisely the case a test suite hits over and over.
+     *
+     * So the decision is a **marker**, not the set. No marker means nothing has
+     * ever indexed this category here: scan once, the old way, catching every
+     * pre-upgrade key including the ones saved with no expiry that would
+     * otherwise sit there for ever. Then write the marker, and no category is
+     * ever scanned twice.
+     *
+     * The marker deliberately outlives the set. Redis removes a set when its
+     * last member goes, so "the set is gone" cannot distinguish *cleared* from
+     * *never indexed* — the marker is the thing that can.
+     *
+     * @param string $category
+     * @return bool
+     */
+    protected function clearCategory($category)
+    {
+        $sanitized = $this->sanitizeCategory($category);
+        $marker    = $this->categoryMarkerKey($category);
+        $index     = $this->categoryIndexKey($category);
+
+        if (!$this->redis->exists($marker)) {
+            // First clear of this category on this installation: the keys
+            // written before the index existed are only findable by looking.
+            $swept = $this->deleteByPattern($this->prefix . $sanitized . '_*');
+            $this->redis->del($index);
+            $this->redis->set($marker, 1);
+
+            return $swept;
+        }
+
+        $members = $this->redis->sMembers($index);
+        if (!is_array($members)) {
+            $members = array();
+        }
+
+        foreach (array_chunk($members, self::DELETE_BATCH) as $batch) {
+            $this->redis->del($batch);
+        }
+
+        $this->redis->del($index);
+
+        return true;
     }
     
     /**

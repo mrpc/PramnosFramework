@@ -930,6 +930,14 @@ class RedisAdapterTest extends TestCase
             // for the whole sweep on a large keyspace.
             public function scan(mixed &$cursor, mixed ...$args): mixed { throw $this->ex; }
             public function dbSize(mixed ...$args): mixed { throw $this->ex; }
+            // Category invalidation reads a set per category instead of
+            // scanning for a pattern; `exists` is what decides whether this
+            // installation has one yet.
+            public function exists(mixed ...$args): mixed   { throw $this->ex; }
+            public function sAdd(mixed ...$args): mixed     { throw $this->ex; }
+            public function sMembers(mixed ...$args): mixed { throw $this->ex; }
+            public function expire(mixed ...$args): mixed   { throw $this->ex; }
+            public function persist(mixed ...$args): mixed  { throw $this->ex; }
         };
 
         $refRedis     = new \ReflectionProperty($adapter, 'redis');
@@ -1041,6 +1049,35 @@ class RedisAdapterTest extends TestCase
         // Assert
         $this->assertFalse($result,
             'clear(category) must catch the Redis exception and return false');
+    }
+
+    /**
+     * A category index that reads back as anything but an array clears cleanly.
+     *
+     * `sMembers()` returns `false` rather than an empty array on some phpredis
+     * versions, and on a connection that has just dropped. Passing that
+     * straight to `array_chunk()` would be a TypeError thrown out of a cache
+     * invalidation — turning a degraded cache into a failed request, which is
+     * the opposite of what every other guard in this adapter does.
+     */
+    public function testClearCategorySurvivesAnIndexThatIsNotAnArray(): void
+    {
+        // Arrange — the marker exists (so no crossover scan), the set does not.
+        $adapter = new RedisAdapter();
+        $mock = new class {
+            public function exists(mixed ...$args): mixed   { return 1; }
+            public function sMembers(mixed ...$args): mixed { return false; }
+            public function del(mixed ...$args): mixed      { return 1; }
+        };
+
+        (new \ReflectionProperty($adapter, 'redis'))->setValue($adapter, $mock);
+        (new \ReflectionProperty($adapter, 'connected'))->setValue($adapter, true);
+
+        // Act
+        $result = $adapter->clear('products');
+
+        // Assert
+        $this->assertTrue($result);
     }
 
     /**
