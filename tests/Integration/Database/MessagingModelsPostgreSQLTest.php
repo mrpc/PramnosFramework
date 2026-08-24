@@ -41,22 +41,67 @@ class MessagingModelsPostgreSQLTest extends TestCase
     // Lifecycle
     // -------------------------------------------------------------------------
 
-    protected function setUp(): void
+    /**
+     * The tables this class owns, children before parents.
+     *
+     * The order matters for the per-test `DELETE`: a row with a foreign key
+     * pointing at another table here has to go first, and `CASCADE` is only
+     * available to the `DROP` at the end of the class.
+     */
+    private const TABLES = [
+        'massmessagerecipients',
+        'massmessages',
+        'mailtemplates',
+        'mails',
+        'messages',
+    ];
+
+    /**
+     * **Schema once per class, rows once per test.**
+     *
+     * This class re-ran five messaging migrations in every `setUp()` — 11 tests
+     * at ~1.4 s each, 15.7 s. Building a schema is expensive and building the
+     * same schema eleven times is eleven times as expensive; emptying it is not.
+     *
+     * The pattern is
+     * {@see \Pramnos\Framework\Testing\DatabaseTestCase}'s, applied by hand
+     * for the reason `TokenTest` needed it by hand: the models under test reach
+     * the database through `Database::getInstance()`, so the test must use that
+     * instance rather than a handle of its own.
+     *
+     * **The auto-increment trap does not bite here**, and it was checked rather
+     * than assumed: sequences no longer restart between tests, and nothing in
+     * this class asserts on a generated id's *value*. Every assertion is either
+     * `assertNotEmpty()` on the key, a row count, or a comparison against an id
+     * the same test just captured.
+     */
+    public static function setUpBeforeClass(): void
     {
-        if (!defined('LOG_PATH')) {
-            define('LOG_PATH', ROOT . \DS . 'var');
+        self::bootEnvironment();
+
+        $db = Database::getInstance();
+        if (!$db->connected) {
+            $db->connect();
         }
-        if (!is_dir(LOG_PATH . \DS . 'logs')) {
-            @mkdir(LOG_PATH . \DS . 'logs', 0777, true);
-        }
-        if (!defined('CONFIG')) {
-            define('CONFIG', 'tests' . \DS . 'fixtures' . \DS . 'app');
+        if (!$db->connected) {
+            return;   // setUp() skips each test with the reason
         }
 
-        // Bootstrap the PostgreSQL singleton so models call Database::getInstance() → PG
-        $pgSettingsFile = ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'pg_settings.php';
-        Settings::loadSettings($pgSettingsFile);
-        Application::getInstance();
+        self::dropTables($db);
+        self::createTables($db);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        $db = Database::getInstance();
+        if ($db->connected) {
+            self::dropTables($db);
+        }
+    }
+
+    protected function setUp(): void
+    {
+        self::bootEnvironment();
 
         $this->db = Database::getInstance();
         if (!$this->db->connected) {
@@ -78,13 +123,57 @@ class MessagingModelsPostgreSQLTest extends TestCase
         $this->migrationsBase = dirname(__DIR__, 3)
             . '/database/migrations/framework';
 
-        $this->dropAllTestTables();
-        $this->createMessagingTables();
+        // The schema is already there; only the rows are this test's business.
+        foreach (self::TABLES as $table) {
+            $this->db->execute('DELETE FROM ' . $table);
+        }
     }
 
-    protected function tearDown(): void
+    /** Constants, settings and the application, idempotently. */
+    private static function bootEnvironment(): void
     {
-        $this->dropAllTestTables();
+        if (!defined('LOG_PATH')) {
+            define('LOG_PATH', ROOT . \DS . 'var');
+        }
+        if (!is_dir(LOG_PATH . \DS . 'logs')) {
+            @mkdir(LOG_PATH . \DS . 'logs', 0777, true);
+        }
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . \DS . 'fixtures' . \DS . 'app');
+        }
+
+        // Bootstrap the PostgreSQL singleton so models call
+        // Database::getInstance() and reach PG.
+        Settings::loadSettings(
+            ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'pg_settings.php'
+        );
+        Application::getInstance();
+    }
+
+    /** Run all messaging migrations in priority order. */
+    private static function createTables(Database $db): void
+    {
+        $app = new class extends Application {
+            public function __construct() {}
+            public function init($settingsFile = '') {}
+        };
+        $app->database = $db;
+
+        $dir = dirname(__DIR__, 3) . '/database/migrations/framework/messaging';
+        $migrations = MigrationLoader::loadFromDirectory($dir, $app);
+        usort($migrations, fn($a, $b) => $a->priority <=> $b->priority);
+
+        foreach ($migrations as $m) {
+            $m->up();
+        }
+    }
+
+    protected static function dropTables(Database $db): void
+    {
+        // PostgreSQL: CASCADE clears the dependent constraints with the table.
+        foreach (self::TABLES as $t) {
+            $db->execute("DROP TABLE IF EXISTS {$t} CASCADE");
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -447,24 +536,4 @@ class MessagingModelsPostgreSQLTest extends TestCase
         );
     }
 
-    /** Run all messaging migrations in priority order. */
-    private function createMessagingTables(): void
-    {
-        $dir        = $this->migrationsBase . '/messaging';
-        $migrations = MigrationLoader::loadFromDirectory($dir, $this->app);
-
-        usort($migrations, fn($a, $b) => $a->priority <=> $b->priority);
-
-        foreach ($migrations as $m) {
-            $m->up();
-        }
-    }
-
-    protected function dropAllTestTables(): void
-    {
-        // PostgreSQL: disable triggers/FKs temporarily via CASCADE DROP
-        foreach (['massmessagerecipients', 'massmessages', 'mailtemplates', 'mails', 'messages'] as $t) {
-            $this->db->execute("DROP TABLE IF EXISTS {$t} CASCADE");
-        }
-    }
 }

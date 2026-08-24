@@ -31,13 +31,89 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
 {
     protected Database $db;
     protected TwoFactorAuthService $service;
-    protected string $migrationsBase;
+
+    /**
+     * The tables this class owns, in the order they are safe to empty.
+     *
+     * Named once because three places need the same list and a fourth spelling
+     * of it is how one table gets left behind.
+     */
+    private const TABLES = [
+        'authserver_twofactor_attempts',
+        'authserver_twofactor_setup',
+        'authserver_user_twofactor',
+    ];
 
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
+    /**
+     * **Schema once per class, rows once per test.**
+     *
+     * This class used to drop three tables and re-run three migrations in every
+     * `setUp()` — 17 tests at ~1.45 s each, 24.7 s, the single largest class in
+     * the suite. Building a schema is expensive and building the *same* schema
+     * seventeen times is seventeen times as expensive; emptying it is not.
+     *
+     * It is the pattern
+     * {@see \Pramnos\Framework\Testing\DatabaseTestCase} implements and that
+     * ten other classes moved onto. This one cannot use the base class for the
+     * same reason `TokenTest` could not: the code under test reaches the
+     * database through the shared instance, so the test has to use that instance
+     * too rather than a handle of its own.
+     *
+     * The auto-increment trap that came with this pattern elsewhere does not
+     * apply here — counters no longer restart between tests, and nothing in this
+     * class asserts on a generated id. Every fixture keys on `userid`, which the
+     * tests supply.
+     */
+    public static function setUpBeforeClass(): void
+    {
+        self::bootEnvironment();
+
+        $db = Database::getInstance();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        self::dropTables($db);
+        self::createTables($db);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        $db = Database::getInstance();
+        if ($db->connected) {
+            self::dropTables($db);
+        }
+    }
+
     protected function setUp(): void
+    {
+        self::bootEnvironment();
+
+        $this->db = Database::getInstance();
+        if (!$this->db->connected) {
+            $this->db->connect();
+        }
+
+        // The schema is already there; only the rows are this test's business.
+        // DELETE rather than TRUNCATE: TRUNCATE is DDL on MySQL, so it commits
+        // and costs about what the CREATE it replaced did.
+        foreach (self::TABLES as $table) {
+            $this->db->query('DELETE FROM `' . $table . '`');
+        }
+
+        $this->service = new TwoFactorAuthService($this->db);
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /** Constants, settings and the application, idempotently. */
+    private static function bootEnvironment(): void
     {
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
@@ -49,47 +125,29 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
             define('CONFIG', 'tests' . \DS . 'fixtures' . \DS . 'app');
         }
 
-        $settingsFile = ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php';
-        Settings::loadSettings($settingsFile);
+        Settings::loadSettings(
+            ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php'
+        );
         Application::getInstance();
+    }
 
-        $this->db = Database::getInstance();
-        if (!$this->db->connected) {
-            $this->db->connect();
+    protected static function dropTables(Database $db): void
+    {
+        // On MySQL the authserver schema is expressed as a table-name prefix.
+        foreach (self::TABLES as $table) {
+            $db->query('DROP TABLE IF EXISTS ' . $table);
         }
-
-        $this->migrationsBase = dirname(__DIR__, 3) . '/database/migrations/framework';
-        $this->service        = new TwoFactorAuthService($this->db);
-
-        $this->dropTables();
-        $this->createTables();
     }
 
-    protected function tearDown(): void
+    protected static function createTables(Database $db): void
     {
-        $this->dropTables();
-    }
+        $app = new class extends \Pramnos\Application\Application {
+            public function __construct() {}
+            public function init($settingsFile = '') {}
+        };
+        $app->database = $db;
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    protected function dropTables(): void
-    {
-        // On MySQL the authserver schema is expressed as a table-name prefix
-        $this->db->query('DROP TABLE IF EXISTS authserver_twofactor_attempts');
-        $this->db->query('DROP TABLE IF EXISTS authserver_twofactor_setup');
-        $this->db->query('DROP TABLE IF EXISTS authserver_user_twofactor');
-    }
-
-    protected function createTables(): void
-    {
-        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
-            ->disableOriginalConstructor()
-            ->getMock();
-        $app->database = $this->db;
-
-        $dir        = $this->migrationsBase . '/auth';
+        $dir        = dirname(__DIR__, 3) . '/database/migrations/framework/auth';
         $migrations = MigrationLoader::loadFromDirectory($dir, $app);
         usort($migrations, fn($a, $b) => $a->priority <=> $b->priority);
 
