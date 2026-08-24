@@ -2,6 +2,7 @@
 use_cases:
   - Writing or changing a controller
   - Rendering a view or passing data into a template
+  - Pointing the framework at views that live in a tpl/ subdirectory
   - Understanding how a request becomes a response (middleware pipeline, Response object)
   - Handling errors or registering an exception handler
   - Telling the user what happened after a redirect (flash messages)
@@ -319,6 +320,43 @@ return $view->display('template_name');
 ```
 
 **Important**: View template files must use the `.html.php` extension, not just `.html`. This allows for PHP code execution within templates when needed.
+
+#### Templates in a subdirectory
+
+The convention is flat: `views/<module>/<template>.<type>.php`. That is what the
+reference application and all three scaffolded themes use, and nothing needs to be
+configured for it.
+
+An application migrating off the **legacy** view layer will have them one level
+down — `pramnos_application_view` built `<path>/tpl/<template>.<type>.php`. Declare
+it once on a base view rather than moving the files:
+
+```php
+abstract class AppView extends \Pramnos\Application\View
+{
+    protected $tplSubdirectory = 'tpl';
+}
+```
+
+It is a declaration, not a search. Trying `tpl/` whenever the flat path misses would
+put a `file_exists()` on every render of every project, for ever, to serve a layout
+none of them use — and would quietly establish a second convention the framework
+then owes support for.
+
+#### Where the framework looks for an application's views
+
+When a view is not found on the controller's own paths, `getView()` falls back to
+the application directory. That path comes from **`APPS_PATH`** when it is defined,
+and from `ROOT/<INCLUDES>` otherwise.
+
+The distinction matters for an installation whose applications do not live beside
+its framework code: `INCLUDES` describes where the *code* is, `APPS_PATH` describes
+where the *applications* are. In a stock layout they are the same directory. When
+they are not, a fallback built from the wrong one searches somewhere that does not
+exist — and finds nothing, which is indistinguishable from a view that is genuinely
+absent.
+
+`INCLUDES` itself defaults to `src`.
 
 ### Template Files
 

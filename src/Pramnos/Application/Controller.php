@@ -588,6 +588,32 @@ class Controller extends \Pramnos\Framework\Base
 
 
     /**
+     * Where this installation keeps its applications.
+     *
+     * `APPS_PATH` when defined, because that is the constant whose whole purpose is to
+     * answer this, and {@see \Pramnos\Translator\StringFinder} already reads it. The
+     * legacy controller built the same fallback from it; this one started deriving the
+     * answer from `INCLUDES` instead, which describes where the *code* lives. They are
+     * the same directory in a stock layout and different ones the moment an installation
+     * moves its applications — and then this search path points at a directory that does
+     * not exist, silently, because a fallback that finds nothing looks exactly like a
+     * view that is genuinely absent.
+     *
+     * Falls back to the old expression, so an installation that defines no `APPS_PATH`
+     * searches exactly where it searched before.
+     *
+     * @return string
+     */
+    protected static function applicationsBasePath()
+    {
+        if (defined('APPS_PATH') && APPS_PATH !== '') {
+            return rtrim((string) APPS_PATH, DS);
+        }
+
+        return ROOT . DS . INCLUDES;
+    }
+
+    /**
      * Gets a pramnos_application_view object
      * @param string $name
      * @param string $type
@@ -609,19 +635,17 @@ class Controller extends \Pramnos\Framework\Base
         // In case we can't find the view, we search in Application path.
         // Check for app extra paths
         if ($this->application !== null) {
+            $base = static::applicationsBasePath();
+
             if ($this->application->appName == '') {
                 $appPaths = array_merge(
-                    array(
-                        ROOT . DS . INCLUDES
-                    ),
+                    array($base),
                     $this->application->getExtraPaths(),
                     $this->_lastPaths
                 );
             } else {
                 $appPaths = array_merge(
-                    array(
-                        ROOT . DS . INCLUDES . DS . $this->application->appName
-                    ),
+                    array($base . DS . $this->application->appName),
                     $this->application->getExtraPaths(),
                     $this->_lastPaths
                 );

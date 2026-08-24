@@ -26,6 +26,35 @@ class View extends \Pramnos\Framework\Base
      * @var string
      */
     protected $path = '';
+
+    /**
+     * A subdirectory under {@see $path} that templates live in. Empty by default.
+     *
+     * The framework's convention is flat — `views/<module>/<tpl>.<type>.php` — and it is
+     * what the reference application and all three scaffolded themes use. Nothing here
+     * needs this property.
+     *
+     * It exists for an application migrating off the legacy view layer, whose
+     * `pramnos_application_view` built `<path>/tpl/<tpl>.<type>.php`. One such
+     * application has 820 templates in 131 `tpl/` directories, and moving them would
+     * rewrite every open branch and every `git blame` over the view layer.
+     *
+     * ```php
+     * abstract class AppView extends \Pramnos\Application\View
+     * {
+     *     protected $tplSubdirectory = 'tpl';
+     * }
+     * ```
+     *
+     * Deliberately a declaration rather than a search. Trying `tpl/` when the flat path
+     * misses would put a `file_exists()` on every render of every project, for ever, to
+     * serve a layout none of them use — and would quietly establish a second convention
+     * the framework then owes support for. An application that has the directory says so
+     * once.
+     *
+     * @var string
+     */
+    protected $tplSubdirectory = '';
     /**
      * View name
      * @var string
@@ -563,6 +592,21 @@ class View extends \Pramnos\Framework\Base
      * @param boolean $render
      * @return boolean
      */
+    /**
+     * Where this view's templates live: its path, plus {@see $tplSubdirectory}.
+     *
+     * One place, so the theme-override branch below and anything else that resolves a
+     * template cannot disagree about it.
+     *
+     * @return string
+     */
+    protected function templateDirectory()
+    {
+        return $this->tplSubdirectory === ''
+            ? $this->path
+            : $this->path . DS . $this->tplSubdirectory;
+    }
+
     public function getTpl($tpl='', $type='', $render=false)
     {
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -610,7 +654,7 @@ class View extends \Pramnos\Framework\Base
             }
         }
 
-        $tplfile = $this->path
+        $tplfile = $this->templateDirectory()
             . DS . $tpl . '.' . $type . '.php';
 
         if (is_object($doc->themeObject)
