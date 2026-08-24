@@ -872,6 +872,78 @@ generator introspection, on the CLI path only. It buys a generator that reads th
 schema its migration just wrote, which is the same reasoning as
 [the write path being uncached](#schema-introspection-already-cached-where-it-is-safe-to-cache).
 
+### 8 — The two classes item 3b never reached, and what was underneath one of them
+
+Named in the 2026-08-24 check above as the largest remaining item: 40 s across two
+classes that rebuilt their schema in every `setUp()`. Both are now on the
+schema-per-class pattern, and the second one led somewhere more interesting than
+the first.
+
+| Class | Before | After |
+| --- | --- | --- |
+| `TwoFactorAuthServiceMySQLTest` | 24.7 s / 17 tests | **3.3 s** |
+| `MessagingModelsPostgreSQLTest` | 22.2 s / 11 tests | **17.5 s** |
+
+Neither can use `DatabaseTestCase`, for the reason `TokenTest` could not: the code
+under test reaches the database through `Database::getInstance()`, so the test has
+to use that instance rather than a handle of its own. Both got the pattern by hand
+— schema in `setUpBeforeClass()`, `DELETE` in `setUp()`, drop after the class.
+
+The auto-increment trap was checked rather than assumed in both. Neither class
+asserts on a generated id's *value*: every assertion is a row count, an
+`assertNotEmpty()` on a key, or a comparison against an id the same test captured.
+
+**The second class barely moved, and that is the finding.** 22.2 s to 17.5 s for a
+change that took the first class from 24.7 s to 3.3 s. Profiling rather than
+guessing — which this page has now recommended three times and been right about
+three times:
+
+| Per test | |
+| --- | --- |
+| `setUp()` in total (settings, application, five `DELETE`s) | **3.3 ms** |
+| every test, including ones that assert almost nothing | **1.0 – 1.9 s** |
+
+The cost is not in the fixture. It is in the saves.
+
+#### `cacheflush()` is O(keyspace), and `Model::_save()` calls it twice
+
+| | |
+| --- | --- |
+| `Settings::getSetting('cache')` | 0.00 ms |
+| `Cache::getInstance()` (same category) | 0.32 ms |
+| **`$cache->clear('mails')`** | **268 ms** |
+| `$db->cacheflush('mails')` | 293 ms |
+
+Measured with the file cache directory **empty**, so it is not a directory walk.
+The configured method is `false`, which resolves to Redis, and
+`RedisAdapter::clear($category)` deletes by pattern. The pattern is already
+narrow — `prefix + category_*` — but `SCAN` with a `MATCH` **still traverses the
+whole keyspace**: `MATCH` filters what is returned, not what is walked. So
+clearing one category costs the same as clearing all of them.
+
+`Model::_save()` calls `cacheflush()` once for the record's own key and once for
+the category, so **every model save is two full Redis traversals**. That is the
+1.3 s per test above, and it is not a test problem — it is what every save costs
+in production.
+
+This page has met this number before. Item 3b measured `cacheflush()` at **85 ms**
+and removed the calls from two test classes that did not need them. It is 268 ms
+now, and this time the calls are inside `Model` where no test can remove them.
+
+**Not fixed here, deliberately.** The repair is a different invalidation design —
+a Redis SET per category holding its own keys, so a flush is `SMEMBERS` + `DEL`
+and costs the size of the category rather than of the database. That is a
+correctness-sensitive change to the cache layer and it wants its own work, its own
+measurements and its own tests. Written down here because the measurement is the
+expensive part and it is now done.
+
+Worth knowing before picking it up: this only started costing anything when the
+SQL cache began working at all. `Cache::getInstance()`'s method default went from
+`'memcached'` — a store nobody configured, so every cache call was a silent no-op
+— to `''`, which resolves to the configured store. A consuming project's suite
+found the same change from the other side, as four tests that suddenly served
+stale rows.
+
 ### Where the time actually is now, for anyone re-opening this
 
 | Threshold | Tests | Time | Share |
