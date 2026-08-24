@@ -3810,6 +3810,40 @@ class Database extends \Pramnos\Framework\Base
         // wrongly masking live SQL is the worse of the two mistakes.
         $isMysql    = $this->getDriverName() !== 'pgsql';
 
+        // ── The fast path, which is almost every statement ──────────────────
+        //
+        // The scanner below walks the string one byte at a time, and it has to:
+        // where a comment ends is not something a regex can decide while also
+        // respecting string literals. But it costs 22–74 µs on ordinary
+        // statements against 0.3 µs for a regex, and this runs for *every*
+        // prepared statement the framework issues — so paying it on the
+        // overwhelming majority of statements, which contain no comment at all,
+        // was a 150-fold regression on a hot path. Measured, and in production
+        // as much as in the suite.
+        //
+        // With no comment opener present the only inert regions are
+        // single-quoted literals, and one regex finds exactly those. The filler
+        // is NUL and the same length, so the answer is byte-for-byte what the
+        // loop would have produced.
+        //
+        // Two conditions, and both are needed:
+        //   - no `--`, no `/*`, and no `#` on a MySQL-family connection;
+        //   - an even number of quotes, so no literal is left unterminated. The
+        //     loop treats everything after an unterminated quote as inert and
+        //     the regex would not match it at all — invalid SQL either way, but
+        //     not the *same* answer, and a fast path that changes an answer is
+        //     not a fast path.
+        if (!str_contains($sql, '--')
+            && !str_contains($sql, '/*')
+            && !($isMysql && str_contains($sql, '#'))
+            && substr_count($sql, "'") % 2 === 0) {
+            return (string) preg_replace_callback(
+                "/'(?:''|[^'])*'/s",
+                static fn(array $m): string => str_repeat("\0", strlen($m[0])),
+                $sql
+            );
+        }
+
         $mask       = '';
         $inString   = false;
         $inLine     = false;

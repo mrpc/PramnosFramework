@@ -793,6 +793,85 @@ What is explicitly **not** the answer any more: "finish the cheaper work first".
 the cheaper work. There is 8.5 s in it, and the suite's own run-to-run spread is larger than
 that.
 
+### Checked again 2026-08-24: 5:14 for 10,570 tests, and one real regression
+
+Asked directly: *had the last few days' work undone any of this?* Measured rather
+than reasoned, the same way this page says to.
+
+| | 2026-08-17 | 2026-08-24 |
+| --- | --- | --- |
+| `--no-coverage` wall clock | 3:44 – 3:46 | **5:14** |
+| tests | 9,750 | 10,570 |
+| measured test time | 212 – 214 s | **290.6 s** |
+| ≥ 1000 ms | 19 tests / 28.8 s | **68 tests / 96.3 s** |
+| `tests/Unit` per test | 7.9 ms | 11.0 ms |
+| `tests/Integration` per test | 103.6 ms | 120.8 ms |
+| `tests/Characterization` per test | 35.2 ms | 52.7 ms |
+
+**One genuine regression, found and fixed.** `Database::maskInertSql()` — the
+comment-aware placeholder scanner added on 2026-08-24 — walks the statement one
+byte at a time in PHP, and it replaced two quote-only regexes. Measured on
+ordinary statements:
+
+| Statement | scanner | the regexes it replaced |
+| --- | --- | --- |
+| 41 bytes | 21.9 µs | 0.26 µs |
+| 103 bytes | 50.6 µs | 0.38 µs |
+| 150 bytes | 74.1 µs | 0.31 µs |
+
+**150–240× on a path that runs for every prepared statement the framework
+issues**, in production as much as in the suite. Fixed with a fast path: with no
+comment opener present the only inert regions are string literals, which one
+regex finds exactly — so the walk is paid only by the statements that actually
+contain a comment. 22–74 µs became 1.3–1.7 µs, of which ~1 µs is the reflection
+call the benchmark used.
+
+That is the kind of thing this page exists to catch, and it would not have shown
+up in the suite total: at ~50 µs a statement it is a couple of seconds across
+the whole run, and invisible against a ±15 s spread. It was worth finding for
+the request path, not for the tests.
+
+**The rest of the growth is not from those days.** Of the 290.6 s, files added or
+touched since 2026-08-23 account for **26.9 s (9.2%)** across 424 tests. The
+`≥ 1000 ms` band grew from 19 tests to 68, and the classes in it are almost
+entirely older:
+
+| Class | Tests in band | Time | Age |
+| --- | --- | --- | --- |
+| `TwoFactorAuthServiceMySQLTest` | 17 | 24.7 s | May 2026 |
+| `MessagingModelsPostgreSQLTest` | 11 | 15.7 s | pre-existing |
+| `FrameworkMigrations*` | 8 | 11.2 s | supposed to be slow |
+| `PostgresIntrospectionFindsKeysTest` | 2 | 2.3 s | **new** |
+| `DevPanelControllerTest` | 1 | 1.1 s | **new attribute** |
+
+**`TwoFactorAuthServiceMySQLTest` is the largest single class in the suite** —
+17 tests at ~1.45 s each, dropping and creating three tables in `setUp`. That is
+exactly the shape [item 3b](#3b-schema-per-class-rows-per-test--done-81-s-from-ten-classes)
+fixed for ten other classes, and this one was not among them. Same for
+`MessagingModelsPostgreSQLTest`. Together they are **40 s** — the single largest
+remaining item on this page, and it is the one item 3b already knows how to fix.
+
+**Process isolation.** The 2026-08-24 work added `RunTestsInSeparateProcesses` or
+`RunInSeparateProcess` covering 88 tests, 48 of which were not isolated before.
+Measured on the worst case, `PostgresIntrospectionFindsKeysTest`: 10.09 s
+isolated against 8.77 s not — **1.3 s for 10 tests**, so ~130 ms per isolated
+test. Real, and cheap next to what it buys: those attributes are what stopped a
+`define('DEVELOPMENT', true)` in one test file from deciding the whole run's
+behaviour, and what stops a MySQL class inheriting a PostgreSQL connection under
+a filter. The remaining 8.8 s of that class is its own PostgreSQL DDL.
+
+**The new integration tests are the honest cost.** `ClientPoolTest`,
+`ClientTransportTest` and `ClientBodyCeilingTest` fork a real socket server per
+test and contain 1.75 s of deliberate `usleep` — because concurrency and timing
+are only observable in time. 3.8 s of measured test time for 54 tests that
+verify wire behaviour nothing else covered.
+
+**Declined:** `getColumns()`'s new `$fresh` flag bypasses the cache for code
+generators. Measured at 0.59 ms uncached against 0.05 ms cached — 0.54 ms per
+generator introspection, on the CLI path only. It buys a generator that reads the
+schema its migration just wrote, which is the same reasoning as
+[the write path being uncached](#schema-introspection-already-cached-where-it-is-safe-to-cache).
+
 ### Where the time actually is now, for anyone re-opening this
 
 | Threshold | Tests | Time | Share |

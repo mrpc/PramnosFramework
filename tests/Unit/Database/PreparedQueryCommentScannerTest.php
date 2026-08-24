@@ -501,6 +501,87 @@ class PreparedQueryCommentScannerTest extends TestCase
     }
 
     /**
+     * The fast path and the scanner agree, byte for byte.
+     *
+     * A statement with no comment opener skips the character walk entirely and
+     * masks its string literals with one regex, because the walk cost 22–74 µs
+     * against 0.3 µs and runs for every prepared statement the framework issues
+     * — a 150-fold regression on a hot path, in production as much as in the
+     * suite.
+     *
+     * A fast path that changes an answer is not a fast path, so this compares
+     * the two implementations directly on the shapes that reach it. The
+     * reversal: make the regex branch drop a byte, or stop matching `''`, and
+     * the comparison fails on that input rather than on a downstream symptom.
+     *
+     * @param string $driver Driver name under test.
+     */
+    #[DataProvider('driverProvider')]
+    public function testTheFastPathAgreesWithTheScanner(string $driver): void
+    {
+        // Arrange — statements with no comment opener, which is what takes the
+        // fast path, including the awkward literal forms.
+        $statements = [
+            'SELECT * FROM t WHERE a = :a',
+            "SELECT ':notabind' AS lit, :real AS bound",
+            "SELECT 'it''s' AS lit, :v",
+            "SELECT '' AS empty, :v",
+            'SELECT (:minutes)::interval',
+            "SELECT 'a', 'b', 'c', :v",
+            'SELECT :v -',
+            'SELECT :v / 2',
+            "SELECT '%' AS pct, :v",
+        ];
+
+        $db = new Database();
+        $db->type = $driver;
+        $mask = new \ReflectionMethod(Database::class, 'maskInertSql');
+
+        foreach ($statements as $sql) {
+            // Act — the real method, then the scanner forced by appending a
+            // comment marker inside a literal, which cannot open a comment but
+            // does take the slow branch.
+            $fast = $mask->invoke($db, $sql);
+            $slow = substr(
+                $mask->invoke($db, $sql . " /*x*/"),
+                0,
+                strlen($sql)
+            );
+
+            // Assert
+            $this->assertSame(
+                $slow, $fast,
+                'the two branches disagree on: ' . $sql
+            );
+            $this->assertSame(
+                strlen($sql), strlen($fast),
+                'the mask must be the same length as the statement'
+            );
+        }
+    }
+
+    /**
+     * An unterminated literal takes the scanner, not the fast path.
+     *
+     * The two disagree there: the walk treats everything after an unterminated
+     * quote as inert, and the regex would not match it at all. The SQL is
+     * invalid either way, but not with the same answer — so the quote count
+     * decides which branch runs.
+     */
+    #[DataProvider('driverProvider')]
+    public function testAnUnterminatedLiteralIsHandledByTheScanner(string $driver): void
+    {
+        // Arrange / Act — one quote, never closed.
+        [$out, $ordered] = $this->scan(
+            $driver, "SELECT 'unterminated, :v", ['v' => 1]
+        );
+
+        // Assert — everything after the quote is inert, so nothing bound.
+        $this->assertSame("SELECT 'unterminated, :v", $out);
+        $this->assertSame([], $ordered);
+    }
+
+    /**
      * A missing binding for a placeholder that is *not* in a comment still
      * throws — the comment states must not suppress the guard that tells a
      * caller they forgot a value.
