@@ -158,6 +158,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\ProjectSync());
         $this->add(new \Pramnos\Console\Commands\ProjectResync());
         $this->add(new \Pramnos\Console\Commands\CacheClear());
+        $this->add(new \Pramnos\Console\Commands\PageCachePurge());
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
         $this->add(new \Pramnos\Console\Commands\DebugStatus());

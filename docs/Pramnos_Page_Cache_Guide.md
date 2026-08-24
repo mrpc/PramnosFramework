@@ -1,0 +1,386 @@
+---
+use_cases:
+  - Serving anonymous and crawler traffic from cache instead of re-rendering
+  - Making a page uncacheable because it shows something personal
+  - Invalidating a cached page after an editor changes the content behind it
+  - Diagnosing why a page is never cached, or is cached when it should not be
+  - Deciding between the PHP cache path and the static-file writer
+---
+
+# Page Cache Guide
+
+`Pramnos\Cache\Page\PageCache` serves whole rendered pages back to anonymous and
+crawler traffic, so the second visitor to a page does not pay for rendering it.
+
+It is **off by default**, and every default it does have is the one that caches
+less rather than more. That is deliberate: the failure mode of a page cache is
+serving one visitor's page to another, and it is silent.
+
+---
+
+## Turning it on
+
+Two things — a middleware in the pipeline and a `pagecache` block in the
+application config.
+
+```php
+// app.php
+'middleware' => [
+    \Pramnos\Http\Middleware\PageCacheMiddleware::class,   // first
+    \Pramnos\Http\Middleware\SessionTrackingMiddleware::class,
+    \Pramnos\Http\Middleware\AuthMiddleware::class,
+],
+
+'pagecache' => [
+    'enabled' => true,
+    'store'   => 'redis',
+    'ttl'     => 3600,
+],
+```
+
+**Register it first.** The reason a page cache is fast is not the storage — it is
+how little has run by the time it answers. A middleware that starts a session in
+front of it has already spent most of what it saves.
+
+With no `pagecache` block at all the middleware is inert: it looks nothing up and
+stores nothing. Adding it to a pipeline can never, by itself, change what
+visitors see.
+
+---
+
+## What gets cached, and what never does
+
+A request is served from cache only if **all** of these hold. They are checked in
+this order, cheapest first.
+
+| # | Rule | Config |
+|---|---|---|
+| 1 | The cache is enabled | `enabled` |
+| 2 | The method is safe | `methods` — default `GET`, `HEAD` |
+| 3 | The host is one we cache | `hosts` — default: all |
+| 4 | The path is in the allow-list, if there is one | `onlyPaths` |
+| 5 | The path is not excluded | `bypassPaths` |
+| 6 | No excluded query parameter is present | `bypassQuery` |
+| 7 | **No authentication cookie is present** | `bypassCookies` |
+| 8 | **No authentication header is present** | `bypassHeaders` |
+
+A response is **stored** only if the request passed all eight *and*:
+
+- its status is on the list — `statuses`, default `[200]` only;
+- it does **not** carry `Set-Cookie`;
+- its body is not empty;
+- its body contains no `privateMarkers` string;
+- nothing called `PageCache::bypass()` during the render.
+
+`Set-Cookie` is refused outright rather than filtered away, because a response
+that is setting a session is per-visitor in its body too.
+
+### The session is never consulted
+
+Not by oversight — it is what lets the cache answer before the application boots.
+Every rule above reads the request and nothing else: method, host, path, query,
+cookies, headers.
+
+The consequence matters for an application whose logged-in state lives only in
+`$_SESSION`: **there is no cookie for rule 7 to see.** Set a marker cookie at
+login and name it in `bypassCookies`, or rely on `privateMarkers` (below), which
+catches the page by what it contains instead.
+
+```php
+setcookie('logged', '1', ['path' => '/', 'httponly' => false]);
+```
+
+---
+
+## The key
+
+Two requests share a cached page when they agree on: method (with `HEAD` folded
+into `GET`), scheme, host, path, the **filtered and sorted** query string, and
+the `varyBy` values.
+
+```php
+'ignoreQuery' => ['utm_*', 'fbclid', 'gclid', '_ga', 'ref'],   // default
+```
+
+Tracking parameters are dropped before keying, and what remains is sorted. Both
+matter more than they look:
+
+- `?a=1&b=2` and `?b=2&a=1` are one entry, not two.
+- Every campaign link would otherwise be a permanent miss — advertising traffic
+  is exactly the traffic a page cache is for — and anyone could fill the store by
+  appending junk parameters.
+
+If you know precisely which parameters matter, name them instead. `varyQuery` is
+a whitelist and everything else is discarded:
+
+```php
+'varyQuery' => ['page', 'sort'],
+```
+
+**Logged-in and anonymous do not vary the key.** A logged-in request is never
+served from cache and never stored, so one key means one public view; splitting
+it would only create an entry nothing can reach. Crawlers share the anonymous key
+too, and differ only in TTL.
+
+### `varyBy` — when one URL really is several pages
+
+```php
+'varyBy' => [
+    'country' => fn($request) => $_COOKIE['country'] ?? 'gr',
+],
+```
+
+Each distinct value gets its own entry. Keep the set small: two values double the
+storage and halve the hit rate, and a resolver returning something unbounded — a
+user id, a timestamp — gives every visitor their own entry, which is a cache that
+only ever misses.
+
+---
+
+## TTL
+
+```php
+'ttl'      => 3600,
+'ttlRules' => [
+    '/news*'      => 60,        // first match wins
+    '/stations/*' => 7200,
+],
+'botTtl'   => 86400,            // crawlers only
+```
+
+`ttlRules` accepts globs or delimited regexes — `'/api/*'` and `'#^/api#'` both
+work, because configuration gets written by people who think in each.
+
+`botTtl` is worth setting. Crawlers are the traffic least harmed by a stale page
+and the most likely to ask for pages no human has requested in hours.
+
+---
+
+## Refusing to cache, from inside the render
+
+```php
+use Pramnos\Cache\Page\PageCache;
+
+if ($cart->hasItems()) {
+    PageCache::bypass('cart is not empty');
+}
+```
+
+Static, because the caller is a controller, a view or a model that has no
+reference to the cache — the same reason WordPress uses a constant for this.
+
+The alternative some implementations use — emit a marker into the HTML and grep
+the finished body for it — also works, and answers after the whole page has been
+built, in a string search over the entire document, and silently stops working if
+the marker is ever reworded. `privateMarkers` is available for cases where you
+cannot reach the render, but prefer `bypass()` where you can:
+
+```php
+'privateMarkers' => ['id="logout-link"'],
+```
+
+---
+
+## Invalidation
+
+Without tags the only invalidation is the clock, which means "the correction
+appears within an hour". That is why full-page caches get switched off after the
+first urgent edit.
+
+```php
+// while rendering
+PageCache::tag('station:' . $station->id, 'homepage');
+```
+
+```php
+// when the data changes
+$cache = new PageCache($config);
+$cache->purgeTag('station:7');
+$cache->purgeUrl('https://example.test/stations/7');
+$cache->flush();
+```
+
+From the command line:
+
+```bash
+./pramnos pagecache:purge /stations/7
+./pramnos pagecache:purge --tag=station:7 --tag=homepage
+./pramnos pagecache:purge --all
+```
+
+A bare path is resolved against the configured site URL, because entries are
+keyed by absolute URL — one installation can answer on several hosts.
+
+`purgeUrl()` removes **every** variant of that address, not only the one matching
+the purging request. An invalidation that cleared one `varyBy` variant would leave
+the others serving the old page to exactly the visitors who see them.
+
+### Why tags cost what they cost
+
+Each tag keeps an index of its own entry keys, so a purge reads that tag's
+members and deletes them — the size of the tag.
+
+The obvious alternative is asking the store for every key matching a pattern, and
+on Redis that is a trap: `SCAN` walks the **entire keyspace** whatever the `MATCH`
+says, because `MATCH` filters what comes back rather than what is traversed. A
+per-record purge built that way costs the size of the whole database — measured
+at 268 ms on a store that was not even large. See
+[Test Suite Performance](Pramnos_Test_Suite_Performance.md).
+
+---
+
+## Stale-while-revalidate, and the lock
+
+```php
+'staleWhileRevalidate' => 30,
+'lockTtl'              => 30,
+```
+
+When an entry expires, the first request past expiry re-renders and everybody
+arriving in the next 30 seconds is served the old copy rather than piling onto
+the same render.
+
+**The lock is chosen by asking the store, not by assuming.** The framework's own
+`Cache::supportsAtomicCounter()` exists because the File and Array adapters
+implement `increment()` as a load followed by a save — under concurrency every
+caller reads the same value and every caller believes it won. A stampede lock
+built on that fails at the only moment it is for.
+
+So there are two implementations:
+
+| Store | Lock |
+|---|---|
+| Redis, Memcached | `swap()` — Redis `GETSET`, one server-side operation |
+| File, Array | a `mkdir()` lock — atomic on Linux, macOS and WSL alike |
+
+Setting `lockTtl` to `0` means a lock is never honoured and every arrival
+re-renders. Only sensible if renders are cheap enough not to need protecting.
+
+---
+
+## ETag, gzip and the debug header
+
+`etag` and `gzip` are on by default.
+
+- A matching `If-None-Match` is answered with a **304 and no body** — the
+  cheapest possible hit.
+- The gzipped copy is built **once at store time**, not per hit, and served to
+  clients that accept it. After the render itself this is most of the CPU a page
+  cache saves.
+- `X-Pramnos-Cache: HIT | STALE | HIT-304` and `Age:` are sent while
+  `debugHeader` is true. Leave it on — it is how you find out the cache is not
+  working — and turn it off if you would rather not advertise the arrangement.
+
+---
+
+## Serving before the application boots
+
+```php
+// www/index.php
+require __DIR__ . '/../vendor/autoload.php';
+
+\Pramnos\Cache\Page\PageCache::serveEarly($config);   // hit ⇒ sends and exits
+```
+
+Safe this early precisely because the decision reads only the request. This is
+where the large savings are: not the storage lookup, but everything that does not
+run behind it.
+
+---
+
+## The static-file writer
+
+```php
+'writer'     => 'static',
+'staticRoot' => ROOT . '/www/cache',
+```
+
+Pages are also written as real files — `index.html` and `index.html.gz` — so a
+rewrite rule can serve them without PHP starting at all. This is what WP Super
+Cache calls mod_rewrite mode.
+
+```apache
+RewriteCond %{REQUEST_METHOD} ^(GET|HEAD)$
+RewriteCond %{QUERY_STRING} ^$
+RewriteCond %{HTTP_COOKIE} !(auth|remember|logged) [NC]
+RewriteCond %{DOCUMENT_ROOT}/cache/%{HTTP_HOST}%{REQUEST_URI}/index.html -f
+RewriteRule ^(.*)$ /cache/%{HTTP_HOST}/$1/index.html [L]
+```
+
+**Measure before enabling it.** The gain scales with the weight of the bootstrap
+being skipped, not with the web server. An application already using
+`serveEarly()` saves a millisecond or two; one that boots fully before consulting
+the cache saves tens. One consuming application measured 5.8 ms for its PHP hit
+path against 4.5 ms static — real, and much smaller than the advertising for this
+technique suggests.
+
+Three things to know:
+
+- **URLs with a query string are never written as files.** A rewrite rule cannot
+  apply `ignoreQuery`, so it would serve the clean page for `?page=2`. Those
+  requests stay on the PHP path, where normalisation still happens.
+- Files are written to a temporary name and renamed, because a half-written page
+  served to a visitor is worse than a slow one.
+- Purges remove the static twin as well. They must — otherwise the rewrite keeps
+  serving the file the purge reported having removed.
+- Your rewrite conditions are now part of the bypass rules, and they are **not**
+  checked against the PHP config. If they disagree, the file wins.
+
+---
+
+## Configuration reference
+
+| Key | Default | |
+|---|---|---|
+| `enabled` | `false` | |
+| `store` | `'file'` | `file`, `redis`, `memcached`, `memcache`, `array`. Unknown names fall back to `file` rather than throwing |
+| `prefix` | `'pagecache:'` | key namespace within the store |
+| `ttl` | `3600` | |
+| `ttlRules` | `[]` | `pattern => seconds`, first match wins |
+| `botTtl` | `null` | overrides `ttl` for crawlers |
+| `methods` | `['GET','HEAD']` | |
+| `statuses` | `[200]` | |
+| `hosts` | `[]` | empty means all |
+| `onlyPaths` | `[]` | empty means all |
+| `bypassPaths` | `[]` | globs or delimited regexes |
+| `bypassQuery` | `[]` | `name => true` or `name => [values]` |
+| `bypassCookies` | `['#^(auth\|remember\|logged)#i']` | |
+| `bypassHeaders` | `['Authorization']` | |
+| `ignoreQuery` | `utm_*`, `fbclid`, `gclid`, … | dropped before keying |
+| `varyQuery` | `null` | whitelist; overrides `ignoreQuery` |
+| `varyBy` | `[]` | `name => callable` |
+| `privateMarkers` | `[]` | body substrings that prevent storing |
+| `staleWhileRevalidate` | `30` | seconds past expiry |
+| `lockTtl` | `30` | `0` disables locking |
+| `gzip` | `true` | |
+| `etag` | `true` | |
+| `debugHeader` | `true` | |
+| `writer` | `'cache'` | or `'static'` |
+| `staticRoot` | `ROOT . '/www/cache'` | |
+| `headerWhitelist` | `content-type`, `content-language`, `link`, `vary` | the only response headers replayed |
+
+`headerWhitelist` is a whitelist rather than a blacklist because the header that
+must not be replayed to another visitor is always the one nobody thought of.
+
+---
+
+## When a page is not being cached
+
+In order, and each is one line:
+
+1. `$cache->whyBypassed($request)` names the rule — `cookie:authtoken`,
+   `bypassPaths`, `method:POST`, `disabled`. If it returns `null`, the request is
+   cacheable and the problem is on the store side.
+2. `PageCache::isBypassed()` after the render — a controller called `bypass()`.
+3. Check the response for `Set-Cookie`; anything that touches the session adds
+   one.
+4. Check the status is on `statuses` — a redirect is not cached by default.
+5. `X-Pramnos-Cache` absent on a request you expected to hit means the lookup did
+   not find an entry: compare `$cache->keyFor($request)` across the two requests
+   you expected to share a page.
+
+## See also
+
+- [Cache Guide](Pramnos_Cache_Guide.md) — the storage layer, adapters and categories
+- [Routing Guide](Pramnos_Routing_Guide.md) — middleware registration
+- [Test Suite Performance](Pramnos_Test_Suite_Performance.md) — the invalidation cost measurements
