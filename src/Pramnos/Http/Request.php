@@ -172,6 +172,24 @@ class Request extends Base
 
     /**
      * Create a request object
+     *
+     * **The URI is trimmed of its slashes, exactly as the constructor trims the
+     * one it reads from `$_SERVER`.** It used to be stored verbatim, so
+     * `getRequestUri()` answered `stations/7` for a real request and
+     * `/stations/7` for a created one — two ways of building a Request
+     * disagreeing about what the request was for, which every consumer of that
+     * value then inherited.
+     *
+     * Routing is where it surfaced: `Route::matches()` prefixes a slash before
+     * handing the URI to the compiled pattern, so a stored `/stations/7` became
+     * `//stations/7` and **every route with a placeholder missed** — while
+     * static routes kept working, because they are answered by a string
+     * comparison before the pattern is reached. Reported by a consuming
+     * application.
+     *
+     * Every existing caller passes a leading slash, because that is how a URL
+     * is written; none of them wanted the leading slash preserved.
+     *
      * @param string $uri
      * @param string $method
      * @return \Pramnos\Http\Request
@@ -179,7 +197,7 @@ class Request extends Base
     public static function create($uri, $method="GET")
     {
         $request = new Request();
-        self::$requestUri = $uri;
+        self::$requestUri = trim((string) $uri, '/');
         self::$requestMethod = strtoupper($method);
         return $request;
     }

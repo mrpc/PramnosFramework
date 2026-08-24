@@ -268,6 +268,31 @@ $router->addRoute('legacy?page=2', 'GET', 'LegacyController@page');
 Use it only for an address that must be preserved verbatim; ordinary paging belongs in a
 placeholder or in `$_GET`.
 
+## Leading slashes, and the shape of a request URI
+
+**Write the leading slash wherever you like — in the route, in `Request::create()`, in
+`$_SERVER['REQUEST_URI']`.** Matching normalises all three.
+
+```php
+$router->get('/stations/{id}', 'StationController@show');   // route: with
+$router->get('stations/{id}',  'StationController@show');   // route: without — same thing
+
+Request::create('/stations/7');   // → getRequestUri() === 'stations/7'
+Request::create('stations/7');    // → getRequestUri() === 'stations/7'
+```
+
+`getRequestUri()` always answers **without** leading or trailing slashes, whichever way the
+Request was built. Code that concatenates it into a path should still write
+`'/' . ltrim($uri, '/')` rather than `'/' . $uri` — cheap, and it survives a caller who sets the
+static directly.
+
+This is worth stating because it was wrong until 2026-08-24. `Request::create()` stored its
+argument verbatim while the constructor trimmed, so the two disagreed; `Route::matches()` then
+prefixed a slash unconditionally and tried `//stations/7` against an anchored pattern. **Every
+route with a placeholder missed, and every static route worked** — which is why it survived so
+long: the routes anybody tests first are the ones that were fine. See the changelog post *The
+slash that only broke the routes with placeholders*.
+
 ## Telling a wrong verb from a wrong address — 405
 
 `getMatchedRoute()` answers for the request's own method: matched, or not. That

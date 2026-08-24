@@ -363,9 +363,14 @@ class Route
         // If it doesn't match anything until now, it's time for regex matches
         $this->extractOptionalParameters();
         // Remove all optional marks to parse it through symfony framework
+        // `ltrim` because the compiled pattern is anchored: a URI that already
+        // carries a leading slash would otherwise be tried as `//stations/7` and
+        // miss every placeholder route. The two sibling call sites that build
+        // the same string — OpenApiGenerator and Router::add() — already do
+        // this; this one did not, and a consuming application found it.
         if (preg_match(
             $this->getCompiledRoute()->getRegex(),
-            '/' . $uri,
+            '/' . ltrim($uri, '/'),
             $this->parameters
         )) {
             return true;
