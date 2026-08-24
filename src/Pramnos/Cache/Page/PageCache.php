@@ -117,6 +117,10 @@ final class PageCache
             'varyQuery'      => null,
             'varyBy'         => [],
             'privateMarkers' => [],
+            // Refuse to store a response while the debug toolbar is collecting. Set it
+            // false only to measure the cache with the toolbar on, and only somewhere
+            // the stored pages cannot reach anybody else.
+            'skipWhileDebugging' => true,
             'staleWhileRevalidate' => 30,
             // How long a held lock is honoured. Zero means "do not lock at
             // all" — every arrival re-renders — which is only sensible for a
@@ -261,7 +265,9 @@ final class PageCache
      */
     public function store(Request $request, Response $response): bool
     {
-        if ($this->bypassCheck($request) !== null || self::isBypassed()) {
+        // The runtime bypass is inside bypassCheck() now, so this is one test rather
+        // than two that had to be kept in step.
+        if ($this->bypassCheck($request) !== null) {
             return false;
         }
 
@@ -279,6 +285,29 @@ final class PageCache
         // failure a page cache has and the one nobody notices until it is
         // somebody else's account page.
         if ($response->hasHeader('Set-Cookie')) {
+            return false;
+        }
+
+        // A response carrying a debug toolbar is answering *this developer*. The bar
+        // holds their SQL with its bound values, their timings, the files that ran and
+        // whatever the model collector saw. Storing it serves all of that to everybody
+        // who asks for the page next.
+        //
+        // Application::render() injects the toolbar into the string it returns, and a
+        // front controller then wraps that string in a Response and hands it here —
+        // there is nothing in between that could have noticed. Nothing else in store()
+        // catches it either: privateMarkers is empty by default, and a toolbar sets no
+        // cookie.
+        //
+        // APP_DEBUG is supposed to be off in production, which bounds this but does not
+        // close it: a staging environment with real data and the page cache on is an
+        // ordinary thing to have, and the failure is silent there.
+        //
+        // The same condition injectInto() uses, so "there is a toolbar in this body" and
+        // "refuse to store this body" cannot drift apart.
+        if ($this->config['skipWhileDebugging']
+            && \Pramnos\Debug\DebugBar::getInstance()->getCollectors() !== []
+        ) {
             return false;
         }
 
@@ -441,6 +470,25 @@ final class PageCache
      */
     private function bypassCheck(Request $request): ?string
     {
+        // First, because it is the only rule the application sets by hand and the only
+        // one that can know something the configuration cannot — "this visitor is signed
+        // in", "this page shows somebody's data".
+        //
+        // It used to be consulted by store() alone, and lookup() went its own way. So
+        // bypass() meant "do not save this page" and never "do not serve one", which is
+        // the dangerous half: a consuming application called it on every request with a
+        // session and its signed-in users were served the anonymous cached page, header
+        // and all. Reported as FW-012, found by an HTTP test rather than by reading the
+        // code, because both halves look right in isolation.
+        //
+        // Here rather than at the top of lookup() so a third call site cannot forget it,
+        // and so whyBypassed() sees it — that returned null for a request the
+        // application had explicitly refused, which is a diagnostic tool disagreeing with
+        // the thing it diagnoses.
+        if (self::isBypassed()) {
+            return 'runtime:' . self::bypassReason();
+        }
+
         if (!$this->config['enabled']) {
             return 'disabled';
         }

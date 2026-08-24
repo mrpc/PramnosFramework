@@ -109,6 +109,187 @@ class PageCacheTest extends TestCase
         return Response::make($body, $status);
     }
 
+    // ── The debug toolbar ───────────────────────────────────────────────────
+
+    /**
+     * A response is not stored while the debug toolbar is collecting.
+     *
+     * `Application::render()` injects the toolbar into the string it returns, and a front
+     * controller wraps that string in a Response and hands it to store(). Nothing in
+     * between could notice, and nothing else in store() catches it: privateMarkers is
+     * empty by default and a toolbar sets no cookie.
+     *
+     * What would be stored is one developer's SQL with its bound values, their timings
+     * and the files that ran — served to everyone who asks for the page next. APP_DEBUG
+     * is meant to be off in production, which bounds this and does not close it: a
+     * staging environment with real data and the cache on is an ordinary thing to have.
+     */
+    public function testAResponseIsNotStoredWhileTheToolbarIsCollecting(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBar::reset();
+        \Pramnos\Debug\DebugBar::getInstance()->addCollector(
+            new \Pramnos\Debug\Collectors\ModelsCollector()
+        );
+        $cache = $this->cache();
+
+        // Act
+        $stored = $cache->store($this->request('/stations'), $this->page());
+
+        // Assert
+        $this->assertFalse($stored);
+
+        // Cleanup — the toolbar is a process-wide singleton
+        \Pramnos\Debug\DebugBar::reset();
+    }
+
+    /**
+     * With no collectors, storing is unaffected.
+     *
+     * The condition is the same one injectInto() uses, so "there is a toolbar in this
+     * body" and "refuse to store this body" cannot drift apart. This is the direction
+     * that would silently switch the whole cache off if the test were inverted.
+     */
+    public function testWithNoCollectorsStoringIsUnaffected(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBar::reset();
+        $cache = $this->cache();
+
+        // Act & Assert
+        $this->assertTrue($cache->store($this->request('/stations'), $this->page()));
+    }
+
+    /**
+     * `skipWhileDebugging => false` lets a page be stored with the toolbar active.
+     *
+     * The escape hatch, for measuring the cache with the toolbar on. It exists because
+     * the alternative to a switch is somebody editing the guard out locally and pushing
+     * it — but it is off by default, so nobody arrives at it by accident.
+     */
+    public function testTheDebugGuardCanBeTurnedOff(): void
+    {
+        // Arrange
+        \Pramnos\Debug\DebugBar::reset();
+        \Pramnos\Debug\DebugBar::getInstance()->addCollector(
+            new \Pramnos\Debug\Collectors\ModelsCollector()
+        );
+        $cache = $this->cache(['skipWhileDebugging' => false]);
+
+        // Act
+        $stored = $cache->store($this->request('/stations'), $this->page());
+
+        // Assert
+        $this->assertTrue($stored);
+
+        // Cleanup
+        \Pramnos\Debug\DebugBar::reset();
+    }
+
+    // ── The runtime bypass ──────────────────────────────────────────────────
+
+    /**
+     * `bypass()` stops a page being **served**, not only stored.
+     *
+     * FW-012. The flag was consulted by store() and not by lookup(), so the method whose
+     * name says "this request has nothing to do with the cache" meant only "do not save
+     * it" — and the missing half is the dangerous one. A consuming application called
+     * bypass() whenever a session existed; its signed-in visitors were served the
+     * anonymous cached page, logged-out header and all.
+     *
+     * The page is stored *before* the bypass here, because that is the shape of the
+     * failure: the entry already exists, put there by an earlier anonymous request.
+     */
+    public function testARuntimeBypassStopsAPageBeingServed(): void
+    {
+        // Arrange — an anonymous visitor filled the cache
+        $cache = $this->cache();
+        $this->assertTrue($cache->store($this->request('/stations'), $this->page()));
+
+        // Act — the next request is one the application refuses
+        PageCache::bypass('logged-in user');
+        $hit = $cache->lookup($this->request('/stations'));
+
+        // Assert
+        $this->assertNull($hit, 'a bypassed request must not be answered from the cache');
+    }
+
+    /**
+     * `bypass()` still stops a page being stored.
+     *
+     * The half that already worked, kept under test because the fix moved the check into
+     * bypassCheck() and deleted the explicit one in store().
+     */
+    public function testARuntimeBypassStillStopsAPageBeingStored(): void
+    {
+        // Arrange
+        $cache = $this->cache();
+
+        // Act
+        PageCache::bypass('logged-in user');
+
+        // Assert
+        $this->assertFalse($cache->store($this->request('/stations'), $this->page()));
+    }
+
+    /**
+     * `whyBypassed()` names the runtime bypass, and repeats the caller's reason.
+     *
+     * It returned null for a request the application had explicitly refused — a
+     * diagnostic tool disagreeing with the thing it diagnoses, which sends whoever is
+     * debugging a cache miss looking at the configuration instead.
+     */
+    public function testWhyBypassedNamesTheRuntimeBypassAndItsReason(): void
+    {
+        // Arrange
+        $cache   = $this->cache();
+        $request = $this->request('/stations');
+
+        // Act
+        PageCache::bypass('logged-in user');
+
+        // Assert
+        $this->assertSame('runtime:logged-in user', $cache->whyBypassed($request));
+    }
+
+    /**
+     * Without a bypass, nothing reports one.
+     *
+     * Guards the direction that would be worse to get wrong: a check that answered "yes"
+     * by default would switch the cache off entirely and look like it was simply never
+     * hitting.
+     */
+    public function testWithoutABypassNothingIsReported(): void
+    {
+        // Arrange
+        $cache = $this->cache();
+
+        // Act & Assert
+        $this->assertNull($cache->whyBypassed($this->request('/stations')));
+        $this->assertTrue($cache->store($this->request('/stations'), $this->page()));
+    }
+
+    /**
+     * `resetRuntime()` clears the bypass, so one request cannot disable the next.
+     *
+     * The flag is static and a worker serves many requests in one PHP lifetime. Without
+     * this, a single signed-in visitor would turn the cache off for everybody until the
+     * process was recycled — with no error and no way to tell from the outside.
+     */
+    public function testResetRuntimeClearsTheBypass(): void
+    {
+        // Arrange
+        PageCache::bypass('logged-in user');
+        $this->assertTrue(PageCache::isBypassed());
+
+        // Act
+        PageCache::resetRuntime();
+
+        // Assert
+        $this->assertFalse(PageCache::isBypassed());
+        $this->assertNull($this->cache()->whyBypassed($this->request('/stations')));
+    }
+
     // ── Round trip ──────────────────────────────────────────────────────────
 
     /**

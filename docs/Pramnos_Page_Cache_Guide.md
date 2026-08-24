@@ -4,6 +4,7 @@ use_cases:
   - Making a page uncacheable because it shows something personal
   - Invalidating a cached page after an editor changes the content behind it
   - Diagnosing why a page is never cached, or is cached when it should not be
+  - Serving anonymous traffic from cache when the framework starts a session
   - Deciding between the PHP cache path and the static-file writer
 ---
 
@@ -64,16 +65,48 @@ this order, cheapest first.
 | 7 | **No authentication cookie is present** | `bypassCookies` |
 | 8 | **No authentication header is present** | `bypassHeaders` |
 
-A response is **stored** only if the request passed all eight *and*:
+`PageCache::bypass()` is checked as part of that list, so it applies to **both**
+halves: a bypassed request is neither stored nor answered from the cache.
+
+A response is **stored** only if the request passed all of them *and*:
 
 - its status is on the list — `statuses`, default `[200]` only;
 - it does **not** carry `Set-Cookie`;
 - its body is not empty;
 - its body contains no `privateMarkers` string;
-- nothing called `PageCache::bypass()` during the render.
+- the debug toolbar is not collecting — `skipWhileDebugging`, default `true`.
 
 `Set-Cookie` is refused outright rather than filtered away, because a response
 that is setting a session is per-visitor in its body too.
+
+### The debug toolbar stops pages being stored
+
+`Application::render()` injects the toolbar into the HTML it returns, and a front
+controller that wraps that string in a `Response` hands the toolbar to `store()`
+along with the page. Nothing in between can tell: `privateMarkers` is empty by
+default and a toolbar sets no cookie.
+
+What would be stored is one developer's SQL with its bound values, their timings
+and the files that ran — then served to everyone who asks for the page next. So
+the cache refuses while any collector is registered, which is the same condition
+that decides whether a toolbar is injected at all.
+
+`APP_DEBUG` is meant to be off in production, which bounds this and does not close
+it: a staging environment with real data and the cache on is an ordinary thing to
+have, and there the failure is silent.
+
+```php
+'skipWhileDebugging' => false,   // only to measure the cache with the toolbar on
+```
+
+Turn it off only somewhere the stored pages cannot reach anybody else.
+
+!!! note "There is no toolbar on a cache hit"
+    A hit returns a `Response` before the application runs, and
+    `DebugBarMiddleware` only decorates string responses — so a hit carries no
+    toolbar at all. That is the correct outcome and an easy one to misread as
+    "debug is broken". `X-Pramnos-Cache` in the response headers is what tells you
+    a hit happened.
 
 ### The session is never consulted
 
@@ -385,12 +418,30 @@ must not be replayed to another visitor is always the one nobody thought of.
 
 In order, and each is one line:
 
+**Start here: is the application setting a cookie on every response?** This is the
+first thing anyone hits, and it takes one command:
+
+```bash
+curl -D- -o /dev/null -s https://example.test/directory | grep -i set-cookie
+```
+
+Any `Set-Cookie` at all means nothing will ever be stored. `PHPSESSID` is the
+usual culprit and it is not something the application wrote: the framework starts
+a session in `Application::init()` on every request unless told otherwise, and
+without turning that off the page cache and the session are mutually exclusive as
+shipped. The [Framework Guide](Pramnos_Framework_Guide.md) covers how to decline
+it.
+
+Then, in order, and each is one line:
+
 1. `$cache->whyBypassed($request)` names the rule — `cookie:authtoken`,
-   `bypassPaths`, `method:POST`, `disabled`. If it returns `null`, the request is
-   cacheable and the problem is on the store side.
-2. `PageCache::isBypassed()` after the render — a controller called `bypass()`.
-3. Check the response for `Set-Cookie`; anything that touches the session adds
+   `bypassPaths`, `method:POST`, `disabled`, or `runtime:<reason>` when something
+   called `PageCache::bypass()`. If it returns `null`, the request is cacheable and
+   the problem is on the store side.
+2. Check the response for `Set-Cookie`; anything that touches the session adds
    one.
+3. Is the debug toolbar on? Nothing is stored while it collects — see
+   `skipWhileDebugging` above.
 4. Check the status is on `statuses` — a redirect is not cached by default.
 5. `X-Pramnos-Cache` absent on a request you expected to hit means the lookup did
    not find an entry: compare `$cache->keyFor($request)` across the two requests
