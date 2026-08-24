@@ -274,6 +274,72 @@ class Router extends Base implements RouterInterface
     }
 
     /**
+     * The methods this request's **path** is declared for, whatever method it
+     * actually arrived with.
+     *
+     * Empty when the path matches nothing at all. Otherwise every method whose
+     * table contains a route for this path, sorted, ready to be joined into an
+     * `Allow` header.
+     *
+     * <code>
+     * $allowed = $router->allowedMethodsFor($request);
+     *
+     * if ($router->getMatchedRoute($request) === null) {
+     *     if ($allowed === []) {
+     *         return $this->notFound();                       // 404
+     *     }
+     *     header('Allow: ' . implode(', ', $allowed));
+     *     return $this->methodNotAllowed($allowed);           // 405
+     * }
+     * </code>
+     *
+     * **Why the router has to answer this.** `getMatchedRoute()` says matched
+     * or not matched for the request's own method, so a wrong verb and a wrong
+     * address are indistinguishable inside the kernel: a `GET` on a `POST`-only
+     * endpoint falls through exactly as `/api/nope` does, and the application
+     * can only answer 404 for both. That is honest and unhelpful — it tells an
+     * integrator to check the address when the address was right.
+     *
+     * `getRoutesWithPermissions()` already exposes the table keyed by method,
+     * but matching a URI *pattern* against a path is the router's own rule —
+     * placeholders, optional segments, the query-string forms — and
+     * re-deriving it in the application would be a second spelling of the
+     * matching logic.
+     *
+     * **HEAD is included wherever GET is.** RFC 9110 makes a GET route answer
+     * HEAD, and {@see getMatchedRoute()} implements that, so an `Allow` header
+     * built from this says the same thing the router will actually do.
+     *
+     * This is a question, not a decision: what the application answers, and
+     * whether it sends `Allow` at all, stays with the application.
+     *
+     * @param  \Pramnos\Http\Request $request
+     * @return string[] Uppercase method names, sorted; empty when the path
+     *                  matches no route under any method.
+     */
+    public function allowedMethodsFor(\Pramnos\Http\Request $request): array
+    {
+        $allowed = [];
+
+        foreach ($this->methods as $method) {
+            if ($this->matchWithin($method, $request) !== null) {
+                $allowed[$method] = true;
+            }
+        }
+
+        // A declared GET answers HEAD too, so an Allow header that omitted it
+        // would contradict the router.
+        if (isset($allowed['GET'])) {
+            $allowed['HEAD'] = true;
+        }
+
+        $allowed = array_keys($allowed);
+        sort($allowed);
+
+        return $allowed;
+    }
+
+    /**
      * The route for this request within one method's table, or null.
      *
      * Split out of {@see getMatchedRoute()} so HEAD can fall back to GET without

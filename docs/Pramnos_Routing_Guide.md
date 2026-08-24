@@ -6,6 +6,7 @@ use_cases:
   - Binding a model to a route parameter
   - Diagnosing a URL that answers 404 only when it carries a query string
   - Working out why HEAD requests, link checkers or uptime monitors report a page as missing
+  - Answering 405 Method Not Allowed instead of 404 for a wrong HTTP verb
   - Generating OpenAPI documentation from route attributes
 ---
 
@@ -266,6 +267,55 @@ $router->addRoute('legacy?page=2', 'GET', 'LegacyController@page');
 
 Use it only for an address that must be preserved verbatim; ordinary paging belongs in a
 placeholder or in `$_GET`.
+
+## Telling a wrong verb from a wrong address — 405
+
+`getMatchedRoute()` answers for the request's own method: matched, or not. That
+leaves two very different situations looking identical — a `GET` on a
+`POST`-only endpoint falls through exactly as a path nobody declared does — so
+an application can only answer **404** for both. That is honest and unhelpful:
+it tells an integrator to check the address when the address was right.
+
+`allowedMethodsFor()` asks the other question. It returns every method the
+**path** is declared for, sorted, or an empty array when the path matches
+nothing at all:
+
+```php
+$route = $router->getMatchedRoute($request);
+
+if ($route !== null) {
+    // dispatch as usual
+}
+
+$allowed = $router->allowedMethodsFor($request);
+
+if ($allowed === []) {
+    // Nothing serves this path under any method.
+    return $this->notFound();                       // 404
+}
+
+// The path exists; the verb does not.
+header('Allow: ' . implode(', ', $allowed));        // e.g. "GET, HEAD, POST"
+return $this->methodNotAllowed($allowed);           // 405
+```
+
+RFC 9110 §15.5.6 makes the `Allow` header **mandatory** on a 405, which is why
+the method exists on the router rather than in your application: matching a URI
+pattern against a path — placeholders, optional segments, the query-string forms
+— is the router's own rule, and re-deriving it from
+`getRoutesWithPermissions()` would be a second spelling of the matching logic.
+
+Two details worth knowing:
+
+- **HEAD is reported wherever GET is**, because [the router serves it
+  there](#head-is-answered-by-get). An `Allow` header that omitted HEAD would
+  deny a request the router is about to answer successfully.
+- **The request's own method is included** when it matches. The question is
+  "what is this path declared for", not "what else could you have sent" — which
+  is also what an `OPTIONS` response wants.
+
+This is a question, not a decision. What you answer, and whether you send
+`Allow` at all, stays with your application.
 
 ## Route Model Binding
 
@@ -578,3 +628,4 @@ For related guides:
 - Route groups with prefixes, middleware, permissions, and name prefixes
 - Attribute-based routing discovery (`#[Route]`, `#[RouteGroup]`)
 - Resource routes and REST conventions
+- Distinguishing a wrong verb from a wrong address (`allowedMethodsFor()`, 405 with `Allow`)
