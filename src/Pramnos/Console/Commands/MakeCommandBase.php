@@ -136,7 +136,7 @@ abstract class MakeCommandBase extends Command
 
         // 3. Existing DB table — getColumns() handles #PREFIX# and schema
         try {
-            $result = $db->getColumns($fkTable, null, true);
+            $result = $db->getColumns($fkTable, null, true, true);
             $cols   = [];
             while ($result->fetch()) {
                 if (!empty($result->fields['Field'])) {
@@ -1541,19 +1541,31 @@ abstract class MakeCommandBase extends Command
         $entity   = self::getProperClassName($name, true);
         $resource = strtolower($entity);
         $table    = $this->tableFor($name);
-        $columns  = $this->editableColumns($table);
-        $key      = $this->primaryKeyFor($table);
+
+        [$fields, $key] = $this->spaFieldsFor($table);
 
         $tokens = [
             'entityLabel' => ucfirst($resource),
             'resource'    => $resource,
             'primaryKey'  => $key,
-            // Editable columns only: the primary key is shown but never typed in.
-            'columnsJson' => json_encode(array_values(array_diff($columns, [$key]))),
+            'apiPrefix'   => $this->apiPrefix(),
+            'perPage'     => '25',
+            // Pretty-printed: this lands in a file somebody will edit to relabel
+            // a column, and a single-line JSON blob of thirty descriptors is not
+            // something anybody edits — they replace it, and lose the types.
+            'fieldsJson'  => json_encode(
+                $fields,
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            ),
+            // A generated table with thirty columns is unreadable, and the form
+            // has all of them anyway. Six is where a table still scans.
+            'listColumnCount' => (string) min(6, max(1, count($fields))),
+            // Kept for the vanilla stub, which still renders names only.
+            'columnsJson' => json_encode(array_column($fields, 'name')),
         ];
 
-        $needsBuild = in_array($stack, ['svelte', 'vanilla-vite'], true);
-        $baseDir    = ROOT . ($needsBuild ? '/frontend' : '/www/assets/js');
+        $needsBuild = self::spaNeedsNodeStack($stack);
+        $baseDir    = rtrim(ROOT . '/' . $this->spaSourceDir(), '/');
         $dir        = $baseDir . '/screens';
         if (!is_dir($dir)) {
             mkdir($dir, 0777, true);
@@ -1564,12 +1576,387 @@ abstract class MakeCommandBase extends Command
             return 'SKIPPED (screen already exists: ' . $file . ')';
         }
 
+        // **The components the screen imports have to exist first.** A screen
+        // that imports `../components/DataTable.svelte` into a project with no
+        // components directory is a build error, and the build error arrives
+        // several minutes after the command that caused it reported success.
+        // Idempotent and skip-existing, so a project that has edited its own
+        // DataTable keeps it.
+        $componentReport = '';
+        if ($stack === 'svelte') {
+            $componentReport = $this->ensureSpaComponents($baseDir);
+        }
+
         $stub = $stack === 'svelte' ? 'spa-screen.svelte' : 'spa-screen.js';
         file_put_contents($file, $this->renderStub($stub, $tokens));
 
         $this->registerSpaScreen($dir, $entity, ucfirst($resource), $stack);
 
+        return 'OK (' . str_replace(ROOT . '/', '', $file) . ')'
+            . ($componentReport === '' ? '' : ' ' . $componentReport);
+    }
+
+    /**
+     * Column descriptors for a generated screen.
+     *
+     * The shape is {@see introspectTableAsWizardColumns()}'s, plus the two
+     * things a browser needs and a PHP template does not: a **label** already
+     * resolved (the MVC path resolves `comment ?: humanised name` inline while
+     * emitting markup, which a JSON payload cannot do), and, for a foreign key,
+     * an **endpoint** to look options up against rather than a table name.
+     *
+     * This is the whole of the asymmetry the SPA generator had. It called
+     * {@see editableColumns()}, which returns column *names*, while the MVC path
+     * called the introspection on the same table and got types, nullability,
+     * COLUMN COMMENTs and foreign keys. A text box over a boolean column stores
+     * the string "on"; over a foreign key it asks for a numeric id with nothing
+     * on screen that could supply one; over a timestamp it is accepted and the
+     * insert fails at the database.
+     *
+     * `NON_EDITABLE_COLUMNS` still applies, and case-insensitively — the
+     * constant's entries are lowercase and `editableColumns()` compared exactly.
+     * That list is why a generated screen does not print a password hash in an
+     * admin table and offer it for editing, so changing where the columns come
+     * from without carrying the filter forward would be a regression with no
+     * symptom until somebody generated a CRUD over `users`.
+     *
+     * @param  string $table
+     * @return array{0: list<array<string,mixed>>, 1: string} descriptors, primary key
+     */
+    protected function spaFieldsFor(string $table): array
+    {
+        $key = $this->primaryKeyFor($table);
+
+        try {
+            [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($table);
+        } catch (\Throwable) {
+            // No database, or no such table yet. The screen still generates,
+            // with no fields, rather than failing the whole crud run — the
+            // behaviour editableColumns() already had, and what the schema-first
+            // workflow depends on (create:migration, then create:crud, then
+            // migrate).
+            return [[], $key];
+        }
+
+        $fkByColumn = [];
+        foreach ($foreignKeys as $foreignKey) {
+            $fkByColumn[$foreignKey['column']] = $foreignKey;
+        }
+
+        $fields = [];
+        foreach ($columns as $column) {
+            $name = $column['name'];
+
+            if ($name === $key
+                || in_array(strtolower($name), self::NON_EDITABLE_COLUMNS, true)) {
+                continue;
+            }
+
+            $comment = (string) ($column['comment'] ?? '');
+
+            $fields[] = [
+                'name'     => $name,
+                'type'     => $column['type'],
+                'label'    => $comment !== ''
+                    ? $comment
+                    : ucwords(str_replace('_', ' ', $name)),
+                'nullable' => (bool) ($column['nullable'] ?? true),
+                'comment'  => $comment,
+                'options'  => null,
+                'fk'       => isset($fkByColumn[$name])
+                    ? $this->spaForeignKeyTarget($fkByColumn[$name])
+                    : null,
+            ];
+        }
+
+        return [$fields, $key];
+    }
+
+    /**
+     * Where a generated field looks a foreign key's options up.
+     *
+     * The MVC path points select2 at the controller's own `fkOptions()` action,
+     * which it also generates. A SPA cannot use that — it is an HTML controller
+     * on a route the API client does not speak — and duplicating it as a second
+     * endpoint per CRUD would mean two lookup surfaces per foreign key with two
+     * sets of authorisation.
+     *
+     * So the target is the referenced resource's **own list endpoint**, the one
+     * `create:crud` generates for it at `{apiPrefix}/{singular}`, answering the
+     * ApiListResponse envelope with `search` and `limit`. The picker therefore
+     * works when the referenced table has been generated too, and **degrades
+     * visibly** when it has not: Field.svelte shows the raw id and names the
+     * endpoint it could not read, because a picker that silently renders nothing
+     * is indistinguishable from a table with no rows.
+     *
+     * **The label column is a guess, and it is labelled as one.** `name`,
+     * `title`, `label`, `username` and `slug` are what a referenced row is
+     * called in practice; no schema fact says which. It is emitted into the
+     * generated screen — a file the project owns — rather than resolved at run
+     * time, so correcting it is an edit to a visible constant.
+     *
+     * @param  array<string,mixed> $foreignKey `{column, references, on, …}`
+     * @return array{endpoint: string, valueKey: string, labelKey: string}
+     */
+    protected function spaForeignKeyTarget(array $foreignKey): array
+    {
+        $table  = preg_replace('/^#PREFIX#/', '', (string) $foreignKey['on']);
+        $entity = strtolower(self::getProperClassName($table, true));
+
+        $labelKey = 'name';
+        try {
+            $database = \Pramnos\Database\Database::getInstance();
+            $result   = $database->getColumns($table, $this->schema, false, true);
+            $present  = [];
+            while ($result->fetch()) {
+                $present[strtolower($result->fields['Field'])] = true;
+            }
+            foreach (['name', 'title', 'label', 'username', 'slug'] as $candidate) {
+                if (isset($present[$candidate])) {
+                    $labelKey = $candidate;
+                    break;
+                }
+            }
+        } catch (\Throwable) {
+            // Keep the default. A wrong label key renders the id, which is what
+            // the field would show with no picker at all.
+        }
+
+        return [
+            'endpoint' => $this->apiPrefix() . '/' . $entity,
+            'valueKey' => (string) ($foreignKey['references'] ?: 'id'),
+            'labelKey' => $labelKey,
+        ];
+    }
+
+    /**
+     * The application's API prefix, from app.php.
+     *
+     * Read rather than assumed: `init` writes `/api/1.0` by default and a
+     * project is free to change it, and a generated screen with a hard-coded
+     * prefix is a screen that 404s in exactly the projects that configured one.
+     */
+    protected function apiPrefix(): string
+    {
+        $application = $this->getApplication()->internalApplication;
+
+        return rtrim(
+            (string) ($application->applicationInfo['api_prefix'] ?? '/api/1.0'),
+            '/'
+        );
+    }
+
+    /** The application's display name, from app.php. */
+    protected function appName(): string
+    {
+        $application = $this->getApplication()->internalApplication;
+
+        return (string) ($application->applicationInfo['name'] ?? 'Application');
+    }
+
+    /**
+     * Where the front-end sources live, relative to the project root, with a
+     * trailing slash.
+     *
+     * The CRUD generator used to hard-code `frontend/` for a build stack, so a
+     * project that had moved its front end got its generated screens written
+     * into a directory nothing builds — while `project:resync` read
+     * `spa_source_dir` and found them missing. The rule now lives in one place
+     * for all three callers; see {@see Init::spaSourceDirFor()}.
+     */
+    protected function spaSourceDir(): string
+    {
+        $application = $this->getApplication()->internalApplication;
+
+        return Init::spaSourceDirFor((array) $application->applicationInfo);
+    }
+
+    /**
+     * Does this stack build, i.e. keep its sources outside the web root?
+     *
+     * A thin pass-through to {@see Init::spaNeedsNode()} so this class does not
+     * carry its own list of which stacks those are.
+     */
+    protected static function spaNeedsNodeStack(string $stack): bool
+    {
+        return Init::spaNeedsNode($stack);
+    }
+
+    /**
+     * Write the shared components a generated screen imports, if absent.
+     *
+     * **Skip-existing, never overwrite.** These become the project's files the
+     * moment they exist — the whole value of shipping a DataTable is that a
+     * project extends it — and a generator that refreshed them would undo that
+     * on the next `create:crud`. `project:resync --spa-components` is the
+     * deliberate way to take a newer version.
+     *
+     * @param  string $baseDir The front-end source root, no trailing slash
+     * @return string A human-readable note, or '' when everything was present
+     */
+    protected function ensureSpaComponents(string $baseDir): string
+    {
+        $tokens = [
+            'appName'       => $this->appName(),
+            'apiPrefix'     => $this->apiPrefix(),
+            // The locale map is the project's to extend; the fallback is the
+            // source language, which is always a correct answer.
+            'localeMapJson' => json_encode(['english' => 'en-GB']),
+        ];
+
+        $written = 0;
+        foreach (Init::SPA_SHARED_COMPONENTS as $relative => $stub) {
+            $path = $baseDir . '/' . $relative;
+
+            if (file_exists($path)) {
+                continue;
+            }
+
+            if (!is_dir(dirname($path))) {
+                mkdir(dirname($path), 0777, true);
+            }
+
+            file_put_contents($path, $this->renderStub($stub, $tokens));
+            $written++;
+        }
+
+        // The two table rules the component needs, appended rather than
+        // written: app.css is the project's file and has its theme block at the
+        // top of it.
+        $css = $baseDir . '/app.css';
+        if (is_file($css)
+            && !str_contains((string) file_get_contents($css), '.table-sticky')) {
+            file_put_contents(
+                $css,
+                "\n" . $this->renderStub('spa-app-css-tables.css', []),
+                FILE_APPEND
+            );
+            $written++;
+        }
+
+        return $written === 0 ? '' : "(+{$written} shared component/asset)";
+    }
+
+    /**
+     * A front-end file name from what the user typed.
+     *
+     * **Not {@see getProperClassName()}.** That method is for database
+     * entities: it singularises or pluralises and flattens the rest of the name
+     * to lower case, so `create:component StatusBadge` would have written
+     * `Statusbadges.svelte` — a component nothing imports, under a name nobody
+     * asked for. A screen or a component is not a table, and its name is the
+     * one the developer chose.
+     *
+     * Separators become PascalCase boundaries (`sales-report` → `SalesReport`)
+     * and existing inner capitals are preserved. Anything that is not a letter
+     * or a digit is dropped, because this becomes a file name and a JavaScript
+     * identifier.
+     */
+    protected static function spaFileName(string $name): string
+    {
+        $parts = preg_split('/[^A-Za-z0-9]+/', $name, -1, PREG_SPLIT_NO_EMPTY);
+        $clean = '';
+        foreach ((array) $parts as $part) {
+            $clean .= ucfirst($part);
+        }
+
+        return $clean === '' ? 'Screen' : $clean;
+    }
+
+    /**
+     * A screen with no list — a dashboard, a report, a settings page.
+     *
+     * The generated CRUD screen is a poor starting point for these: two thirds
+     * of it is list plumbing that has to be deleted, and what remains is a file
+     * whose imports no longer match what it does. So this has its own stub, with
+     * the two things every screen in a Pramnos SPA has and nothing else — the
+     * `route` prop, and a load that reports its own failure.
+     */
+    protected function createBlankSpaScreen(string $name): string
+    {
+        $entity  = self::spaFileName($name);
+        $baseDir = rtrim(ROOT . '/' . $this->spaSourceDir(), '/');
+        $dir     = $baseDir . '/screens';
+
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+
+        $file = $dir . '/' . $entity . '.svelte';
+        if (file_exists($file)) {
+            return 'SKIPPED (screen already exists: ' . $file . ')';
+        }
+
+        file_put_contents($file, $this->renderStub('spa-screen-blank.svelte', [
+            'entity'      => $entity,
+            'entityLabel' => ucwords(str_replace('_', ' ', strtolower($entity))),
+            'route'       => strtolower($entity),
+            'apiPrefix'   => $this->apiPrefix(),
+        ]));
+
+        $this->ensureSpaComponents($baseDir);
+        $this->registerSpaScreen(
+            $dir, $entity, ucwords(strtolower($entity)), 'svelte'
+        );
+
         return 'OK (' . str_replace(ROOT . '/', '', $file) . ')';
+    }
+
+    /**
+     * A component and the test that renders it.
+     *
+     * The test is written **beside** the component rather than left to the
+     * developer, for the reason `create:service` writes one: a generator that
+     * emits a test creates a project where components have tests, and one that
+     * does not creates a project where they do not. It is the same lever.
+     *
+     * Both files or neither. Writing the component and reporting success while
+     * the test stub is missing would produce exactly the project this exists to
+     * prevent, so a missing stub raises rather than degrades.
+     *
+     * @throws \RuntimeException When a stub is missing.
+     */
+    protected function createSpaComponent(string $name): string
+    {
+        $component = self::spaFileName($name);
+        $base      = rtrim(ROOT . '/' . $this->spaSourceDir(), '/');
+
+        $files = [
+            $base . '/components/' . $component . '.svelte' => 'spa-component.svelte',
+            $base . '/__tests__/' . $component . '.test.js' => 'spa-component.test.js',
+        ];
+
+        $tokens = [
+            'component' => $component,
+            'label'     => ucwords(
+                preg_replace('/(?<!^)[A-Z]/', ' $0', $component) ?? $component
+            ),
+        ];
+
+        // Rendered before anything is written, so a missing stub cannot leave
+        // half a component on disk.
+        $rendered = [];
+        foreach ($files as $path => $stub) {
+            $rendered[$path] = $this->renderStub($stub, $tokens);
+        }
+
+        $lines = [];
+        foreach ($rendered as $path => $contents) {
+            if (file_exists($path)) {
+                $lines[] = 'SKIPPED (exists: '
+                    . str_replace(ROOT . '/', '', $path) . ')';
+                continue;
+            }
+
+            if (!is_dir(dirname($path))) {
+                mkdir(dirname($path), 0777, true);
+            }
+
+            file_put_contents($path, $contents);
+            $lines[] = 'OK (' . str_replace(ROOT . '/', '', $path) . ')';
+        }
+
+        return implode("\n", $lines);
     }
 
     /**
@@ -1631,7 +2018,7 @@ abstract class MakeCommandBase extends Command
         $columns = [];
         try {
             $database = \Pramnos\Database\Database::getInstance();
-            $result   = $database->getColumns($table, $this->schema);
+            $result   = $database->getColumns($table, $this->schema, false, true);
             while ($result->fetch()) {
                 $columns[] = $result->fields['Field'];
             }
@@ -1676,6 +2063,7 @@ abstract class MakeCommandBase extends Command
         'twofactor_secret', 'twofactorsecret', 'backup_codes',
     ];
 
+
     /**
      * Primary key column of a table, defaulting to the conventional `<table>id`.
      */
@@ -1683,7 +2071,7 @@ abstract class MakeCommandBase extends Command
     {
         try {
             $database = \Pramnos\Database\Database::getInstance();
-            $result   = $database->getColumns($table, $this->schema);
+            $result   = $database->getColumns($table, $this->schema, false, true);
             while ($result->fetch()) {
                 if (($result->fields['Key'] ?? '') === 'PRI'
                     || ($result->fields['Column_key'] ?? '') === 'PRI') {
@@ -2094,7 +2482,7 @@ abstract class MakeCommandBase extends Command
                     'Table: ' . $tableName . ' does not exist.'
                 );
             }
-            $result = $database->getColumns($tableName, $this->schema);
+            $result = $database->getColumns($tableName, $this->schema, false, true);
 
 
             $saveContent = '';
@@ -2213,7 +2601,7 @@ abstract class MakeCommandBase extends Command
 
             // Generate field list for API documentation
             $fieldList = '';
-            $result = $database->getColumns($tableName, $this->schema);
+            $result = $database->getColumns($tableName, $this->schema, false, true);
             $fields = array();
             while ($result->fetch()) {
                 $fields[] = $result->fields['Field'];
@@ -2392,14 +2780,29 @@ $routeTokens = [
      * excluded from the returned columns — mirroring the wizard array, which
      * never contains the primary key.
      *
+     * **Protected, not private, because there are two renderers now.** The SPA
+     * screen generator used to build its tokens from `editableColumns()`, which
+     * returns column *names* — so the MVC path knew a column was a boolean, a
+     * date or a foreign key while the SPA path, on the same table, rendered a
+     * text box for all three. That is not cosmetic: a text box over a boolean
+     * stores "on", and over a foreign key it asks for a numeric id with nothing
+     * on screen that could supply one. {@see spaFieldsFor()} is the second
+     * reader.
+     *
      * @param string $tableName Table to introspect (may contain #PREFIX#)
      * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
      *               [$columns, $foreignKeys] in wizard shape
      */
-    private function introspectTableAsWizardColumns(string $tableName): array
+    protected function introspectTableAsWizardColumns(string $tableName): array
     {
         $database = \Pramnos\Database\Database::getInstance();
-        $result   = $database->getColumns($tableName, $this->schema);
+        // Fresh, not cached. getColumns() caches for an hour, and a generator
+        // runs minutes after the migration that changed the table — the
+        // framework's own documented order of work is create:migration, migrate,
+        // create:crud. A cached answer describes the table as it was before the
+        // migration, and the generator would write a model and a form for the
+        // old columns and report success.
+        $result   = $database->getColumns($tableName, $this->schema, false, true);
 
         $columns     = [];
         $foreignKeys = [];
@@ -2447,8 +2850,17 @@ $routeTokens = [
                 continue;
             }
 
+            // 'ColumnType' is the declared type with its qualifiers —
+            // 'tinyint(1)', 'decimal(10,2)' — and 'Type' is the bare one.
+            // MySQL's boolean convention lives entirely in the qualifier, so a
+            // mapper handed the bare type cannot see it: every boolean column
+            // came back as 'tinyinteger' and was rendered as a number input, in
+            // this generator and in the MVC one, while the mapper's own comment
+            // said it detected them. PostgreSQL reports 'boolean' either way,
+            // which is why nobody noticed on that side.
             $logicalType = $this->mapSqlTypeToLogical(
-                (string) $result->fields['Type']
+                (string) ($result->fields['ColumnType']
+                    ?? $result->fields['Type'])
             );
 
             $nullable = isset($result->fields['Null'])
@@ -2484,10 +2896,15 @@ $routeTokens = [
      * 'string'. MySQL's conventional boolean tinyint(1) is detected before the
      * length qualifier is stripped.
      *
+     * Protected rather than private for the same reason as
+     * {@see introspectTableAsWizardColumns()}: the SPA field descriptors read
+     * the same vocabulary, and a second mapping would be a second opinion about
+     * what a `tinyint(1)` is.
+     *
      * @param string $rawType Raw type as reported by Database::getColumns()
      * @return string Logical type
      */
-    private function mapSqlTypeToLogical(string $rawType): string
+    protected function mapSqlTypeToLogical(string $rawType): string
     {
         $raw = strtolower(trim($rawType));
 
@@ -3328,7 +3745,7 @@ PHP;
                  . $testLine;
         }
 
-        $result = $database->getColumns($tableName, $this->schema);
+        $result = $database->getColumns($tableName, $this->schema, false, true);
         
         $isUpdate = false;
         if (class_exists('\\' . $namespace . '\\'. $className)

@@ -1,0 +1,257 @@
+import { render, screen, fireEvent } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
+import DataTable from '../components/DataTable.svelte';
+
+/**
+ * Tests for the shared DataTable.
+ *
+ * This component is the reason a generated list screen is worth keeping. It
+ * consumes the framework's own `ApiListResponse::paginated()` envelope, so any
+ * endpoint that answers that envelope gets sorting, paging and search without
+ * the screen writing a table — and every generated screen imports it, which
+ * means a fault here is a fault in all of them at once.
+ *
+ * It **reports and never performs**: `onsort`, `onpage` and `onsearch` say what
+ * the user asked for, and the screen decides what to do about it. That is what
+ * lets the same component serve a server-paged list and a local one.
+ */
+
+/** A snippet that renders one field of the row, for the `cell` prop. */
+const cellFor = (key) =>
+    createRawSnippet((row) => ({
+        render: () => `<span>${row()[key] ?? ''}</span>`,
+    }));
+
+const COLUMNS = [
+    { label: 'Name', cell: cellFor('name'), sort: 'name' },
+    { label: 'Listeners', cell: cellFor('listeners'), sort: 'listeners', align: 'num' },
+    { label: 'Notes', cell: cellFor('notes'), hideOnMobile: true },
+];
+
+const ROWS = [
+    { id: 1, name: 'Aroma', listeners: 41, notes: 'first' },
+    { id: 2, name: 'Kosmos', listeners: 12, notes: 'second' },
+];
+
+describe('DataTable', () => {
+    it('renders a row per record', () => {
+        // Arrange / Act
+        render(DataTable, { columns: COLUMNS, rows: ROWS });
+
+        // Assert — both records are on screen, in both layouts.
+        expect(screen.getAllByText('Aroma').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Kosmos').length).toBeGreaterThan(0);
+    });
+
+    it('shows the empty message rather than an empty table', () => {
+        // Arrange / Act
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: [],
+            empty: 'No stations yet.',
+        });
+
+        // Assert
+        expect(screen.getByText('No stations yet.')).toBeTruthy();
+    });
+
+    /**
+     * The third sort state is the one that matters.
+     *
+     * A table that can only be sorted and never unsorted cannot be returned to
+     * the server's own default order — which is "newest first" for most of the
+     * things these screens list, and the order the query was written to be read
+     * in. So the cycle is asc → desc → null, and the null step is asserted
+     * explicitly: a two-state toggle passes every other assertion here.
+     */
+    it('cycles sort through asc, desc and then off', async () => {
+        // Arrange — the component reports and never performs, so the test
+        // plays the screen: it feeds each reported sort back in as the new
+        // prop, which is what a real screen does.
+        const reported = [];
+        const base = {
+            columns: COLUMNS,
+            rows: ROWS,
+            onsort: (next) => reported.push(next),
+        };
+        const { rerender } = render(DataTable, { ...base, sort: null });
+
+        // Act
+        await fireEvent.click(
+            screen.getByRole('button', { name: /Sort by Name/i })
+        );
+        await rerender({ ...base, sort: reported[0] });
+
+        // The accessible name changes with the state, so it is re-read rather
+        // than held: the label is the assertion that the header says what
+        // pressing it will do, not only what the state is.
+        await fireEvent.click(
+            screen.getByRole('button', { name: /Name: ascending/i })
+        );
+        await rerender({ ...base, sort: reported[1] });
+
+        await fireEvent.click(
+            screen.getByRole('button', { name: /Name: descending/i })
+        );
+
+        // Assert
+        expect(reported[0]).toEqual({ field: 'name', direction: 'asc' });
+        expect(reported[1]).toEqual({ field: 'name', direction: 'desc' });
+        expect(reported[2]).toBeNull();
+    });
+
+    it('starts a new column at ascending rather than continuing the cycle', async () => {
+        // Arrange
+        const reported = [];
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            sort: { field: 'name', direction: 'desc' },
+            onsort: (next) => reported.push(next),
+        });
+
+        // Act — a different column.
+        await fireEvent.click(
+            screen.getByRole('button', { name: /Sort by Listeners/i })
+        );
+
+        // Assert
+        expect(reported[0]).toEqual({ field: 'listeners', direction: 'asc' });
+    });
+
+    it('does not offer sorting on a column that declares none', () => {
+        // Arrange / Act
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            sort: null,
+            onsort: () => {},
+        });
+
+        // Assert — 'Notes' has no `sort`, so its header is not a control.
+        expect(screen.queryByRole('button', { name: /Sort by Notes/i })).toBeNull();
+    });
+
+    /**
+     * A column marked `hideOnMobile` belongs in the table and not in the cards.
+     *
+     * Both layouts are rendered at once and CSS chooses between them, so the
+     * assertion is about which markup exists rather than what is visible.
+     */
+    it('keeps a hideOnMobile column out of the card layout', () => {
+        // Arrange / Act
+        const { container } = render(DataTable, { columns: COLUMNS, rows: ROWS });
+
+        // Assert — 'first' appears once (the table), not twice.
+        const table = container.querySelector('table');
+        const cards = container.querySelector('.sm\\:hidden');
+        expect(table.textContent).toContain('first');
+        expect(cards.textContent).not.toContain('first');
+        // 'Aroma' is in both, which is what makes the line above meaningful.
+        expect(table.textContent).toContain('Aroma');
+        expect(cards.textContent).toContain('Aroma');
+    });
+
+    it('renders a pager from a pagination envelope and reports the page asked for', async () => {
+        // Arrange — the shape ApiListResponse::paginated() answers with.
+        const pages = [];
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            pagination: { currentpage: 2, totalpages: 5, totalitems: 118 },
+            onpage: (next) => pages.push(next),
+        });
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Page 3' }));
+
+        // Assert
+        expect(pages).toEqual([3]);
+    });
+
+    it('says how many records there are, not only how many pages', () => {
+        // Arrange / Act — "page 3 of 41" says nothing about the size of the job.
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            pagination: { currentpage: 1, totalpages: 5, totalitems: 118 },
+            onpage: () => {},
+        });
+
+        // Assert
+        expect(screen.getByText(/118/)).toBeTruthy();
+    });
+
+    it('renders no pager without an onpage handler', () => {
+        // Arrange / Act — reporting with nobody listening is a dead control.
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            pagination: { currentpage: 1, totalpages: 5, totalitems: 118 },
+        });
+
+        // Assert
+        expect(screen.queryByRole('button', { name: 'Page 2' })).toBeNull();
+    });
+
+    /**
+     * A server search is submitted, not typed.
+     *
+     * Each report is a request, so a screen that fired one per keystroke would
+     * spend ten requests answering one question. The live variant exists for a
+     * filter over rows already in hand, which costs nothing.
+     */
+    it('reports a server search on submit and not on every keystroke', async () => {
+        // Arrange
+        const searches = [];
+        const { container } = render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            onsearch: (term) => searches.push(term),
+        });
+        const input = screen.getByRole('searchbox', { name: /Search/i });
+
+        // Act — typing alone must report nothing.
+        await fireEvent.input(input, { target: { value: 'aro' } });
+        expect(searches).toEqual([]);
+
+        await fireEvent.submit(container.querySelector('form'));
+
+        // Assert
+        expect(searches).toEqual(['aro']);
+    });
+
+    it('reports a live search on every keystroke', async () => {
+        // Arrange
+        const searches = [];
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: ROWS,
+            searchLive: true,
+            onsearch: (term) => searches.push(term),
+        });
+
+        // Act
+        await fireEvent.input(
+            screen.getByRole('searchbox', { name: /Search/i }),
+            { target: { value: 'ar' } }
+        );
+
+        // Assert
+        expect(searches).toEqual(['ar']);
+    });
+
+    it('shows an error instead of pretending the list is empty', () => {
+        // Arrange / Act — a failed read and a genuinely empty table must not
+        // look the same, which is the whole lesson of the read paths that
+        // answer `?: []`.
+        render(DataTable, {
+            columns: COLUMNS,
+            rows: [],
+            error: 'The station list could not be read.',
+        });
+
+        // Assert
+        expect(screen.getByText('The station list could not be read.')).toBeTruthy();
+    });
+});

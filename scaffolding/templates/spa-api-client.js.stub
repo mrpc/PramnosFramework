@@ -107,9 +107,20 @@ export function setToken(value) {
  * @returns {Promise<*>} Decoded body, or null for 204
  * @throws {ApiError} When the response status is not 2xx
  */
-export async function request(path, { method = 'GET', body = null, headers = {}, anonymous = false } = {}) {
+export async function request(path, { method = 'GET', body = null, query = null, headers = {}, anonymous = false } = {}) {
     const { apiPrefix = DEFAULT_PREFIX, apiKey = '' } = config();
     const requestHeaders = { Accept: 'application/json', ...headers };
+
+    // Blanks, nulls and undefineds are dropped rather than emitted as `&q=`.
+    //
+    // A URL carrying an empty parameter is a *different* URL from one carrying
+    // none: two cache keys, two "current" states, and a WHERE clause the server
+    // did not need to build. `URLSearchParams` also stringifies `undefined` to
+    // the four characters "undefined" rather than omitting it. Dropping them
+    // here is why no screen has to remember an `if` per parameter — and
+    // forgetting one is what made every hand-written list screen slightly
+    // different from every other.
+    const url = query ? path + queryStringFor(path, query) : path;
 
     if (apiKey) {
         requestHeaders.apiKey = apiKey;
@@ -135,7 +146,7 @@ export async function request(path, { method = 'GET', body = null, headers = {},
 
     let response;
     try {
-        response = await fetch(apiPrefix + path, {
+        response = await fetch(apiPrefix + url, {
             method,
             headers: requestHeaders,
             // Sends the session cookie, which the API accepts as a credential.
@@ -149,7 +160,7 @@ export async function request(path, { method = 'GET', body = null, headers = {},
         // otherwise be empty precisely because something went badly wrong.
         reportDebugError(error, {
             kind: 'network',
-            request: { method, path, status: 0 },
+            request: { method, path: url, status: 0 },
         });
 
         throw error;
@@ -162,7 +173,7 @@ export async function request(path, { method = 'GET', body = null, headers = {},
         // A save answers 204, and it is exactly the call somebody wants to see
         // in the panel. It carries no body, so there is no `_debug` to attach —
         // the timing and the request itself are still worth recording.
-        recordDebug(method, path, 204, null, { ms: elapsedMs, body: encodedBody });
+        recordDebug(method, url, 204, null, { ms: elapsedMs, body: encodedBody });
 
         return null;
     }
@@ -178,7 +189,7 @@ export async function request(path, { method = 'GET', body = null, headers = {},
 
     // In development the API attaches its debug data to the response it
     // describes; the panel shows it. In production there is nothing to record.
-    recordDebug(method, path, response.status, payload && payload._debug, {
+    recordDebug(method, url, response.status, payload && payload._debug, {
         ms: elapsedMs,
         body: encodedBody,
     });
@@ -193,7 +204,7 @@ export async function request(path, { method = 'GET', body = null, headers = {},
 
         const detail = payload && payload.message ? `: ${payload.message}` : '';
         const failure = new ApiError(
-            `${method} ${path} failed (${response.status})${detail}`,
+            `${method} ${url} failed (${response.status})${detail}`,
             response.status,
             payload
         );
@@ -204,7 +215,7 @@ export async function request(path, { method = 'GET', body = null, headers = {},
         // the request that produced it.
         reportDebugError(failure, {
             kind: 'ApiError',
-            request: { method, path, status: response.status },
+            request: { method, path: url, status: response.status },
         });
 
         throw failure;
@@ -213,12 +224,47 @@ export async function request(path, { method = 'GET', body = null, headers = {},
     return payload;
 }
 
+/**
+ * The query string for a set of parameters, including the leading separator,
+ * or '' when nothing survives the filter.
+ *
+ * @param {string} path  The path so far — it may already carry a `?`.
+ * @param {Record<string, unknown>} query
+ * @returns {string}
+ */
+function queryStringFor(path, query) {
+    const params = new URLSearchParams(
+        Object.entries(query)
+            .filter(([, value]) => value !== null && value !== undefined && value !== '')
+            .map(([key, value]) => [key, String(value)])
+    );
+    const encoded = params.toString();
+
+    if (encoded === '') {
+        return '';
+    }
+
+    return (path.includes('?') ? '&' : '?') + encoded;
+}
+
 export const api = {
-    get:    (path, options)       => request(path, { ...options, method: 'GET' }),
-    post:   (path, body, options) => request(path, { ...options, method: 'POST', body }),
-    put:    (path, body, options) => request(path, { ...options, method: 'PUT', body }),
-    patch:  (path, body, options) => request(path, { ...options, method: 'PATCH', body }),
-    delete: (path, options)       => request(path, { ...options, method: 'DELETE' }),
+    // `get` takes the query as its **second positional argument**, which a list
+    // screen always has and the other verbs never do. It was `get(path,
+    // options)`, and options are still accepted as the third — but an
+    // application that passed an options object second would now have it
+    // serialised into the query string. The upgrade note carries the grep that
+    // finds those:
+    //
+    //     grep -rn "api\.get([^)]*," --include=*.js --include=*.svelte .
+    //
+    // `create:api-client`'s generated endpoints module composes its own query
+    // and calls `api.get` with one argument, so it is unaffected and does not
+    // need regenerating.
+    get:    (path, query, options) => request(path, { ...options, method: 'GET', query }),
+    post:   (path, body, options)  => request(path, { ...options, method: 'POST', body }),
+    put:    (path, body, options)  => request(path, { ...options, method: 'PUT', body }),
+    patch:  (path, body, options)  => request(path, { ...options, method: 'PATCH', body }),
+    delete: (path, options)        => request(path, { ...options, method: 'DELETE' }),
 };
 
 /**

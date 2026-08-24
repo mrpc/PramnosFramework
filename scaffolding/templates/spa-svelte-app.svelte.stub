@@ -13,13 +13,23 @@
      */
     import { api, ApiError, login, logout, currentUser } from './lib/api.js';
     import { reportError } from './lib/debug.js';
-    import { createRouter, pathFor } from './lib/router.js';
+    import { start as startRouter, go, href } from './lib/router.js';
     import { screens } from './screens/registry.js';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
     const appName = window.__PRAMNOS__?.appName ?? '{{ appName }}';
 
-    let route   = $state('home');
+    /**
+     * The current route — an object, not a name.
+     *
+     * `parse()` carries `segments` and `query` as well as `name`, and this is
+     * passed down to every screen as a prop. That is what lets a screen keep
+     * its page, its search, its sort and the record being edited in the URL
+     * instead of in component state: a background re-read then leaves the user
+     * where they were, and "page 3 of the stations, sorted by listeners" is a
+     * link somebody can send.
+     */
+    let route   = $state({ name: 'home', path: '/', segments: [], query: new URLSearchParams() });
     let status  = $state(null);
     let error   = $state(null);
     let loading = $state(true);
@@ -31,13 +41,11 @@
     let signingIn = $state(false);
     let authError = $state(null);
 
-    const router = createRouter((name) => { route = name; });
-
     /** Screens that require a signed-in user. */
     const PROTECTED = ['admin', ...screens.map((s) => s.name)];
 
     /** The screen component for the current route, if it is one. */
-    const screen = $derived(screens.find((s) => s.name === route) ?? null);
+    const screen = $derived(screens.find((s) => s.name === route.name) ?? null);
 
     $effect(() => {
         api.get('{{ probeEndpoint }}')
@@ -58,7 +66,7 @@
                 .finally(() => { userReady = true; });
         }
 
-        router.start();
+        startRouter((next) => { route = next; });
     });
 
     // Access control in one place, applied whenever the route or the user
@@ -68,11 +76,11 @@
         if (!hasAuth || !userReady) {
             return;
         }
-        if (!user && PROTECTED.includes(route)) {
-            router.go('signin', true);
+        if (!user && PROTECTED.includes(route.name)) {
+            go('/signin', null, { replace: true });
         }
-        if (user && route === 'signin') {
-            router.go('home', true);
+        if (user && route.name === 'signin') {
+            go('/', null, { replace: true });
         }
     });
 
@@ -84,7 +92,7 @@
         try {
             user     = await login(username, password);
             password = '';
-            router.go('home', true);
+            go('/', null, { replace: true });
         } catch (err) {
             authError = err instanceof ApiError && err.status === 401
                 ? 'Wrong username or password.'
@@ -98,14 +106,14 @@
     async function submitLogout() {
         await logout();
         user = null;
-        router.go('home', true);
+        go('/', null, { replace: true });
     }
 </script>
 
 <div class="flex min-h-screen flex-col bg-base-200">
     <header class="navbar bg-base-100 shadow-sm">
         <div class="container mx-auto flex items-center gap-2">
-            <a class="btn btn-ghost text-xl" href={pathFor('home')} onclick={(e) => router.link(e, 'home')}>
+            <a class="btn btn-ghost text-xl" href={href('/')}>
                 {appName}
             </a>
 
@@ -115,18 +123,16 @@
                 {#each screens.filter((s) => !s.admin) as item}
                     <a
                         class="btn btn-ghost btn-sm"
-                        class:btn-active={route === item.name}
-                        href={pathFor(item.name)}
-                        onclick={(e) => router.link(e, item.name)}
+                        class:btn-active={route.name === item.name}
+                        href={href('/' + item.name)}
                     >{item.label}</a>
                 {/each}
 
                 {#if hasAuth && user && screens.some((s) => s.admin)}
                     <a
                         class="btn btn-ghost btn-sm"
-                        class:btn-active={route === 'admin'}
-                        href={pathFor('admin')}
-                        onclick={(e) => router.link(e, 'admin')}
+                        class:btn-active={route.name === 'admin'}
+                        href={href('/admin')}
                     >Admin</a>
                 {/if}
             </nav>
@@ -136,7 +142,7 @@
                     <span class="text-sm opacity-70">{user.username ?? user.email}</span>
                     <button class="btn btn-sm" onclick={submitLogout}>Sign out</button>
                 {:else if hasAuth}
-                    <a class="btn btn-primary btn-sm" href={pathFor('signin')} onclick={(e) => router.link(e, 'signin')}>
+                    <a class="btn btn-primary btn-sm" href={href('/signin')}>
                         Sign in
                     </a>
                 {/if}
@@ -145,7 +151,7 @@
     </header>
 
     <main class="container mx-auto flex-1 p-6">
-        {#if route === 'signin'}
+        {#if route.name === 'signin'}
             <div class="card mx-auto w-full max-w-sm bg-base-100 shadow">
                 <div class="card-body">
                     <h2 class="card-title">Sign in</h2>
@@ -180,7 +186,11 @@
                 reportError is inert.
             -->
             <svelte:boundary onerror={(err) => reportError(err, { kind: 'component' })}>
-                <Screen />
+                <!-- Every screen receives the route. Its page, search, sort
+                     and the record being edited come from there rather than
+                     from component state, so the URL is the state and a link
+                     to it is a link to what the user is looking at. -->
+                <Screen {route} />
 
                 {#snippet failed(err, reset)}
                     <div role="alert" class="alert alert-error flex-col items-start gap-2">

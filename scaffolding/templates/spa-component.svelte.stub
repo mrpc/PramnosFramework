@@ -1,0 +1,36 @@
+<script>
+    import { t } from '../lib/i18n.svelte.js';
+
+    /**
+     * {{ label }}
+     *
+     * Say here what this renders and, more usefully, **why it is a component
+     * rather than markup in the screen that needed it**. The two answers worth
+     * writing down are "two screens render this and they must not drift" and
+     * "this owns behaviour a screen should not have to remember" — focus
+     * management, a keyboard contract, a layout that differs on a phone.
+     *
+     * If neither is true yet, inlining it in the one screen that uses it is the
+     * better answer, and this file can be deleted.
+     *
+     * ## The convention every component here follows
+     *
+     * It **reports, it does not perform**. A component takes values and hands
+     * back intent through callbacks; the screen owns the URL, the fetch and the
+     * state. A component that navigated or fetched would own state the URL is
+     * supposed to own, and a re-render would silently move somebody.
+     */
+    let {
+        /** @type {import('svelte').Snippet | null} */
+        children = null,
+    } = $props();
+</script>
+
+<div class="card bg-base-100 border border-base-content/10">
+    <div class="card-body">
+        <h2 class="card-title text-base">{t('{{ label }}')}</h2>
+        {#if children}
+            {@render children()}
+        {/if}
+    </div>
+</div>

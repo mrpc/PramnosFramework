@@ -1,0 +1,161 @@
+import { parse, routeFor, href, pathFor, BASE } from '../lib/router.js';
+import { screens } from '../screens/registry.js';
+
+/**
+ * Tests for the client-side router.
+ *
+ * Real URLs for every screen: without them the back button leaves the
+ * application and no page can be linked to or bookmarked. The router's job is
+ * to turn a location into a route the shell can render, and to build the hrefs
+ * that go back the other way.
+ *
+ * `parse()` carries **`segments` and `query`** as well as a name, and that is
+ * what lets a screen keep its page, its search and the record being edited in
+ * the URL rather than in component state. A background re-read then leaves the
+ * user where they were, and a link to "page 3 of the stations, sorted by
+ * listeners" is a link somebody can send.
+ */
+
+/** A registered screen name to test against, whatever the project generated. */
+const KNOWN = screens.length > 0 ? screens[0].name : null;
+
+describe('parse()', () => {
+    it('splits a path into segments', () => {
+        // Act
+        const route = parse(`http://localhost${BASE}/things/42`);
+
+        // Assert — the second segment is how a detail view knows its record,
+        // which is why `/things/42` and `/things` are one screen.
+        expect(route.segments).toEqual(['things', '42']);
+        expect(route.path).toBe('/things/42');
+    });
+
+    it('exposes the query string as URLSearchParams', () => {
+        // Act
+        const route = parse(`http://localhost${BASE}/things?page=3&sort=name`);
+
+        // Assert
+        expect(route.query.get('page')).toBe('3');
+        expect(route.query.get('sort')).toBe('name');
+        expect(route.query.get('absent')).toBeNull();
+    });
+
+    /**
+     * `/things` and `/things/` are the same page.
+     *
+     * Treating them as two gives two cache entries and two "current" states for
+     * one screen, which shows up as a screen that re-mounts when a link is
+     * followed to the address it is already on.
+     */
+    it('normalises a trailing slash away', () => {
+        // Act
+        const bare = parse(`http://localhost${BASE}/things`);
+        const slashed = parse(`http://localhost${BASE}/things/`);
+
+        // Assert
+        expect(slashed.path).toBe(bare.path);
+        expect(slashed.segments).toEqual(bare.segments);
+    });
+
+    it('parses the root as a single path with no segments', () => {
+        // Act
+        const route = parse(`http://localhost${BASE}/`);
+
+        // Assert
+        expect(route.path).toBe('/');
+        expect(route.segments).toEqual([]);
+        expect(route.name).toBe('home');
+    });
+});
+
+describe('routeFor()', () => {
+    /**
+     * Matching is on the **first** segment.
+     *
+     * Without it every detail view would need a registry entry of its own, and
+     * a deep link to one record would render the home screen.
+     */
+    it('matches a registered screen on its first segment', () => {
+        if (KNOWN === null) {
+            // A project with no generated screens yet — nothing to assert
+            // against, and inventing a name would test the test.
+            return;
+        }
+
+        // Act / Assert
+        expect(routeFor(`/${KNOWN}`)).toBe(KNOWN);
+        expect(routeFor(`/${KNOWN}/42`)).toBe(KNOWN);
+        expect(routeFor(`/${KNOWN}/42/edit`)).toBe(KNOWN);
+    });
+
+    /**
+     * An unknown path lands on home rather than on a blank page — a mistyped or
+     * outdated link should arrive somewhere usable.
+     */
+    it('falls back to home for a path nothing claims', () => {
+        // Act / Assert
+        expect(routeFor('/nothing-claims-this')).toBe('home');
+    });
+
+    it('knows the sign-in screen, which is not in the registry', () => {
+        // Act / Assert — the server-rendered login page owns /login, so the
+        // SPA's own screen takes a path of its own instead of shadowing it.
+        expect(routeFor('/signin')).toBe('signin');
+    });
+});
+
+describe('href()', () => {
+    it('is always absolute, from any depth', () => {
+        // Act / Assert — a relative href resolves against the current path, so
+        // a link on /things/42 would point at /things/42/things.
+        expect(href('/things')).toBe(`${BASE}/things`);
+        expect(href('things')).toBe(`${BASE}/things`);
+    });
+
+    it('appends a query', () => {
+        // Act
+        const url = href('/things', { page: 3, sort: 'name' });
+
+        // Assert
+        expect(url).toBe(`${BASE}/things?page=3&sort=name`);
+    });
+
+    /**
+     * A blank parameter is dropped, not emitted as `&search=`.
+     *
+     * A URL carrying an empty parameter is a *different* URL from one carrying
+     * none: two cache keys and two "current" states for one view. Dropping them
+     * here is why no screen has to remember an `if` per parameter.
+     */
+    it('drops blank, null and undefined values', () => {
+        // Act
+        const url = href('/things', {
+            page: 1,
+            search: '',
+            sort: null,
+            direction: undefined,
+        });
+
+        // Assert
+        expect(url).toBe(`${BASE}/things?page=1`);
+    });
+
+    it('omits the question mark entirely when nothing survives', () => {
+        // Act / Assert
+        expect(href('/things', { search: '' })).toBe(`${BASE}/things`);
+    });
+
+    it('keeps a zero, which is a value', () => {
+        // Act / Assert — `0` is falsy and must not be filtered out with the
+        // blanks; a page or an id of 0 is a real thing to ask for.
+        expect(href('/things', { offset: 0 })).toBe(`${BASE}/things?offset=0`);
+    });
+});
+
+describe('pathFor()', () => {
+    it('still answers, for callers written against the first router', () => {
+        // Act / Assert
+        expect(pathFor('home')).toBe(BASE || '/');
+        expect(pathFor('things')).toBe(`${BASE}/things`);
+    });
+});

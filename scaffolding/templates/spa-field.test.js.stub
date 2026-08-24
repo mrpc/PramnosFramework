@@ -1,0 +1,317 @@
+import { render, screen, fireEvent } from '@testing-library/svelte';
+import Field from '../components/Field.svelte';
+
+/**
+ * Tests for the generated form's field.
+ *
+ * `Field.svelte` is the Svelte counterpart of the MVC generator's
+ * `buildWizardFormFields()`, and the reason `create:crud` now produces a form
+ * worth using: the control matches the column's **logical type**, taken from
+ * the same `introspectTableAsWizardColumns()` the MVC path reads.
+ *
+ * Before it, every column got `<input type="text">`. That is not a cosmetic
+ * difference — a text box over a boolean stores the string "on", over a foreign
+ * key it asks for a numeric id with nothing on screen that could supply one,
+ * and over a timestamp it is accepted and the insert fails at the database.
+ */
+
+/** A descriptor in the shape the generator emits. */
+const descriptor = (over = {}) => ({
+    name: 'thing',
+    type: 'string',
+    label: 'Thing',
+    nullable: true,
+    comment: '',
+    options: null,
+    fk: null,
+    ...over,
+});
+
+/** Render a field and collect what it emits. */
+function renderField(field, value = '') {
+    const emitted = [];
+    render(Field, {
+        field,
+        value,
+        onchange: (name, next) => emitted.push([name, next]),
+    });
+
+    return emitted;
+}
+
+describe('the control matches the column type', () => {
+    it('renders a checkbox for a boolean', () => {
+        // Arrange / Act
+        renderField(descriptor({ type: 'boolean', label: 'Active' }));
+
+        // Assert
+        expect(screen.getByRole('checkbox', { name: /Active/ })).toBeTruthy();
+    });
+
+    it('renders a date input for a date', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ type: 'date' }),
+            value: '2026-08-24',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('input[type="date"]')).toBeTruthy();
+    });
+
+    it('renders a datetime-local input for a timestamp', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ type: 'timestamp' }),
+            value: '2026-08-24 09:30:00',
+            onchange: () => {},
+        });
+
+        // Assert — and the space the database uses becomes the T the control
+        // wants, which is the conversion every screen would otherwise repeat.
+        const input = container.querySelector('input[type="datetime-local"]');
+        expect(input).toBeTruthy();
+        expect(input.value).toBe('2026-08-24T09:30');
+    });
+
+    it('renders a number input for an integer', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ type: 'integer' }),
+            value: 41,
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('input[type="number"]')).toBeTruthy();
+    });
+
+    it('allows fractions on a decimal but not on an integer', () => {
+        // Arrange / Act
+        const decimal = render(Field, {
+            field: descriptor({ type: 'decimal' }),
+            value: 1.5,
+            onchange: () => {},
+        }).container.querySelector('input[type="number"]');
+
+        const integer = render(Field, {
+            field: descriptor({ type: 'integer' }),
+            value: 1,
+            onchange: () => {},
+        }).container.querySelector('input[type="number"]');
+
+        // Assert — without step="any" the browser refuses 1.5 on a decimal
+        // column, which is a validation failure invented by the form.
+        expect(decimal.getAttribute('step')).toBe('any');
+        expect(integer.getAttribute('step')).toBeNull();
+    });
+
+    it('renders a textarea for text', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ type: 'text' }),
+            value: 'long',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('textarea')).toBeTruthy();
+    });
+
+    it('renders a plain text input for a string', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ type: 'string' }),
+            value: 'x',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('input[type="text"]')).toBeTruthy();
+    });
+
+    /**
+     * Asserted as a pair on purpose: the point is that changing the descriptor's
+     * `type` changes the control, not that one particular type happens to work.
+     */
+    it('follows the descriptor when the type changes', () => {
+        // Arrange / Act
+        const asBoolean = render(Field, {
+            field: descriptor({ type: 'boolean' }),
+            value: false,
+            onchange: () => {},
+        }).container;
+        const asString = render(Field, {
+            field: descriptor({ type: 'string' }),
+            value: '',
+            onchange: () => {},
+        }).container;
+
+        // Assert
+        expect(asBoolean.querySelector('input[type="checkbox"]')).toBeTruthy();
+        expect(asBoolean.querySelector('input[type="text"]')).toBeNull();
+        expect(asString.querySelector('input[type="text"]')).toBeTruthy();
+        expect(asString.querySelector('input[type="checkbox"]')).toBeNull();
+    });
+});
+
+describe('null and the empty string are different values', () => {
+    /**
+     * **This is the assertion most likely to be written in a way that cannot
+     * fail.** `''` and `null` are both falsy, so a test written on truthiness
+     * passes whichever the component emits. It is asserted with `toBeNull()`
+     * and `toBe('')` and never on truthiness.
+     *
+     * What it protects: a form that cannot express the difference converts
+     * every unset optional column to `''` on the first save. They compare
+     * differently, they sort differently, and `COALESCE` treats them
+     * differently — so it is a data change nobody asked for, invisible until
+     * something depends on it.
+     */
+    it('emits null for a blank nullable field', async () => {
+        // Arrange
+        const emitted = renderField(descriptor({ nullable: true }), 'was set');
+
+        // Act
+        await fireEvent.input(screen.getByRole('textbox'), { target: { value: '' } });
+
+        // Assert
+        expect(emitted).toHaveLength(1);
+        expect(emitted[0][1]).toBeNull();
+    });
+
+    it('emits the empty string for a blank NOT NULL field', async () => {
+        // Arrange
+        const emitted = renderField(descriptor({ nullable: false }), 'was set');
+
+        // Act
+        await fireEvent.input(screen.getByRole('textbox'), { target: { value: '' } });
+
+        // Assert
+        expect(emitted).toHaveLength(1);
+        expect(emitted[0][1]).toBe('');
+        expect(emitted[0][1]).not.toBeNull();
+    });
+
+    it('emits a real value unchanged whether the column is nullable or not', async () => {
+        // Arrange
+        const emitted = renderField(descriptor({ nullable: true }), '');
+
+        // Act
+        await fireEvent.input(screen.getByRole('textbox'), {
+            target: { value: 'Aroma' },
+        });
+
+        // Assert
+        expect(emitted[0]).toEqual(['thing', 'Aroma']);
+    });
+});
+
+describe('labels and requiredness come from the schema', () => {
+    it('uses the COLUMN COMMENT as the label when there is one', () => {
+        // Arrange / Act
+        renderField(descriptor({ name: 'stationid', label: 'Owning station' }));
+
+        // Assert
+        expect(screen.getByLabelText(/Owning station/)).toBeTruthy();
+    });
+
+    it('marks a NOT NULL column required', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ nullable: false }),
+            value: '',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('input').required).toBe(true);
+    });
+
+    it('does not mark a nullable column required', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: descriptor({ nullable: true }),
+            value: '',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('input').required).toBe(false);
+    });
+
+    it('shows a per-field error from a 422', () => {
+        // Arrange / Act
+        render(Field, {
+            field: descriptor(),
+            value: '',
+            error: 'This name is already taken.',
+            onchange: () => {},
+        });
+
+        // Assert — and it is announced, not only coloured.
+        expect(screen.getByRole('alert').textContent).toContain('already taken');
+    });
+});
+
+describe('a foreign key is a picker, not an id box', () => {
+    const FK = descriptor({
+        name: 'stationid',
+        type: 'integer',
+        label: 'Station',
+        fk: { endpoint: '/api/1.0/station', valueKey: 'stationid', labelKey: 'name' },
+    });
+
+    it('renders a combobox rather than a number input', () => {
+        // Arrange / Act
+        const { container } = render(Field, {
+            field: FK,
+            value: null,
+            onchange: () => {},
+        });
+
+        // Assert — the whole complaint in one assertion: a foreign key used to
+        // be a box you typed a numeric id into.
+        expect(container.querySelector('input[type="number"]')).toBeNull();
+        expect(screen.getByLabelText(/Station/)).toBeTruthy();
+    });
+
+    it('renders a select when the descriptor carries options', () => {
+        // Arrange / Act
+        render(Field, {
+            field: descriptor({
+                options: [
+                    { value: 'draft', label: 'Draft' },
+                    { value: 'live', label: 'Live' },
+                ],
+            }),
+            value: 'draft',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(screen.getByRole('combobox')).toBeTruthy();
+        expect(screen.getByRole('option', { name: 'Live' })).toBeTruthy();
+    });
+
+    /**
+     * A stored value outside the option list still shows.
+     *
+     * A `<select>` that silently drops an unknown value resets it to the first
+     * option on the next save — a data change disguised as a render.
+     */
+    it('keeps a stored value that is not in the option list', () => {
+        // Arrange / Act
+        render(Field, {
+            field: descriptor({
+                options: [{ value: 'draft', label: 'Draft' }],
+            }),
+            value: 'retired',
+            onchange: () => {},
+        });
+
+        // Assert
+        expect(screen.getByRole('option', { name: /retired/ })).toBeTruthy();
+    });
+});

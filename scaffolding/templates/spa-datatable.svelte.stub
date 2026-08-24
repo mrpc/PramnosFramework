@@ -1,0 +1,296 @@
+<script>
+    import Pagination from './Pagination.svelte';
+    import { locale, t } from '../lib/i18n.svelte.js';
+
+    /**
+     * A table on a screen, a list of cards on a phone — from one definition.
+     *
+     * ## Why this is a framework component and not something each screen writes
+     *
+     * PramnosFramework already answers the "table over an API" problem twice.
+     * `Pramnos\Html\Datatable` is a **jQuery DataTables** wrapper that emits its
+     * own HTML, CSS and JS — unusable in a scaffolded SPA, which has no jQuery
+     * and loads nothing from a CDN. `getApiList()` / `_getApiList()` is the same
+     * capability **through the API**, and that is the reusable half. This
+     * component is its client:
+     *
+     *     { data: [...],
+     *       pagination: { currentpage, itemsperpage, totalitems, totalpages,
+     *                     hasnext, hasprevious } | null,
+     *       fields: [...] }
+     *
+     * That shape is `ApiListResponse::paginated()`, not a convention invented
+     * here. **Any** endpoint in a Pramnos application that answers in it gets
+     * sorting, paging and search from this component without a table being
+     * written — which is what makes `create:crud` able to generate a screen
+     * worth keeping.
+     *
+     * ## One definition, two layouts
+     *
+     * An admin panel gets opened on a phone precisely when something is wrong,
+     * so a table that scrolls sideways off the viewport is not a cosmetic
+     * problem. The obvious fix — write the mobile markup separately in each
+     * screen — means two renderings of the same data, and the one nobody looks
+     * at is the one that rots.
+     *
+     * So each column is declared **once**, as a Svelte snippet, and this
+     * component renders that snippet in both layouts. A column added to the
+     * table cannot go missing from the cards, because there is no second place
+     * to add it to.
+     *
+     * **The column is handed to the cell as a second argument.** Every ordinary
+     * snippet declares one parameter and ignores it, exactly as a function
+     * would. It exists for a screen whose columns are not known when it is
+     * written — a browser over a server-supplied field allowlist has to render a
+     * different field per column from one snippet, and a snippet cannot close
+     * over a loop variable.
+     *
+     * ## It navigates nothing and fetches nothing
+     *
+     * Sorting, searching and paging are **reported**, never performed. The URL
+     * is the state (see `lib/router.js`), so the screen turns a callback into a
+     * route and the route into a request. A component that fetched would own
+     * state the URL is supposed to own, and a background refresh would silently
+     * reset the user's page — the exact class of bug this convention removes.
+     *
+     * ## The breakpoint is `sm`, and it is a judgement
+     *
+     * Below 640px a four-column table is unreadable however it is styled. Above
+     * it, cards waste vertical space and make scanning slower — and scanning is
+     * what these screens are for. There is no width where both are right, so the
+     * component picks one boundary rather than offering a knob nobody would tune.
+     *
+     * @param {Array<{
+     *   label: string,
+     *   cell: import('svelte').Snippet,
+     *   header?: import('svelte').Snippet,
+     *   hideOnMobile?: boolean,
+     *   align?: 'num',
+     *   sort?: string
+     * }>} columns
+     * @param {Array<any>} rows
+     * @param {(row: any) => string|number} rowKey
+     * @param {string} [empty] Message when there are no rows at all.
+     */
+    let {
+        columns = [],
+        rows = [],
+        rowKey = (row) => row.id,
+        empty = 'There are no records.',
+        // --- optional, and every one of them is opt-in: a screen that passes
+        // none of these gets exactly a plain table.
+        loading = false,
+        error = null,
+        /** `{field, direction}` — `direction` is 'asc' or 'desc'. */
+        sort = null,
+        onsort = null,
+        search = '',
+        onsearch = null,
+        searchLabel = 'Search',
+        /**
+         * Report on every keystroke instead of on submit.
+         *
+         * The distinction is real, not a preference. A **server** search must be
+         * submitted: each report is a request, and a screen that fired one per
+         * keystroke would spend ten to answer one question — which is why the
+         * default is submit. A **local** filter over rows already in hand is
+         * free, so making somebody press a button to narrow a list they can see
+         * is a step that exists for no reason.
+         */
+        searchLive = false,
+        pagination = null,
+        onpage = null,
+        /** Shown above the table — a bulk-action bar, a filter row. */
+        toolbar = null,
+        /**
+         * Extra classes for one row, in **both** layouts.
+         *
+         * For a state the whole record is in rather than one cell — a soft-deleted
+         * row, a disabled account. It goes through the component because the
+         * alternative is styling every cell snippet, which is where the table and
+         * the card start to disagree about which rows are dimmed.
+         */
+        rowClass = null,
+    } = $props();
+
+    // A column may opt out of the card layout — an id or a timestamp that earns
+    // its place in a dense table and only adds noise on a phone. Opting out of
+    // the *table* is not offered: that is the layout with room.
+    const cardColumns = $derived(columns.filter((column) => !column.hideOnMobile));
+
+    const page = $derived(Number(pagination?.currentpage ?? 1) || 1);
+    const totalPages = $derived(Number(pagination?.totalpages ?? 1) || 1);
+
+    /**
+     * Sorting is a three-state cycle per column: ascending, descending, and back
+     * to the server's own default. The third state matters — a table that can
+     * only be sorted, never unsorted, cannot be returned to "newest first",
+     * which is the order most queues are written to be read in.
+     */
+    function toggleSort(field) {
+        if (!onsort || !field) {
+            return;
+        }
+
+        if (sort?.field !== field) {
+            onsort({ field, direction: 'asc' });
+        } else if (sort.direction === 'asc') {
+            onsort({ field, direction: 'desc' });
+        } else {
+            onsort(null);
+        }
+    }
+
+    let searchBox = $state(search);
+
+    $effect(() => {
+        searchBox = search;
+    });
+
+    function submitSearch(event) {
+        event.preventDefault();
+        onsearch?.(searchBox.trim());
+    }
+</script>
+
+{#if onsearch}
+    <form class="flex flex-wrap gap-2 mb-3" onsubmit={submitSearch} role="search">
+        <input
+            class="input input-bordered input-sm grow max-w-sm"
+            type="search"
+            bind:value={searchBox}
+            aria-label={t(searchLabel)}
+            placeholder="{t(searchLabel)}…"
+            oninput={searchLive ? (event) => onsearch(event.currentTarget.value) : undefined}
+        />
+        {#if !searchLive}
+            <button class="btn btn-sm" type="submit">{t('Search')}</button>
+        {/if}
+        {#if search}
+            <!-- Clearing is a separate control, not "empty the box and press
+                 enter": the second is a thing you have to be told. -->
+            <button
+                class="btn btn-ghost btn-sm"
+                type="button"
+                onclick={() => {
+                    searchBox = '';
+                    onsearch('');
+                }}
+            >
+                ✕ {t('Clear')}
+            </button>
+        {/if}
+    </form>
+{/if}
+
+{#if toolbar}
+    {@render toolbar()}
+{/if}
+
+{#if error}
+    <div class="alert alert-error" role="alert">{error}</div>
+{:else if loading}
+    <!-- A spinner, never an empty table: an empty table reads as "there is
+         nothing here", which is a believable and wrong answer. -->
+    <div class="flex justify-center py-16">
+        <span class="loading loading-spinner loading-lg"></span>
+    </div>
+{:else if rows.length === 0}
+    <div class="card bg-base-100 border border-base-content/10">
+        <div class="card-body">
+            <p class="text-sm opacity-70">{t(empty)}</p>
+        </div>
+    </div>
+{:else}
+    <!-- Cards: below sm only. -->
+    <div class="space-y-3 sm:hidden">
+        {#each rows as row (rowKey(row))}
+            <div class="card bg-base-100 border border-base-content/10 {rowClass?.(row) ?? ''}">
+                <div class="card-body p-4 gap-2">
+                    {#each cardColumns as column (column.label)}
+                        <div class="flex flex-wrap items-baseline gap-2">
+                            <span class="text-xs opacity-60 shrink-0">{t(column.label)}</span>
+                            <div class="min-w-0 break-words">{@render column.cell(row, column)}</div>
+                        </div>
+                    {/each}
+                </div>
+            </div>
+        {/each}
+    </div>
+
+    <!-- Table: sm and up. `overflow-x-auto` stays as a backstop for a wide cell
+         (a long URL), so the page itself never scrolls sideways. -->
+    <div class="hidden sm:block overflow-x-auto card bg-base-100 border border-base-content/10">
+        <table class="table table-sm table-sticky">
+            <thead>
+                <tr>
+                    {#each columns as column (column.label)}
+                        <th class:cell-num={column.align === 'num'}>
+                            {#if column.sort && onsort}
+                                <!-- The whole header is the control, and it says
+                                     what pressing it will do rather than only
+                                     what the current state is: a bare ▲ tells a
+                                     screen reader nothing. -->
+                                <button
+                                    class="inline-flex items-center gap-1 hover:opacity-100
+                                           {sort?.field === column.sort ? '' : 'opacity-70'}"
+                                    onclick={() => toggleSort(column.sort)}
+                                    aria-label={sort?.field === column.sort
+                                        ? sort.direction === 'asc'
+                                            ? t('%s: ascending — press for descending', t(column.label))
+                                            : t('%s: descending — press to clear the sort', t(column.label))
+                                        : t('Sort by %s', t(column.label))}
+                                >
+                                    <span>{t(column.label)}</span>
+                                    <span aria-hidden="true" class="text-xs">
+                                        {sort?.field === column.sort
+                                            ? sort.direction === 'asc'
+                                                ? '▲'
+                                                : '▼'
+                                            : '↕'}
+                                    </span>
+                                </button>
+                            {:else if column.header}
+                                <!-- A column may own its header — a select-all
+                                     checkbox is a control, not a label, and it
+                                     belongs in the header cell it controls.
+                                     Offered only for the *table*: the card
+                                     layout has no header row to put it in, so
+                                     cards fall back to `label`, which is why
+                                     `label` stays required. -->
+                                {@render column.header()}
+                            {:else}
+                                {t(column.label)}
+                            {/if}
+                        </th>
+                    {/each}
+                </tr>
+            </thead>
+            <tbody>
+                {#each rows as row (rowKey(row))}
+                    <tr class="hover align-top {rowClass?.(row) ?? ''}">
+                        {#each columns as column (column.label)}
+                            <td class:cell-num={column.align === 'num'}>
+                                {@render column.cell(row, column)}
+                            </td>
+                        {/each}
+                    </tr>
+                {/each}
+            </tbody>
+        </table>
+    </div>
+{/if}
+
+{#if pagination && onpage}
+    <div class="mt-3">
+        <Pagination {page} {totalPages} onpage={(next) => onpage(next)} />
+    </div>
+
+    <!-- What the pager is moving through. "Page 3 of 41" says nothing about how
+         much there is; a queue of 2,000 and one of 60 are different jobs. -->
+    {#if Number(pagination.totalitems ?? 0) > 0}
+        <p class="text-xs opacity-60 text-center mt-1">
+            {t('%s records', Number(pagination.totalitems).toLocaleString(locale()))}
+        </p>
+    {/if}
+{/if}

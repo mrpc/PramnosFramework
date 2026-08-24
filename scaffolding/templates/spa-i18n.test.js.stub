@@ -1,0 +1,133 @@
+import { t, tHtml, setStringsForTests, currentLanguage } from '../lib/i18n.svelte.js';
+
+/**
+ * Tests for the front end's translation lookup.
+ *
+ * `t()` is a client for the framework's own catalogue — the same map
+ * `Language::_()` reads on the server — so a string can cross between a
+ * server-rendered page and a screen without being translated twice. That is
+ * why the placeholder convention is `%s` rather than something nicer: a second
+ * convention would mean a string cannot cross.
+ */
+
+describe('t()', () => {
+    beforeEach(() => {
+        setStringsForTests({
+            'Save': 'Αποθήκευση',
+            '%s is on air': '%s εκπέμπει τώρα',
+            '%s — %s': '%s — %s',
+            'Every <strong>record</strong> for %s': 'Κάθε <strong>εγγραφή</strong> για %s',
+        }, 'greek');
+    });
+
+    it('returns the translation for a known key', () => {
+        // Act / Assert
+        expect(t('Save')).toBe('Αποθήκευση');
+    });
+
+    /**
+     * An unknown key renders as itself.
+     *
+     * This is what lets a screen be written before the catalogue has caught up,
+     * and it is why the source text *is* the key: the untranslated state is
+     * readable English rather than `screens.things.save`.
+     */
+    it('returns an unknown key unchanged', () => {
+        // Act / Assert
+        expect(t('Not in the catalogue')).toBe('Not in the catalogue');
+    });
+
+    /**
+     * A translation containing `%s`, looked up with no arguments, comes back as
+     * it is rather than being formatted against nothing.
+     *
+     * The server-side `Language::_()` had exactly this bug — it called sprintf
+     * unconditionally, so a key with a placeholder was fatal to look up. The
+     * client must not reintroduce it.
+     */
+    it('does not format a placeholder when no arguments are given', () => {
+        // Act / Assert
+        expect(t('%s is on air')).toBe('%s εκπέμπει τώρα');
+    });
+
+    it('substitutes arguments in order', () => {
+        // Act / Assert
+        expect(t('%s is on air', 'Aroma')).toBe('Aroma εκπέμπει τώρα');
+        expect(t('%s — %s', 'Aroma', '90.1')).toBe('Aroma — 90.1');
+    });
+
+    it('substitutes into an untranslated key too', () => {
+        // Act / Assert — the fallback path formats, or a missing translation
+        // would show a raw %s where a value belongs.
+        expect(t('%s items missing', 4)).toBe('4 items missing');
+    });
+
+    it('renders a missing argument as empty rather than "undefined"', () => {
+        // Act / Assert
+        expect(t('%s — %s', 'Aroma')).toBe('Aroma — ');
+    });
+
+    it('reports the language actually in effect', () => {
+        // Act / Assert
+        expect(currentLanguage()).toBe('greek');
+    });
+});
+
+describe('tHtml()', () => {
+    beforeEach(() => {
+        setStringsForTests({
+            'Every <strong>record</strong> for %s': 'Κάθε <strong>εγγραφή</strong> για %s',
+        }, 'greek');
+    });
+
+    /**
+     * **The translation's own markup stays live; everything substituted into it
+     * is inert.**
+     *
+     * That split is the whole point of this function. A translator writing
+     * `<strong>` is trusted — the string is in the repository. A value arriving
+     * at run time, from a third-party API or from another user, is script, and
+     * `{@html}` would run it.
+     */
+    it('escapes an interpolated value while leaving the translation\'s markup live', () => {
+        // Act
+        const result = tHtml(
+            'Every <strong>record</strong> for %s',
+            '<script>alert(1)</script>'
+        );
+
+        // Assert — the translation's tag survives …
+        expect(result).toContain('<strong>εγγραφή</strong>');
+        // … and the value's does not.
+        expect(result).not.toContain('<script>');
+        expect(result).toContain('&lt;script&gt;');
+    });
+
+    /**
+     * Asserted separately from the script case because the obvious test only
+     * covers `<script>`, and a naive escape that blocked that tag by name would
+     * pass it while leaving every other tag live.
+     */
+    it('escapes ordinary markup in a value as well', () => {
+        // Act
+        const result = tHtml('Every <strong>record</strong> for %s', '<b>bold</b>');
+
+        // Assert
+        expect(result).toContain('&lt;b&gt;bold&lt;/b&gt;');
+        expect(result).not.toContain('<b>');
+        expect(result).toContain('<strong>');
+    });
+
+    it('escapes quotes and ampersands, not only angle brackets', () => {
+        // Act — an attribute-breaking value is the other half of the injection.
+        const result = tHtml('%s', 'a "quoted" & \'single\'');
+
+        // Assert
+        expect(result).toBe('a &quot;quoted&quot; &amp; &#39;single&#39;');
+    });
+
+    it('renders a null value as empty rather than the word null', () => {
+        // Act / Assert
+        expect(tHtml('%s', null)).toBe('');
+    });
+});

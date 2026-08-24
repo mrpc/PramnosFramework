@@ -43,6 +43,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   ./pramnos project:resync --js           # only the pf-*.js UI hooks
  *   ./pramnos project:resync --scripts      # only the docs tooling scripts
  *   ./pramnos project:resync --debug-panel --all    # add/refresh the SPA debug panel
+ *   ./pramnos project:resync --spa-components       # take a newer DataTable, Field, …
  */
 class ProjectResync extends Command
 {
@@ -72,7 +73,8 @@ class ProjectResync extends Command
             ->addOption('all', null, InputOption::VALUE_NONE, 'Also copy framework files that are not present in the project yet')
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
-            ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA debug panel (lib/debug.js)');
+            ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA debug panel (lib/debug.js)')
+            ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n) and their tests');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -106,8 +108,15 @@ class ProjectResync extends Command
         $onlyJs  = (bool) $input->getOption('js');
         $onlyScr = (bool) $input->getOption('scripts');
         $onlyPanel = (bool) $input->getOption('debug-panel');
-        // No scope flag → sync every group.
-        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel;
+        $onlyComponents = (bool) $input->getOption('spa-components');
+        // No scope flag → sync every group **except** the shared components.
+        //
+        // They are deliberately opt-in, and that is the whole point of them: a
+        // project extends its DataTable, and a resync that refreshed it by
+        // default would undo that work the first time somebody ran the command
+        // for an unrelated reason. --spa-components is how you say you want the
+        // newer version.
+        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents;
         $doJs      = $onlyJs || $allGroups;
         $doScripts = $onlyScr || $allGroups;
         $doPanel     = $onlyPanel || $allGroups;
@@ -115,6 +124,11 @@ class ProjectResync extends Command
         $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts);
         if ($doPanel) {
             $files = array_merge($files, $this->collectPanelFiles($scaffoldingDir, $base));
+        }
+        if ($onlyComponents) {
+            $files = array_merge(
+                $files, $this->collectSpaComponentFiles($scaffoldingDir, $base)
+            );
         }
 
         // package.json is a merge (not a copy): fold in the API-docs npm scripts +
@@ -336,24 +350,14 @@ class ProjectResync extends Command
      */
     private function spaSourceDir(string $base): string
     {
-        $config   = $this->appConfig($base);
-        $appStyle = (string) ($config['app_style'] ?? 'mvc');
-        if ($appStyle === 'mvc') {
-            return '';
-        }
-
-        // An explicit setting wins, so a project whose front end lives somewhere
-        // else can be helped without a repo-wide rename. Reported by one that had
-        // to move `admin-ui/` to `frontend/` to receive a file — the right move for
-        // other reasons, but not something a resync should require.
-        $configured = trim((string) ($config['spa_source_dir'] ?? ''));
-        if ($configured !== '') {
-            return rtrim($configured, '/') . '/';
-        }
-
-        $spaStack = (string) ($config['spa_stack'] ?? '');
-
-        return Init::spaNeedsNode($spaStack) ? 'frontend/' : 'www/assets/js/';
+        // The rule lives in Init::spaSourceDirFor(), which is where scaffoldSpa()
+        // decides the same thing — three commands were carrying a copy of it.
+        // An explicit spa_source_dir wins there, so a project whose front end
+        // lives somewhere else can be helped without a repo-wide rename;
+        // reported by one that had to move `admin-ui/` to `frontend/` to receive
+        // a file, which was the right move for other reasons but not something a
+        // resync should require.
+        return Init::spaSourceDirFor($this->appConfig($base));
     }
 
     /**
@@ -389,6 +393,80 @@ class ProjectResync extends Command
             'dest'    => $sourceDir . 'lib/debug.js',
             'exec'    => false,
         ]];
+    }
+
+    /**
+     * The shared Svelte components and their tests, rendered for this project.
+     *
+     * Opt-in only (`--spa-components`), because these become the project's files
+     * the moment they exist: the value of shipping a DataTable is that projects
+     * extend it. Taking a newer version is a decision somebody makes, and
+     * `--all` then decides whether local edits are overwritten — the same two
+     * steps every other group in this command uses.
+     *
+     * @param  string $scaffoldingDir
+     * @param  string $base
+     * @return array<int, array{content: string, dest: string, exec: bool}>
+     */
+    private function collectSpaComponentFiles(string $scaffoldingDir, string $base): array
+    {
+        $sourceDir = $this->spaSourceDir($base);
+        if ($sourceDir === '') {
+            return [];
+        }
+
+        $config = $this->appConfig($base);
+        if ((string) ($config['spa_stack'] ?? '') !== 'svelte') {
+            // The components are Svelte. A component library for a no-build
+            // stack is a different project, and silently writing .svelte files
+            // into one would be worse than doing nothing.
+            return [];
+        }
+
+        $tokens = [
+            'appName'       => (string) ($config['name'] ?? 'App'),
+            'apiPrefix'     => rtrim((string) ($config['api_prefix'] ?? '/api/1.0'), '/'),
+            'routerBase'    => (string) ($config['app_style'] ?? '') === 'hybrid' ? '/app' : '',
+            'localeMapJson' => json_encode(['english' => 'en-GB']),
+        ];
+
+        $files = [];
+        $wanted = Init::SPA_SHARED_COMPONENTS + Init::SPA_SHARED_COMPONENT_TESTS;
+        foreach ($wanted as $relative => $stub) {
+            $path = $scaffoldingDir . '/templates/' . $stub . '.stub';
+            if (!is_file($path)) {
+                continue;   // @codeCoverageIgnore — ships with the framework
+            }
+
+            $files[] = [
+                'content' => $this->renderStubFile($path, $tokens),
+                'dest'    => $sourceDir . $relative,
+                'exec'    => false,
+            ];
+        }
+
+        return $files;
+    }
+
+    /**
+     * Substitute `{{ token }}` placeholders in a stub read from disk.
+     *
+     * This command is not a MakeCommandBase, so it has no renderStub() — and it
+     * only needs the substitution, not the stub-resolution around it.
+     *
+     * @param  string                $path
+     * @param  array<string, string> $tokens
+     * @return string
+     */
+    private function renderStubFile(string $path, array $tokens): string
+    {
+        $contents = (string) file_get_contents($path);
+
+        foreach ($tokens as $name => $value) {
+            $contents = str_replace('{{ ' . $name . ' }}', (string) $value, $contents);
+        }
+
+        return $contents;
     }
 
     /**

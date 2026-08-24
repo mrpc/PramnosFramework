@@ -3303,7 +3303,8 @@ class Database extends \Pramnos\Framework\Base
      * @param bool $skipDataFix If true, don't transform data types
      * @return \Pramnos\Database\Result
      */
-    public function getColumns($tableName, $schema = null, $skipDataFix = false)
+    public function getColumns($tableName, $schema = null, $skipDataFix = false,
+        $fresh = false)
     {
         // Use provided schema or fallback to the database schema
         $schemaToUse = $schema ?? $this->schema;
@@ -3376,13 +3377,25 @@ class Database extends \Pramnos\Framework\Base
                 . "    LIMIT 1), '') as \"ForeignColumn\" "
                 . "FROM information_schema.columns a "
                 . "WHERE table_name = '" . $actualTableName . "' "
-                . "AND table_schema = '" . $schemaToUse . "'"
+                . "AND table_schema = '" . $schemaToUse . "' "
+                // Declared order, as on the MySQL side above.
+                . "ORDER BY a.ordinal_position"
             );
         } else {
             // MySQL query
             $database_name = $this->database;
             $sql = $this->prepareQuery(
-                "SELECT c.COLUMN_NAME as 'Field', c.DATA_TYPE as 'Type', c.CHARACTER_MAXIMUM_LENGTH, "
+                "SELECT c.COLUMN_NAME as 'Field', c.DATA_TYPE as 'Type', "
+                // The declared type, qualifiers and all: 'tinyint(1)',
+                // 'decimal(10,2)', "enum('draft','live')". DATA_TYPE strips all
+                // of that, and the strip was silently costing callers real
+                // answers — MakeCommandBase::mapSqlTypeToLogical() checks for
+                // 'tinyint(1)' to recognise MySQL's boolean convention, and
+                // could never match, so every boolean column in every generated
+                // form was rendered as a number input while the code and its
+                // comment both said otherwise. Additive: 'Type' is unchanged
+                // for the callers that read it.
+                . "c.COLUMN_TYPE as 'ColumnType', c.CHARACTER_MAXIMUM_LENGTH, "
                 . "c.IS_NULLABLE as 'Null', c.COLUMN_DEFAULT, c.COLUMN_COMMENT as 'Comment', "
                 . "IF(k.COLUMN_NAME IS NOT NULL, 'PRI', '') as 'Key', "
                 . "IF(fk.COLUMN_NAME IS NOT NULL, 1, 0) as 'ForeignKey', "
@@ -3394,14 +3407,32 @@ class Database extends \Pramnos\Framework\Base
                 . "ON c.TABLE_SCHEMA = k.TABLE_SCHEMA AND c.TABLE_NAME = k.TABLE_NAME AND c.COLUMN_NAME = k.COLUMN_NAME AND k.CONSTRAINT_NAME = 'PRIMARY' "
                 . "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk "
                 . "ON c.TABLE_SCHEMA = fk.TABLE_SCHEMA AND c.TABLE_NAME = fk.TABLE_NAME AND c.COLUMN_NAME = fk.COLUMN_NAME AND fk.REFERENCED_TABLE_NAME IS NOT NULL "
-                . "WHERE c.TABLE_NAME = '{$tableName}' AND c.TABLE_SCHEMA = '{$database_name}'"
+                // In the order the table declares them. INFORMATION_SCHEMA has
+                // no inherent order, so without this a generated form put its
+                // fields in whatever order the server felt like — usually
+                // alphabetical, which buries the column the record is actually
+                // identified by somewhere in the middle.
+                . "WHERE c.TABLE_NAME = '{$tableName}' AND c.TABLE_SCHEMA = '{$database_name}' "
+                . "ORDER BY c.ORDINAL_POSITION"
             );
         }
         
-        // Use aggressive caching since table schemas rarely change
-        // Cache for 1 hour (3600 seconds) with table-specific cache key
-        $cacheKey = "schema_columns_{$tableName}";
-        return $this->query($sql, true, 3600, $cacheKey, false, $skipDataFix);
+        // Cached for an hour, keyed per table: a schema rarely changes and
+        // introspection is not cheap.
+        //
+        // **Pass $fresh when a stale answer would be wrong rather than merely
+        // old.** A code generator is the case: the framework's documented order
+        // of work is `create:migration`, migrate, `create:crud`, so the
+        // generator runs minutes after the schema changed and an hour-old
+        // answer describes the table as it was *before* the migration. It would
+        // then write a model and a form for the old columns and report success.
+        // The cache store is shared (files, redis), so the staleness outlives
+        // the process and re-running the command does not clear it either.
+        $cacheKey = 'schema_columns_' . $tableName;
+
+        return $this->query(
+            $sql, !$fresh, 3600, $cacheKey, false, $skipDataFix
+        );
     }
 
     /**

@@ -669,10 +669,25 @@ class InitSpaScaffoldingTest extends TestCase
         // ...and the sign-in path does not shadow the server-rendered /login
         $this->assertStringContainsString("'signin'", $router);
 
+        // …and parse() carries what a screen needs to keep its state in the URL,
+        // not just a route name. Without `segments` a detail view cannot know
+        // its record; without `query` a list cannot deep-link its page.
+        $this->assertStringContainsString('segments', $router);
+        $this->assertStringContainsString('searchParams', $router);
+
         $app = $this->read('frontend/App.svelte');
-        $this->assertStringContainsString("router.go('signin', true)", $app, 'anonymous → sign in');
-        $this->assertStringContainsString("router.go('home', true)", $app);
-        $this->assertStringContainsString('href={pathFor(', $app, 'navigation uses real links');
+        $this->assertStringContainsString(
+            "go('/signin', null, { replace: true })", $app, 'anonymous → sign in'
+        );
+        $this->assertStringContainsString("go('/', null, { replace: true })", $app);
+        $this->assertStringContainsString(
+            'href={href(', $app, 'navigation uses real links'
+        );
+        // The route reaches the screen. This is the prop every generated screen
+        // derives its page, search and sort from, so a shell that stopped
+        // passing it would leave every list screen stuck on page one with no
+        // error anywhere.
+        $this->assertStringContainsString('<Screen {route} />', $app);
     }
 
     /**
@@ -855,7 +870,11 @@ class InitSpaScaffoldingTest extends TestCase
             "import { record as recordDebug, reportError as reportDebugError } from './debug.js';",
             $client
         );
-        $this->assertStringContainsString('recordDebug(method, path, response.status', $client);
+        // The *composed* URL, so the panel shows the request that was actually
+        // sent: since api.get() gained a query argument, `path` is the path and
+        // `url` is what went over the wire, and recording the first would hide
+        // which page of a list was asked for.
+        $this->assertStringContainsString('recordDebug(method, url, response.status', $client);
     }
 
     /**
@@ -875,7 +894,9 @@ class InitSpaScaffoldingTest extends TestCase
         // Assert — the router reports every navigation, with its base
         $router = $this->read('frontend/lib/router.js');
         $this->assertStringContainsString("import { reportRoute } from './debug.js';", $router);
-        $this->assertStringContainsString('reportRoute(name, { base: BASE });', $router);
+        $this->assertStringContainsString(
+            'reportRoute(route.name, { base: BASE, path: route.path });', $router
+        );
 
         // ...and the shell publishes the mount point, so the tab is useful even
         // in a project whose router.js predates this

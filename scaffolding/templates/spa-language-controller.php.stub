@@ -1,0 +1,94 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }}\Api\Controllers;
+
+use Pramnos\Http\Request;
+use Pramnos\Http\Response;
+use Pramnos\Routing\Attributes\Route;
+use Pramnos\Http\RequestIdentity;
+use Pramnos\Translator\Language;
+
+/**
+ * The translation map, for the front end.
+ *
+ * The framework already owns translation: `Pramnos\Translator\Language` loads
+ * `app/language/<lang>.php` and `_()` looks a source string up in it. A SPA
+ * cannot call `_()`, so without an endpoint the front end either ships no
+ * translation at all or grows a **second** catalogue — and a second catalogue
+ * means a string that moves from a component to a controller loses its
+ * translation, silently, in whichever direction it moved.
+ *
+ * So this serves the framework's own map, and `lib/i18n.svelte.js` is a client
+ * for it that mirrors `_()` exactly: same key (the English source), same
+ * fallback (the key itself), same `%s` substitution.
+ *
+ * ## It answers the *user's* language, not the request's
+ *
+ * With no `lang` parameter this reads the signed-in account's stored preference
+ * and falls back to the install default. A front end that had to name a language
+ * would have to know the preference before it could ask for it, which is the
+ * wrong way round — and it is why the request carries a bearer token here at all.
+ *
+ * A **named** language skips the account entirely: that is the sign-in screen,
+ * which renders before anybody is signed in and has nobody to ask.
+ *
+ * ## Unauthenticated on purpose
+ *
+ * The sign-in screen needs its labels. A translation catalogue is not a secret —
+ * it is the same text the server-rendered pages emit to anybody — so gating it
+ * would buy nothing and cost a login form in English.
+ */
+class LanguageController
+{
+    #[Route('{{ apiPrefix }}/language', methods: ['GET'])]
+    public function show(): Response
+    {
+        $requested = (string) Request::staticGet('lang', '', 'get');
+        $language  = $requested !== '' ? $requested : $this->preferredLanguage();
+
+        $available = [];
+        try {
+            $available = Language::getLanguages();
+        } catch (\Throwable) {
+            // No language directory: the front end falls back to English, which
+            // is the source language and therefore always a correct answer.
+            $available = ['english'];
+        }
+
+        // A language nobody ships must not be honoured — `load()` would silently
+        // fall back to English while this told the client its request was
+        // applied, and a client that believes it is in Greek will not ask again.
+        if (!in_array($language, $available, true)) {
+            $language = 'english';
+        }
+
+        $translator = new Language($language);
+
+        return Response::json([
+            'success'   => true,
+            'lang'      => $translator->currentlang(),
+            'available' => $available,
+            'strings'   => $translator->getlang(),
+        ]);
+    }
+
+    /**
+     * The signed-in account's language, or the install default.
+     *
+     * Kept in one small method because it is the part an application overrides:
+     * where the preference is stored is a product decision (a `users` column, a
+     * settings row, an `Accept-Language` header), and everything else here is not.
+     */
+    private function preferredLanguage(): string
+    {
+        $user = RequestIdentity::user();
+
+        if ($user !== null && !empty($user->language)) {
+            return (string) $user->language;
+        }
+
+        return (string) (\Pramnos\Application\Settings::getSetting('default_language') ?: 'english');
+    }
+}

@@ -1,0 +1,202 @@
+<script>
+    import { t, tHtml } from '../lib/i18n.svelte.js';
+
+    /**
+     * A confirmation that is proportional to what it confirms.
+     *
+     * Two modes, and the difference is the point. An ordinary confirm is one
+     * button away. A **destructive** one asks the user to type the thing's name
+     * first — the pattern GitHub uses for deleting a repository — because "are
+     * you sure?" is a question everybody answers yes to without reading.
+     *
+     * A generated CRUD's delete button is exactly the case this exists for.
+     * `window.confirm()` blocks the whole tab, cannot be styled, cannot say what
+     * is about to be deleted, and is dismissed by muscle memory. It is also
+     * suppressible by the browser, which means a delete can fire with no
+     * confirmation at all.
+     *
+     * ## Keyboard, because this is where a keyboard user gets stuck
+     *
+     * A modal that does not manage focus is a trap in the bad sense: Tab walks
+     * out of it into the page behind, which is still there and still clickable,
+     * and Escape does nothing. That is bad everywhere and worst **here** — the
+     * typed-phrase dialog is the one somebody is most likely to want to back out
+     * of, and destructive dialogs get opened under pressure.
+     *
+     * So: focus moves in on open, Tab cycles within, Escape cancels, and focus
+     * returns to whatever opened it. Escape is disabled while the action is in
+     * flight — cancelling a request already sent would only tell the user
+     * something untrue about what happened.
+     */
+    let {
+        open = false,
+        title = '',
+        body = '',
+        confirmLabel = 'Confirm',
+        /** When set, the user must type it exactly before confirming. */
+        confirmPhrase = null,
+        danger = false,
+        busy = false,
+        onconfirm,
+        oncancel,
+        /**
+         * Extra fields for the dialog — a note, a reason, a duration.
+         *
+         * Rendered between the body and the confirm row so the focus trap covers
+         * them: they are inside `.modal-box`, which is what the trap wraps.
+         */
+        children = null,
+    } = $props();
+
+    let typed = $state('');
+    let dialog = $state(null);
+    /** Whatever had focus before we stole it, so it can be given back. */
+    let opener = null;
+
+    const titleId = 'confirm-title-' + Math.random().toString(36).slice(2, 9);
+
+    // Reset between openings, or the phrase typed for the last record would
+    // still be there for the next one — which is exactly the safety this
+    // removes.
+    $effect(() => {
+        if (open) {
+            typed = '';
+        }
+    });
+
+    $effect(() => {
+        if (!open || !dialog) {
+            return;
+        }
+
+        opener = document.activeElement;
+
+        // The phrase field when there is one, otherwise the cancel button —
+        // never the destructive button. Landing on "delete" with focus already
+        // there is how a stray Enter becomes an incident.
+        const target =
+            dialog.querySelector('input') ?? dialog.querySelector('button:not([data-danger])');
+
+        target?.focus();
+
+        return () => {
+            // Give focus back, so the user is where they were rather than at the
+            // top of the document.
+            if (opener instanceof HTMLElement && document.contains(opener)) {
+                opener.focus();
+            }
+        };
+    });
+
+    function focusable() {
+        if (!dialog) {
+            return [];
+        }
+
+        return [...dialog.querySelectorAll('button, input, [href], select, textarea')].filter(
+            (el) => !el.disabled && el.tabIndex !== -1
+        );
+    }
+
+    function onKeydown(event) {
+        if (!open) {
+            return;
+        }
+
+        if (event.key === 'Escape' && !busy) {
+            event.preventDefault();
+            oncancel?.();
+
+            return;
+        }
+
+        if (event.key !== 'Tab') {
+            return;
+        }
+
+        const items = focusable();
+
+        if (items.length === 0) {
+            return;
+        }
+
+        const first = items[0];
+        const last = items[items.length - 1];
+
+        // Wrap at both ends. Without this Tab walks into the page behind, which
+        // is still rendered and still interactive — the modal would be visual
+        // only.
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }
+
+    const ready = $derived(!confirmPhrase || typed.trim() === confirmPhrase.trim());
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+{#if open}
+    <div class="modal modal-open" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div class="modal-box" bind:this={dialog}>
+            <h3 class="font-medium text-lg" id={titleId}>{title}</h3>
+
+            {#if body}
+                <p class="py-3 text-sm opacity-80 whitespace-pre-line">{body}</p>
+            {/if}
+
+            <!-- Outside the body guard on purpose: a dialog can have extra fields
+                 without having explanatory text, and nesting these inside
+                 {#if body} makes the extra field vanish for exactly the actions
+                 whose confirmation needs no prose. -->
+            {#if children}
+                {@render children()}
+            {/if}
+
+            {#if confirmPhrase}
+                <label class="form-control w-full mt-2">
+                    <span class="label-text mb-1">
+                        {@html tHtml('Type <code class="font-mono">%s</code> to continue', confirmPhrase)}
+                    </span>
+                    <input
+                        class="input input-bordered w-full"
+                        bind:value={typed}
+                        autocomplete="off"
+                        disabled={busy}
+                    />
+                </label>
+            {/if}
+
+            <div class="modal-action">
+                <button class="btn btn-ghost" onclick={oncancel} disabled={busy}>{t('Cancel')}</button>
+                <button
+                    class="btn"
+                    class:btn-error={danger}
+                    class:btn-primary={!danger}
+                    data-danger={danger ? 'true' : undefined}
+                    onclick={onconfirm}
+                    disabled={busy || !ready}
+                >
+                    {#if busy}
+                        <span class="loading loading-spinner loading-sm"></span>
+                    {/if}
+                    {confirmLabel}
+                </button>
+            </div>
+        </div>
+        <!-- A mouse affordance only: it duplicates Cancel, and Escape already
+             serves the keyboard. Leaving it in the tab order would put a second
+             "close" between the user and the buttons that matter. -->
+        <button
+            class="modal-backdrop"
+            onclick={oncancel}
+            aria-label={t('Close')}
+            tabindex="-1"
+            disabled={busy}
+        ></button>
+    </div>
+{/if}

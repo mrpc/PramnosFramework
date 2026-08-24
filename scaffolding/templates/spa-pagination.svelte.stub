@@ -1,0 +1,121 @@
+<script>
+    import { t } from '../lib/i18n.svelte.js';
+
+    /**
+     * Numbered pagination, shared by every list in the application.
+     *
+     * **Why numbers and not just prev/next.** A `‹ Previous · 3 / 41 · Next ›`
+     * pager can only walk, and real work is not a walk: "the oldest records" is
+     * the last page, and reaching page 41 one click at a time is not something
+     * anybody does — they give up, and the bottom of the queue is never looked
+     * at. Every hand-rolled pager in a screen starts as prev/next and stays that
+     * way, which is the reason this is a component.
+     *
+     * **The window is fixed at five numbers plus the two ends.** A paginator
+     * that grows with the result set reflows the whole row as you move through
+     * it, so the button under the cursor changes meaning between clicks. First
+     * and last are always present because they are the two destinations that are
+     * actually named ("the newest", "the oldest").
+     *
+     * `onpage` rather than an event: **the caller owns the URL.** This component
+     * navigates nothing itself — it says which page was asked for and the screen
+     * decides how that becomes a route.
+     *
+     * Every button is a real `<button>` with an accessible name, and the current
+     * page carries `aria-current="page"` rather than only a colour: a paginator
+     * whose position is conveyed by contrast alone is unusable through assistive
+     * tech, and this is the control that says where you are.
+     */
+    let { page = 1, totalPages = 1, onpage, label = 'Pagination' } = $props();
+
+    const current = $derived(Math.min(Math.max(1, Number(page) || 1), Math.max(1, totalPages)));
+    const total = $derived(Math.max(1, Number(totalPages) || 1));
+
+    /** How many numbered buttons sit between the two ends. */
+    const WINDOW = 5;
+
+    /**
+     * The page numbers to show, with `null` standing for a gap.
+     *
+     * The window is clamped to the ends rather than centred blindly, so page 1
+     * and the last page get a full run of neighbours instead of a lopsided one.
+     */
+    const pages = $derived.by(() => {
+        if (total <= WINDOW + 2) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+        }
+
+        const half = Math.floor(WINDOW / 2);
+        let start = Math.max(2, current - half);
+        let end = Math.min(total - 1, start + WINDOW - 1);
+
+        start = Math.max(2, Math.min(start, end - WINDOW + 1));
+
+        const list = [1];
+
+        if (start > 2) {
+            list.push(null);
+        }
+
+        for (let i = start; i <= end; i++) {
+            list.push(i);
+        }
+
+        if (end < total - 1) {
+            list.push(null);
+        }
+
+        list.push(total);
+
+        return list;
+    });
+
+    function goTo(target) {
+        if (target !== current && target >= 1 && target <= total) {
+            onpage?.(target);
+        }
+    }
+</script>
+
+{#if total > 1}
+    <nav class="flex justify-center" aria-label={t(label)}>
+        <div class="join">
+            <button
+                class="join-item btn btn-sm"
+                disabled={current <= 1}
+                aria-label={t('Previous page')}
+                onclick={() => goTo(current - 1)}
+            >
+                ‹
+            </button>
+
+            {#each pages as entry, index (index)}
+                {#if entry === null}
+                    <!-- Not a button: there is no single page it could go to, and
+                         a disabled button here reads as "broken" rather than
+                         "gap". -->
+                    <span class="join-item btn btn-sm btn-disabled" aria-hidden="true">…</span>
+                {:else}
+                    <button
+                        class="join-item btn btn-sm"
+                        class:btn-active={entry === current}
+                        aria-current={entry === current ? 'page' : undefined}
+                        aria-label={t('Page %s', entry)}
+                        onclick={() => goTo(entry)}
+                    >
+                        {entry}
+                    </button>
+                {/if}
+            {/each}
+
+            <button
+                class="join-item btn btn-sm"
+                disabled={current >= total}
+                aria-label={t('Next page')}
+                onclick={() => goTo(current + 1)}
+            >
+                ›
+            </button>
+        </div>
+    </nav>
+{/if}

@@ -31,6 +31,46 @@ class Init extends Command
     /** Web-root-relative directory a Vite build writes into. */
     private const SPA_BUILD_DIR = 'assets/spa';
 
+    /**
+     * The shared front-end files every generated Svelte screen imports.
+     *
+     * One list, three readers: {@see scaffoldSpaComponents()} writes them at
+     * init, {@see \Pramnos\Console\Commands\MakeCommandBase::ensureSpaComponents()}
+     * fills them in for a project scaffolded before they existed, and
+     * `project:resync --spa-components` takes a newer version deliberately.
+     * Three copies of the list would drift the first time one gained a file.
+     *
+     * @var array<string, string> destination, relative to the SPA source root,
+     *                            => stub name
+     */
+    public const SPA_SHARED_COMPONENTS = [
+        'components/DataTable.svelte'     => 'spa-datatable.svelte',
+        'components/Pagination.svelte'    => 'spa-pagination.svelte',
+        'components/ConfirmDialog.svelte' => 'spa-confirm-dialog.svelte',
+        'components/Field.svelte'         => 'spa-field.svelte',
+        'lib/i18n.svelte.js'              => 'spa-i18n.js',
+    ];
+
+    /**
+     * The tests for those components.
+     *
+     * Separate from the list above because they are written at init and by
+     * `project:resync --spa-components`, but **not** by
+     * `ensureSpaComponents()`: that runs from `create:crud` in a project that
+     * may have no test runner configured at all, and writing a Vitest file into
+     * a project without Vitest is a red suite rather than a gift.
+     *
+     * @var array<string, string>
+     */
+    public const SPA_SHARED_COMPONENT_TESTS = [
+        '__tests__/DataTable.test.js'     => 'spa-datatable.test.js',
+        '__tests__/Pagination.test.js'    => 'spa-pagination.test.js',
+        '__tests__/ConfirmDialog.test.js' => 'spa-confirm-dialog.test.js',
+        '__tests__/Field.test.js'         => 'spa-field.test.js',
+        '__tests__/i18n.test.js'          => 'spa-i18n.test.js',
+        '__tests__/router.test.js'        => 'spa-router.test.js',
+    ];
+
     /** Target directory for scaffolding. */
     public string $targetBaseDir = '';
 
@@ -1206,6 +1246,42 @@ class Init extends Command
     }
 
     /**
+     * Where a project keeps its front-end sources, with a trailing slash, or
+     * '' when it has no SPA at all.
+     *
+     * One rule, three callers. `ProjectResync` and `MakeApiClient` each had a
+     * copy of it, and `MakeCommandBase` was about to receive a third — which
+     * would not have been the same rule: the version written for the CRUD
+     * generator answered `frontend/` unconditionally, so a `vanilla` project
+     * (no build step, sources served straight from the web root) would have had
+     * its generated screens written into a directory nothing serves.
+     *
+     * The rule itself mirrors {@see scaffoldSpa()}: a build stack keeps sources
+     * out of the web root, the build-less stack serves them from it, and an
+     * explicit `spa_source_dir` wins over both — so a project whose front end
+     * lives somewhere else is helped without a repo-wide rename.
+     *
+     * @param  array<string,mixed> $config The decoded app/app.php
+     * @return string Trailing-slashed directory, relative to the project root,
+     *                or '' for an application with no SPA.
+     */
+    public static function spaSourceDirFor(array $config): string
+    {
+        if ((string) ($config['app_style'] ?? 'mvc') === 'mvc') {
+            return '';
+        }
+
+        $configured = trim((string) ($config['spa_source_dir'] ?? ''));
+        if ($configured !== '') {
+            return rtrim($configured, '/') . '/';
+        }
+
+        return self::spaNeedsNode((string) ($config['spa_stack'] ?? ''))
+            ? 'frontend/'
+            : 'www/assets/js/';
+    }
+
+    /**
      * Scaffold the single-page-application front end.
      *
      * Three stacks share one shape: an API client, an entry point, a PHP shell
@@ -1287,6 +1363,11 @@ class Init extends Command
             // Where the application is mounted, so client-side URLs match the
             // paths the server actually routes to the shell.
             'routerBase'    => $appStyle === 'hybrid' ? '/app' : '',
+            // Which BCP-47 locale each of the framework's language names maps
+            // to, for Intl formatting. The project's to extend as it adds
+            // languages; the fallback is the source language, which is always a
+            // correct answer.
+            'localeMapJson' => json_encode(['english' => 'en-GB']),
         ];
 
         if ($spaStack === 'svelte') {
@@ -1304,6 +1385,7 @@ class Init extends Command
         // a scaffold, it is a demo of a 403. Generate the service + controller +
         // route the front end talks to, in the shape the style prescribes.
         $this->scaffoldSpaStatusEndpoint($namespace, $appName);
+        $this->scaffoldSpaLanguageEndpoint($namespace, $tokens);
 
         // ── Shared pieces ─────────────────────────────────────────────────────
         $this->mkdir($sourceDir . '/lib');
@@ -1325,6 +1407,14 @@ class Init extends Command
         // imports it unconditionally so a generated screen becomes reachable
         // without touching App.svelte.
         $this->writeFile($sourceDir . '/screens/registry.js', $this->renderStub('spa-screens-registry.js', $tokens));
+        // The components a generated screen imports, written before anything
+        // imports them. `create:crud` writes a screen that imports DataTable,
+        // Pagination, ConfirmDialog and Field; a project whose components
+        // directory does not exist gets a build error several minutes after the
+        // command that reported success.
+        if ($spaStack === 'svelte') {
+            $this->scaffoldSpaComponents($sourceDir, $tokens);
+        }
         $this->scaffoldSpaTestingGuide($spaStack, $tokens);
         if (in_array('auth', $features, true)) {
             $this->scaffoldSpaAdmin($spaStack, $sourceDir, $tokens);
@@ -1349,6 +1439,41 @@ class Init extends Command
      * than a front end pointing at a route that does not exist. The route
      * itself is registered by scaffoldRestApi(), which writes routes.php later.
      */
+    /**
+     * Serve the framework's own translation catalogue to the front end.
+     *
+     * The framework already owns translation: `Language` loads
+     * `app/language/<lang>.php` and `_()` looks a source string up in it. A SPA
+     * cannot call `_()`, so without an endpoint a front end either ships no
+     * translation at all or grows a **second** catalogue — and a second
+     * catalogue means a string that moves between a component and a controller
+     * loses its translation, silently, in whichever direction it moved.
+     *
+     * `lib/i18n.svelte.js` is a client for this: same key (the English source),
+     * same fallback (the key itself), same `%s` substitution.
+     *
+     * **Only when there is a catalogue to serve.** A project with no
+     * `app/language/` does not need an endpoint over an empty array, and `t()`
+     * returning its own key is already the right behaviour with no endpoint at
+     * all.
+     *
+     * @param array<string, string> $tokens Shared SPA stub tokens
+     */
+    private function scaffoldSpaLanguageEndpoint(string $namespace, array $tokens): void
+    {
+        if (!is_dir($this->targetBaseDir . '/app/language')) {
+            return;
+        }
+
+        $this->mkdir('src/Api/Controllers');
+        $this->writeFile(
+            'src/Api/Controllers/LanguageController.php',
+            $this->renderStub('spa-language-controller.php', $tokens + [
+                'namespace' => $namespace,
+            ])
+        );
+    }
+
     private function scaffoldSpaStatusEndpoint(string $namespace, string $appName): void
     {
         $this->mkdir('src/Services');
@@ -1452,6 +1577,57 @@ class Init extends Command
         );
         if (!$this->skipWrite('frontend/screens/registry.js')) {
             file_put_contents($registry, $contents);
+        }
+    }
+
+    /**
+     * Write the shared Svelte components, and the tests that render them.
+     *
+     * These are the files `create:crud`'s generated screen imports, and the
+     * reason the SPA generator can now produce a screen worth keeping rather
+     * than a demo: a table that sorts and pages against the framework's own
+     * `ApiListResponse::paginated()` envelope, a pager, a confirmation dialog
+     * that is not `window.confirm()`, a form field that renders the control a
+     * column's *type* calls for, and a translation lookup.
+     *
+     * **Each ships with its test.** The framework's own JS suite is
+     * `node --test` and has no Svelte compiler; a scaffolded project has Vitest
+     * and `@testing-library/svelte` already. So the components are tested where
+     * they run, in every generated project, rather than nowhere — and the same
+     * lever `create:component` pulls when it writes a test beside a component.
+     *
+     * @param string                $sourceDir Front-end source root, relative
+     * @param array<string, string> $tokens    Shared SPA stub tokens
+     */
+    private function scaffoldSpaComponents(string $sourceDir, array $tokens): void
+    {
+        $this->mkdir($sourceDir . '/components');
+        $this->mkdir($sourceDir . '/__tests__');
+
+        foreach (self::SPA_SHARED_COMPONENTS as $relative => $stub) {
+            $this->writeFile(
+                $sourceDir . '/' . $relative,
+                $this->renderStub($stub, $tokens)
+            );
+        }
+
+        foreach (self::SPA_SHARED_COMPONENT_TESTS as $relative => $stub) {
+            $this->writeFile(
+                $sourceDir . '/' . $relative,
+                $this->renderStub($stub, $tokens)
+            );
+        }
+
+        // Two rules DataTable needs. Appended rather than written: app.css is
+        // the project's file and carries its theme block at the top.
+        $css = $this->targetBaseDir . '/' . $sourceDir . '/app.css';
+        if (is_file($css)
+            && !str_contains((string) file_get_contents($css), '.table-sticky')) {
+            file_put_contents(
+                $css,
+                "\n" . $this->renderStub('spa-app-css-tables.css', []),
+                FILE_APPEND
+            );
         }
     }
 

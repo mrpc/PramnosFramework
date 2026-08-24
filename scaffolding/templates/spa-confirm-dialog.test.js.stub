@@ -1,0 +1,250 @@
+import { render, screen, fireEvent } from '@testing-library/svelte';
+import ConfirmDialog from '../components/ConfirmDialog.svelte';
+
+/**
+ * Tests for the shared confirmation dialog.
+ *
+ * The generator used to emit `window.confirm()`, which cannot be styled, cannot
+ * carry a second field, cannot say what is about to happen in more than one
+ * line, and blocks the whole tab. This replaces it, and everything asserted
+ * here is a property `window.confirm()` had for free and a hand-rolled modal
+ * usually does not: focus goes somewhere sensible, Escape works, Tab does not
+ * walk out of the dialog into the page behind, and a destructive action cannot
+ * be triggered twice.
+ */
+
+const BASE = {
+    open: true,
+    title: 'Delete this station?',
+    body: 'This cannot be undone.',
+    confirmLabel: 'Delete',
+    danger: true,
+};
+
+describe('ConfirmDialog', () => {
+    it('renders nothing when closed', () => {
+        // Arrange / Act
+        const { container } = render(ConfirmDialog, {
+            ...BASE,
+            open: false,
+            onconfirm: () => {},
+            oncancel: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it('is a modal dialog labelled by its own title', () => {
+        // Arrange / Act
+        render(ConfirmDialog, { ...BASE, onconfirm: () => {}, oncancel: () => {} });
+
+        // Assert
+        const dialog = screen.getByRole('dialog');
+        expect(dialog.getAttribute('aria-modal')).toBe('true');
+        expect(
+            document.getElementById(dialog.getAttribute('aria-labelledby')).textContent
+        ).toContain('Delete this station?');
+    });
+
+    it('reports confirm and cancel separately', async () => {
+        // Arrange
+        let confirmed = 0;
+        let cancelled = 0;
+        render(ConfirmDialog, {
+            ...BASE,
+            onconfirm: () => confirmed++,
+            oncancel: () => cancelled++,
+        });
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        // Assert
+        expect(confirmed).toBe(1);
+        expect(cancelled).toBe(1);
+    });
+
+    /**
+     * Focus lands on the cancel button, never on the destructive one.
+     *
+     * Landing on "Delete" with focus already there is how a stray Enter — from
+     * the keypress that opened the dialog, still in flight — becomes an
+     * incident.
+     */
+    it('focuses cancel rather than the destructive button', () => {
+        // Arrange / Act
+        render(ConfirmDialog, { ...BASE, onconfirm: () => {}, oncancel: () => {} });
+
+        // Assert
+        expect(document.activeElement.textContent.trim()).toBe('Cancel');
+    });
+
+    it('cancels on Escape', async () => {
+        // Arrange
+        let cancelled = 0;
+        render(ConfirmDialog, {
+            ...BASE,
+            onconfirm: () => {},
+            oncancel: () => cancelled++,
+        });
+
+        // Act
+        await fireEvent.keyDown(window, { key: 'Escape' });
+
+        // Assert
+        expect(cancelled).toBe(1);
+    });
+
+    /**
+     * Escape does **not** cancel while the action is running.
+     *
+     * The request has already left. Dismissing the dialog would tell the user it
+     * did not happen while it is happening, and the screen behind would then
+     * disagree with the server about whether the record exists.
+     */
+    it('ignores Escape while busy', async () => {
+        // Arrange
+        let cancelled = 0;
+        render(ConfirmDialog, {
+            ...BASE,
+            busy: true,
+            onconfirm: () => {},
+            oncancel: () => cancelled++,
+        });
+
+        // Act
+        await fireEvent.keyDown(window, { key: 'Escape' });
+
+        // Assert
+        expect(cancelled).toBe(0);
+    });
+
+    it('disables both buttons while busy, so the action cannot be sent twice', () => {
+        // Arrange / Act
+        render(ConfirmDialog, {
+            ...BASE,
+            busy: true,
+            onconfirm: () => {},
+            oncancel: () => {},
+        });
+
+        // Assert
+        expect(screen.getByRole('button', { name: /Delete/ }).disabled).toBe(true);
+        expect(screen.getByRole('button', { name: 'Cancel' }).disabled).toBe(true);
+    });
+
+    /**
+     * Tab wraps at both ends.
+     *
+     * Without it Tab walks into the page behind, which is still rendered and
+     * still interactive — the modal would be visual only, and the next Enter
+     * would press a button the user cannot see.
+     */
+    it('wraps focus at the end of the dialog', async () => {
+        // Arrange
+        render(ConfirmDialog, { ...BASE, onconfirm: () => {}, oncancel: () => {} });
+        const buttons = screen.getAllByRole('button');
+        const last = buttons[buttons.length - 1];
+        last.focus();
+
+        // Act
+        await fireEvent.keyDown(window, { key: 'Tab' });
+
+        // Assert — back to the first, not out of the dialog.
+        expect(document.activeElement).toBe(buttons[0]);
+    });
+
+    it('wraps focus backwards at the start of the dialog', async () => {
+        // Arrange
+        render(ConfirmDialog, { ...BASE, onconfirm: () => {}, oncancel: () => {} });
+        const buttons = screen.getAllByRole('button');
+        buttons[0].focus();
+
+        // Act
+        await fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+
+        // Assert
+        expect(document.activeElement).toBe(buttons[buttons.length - 1]);
+    });
+
+    // ── The typed-phrase mode ───────────────────────────────────────────────
+
+    /**
+     * For an action worth a second thought, the confirm button stays disabled
+     * until the phrase is typed exactly.
+     */
+    it('holds the confirm button until the phrase matches', async () => {
+        // Arrange
+        render(ConfirmDialog, {
+            ...BASE,
+            confirmPhrase: 'Aroma FM',
+            onconfirm: () => {},
+            oncancel: () => {},
+        });
+        const confirm = screen.getByRole('button', { name: /Delete/ });
+        const input = screen.getByRole('textbox');
+
+        // Assert — nothing typed yet.
+        expect(confirm.disabled).toBe(true);
+
+        // Act — close, but not it.
+        await fireEvent.input(input, { target: { value: 'Aroma' } });
+        expect(confirm.disabled).toBe(true);
+
+        await fireEvent.input(input, { target: { value: 'Aroma FM' } });
+
+        // Assert
+        expect(confirm.disabled).toBe(false);
+    });
+
+    it('accepts the phrase with surrounding whitespace', async () => {
+        // Arrange — a pasted name usually brings a space with it, and refusing
+        // it teaches nothing about the record being deleted.
+        render(ConfirmDialog, {
+            ...BASE,
+            confirmPhrase: 'Aroma FM',
+            onconfirm: () => {},
+            oncancel: () => {},
+        });
+
+        // Act
+        await fireEvent.input(screen.getByRole('textbox'), {
+            target: { value: '  Aroma FM  ' },
+        });
+
+        // Assert
+        expect(screen.getByRole('button', { name: /Delete/ }).disabled).toBe(false);
+    });
+
+    /**
+     * The phrase is cleared between openings.
+     *
+     * Otherwise the phrase typed for the last record is still there for the
+     * next one, and the confirm button is live before the user has read the
+     * name — which removes exactly the safety this mode exists to add.
+     */
+    it('clears the typed phrase when reopened', async () => {
+        // Arrange
+        const props = {
+            ...BASE,
+            confirmPhrase: 'Aroma FM',
+            onconfirm: () => {},
+            oncancel: () => {},
+        };
+        const { rerender } = render(ConfirmDialog, props);
+        await fireEvent.input(screen.getByRole('textbox'), {
+            target: { value: 'Aroma FM' },
+        });
+        expect(screen.getByRole('button', { name: /Delete/ }).disabled).toBe(false);
+
+        // Act — close, then open again for the next record.
+        await rerender({ ...props, open: false });
+        await rerender({ ...props, open: true });
+
+        // Assert
+        expect(screen.getByRole('textbox').value).toBe('');
+        expect(screen.getByRole('button', { name: /Delete/ }).disabled).toBe(true);
+    });
+});

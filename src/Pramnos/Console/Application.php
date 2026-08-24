@@ -80,6 +80,13 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\Make\MakeController());
         $this->add(new \Pramnos\Console\Commands\Make\MakeService());
         $this->add(new \Pramnos\Console\Commands\Make\MakeView());
+        // The front-end counterparts of create:view and create:service. Both
+        // capabilities existed on MakeCommandBase and neither had a door:
+        // createSpaScreen() was reachable only through create:crud, so adding a
+        // dashboard meant generating a CRUD for a table nobody wanted and
+        // deleting two thirds of it.
+        $this->add(new \Pramnos\Console\Commands\Make\MakeScreen());
+        $this->add(new \Pramnos\Console\Commands\Make\MakeComponent());
         $this->add(new \Pramnos\Console\Commands\Make\MakeCrud());
         $this->add(new \Pramnos\Console\Commands\Make\MakeApi());
         $this->add(new \Pramnos\Console\Commands\Make\MakeMigration());

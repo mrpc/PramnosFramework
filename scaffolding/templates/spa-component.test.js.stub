@@ -1,0 +1,23 @@
+import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/svelte';
+import {{ component }} from '../components/{{ component }}.svelte';
+
+/**
+ * {{ component }}.
+ *
+ * One real assertion, generated with the component, for the reason the framework
+ * generates a test beside every service: a suite with a live test per unit is a
+ * suite somebody extends, and an empty `__tests__` directory is one nobody does.
+ *
+ * Replace this with what the component is actually **for**. The assertions worth
+ * writing are the ones about the contract nobody can see from the markup — that
+ * Escape cancels, that a callback fires once rather than twice, that the mobile
+ * layout renders the same columns as the table.
+ */
+describe('{{ component }}', () => {
+    it('renders its heading', () => {
+        render({{ component }});
+
+        expect(screen.getByText('{{ label }}')).toBeTruthy();
+    });
+});

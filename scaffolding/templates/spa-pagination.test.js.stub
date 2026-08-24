@@ -1,0 +1,162 @@
+import { render, screen, fireEvent } from '@testing-library/svelte';
+import Pagination from '../components/Pagination.svelte';
+
+/**
+ * Tests for the shared pager.
+ *
+ * It replaces the `« 3 / 41 »` the generator used to emit, and the difference
+ * is not decoration: a numbered pager can be jumped with, and every button is a
+ * real `<button>` with an accessible name so it can be reached without a mouse.
+ *
+ * Like DataTable, it **reports and never performs** — `onpage` says which page
+ * was asked for and the screen decides what to do about it.
+ */
+
+describe('Pagination', () => {
+    it('renders nothing when there is only one page', () => {
+        // Arrange / Act — a pager over a single page is a control that cannot
+        // do anything, and it makes a short list look paginated.
+        const { container } = render(Pagination, {
+            page: 1,
+            totalPages: 1,
+            onpage: () => {},
+        });
+
+        // Assert
+        expect(container.querySelector('nav')).toBeNull();
+    });
+
+    it('renders every page when they fit', () => {
+        // Arrange / Act
+        render(Pagination, { page: 1, totalPages: 4, onpage: () => {} });
+
+        // Assert
+        for (const n of [1, 2, 3, 4]) {
+            expect(screen.getByRole('button', { name: `Page ${n}` })).toBeTruthy();
+        }
+    });
+
+    it('reports the page that was asked for', async () => {
+        // Arrange
+        const asked = [];
+        render(Pagination, {
+            page: 1,
+            totalPages: 4,
+            onpage: (next) => asked.push(next),
+        });
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Page 3' }));
+
+        // Assert
+        expect(asked).toEqual([3]);
+    });
+
+    /**
+     * Asking for the page you are already on is not a page change.
+     *
+     * Reporting it would send a request that cannot change anything, and on a
+     * screen that scrolls to the top on every page change it would also throw
+     * the reader's position away for nothing.
+     */
+    it('does not report the current page', async () => {
+        // Arrange
+        const asked = [];
+        render(Pagination, {
+            page: 2,
+            totalPages: 4,
+            onpage: (next) => asked.push(next),
+        });
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
+
+        // Assert
+        expect(asked).toEqual([]);
+    });
+
+    it('marks the current page for a screen reader, not only with colour', async () => {
+        // Arrange / Act
+        render(Pagination, { page: 2, totalPages: 4, onpage: () => {} });
+
+        // Assert
+        const current = screen.getByRole('button', { name: 'Page 2' });
+        expect(current.getAttribute('aria-current')).toBe('page');
+        expect(
+            screen.getByRole('button', { name: 'Page 3' }).getAttribute('aria-current')
+        ).toBeNull();
+    });
+
+    /**
+     * Over a long run the window is clamped to the ends rather than centred
+     * blindly, and the first and last pages are always reachable — a pager that
+     * can only step is a pager you cannot get to the end of.
+     */
+    it('always offers the first and last page of a long run', () => {
+        // Arrange / Act
+        render(Pagination, { page: 20, totalPages: 41, onpage: () => {} });
+
+        // Assert
+        expect(screen.getByRole('button', { name: 'Page 1' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Page 41' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Page 20' })).toBeTruthy();
+    });
+
+    it('shows a gap rather than a disabled button where pages are skipped', () => {
+        // Arrange / Act — a disabled button in the gap reads as "broken"; there
+        // is no single page it could go to.
+        const { container } = render(Pagination, {
+            page: 20,
+            totalPages: 41,
+            onpage: () => {},
+        });
+
+        // Assert
+        expect(container.textContent).toContain('…');
+        // And the gap is not something you can press.
+        expect(screen.queryByRole('button', { name: '…' })).toBeNull();
+    });
+
+    it('gives page one a full run of neighbours instead of a lopsided one', () => {
+        // Arrange / Act
+        render(Pagination, { page: 1, totalPages: 41, onpage: () => {} });
+
+        // Assert — the window is clamped to the start, so 2..6 are all there.
+        for (const n of [2, 3, 4, 5, 6]) {
+            expect(screen.getByRole('button', { name: `Page ${n}` })).toBeTruthy();
+        }
+    });
+
+    it('moves one page at a time with previous and next', async () => {
+        // Arrange
+        const asked = [];
+        render(Pagination, {
+            page: 3,
+            totalPages: 10,
+            onpage: (next) => asked.push(next),
+        });
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+
+        // Assert
+        expect(asked).toEqual([4, 2]);
+    });
+
+    /**
+     * A page number outside the run is clamped rather than trusted.
+     *
+     * It arrives from the URL, where anybody can type it, and a pager that
+     * highlighted page 900 of 10 would offer to navigate to nothing.
+     */
+    it('clamps a page beyond the end', () => {
+        // Arrange / Act
+        render(Pagination, { page: 900, totalPages: 10, onpage: () => {} });
+
+        // Assert
+        expect(
+            screen.getByRole('button', { name: 'Page 10' }).getAttribute('aria-current')
+        ).toBe('page');
+    });
+});

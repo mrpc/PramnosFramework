@@ -143,20 +143,7 @@ class MakeApiClient extends SpaCommandBase
      */
     private function spaSourceDirectory(): string
     {
-        $config = $this->config();
-
-        $configured = trim((string) ($config['spa_source_dir'] ?? ''));
-        if ($configured !== '') {
-            return rtrim($configured, '/') . '/';
-        }
-
-        if ((string) ($config['app_style'] ?? 'mvc') === 'mvc') {
-            return '';
-        }
-
-        return \Pramnos\Console\Commands\Init::spaNeedsNode((string) ($config['spa_stack'] ?? ''))
-            ? 'frontend/'
-            : 'www/assets/js/';
+        return \Pramnos\Console\Commands\Init::spaSourceDirFor($this->config());
     }
 
     /**

@@ -6,183 +6,318 @@
      * beside it, which sits on the same model the MVC side uses: one domain
      * object, two controllers.
      *
-     * The list endpoint is the model's getApiList() pipeline, so paging and
-     * search are the server's, not the browser's — the screen never loads the
-     * whole table to filter it locally.
+     * ## The server searches, orders and pages
+     *
+     * `getApiList()` takes `page`, `limit`, `search`, `sort` and `fields`, and
+     * answers in the `ApiListResponse` envelope that `<DataTable>` speaks. So
+     * this screen never holds the whole table to show twenty rows, never orders
+     * by whatever JavaScript's collator decides rather than by the database's
+     * collation, and never searches only what happened to be fetched.
+     *
+     * ## The URL is the state
+     *
+     * Page, search, sort and the record being edited are all **derived from the
+     * route**, never stored here. A link to a search is a link to that search, a
+     * refresh lands where you were, and a background re-read cannot silently move
+     * somebody's page. `navigate()` is the one place this screen's state becomes
+     * a route.
+     *
+     * ## The fields are the table's, with their types
+     *
+     * `FIELDS` is `introspectTableAsWizardColumns()` output — the same
+     * descriptors the MVC generator builds its form from. `<Field>` renders each
+     * as the control it actually is: a checkbox for a boolean, a picker for a
+     * foreign key, a date input for a date. Edit this array to relabel, reorder
+     * or drop a column; it is yours once generated.
      */
+    import DataTable from '../components/DataTable.svelte';
+    import ConfirmDialog from '../components/ConfirmDialog.svelte';
+    import Field from '../components/Field.svelte';
     import { api, ApiError } from '../lib/api.js';
+    import { go, href } from '../lib/router.js';
+    import { t } from '../lib/i18n.svelte.js';
 
-    const RESOURCE = '/{{ resource }}';
+    const RESOURCE = '{{ apiPrefix }}/{{ resource }}';
+    const ROUTE    = '/{{ resource }}';
     const KEY      = '{{ primaryKey }}';
-    const COLUMNS  = {{ columnsJson }};
+    const PER_PAGE = {{ perPage }};
 
-    let rows      = $state([]);
-    let total     = $state(0);
-    let page      = $state(1);
-    let perPage   = $state(20);
-    let search    = $state('');
-    let loading   = $state(true);
-    let error     = $state(null);
+    /** Column descriptors, from the table itself. See the note above. */
+    const FIELDS = {{ fieldsJson }};
 
-    /** The record being edited (null = the list is showing). */
-    let editing   = $state(null);
-    let saving    = $state(false);
-    let formError = $state(null);
+    /** Which columns the list shows. Trimmed to the first few: a generated table
+     *  with thirty columns is unreadable, and the detail form has them all. */
+    const LIST_FIELDS = FIELDS.slice(0, {{ listColumnCount }});
 
-    const pages = $derived(Math.max(1, Math.ceil(total / perPage)));
+    let { route } = $props();
 
-    /** Load one page from the API. */
+    let rows       = $state([]);
+    let pagination = $state(null);
+    let loading    = $state(true);
+    let error      = $state(null);
+
+    /** The record being edited, and the per-field messages from a 422. */
+    let editing    = $state(null);
+    let saving     = $state(false);
+    let formError  = $state(null);
+    let fieldErrors = $state({});
+
+    let confirming = $state(null);
+    let deleting   = $state(false);
+
+    const search        = $derived(route.query.get('q') ?? '');
+    const sortField     = $derived(route.query.get('sort') ?? '');
+    const sortDirection = $derived(route.query.get('dir') === 'desc' ? 'desc' : 'asc');
+    const page          = $derived(Math.max(1, Number.parseInt(route.query.get('page') ?? '1', 10) || 1));
+
+    const sort = $derived(sortField === '' ? null : { field: sortField, direction: sortDirection });
+
+    /**
+     * `/{{ resource }}/new` and `/{{ resource }}/42/edit` are routes, not modes.
+     *
+     * A form opened by a variable cannot be linked to, cannot be reloaded, and is
+     * closed by the back button doing something else entirely. This is the same
+     * argument as for the page number, applied to the one piece of state a CRUD
+     * screen is most likely to keep locally.
+     */
+    const editingId = $derived(
+        route.segments[1] === 'new' ? 'new'
+            : route.segments[2] === 'edit' ? route.segments[1]
+            : null
+    );
+
+    $effect(() => {
+        void search; void sortField; void sortDirection; void page;
+        load();
+    });
+
+    $effect(() => {
+        if (editingId === null) {
+            editing = null;
+        } else if (editingId === 'new') {
+            // Every editable column blank — `null` where the column is nullable,
+            // so an untouched optional column is stored as NULL rather than ''.
+            editing = Object.fromEntries(FIELDS.map((f) => [f.name, f.nullable === false ? '' : null]));
+            fieldErrors = {};
+        } else {
+            openEdit(editingId);
+        }
+    });
+
+    /** One place that turns this screen's state into a route. */
+    function navigate(next, path = ROUTE) {
+        const query = {
+            ...(search === '' ? {} : { q: search }),
+            ...(sortField === '' ? {} : { sort: sortField, dir: sortDirection }),
+            ...(page > 1 ? { page: String(page) } : {}),
+            ...next,
+        };
+
+        // A new search or a new order starts at the first page: page 7 of the old
+        // result set is not page 7 of the new one.
+        if (next.q !== undefined || next.sort !== undefined) {
+            delete query.page;
+        }
+
+        go(path, Object.fromEntries(Object.entries(query).filter(([, v]) => v !== '' && v !== undefined)));
+    }
+
     async function load() {
         loading = true;
-        error   = null;
+        error = null;
+
         try {
-            // Parameter names are the ones the generated API controller
-            // reads (page/limit/search/sort), and the envelope is the one
-            // getApiList() returns: { data, pagination: { totalitems, … } }.
-            const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
-            if (search) {
-                params.set('search', search);
-            }
-            const result = await api.get(`${RESOURCE}?${params}`);
-            rows  = result.data ?? [];
-            total = result.pagination?.totalitems ?? rows.length;
-        } catch (err) {
-            error = err instanceof ApiError
-                ? `Could not load: HTTP ${err.status}`
-                : 'Could not reach the API.';
+            const result = await api.get(RESOURCE, {
+                page,
+                limit: PER_PAGE,
+                ...(search === '' ? {} : { search }),
+                // `getApiList()` takes one `sort` string with a leading sign,
+                // not a field/direction pair. Translated here rather than
+                // teaching <DataTable> a second convention.
+                ...(sortField === '' ? {} : { sort: (sortDirection === 'desc' ? '-' : '+') + sortField }),
+            });
+
+            rows = result?.data ?? [];
+            pagination = result?.pagination ?? null;
+        } catch (failure) {
+            rows = [];
+            pagination = null;
+            error = failure instanceof ApiError
+                ? t('Could not load: HTTP %s', failure.status)
+                : t('Could not reach the API.');
         } finally {
             loading = false;
         }
     }
 
-    $effect(() => { load(); });
-
-    /** Start a new record, with every editable column blank. */
-    function startCreate() {
-        editing   = Object.fromEntries(COLUMNS.map((c) => [c, '']));
-        formError = null;
-    }
-
-    /** Edit an existing row (a copy, so cancelling changes nothing). */
-    function startEdit(row) {
-        editing   = { ...row };
-        formError = null;
+    async function openEdit(id) {
+        try {
+            const result = await api.get(`${RESOURCE}/${encodeURIComponent(id)}`);
+            editing = { ...(result?.data ?? result) };
+            fieldErrors = {};
+        } catch {
+            error = t('Could not load that record.');
+            go(ROUTE);
+        }
     }
 
     /** Create or update, then go back to the list. */
     async function save(event) {
         event.preventDefault();
-        saving    = true;
+        saving = true;
         formError = null;
+        fieldErrors = {};
+
         try {
             const id = editing[KEY];
+
             if (id) {
-                await api.put(`${RESOURCE}/${id}`, editing);
+                await api.put(`${RESOURCE}/${encodeURIComponent(id)}`, editing);
             } else {
                 await api.post(RESOURCE, editing);
             }
-            editing = null;
+
+            navigate({}, ROUTE);
             await load();
-        } catch (err) {
-            formError = err instanceof ApiError && err.status === 422
-                ? 'Some fields are invalid.'
-                : 'Could not save.';
+        } catch (failure) {
+            // **A 422 names the fields.** Showing one banner for "some fields are
+            // invalid" over a twenty-field form makes the user hunt, and the
+            // server already said which ones — `ValidationException` answers with
+            // `{errors: {field: message}}`.
+            if (failure instanceof ApiError && failure.status === 422) {
+                fieldErrors = failure.payload?.errors ?? {};
+                formError = Object.keys(fieldErrors).length === 0
+                    ? t('Some fields are invalid.')
+                    : null;
+            } else {
+                formError = t('Could not save.');
+            }
         } finally {
             saving = false;
         }
     }
 
-    /** Delete a row after confirming. */
-    async function remove(row) {
-        if (!confirm('Delete this record?')) {
-            return;
-        }
+    async function remove() {
+        deleting = true;
+
         try {
-            await api.delete(`${RESOURCE}/${row[KEY]}`);
+            await api.delete(`${RESOURCE}/${encodeURIComponent(confirming[KEY])}`);
+            confirming = null;
             await load();
-        } catch (err) {
-            error = 'Could not delete.';
+        } catch {
+            error = t('Could not delete.');
+        } finally {
+            deleting = false;
         }
     }
 
-    /** Search resets to the first page, or results would be a page deep. */
-    function submitSearch(event) {
-        event.preventDefault();
-        page = 1;
-        load();
+    function fieldValue(row, field) {
+        const value = row[field.name];
+
+        if (value === null || value === undefined) {
+            return '—';
+        }
+
+        if (field.type === 'boolean') {
+            return (value === true || value === 1 || value === '1' || value === 't') ? '✓' : '—';
+        }
+
+        return String(value);
     }
 </script>
 
-<div class="card bg-base-100 shadow">
-    <div class="card-body">
-        <div class="flex flex-wrap items-center gap-3">
-            <h2 class="card-title">{{ entityLabel }}</h2>
-            <form class="ml-auto join" onsubmit={submitSearch}>
-                <input class="input input-bordered input-sm join-item" placeholder="Search" bind:value={search} />
-                <button class="btn btn-sm join-item" type="submit">Search</button>
-            </form>
-            <button class="btn btn-primary btn-sm" onclick={startCreate}>New</button>
-        </div>
+<div class="space-y-4">
+    <div class="flex flex-wrap items-center gap-3">
+        <h1 class="text-2xl font-medium">{t('{{ entityLabel }}')}</h1>
+        <a class="btn btn-primary btn-sm ml-auto" href={href(`${ROUTE}/new`)}>{t('New')}</a>
+    </div>
 
-        {#if error}
-            <div role="alert" class="alert alert-error mt-3"><span>{error}</span></div>
-        {/if}
+    {#if editing}
+        <form class="card bg-base-100 border border-base-content/10" onsubmit={save}>
+            <div class="card-body gap-4">
+                <h2 class="card-title text-base">
+                    {editing[KEY] ? t('Edit') : t('New')}
+                </h2>
 
-        {#if editing}
-            <form class="mt-4 grid gap-3 md:grid-cols-2" onsubmit={save}>
-                {#each COLUMNS as column}
-                    <label class="form-control">
-                        <span class="label-text">{column}</span>
-                        <input class="input input-bordered" bind:value={editing[column]} />
-                    </label>
-                {/each}
+                <div class="grid gap-4 md:grid-cols-2">
+                    {#each FIELDS as field (field.name)}
+                        <Field
+                            {field}
+                            value={editing[field.name]}
+                            error={fieldErrors[field.name] ?? null}
+                            disabled={saving}
+                            onchange={(name, next) => (editing = { ...editing, [name]: next })}
+                        />
+                    {/each}
+                </div>
 
                 {#if formError}
-                    <div role="alert" class="alert alert-error md:col-span-2"><span>{formError}</span></div>
+                    <div role="alert" class="alert alert-error"><span>{formError}</span></div>
                 {/if}
 
-                <div class="flex gap-2 md:col-span-2">
+                <div class="flex gap-2">
                     <button class="btn btn-primary" type="submit" disabled={saving}>
-                        {saving ? 'Saving…' : 'Save'}
+                        {#if saving}<span class="loading loading-spinner loading-sm"></span>{/if}
+                        {t('Save')}
                     </button>
-                    <button class="btn" type="button" onclick={() => (editing = null)}>Cancel</button>
+                    <a class="btn btn-ghost" href={href(ROUTE)}>{t('Cancel')}</a>
                 </div>
-            </form>
-        {:else if loading}
-            <span class="loading loading-spinner loading-md mt-4"></span>
-        {:else}
-            <div class="mt-4 overflow-x-auto">
-                <table class="table table-zebra">
-                    <thead>
-                        <tr>
-                            {#each COLUMNS as column}<th>{column}</th>{/each}
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {#each rows as row}
-                            <tr>
-                                {#each COLUMNS as column}<td>{row[column] ?? ''}</td>{/each}
-                                <td class="flex gap-2">
-                                    <button class="btn btn-xs" onclick={() => startEdit(row)}>Edit</button>
-                                    <button class="btn btn-xs btn-error" onclick={() => remove(row)}>Delete</button>
-                                </td>
-                            </tr>
-                        {:else}
-                            <tr><td colspan={COLUMNS.length + 1}>Nothing here yet.</td></tr>
-                        {/each}
-                    </tbody>
-                </table>
             </div>
-
-            <div class="mt-3 flex items-center gap-3">
-                <div class="join">
-                    <button class="btn btn-sm join-item" disabled={page <= 1} onclick={() => { page -= 1; load(); }}>«</button>
-                    <button class="btn btn-sm join-item">{page} / {pages}</button>
-                    <button class="btn btn-sm join-item" disabled={page >= pages} onclick={() => { page += 1; load(); }}>»</button>
-                </div>
-                <span class="text-sm opacity-70">{total} records</span>
-            </div>
-        {/if}
-    </div>
+        </form>
+    {:else}
+        <DataTable
+            columns={[
+                ...LIST_FIELDS.map((field) => ({
+                    label: field.label ?? field.name,
+                    // One snippet for every column: it reads the column handed to
+                    // it as its second argument, which is why <DataTable> passes
+                    // one. A snippet per column is not possible here — the column
+                    // list is data, not markup.
+                    cell: valueCell,
+                    sort: field.name,
+                    align: ['integer', 'biginteger', 'decimal', 'float', 'double'].includes(field.type)
+                        ? 'num'
+                        : undefined,
+                })),
+                { label: '', cell: actionsCell },
+            ]}
+            {rows}
+            rowKey={(row) => row[KEY]}
+            {loading}
+            {error}
+            {sort}
+            onsort={(next) =>
+                navigate(next === null
+                    ? { sort: undefined, dir: undefined }
+                    : { sort: next.field, dir: next.direction })}
+            {search}
+            onsearch={(next) => navigate({ q: next })}
+            searchLabel={t('Search %s', t('{{ entityLabel }}'))}
+            {pagination}
+            onpage={(next) => navigate({ page: String(next) })}
+            empty={search === '' ? t('There are no records.') : t('Nothing matches the search.')}
+        />
+    {/if}
 </div>
+
+<ConfirmDialog
+    open={confirming !== null}
+    danger
+    busy={deleting}
+    title={t('Delete this record?')}
+    body={t('This cannot be undone.')}
+    confirmLabel={t('Delete')}
+    onconfirm={remove}
+    oncancel={() => (confirming = null)}
+/>
+
+{#snippet valueCell(row, column)}
+    {fieldValue(row, FIELDS.find((f) => f.name === column.sort) ?? { name: column.sort })}
+{/snippet}
+
+{#snippet actionsCell(row)}
+    <div class="flex gap-2">
+        <a class="btn btn-xs" href={href(`${ROUTE}/${row[KEY]}/edit`)}>{t('Edit')}</a>
+        <button class="btn btn-xs btn-error" onclick={() => (confirming = row)}>{t('Delete')}</button>
+    </div>
+{/snippet}

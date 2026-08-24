@@ -194,10 +194,29 @@ class MakeCrudSpaTest extends TestCase
         $this->assertFileExists($screen);
 
         $component = (string) file_get_contents($screen);
-        $this->assertStringContainsString("const RESOURCE = '/widget'", $component);
-        // The list must ask the server for a page, not fetch everything
-        $this->assertStringContainsString('limit: String(perPage)', $component);
-        $this->assertStringContainsString('pagination?.totalitems', $component);
+        // The resource path carries the application's own api_prefix rather than
+        // a hard-coded one — a generated screen with the wrong prefix 404s in
+        // exactly the projects that configured one.
+        $this->assertStringContainsString("const RESOURCE = '/api/1.0/widget'", $component);
+        // The list must ask the server for a page, not fetch everything.
+        $this->assertStringContainsString('limit: PER_PAGE', $component);
+        $this->assertStringContainsString('result?.pagination', $component);
+        // And it imports the shared components rather than hand-rolling a
+        // table. Asserted on the import line, not on a mention of the name: a
+        // docblock that talks about DataTable would satisfy a grep for the word.
+        $this->assertStringContainsString(
+            "import DataTable from '../components/DataTable.svelte';", $component
+        );
+        $this->assertStringContainsString(
+            "import Field from '../components/Field.svelte';", $component
+        );
+
+        // ...and the components it imports were written, so the build works.
+        foreach (\Pramnos\Console\Commands\Init::SPA_SHARED_COMPONENTS as $relative => $ignored) {
+            $path = ROOT . '/frontend/' . $relative;
+            $this->created[] = $path;
+            $this->assertFileExists($path, $relative . ' must ship with the screen');
+        }
 
         // ...and the registry points at it
         $registry = ROOT . '/frontend/screens/registry.js';

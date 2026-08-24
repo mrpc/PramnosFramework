@@ -1,0 +1,46 @@
+/**
+ * Two rules the generated <DataTable> depends on.
+ *
+ * Appended to `app.css` by the scaffolder rather than inlined in the component:
+ * they are utility classes, a screen may want them on a table it wrote itself,
+ * and Tailwind's `@apply` cannot express `position: sticky` against a themed
+ * background without hard-coding the colour.
+ */
+
+/**
+ * A numeric cell.
+ *
+ * Right-aligned so the digits line up, `tabular-nums` so they line up even in a
+ * proportional font, and no wrapping because a figure broken across two lines is
+ * worse than a narrow column. A column of right-aligned numbers can be compared
+ * at a glance; a column of left-aligned ones cannot, which is the whole reason a
+ * table shows numbers rather than prose.
+ */
+.cell-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/**
+ * A header that stays put while the rows scroll under it.
+ *
+ * Column headers are the only thing that says what a cell means, so a table long
+ * enough to scroll is a table where meaning disappears exactly when there is
+ * most of it to read. `background` is required, not decoration: a transparent
+ * sticky header lets the rows show through as they pass beneath it.
+ */
+.table-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-base-100);
+}
+
+@media print {
+    /* The same reason as above, in reverse: on paper a stuck header would print
+     * once at the top of a scroll container that no longer exists. */
+    .table-sticky thead th {
+        position: static;
+    }
+}

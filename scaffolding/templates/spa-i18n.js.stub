@@ -1,0 +1,176 @@
+/**
+ * Translation for the {{ appName }} front end, with the framework's own rule.
+ *
+ * The SPA is written in **English source strings**, and every other language is
+ * a lookup on top. That is `Pramnos\Translator\Language::_()` exactly: the key
+ * *is* the English text, and a string with no entry renders as itself.
+ *
+ * That fallback is the whole reason a front end can be translated screen by
+ * screen. A half-translated SPA is an English SPA; it is never blank, and it
+ * never shows a raw key like `settings.title` to a user. There is no moment
+ * where the application is broken because the migration is halfway done.
+ *
+ * ## It mirrors `_()` exactly, on purpose
+ *
+ * Same key, same fallback, same `%s` substitution. A string can move from a
+ * Svelte component to a PHP controller — which happens as soon as the server
+ * starts describing a form — without changing shape or losing its translation.
+ *
+ * ## Loading
+ *
+ * `GET {{ apiPrefix }}/language` returns the map (see the generated
+ * `Language` API controller), fetched once at startup and **not awaited**. A
+ * screen that renders before it arrives shows the English source — the fallback
+ * doing its job — and re-renders when the map lands. Blocking the shell on a
+ * translation fetch would trade a flicker for a blank page, and a failed fetch
+ * would trade it for an application nobody can sign in to.
+ *
+ * ## This module imports nothing
+ *
+ * Deliberately, and it is load-bearing. `lib/api.js` imports `t` from here for
+ * its own messages; if this module imported `getToken` back from `api.js` the
+ * cycle would leave one side partially initialised at run time — an ESM failure
+ * that shows up as an unrelated binding being `undefined`. Anything this needs
+ * from the API layer is passed **in** (see the `token` argument below).
+ */
+
+/** English source string → translation. Empty means English, which is correct. */
+const strings = $state({ map: {}, lang: 'english', available: ['english'] });
+
+/**
+ * Translate.
+ *
+ * @param {string} source The English source text — the key.
+ * @param {...(string|number)} args Values for `%s` placeholders, in order.
+ *
+ * `sprintf`-style rather than named placeholders, because that is what `_()`
+ * does and a second convention would mean a string cannot cross between them.
+ *
+ * Only `%s` is supported. A `%d` would format identically here and differently
+ * in PHP, so it is deliberately unsupported rather than supported wrongly.
+ */
+export function t(source, ...args) {
+    const translated = strings.map[source] ?? source;
+
+    if (args.length === 0) {
+        return translated;
+    }
+
+    let index = 0;
+
+    return translated.replace(/%s/g, () => String(args[index++] ?? ''));
+}
+
+/**
+ * `t()` for a string rendered as **raw HTML**, with its values escaped.
+ *
+ * Some translations carry markup — `<strong>every record</strong>` — so they are
+ * rendered with `{@html}`. `t()` substitutes with a bare `String(...)`, so any
+ * value interpolated into such a string reaches the DOM **as HTML**. A value
+ * that came from a third-party API, or from another user, is script.
+ *
+ * So the markup in the **translation** stays live and everything substituted
+ * **into** it is inert. That split is the point: a translator writing `<strong>`
+ * is trusted, a value arriving at run time is not.
+ */
+export function tHtml(source, ...args) {
+    return t(
+        source,
+        ...args.map((value) =>
+            String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+        )
+    );
+}
+
+/** The languages the server said it ships. */
+export function availableLanguages() {
+    return strings.available;
+}
+
+/** The language actually in effect — the server's answer, not the request. */
+export function currentLanguage() {
+    return strings.lang;
+}
+
+/**
+ * **The BCP-47 locale this front end's dates and numbers should use.**
+ *
+ * A language switch that reaches every string and none of the numbers is the
+ * one formatting mistake that can be *misread* rather than merely noticed:
+ * `1.065` and `1,065` are the same quantity to one reader and different
+ * quantities to the other. Every `toLocaleString`/`Intl` call in the
+ * application takes this, never a hard-coded tag.
+ *
+ * The map is the project's to extend as it adds languages; the fallback is the
+ * source language, which is always a correct answer.
+ */
+const LOCALES = {{ localeMapJson }};
+
+export function locale() {
+    return LOCALES[currentLanguage()] ?? 'en-GB';
+}
+
+/**
+ * Load a language. Never throws.
+ *
+ * A failed load leaves the application in English, which is the source language
+ * and therefore always correct — a user seeing English is inconvenienced, a user
+ * seeing a stack trace instead of a form is stuck.
+ *
+ * @param {string|null} lang  A named language, or null to let the server decide
+ *                            (it reads the signed-in account's preference and
+ *                            falls back to the install default).
+ * @param {string|null} token The bearer token, when there is one. Passed in
+ *                            rather than imported — see the note at the top of
+ *                            this file about the import cycle.
+ * @returns {Promise<boolean>} Whether a map was actually installed.
+ */
+export async function loadLanguage(lang = null, token = null) {
+    try {
+        const headers = {};
+        const url = lang === null
+            ? '{{ apiPrefix }}/language'
+            : `{{ apiPrefix }}/language?lang=${encodeURIComponent(lang)}`;
+
+        // A named language skips the token on purpose: that is the sign-in
+        // screen, which renders before anybody is signed in and has nobody to
+        // ask about a preference.
+        if (lang === null && token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+
+        const response = await fetch(url, { cache: 'no-store', headers });
+
+        if (!response.ok) {
+            return false;
+        }
+
+        const data = JSON.parse(await response.text());
+
+        if (!data || data.success === false) {
+            return false;
+        }
+
+        strings.map = data.strings ?? {};
+        strings.lang = data.lang ?? 'english';
+
+        // The server's list, so a language control cannot offer something the
+        // server refuses. A second copy here is how the two come to disagree.
+        strings.available = Array.isArray(data.available) ? data.available : strings.available;
+
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Test seam: install a map without a server. */
+export function setStringsForTests(map, lang = 'english') {
+    strings.map = map;
+    strings.lang = lang;
+}

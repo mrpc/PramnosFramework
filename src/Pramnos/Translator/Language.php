@@ -267,30 +267,54 @@ class Language extends Base
     }
 
     /**
-     * Returns an array with all available languages
-     * @return array
+     * Every language this installation ships, by name.
+     *
+     * **Looks where {@see load()} looks.** It used to scan `ROOT/language` and
+     * nothing else, while `load()` reads `LANGPATH`, then `app/language`, then
+     * `ROOT/language` — so on the layout `init` actually generates, this method
+     * threw "Languages directory does not exist" for a project with a perfectly
+     * good catalogue in `app/language/`. Anything asking *which* languages exist
+     * was told none, and then a caller offering a language picker had nothing to
+     * put in it while `_()` was translating happily.
+     *
+     * All the directories are scanned and the results merged, because a project
+     * may legitimately have both: `app/language/` for its own strings and
+     * `ROOT/language/` inherited from an older layout.
+     *
+     * @return array<int, string> Language names, sorted, without the .php
+     * @throws \Exception When no language directory exists at all.
      */
     public static function getLanguages()
     {
-        $langdir = ROOT . DS . "language";
-        if (is_dir($langdir)) {
+        $directories = [];
+        if (defined('LANGPATH')) {
+            $directories[] = LANGPATH;
+        }
+        $directories[] = ROOT . DS . 'app' . DS . 'language';
+        $directories[] = ROOT . DS . 'language';
 
-            $directoryHandler = @opendir($langdir);
-
-            $list = array();
-            while (false !== ($filename = readdir($directoryHandler))) {
-                $files[] = $filename;
+        $found = [];
+        $anyDirectory = false;
+        foreach (array_unique($directories) as $directory) {
+            if (!is_dir($directory)) {
+                continue;
             }
-            foreach ($files as $file) {
-                if (is_file($langdir . DS . $file)
-                    && strpos($file, '.php') !== false) {
-                    $list[] = str_replace(".php", "", $file);
+            $anyDirectory = true;
+            foreach ((array) glob($directory . DS . '*.php') as $file) {
+                if (is_file($file)) {
+                    $found[basename($file, '.php')] = true;
                 }
             }
-            return $list;
-        } else {
+        }
+
+        if (!$anyDirectory) {
             throw new \Exception('Languages directory does not exist');
         }
+
+        $list = array_keys($found);
+        sort($list);
+
+        return $list;
     }
 
 }

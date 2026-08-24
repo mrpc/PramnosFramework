@@ -1,0 +1,304 @@
+<script>
+    import { t } from '../lib/i18n.svelte.js';
+    import { api, ApiError } from '../lib/api.js';
+
+    /**
+     * One column, rendered as the control it actually is.
+     *
+     * ## Why this component exists
+     *
+     * The MVC generator has known how to do this since it was written:
+     * `MakeCommandBase::buildWizardFormFields()` reads each column's *logical
+     * type* and its foreign keys and emits a checkbox for a boolean, a
+     * `<textarea>` for text, `type="date"` for a date, `type="number"` for an
+     * integer, and a `<select>` — remote when the referenced table is large —
+     * for a foreign key. The SPA generator emitted `<input type="text">` for
+     * every column, because `createSpaScreen()` was handed column *names* and
+     * nothing else.
+     *
+     * That is not a cosmetic difference. A text box over a boolean column stores
+     * the string `"on"`; a text box over a foreign key asks somebody to type a
+     * numeric id they have no way to look up; a text box over a `timestamp`
+     * accepts anything and the insert fails at the database. The generated screen
+     * was a demo, and the MVC screen was a feature.
+     *
+     * So the descriptor this component takes is deliberately **the same shape**
+     * the MVC path already builds — `introspectTableAsWizardColumns()` output,
+     * serialised to JSON by the generator. One introspection, two renderers.
+     *
+     * ## The descriptor
+     *
+     *     {
+     *       name:     'station_id',
+     *       type:     'integer',        // the logical type vocabulary:
+     *                                   // string char integer biginteger
+     *                                   // tinyinteger smallinteger decimal
+     *                                   // float double boolean text longtext
+     *                                   // date datetime timestamp json uuid
+     *       label:    'Station',        // COLUMN COMMENT when there is one,
+     *                                   // otherwise the humanised name
+     *       nullable: false,            // NOT NULL becomes `required`
+     *       options:  null,             // an enum/check constraint, when known
+     *       fk: {                       // null when the column is not a FK
+     *         endpoint: '/api/1.0/station',
+     *         valueKey: 'stationid',
+     *         labelKey: 'name'
+     *       }
+     *     }
+     *
+     * ## `null` and `''` are not the same value
+     *
+     * A nullable column left blank must be written as SQL `NULL`, not as the
+     * empty string — they compare differently, they sort differently, and
+     * `COALESCE` treats them differently. A generated form that cannot express
+     * the difference silently converts every unset optional column to `''` on the
+     * first save, which is a data change nobody asked for. So this emits `null`
+     * for a blank nullable field and `''` only when the column is `NOT NULL`.
+     */
+    let {
+        field,
+        value,
+        onchange,
+        disabled = false,
+        /** A per-field message from a 422, keyed by column name. */
+        error = null,
+    } = $props();
+
+    const id = $derived(`field-${field.name}`);
+    const label = $derived(field.label ?? field.name);
+    const required = $derived(field.nullable === false);
+
+    /** Numeric input for the numeric logical types, text for the rest. */
+    const NUMERIC = ['integer', 'biginteger', 'tinyinteger', 'smallinteger', 'decimal', 'float', 'double'];
+
+    function emit(next) {
+        // See the note above: blank means NULL when the column allows it.
+        onchange(field.name, next === '' && !required ? null : next);
+    }
+
+    // --- Foreign keys -------------------------------------------------------
+    //
+    // A typeahead against the referenced resource's own list endpoint, which is
+    // the SPA equivalent of the MVC path's select2-over-`fkOptions()`. Eagerly
+    // loading every related row is what breaks on a large table, and it is the
+    // failure mode the MVC generator already avoids — so this never does it
+    // either: at most `limit` rows, filtered by the server.
+
+    let fkRows = $state([]);
+    let fkQuery = $state('');
+    let fkOpen = $state(false);
+    let fkUnavailable = $state(false);
+    let fkTimer = null;
+
+    /**
+     * The value whose label we have already gone looking for.
+     *
+     * Not `$state`: the resolving effect below reads it, and an effect that
+     * reads its own tracked output re-runs itself for ever. That is exactly
+     * what happened when the guard was `fkRows.length === 0` — a reference
+     * whose row the endpoint does not return leaves the list empty, the
+     * assignment is a fresh array so it counts as a change, and the effect
+     * fires again. One unresolvable id was an infinite request loop.
+     */
+    let fkResolvedFor = null;
+
+    /** The label for the currently-selected id, once we have seen the row. */
+    const fkSelected = $derived(
+        fkRows.find((row) => String(row[field.fk?.valueKey]) === String(value)) ?? null
+    );
+
+    async function searchFk(term) {
+        if (!field.fk) {
+            return;
+        }
+
+        try {
+            const result = await api.get(field.fk.endpoint, { search: term, limit: 20, page: 1 });
+            fkRows = result?.data ?? [];
+        } catch (failure) {
+            // **An honest degradation, not a silent one.** The referenced table
+            // may have no generated API at all — `create:crud things` knows
+            // `things.user_id` references `users` without knowing whether
+            // `users` is exposed. A 403/404 here means "no picker available",
+            // and the field falls back to the raw id with a visible note, which
+            // is what the MVC path's small-table fallback does when the
+            // controller provides no list.
+            if (failure instanceof ApiError) {
+                fkUnavailable = true;
+            }
+            fkRows = [];
+        }
+    }
+
+    function onFkInput(term) {
+        fkQuery = term;
+        fkOpen = true;
+        clearTimeout(fkTimer);
+        // Debounced: one request per pause, not one per keystroke. The number is
+        // the same 250ms the MVC generator passes to select2, so the two paths
+        // feel the same.
+        fkTimer = setTimeout(() => searchFk(term), 250);
+    }
+
+    $effect(() => {
+        // Resolve the label of a value that arrived from the server, so an edit
+        // form shows "Kosmos 93.6" rather than "17".
+        //
+        // Guarded on the *value*, not on whether the lookup found anything: a
+        // reference the endpoint cannot resolve is answered once and left
+        // showing its id, rather than asked about again on every render.
+        if (field.fk
+            && value !== null && value !== undefined && value !== ''
+            && fkResolvedFor !== value) {
+            fkResolvedFor = value;
+            searchFk('');
+        }
+    });
+</script>
+
+<div class="form-control">
+    {#if field.type === 'boolean'}
+        <!-- The label wraps the input so the whole row is a hit target, and the
+             text is a real <label> rather than adjacent text. -->
+        <label class="label cursor-pointer justify-start gap-3" for={id}>
+            <input
+                {id}
+                type="checkbox"
+                class="checkbox checkbox-primary"
+                checked={value === true || value === 1 || value === '1' || value === 't'}
+                {disabled}
+                onchange={(e) => emit(e.currentTarget.checked)}
+            />
+            <span class="label-text">{t(label)}</span>
+        </label>
+    {:else}
+        <label class="label" for={id}>
+            <span class="label-text">
+                {t(label)}
+                {#if required}<span class="text-error" aria-hidden="true">*</span>{/if}
+            </span>
+        </label>
+
+        {#if field.fk && !fkUnavailable}
+            <!-- A combobox rather than a <select>: the options come from the
+                 server as you type, so this works on a table of ten and a table
+                 of ten million. `list`/`<datalist>` was the other option and is
+                 not usable — it cannot separate the label shown from the value
+                 submitted, which is the entire job here. -->
+            <div class="dropdown w-full" class:dropdown-open={fkOpen && fkRows.length > 0}>
+                <input
+                    {id}
+                    class="input input-bordered w-full"
+                    class:input-error={error}
+                    value={fkOpen ? fkQuery : (fkSelected?.[field.fk.labelKey] ?? (value ?? ''))}
+                    placeholder={t('Search %s…', t(label))}
+                    autocomplete="off"
+                    {required}
+                    {disabled}
+                    oninput={(e) => onFkInput(e.currentTarget.value)}
+                    onfocus={() => { fkOpen = true; searchFk(fkQuery); }}
+                    onblur={() => setTimeout(() => (fkOpen = false), 150)}
+                />
+                <ul class="dropdown-content menu bg-base-100 rounded-box z-10 w-full shadow max-h-64 overflow-y-auto">
+                    {#each fkRows as row (row[field.fk.valueKey])}
+                        <li>
+                            <button
+                                type="button"
+                                onclick={() => {
+                                    emit(row[field.fk.valueKey]);
+                                    fkQuery = '';
+                                    fkOpen = false;
+                                }}
+                            >
+                                {row[field.fk.labelKey] ?? row[field.fk.valueKey]}
+                            </button>
+                        </li>
+                    {/each}
+                </ul>
+            </div>
+        {:else if field.options}
+            <select
+                {id}
+                class="select select-bordered w-full"
+                class:select-error={error}
+                value={value ?? ''}
+                {required}
+                {disabled}
+                onchange={(e) => emit(e.currentTarget.value)}
+            >
+                {#if !required}<option value="">{t('— none —')}</option>{/if}
+                <!-- A value stored outside the list still shows, so an
+                     unexpected value is visible rather than silently reset to
+                     the first option — which would be a data change disguised as
+                     a render. -->
+                {#if value && !field.options.some((o) => String(o.value) === String(value))}
+                    <option value={value}>{value} {t('(unknown value)')}</option>
+                {/if}
+                {#each field.options as option (option.value)}
+                    <option value={option.value}>{t(option.label ?? option.value)}</option>
+                {/each}
+            </select>
+        {:else if field.type === 'text' || field.type === 'longtext' || field.type === 'json'}
+            <textarea
+                {id}
+                class="textarea textarea-bordered w-full font-mono"
+                class:textarea-error={error}
+                rows={field.type === 'longtext' ? 8 : 4}
+                value={value ?? ''}
+                {required}
+                {disabled}
+                oninput={(e) => emit(e.currentTarget.value)}
+            ></textarea>
+        {:else if field.type === 'date'}
+            <input
+                {id}
+                type="date"
+                class="input input-bordered w-full"
+                class:input-error={error}
+                value={(value ?? '').toString().slice(0, 10)}
+                {required}
+                {disabled}
+                oninput={(e) => emit(e.currentTarget.value)}
+            />
+        {:else if field.type === 'datetime' || field.type === 'timestamp'}
+            <!-- `datetime-local` submits `YYYY-MM-DDTHH:MM`; the database wants a
+                 space, not a T. Converted here rather than in every screen. -->
+            <input
+                {id}
+                type="datetime-local"
+                class="input input-bordered w-full"
+                class:input-error={error}
+                value={(value ?? '').toString().replace(' ', 'T').slice(0, 16)}
+                {required}
+                {disabled}
+                oninput={(e) => emit(e.currentTarget.value.replace('T', ' '))}
+            />
+        {:else}
+            <input
+                {id}
+                type={NUMERIC.includes(field.type) ? 'number' : 'text'}
+                step={['decimal', 'float', 'double'].includes(field.type) ? 'any' : undefined}
+                maxlength={field.maxLength ?? undefined}
+                class="input input-bordered w-full"
+                class:input-error={error}
+                value={value ?? ''}
+                {required}
+                {disabled}
+                oninput={(e) => emit(e.currentTarget.value)}
+            />
+        {/if}
+    {/if}
+
+    {#if error}
+        <!-- `aria-describedby` would be better still; it needs an id per field
+             and the label already carries the name, so the message is placed
+             adjacent and marked as an alert so it is announced when it appears. -->
+        <p class="text-xs text-error mt-1" role="alert">{error}</p>
+    {:else if field.fk && fkUnavailable}
+        <p class="text-xs opacity-60 mt-1">
+            {t('No picker for this reference — enter the id. (%s has no readable list endpoint.)', field.fk.endpoint)}
+        </p>
+    {:else if field.comment && field.comment !== label}
+        <p class="text-xs opacity-60 mt-1">{t(field.comment)}</p>
+    {/if}
+</div>

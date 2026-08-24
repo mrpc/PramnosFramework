@@ -299,25 +299,122 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
-     * Language::getLanguages() must throw an Exception when the language directory
-     * (ROOT . '/language') does not exist.
+     * Language::getLanguages() must throw when there is no language directory
+     * anywhere it looks.
      *
-     * This covers the else branch of getLanguages() at line ~247.
-     * We call getLanguages() only when we know ROOT/language does not exist,
-     * which we ensure by temporarily changing ROOT via a define if not set,
-     * or skip the test if ROOT/language is present in the test environment.
+     * "Anywhere it looks" is now three places — LANGPATH, `app/language` and
+     * `ROOT/language` — so the throw branch needs all three absent, and the
+     * skip below has to check all three rather than the last one.
      */
-    public function testGetLanguagesThrowsWhenDirDoesNotExist(): void
+    public function testGetLanguagesThrowsWhenNoDirectoryExists(): void
     {
-        // Check if we can even test this — if ROOT/language exists, skip
-        if (defined('ROOT') && is_dir(ROOT . DIRECTORY_SEPARATOR . 'language')) {
-            $this->markTestSkipped('ROOT/language directory exists — cannot test the throw branch');
+        // Arrange — if any of the directories it reads exists, the throw branch
+        // is unreachable and asserting on it would be asserting on the
+        // environment.
+        $candidates = [ROOT . DS . 'app' . DS . 'language', ROOT . DS . 'language'];
+        if (defined('LANGPATH')) {
+            $candidates[] = LANGPATH;
+        }
+        foreach ($candidates as $candidate) {
+            if (is_dir($candidate)) {
+                $this->markTestSkipped(
+                    $candidate . ' exists — the throw branch is unreachable here'
+                );
+            }
         }
 
-        // If ROOT is not defined or ROOT/language doesn't exist, getLanguages() will throw
+        // Assert
         $this->expectException(\Exception::class);
         $this->expectExceptionMessageMatches('/Languages directory does not exist/');
+
+        // Act
         Language::getLanguages();
+    }
+
+    /**
+     * getLanguages() looks where load() looks.
+     *
+     * It used to scan `ROOT/language` and nothing else, while `load()` reads
+     * `LANGPATH`, then `app/language`, then `ROOT/language`. On the layout
+     * `init` generates — a catalogue in `app/language/` — this method therefore
+     * threw "Languages directory does not exist" for a project whose
+     * translations were working: `_()` translated happily while anything asking
+     * *which* languages existed was told none, so a language picker had nothing
+     * to put in it.
+     *
+     * The reversal that reddens this: scan only `ROOT/language` again, and the
+     * greek entry below disappears.
+     */
+    public function testGetLanguagesFindsTheAppLanguageDirectory(): void
+    {
+        // Arrange — a catalogue where init puts it, and nowhere else.
+        $appLang = ROOT . DS . 'app' . DS . 'language';
+        $created = [];
+        if (!is_dir($appLang)) {
+            @mkdir($appLang, 0777, true);
+            $created[] = $appLang;
+        }
+        $file = $appLang . DS . 'zzgreek.php';
+        file_put_contents($file, '<?php $lang = [];');
+
+        try {
+            // Act
+            $languages = Language::getLanguages();
+
+            // Assert
+            $this->assertContains('zzgreek', $languages,
+                'a catalogue in app/language/ must be reported');
+        } finally {
+            @unlink($file);
+            foreach ($created as $directory) {
+                @rmdir($directory);
+            }
+        }
+    }
+
+    /**
+     * A language present in two directories is reported once.
+     *
+     * Both are scanned and merged, because a project may legitimately have its
+     * own strings in `app/language/` and an inherited set in `ROOT/language/`.
+     * Merging without deduplicating would put the same language in a picker
+     * twice.
+     */
+    public function testALanguageInTwoDirectoriesIsReportedOnce(): void
+    {
+        // Arrange
+        $appLang  = ROOT . DS . 'app' . DS . 'language';
+        $rootLang = ROOT . DS . 'language';
+        $created  = [];
+        foreach ([$appLang, $rootLang] as $directory) {
+            if (!is_dir($directory)) {
+                @mkdir($directory, 0777, true);
+                $created[] = $directory;
+            }
+        }
+        $files = [$appLang . DS . 'zzboth.php', $rootLang . DS . 'zzboth.php'];
+        foreach ($files as $file) {
+            file_put_contents($file, '<?php $lang = [];');
+        }
+
+        try {
+            // Act
+            $languages = Language::getLanguages();
+
+            // Assert
+            $this->assertSame(
+                1,
+                count(array_keys($languages, 'zzboth', true)),
+                'a language in both directories must appear once'
+            );
+        } finally {
+            foreach ($files as $file) {
+                @unlink($file);
+            }
+            foreach ($created as $directory) {
+                @rmdir($directory);
+            }
+        }
     }
 
     /**
