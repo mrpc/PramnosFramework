@@ -35,6 +35,31 @@ use Pramnos\Application\ServiceController;
 class ModelGetDataTest extends TestCase
 {
     /**
+     * Instance properties added to Model after the historical getData() was retired.
+     *
+     * The reproduction below is 2018 code; running it over a 2026 object would otherwise
+     * report every internal property added since as a byte-level difference, when what
+     * the tests actually guarantee is that an application's **columns** are unchanged.
+     *
+     * Anything listed here must also be in Model::INTERNAL_PROPERTIES —
+     * testEveryDeclaredBasePropertyIsExcluded() is what enforces that, and it derives its
+     * side from the class rather than from this list.
+     *
+     * Public because the reproductions below live in anonymous classes, which are not
+     * nested scopes and cannot reach a private constant of the class that declares them.
+     *
+     * @var list<string>
+     */
+    public const POST_HISTORICAL_MACHINERY = [
+        'emitChanges',
+        'changeEntity',
+        'broadcastFields',
+        'changeIgnoreFields',
+        'changeSignificantFields',
+        '_suppressChangeEmit',
+    ];
+
+    /**
      * A model declaring its columns, as the CRUD generator writes them.
      *
      * @param  bool $historical Whether to opt out, back to the pre-1.2 shape
@@ -106,6 +131,15 @@ class ModelGetDataTest extends TestCase
             {
                 $data = array();
                 foreach (get_object_vars($this) as $key => $value) {
+                    // Machinery the framework added after this implementation was
+                    // retired. It is skipped here because the invariant under test is
+                    // "an application's columns come back unchanged", and a property no
+                    // release ever exposed cannot have broken anybody's payload. Leaving
+                    // it in would assert the opposite — that every new internal property
+                    // must leak, which is precisely what INTERNAL_PROPERTIES prevents.
+                    if (in_array($key, ModelGetDataTest::POST_HISTORICAL_MACHINERY, true)) {
+                        continue;
+                    }
                     if ($key == '_primaryKey' || $key == '_dbtable'
                         || $key == 'modelname' || $key == 'prefix'
                         || $key == '_dbschema'
@@ -169,6 +203,15 @@ class ModelGetDataTest extends TestCase
             {
                 $data = array();
                 foreach (get_object_vars($this) as $key => $value) {
+                    // Machinery the framework added after this implementation was
+                    // retired. It is skipped here because the invariant under test is
+                    // "an application's columns come back unchanged", and a property no
+                    // release ever exposed cannot have broken anybody's payload. Leaving
+                    // it in would assert the opposite — that every new internal property
+                    // must leak, which is precisely what INTERNAL_PROPERTIES prevents.
+                    if (in_array($key, ModelGetDataTest::POST_HISTORICAL_MACHINERY, true)) {
+                        continue;
+                    }
                     if ($key == '_primaryKey' || $key == '_dbtable'
                         || $key == 'modelname' || $key == 'prefix'
                         || $key == '_dbschema'

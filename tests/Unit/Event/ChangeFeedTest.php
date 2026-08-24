@@ -255,6 +255,53 @@ class ChangeFeedTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * The first emission wires the transaction listeners by itself.
+     *
+     * Nothing in the framework calls boot(), and nothing should have to. Without the
+     * wiring a change emitted inside a transaction is buffered and never released — the
+     * feed goes silent for precisely the code that wraps its writes in a transaction,
+     * and only for that code, which is the hardest possible shape to notice.
+     */
+    public function testEmittingBootsTheTransactionWiring(): void
+    {
+        // Arrange — nothing booted
+        $this->assertFalse(Event::hasListeners(ChangeFeed::EVENT_COMMITTED));
+
+        // Act
+        FakeTransactionChangeFeed::emit($this->change());
+
+        // Assert
+        $this->assertTrue(Event::hasListeners(ChangeFeed::EVENT_COMMITTED));
+        $this->assertTrue(Event::hasListeners(ChangeFeed::EVENT_ROLLED_BACK));
+    }
+
+    /**
+     * A change buffered by a transaction is released by the commit event alone.
+     *
+     * End to end through the automatic wiring: emit inside a transaction, fire nothing
+     * but the commit, and the change arrives. This is the path that was broken while
+     * boot() had no caller, and it passed every test that called boot() by hand.
+     */
+    public function testABufferedChangeIsReleasedByTheCommitEventAlone(): void
+    {
+        // Arrange
+        $received = [];
+        Event::listen(ChangeFeed::EVENT, function (ModelChange $c) use (&$received) {
+            $received[] = $c;
+        });
+        FakeTransactionChangeFeed::$open = true;
+        FakeTransactionChangeFeed::emit($this->change());
+        $this->assertSame([], $received);
+
+        // Act — no explicit flush anywhere
+        FakeTransactionChangeFeed::$open = false;
+        Event::fire(ChangeFeed::EVENT_COMMITTED);
+
+        // Assert
+        $this->assertCount(1, $received);
+    }
+
+    /**
      * boot() wires commit to flush and rollback to discard.
      *
      * Covers the seam between this class and Database: the two event names are the entire

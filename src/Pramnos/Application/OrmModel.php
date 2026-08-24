@@ -211,7 +211,20 @@ abstract class OrmModel extends Model
         if ($this->softDelete) {
             $col        = $this->deletedAtColumn;
             $this->$col = date('Y-m-d H:i:s');
-            parent::_save($table, $key);
+
+            // The physical shape of a soft delete is an UPDATE; its meaning is a delete.
+            // Left alone, the base class would announce `updated` on the change feed and
+            // a subscriber would keep showing a row the application considers gone — the
+            // sort of disagreement that reads as a caching bug and is not one.
+            //
+            // So the write is silenced and the truthful event emitted here. The primary
+            // key is passed explicitly because it is what the row was, and a listener
+            // needs it to know which row to stop showing.
+            $this->withoutChangeEmission(function () use ($table, $key) {
+                parent::_save($table, $key);
+            });
+            $this->emitChange(\Pramnos\Event\ModelChange::DELETED, array(), $primaryKey);
+
             $this->fireEvent('deleted');
             return $this;
         }

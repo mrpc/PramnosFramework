@@ -60,6 +60,15 @@ class ChangeFeed
 
     /**
      * Register the transaction listeners. Safe to call repeatedly.
+     *
+     * Called automatically by the first {@see emit()}, so nothing has to remember it.
+     * That is not tidiness: without the wiring, a change emitted inside a transaction is
+     * buffered and never released — the feed would go silent for exactly the code that
+     * wraps its writes in a transaction, which is the code most likely to be doing
+     * something worth announcing. Requiring an application to call this would make the
+     * failure both silent and conditional on the one thing nobody tests.
+     *
+     * Still public, so a caller can wire it explicitly at boot rather than on first use.
      */
     public static function boot(): void
     {
@@ -82,6 +91,10 @@ class ChangeFeed
      */
     public static function emit(ModelChange $change): void
     {
+        // One boolean test, and it removes a whole class of "the feed stopped working"
+        // that would only ever appear under a transaction.
+        static::boot();
+
         if (static::inTransaction()) {
             static::$buffer[] = $change;
 

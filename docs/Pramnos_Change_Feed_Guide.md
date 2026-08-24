@@ -29,6 +29,147 @@ does not set it emits nothing at all.
 
 ---
 
+## Turning it on
+
+Five properties, all on `Pramnos\Application\Model`, all optional but the first:
+
+```php
+class Device extends \Pramnos\Application\Model
+{
+    /** Announce saves and deletes. Off by default. */
+    protected $emitChanges = true;
+
+    /** The name the feed uses. Defaults to the model name. */
+    protected $changeEntity = 'wcm-device';
+
+    /** Never reported, never leaves the process. */
+    protected $changeIgnoreFields = ['viewcache', 'stats', 'alerts'];
+
+    /** An update is only announced when one of these changed. */
+    protected $changeSignificantFields = ['status', 'customerid', 'eui'];
+
+    /** Fields whose VALUES may be broadcast. null = identifiers only. */
+    protected $broadcastFields = null;
+}
+```
+
+| Property | Default | |
+|---|---|---|
+| `$emitChanges` | `false` | The opt-in. Nothing happens without it |
+| `$changeEntity` | `''` → model name | A stable, self-describing name |
+| `$changeIgnoreFields` | `[]` | Dropped from both the diff **and** the record |
+| `$changeSignificantFields` | `[]` → any field | Applies to **updates only** |
+| `$broadcastFields` | `null` | See [Payloads](#payloads) |
+
+### Where it fires
+
+`_save()` emits once, at the very end — after every path that could still have
+returned early. A save with nothing to change returns before it; so does an update
+whose statement threw. A change that did not reach the database is never announced.
+
+`_delete()` emits after the row is gone, with **the key that was passed in**, which
+is not always the one the model holds. The row is deliberately not loaded first:
+that is a query on every delete to populate a payload the default does not send.
+Code that needs full data on delete loads the model before deleting.
+
+!!! warning "`$force = true` reports every field as changed"
+    `_save($table, $key, $autoGetValues, $debug, true)` skips the change detection,
+    so `_lastChanges` — and therefore the feed — reports every column with
+    `old => null`. That is existing behaviour of a public method and is not changed
+    here. Consequence: a forced save always passes the significance gate.
+
+### Soft deletes announce a delete
+
+`OrmModel`'s soft delete performs an `UPDATE`, but means a delete. The framework
+silences the write and emits `DELETED` itself, so a subscriber does not keep showing
+a row the application considers gone.
+
+If you write a similar operation — a physical shape that is not its meaning — do the
+same:
+
+```php
+$this->withoutChangeEmission(function () {
+    parent::_save();
+});
+$this->emitChange(ModelChange::DELETED, [], $id);
+```
+
+### Failure is never the save's problem
+
+Everything in the emission path is wrapped: a listener that throws is logged and
+swallowed. A broadcaster that cannot reach Redis must not turn a committed write
+into an exception the user sees.
+
+---
+
+## Payloads
+
+`$broadcastFields` decides what leaves the process, and **only** what leaves the
+process. Local listeners always receive the whole record — in-process there is no
+boundary to cross.
+
+**`null` (the default) — identifiers only.**
+
+```json
+{ "entity": "wcm-device", "key": 42, "op": "updated" }
+```
+
+The subscriber refetches through the API, where permissions already apply. No column
+can reach somebody the API would not have shown it to, no allow-list has to be
+maintained as columns are added, and a missed or rolled-back event costs one refetch
+that returns the current data.
+
+**A list — values travel.**
+
+```php
+protected $broadcastFields = ['deviceid', 'status', 'lastupdate'];
+```
+
+```json
+{ "entity": "wcm-device", "key": 42, "op": "updated",
+  "data":    { "deviceid": 42, "status": 3 },
+  "changes": { "status": { "old": 1, "new": 3 } } }
+```
+
+One message, no roundtrip — and the model now owns the decision. Read the channel
+warning below **before** turning this on.
+
+---
+
+## Channels
+
+The default is a per-table firehose plus a per-row channel:
+
+```
+private-wcm-device
+private-wcm-device.42
+```
+
+!!! danger "Override this in a multi-tenant application"
+    Every subscriber authorized for `private-wcm-device` learns that **any** row of
+    the table changed, whoever owns it. With identifiers-only payloads that leaks
+    existence and timing — the refetch it prompts is denied by the API — but it is
+    still a leak. With `$broadcastFields` set it is a breach.
+
+    **Per-tenant channels are a precondition for turning values on.**
+
+```php
+public function changeChannels($op)
+{
+    // The row's own owner — never User::getCurrentUser().
+    return ['private-deya.' . $this->deyaid . '.wcm-device'];
+}
+```
+
+The tenant key must come from the **row**. Reading it from the session works until a
+queue worker or a CLI import runs, where there is no session and every change would
+publish onto one tenant's channel — or none.
+
+Whatever this returns needs a matching `ChannelRegistry` rule. A channel nobody is
+authorized for is a publish into nothing, and it is silent.
+
+---
+
 ## The event
 
 Everything is delivered under a single event name, carrying one value object:
@@ -96,14 +237,14 @@ change that was rolled back is an audit trail nobody can trust. Broadcasting is
 less sensitive — a broadcast carrying only identifiers costs, at worst, one wasted
 refetch that returns the old data, and heals itself.
 
-Wire it once, at boot:
+**You do not have to wire this.** The first emission registers the listeners
+itself, because the alternative failure is silent and conditional: without the
+wiring, a change emitted inside a transaction is buffered and never released, so the
+feed would stop working for exactly the code that wraps its writes in a transaction.
 
-```php
-\Pramnos\Event\ChangeFeed::boot();
-```
-
-`boot()` registers `database.transaction.committed` → flush and
-`database.transaction.rolledback` → discard. It is idempotent, so a service
+`ChangeFeed::boot()` is still public if you prefer to wire it explicitly at
+application boot. It registers `database.transaction.committed` → flush and
+`database.transaction.rolledback` → discard, and is idempotent, so a service
 provider booting per request in a long-running worker does not accumulate
 listeners.
 
