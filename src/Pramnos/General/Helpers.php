@@ -850,12 +850,36 @@ class Helpers
      * Where the data is not trusted, pass `['allowed_classes' => false]` there
      * too.
      *
+     * **It answers without raising a diagnostic on the way.** `@unserialize()`
+     * suppresses the notice for output, but the error is still *raised* — a
+     * `set_error_handler` sees it, and so does anything counting entries in an
+     * error log. That matters because this is a predicate: callers ask it about
+     * strings that are usually not serialized, and being told so should be
+     * quiet.
+     *
+     * It was not, and the cost showed up in a consuming application when
+     * `usertokens.deviceinfo` began holding JSON instead of an empty string.
+     * `unserialize('')` is silent, so nothing had noticed; `unserialize('{…}')`
+     * raises "Error at offset 0", and the column is read on every token check
+     * on every request. A test with a strict error handler failed, and the
+     * pointer was to the caller rather than here.
+     *
+     * The pre-screen is the serialization format's own grammar: every
+     * serialized value starts with a type letter and a colon. Anything that
+     * does not is not serialized, and does not need to be handed to the parser
+     * to find that out.
+     *
      * @param string $str
      * @return boolean
      */
     public static function checkUnserialize($str)
     {
         if (!is_string($str)) {
+            return false;
+        }
+
+        // 'N;' is null, the one serialized value with no colon.
+        if ($str !== 'N;' && !preg_match('/^[abdiOsCE]:/', $str)) {
             return false;
         }
 

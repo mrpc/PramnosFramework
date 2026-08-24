@@ -176,6 +176,84 @@ class SecurityHardeningTest extends TestCase
         $this->assertTrue(Helpers::checkUnserialize(serialize(new \stdClass())));
     }
 
+    /**
+     * Saying "no" is silent.
+     *
+     * `@unserialize()` suppresses the notice for *output*, but the error is
+     * still raised: a set_error_handler sees it, and so does anything counting
+     * lines in an error log. For a predicate whose callers mostly ask about
+     * strings that are not serialized, being told so should cost nothing.
+     *
+     * Found in a consuming application when `usertokens.deviceinfo` started
+     * holding JSON instead of an empty string. `unserialize('')` is silent, so
+     * nothing had noticed; `unserialize('{…}')` raises "Error at offset 0", and
+     * that column is read on every token check on every request. The test that
+     * failed there had a strict error handler, and it pointed at the caller
+     * rather than at this method.
+     *
+     * The handler is installed and removed inside the test so that a failure
+     * cannot leave it behind for the rest of the run.
+     */
+    public function testCheckingANonSerializedStringRaisesNoError(): void
+    {
+        // Arrange — every shape a caller realistically passes in that is not
+        // serialized data, including the JSON that exposed this.
+        $inputs = [
+            '{"device":"unknown|unknown","label":"an unrecognised browser"}',
+            'not serialized at all',
+            '',
+            'x:1:{}',         // a type letter PHP does not use
+            'plain text with: a colon in it',
+        ];
+
+        $errors = [];
+        set_error_handler(
+            static function (int $no, string $message) use (&$errors): bool {
+                $errors[] = $message;
+                return true;
+            }
+        );
+
+        try {
+            // Act
+            foreach ($inputs as $input) {
+                $this->assertFalse(
+                    Helpers::checkUnserialize($input),
+                    'input: ' . var_export($input, true)
+                );
+            }
+        } finally {
+            restore_error_handler();
+        }
+
+        // Assert — nothing was raised on the way to those answers.
+        $this->assertSame([], $errors,
+            'the check must answer without raising a diagnostic');
+    }
+
+    /**
+     * A genuinely malformed serialized string — one that starts with a real
+     * type prefix but is truncated — is still reported as not serialized.
+     *
+     * The pre-screen must not become a second, laxer answer: it only rules out
+     * strings that cannot be serialized data, and everything past it is decided
+     * by the parser exactly as before. These inputs get past the prefix check
+     * and must still come back false.
+     *
+     * They are also the honest limit of the quiet guarantee above: a string
+     * that really does look like serialized data is handed to the parser, and
+     * the parser says what it says. What the pre-screen removes is the noise
+     * from the overwhelmingly common case — asking about something that was
+     * never serialized at all.
+     */
+    public function testATruncatedSerializedStringIsStillRejected(): void
+    {
+        // Act + Assert
+        $this->assertFalse(Helpers::checkUnserialize('a:2:{i:0;s:1:"x";'));
+        $this->assertFalse(Helpers::checkUnserialize('s:99:"short";'));
+        $this->assertFalse(Helpers::checkUnserialize('b:0'));
+    }
+
     // ── CORS ─────────────────────────────────────────────────────────────────
 
     /**
