@@ -30,6 +30,12 @@ class FakeHypertableSchema extends SchemaBuilder
     /** @var bool Whether a retention policy already exists */
     public bool $retentionPolicy = false;
 
+    /** @var string|null The interval the live retention policy reports */
+    public ?string $retentionInterval = null;
+
+    /** @var string|null The interval the live compression policy reports */
+    public ?string $compressionInterval = null;
+
     /** @var array<int, array<string, mixed>> Every call, in order */
     public array $calls = [];
 
@@ -83,6 +89,27 @@ class FakeHypertableSchema extends SchemaBuilder
     public function addRetentionPolicy(string $table, string $dropAfter, string $timeColumn = 'created_at'): bool
     {
         $this->calls[] = ['retentionPolicy', $table, $dropAfter, $timeColumn];
+
+        return true;
+    }
+
+    public function policyInterval(string $table, string $kind = 'retention'): ?string
+    {
+        return $kind === 'compression'
+            ? $this->compressionInterval
+            : $this->retentionInterval;
+    }
+
+    public function removeRetentionPolicy(string $table): bool
+    {
+        $this->calls[] = ['removeRetentionPolicy', $table];
+
+        return true;
+    }
+
+    public function removeCompressionPolicy(string $table): bool
+    {
+        $this->calls[] = ['removeCompressionPolicy', $table];
 
         return true;
     }
@@ -374,6 +401,238 @@ class HypertableRegistryTest extends TestCase
     /**
      * An application can declare its own, and override a framework default.
      */
+    // ── Drift: a changed declaration reaching the database ──────────────────
+
+    /**
+     * A retention policy whose interval no longer matches is replaced.
+     *
+     * Until there was a way to remove one there was no way to change one:
+     * `add_retention_policy()` raises on a duplicate, so the guard that skipped an
+     * existing policy also made a changed declaration permanently unreachable. The
+     * command reported "nothing missing" and the two numbers disagreed for ever.
+     */
+    public function testAChangedRetentionIntervalIsReplaced(): void
+    {
+        // Arrange — everything in place, but the live policy says something else
+        $schema = new FakeHypertableSchema();
+        $schema->isHypertable      = true;
+        $schema->compressionOn     = true;
+        $schema->compressionPolicy = true;
+        $schema->retentionPolicy   = true;
+        $schema->retentionInterval = '2 years';
+
+        HypertableRegistry::register('drift_probe', [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => '30 days',
+            'retention'      => '90 days',
+        ]);
+        $schema->compressionInterval = '30 days';
+
+        // Act
+        $done = HypertableRegistry::apply($schema, 'drift_probe');
+
+        // Assert — removed then re-added, in that order
+        $this->assertSame(
+            ['removeRetentionPolicy', 'retentionPolicy'],
+            $schema->performed()
+        );
+        $this->assertSame(['retention policy changed to 90 days'], $done);
+    }
+
+    /**
+     * A policy that already matches is left alone.
+     *
+     * The common case: every run of the repair command against a correct database must
+     * do nothing at all. Churning a policy on each pass would be constant work against
+     * the scheduler for no change.
+     */
+    public function testAMatchingIntervalIsNotTouched(): void
+    {
+        // Arrange
+        $schema = new FakeHypertableSchema();
+        $schema->isHypertable        = true;
+        $schema->compressionOn       = true;
+        $schema->compressionPolicy   = true;
+        $schema->retentionPolicy     = true;
+        $schema->retentionInterval   = '90 days';
+        $schema->compressionInterval = '30 days';
+
+        HypertableRegistry::register('drift_probe', [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => '30 days',
+            'retention'      => '90 days',
+        ]);
+
+        // Act
+        $done = HypertableRegistry::apply($schema, 'drift_probe');
+
+        // Assert
+        $this->assertSame([], $schema->performed());
+        $this->assertSame([], $done);
+    }
+
+    /**
+     * Spellings of the same duration are not drift.
+     *
+     * PostgreSQL hands intervals back as `@ 90 days`; a declaration says `90 days`. Left
+     * unnormalised, every table with a retention policy would be reported as drifted and
+     * rewritten on every single run — for ever, over a leading `@`.
+     */
+    public function testTheSameDurationSpeltDifferentlyIsNotDrift(): void
+    {
+        // Arrange
+        $schema = new FakeHypertableSchema();
+        $schema->isHypertable      = true;
+        $schema->compressionOn     = true;
+        $schema->retentionPolicy   = true;
+        $schema->retentionInterval = '@ 90 day';
+
+        HypertableRegistry::register('drift_probe', [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => null,
+            'retention'      => '90 days',
+        ]);
+
+        // Act
+        $done = HypertableRegistry::apply($schema, 'drift_probe');
+
+        // Assert
+        $this->assertSame([], $schema->performed());
+        $this->assertSame([], $done);
+    }
+
+    /**
+     * An interval nothing can parse is left alone rather than replaced.
+     *
+     * The bias that matters. A false positive rewrites a policy on every run for ever; a
+     * false negative costs one changed number not taking effect — which is the situation
+     * this mechanism arrived to improve, not a regression it introduces.
+     */
+    public function testAnUnparseableIntervalIsLeftAlone(): void
+    {
+        // Arrange
+        $schema = new FakeHypertableSchema();
+        $schema->isHypertable      = true;
+        $schema->compressionOn     = true;
+        $schema->retentionPolicy   = true;
+        $schema->retentionInterval = '1 year 6 mons 3 days';
+
+        HypertableRegistry::register('drift_probe', [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => null,
+            'retention'      => '90 days',
+        ]);
+
+        // Act
+        $done = HypertableRegistry::apply($schema, 'drift_probe');
+
+        // Assert
+        $this->assertSame([], $schema->performed());
+        $this->assertSame([], $done);
+    }
+
+    /**
+     * A changed compression interval is replaced too.
+     */
+    public function testAChangedCompressionIntervalIsReplaced(): void
+    {
+        // Arrange
+        $schema = new FakeHypertableSchema();
+        $schema->isHypertable        = true;
+        $schema->compressionOn       = true;
+        $schema->compressionPolicy   = true;
+        $schema->compressionInterval = '60 days';
+
+        HypertableRegistry::register('drift_probe', [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => '14 days',
+            'retention'      => null,
+        ]);
+
+        // Act
+        $done = HypertableRegistry::apply($schema, 'drift_probe');
+
+        // Assert
+        $this->assertSame(
+            ['removeCompressionPolicy', 'compressPolicy'],
+            $schema->performed()
+        );
+        $this->assertSame(['compression policy changed to 14 days'], $done);
+    }
+
+    // ── Config overrides ────────────────────────────────────────────────────
+
+    /**
+     * An override changes only the keys it names.
+     *
+     * Retuning a framework hypertable used to mean editing the framework. Seven tables
+     * are declared and none of their intervals fit every installation — a busy API's
+     * `tokenactions` and a quiet one's are the same declaration and very different
+     * amounts of disk.
+     */
+    public function testAnOverrideChangesOnlyTheKeysItNames(): void
+    {
+        // Arrange
+        $before = HypertableRegistry::spec('tokenactions');
+
+        // Act
+        HypertableRegistry::loadOverridesFromConfig([
+            'tokenactions' => ['retention' => '10 years'],
+        ]);
+        $after = HypertableRegistry::spec('tokenactions');
+
+        // Assert — the named key changed, the rest did not
+        $this->assertSame('10 years', $after['retention']);
+        $this->assertSame($before['time_column'], $after['time_column']);
+        $this->assertSame($before['chunk_interval'], $after['chunk_interval']);
+        $this->assertSame($before['compress_after'], $after['compress_after']);
+    }
+
+    /**
+     * Overriding a table nobody declared registers it.
+     *
+     * So an application can use the same config block for its own tables as for retuning
+     * the framework's, rather than needing a code path for each.
+     */
+    public function testOverridingAnUndeclaredTableRegistersIt(): void
+    {
+        // Arrange & Act
+        HypertableRegistry::loadOverridesFromConfig([
+            'app_readings' => ['time_column' => 'measured_at', 'retention' => '1 year'],
+        ]);
+
+        // Assert
+        $spec = HypertableRegistry::spec('app_readings');
+        $this->assertNotNull($spec);
+        $this->assertSame('measured_at', $spec['time_column']);
+        $this->assertSame('1 year', $spec['retention']);
+    }
+
+    /**
+     * A key the spec does not know about is ignored.
+     *
+     * These values are interpolated into `create_hypertable()` and the policy calls, so
+     * a typo in app.php must not become an unknown option in a statement — it would fail
+     * at migration time, on somebody else's installation, with a message about SQL.
+     */
+    public function testAnUnknownOverrideKeyIsIgnored(): void
+    {
+        // Arrange & Act
+        HypertableRegistry::loadOverridesFromConfig([
+            'tokenactions' => ['retenshun' => '10 years', 'drop_everything' => true],
+        ]);
+
+        // Assert
+        $spec = HypertableRegistry::spec('tokenactions');
+        $this->assertArrayNotHasKey('retenshun', $spec);
+        $this->assertArrayNotHasKey('drop_everything', $spec);
+    }
+
     public function testApplicationsCanRegisterTheirOwn(): void
     {
         // Act

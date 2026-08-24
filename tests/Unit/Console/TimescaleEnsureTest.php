@@ -64,6 +64,19 @@ class InspectableSchema extends SchemaBuilder
         return $this->retentionPolicy;
     }
 
+    /** @var string|null What the live retention policy reports, if there is one */
+    public ?string $retentionInterval = null;
+
+    /** @var string|null What the live compression policy reports, if there is one */
+    public ?string $compressionInterval = null;
+
+    public function policyInterval(string $table, string $kind = 'retention'): ?string
+    {
+        return $kind === 'compression'
+            ? $this->compressionInterval
+            : $this->retentionInterval;
+    }
+
     public function primaryKeyColumns(string $table): array
     {
         return $this->primaryKey;

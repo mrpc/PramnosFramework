@@ -628,6 +628,164 @@ class SchemaBuilder
     }
 
     /**
+     * The interval a policy is currently configured with, or null when there is none.
+     *
+     * Reads what the **database** has, not what a declaration says — which is the whole
+     * point. Until this existed, nothing could tell that a changed declaration and a live
+     * policy disagreed, so `timescale:ensure` reported "nothing missing" and changed
+     * nothing, for ever, while the number in the code said otherwise.
+     *
+     * Works on every backend: from `timescaledb_information.jobs` where the extension is
+     * present, from `pramnos.framework_policies` where it is not.
+     *
+     * @param  string $table Logical name
+     * @param  string $kind  `retention` or `compression`
+     * @return string|null   e.g. `90 days`
+     */
+    public function policyInterval(string $table, string $kind = 'retention'): ?string
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return $this->softwarePolicyInterval($table, $kind);
+        }
+
+        [$schema, $name] = $this->splitTable($table);
+        $procName        = $kind === 'compression' ? 'policy_compression' : 'policy_retention';
+
+        try {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT config FROM timescaledb_information.jobs
+                     WHERE proc_name = %s
+                       AND hypertable_schema = %s
+                       AND hypertable_name = %s
+                     LIMIT 1',
+                    $procName,
+                    $schema,
+                    $name
+                )
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (!$result || !isset($result->fields['config'])) {
+            return null;
+        }
+
+        $config = json_decode((string) $result->fields['config'], true);
+        if (!is_array($config)) {
+            return null;
+        }
+
+        // Timescale names it differently per policy, and has renamed it across versions.
+        foreach (['drop_after', 'compress_after', 'older_than'] as $key) {
+            if (isset($config[$key]) && $config[$key] !== null) {
+                return (string) $config[$key];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The interval of a software policy row, for backends without the extension.
+     *
+     * @return string|null
+     */
+    protected function softwarePolicyInterval(string $table, string $kind): ?string
+    {
+        try {
+            $policyTable = $this->resolveTable('pramnos.framework_policies');
+            $result      = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT config FROM ' . $policyTable
+                    . ' WHERE policy_type = %s AND target = %s LIMIT 1',
+                    $kind,
+                    $table
+                )
+            );
+        } catch (\Throwable) {
+            // No policy store yet — which is not an error, it is "no policy".
+            return null;
+        }
+
+        if (!$result || !isset($result->fields['config'])) {
+            return null;
+        }
+
+        $config = json_decode((string) $result->fields['config'], true);
+
+        return is_array($config) && isset($config['interval'])
+            ? (string) $config['interval']
+            : null;
+    }
+
+    /**
+     * Remove a retention policy, so a changed declaration can replace it.
+     *
+     * Without a remove there is no replace: `add_retention_policy()` raises on a
+     * duplicate, which is why `hasRetentionPolicy()` exists — and why, until now, a
+     * policy could be created and never changed.
+     *
+     * @param  string $table Logical name
+     * @return bool          Whether anything was removed
+     */
+    public function removeRetentionPolicy(string $table): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return $this->removeSoftwarePolicy($table, 'retention');
+        }
+
+        $resolved = $this->resolveTable($table);
+
+        return $this->runTimescaleStatement(
+            "SELECT remove_retention_policy('{$resolved}', if_exists => true)",
+            'retention policy removal',
+            $table
+        );
+    }
+
+    /**
+     * Remove a compression policy. Compression settings themselves are left alone.
+     *
+     * @param  string $table Logical name
+     * @return bool
+     */
+    public function removeCompressionPolicy(string $table): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        $resolved = $this->resolveTable($table);
+
+        return $this->runTimescaleStatement(
+            "SELECT remove_compression_policy('{$resolved}', if_exists => true)",
+            'compression policy removal',
+            $table
+        );
+    }
+
+    /**
+     * Delete a software policy row.
+     */
+    protected function removeSoftwarePolicy(string $table, string $kind): bool
+    {
+        try {
+            $policyTable = $this->resolveTable('pramnos.framework_policies');
+            $this->db->queryBuilder()
+                ->table($policyTable)
+                ->where('policy_type', $kind)
+                ->where('target', $table)
+                ->delete();
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
      * Add a TimescaleDB compression policy (compress chunks older than $after).
      *
      * No-op without TimescaleDB; a failure on a capable backend is logged.
@@ -676,11 +834,28 @@ class SchemaBuilder
         }
 
         $policyTable = $this->resolveTable('pramnos.framework_policies');
+        $config      = json_encode(['interval' => $dropAfter, 'time_column' => $timeColumn]);
         $qb          = $this->db->queryBuilder();
+
+        // Update in place when one is already registered, rather than inserting beside
+        // it. This used to be an unconditional insert, and the guard that was supposed to
+        // stop a second one — hasRetentionPolicy() — answered a flat `false` off
+        // TimescaleDB. So every run of the ensure command added another row, and N
+        // identical policies issued the same DELETE N times against the same table.
+        if ($this->softwarePolicyInterval($table, 'retention') !== null) {
+            $this->db->queryBuilder()
+                ->table($policyTable)
+                ->where('policy_type', 'retention')
+                ->where('target', $table)
+                ->update(['config' => $config, 'enabled' => 1]);
+
+            return true;
+        }
+
         $qb->table($policyTable)->insert([
             'policy_type' => 'retention',
             'target'      => $table,
-            'config'      => json_encode(['interval' => $dropAfter, 'time_column' => $timeColumn]),
+            'config'      => $config,
             'enabled'     => 1,
             'created_at'  => $qb->raw('NOW()'),
         ]);
@@ -1026,7 +1201,15 @@ class SchemaBuilder
     protected function hasPolicyJob(string $table, string $procName): bool
     {
         if (!$this->capabilities->hasTimescaleDB()) {
-            return false;
+            // A retention policy exists off TimescaleDB too — as a row in
+            // pramnos.framework_policies, executed by the PolicyEngine daemon. Answering
+            // a flat `false` here made HypertableRegistry::apply() believe there was
+            // never one, so every run inserted another, and N identical policies then
+            // issued the same DELETE N times against the same table.
+            //
+            // Compression has no software equivalent, so it keeps the old answer.
+            return $procName === 'policy_retention'
+                && $this->softwarePolicyInterval($table, 'retention') !== null;
         }
 
         [$schema, $name] = $this->splitTable($table);

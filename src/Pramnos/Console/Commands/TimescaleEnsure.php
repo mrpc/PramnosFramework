@@ -252,14 +252,60 @@ class TimescaleEnsure extends Command
         if (!$schema->isCompressionEnabled($table)) {
             $state['missing'][] = 'compression';
         }
-        if ($spec['compress_after'] !== null && !$schema->hasCompressionPolicy($table)) {
-            $state['missing'][] = 'compression policy';
+        // Presence *and* the interval. Checking only presence is why a changed
+        // declaration used to be invisible here: the command reported nothing missing,
+        // changed nothing, and exited successfully, while the number in the code and the
+        // number in the database disagreed for ever — and the code is the one people
+        // read.
+        if ($spec['compress_after'] !== null) {
+            if (!$schema->hasCompressionPolicy($table)) {
+                $state['missing'][] = 'compression policy';
+            } else {
+                $actual = $schema->policyInterval($table, 'compression');
+                if ($actual !== null && !$this->sameInterval($actual, (string) $spec['compress_after'])) {
+                    $state['missing'][] = 'compression policy (' . $actual
+                        . ' → ' . $spec['compress_after'] . ')';
+                }
+            }
         }
-        if ($spec['retention'] !== null && !$schema->hasRetentionPolicy($table)) {
-            $state['missing'][] = 'retention policy';
+
+        if ($spec['retention'] !== null) {
+            if (!$schema->hasRetentionPolicy($table)) {
+                $state['missing'][] = 'retention policy';
+            } else {
+                $actual = $schema->policyInterval($table, 'retention');
+                if ($actual !== null && !$this->sameInterval($actual, (string) $spec['retention'])) {
+                    $state['missing'][] = 'retention policy (' . $actual
+                        . ' → ' . $spec['retention'] . ')';
+                }
+            }
         }
 
         return $state;
+    }
+
+    /**
+     * Are two interval spellings the same duration?
+     *
+     * Says yes whenever it cannot tell, which keeps a formatting difference from being
+     * reported as drift on every run. The registry applies the same rule when it decides
+     * whether to replace a policy, so the report and the repair agree.
+     */
+    protected function sameInterval(string $actual, string $declared): bool
+    {
+        $normalise = static function (string $interval): string {
+            $value = ltrim(strtolower(trim($interval)), '@ ');
+            $value = preg_replace('/\s+/', ' ', $value) ?? '';
+
+            return preg_match('/^(\d+)\s*(second|minute|hour|day|week|month|year)s?$/', $value, $m)
+                ? $m[1] . ' ' . $m[2]
+                : '';
+        };
+
+        $left  = $normalise($actual);
+        $right = $normalise($declared);
+
+        return $left === '' || $right === '' || $left === $right;
     }
 
     /**

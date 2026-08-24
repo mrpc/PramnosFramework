@@ -186,21 +186,135 @@ class HypertableRegistry
             $done[] = 'compression enabled';
         }
 
-        if ($spec['compress_after'] !== null && !$schema->hasCompressionPolicy($table)) {
-            $schema->addCompressionPolicy($table, (string) $spec['compress_after']);
-            $done[] = 'compression policy added (' . $spec['compress_after'] . ')';
+        if ($spec['compress_after'] !== null) {
+            if (!$schema->hasCompressionPolicy($table)) {
+                $schema->addCompressionPolicy($table, (string) $spec['compress_after']);
+                $done[] = 'compression policy added (' . $spec['compress_after'] . ')';
+            } elseif (static::hasDrifted($schema, $table, 'compression', (string) $spec['compress_after'])) {
+                // Removed and re-added, because add_compression_policy() raises on a
+                // duplicate. Until there was a remove there was no replace, and a changed
+                // declaration simply never reached the database.
+                $schema->removeCompressionPolicy($table);
+                $schema->addCompressionPolicy($table, (string) $spec['compress_after']);
+                $done[] = 'compression policy changed to ' . $spec['compress_after'];
+            }
         }
 
-        if ($spec['retention'] !== null && !$schema->hasRetentionPolicy($table)) {
-            $schema->addRetentionPolicy(
-                $table,
-                (string) $spec['retention'],
-                (string) $spec['time_column']
-            );
-            $done[] = 'retention policy added (' . $spec['retention'] . ')';
+        if ($spec['retention'] !== null) {
+            if (!$schema->hasRetentionPolicy($table)) {
+                $schema->addRetentionPolicy(
+                    $table,
+                    (string) $spec['retention'],
+                    (string) $spec['time_column']
+                );
+                $done[] = 'retention policy added (' . $spec['retention'] . ')';
+            } elseif (static::hasDrifted($schema, $table, 'retention', (string) $spec['retention'])) {
+                $schema->removeRetentionPolicy($table);
+                $schema->addRetentionPolicy(
+                    $table,
+                    (string) $spec['retention'],
+                    (string) $spec['time_column']
+                );
+                $done[] = 'retention policy changed to ' . $spec['retention'];
+            }
         }
 
         return $done;
+    }
+
+    /**
+     * Merge per-table overrides from application config over the declarations.
+     *
+     * ```php
+     * // app/app.php
+     * 'hypertables' => [
+     *     'pramnos.changelog' => ['retention' => '180 days'],
+     *     'tokenactions'      => ['compress_after' => '30 days'],
+     * ],
+     * ```
+     *
+     * Until this existed, retuning any framework hypertable meant editing the framework.
+     * Seven tables are declared here and none of their intervals fit every installation:
+     * a busy API's `tokenactions` and a quiet one's are the same declaration and very
+     * different amounts of disk.
+     *
+     * A partial override changes only the keys it names; everything else keeps the
+     * framework's value. Overriding an undeclared table registers it, so an application
+     * can declare its own tables here as well as retune ours.
+     *
+     * Same shape as `FeatureRegistry::loadFromConfig()`, and called from the same place
+     * in the application's boot.
+     *
+     * @param array<string, array<string, mixed>> $overrides
+     */
+    public static function loadOverridesFromConfig(array $overrides): void
+    {
+        static::ensureDefaults();
+
+        foreach ($overrides as $table => $spec) {
+            if (!is_string($table) || $table === '' || !is_array($spec)) {
+                continue;
+            }
+
+            $existing = static::$tables[$table] ?? static::specDefaults();
+
+            // Only the keys the spec knows about, so a typo in app.php cannot smuggle an
+            // unknown option into a create_hypertable() call.
+            $known = array_intersect_key($spec, static::specDefaults());
+
+            static::$tables[$table] = $known + $existing;
+        }
+    }
+
+    /**
+     * Does the live policy disagree with what the declaration asks for?
+     *
+     * **Answers false when it cannot tell.** That bias is deliberate: a false positive
+     * removes and re-adds a policy on every single run — churn against the scheduler,
+     * for ever, over a formatting difference — while a false negative costs one changed
+     * number not taking effect, which is the situation this whole mechanism arrived to
+     * improve rather than a regression.
+     *
+     * @param  string $kind      `retention` or `compression`
+     * @param  string $declared  The interval from the declaration
+     */
+    protected static function hasDrifted($schema, string $table, string $kind, string $declared): bool
+    {
+        $actual = $schema->policyInterval($table, $kind);
+
+        if ($actual === null) {
+            return false;
+        }
+
+        $left  = static::normaliseInterval($actual);
+        $right = static::normaliseInterval($declared);
+
+        if ($left === '' || $right === '') {
+            return false;
+        }
+
+        return $left !== $right;
+    }
+
+    /**
+     * Reduce an interval to something two spellings of the same duration share.
+     *
+     * PostgreSQL hands back `@ 90 days`, a declaration says `90 days`, and a job config
+     * may say `90 day`. None of those are a difference worth churning a policy over.
+     * Anything this cannot reduce comes back empty, which {@see hasDrifted()} reads as
+     * "do not touch it".
+     */
+    protected static function normaliseInterval(string $interval): string
+    {
+        $value = strtolower(trim($interval));
+        $value = ltrim($value, '@ ');
+        $value = preg_replace('/\s+/', ' ', $value) ?? '';
+
+        if (!preg_match('/^(\d+)\s*(second|minute|hour|day|week|month|year)s?$/', $value, $m)) {
+            return '';
+        }
+
+        return $m[1] . ' ' . $m[2];
     }
 
     /**

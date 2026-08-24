@@ -255,6 +255,121 @@ class HypertableRepairTimescaleDBTest extends TestCase
      * which is precisely what makes a late repair possible at all. It is worth
      * an assertion rather than an assumption.
      */
+    /**
+     * A changed declaration reaches the database.
+     *
+     * The whole point of the mechanism, against a real scheduler. Before it existed,
+     * `apply()` skipped any table that already had a policy — so an interval could be
+     * created once and never changed, and `timescale:ensure` reported "nothing missing"
+     * while the number in the code and the number in the database disagreed for ever.
+     *
+     * Asserted by reading the interval back out of `timescaledb_information.jobs`, not
+     * by trusting the return value: the removal and the re-add are two statements, and
+     * a failure between them leaves a table with no policy at all.
+     */
+    public function testAChangedRetentionIntervalReachesTheDatabase(): void
+    {
+        // Arrange — a fully configured table
+        $this->createPopulatedPlainTable();
+        HypertableRegistry::apply($this->schema, self::TABLE);
+        $this->assertSame(
+            $this->normalised('1 year'),
+            $this->normalised($this->schema->policyInterval(self::TABLE))
+        );
+
+        // Act — the declaration changes
+        HypertableRegistry::register(self::TABLE, [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => '30 days',
+            'retention'      => '90 days',
+        ]);
+        $done = HypertableRegistry::apply($this->schema, self::TABLE);
+
+        // Assert
+        $this->assertContains('retention policy changed to 90 days', $done);
+        $this->assertSame(
+            $this->normalised('90 days'),
+            $this->normalised($this->schema->policyInterval(self::TABLE))
+        );
+
+        // And exactly one policy remains — a remove that did not remove would leave two,
+        // and add_retention_policy() would have raised rather than replaced.
+        $jobs = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM timescaledb_information.jobs
+              WHERE proc_name = 'policy_retention' AND hypertable_name = '" . self::TABLE . "'"
+        );
+        $this->assertSame(1, (int) $jobs->fields['cnt']);
+    }
+
+    /**
+     * Applying twice with an unchanged declaration does nothing the second time.
+     *
+     * The repair command runs on demand and sometimes on a schedule, so "already
+     * correct" is by far its most common input. Replacing a policy that matches would
+     * be constant churn against the scheduler for no change — and it is the failure a
+     * naive string comparison produces, because PostgreSQL does not hand intervals back
+     * spelt the way they were written.
+     */
+    public function testASecondApplyWithNoChangeIsANoOp(): void
+    {
+        // Arrange
+        $this->createPopulatedPlainTable();
+        HypertableRegistry::apply($this->schema, self::TABLE);
+
+        // Act
+        $done = HypertableRegistry::apply($this->schema, self::TABLE);
+
+        // Assert
+        $this->assertSame([], $done, 'a correct database must not be rewritten');
+    }
+
+    /**
+     * A changed compression interval reaches the database too.
+     */
+    public function testAChangedCompressionIntervalReachesTheDatabase(): void
+    {
+        // Arrange
+        $this->createPopulatedPlainTable();
+        HypertableRegistry::apply($this->schema, self::TABLE);
+
+        // Act
+        HypertableRegistry::register(self::TABLE, [
+            'time_column'    => 'created_at',
+            'chunk_interval' => '7 days',
+            'compress_after' => '3 days',
+            'retention'      => '1 year',
+        ]);
+        $done = HypertableRegistry::apply($this->schema, self::TABLE);
+
+        // Assert
+        $this->assertContains('compression policy changed to 3 days', $done);
+        $this->assertSame(
+            $this->normalised('3 days'),
+            $this->normalised($this->schema->policyInterval(self::TABLE, 'compression'))
+        );
+    }
+
+    /**
+     * Reduce an interval to a form two spellings share, for assertions.
+     *
+     * PostgreSQL returns `@ 90 days`, `90 days` or `90 day` depending on where it is
+     * read from, and none of those differences are what these tests are about.
+     */
+    private function normalised(?string $interval): string
+    {
+        if ($interval === null) {
+            return '';
+        }
+
+        $value = ltrim(strtolower(trim($interval)), '@ ');
+        $value = preg_replace('/\s+/', ' ', $value) ?? '';
+
+        return preg_match('/^(\d+)\s*(second|minute|hour|day|week|month|year)s?$/', $value, $m)
+            ? $m[1] . ' ' . $m[2] . 's'
+            : $value;
+    }
+
     public function testTheCompositeKeyThatMakesRepairPossibleIsReadable(): void
     {
         // Arrange

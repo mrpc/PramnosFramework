@@ -5,6 +5,7 @@ use_cases:
   - Writing late-arriving data into a compressed chunk
   - Checking hypertable state from code
   - Setting up data retention on MySQL or plain PostgreSQL
+  - Changing a chunk, compression or retention interval after the fact
 ---
 
 # Hypertables: declaring them, and repairing them later
@@ -56,6 +57,52 @@ two disagree silently.
 | `applications.application_stats` | `time` | 14 days | 60 days | 3 years |
 
 This table is documentation. The registry is the source.
+
+### Retuning one without editing the framework
+
+None of those intervals fit every installation — a busy API's `tokenactions` and a
+quiet one's are the same declaration and very different amounts of disk. Override
+per table in `app/app.php`:
+
+```php
+'hypertables' => [
+    'tokenactions'      => ['retention' => '10 years'],
+    'pramnos.changelog' => ['compress_after' => '3 days'],
+],
+```
+
+An override changes only the keys it names; the rest keep the framework's values.
+Naming a table that is not declared registers it, so an application can use the same
+block for its own tables. A key the spec does not recognise is ignored rather than
+passed through — these values end up inside `create_hypertable()` and the policy
+calls, and a typo must not become an unknown option in somebody else's migration.
+
+Then apply it:
+
+```bash
+php pramnos timescale:ensure --dry-run   # what would change
+php pramnos timescale:ensure --fix       # change it
+```
+
+### Changing a policy that already exists
+
+`timescale:ensure` compares the **interval**, not merely whether a policy is there.
+A declaration that no longer matches the database is reported as drift and repaired
+by removing the policy and adding it back — `add_retention_policy()` raises on a
+duplicate, so replacing is the only way to change one.
+
+```
+retention policy (1 year → 90 days)
+```
+
+Two spellings of the same duration are not drift. PostgreSQL hands intervals back as
+`@ 90 days` while a declaration says `90 days`, and treating that as a change would
+rewrite every policy on every run, for ever, over a leading `@`.
+
+An interval that cannot be parsed — `1 year 6 mons 3 days` — is **left alone**. The
+bias is deliberate: a false positive is permanent churn against the scheduler, while
+a false negative costs one changed number not taking effect, which is the situation
+this replaced rather than one it introduces.
 
 ### One hypertable that is deliberately not in the registry
 
