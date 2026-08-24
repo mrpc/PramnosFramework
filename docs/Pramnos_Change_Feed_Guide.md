@@ -5,6 +5,7 @@ use_cases:
   - Writing an audit log of every change a model makes
   - Reacting in application code when any model is saved or deleted
   - Turning a model save into a live update in the browser
+  - Keeping an audit trail of everything a model changed
 ---
 
 # Pramnos Change Feed Guide
@@ -276,6 +277,89 @@ ChangeFeed::flush();     // deliver them now
 ChangeFeed::discard();   // drop them
 ChangeFeed::reset();     // tests only — clears the buffer and the boot flag
 ```
+
+---
+
+## Writing changes down
+
+Enable the `changelog` feature and every emitted change is recorded:
+
+```php
+// app.php
+'features' => ['changelog'],
+```
+
+That is the whole setup. The tables come with the feature — an application that does
+not enable it gets none of them.
+
+### Three tables, because retention is per table
+
+A TimescaleDB retention policy drops **whole chunks by time** and takes no row
+predicate, so one table can only ever have one retention. These three populations
+have genuinely different answers to how long they are worth keeping:
+
+| Table | What | Kept |
+|---|---|---|
+| `pramnos.changelog` | machine diffs, one row per save | 30 days |
+| `pramnos.changelog_events` | things a person did | 2 years |
+| `pramnos.changelog_trace` | stack trace and request context | 3 days |
+
+Retune any of them from `app.php` without editing the framework:
+
+```php
+'hypertables' => [
+    'pramnos.changelog' => ['retention' => '90 days'],
+],
+```
+
+### Recording an event a diff cannot express
+
+```php
+$device->logEvent('device.assigned_on_finalize', ['tmpdeviceid' => 7]);
+```
+
+A save records what changed; this records what *happened*. It needs no
+`$emitChanges` — a model can record deliberate events without announcing every save.
+
+The event is a **machine code**, rendered at read time. A `description` argument
+exists for events no code describes, and should stay the exception: prose stored in
+a row cannot be translated and freezes a wording into history.
+
+### Reading it back
+
+```php
+foreach (ChangelogReader::history('wcm-device', 42) as $row) {
+    echo ChangelogRenderer::describe($row);   // "status: 1 → 3"
+}
+```
+
+`history()` defaults to **application events only**. The automatic feed is one row
+per save and would bury them; ask for `['events', 'feed']` in a diagnostic view.
+
+Labels are optional and go through i18n first:
+
+```php
+ChangelogRenderer::label('wcm-device', [
+    'status'                      => 'Status',
+    'device.assigned_on_finalize' => 'Assigned on finalize',
+]);
+```
+
+### Traces are opt-in
+
+```php
+protected $captureTrace = true;
+```
+
+`getTraceAsString()` on every save is not free. Turn it on while chasing something
+and off afterwards — and note that traces are kept days while the rows they describe
+are kept weeks, so most rows have none.
+
+### What it costs
+
+`WriteSpool`, not an insert: **0.003 ms** per row against 2.807 ms for an insert into
+a compressed hypertable, both measured in this repository. `spool:drain` writes them
+in batches a minute later, and the framework's own schedule already runs it.
 
 ---
 

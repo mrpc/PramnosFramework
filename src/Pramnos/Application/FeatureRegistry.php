@@ -280,6 +280,13 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/queue',
             ],
         ]);
+        static::register('changelog', [
+            'description' => 'Model change log — an audit trail written from the change feed',
+            'provider'    => \Pramnos\Changelog\ChangelogServiceProvider::class,
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/changelog',
+            ],
+        ]);
         static::register('cache', [
             'description' => 'Cache System (PSR-16, adapters: array/file/redis/memcached)',
             'provider'    => \Pramnos\Cache\CacheServiceProvider::class,

@@ -411,6 +411,41 @@ class HypertableRegistry
                 'retention'      => '7 years',
                 'feature'        => 'auth',
             ],
+            // The change log's three populations. Declared here rather than in the
+            // migration so an application can retune them from app.php — the numbers
+            // below are a starting point taken from the reference application, and no
+            // single retention fits every installation's write rate.
+            //
+            // Compression is declared for the two that keep months of rows. The trace
+            // table has none: at three days nothing lives long enough for compression to
+            // repay the CPU it costs.
+            'pramnos.changelog' => [
+                'time_column'     => 'created_at',
+                'chunk_interval'  => '7 days',
+                'compress_after'  => '7 days',
+                'retention'       => '30 days',
+                'segmentby'       => 'entity',
+                'orderby'         => 'itemid, created_at DESC',
+                'deferred_writes' => true,
+                'feature'         => 'changelog',
+            ],
+            'pramnos.changelog_events' => [
+                'time_column'     => 'created_at',
+                'chunk_interval'  => '7 days',
+                'compress_after'  => '30 days',
+                'retention'       => '2 years',
+                'segmentby'       => 'entity',
+                'orderby'         => 'itemid, created_at DESC',
+                'deferred_writes' => true,
+                'feature'         => 'changelog',
+            ],
+            'pramnos.changelog_trace' => [
+                'time_column'     => 'created_at',
+                'chunk_interval'  => '1 day',
+                'compress_after'  => null,
+                'retention'       => '3 days',
+                'feature'         => 'changelog',
+            ],
             'applications.application_stats' => [
                 'time_column'    => 'time',
                 'chunk_interval' => '14 days',

@@ -62,6 +62,8 @@ final class ModelChange
      * @param int                                     $at              Unix timestamp
      * @param class-string                            $model           The model class that emitted it
      * @param string                                  $table           Fully-qualified table name
+     * @param bool                                    $captureTrace    Whether the model asked for request context to be kept
+     * @param string|null                             $trace           The stack trace, when it did
      */
     public function __construct(
         public readonly string $entity,
@@ -76,6 +78,8 @@ final class ModelChange
         public readonly int $at,
         public readonly string $model,
         public readonly string $table,
+        public readonly bool $captureTrace = false,
+        public readonly ?string $trace = null,
     ) {
     }
 
@@ -148,6 +152,8 @@ final class ModelChange
             'at'              => $this->at,
             'model'           => $this->model,
             'table'           => $this->table,
+            'captureTrace'    => $this->captureTrace,
+            'trace'           => $this->trace,
         ];
     }
 }

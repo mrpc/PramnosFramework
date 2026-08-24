@@ -149,6 +149,20 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     protected $changeSignificantFields = array();
 
     /**
+     * Capture the stack trace and request context alongside each change.
+     *
+     * Off, because it is not free: `(new \Exception())->getTraceAsString()` runs on every
+     * save that emits, and the reference application pays exactly that on every device
+     * write. Turn it on where a change is being chased, and off again afterwards.
+     *
+     * Only the changelog listener does anything with it, and it keeps traces for days
+     * rather than months — see the `changelog` feature.
+     *
+     * @var bool
+     */
+    protected $captureTrace = false;
+
+    /**
      * Suppresses one emission. Internal, and deliberately not protected.
      *
      * `OrmModel`'s soft delete performs its work through `parent::_save()`, which would
@@ -1343,6 +1357,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         // Caught by testEveryDeclaredBasePropertyIsExcluded() rather than by anybody
         // remembering, which is the whole reason that test derives its list from the class.
         'emitChanges'             => true,
+        'captureTrace'            => true,
         'changeEntity'            => true,
         'broadcastFields'         => true,
         'changeIgnoreFields'      => true,
@@ -1560,7 +1575,14 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     $this->currentChangeSource(),
                     time(),
                     static::class,
-                    (string) $this->getFullTableName()
+                    (string) $this->getFullTableName(),
+                    $this->captureTrace,
+                    // Built here rather than by the listener, because a trace taken later
+                    // would describe the listener's stack rather than the save's — which
+                    // is the one thing anybody reading it wants.
+                    $this->captureTrace
+                        ? (new \Exception())->getTraceAsString()
+                        : null
                 )
             );
         } catch (\Throwable $ex) {
@@ -1617,6 +1639,62 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         }
 
         return \Pramnos\Event\ModelChange::SOURCE_WEB;
+    }
+
+    /**
+     * Record something a diff cannot express.
+     *
+     * ```php
+     * $device->logEvent('device.assigned_on_finalize', ['tmpdeviceid' => 7]);
+     * ```
+     *
+     * A save writes what changed; this writes what *happened* — an assignment, a
+     * replacement, an approval. The two go to different tables with different retentions,
+     * because "a column moved" and "somebody did something" are worth keeping for very
+     * different lengths of time.
+     *
+     * The event is a machine code, rendered through i18n at read time by
+     * {@see \Pramnos\Changelog\ChangelogRenderer}. `$description` exists for the events
+     * no code describes, and should be the exception — prose stored in a row cannot be
+     * translated and freezes a wording into history.
+     *
+     * Requires the `changelog` feature; without it there is nowhere to write and the call
+     * does nothing. Unlike {@see emitChange()} it does **not** require `$emitChanges`: a
+     * model can record deliberate events without announcing every save.
+     *
+     * @param  string      $event       Machine code, e.g. `device.assigned_on_finalize`
+     * @param  array       $details     Whatever the event carries
+     * @param  int         $logtype     The application's own categorisation
+     * @param  string|null $description Free text, when no code describes it
+     * @return void
+     */
+    public function logEvent($event, array $details = array(), $logtype = 0, $description = null)
+    {
+        try {
+            \Pramnos\Database\WriteSpool::append(
+                \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE,
+                array(
+                    'entity'      => $this->changeEntity !== ''
+                        ? $this->changeEntity
+                        : $this->modelname,
+                    'itemid'      => (string) ($this->{$this->_primaryKey} ?? ''),
+                    'event'       => $event,
+                    'logtype'     => (int) $logtype,
+                    'details'     => $details === array() ? null : $details,
+                    'description' => $description,
+                    'userid'      => $this->currentChangeUserId(),
+                    'source'      => $this->currentChangeSource(),
+                    'created_at'  => date('c'),
+                )
+            );
+        } catch (\Throwable $ex) {
+            // Recording that something happened must not be the reason it fails to.
+            \Pramnos\Logs\Logger::logError(
+                'Changelog event "' . $event . '" failed for ' . static::class
+                . ': ' . $ex->getMessage(),
+                $ex
+            );
+        }
     }
 
     /**
