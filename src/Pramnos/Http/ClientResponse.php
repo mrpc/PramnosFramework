@@ -13,12 +13,19 @@ class ClientResponse
      * @param bool                  $truncated Whether the client stopped reading
      *                                         the body before the server had
      *                                         finished sending it.
+     * @param int|null              $bytes     Bytes that came over the wire, or
+     *                                         null when nobody measured (a faked
+     *                                         or hand-built response).
+     * @param float|null            $elapsedMs Milliseconds the request took, or
+     *                                         null for the same reason.
      */
     public function __construct(
         private readonly int    $statusCode,
         private readonly string $body,
         private readonly array  $headers = [],
-        private readonly bool   $truncated = false
+        private readonly bool   $truncated = false,
+        private readonly ?int   $bytes = null,
+        private readonly ?float $elapsedMs = null
     ) {}
 
     // =========================================================================
@@ -97,6 +104,60 @@ class ClientResponse
     public function body(): string
     {
         return $this->body;
+    }
+
+    // =========================================================================
+    // What it cost
+    // =========================================================================
+
+    /**
+     * Bytes that came over the wire, or null when nothing measured them.
+     *
+     * **Not `strlen(body())`.** They differ in the cases that matter:
+     * {@see Client::maxResponseBytes()} stops the read, so the body length is
+     * the ceiling rather than what the server sent; a compressed response costs
+     * its compressed size on the wire while the body is the inflated one; and
+     * this figure counts the **response headers too**, which a body length
+     * cannot see. A caller measuring bandwidth wants the wire figure.
+     *
+     * Counting the headers is why a {@see Client::headersOnly()} probe reports
+     * a real number rather than zero — measured at 161 bytes of headers against
+     * 0 bytes of body on a local endpoint. A probe that reported no bandwidth
+     * would zero the column of any ledger it fed, which is precisely the caller
+     * this accessor exists for.
+     *
+     * **Populated on failure too.** A 404 with a page of HTML behind it is
+     * bandwidth that was paid for, and a 500 with a stack trace is bandwidth
+     * *and* a wrong address — a statistic only present on success would miss
+     * exactly the requests worth finding.
+     *
+     * `null` means nobody measured, not zero: a faked response and a
+     * hand-built one have no transfer to report, and reporting 0 for them
+     * would quietly deflate any total they were added to.
+     */
+    public function transferredBytes(): ?int
+    {
+        return $this->bytes;
+    }
+
+    /**
+     * Milliseconds this request took, or null when nothing measured it.
+     *
+     * curl's own total time for the transfer, so a **pooled** request reports
+     * its own duration rather than a share of the batch's. Without it, a caller
+     * keeping an outbound ledger had only the clock around the whole batch to
+     * divide between its requests — which silently changes the column's meaning
+     * from "how slow was that server" to "what share of our elapsed time did
+     * this cost". Both are legitimate numbers; having to pick one because the
+     * response would not say is not.
+     *
+     * Together with {@see transferredBytes()} this is what answers whether an
+     * outbound cost is **payload** or **waiting**, and those have different
+     * fixes: ask for less, against ask less often.
+     */
+    public function elapsedMs(): ?float
+    {
+        return $this->elapsedMs;
     }
 
     /**

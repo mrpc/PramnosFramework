@@ -467,6 +467,93 @@ class ClientPoolTest extends TestCase
         $this->assertSame(500, $responses['a']->status());
     }
 
+    // ── What each entry cost ────────────────────────────────────────────────
+
+    /**
+     * **Each entry reports its own timing, not a share of the batch's.**
+     *
+     * This is the whole point of putting the statistics on the response. A
+     * caller keeping an outbound ledger used to have only the clock around the
+     * batch, and dividing that across the requests changes the column's meaning
+     * from "how slow was that server" to "what share of our elapsed time did
+     * this cost" — both legitimate numbers, but not the same one.
+     *
+     * Asserted against two servers that sleep for deliberately different
+     * lengths, because that is the only way to tell a per-request measurement
+     * from an average: an average would give both entries the same figure.
+     */
+    public function testEachEntryReportsItsOwnTiming(): void
+    {
+        // Arrange — one slow, one fast.
+        $slow = $this->serve(static function (): string {
+            usleep(500_000);
+            return self::response(200, 'slow');
+        });
+        $fast = $this->serve(static fn(): string => self::response(200, 'fast'));
+
+        // Act
+        $responses = Client::pool(['slow' => $slow, 'fast' => $fast], concurrency: 2);
+
+        // Assert — both measured, and the slow one is measurably slower.
+        $this->assertNotNull($responses['slow']->elapsedMs());
+        $this->assertNotNull($responses['fast']->elapsedMs());
+        $this->assertGreaterThan(300.0, $responses['slow']->elapsedMs());
+        $this->assertLessThan(
+            $responses['slow']->elapsedMs(),
+            $responses['fast']->elapsedMs(),
+            'an average would have given both entries the same number'
+        );
+    }
+
+    /**
+     * Each entry reports its own byte count.
+     *
+     * Same reasoning as the timing, and easier to be sure of: the payloads
+     * differ by an order of magnitude, so a shared or averaged figure could not
+     * pass.
+     */
+    public function testEachEntryReportsItsOwnByteCount(): void
+    {
+        // Arrange
+        $big   = str_repeat('b', 4096);
+        $small = 'x';
+        $bigUrl   = $this->serve(static fn(): string => self::response(200, $big));
+        $smallUrl = $this->serve(static fn(): string => self::response(200, $small));
+
+        // Act
+        $responses = Client::pool(
+            ['big' => $bigUrl, 'small' => $smallUrl], concurrency: 2
+        );
+
+        // Assert
+        $this->assertGreaterThan(4096, $responses['big']->transferredBytes());
+        $this->assertLessThan(1000, $responses['small']->transferredBytes());
+    }
+
+    /**
+     * A dead host's entry is an exception and carries no statistics, which is
+     * the honest answer: nothing was transferred and there is nothing to add to
+     * a total.
+     *
+     * Stated because the alternative — a zero-valued response — would let a
+     * ledger count a failed connection as a successful free request.
+     */
+    public function testADeadEntryCarriesNoStatistics(): void
+    {
+        // Arrange
+        $alive = $this->serve(static fn(): string => self::response(200, 'up'));
+
+        // Act
+        $responses = Client::pool([
+            'alive' => Client::get($alive)->timeout(5),
+            'dead'  => Client::get($this->deadUrl())->connectTimeout(2)->timeout(3),
+        ]);
+
+        // Assert
+        $this->assertInstanceOf(ClientException::class, $responses['dead']);
+        $this->assertNotNull($responses['alive']->transferredBytes());
+    }
+
     // ── Fakes ───────────────────────────────────────────────────────────────
 
     /**

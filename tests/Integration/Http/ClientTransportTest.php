@@ -412,6 +412,107 @@ class ClientTransportTest extends TestCase
         $this->assertSame('', $response->header('x-hop'));
     }
 
+    // ── What it cost ────────────────────────────────────────────────────────
+
+    /**
+     * A response says how many bytes came over the wire and how long it took.
+     *
+     * curl measured both already and the client used to discard them, so a
+     * caller keeping an outbound-bandwidth ledger had nothing to write down —
+     * and a pooled request had only the clock around the whole batch to divide
+     * between its entries, which changes the column's meaning from "how slow
+     * was that server" to "what share of our elapsed time did this cost".
+     */
+    public function testAResponseReportsItsBytesAndTiming(): void
+    {
+        // Arrange
+        $payload = str_repeat('p', 2048);
+        $url = $this->serve(static function () use ($payload): string {
+            return self::response(200, $payload);
+        });
+
+        // Act
+        $response = Client::get($url)->timeout(5)->send();
+
+        // Assert — the body's bytes, plus the headers, so the figure is what the
+        // socket carried rather than what json_decode() will see.
+        $this->assertNotNull($response->transferredBytes());
+        $this->assertGreaterThan(
+            strlen($payload),
+            $response->transferredBytes(),
+            'the wire figure must include the response headers'
+        );
+        $this->assertNotNull($response->elapsedMs());
+        $this->assertGreaterThanOrEqual(0.0, $response->elapsedMs());
+    }
+
+    /**
+     * A failing response reports its cost too.
+     *
+     * A 404 with a page of HTML behind it is bandwidth that was paid for, and a
+     * 500 with a stack trace is bandwidth *and* a wrong address. A statistic
+     * only populated on success would miss exactly the requests worth finding.
+     */
+    public function testAFailingResponseStillReportsItsCost(): void
+    {
+        // Arrange
+        $body = str_repeat('e', 512);
+        $url = $this->serve(static fn(): string => self::response(500, $body));
+
+        // Act
+        $response = Client::get($url)->timeout(5)->send();
+
+        // Assert
+        $this->assertSame(500, $response->status());
+        $this->assertGreaterThan(strlen($body), $response->transferredBytes());
+        $this->assertNotNull($response->elapsedMs());
+    }
+
+    /**
+     * The elapsed time is real, not a placeholder.
+     *
+     * Asserted against a server that deliberately sleeps, because a
+     * `assertGreaterThanOrEqual(0)` on a timing passes for a hard-coded zero —
+     * which is the shape of a statistic that looks present and says nothing.
+     */
+    public function testTheElapsedTimeReflectsASlowServer(): void
+    {
+        // Arrange
+        $url = $this->serve(static function (): string {
+            usleep(300_000);
+            return self::response(200, 'slow');
+        });
+
+        // Act
+        $response = Client::get($url)->timeout(5)->send();
+
+        // Assert — 300ms of server, so anything under 100 is not a measurement.
+        $this->assertGreaterThan(100.0, $response->elapsedMs());
+    }
+
+    /**
+     * A faked response reports null rather than zero.
+     *
+     * Nothing measured it, and zero would quietly deflate any total it was
+     * added to — a ledger fed by a test double would read as free bandwidth.
+     */
+    public function testAFakedResponseReportsNoCost(): void
+    {
+        // Arrange
+        Client::fake(['*' => ClientResponse::make('x', 200)]);
+
+        try {
+            // Act
+            $response = Client::get('https://example.test/thing')->send();
+
+            // Assert
+            $this->assertNull($response->transferredBytes());
+            $this->assertNull($response->elapsedMs());
+        } finally {
+            Client::resetFakes();
+        }
+    }
+
     /**
      * A base URL and a relative path compose into the request that is actually
      * sent, which is the instance-usage pattern the class documents.

@@ -6,6 +6,7 @@ use_cases:
   - Reading only part of a large or endless HTTP response
   - Writing tests for code that makes outbound HTTP calls
   - Diagnosing a request that times out or exhausts memory
+  - Measuring outbound bandwidth or per-request timing
 ---
 
 # Pramnos HTTP Client Guide
@@ -229,6 +230,57 @@ HTTP client here, not two.
 
 ---
 
+## What a request cost
+
+Every response carries what the transfer actually cost, taken from the handle
+that made it:
+
+```php
+$response->transferredBytes();   // int|null — bytes over the wire
+$response->elapsedMs();          // float|null — how long it took
+```
+
+**`transferredBytes()` is not `strlen(body())`.** It counts the response headers
+as well as the body, so a `headersOnly()` probe reports a real figure rather than
+zero; and it is the wire size, so a `maxResponseBytes()` ceiling or a compressed
+response do not make it agree with the body length. A caller measuring bandwidth
+wants the wire figure.
+
+**Both are populated on failure.** A 404 with a page of HTML behind it is
+bandwidth that was paid for, and a 500 with a stack trace is bandwidth *and* a
+wrong address — a statistic only present on success would miss exactly the
+requests worth finding.
+
+**`null` means nobody measured, not zero.** A faked response and one built with
+`ClientResponse::make()` have no transfer to report, and returning `0` for them
+would quietly deflate any total they were added to.
+
+**In a pool, each entry reports its own figures**, not a share of the batch's:
+
+```php
+$responses = Client::pool($urls, concurrency: 8);
+
+foreach ($responses as $key => $response) {
+    if ($response instanceof \Pramnos\Http\ClientException) {
+        $ledger->failure($key);
+        continue;
+    }
+    $ledger->record($key, $response->transferredBytes(), $response->elapsedMs());
+}
+```
+
+That is what the accessors are for. Together they answer whether an outbound cost
+is **payload** or **waiting**, and those have different fixes — ask for less,
+against ask less often.
+
+> **Added 2026-08-24.** curl measured both already and the client discarded them.
+> A consuming application keeping an outbound-traffic ledger therefore kept one
+> service on a hand-rolled curl handle purely to read `curl_getinfo()`, and its
+> pooled poller had to redefine its `millis` column as "share of the batch's
+> elapsed time" because there was nothing else to divide.
+
+---
+
 ## Timeouts and retries
 
 ```php
@@ -378,6 +430,8 @@ for development only — it makes the connection trivially interceptable.
 | `->userAgent(string $agent): static` | Override the User-Agent |
 | `->throwOnError(): static` | Throw on 4xx/5xx instead of returning |
 | `->send(): ClientResponse` | Execute |
+| `$response->transferredBytes(): ?int` | Bytes over the wire, headers included |
+| `$response->elapsedMs(): ?float` | How long the request took |
 | `Client::pool(array $requests, int $concurrency = 8): array` | Send many at once; returns `ClientResponse\|ClientException` per key |
 | `Client::fake(array $responses): void` | Register test fakes |
 | `Client::resetFakes(): void` | Clear them |

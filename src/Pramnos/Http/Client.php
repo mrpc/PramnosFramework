@@ -727,13 +727,36 @@ class Client
     ): ClientResponse {
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
+        // What the transfer cost, taken from the handle that made it — so a
+        // pooled request reports its own figures rather than a share of the
+        // batch's. curl measured both already and the client used to discard
+        // them, which left a caller keeping an outbound ledger with only the
+        // clock around the whole batch to divide between its requests.
+        //
+        // Read here rather than at each return below, because the failure paths
+        // want them too: a 404 with a page of HTML behind it is bandwidth that
+        // was paid for, and a statistic only present on success would miss
+        // exactly the requests worth finding.
+        // Headers **and** body, not SIZE_DOWNLOAD alone. SIZE_DOWNLOAD counts
+        // only the body, so a headersOnly() probe would report 0 bytes for a
+        // request that really moved bytes — measured at 161 header bytes against
+        // 0 body bytes on a local endpoint. Zeroing the byte column of a ledger
+        // an operator reads is the failure this exists to avoid, and it would
+        // hit exactly the caller that probes rather than downloads.
+        $bytes = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE)
+            + (int) curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD);
+        $elapsedMs = round(
+            ((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000, 3
+        );
+
         // We stopped on purpose. curl reports our own short write as
         // CURLE_WRITE_ERROR, and 'truncated' is set only where this code
         // returned the short count — so a genuine write failure, which never
         // sets it, still raises.
         if ($state['truncated'] && $errno === CURLE_WRITE_ERROR) {
             return new ClientResponse(
-                $status, $state['received'], $state['headers'], true
+                $status, $state['received'], $state['headers'], true,
+                $bytes, $elapsedMs
             );
         }
 
@@ -746,11 +769,14 @@ class Client
         if ($state['hasWriter']) {
             return new ClientResponse(
                 $status, $state['received'], $state['headers'],
-                $state['truncated']
+                $state['truncated'], $bytes, $elapsedMs
             );
         }
 
-        return new ClientResponse($status, (string) $body, $state['headers']);
+        return new ClientResponse(
+            $status, (string) $body, $state['headers'], false,
+            $bytes, $elapsedMs
+        );
     }
 
     // =========================================================================
