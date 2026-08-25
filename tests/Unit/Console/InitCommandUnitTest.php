@@ -190,35 +190,132 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
-     * renderStub('mcp.json') substitutes {{ APP_SLUG }} — producing a valid JSON
-     * structure where the server name is the app slug and the command is the
-     * framework's built-in MCP server (`php ./bin/pramnos mcp:serve`).
+     * renderStub('mcp.json') substitutes every token into valid JSON.
      *
-     * The stub was updated in v1.2 to use the native PHP MCP server instead of
-     * the old npx-based database server approach.
+     * The command and its arguments are tokens now rather than literals, because the
+     * right ones depend on the project: see the two tests below for what each shape
+     * has to be. This one only checks that nothing is left unresolved and the result
+     * still parses — a broken `.mcp.json` is not a syntax error anywhere, it is an
+     * MCP server that silently never appears.
      */
     public function testMcpJsonStubSubstitutesAllTokens(): void
     {
         // Act
         $result = $this->command->renderStub('mcp.json', [
-            'APP_SLUG' => 'myapp',
+            'APP_SLUG'    => 'myapp',
+            'MCP_COMMAND' => 'php',
+            'MCP_ARGS'    => json_encode(['myapp.php', 'mcp:serve']),
         ]);
 
         // Assert
         $decoded = json_decode($result, true);
         $this->assertIsArray($decoded, 'mcp.json stub must produce valid JSON');
-        $this->assertArrayHasKey('mcpServers', $decoded,
-            'mcp.json must contain mcpServers key');
         $this->assertArrayHasKey('myapp', $decoded['mcpServers'],
             'APP_SLUG must be substituted as the server name key');
-        $this->assertSame('php', $decoded['mcpServers']['myapp']['command'],
-            'command must be php (not npx)');
-        $this->assertContains('./bin/pramnos', $decoded['mcpServers']['myapp']['args'],
-            'args must include ./bin/pramnos');
-        $this->assertContains('mcp:serve', $decoded['mcpServers']['myapp']['args'],
-            'args must include mcp:serve');
-        $this->assertStringNotContainsString('{{ APP_SLUG }}', $result,
-            'No unresolved {{ APP_SLUG }} placeholders must remain');
+        $this->assertSame('php', $decoded['mcpServers']['myapp']['command']);
+        $this->assertSame(['myapp.php', 'mcp:serve'], $decoded['mcpServers']['myapp']['args']);
+        $this->assertStringNotContainsString('{{', $result,
+            'No unresolved placeholders must remain');
+    }
+
+    /**
+     * A non-Docker project's `.mcp.json` names a file that is actually there.
+     *
+     * The assertion that matters is `assertFileExists`, and it is the one that was
+     * missing. The stub hardcoded `php ./bin/pramnos mcp:serve` — a path that exists
+     * in the framework's own repository and nowhere in a scaffolded project, where the
+     * CLI is `<cliName>.php` at the root and `bin/pramnos` lives under `vendor/`. So
+     * every scaffolded project shipped an MCP server that could not start, and the
+     * old test passed the whole time because it checked the stub against the literal
+     * it was written from, never against a project.
+     */
+    public function testMcpJsonPointsAtTheProjectsOwnCli(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no Docker, so the CLI runs on the host.
+        $tester->execute([
+            '--app-name'    => 'McpApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'McpApp',
+            '--features'    => '',
+            '--ui-system'   => 'plain-css',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'postgresql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'mcp_db',
+            '--db-user'     => 'mcp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $config = json_decode((string) file_get_contents($this->tmpDir . '/.mcp.json'), true);
+        $server = reset($config['mcpServers']);
+        $this->assertSame('php', $server['command']);
+        $this->assertSame('mcp:serve', end($server['args']));
+
+        // The whole point: the script it names is in the project it was written for.
+        $this->assertFileExists($this->tmpDir . '/' . $server['args'][0],
+            '.mcp.json must name a CLI entry point that the scaffolded project has');
+    }
+
+    /**
+     * A Docker project's `.mcp.json` runs the CLI inside the container, with `-T`.
+     *
+     * Two things, both load-bearing. The database is only reachable from inside the
+     * container, and `mcp:serve` is a database tool above all — one running on the
+     * host would answer every query with a connection error. And MCP speaks stdio
+     * over the pipe, so `docker-compose exec` without `-T` allocates a TTY and the
+     * protocol never gets a clean stream; that is also why the scaffolded `./<cli>`
+     * wrapper is not reused, since it deliberately keeps its TTY for interactive
+     * prompts.
+     */
+    public function testMcpJsonRunsInsideTheContainerForADockerProject(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $this->command->skipDockerRun = true;   // scaffold the files, do not start Docker
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'McpDockerApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'McpDockerApp',
+            '--features'    => '',
+            '--ui-system'   => 'plain-css',
+            '--docker'      => 'y',
+            '--libraries'   => '',
+            '--db-type'     => 'postgresql',
+            '--db-host'     => 'db',
+            '--db-name'     => 'mcp_db',
+            '--db-user'     => 'mcp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $config = json_decode((string) file_get_contents($this->tmpDir . '/.mcp.json'), true);
+        $server = reset($config['mcpServers']);
+        $this->assertSame('docker-compose', $server['command']);
+        $this->assertSame('exec', $server['args'][0]);
+        $this->assertContains('-T', $server['args'],
+            'stdio over docker-compose exec needs -T or the TTY breaks the protocol');
+        $this->assertSame('mcp:serve', end($server['args']));
+
+        // The script named after `php` is still one the project has.
+        $index = array_search('php', $server['args'], true);
+        $this->assertFileExists($this->tmpDir . '/' . $server['args'][$index + 1]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -27,12 +27,20 @@ use Pramnos\Mcp\Tools\RouteListTool;
  * discover and call the application's built-in tools without a separate DB
  * MCP server.
  *
- * Register in .mcp.json:
- *   {
- *     "mcpServers": {
- *       "myapp": { "command": "./bin/pramnos", "args": ["mcp:serve"] }
- *     }
- *   }
+ * Register in .mcp.json. `pramnos init` writes this file; the shape depends on
+ * where the CLI and the database are:
+ *
+ *   // a project without Docker — the CLI is <cliName>.php at the project root
+ *   { "mcpServers": { "myapp": {
+ *       "command": "php", "args": ["myapp.php", "mcp:serve"] } } }
+ *
+ *   // a Docker project — the database is only reachable inside the container, and
+ *   // -T is required because MCP speaks stdio over the pipe
+ *   { "mcpServers": { "myapp": { "command": "docker-compose", "args":
+ *       ["exec", "-T", "-u", "www-data", "app", "php", "myapp.php", "mcp:serve"] } } }
+ *
+ * `./bin/pramnos` works only inside the framework's own repository — in a project
+ * that path does not exist, which is what every scaffolded .mcp.json used to say.
  *
  * If the 'mcp' feature is registered in app.php and McpServiceProvider has
  * been booted, the server from the container is used (which may have

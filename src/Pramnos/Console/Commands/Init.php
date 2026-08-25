@@ -651,7 +651,7 @@ class Init extends Command
 
         $this->scaffoldAiGuidelines(
             $appName, $namespace, $dbType, $dbName, $dbUser, $dbPass, $dockerPort, $cliName,
-            $enabledFeatures, $appStyle, $spaStack, $apiPrefix
+            $enabledFeatures, $appStyle, $spaStack, $apiPrefix, $useDocker
         );
         $this->scaffoldReadme(
             $appName, $namespace, $cliName, $dbType, $enabledFeatures, $useDocker, $dockerPort,
@@ -5243,7 +5243,8 @@ PHP;
         array  $features,
         string $appStyle  = 'mvc',
         string $spaStack  = '',
-        string $apiPrefix = '/api/1.0'
+        string $apiPrefix = '/api/1.0',
+        bool   $useDocker = false
     ): void {
         // ── CLAUDE.md ─────────────────────────────────────────────────────────
         $featuresText = empty($features)
@@ -5271,11 +5272,32 @@ PHP;
         ]));
 
         // ── .mcp.json ─────────────────────────────────────────────────────────
-        // Uses the framework's built-in MCP server (./bin/pramnos mcp:serve)
-        // instead of external npm packages — no credentials needed, safe to commit.
+        // Uses the framework's built-in MCP server (`<cli> mcp:serve`) instead of an
+        // external npm package — no credentials needed, safe to commit.
+        //
+        // **The command has to be the one this project actually has.** The stub used
+        // to hardcode `php ./bin/pramnos mcp:serve`, which exists in the framework's
+        // own repository and nowhere in a scaffolded project — there the CLI is
+        // `<cliName>.php` at the root, and `bin/pramnos` lives under `vendor/`. So
+        // every scaffolded .mcp.json named a file that was not there and the server
+        // never started; found in a real project rather than here, because a
+        // configuration file that is never executed by the test suite cannot fail it.
+        //
+        // A Docker project gets the container form, because the database is only
+        // reachable from inside: `mcp:serve` is a database tool above all, and one
+        // running on the host would answer every query with a connection error.
+        // `-T` because MCP speaks stdio over the pipe — `docker-compose exec` without
+        // it allocates a TTY and the protocol never gets a clean stream. That is also
+        // why the scaffolded `./<cliName>` wrapper is not reused here: it has no `-T`,
+        // deliberately, so an interactive `migrate` keeps its prompts.
         $appSlug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName) ?: 'app');
+        $mcpArgs = $useDocker
+            ? ['exec', '-T', '-u', 'www-data', 'app', 'php', $cliName . '.php', 'mcp:serve']
+            : [$cliName . '.php', 'mcp:serve'];
         $this->writeFile('.mcp.json', $this->renderStub('mcp.json', [
-            'APP_SLUG' => $appSlug,
+            'APP_SLUG'    => $appSlug,
+            'MCP_COMMAND' => $useDocker ? 'docker-compose' : 'php',
+            'MCP_ARGS'    => json_encode($mcpArgs),
         ]));
     }
 

@@ -41,7 +41,31 @@ Add the feature key to `app/app.php`:
 with the built-in tools and resources.
 
 Scaffolded projects also get a `.mcp.json` in the project root, which is how the client
-discovers the server. `pramnos init` writes it; `project:resync` restores it.
+discovers the server. `pramnos init` writes it.
+
+**It names the CLI this project has, which is not `./bin/pramnos`.** That path exists in
+the framework's own repository; in a project the CLI is `<cliName>.php` at the root and
+`bin/pramnos` lives under `vendor/`. A Docker project gets the container form, because
+the database is only reachable from inside and `mcp:serve` is a database tool above all
+— one running on the host answers every query with a connection error:
+
+```json
+{ "mcpServers": { "myapp": {
+    "command": "docker-compose",
+    "args": ["exec", "-T", "-u", "www-data", "app", "php", "myapp.php", "mcp:serve"]
+} } }
+```
+
+`-T` is not optional: MCP speaks stdio over the pipe, and `docker-compose exec` without
+it allocates a TTY that the protocol never gets a clean stream through. The scaffolded
+`./<cliName>` wrapper is deliberately *not* reused here for that reason — it keeps its
+TTY so an interactive `migrate` keeps its prompts.
+
+A project without Docker gets the plain form:
+
+```json
+{ "mcpServers": { "myapp": { "command": "php", "args": ["myapp.php", "mcp:serve"] } } }
+```
 
 The server reports **`app/app.php`'s `name`** as its own, so a client listing several
 projects can tell them apart. It reads the configuration file rather than a
