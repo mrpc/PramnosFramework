@@ -2884,6 +2884,7 @@ PHP;
 
         $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $catalog, $features));
         $this->writeFile($dest . '/footer.php', $this->buildThemeFooter($uiSystem, $appName, $catalog));
+        $this->writeFile($dest . '/login.php', $this->buildThemeLoginLayout($uiSystem, $catalog));
 
         $cssFile = $themeDir . '/style.css';
         if (file_exists($cssFile)) {
@@ -2914,32 +2915,6 @@ PHP;
 
     private function buildThemeHeader(string $uiSystem, string $appName, array $catalog, array $features = []): string
     {
-        // Only layout-critical CSS lives here. Per-page libraries are
-        // enqueued by controllers and output via renderCss().
-        $themeCss = '';
-        if ($uiSystem === 'bootstrap') {
-            $bsDef = $catalog['libraries']['bootstrap'] ?? null;
-            if ($bsDef) {
-                $filename = basename(parse_url($bsDef['css'][0] ?? '', PHP_URL_PATH));
-                $path     = $bsDef['local_path'] . '/' . $filename;
-                $themeCss = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>$path\">\n";
-            }
-        } elseif ($uiSystem === 'tailwind') {
-            // Tailwind's browser build is a script that scans the DOM and injects
-            // styles at runtime — load it in <head> before style.css so custom
-            // rules can still override generated utilities.
-            $twDef = $catalog['libraries']['tailwind'] ?? null;
-            if ($twDef) {
-                $filename = basename(parse_url($twDef['js'][0] ?? '', PHP_URL_PATH));
-                $path     = $twDef['local_path'] . '/' . $filename;
-                // The Tailwind v4 border-color compatibility rule lives in
-                // style.css (loaded just below) — the browser build only
-                // processes inline <style type="text/tailwindcss"> blocks, so
-                // custom CSS belongs in the external stylesheet instead.
-                $themeCss = "    <script src=\"<?php echo sURL; ?>$path\"></script>\n";
-            }
-        }
-
         // NavRegistry snippet — identical for all features/themes.
         // Application::init() calls registerDefaultNavItems() which registers
         // Login/Logout/Account/Logs/OAuth items based on enabled features.
@@ -3055,29 +3030,118 @@ HTML,
         // heredocs above.
         $nav = str_replace('{{BRAND_LOGO}}', $this->brandLogo($uiSystem), $nav);
 
-        return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
-            . $this->faviconLinks()
-            . $themeCss
-            . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
-            . "    <?php \$this->document->renderCss(); ?>\n"
+        return $this->themeHeadAssets($uiSystem, $catalog)
             . $navSetup . "\n"
             . $nav . "\n";
     }
 
-    private function buildThemeFooter(string $uiSystem, string $appName, array $catalog): string
+    /**
+     * Everything a page needs in `<head>`, with no site chrome attached.
+     *
+     * Split out of {@see buildThemeHeader()} so the standalone login layout can have
+     * the same stylesheets, the same favicons and the same `renderCss()` call without
+     * a second copy of the list. A copy is the wrong shape here for a specific reason:
+     * these lines change when the UI system changes, and a login page that quietly
+     * kept the previous theme's stylesheet is the kind of drift nobody reports —
+     * it looks like a design decision.
+     *
+     * @param array<string,mixed> $catalog
+     */
+    private function themeHeadAssets(string $uiSystem, array $catalog): string
     {
-        // Only layout-critical JS lives here. Per-page libraries are
-        // enqueued by controllers and output via renderJs().
+        // Only layout-critical CSS lives here. Per-page libraries are enqueued by
+        // controllers and output via renderCss().
+        $themeCss = '';
+        if ($uiSystem === 'bootstrap') {
+            $bsDef = $catalog['libraries']['bootstrap'] ?? null;
+            if ($bsDef) {
+                $filename = basename(parse_url($bsDef['css'][0] ?? '', PHP_URL_PATH));
+                $themeCss = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>"
+                    . $bsDef['local_path'] . '/' . $filename . "\">\n";
+            }
+        } elseif ($uiSystem === 'tailwind') {
+            // Tailwind's browser build is a script that scans the DOM and injects
+            // styles at runtime — load it before style.css so custom rules can still
+            // override generated utilities. The v4 border-color compatibility rule
+            // lives in style.css, because the browser build only processes inline
+            // <style type="text/tailwindcss"> blocks.
+            $twDef = $catalog['libraries']['tailwind'] ?? null;
+            if ($twDef) {
+                $filename = basename(parse_url($twDef['js'][0] ?? '', PHP_URL_PATH));
+                $themeCss = "    <script src=\"<?php echo sURL; ?>"
+                    . $twDef['local_path'] . '/' . $filename . "\"></script>\n";
+            }
+        }
+
+        return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            . $this->faviconLinks()
+            . $themeCss
+            . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
+            . "    <?php \$this->document->renderCss(); ?>\n";
+    }
+
+    /**
+     * The script tags that close a page, with no footer attached.
+     *
+     * The counterpart of {@see themeHeadAssets()}, and needed for the same reason: a
+     * standalone login page still enqueues scripts — the passkey flow is one — and
+     * `renderJs()` is where they come out.
+     *
+     * @param array<string,mixed> $catalog
+     */
+    private function themeFootAssets(string $uiSystem, array $catalog): string
+    {
+        // Only layout-critical JS lives here. Per-page libraries are enqueued by
+        // controllers and output via renderJs().
         $themeJs = '';
         if ($uiSystem === 'bootstrap') {
             $bsDef = $catalog['libraries']['bootstrap'] ?? null;
             if ($bsDef) {
                 $filename = basename(parse_url($bsDef['js'][0] ?? '', PHP_URL_PATH));
-                $path     = $bsDef['local_path'] . '/' . $filename;
-                $themeJs  = "    <script src=\"<?php echo sURL; ?>$path\"></script>\n";
+                $themeJs  = "    <script src=\"<?php echo sURL; ?>"
+                    . $bsDef['local_path'] . '/' . $filename . "\"></script>\n";
             }
         }
 
+        return $themeJs
+            . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
+            . "    <?php \$this->document->renderJs(); ?>\n";
+    }
+
+    /**
+     * The theme's standalone layout — `<theme>/login.php`.
+     *
+     * Every built-in auth view is written as a full-page centred card
+     * (`min-height: 100vh`, or `min-h-screen` under Tailwind), which only makes sense
+     * with nothing above it. Without this file they were wrapped in
+     * `theme.html.php` all the same, so `/login` arrived with the site header, the
+     * navigation and a "Sign in" link pointing at the page you were already on, and
+     * then a full viewport of centred card underneath.
+     *
+     * `Theme::$elements` has mapped `'login'` to `login.php` since the class was
+     * written, and `loadtheme()` falls back to `theme.html.php` when the file is not
+     * there — so this is the mechanism finally being used rather than a new one, and
+     * a hand-written theme that has no `login.php` keeps rendering as it always did.
+     * {@see \Pramnos\Auth\Controllers\Account::useStandaloneLayout()} selects it.
+     *
+     * `<head>` and `<body>` are written explicitly, unlike `theme.html.php`. That is
+     * what `Theme::getheader()` looks for when deciding which part belongs in the
+     * document's real `<head>`, and what keeps the split at `[MODULE]` from picking up
+     * the stylesheet links as body content.
+     *
+     * @param array<string,mixed> $catalog
+     */
+    private function buildThemeLoginLayout(string $uiSystem, array $catalog): string
+    {
+        return "<head>\n"
+            . $this->themeHeadAssets($uiSystem, $catalog)
+            . "</head>\n<body>\n[MODULE]\n"
+            . $this->themeFootAssets($uiSystem, $catalog)
+            . "</body>\n";
+    }
+
+    private function buildThemeFooter(string $uiSystem, string $appName, array $catalog): string
+    {
         $footer = match ($uiSystem) {
             'bootstrap' => <<<HTML
     <footer class="bg-dark text-light py-4 mt-auto">
@@ -3102,10 +3166,7 @@ HTML,
 HTML,
         };
 
-        return $footer . "\n"
-            . $themeJs
-            . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
-            . "    <?php \$this->document->renderJs(); ?>\n";
+        return $footer . "\n" . $this->themeFootAssets($uiSystem, $catalog);
     }
 
     /**

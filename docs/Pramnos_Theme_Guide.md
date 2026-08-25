@@ -207,7 +207,7 @@ $this->elements = [
     'archive' => 'archive.html.php',  // Archive template
     'search' => 'search.html.php',    // Search results
     '404' => '404.html.php',          // Error page
-    'login' => 'login.html.php',      // Login page
+    'login' => 'login.php',           // Login and the rest of the auth flow
     'header' => 'header.php',         // Header include
     'footer' => 'footer.php',         // Footer include
     'sidebar' => 'sidebar.php',       // Sidebar include
@@ -215,6 +215,52 @@ $this->elements = [
     'dynamicStyle' => 'style.php'     // Dynamic CSS
 ];
 ```
+
+### `login.php` — the standalone layout
+
+The `'login'` content type is the one entry in that map the framework selects for
+you, and it is what keeps the login page out of the site chrome.
+
+Every built-in auth view — login, the second factor, forgot-password,
+reset-password — is written as a full-page centred card: `min-height: 100vh` in the
+plain-CSS and Bootstrap themes, `min-h-screen` under Tailwind. Wrapped in
+`theme.html.php` that renders as the site header, the whole navigation and a *Sign in*
+link pointing at the page the visitor is already on, and then a full viewport of card
+underneath it.
+
+`Pramnos\Auth\Controllers\Account` therefore calls `setContentType('login')` before
+rendering any of them, and a scaffolded theme ships `login.php`:
+
+```php
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="<?php echo sURL; ?>assets/css/style.css">
+    <?php $this->document->renderCss(); ?>
+</head>
+<body>
+[MODULE]
+    <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
+    <?php $this->document->renderJs(); ?>
+</body>
+```
+
+Three things about that file are deliberate:
+
+- **`<head>` and `<body>` are written out**, unlike `theme.html.php`. `getheader()`
+  extracts `<head>…</head>` and the document appends it inside its own head, and the
+  `<body>` tag is what stops the split at `[MODULE]` from treating the stylesheet
+  links as body content.
+- **`renderCss()` and `renderJs()` are still there.** A standalone layout is not a
+  suppressed one: the login page enqueues assets like any other — the passkey flow is
+  one — and dropping those calls breaks it in a way that looks like a JavaScript bug.
+- **The navigation is not built at all.** Not hidden with CSS: `NavRegistry` is never
+  consulted, so nothing queries the user's permissions to assemble a menu that is not
+  going to be shown.
+
+**A theme with no `login.php` is unaffected.** `loadtheme()` falls back to
+`theme.html.php` for any content type whose file is missing, so a hand-written theme
+that predates this keeps rendering exactly as it did — `Account` asks every theme and
+takes the answer it gets.
 
 ### Theme Functions File
 

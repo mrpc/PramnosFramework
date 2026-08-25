@@ -418,6 +418,38 @@ class Account extends Controller
         return defined('sURL') ? (string) sURL : '';
     }
 
+    /**
+     * Ask the theme for its standalone layout, if it has one.
+     *
+     * Every one of the built-in auth views is designed as a full-page centred card
+     * — `min-height: 100vh` in the plain-CSS and Bootstrap themes, `min-h-screen` in
+     * the Tailwind one — which only makes sense with nothing above it. They were
+     * being wrapped in the theme's `theme.html.php` all the same, so `/login` came
+     * with the site header, the navigation and a "Sign in" link to the page you were
+     * already on, and then a full viewport of centred card below it.
+     *
+     * The mechanism is the theme's own and predates this: `Theme::$elements` has
+     * mapped `'login'` to `login.php` from the beginning, so `loadtheme()` looks for
+     * `<theme>/login.php` for this content type and falls back to `theme.html.php`
+     * when there is none. No theme shipped the file, which is why the fallback was
+     * the only path anyone ever saw. **An application theme without `login.php`
+     * therefore keeps rendering exactly as it did** — nothing here forces a layout
+     * that does not exist.
+     *
+     * Called from the render methods rather than from the constructor because the
+     * theme is read at render time (`Html::render()` calls `loadTheme()` itself), and
+     * because this controller also serves signed-in pages — a profile page belongs in
+     * the site chrome.
+     */
+    protected function useStandaloneLayout(): void
+    {
+        $theme = $this->document()->themeObject ?? null;
+
+        if (is_object($theme) && method_exists($theme, 'setContentType')) {
+            $theme->setContentType('login');
+        }
+    }
+
     /** The document object (seam so tests can supply a stub). */
     protected function document(): object
     {
@@ -468,6 +500,7 @@ class Account extends Controller
     {
         $doc        = $this->document();
         $doc->title = 'Login';
+        $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
         $view->routeBase = $this->routeBase;
@@ -488,6 +521,7 @@ class Account extends Controller
     {
         $doc        = $this->document();
         $doc->title = 'Two-step verification';
+        $this->useStandaloneLayout();
 
         $view                = $this->getView('login');
         $view->routeBase     = $this->routeBase;
@@ -643,6 +677,7 @@ class Account extends Controller
     {
         $doc        = $this->document();
         $doc->title = 'Forgot password';
+        $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
         $view->routeBase = $this->routeBase;
@@ -660,6 +695,7 @@ class Account extends Controller
     {
         $doc        = $this->document();
         $doc->title = 'Reset password';
+        $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
         $view->routeBase = $this->routeBase;

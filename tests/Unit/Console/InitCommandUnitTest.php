@@ -1471,6 +1471,108 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * The scaffolded theme ships a standalone layout for the login pages.
+     *
+     * The complaint was `/login` carrying the site header and navigation on a
+     * Tailwind project. Every built-in auth view is a full-page centred card
+     * (`min-h-screen`, or `min-height: 100vh` in the other two themes), so the chrome
+     * was never meant to be above it — and `Theme::$elements` has pointed `'login'`
+     * at `login.php` from the start, so the layout simply had to exist.
+     *
+     * Both halves are asserted: the assets are there (an unstyled login form is the
+     * failure a reader blames on the CSS) and the header markup is not.
+     */
+    public function testTheScaffoldedThemeShipsAStandaloneLoginLayout(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'LoginLayoutApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'LoginLayoutApp',
+            '--features'    => 'auth',
+            '--ui-system'   => 'tailwind',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'postgresql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'login_db',
+            '--db-user'     => 'login',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $layout = $this->tmpDir . '/app/themes/default/login.php';
+        $this->assertFileExists($layout, 'the theme must ship a standalone login layout');
+        $contents = (string) file_get_contents($layout);
+
+        // The head assets, so the form is styled…
+        $this->assertStringContainsString('[MODULE]', $contents);
+        $this->assertStringContainsString('assets/css/style.css', $contents);
+        $this->assertStringContainsString('renderCss()', $contents);
+        // …and the scripts, so the passkey flow still works on this page.
+        $this->assertStringContainsString('renderJs()', $contents);
+
+        // But none of the chrome. `<nav` and `<header` are what the report was about.
+        $this->assertStringNotContainsString('<nav', $contents);
+        $this->assertStringNotContainsString('<header', $contents);
+        $this->assertStringNotContainsString('NavRegistry', $contents,
+            'the standalone layout must not build the navigation it is not showing');
+    }
+
+    /**
+     * The head assets are the same list in both layouts.
+     *
+     * They are built once and used twice on purpose. A copy would drift exactly when
+     * the UI system changes — and a login page still loading the previous theme's
+     * stylesheet does not look like a bug, it looks like a design decision.
+     */
+    public function testTheChromeAndStandaloneLayoutsShareTheirAssets(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — bootstrap, whose header carries a framework stylesheet of its own.
+        $tester->execute([
+            '--app-name'    => 'SharedAssetsApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'SharedAssetsApp',
+            '--features'    => 'auth',
+            '--ui-system'   => 'bootstrap',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'postgresql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'shared_db',
+            '--db-user'     => 'shared',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — bootstrap's own CSS and JS reach both layouts.
+        $header = (string) file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $footer = (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php');
+        $login  = (string) file_get_contents($this->tmpDir . '/app/themes/default/login.php');
+
+        $this->assertStringContainsString('bootstrap.min.css', $header);
+        $this->assertStringContainsString('bootstrap.min.css', $login,
+            'the login layout must load the same UI framework as the rest of the site');
+        $this->assertStringContainsString('bootstrap.bundle.min.js', $footer);
+        $this->assertStringContainsString('bootstrap.bundle.min.js', $login);
+    }
+
+    /**
      * `node_modules/` is ignored in a plain MVC project, not only in a SPA one.
      *
      * It used to be written by the SPA scaffolder, so a project with no build stack

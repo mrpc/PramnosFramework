@@ -36,6 +36,88 @@ class AccountControllerHelpersTest extends TestCase
         $this->dashboard = $rc->newInstanceWithoutConstructor();
     }
 
+    // ── useStandaloneLayout() ─────────────────────────────────────────────────
+
+    /**
+     * The auth renders ask the theme for its standalone layout.
+     *
+     * Reported from a scaffolded project: `/login` came with the site header, the
+     * navigation and a "Sign in" link pointing at the page being looked at, above a
+     * `min-h-screen` centred card. The card is how every built-in auth view is
+     * written, so the chrome was never meant to be there.
+     *
+     * `'login'` is the content type `Theme::$elements` has mapped to `login.php`
+     * since the class was written — this asks for a template the theme layer already
+     * knew about, rather than inventing a mechanism.
+     */
+    public function testUseStandaloneLayoutAsksTheThemeForTheLoginTemplate(): void
+    {
+        // Arrange — a document carrying a theme that records what it was asked for.
+        $theme = new class {
+            public string $contentType = '';
+            public function setContentType($type): static
+            {
+                $this->contentType = (string) $type;
+                return $this;
+            }
+        };
+        $document = new class ($theme) {
+            public function __construct(public object $themeObject) {}
+        };
+
+        // Act
+        $this->accountReturning($document)->useStandaloneLayoutForTest();
+
+        // Assert
+        $this->assertSame('login', $theme->contentType);
+    }
+
+    /**
+     * A document with no theme is not an error.
+     *
+     * A JSON or raw response has no theme object, and neither does a test stub — and
+     * the API login path goes through the same controller. Throwing here would turn a
+     * cosmetic layout choice into a fatal on every themeless response.
+     */
+    public function testUseStandaloneLayoutIgnoresADocumentWithNoTheme(): void
+    {
+        // Arrange
+        $document = new class {
+            public $themeObject = null;
+        };
+
+        // Act & Assert — the absence of an exception is the assertion.
+        $this->accountReturning($document)->useStandaloneLayoutForTest();
+        $this->assertNull($document->themeObject);
+    }
+
+    /**
+     * An Account whose `document()` seam returns the given stub.
+     *
+     * `document()` is protected precisely so a test can supply one; the constructor
+     * is bypassed because Account calls `addAuthAction()` before
+     * `parent::__construct()` and would need a booted Application.
+     */
+    private function accountReturning(object $document): object
+    {
+        $subclass = new class extends Account {
+            public ?object $stub = null;
+            protected function document(): object
+            {
+                return $this->stub;
+            }
+            public function useStandaloneLayoutForTest(): void
+            {
+                $this->useStandaloneLayout();
+            }
+        };
+
+        $account = (new \ReflectionClass($subclass))->newInstanceWithoutConstructor();
+        $account->stub = $document;
+
+        return $account;
+    }
+
     // ── validatePasswordPolicy() ──────────────────────────────────────────────
 
     /**
