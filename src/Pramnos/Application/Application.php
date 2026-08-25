@@ -193,6 +193,58 @@ class Application extends Base
      * @param  string $file Absolute path of the configuration file
      * @return array|object Application information, or [] when unavailable
      */
+    /**
+     * The application's config file, read without constructing anything.
+     *
+     * A `require` of an array literal — no defines, no database, no session, no
+     * language, no theme. That distinction is the whole reason this exists: the
+     * thing {@see \Pramnos\Cache\Page\PageCache::serveEarly()} avoids is
+     * `init()`, and reading a config file is three orders of magnitude away from it.
+     *
+     * ## Why the early serve needs it
+     *
+     * `serveEarly()` used to take its configuration as an argument, so the
+     * `pagecache` block had to be **copied by hand into `www/index.php`** beside the
+     * one in `app.php`. That is the same failure as reading the config from the
+     * wrong place, arriving by a different route: change `bypassCookies` in
+     * `app.php`, forget the copy, and the early path keeps serving a signed-in page
+     * to everybody from rules that no longer exist anywhere else. Reading the file
+     * makes one declaration the only declaration — and hands `serveEarly()` the
+     * `csp` block in the same breath, which is what lets a hit carry a policy.
+     *
+     * ## The paths, and why `null` matters
+     *
+     * `APP_PATH` when the application has already booted, `ROOT . /app` when it has
+     * not — `setDefines()` derives the first from the second, and every front
+     * controller defines `ROOT` before the autoloader. When neither is defined, or
+     * the file is not there, the answer is **`null` rather than `[]`**: "there is no
+     * configuration to read" and "the configuration says nothing" are different
+     * answers, and a caller about to send a security header on the strength of it
+     * must be able to tell them apart.
+     *
+     * @param  string $app Application name; `'default'` reads `app.php`
+     * @return array<string,mixed>|null Null when there is no file to read
+     */
+    public static function readApplicationConfig(string $app = 'default'): ?array
+    {
+        if (defined('APP_PATH')) {
+            $dir = APP_PATH;
+        } elseif (defined('ROOT')) {
+            $dir = ROOT . DIRECTORY_SEPARATOR . 'app';
+        } else {
+            return null;
+        }
+
+        $file = $dir . DIRECTORY_SEPARATOR
+            . ($app === '' || $app === 'default' ? 'app.php' : $app . '.php');
+
+        if (!file_exists($file)) {
+            return null;
+        }
+
+        return (array) self::loadApplicationInfo($file);
+    }
+
     protected static function loadApplicationInfo($file)
     {
         if (!file_exists($file)) {
@@ -1622,22 +1674,43 @@ class Application extends Base
      */
     public function cspPolicy(): string
     {
-        // A nonce is per-response, and every path that builds a policy needs one —
-        // including the ones that never ran exec(), where this was interpolating
-        // empty and emitting the source expression `'nonce-'`. That matches no
-        // element, which is the safe direction, but it is not a policy anybody
-        // wrote on purpose.
-        if ($this->cspNonce === '') {
-            $this->cspNonce = base64_encode(random_bytes(16));
-        }
+        return self::buildCspPolicy(
+            (array) ($this->applicationInfo['csp'] ?? []),
+            $this->cspNonce
+        );
+    }
 
-        $csp = $this->applicationInfo['csp'] ?? [];
+    /**
+     * The same policy, from a `csp` block and a nonce, with no application.
+     *
+     * Static because the two callers that need it most have no instance to ask.
+     * {@see \Pramnos\Cache\Page\PageCache::serveEarly()} runs after the
+     * autoloader and before anything is constructed — that is the whole point of it
+     * — and it still has to send a policy, because a cached page that goes out
+     * without one is a page whose scripts run for want of anything to stop them.
+     *
+     * **An empty `$nonce` omits the nonce source rather than emitting `'nonce-'`.**
+     * The two go together: `Document\DocumentTypes\Html` and `Raw` stamp a nonce
+     * into inline `<script>` only when there is one, so a response with no nonce has
+     * no nonced element for the source to match, and `'nonce-'` would be a source
+     * expression nobody wrote. This is the ordinary case on a cache hit — the nonce
+     * is generated in `exec()`, which a hit never reaches, and
+     * {@see \Pramnos\Cache\Page\PageCache::store()} refuses to store a body
+     * carrying one, so a stored page provably has no inline script to cover.
+     *
+     * @param  array<string,mixed> $csp   The application's `csp` block
+     * @param  string              $nonce This response's nonce, or '' for none
+     * @return string
+     */
+    public static function buildCspPolicy(array $csp, string $nonce = ''): string
+    {
+        $scriptDomains = self::cspDomains($csp, 'script-src');
+        $styleDomains = self::cspDomains($csp, 'style-src');
 
-        $scriptDomains = $this->getCspDomains($csp, 'script-src');
-        $styleDomains = $this->getCspDomains($csp, 'style-src');
+        $nonceSource = $nonce === '' ? '' : " 'nonce-{$nonce}'";
 
-        $scriptNonce = strpos($scriptDomains, "'unsafe-inline'") === false ? " 'nonce-{$this->cspNonce}'" : "";
-        $styleNonce = strpos($styleDomains, "'unsafe-inline'") === false ? " 'nonce-{$this->cspNonce}'" : "";
+        $scriptNonce = strpos($scriptDomains, "'unsafe-inline'") === false ? $nonceSource : "";
+        $styleNonce = strpos($styleDomains, "'unsafe-inline'") === false ? $nonceSource : "";
 
         $policy = [
             "default-src 'none'",
@@ -1645,9 +1718,9 @@ class Application extends Base
             "script-src 'self'{$scriptNonce}" . $scriptDomains,
             "style-src 'self'{$styleNonce}" . $styleDomains,
             "style-src-attr 'unsafe-inline'",
-            "img-src 'self' data:" . $this->getCspDomains($csp, 'img-src'),
-            "font-src 'self' data:" . $this->getCspDomains($csp, 'font-src'),
-            "connect-src 'self'" . $this->getCspDomains($csp, 'connect-src'),
+            "img-src 'self' data:" . self::cspDomains($csp, 'img-src'),
+            "font-src 'self' data:" . self::cspDomains($csp, 'font-src'),
+            "connect-src 'self'" . self::cspDomains($csp, 'connect-src'),
             // **`media-src` was absent, so `default-src 'none'` decided it.**
             //
             // An <audio> or <video> element whose source is not same-origin was
@@ -1660,7 +1733,7 @@ class Application extends Base
             // `'self'` keeps the same default posture as the directives around
             // it; a site that streams from elsewhere adds its hosts under
             // `csp: media-src` in app.php, exactly like `img-src`.
-            "media-src 'self'" . $this->getCspDomains($csp, 'media-src'),
+            "media-src 'self'" . self::cspDomains($csp, 'media-src'),
             "frame-src 'self'",
             "frame-ancestors 'self'",
             "object-src 'none'",
@@ -1684,6 +1757,22 @@ class Application extends Base
      * @return string A space-prefixed string of domains, or empty string if none.
      */
     protected function getCspDomains(array $csp, string $directive): string
+    {
+        return self::cspDomains($csp, $directive);
+    }
+
+    /**
+     * The static half of {@see getCspDomains()}, for {@see buildCspPolicy()}.
+     *
+     * The instance method is kept and delegates to this one: it is `protected`, so
+     * an application may have overridden it, and removing it would break that
+     * application for nothing. An override no longer reaches the policy builder,
+     * which is the honest trade — a static policy cannot consult an instance that
+     * does not exist.
+     *
+     * @param array<string,mixed> $csp
+     */
+    private static function cspDomains(array $csp, string $directive): string
     {
         if (isset($csp[$directive]) && is_array($csp[$directive]) && !empty($csp[$directive])) {
             return ' ' . implode(' ', $csp[$directive]);

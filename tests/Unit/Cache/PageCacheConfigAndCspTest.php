@@ -29,6 +29,7 @@ use Pramnos\Http\Response;
  */
 #[CoversClass(PageCacheMiddleware::class)]
 #[CoversClass(PageCache::class)]
+#[CoversClass(Application::class)]
 class PageCacheConfigAndCspTest extends TestCase
 {
     /** @var array<string,mixed> */
@@ -230,27 +231,72 @@ class PageCacheConfigAndCspTest extends TestCase
     }
 
     /**
-     * The policy on a hit carries a real nonce, not an empty one.
+     * With no nonce, the policy omits the nonce source instead of emitting `'nonce-'`.
      *
-     * `Application::$cspNonce` is generated in `exec()`, which a hit never reaches,
-     * so the policy builder was interpolating an empty string and emitting the
-     * source expression `'nonce-'`. That matches no element — the safe direction —
-     * but it is not a policy anybody wrote, and it reads as a framework bug in
-     * every report that scans headers.
+     * `Application::$cspNonce` is generated in `exec()`, which a cache hit never
+     * reaches, so the builder was interpolating an empty string into
+     * `script-src 'self' 'nonce-'`. Browsers reject that as an invalid source and
+     * drop it, which happens to be the safe direction — but it is not a policy
+     * anybody wrote, and it cost a consuming application a working night-mode
+     * button and two rounds of debugging, because a blocked inline script is
+     * *present and correct* in the response.
+     *
+     * Omitting is right rather than a workaround: `Document\DocumentTypes\Html`
+     * and `Raw` stamp a nonce into inline `<script>` only when there is one, so a
+     * response with no nonce has no nonced element for the source to match.
      */
-    public function testThePolicyOnAHitCarriesAGeneratedNonce(): void
+    public function testWithNoNonceThePolicyOmitsTheNonceSource(): void
     {
         // Arrange
         $app = $this->application([]);
-        $this->assertSame('', $app->cspNonce, 'A hit reaches no exec(), so there is no nonce yet.');
+        $this->assertSame('', $app->cspNonce, 'A hit reaches no exec(), so there is no nonce.');
 
         // Act
         $policy = $app->cspPolicy();
 
-        // Assert — a nonce was generated for this response.
-        $this->assertStringNotContainsString("'nonce-'", $policy);
-        $this->assertNotSame('', $app->cspNonce);
-        $this->assertStringContainsString("'nonce-" . $app->cspNonce . "'", $policy);
+        // Assert — no empty source expression, and the directive is otherwise intact.
+        $this->assertStringNotContainsString('nonce-', $policy);
+        $this->assertStringContainsString("script-src 'self';", $policy);
+    }
+
+    /**
+     * With a nonce, the policy carries it.
+     *
+     * The counterpart, so the omission above cannot be a nonce that stopped working:
+     * the render path sets `cspNonce` in `exec()` and the nonce has to reach the
+     * header, or every nonced inline script on every page is blocked.
+     */
+    public function testWithANonceThePolicyCarriesIt(): void
+    {
+        // Arrange
+        $app = $this->application([]);
+        $app->cspNonce = 'Zm9vYmFyYmF6cXV1eA==';
+
+        // Act
+        $policy = $app->cspPolicy();
+
+        // Assert
+        $this->assertStringContainsString("script-src 'self' 'nonce-Zm9vYmFyYmF6cXV1eA=='", $policy);
+    }
+
+    /**
+     * The `csp` block still reaches the policy through the static builder.
+     *
+     * `cspPolicy()` now delegates to `buildCspPolicy()`, which resolves the
+     * per-directive host lists itself. This is the assertion that the delegation did
+     * not drop the configuration on the way — the directive that regressed once
+     * before (`media-src`) is the one checked.
+     */
+    public function testTheCspBlockReachesTheStaticBuilder(): void
+    {
+        // Arrange
+        $app = $this->application(['csp' => ['media-src' => ['https://stream.example']]]);
+
+        // Act
+        $policy = $app->cspPolicy();
+
+        // Assert
+        $this->assertStringContainsString("media-src 'self' https://stream.example", $policy);
     }
 
     /**
@@ -303,6 +349,151 @@ class PageCacheConfigAndCspTest extends TestCase
 
         // Assert
         $this->assertTrue($stored);
+    }
+
+    // ── 2b. The early serve reads the same file, and sends a policy ──────────
+
+    /**
+     * `readApplicationConfig()` reads `app.php` with nothing constructed.
+     *
+     * The primitive the early serve is built on. `APP_PATH` is the fixture app
+     * directory under the test bootstrap, and its `app.php` returns one key — which
+     * is enough: what is being proved is that a `require` reached the file without an
+     * `Application`, a database, a session or a define being added.
+     */
+    public function testTheConfigFileIsReadWithoutConstructingAnything(): void
+    {
+        // Arrange — no application at all.
+        $this->forgetApplication();
+
+        // Act
+        $info = Application::readApplicationConfig();
+
+        // Assert
+        $this->assertIsArray($info);
+        $this->assertSame('Pramnos', $info['namespace'] ?? null);
+        $this->assertNull(Application::currentInstance(), 'Reading config must construct nothing.');
+    }
+
+    /**
+     * A named application reads its own file.
+     *
+     * `serveEarly()` only ever wants the default, but the parameter exists and a
+     * silently-ignored one is worse than none.
+     */
+    public function testANamedApplicationReadsItsOwnFile(): void
+    {
+        // Act
+        $info = Application::readApplicationConfig('myApp');
+
+        // Assert — the fixture myApp.php, not app.php.
+        $this->assertIsArray($info);
+    }
+
+    /**
+     * A missing file is `null`, not an empty array.
+     *
+     * The distinction the caller depends on: "there is no configuration to read" and
+     * "the configuration says nothing" lead to different decisions.
+     * `PageCache::serveEarly()` sends a policy on the second and stays silent on the
+     * first, because a policy guessed from nothing would be the framework default —
+     * `default-src 'none'` — which for an application that needed hosts in its `csp`
+     * block breaks the very page it was protecting.
+     */
+    public function testAMissingConfigFileIsNullRatherThanEmpty(): void
+    {
+        // Act
+        $info = Application::readApplicationConfig('there-is-no-such-application');
+
+        // Assert
+        $this->assertNull($info);
+    }
+
+    /**
+     * The early serve attaches the policy to the response it is about to send.
+     *
+     * Asserted on the `Response` rather than on `serveEarly()` itself because
+     * `send()` calls `header()`, which the CLI SAPI discards — a test driving the
+     * public method could not tell a policy from no policy, which is the one thing
+     * worth knowing here.
+     *
+     * The file store, not the array one, for the same reason the existing
+     * `serveEarly` test uses it: this path builds its own engine from configuration,
+     * so an injected in-memory store would not be the store production uses.
+     */
+    public function testTheEarlyServeAttachesThePolicy(): void
+    {
+        // Arrange — a stored page, over a prefix of this process's own.
+        $config = [
+            'enabled'    => true,
+            'store'      => 'file',
+            'prefix'     => 'pagecache-csp-' . getmypid() . ':',
+            'staticRoot' => '',
+        ];
+        $writer = new PageCache($config);
+        $this->assertTrue($writer->store($this->request(), Response::make('<html>early</html>')));
+
+        // Act
+        $this->request();
+        $response = (new \ReflectionMethod(PageCache::class, 'earlyResponse'))
+            ->invoke(null, $config);
+
+        // Assert — a hit, and it is not policy-less.
+        $this->assertInstanceOf(Response::class, $response);
+        $policy = $response->getHeaderLine('Content-Security-Policy');
+        $this->assertStringContainsString("default-src 'none'", (string) $policy);
+
+        // …and it carries no nonce, because store() guaranteed the body has none.
+        $this->assertStringNotContainsString('nonce-', (string) $policy);
+
+        // Clean up: this wrote to the shared default cache directory.
+        $writer->flush();
+    }
+
+    /**
+     * With no `pagecache` block anywhere, the early serve caches nothing.
+     *
+     * The no-argument call is now the documented one, so the inert case has to be
+     * inert: the fixture `app.php` has no `pagecache` key, so the engine is built on
+     * defaults and `enabled` is false.
+     */
+    public function testTheEarlyServeWithNoConfigurationAnywhereServesNothing(): void
+    {
+        // Act — no argument at all.
+        $served = PageCache::serveEarly(null, false);
+
+        // Assert
+        $this->assertFalse($served);
+    }
+
+    /**
+     * The policy builder, directly, on the four cases that matter.
+     *
+     * `cspPolicy()` and `serveEarly()` both go through this, so it is the one place
+     * the directive list can be wrong for everybody at once.
+     */
+    public function testThePolicyBuilder(): void
+    {
+        // Act & Assert — no nonce means no nonce source, not `'nonce-'`.
+        $bare = Application::buildCspPolicy([]);
+        $this->assertStringContainsString("default-src 'none'", $bare);
+        $this->assertStringNotContainsString('nonce-', $bare);
+
+        // A nonce is placed in both script-src and style-src.
+        $withNonce = Application::buildCspPolicy([], 'ABC');
+        $this->assertStringContainsString("script-src 'self' 'nonce-ABC'", $withNonce);
+        $this->assertStringContainsString("style-src 'self' 'nonce-ABC'", $withNonce);
+
+        // Configured hosts reach their directive.
+        $configured = Application::buildCspPolicy(['media-src' => ['https://stream.example']]);
+        $this->assertStringContainsString("media-src 'self' https://stream.example", $configured);
+
+        // `'unsafe-inline'` in a directive suppresses the nonce there — a nonce and
+        // unsafe-inline together mean the browser ignores unsafe-inline, which would
+        // silently undo what the application asked for.
+        $unsafe = Application::buildCspPolicy(['script-src' => ["'unsafe-inline'"]], 'ABC');
+        $this->assertStringContainsString("script-src 'self' 'unsafe-inline'", $unsafe);
+        $this->assertStringContainsString("style-src 'self' 'nonce-ABC'", $unsafe);
     }
 
     // ── 3. The session cookie bypasses the cache ─────────────────────────────

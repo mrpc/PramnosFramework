@@ -421,18 +421,45 @@ final class PageCache
      *
      * ```php
      * require 'vendor/autoload.php';
-     * \Pramnos\Cache\Page\PageCache::serveEarly($config);   // hit ⇒ sends, exits
+     * \Pramnos\Cache\Page\PageCache::serveEarly();   // hit ⇒ sends, exits
      * ```
      *
-     * @param array<string,mixed> $config
+     * ## It reads `app.php` itself
+     *
+     * `$config` used to be required, which meant the `pagecache` block had to be
+     * **copied by hand into `www/index.php`** beside the one in `app.php`. Two
+     * declarations of the same rules, and the early path is the one that answers
+     * first: change `bypassCookies` in `app.php`, forget the copy, and this keeps
+     * serving a signed-in page to everybody from a rule set that exists nowhere
+     * else. So it now reads the file, through
+     * {@see \Pramnos\Application\Application::readApplicationConfig()} — a
+     * `require` of an array literal, which is not a bootstrap by any measure that
+     * matters here. Passing `$config` explicitly still works and still wins.
+     *
+     * ## The hit carries a Content-Security-Policy
+     *
+     * Reading the file gets the `csp` block for free, which is what closes the last
+     * hole in this path: a hit answers before the application exists, so
+     * `Application::render()` never ran and never sent a policy. The page went out
+     * correct and unprotected — `default-src 'none'` is this framework's default and
+     * a cached page had lost all of it.
+     *
+     * The policy carries **no nonce**, and that is right rather than a compromise:
+     * {@see store()} refuses to store a body containing one, so a stored page has no
+     * nonced inline script for a nonce source to cover.
+     *
+     * Only sent when the config file was actually found. Without it there is no
+     * `csp` block to build from, and a guessed policy is worse than none — an
+     * over-strict one breaks the page it was meant to protect.
+     *
+     * @param array<string,mixed>|null $config Null reads `app.php`'s `pagecache` block
      * @param bool $exit Whether to end the process on a hit. False returns true
      *                   instead, which is what the tests need.
      * @return bool True when a response was sent.
      */
-    public static function serveEarly(array $config, bool $exit = true): bool
+    public static function serveEarly(?array $config = null, bool $exit = true): bool
     {
-        $cache    = new self($config);
-        $response = $cache->lookup(Request::getInstance());
+        $response = self::earlyResponse($config);
 
         if ($response === null) {
             return false;
@@ -445,6 +472,37 @@ final class PageCache
         }
 
         return true;
+    }
+
+    /**
+     * The response {@see serveEarly()} would send, or null on a miss.
+     *
+     * Separate from the sending because `send()` calls `header()`, which is a no-op
+     * under the CLI SAPI — so the headers this attaches are unobservable from a test
+     * that drives `serveEarly()` itself. The one that matters is the security policy,
+     * which is exactly the kind of thing that must not be taken on trust.
+     *
+     * @param array<string,mixed>|null $config Null reads `app.php`'s `pagecache` block
+     */
+    private static function earlyResponse(?array $config): ?Response
+    {
+        $info = \Pramnos\Application\Application::readApplicationConfig();
+
+        $cache    = new self($config ?? (array) ($info['pagecache'] ?? []));
+        $response = $cache->lookup(Request::getInstance());
+
+        if ($response === null) {
+            return null;
+        }
+
+        if ($info === null) {
+            return $response;
+        }
+
+        return $response->withHeader(
+            'Content-Security-Policy',
+            \Pramnos\Application\Application::buildCspPolicy((array) ($info['csp'] ?? []))
+        );
     }
 
     // ── Purging ─────────────────────────────────────────────────────────────

@@ -207,11 +207,19 @@ The symptom, if you have not read this far: `X-Pramnos-Cache: MISS` on every sin
 request to a page that passes every bypass rule. `whyBypassed()` returns `null` for
 it, correctly — this is a property of the response, not of the request.
 
-!!! warning "`serveEarly()` sends no policy"
-    [Serving before the application boots](#serving-before-the-application-boots)
-    is exactly that — there is no `Application`, so there is nothing to build a
-    policy from. Send one from your rewrite layer or your front controller before
-    calling it, or accept that those responses carry whatever the web server adds.
+!!! warning "The static-file writer sends no policy"
+    With `'writer' => 'static'` a rewrite rule serves `index.html` and **PHP never
+    runs**, so nothing framework-side can send a header. Send the policy from the
+    web server:
+
+    ```apache
+    Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; …"
+    ```
+
+    A static policy is exactly what a server directive does well — and it is all
+    that is needed, because the nonce half is provably absent from anything stored.
+    [`serveEarly()`](#serving-before-the-application-boots) does send one; it reads
+    the `csp` block from `app.php` for it.
 
 ---
 
@@ -443,14 +451,36 @@ search engine indexes, and debug information does not belong in a stored page.
 
 ```php
 // www/index.php
-require __DIR__ . '/../vendor/autoload.php';
+define('ROOT', dirname(__DIR__));
+require ROOT . '/vendor/autoload.php';
 
-\Pramnos\Cache\Page\PageCache::serveEarly($config);   // hit ⇒ sends and exits
+\Pramnos\Cache\Page\PageCache::serveEarly();   // hit ⇒ sends and exits
 ```
 
 Safe this early precisely because the decision reads only the request. This is
 where the large savings are: not the storage lookup, but everything that does not
 run behind it.
+
+**No argument.** It reads `app.php` itself — a `require` of an array literal, which
+is not the bootstrap this method exists to skip: what it skips is `Application::init()`
+and its database, session, language and theme.
+
+It used to *require* the config as an argument, which meant the `pagecache` block had
+to be copied by hand into `index.php` beside the one in `app.php`. Two declarations of
+the same rules, and this is the one that answers first — change `bypassCookies` in
+`app.php`, forget the copy, and the early path keeps serving a signed-in page to
+everybody from a rule set that exists nowhere else. Passing a config still works and
+still wins, for a caller that wants a different one here on purpose.
+
+`ROOT` has to be defined before the call, which every scaffolded front controller
+already does on its first line. `APP_PATH` is used instead when it is defined.
+
+**The hit carries a CSP.** Reading the file gets the `csp` block in the same breath,
+so this path is no longer the exception — see
+[a cache hit and the CSP nonce](#a-cache-hit-and-the-csp-nonce). If there is no
+`app.php` to read, no policy is sent rather than a guessed one: the framework default
+is `default-src 'none'`, and sending that to an application that needed hosts in its
+`csp` block would break the page it was meant to protect.
 
 ---
 

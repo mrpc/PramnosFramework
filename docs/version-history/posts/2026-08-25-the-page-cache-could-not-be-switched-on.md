@@ -63,12 +63,47 @@ security-relevant, the third was a default that never matched the cookie it need
   and `store()` already refused those — so this takes away no caching that was
   previously happening.
 
+- **`PageCache::serveEarly()` reads `app.php`, and its hit carries a policy.** The
+  config was a required argument, so the `pagecache` block had to be copied by hand
+  into `www/index.php` beside the one in `app.php` — two declarations of the same
+  rules, and the early path is the one that answers first. Change `bypassCookies` in
+  `app.php`, forget the copy, and the early serve keeps handing out a signed-in page
+  from a rule set that exists nowhere else: the hole above, reopened by a stale copy.
+
+  Reading the file also gets the `csp` block, which is what lets this path send a
+  policy at all — it has no `Application` to ask, which is the entire point of it. A
+  `require` of an array literal is not the bootstrap `serveEarly()` exists to skip;
+  what it skips is `Application::init()` and its database, session, language and
+  theme. `serveEarly($config)` still works and still wins.
+
+  When there is no `app.php` to read, no policy is sent rather than a guessed one: the
+  framework default is `default-src 'none'`, and sending that to an application whose
+  `csp` block adds hosts would break the page it was protecting.
+
+- **A policy with no nonce omits the nonce source** instead of emitting `'nonce-'`.
+  Browsers reject an empty nonce as an invalid source and drop it, which happens to be
+  the safe direction — but it cost a consuming application a working night-mode button
+  and two rounds of debugging, because a blocked inline script is *present and correct*
+  in the response. Its own `exec()` override had stopped generating the nonce; the
+  policy it produced said nothing about that.
+
+  Omitting is right rather than a workaround: `Document\DocumentTypes\Html` and `Raw`
+  stamp a nonce into inline `<script>` only when there is one, so a response with no
+  nonce has no nonced element for the source to match. This is the ordinary case on a
+  cache hit.
+
 ## Added
 
-- **`Application::cspPolicy(): string`** — the policy `sendCspHeader()` sends, as a
-  value, for the callers that need to put it somewhere other than `header()`. It also
-  generates a nonce when there is not one yet: a path that never reached `exec()` was
-  emitting the source expression `'nonce-'`.
+- **`Application::cspPolicy(): string`** and **`Application::buildCspPolicy(array $csp,
+  string $nonce = ''): string`** — the policy `sendCspHeader()` sends, as a value, for
+  the callers that need to put it somewhere other than `header()`. The static one takes
+  the `csp` block directly, because the caller that needs it most —
+  `PageCache::serveEarly()` — has no instance by design.
+
+- **`Application::readApplicationConfig(?string $app): ?array`** — `app.php` as an
+  array, with nothing constructed: no defines, no database, no session. `null` rather
+  than `[]` when there is no file, because "there is no configuration to read" and
+  "the configuration says nothing" lead to different decisions.
 
 ## Documentation
 
@@ -79,3 +114,8 @@ security-relevant, the third was a default that never matched the cookie it need
   it stayed unnoticed. New sections cover the CSP interaction and the session cookie,
   the bypass table's rule 7 and the configuration reference are current, and
   *When a page is not being cached* gained the two new answers.
+  *Serving before the application boots* now shows the no-argument call and says what
+  reading the file buys. The one path still without a policy is named as such: with
+  `'writer' => 'static'` a rewrite rule serves the file and PHP never runs, so the
+  header has to come from the web server — which is all a static policy needs, the
+  nonce half being provably absent from anything stored.

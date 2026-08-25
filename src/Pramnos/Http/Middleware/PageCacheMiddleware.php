@@ -83,12 +83,17 @@ class PageCacheMiddleware implements MiddlewareInterface
      * default is `default-src 'none'`, a cached page had lost the whole of it.
      *
      * The policy is built fresh here rather than stored, which is the only version
-     * that is not a different bug: the policy carries a per-response nonce, so a
-     * stored one would hand every visitor for the whole TTL the same nonce, and a
-     * nonce that is reused is not a nonce. A fresh one is safe *because*
-     * {@see PageCache::store()} refuses to store a body that contains the nonce —
-     * so a stored body has no nonced inline script for this policy to fail to
-     * match.
+     * that is not a different bug: a stored policy carries the nonce of whichever
+     * request populated the cache, handed to every visitor for the whole TTL — and
+     * a nonce that is reused is not a nonce.
+     *
+     * The fresh one carries **no** nonce, because a hit never reached `exec()` and so
+     * there is none. That is correct rather than a gap: {@see PageCache::store()}
+     * refuses to store a body containing a nonce, so a stored page has no nonced
+     * inline script for a nonce source to cover.
+     *
+     * The same policy {@see PageCache::serveEarly()} sends, by the same reasoning —
+     * that path has no application at all and builds it from the config file.
      *
      * Set unconditionally, including over a policy that came out of the stored
      * entry because an application widened `headerWhitelist` to keep it. That is
