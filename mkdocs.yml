@@ -91,6 +91,7 @@ nav:
     - Hypertables (TimescaleDB): Pramnos_Hypertable_Guide.md
     - Caching: Pramnos_Cache_Guide.md
     - Page Cache: Pramnos_Page_Cache_Guide.md
+    - Service Worker: Pramnos_Service_Worker_Guide.md
     - Redis: Pramnos_Redis_Guide.md
   - Security & Identity:
     - Authentication: Pramnos_Authentication_Guide.md

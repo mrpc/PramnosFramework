@@ -1,0 +1,181 @@
+'use strict';
+
+/**
+ * Asset cache for {{ APP_NAME }}.
+ *
+ * ## What it does, and what it deliberately does not
+ *
+ * It caches **static assets only** — stylesheets, scripts, fonts and images under
+ * the same origin. HTML, API responses, anything non-GET and anything cross-origin
+ * are not handled at all: no `respondWith`, so the browser does exactly what it
+ * would without a service worker.
+ *
+ * That boundary is the whole design, and it is drawn from a service worker in a
+ * production application that crossed it. Once a worker caches HTML it needs a list
+ * of URLs never to cache — the signed-in pages, the checkout, the profile editor —
+ * and that list is maintained by hand. The one being replaced here had eleven
+ * entries and grew one at a time; every page added to the application is a chance to
+ * forget one, and the consequence is somebody's personal page stored in a stranger's
+ * browser, where nothing on the server can reach it to purge it.
+ *
+ * A worker that never touches HTML cannot make that mistake. If this application
+ * needs an offline shell later, that is a second, explicit decision with an
+ * allow-list of public paths — not a deny-list of private ones.
+ *
+ * ## Two strategies, chosen by whether the URL can change meaning
+ *
+ * - **Immutable URLs** — `assets/vendor/<lib>/<version>/…` and the content-hashed
+ *   build output — are cache-first and never revalidated. A new version is a new
+ *   URL, so there is nothing to check.
+ * - **Everything else** is stale-while-revalidate: the cached copy is served and a
+ *   fresh one is fetched behind it. The reader may see one stale paint; the next
+ *   load is correct. Cache-first here would be stale *forever*, which is precisely
+ *   how the worker this replaces served a "Maintenance Mode" page through hard
+ *   reloads for a day.
+ *
+ * ## There is no cache version, on purpose
+ *
+ * The usual `v1.31::` prefix, bumped by hand, is what made that incident permanent:
+ * two of its three caches had unversioned names, so the sweep that deletes "caches
+ * not in the current list" could never reach them — bumping the version purged one
+ * cache and left the other two stale for good.
+ *
+ * Nothing here needs a version. Immutable entries stay valid forever by definition,
+ * and everything else revalidates on its own, so there is no state that a bump would
+ * be repairing. What bounds the cache instead is a cap on the number of entries,
+ * enforced when writing — unlike the periodic sweep it replaces, which used
+ * `setInterval` inside a service worker and therefore essentially never ran, since
+ * the browser terminates an idle worker long before a six-hour timer fires.
+ *
+ * ## Recovery
+ *
+ * Because HTML is never cached, a bad deploy of this file cannot lock anybody out of
+ * the site — the worst case is a stale stylesheet that fixes itself on the next load.
+ * To clear it by hand from a page:
+ *
+ *   navigator.serviceWorker.controller.postMessage({command: 'purge'});
+ *
+ * or to remove the worker entirely:
+ *
+ *   navigator.serviceWorker.getRegistrations()
+ *       .then(rs => rs.forEach(r => r.unregister()));
+ */
+
+const CACHE = '{{ APP_SLUG }}-assets';
+
+/**
+ * How many entries to keep.
+ *
+ * ponytail: FIFO, not LRU — `cache.keys()` is in insertion order and the oldest
+ * writes are dropped first, regardless of how often they are read. A true LRU needs
+ * an access log of its own, which is more machinery than a static asset cache earns.
+ * Raise the cap if an application has more assets than this in play at once.
+ */
+const MAX_ENTRIES = 150;
+
+/** URLs whose contents cannot change: a new version is a new path. */
+const IMMUTABLE = [
+    /\/assets\/vendor\//,
+    /\/{{ SPA_BUILD_DIR_REGEX }}\//
+];
+
+/** The only thing this worker will touch. Anything else falls through to the browser. */
+const ASSET = /\.(?:css|m?js|woff2?|ttf|otf|eot|png|jpe?g|gif|svg|webp|avif|ico)$/i;
+
+self.addEventListener('install', () => {
+    // No pre-cache list. One would have to name files by hand and go stale the first
+    // time a build renamed one — and every asset here is cached on first use anyway.
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('message', (event) => {
+    const command = event.data && event.data.command;
+
+    if (command === 'purge') {
+        event.waitUntil(caches.delete(CACHE));
+    }
+
+    if (command === 'unregister') {
+        event.waitUntil(
+            self.registration.unregister().then(() => caches.delete(CACHE))
+        );
+    }
+});
+
+/**
+ * Whether a response is worth keeping.
+ *
+ * `response.ok` is 200–299. A redirect, a 404 and a 500 are all refused — the
+ * worker being replaced stored whatever came back, which is how an error page became
+ * the cached copy of a real one.
+ *
+ * There is deliberately **no `Set-Cookie` check**, although the server-side page
+ * cache has one for the same reason. `Set-Cookie` is a forbidden response header:
+ * `fetch()` never exposes it, so the check would always pass and protect nothing.
+ * What makes it unnecessary here is the URL filter — a stylesheet is not answering a
+ * particular visitor.
+ */
+function storable(response) {
+    return !!response && response.ok && response.type !== 'opaque';
+}
+
+async function store(request, response) {
+    if (!storable(response)) {
+        return;
+    }
+
+    const cache = await caches.open(CACHE);
+    await cache.put(request, response);
+
+    const keys = await cache.keys();
+    if (keys.length > MAX_ENTRIES) {
+        await Promise.all(
+            keys.slice(0, keys.length - MAX_ENTRIES).map((key) => cache.delete(key))
+        );
+    }
+}
+
+self.addEventListener('fetch', (event) => {
+    const request = event.request;
+
+    if (request.method !== 'GET') {
+        return;
+    }
+
+    const url = new URL(request.url);
+
+    if (url.origin !== self.location.origin || !ASSET.test(url.pathname)) {
+        return;
+    }
+
+    const immutable = IMMUTABLE.some((pattern) => pattern.test(url.pathname));
+
+    event.respondWith((async () => {
+        const cached = await caches.match(request);
+
+        if (cached && immutable) {
+            return cached;
+        }
+
+        const network = fetch(request).then(async (fresh) => {
+            await store(request, fresh.clone());
+            return fresh;
+        });
+
+        if (cached) {
+            // waitUntil *before* returning the cached copy: the event stays alive only
+            // while the respondWith promise is pending, and registering the
+            // revalidation afterwards would be too late to keep the worker awake for
+            // it. A stale-while-revalidate that never gets to revalidate is just
+            // cache-first with extra steps.
+            event.waitUntil(network.catch(() => {}));
+            return cached;
+        }
+
+        return network;
+    })());
+});

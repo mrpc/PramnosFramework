@@ -102,5 +102,5 @@ header('Cache-Control: no-cache, must-revalidate');
 <?php foreach ($scripts as $script): ?>
     <script type="module" src="<?php echo $script; ?>"></script>
 <?php endforeach; ?>
-</body>
+{{ serviceWorkerRegistration }}</body>
 </html>
