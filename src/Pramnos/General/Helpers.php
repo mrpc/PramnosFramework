@@ -692,7 +692,17 @@ class Helpers
      * @param string $memoryLimit
      * @return int
      */
-    private static function parseMemoryLimit($memoryLimit)
+    /**
+     * A `memory_limit` string as a byte count, or -1 for unlimited.
+     *
+     * Public because `Media\ResizeTools` needs the same parsing to decide whether it
+     * has to raise the limit at all — it used to set 256M unconditionally, which is a
+     * *reduction* on any host configured with more.
+     *
+     * @param  string $memoryLimit An ini value such as '256M', '1G' or '-1'
+     * @return int Bytes, or -1 when there is no limit
+     */
+    public static function parseMemoryLimit($memoryLimit)
     {
         if ($memoryLimit == '-1') {
             return -1; // No limit

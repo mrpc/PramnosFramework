@@ -389,12 +389,11 @@ class ResizeTools extends \Pramnos\Framework\Base
         } else {
             if ($this->fillcolor != "000000") {
                 $color = $this->hex2array($this->fillcolor);
-                $originalMemory=  ini_get('memory_limit');
-                try {
-                    ini_set("memory_limit", "256M");
-                } catch (\Exception $ex) {
-                    \Pramnos\Logs\Logger ::log($ex->getMessage());
-                }
+
+                // Filling a large image can want more memory than the host allows, so
+                // the limit is raised for the one call and put back. Raised only —
+                // see raiseMemoryLimit() for what setting it unconditionally did.
+                $originalMemory = self::raiseMemoryLimit(256 * 1024 * 1024);
 
                 @imagefill(
                     $this->thumb, 0, 0,
@@ -402,10 +401,9 @@ class ResizeTools extends \Pramnos\Framework\Base
                         $tempThumb, $color[0], $color[1], $color[2]
                     )
                 );
-                try {
-                    ini_set("memory_limit", $originalMemory);
-                } catch (\Exception $ex) {
-                    \Pramnos\Logs\Logger::log($ex->getMessage());
+
+                if ($originalMemory !== null) {
+                    ini_set('memory_limit', $originalMemory);
                 }
             }
         }
@@ -576,6 +574,56 @@ class ResizeTools extends \Pramnos\Framework\Base
      * @return boolean Returns TRUE on success or FALSE on failure.
      * @license    MIT
      */
+    /**
+     * Raise `memory_limit` to at least `$bytes`, and report what it was if it changed.
+     *
+     * ## What was wrong
+     *
+     * This used to be `ini_set("memory_limit", "256M")`, unconditionally. On a host
+     * configured with more than 256M that is a **reduction** — the opposite of the
+     * intent — and PHP refuses it outright once the process is already using more than
+     * the new value, with:
+     *
+     *     Failed to set memory limit to 268435456 bytes
+     *     (Current memory usage is 279969792 bytes)
+     *
+     * Which is where it surfaced: four tests in a long-running suite, at 279 MB. In
+     * production it is quieter and worse — a request that had 512M available gets 256M
+     * for the duration of the fill, which is the shape of the failure the raise exists
+     * to prevent.
+     *
+     * ## Why there is no try/catch any more
+     *
+     * There were two, both around `ini_set()`, both logging a caught `\Exception`.
+     * `ini_set()` does not throw: it returns `false` and raises a PHP warning. So the
+     * handlers could never run, the warning went unhandled, and the code read as though
+     * failure were covered. That is the part worth naming — a guard that cannot fire is
+     * worse than none, because it stops anybody looking.
+     *
+     * Raising only also means the call cannot fail: usage can never exceed the current
+     * limit, so a new limit above the current one is always above usage.
+     *
+     * @param  int $bytes The floor to guarantee
+     * @return string|null The previous value if it was changed, null if nothing was done
+     */
+    private static function raiseMemoryLimit(int $bytes): ?string
+    {
+        $current = ini_get('memory_limit');
+
+        if (!is_string($current) || $current === '') {
+            return null;   // @codeCoverageIgnore — memory_limit always exists
+        }
+
+        $parsed = \Pramnos\General\Helpers::parseMemoryLimit($current);
+
+        // -1 is unlimited, and anything already at or above the floor needs nothing.
+        if ($parsed === -1 || $parsed >= $bytes) {
+            return null;
+        }
+
+        return ini_set('memory_limit', (string) $bytes) === false ? null : $current;
+    }
+
     public static function fastimagecopyresampled(
     $dst_image, $src_image, $dst_x, $dst_y, $src_x, $src_y, $dst_w, $dst_h, $src_w, $src_h, $quality = 4
     )

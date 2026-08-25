@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Pramnos\Media;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Media\ResizeTools;
 
@@ -516,5 +517,148 @@ class ResizeToolsTest extends TestCase
             'debug echo at line 300 must fire when forcecrop=true and crop=false');
         $this->assertFileExists($this->tempDir . '/forcecrop_debug.jpg',
             'resize must produce an output file even in the forced-crop debug path');
+    }
+
+    // ── memory_limit is raised, never lowered ────────────────────────────────
+
+    /**
+     * A limit already at or above the floor is left alone.
+     *
+     * The bug: `_resample()` called `ini_set("memory_limit", "256M")` unconditionally, so
+     * on a host configured with more it was a **reduction** — the opposite of the intent
+     * — and PHP refuses it outright once the process is using more than the new value:
+     *
+     *     Failed to set memory limit to 268435456 bytes
+     *     (Current memory usage is 279969792 bytes)
+     *
+     * Which is how it was found: four tests in this file, in a suite sitting at 279 MB.
+     * In production it is quieter and worse — a request with 512M available runs the fill
+     * on 256M, which is the failure the raise exists to prevent.
+     *
+     * **The floor varies here, not the limit.** These tests never lower `memory_limit`,
+     * because a suite using 279 MB cannot be told its ceiling is 256 MB — the arrangement
+     * would produce the very warning under test. Two earlier versions of this file did
+     * exactly that, one of them after the lesson had already been learned once.
+     *
+     * @param int|null $floorOffset Bytes to add to the current limit; null = unlimited
+     * @return void
+     */
+    #[DataProvider('sufficientLimitProvider')]
+    public function testASufficientLimitIsLeftAlone(?int $floorOffset): void
+    {
+        // Arrange — 1G is safely above anything this process is using, so setting it
+        // always succeeds. Only the floor asked for changes.
+        $original = ini_get('memory_limit');
+        ini_set('memory_limit', $floorOffset === null ? '-1' : '1G');
+        $limit = \Pramnos\General\Helpers::parseMemoryLimit(ini_get('memory_limit'));
+        $floor = $floorOffset === null ? 256 * 1024 * 1024 : $limit + $floorOffset;
+
+        try {
+            // Act
+            $previous = (new \ReflectionMethod(ResizeTools::class, 'raiseMemoryLimit'))
+                ->invoke(null, $floor);
+
+            // Assert — nothing changed, so there is nothing to put back.
+            $this->assertNull($previous);
+            $this->assertSame(
+                $limit,
+                \Pramnos\General\Helpers::parseMemoryLimit(ini_get('memory_limit'))
+            );
+        } finally {
+            ini_set('memory_limit', $original);
+        }
+    }
+
+    /** @return array<string, array{int|null}> */
+    public static function sufficientLimitProvider(): array
+    {
+        return [
+            // No limit at all: nothing to compare a floor against.
+            'unlimited'         => [null],
+            // A floor below the limit.
+            'above the floor'   => [-1024 * 1024],
+            // A floor exactly at the limit — the boundary of the `>=` test.
+            'exactly the floor' => [0],
+        ];
+    }
+
+    /**
+     * A limit below the floor is raised, and the old value comes back for restoring.
+     *
+     * The half that must keep working: "never lower it" must not become "never raise it".
+     *
+     * Arranged by asking for a floor **above** the current limit rather than by lowering
+     * the limit below the floor, for the reason given above.
+     *
+     * @return void
+     */
+    public function testALimitBelowTheFloorIsRaised(): void
+    {
+        // Arrange
+        $original = ini_get('memory_limit');
+        ini_set('memory_limit', '1G');
+        $floor = 2 * 1024 * 1024 * 1024;
+
+        try {
+            // Act
+            $previous = (new \ReflectionMethod(ResizeTools::class, 'raiseMemoryLimit'))
+                ->invoke(null, $floor);
+
+            // Assert
+            $this->assertSame('1G', $previous, 'the caller needs the old value to restore it');
+            $this->assertSame(
+                $floor,
+                \Pramnos\General\Helpers::parseMemoryLimit(ini_get('memory_limit'))
+            );
+        } finally {
+            ini_set('memory_limit', $original);
+        }
+    }
+
+    /**
+     * Resampling with a fill colour raises no PHP diagnostic.
+     *
+     * The end-to-end version, and the one that would have caught the original: it drives
+     * the real path — a fill colour, so the `imagefill()` branch runs — with an unlimited
+     * memory limit, which is exactly the configuration that made `ini_set()` refuse and
+     * warn. Any diagnostic at all fails the test, the way the suite's own reporting
+     * effectively did.
+     *
+     * @return void
+     */
+    public function testResamplingWithAFillColourIsQuiet(): void
+    {
+        // Arrange — a wide source, a fill colour, and no memory ceiling to lower.
+        $src = $this->tempDir . '/quiet1000x500.jpg';
+        $img = imagecreatetruecolor(1000, 500);
+        imagejpeg($img, $src);
+
+        $original = ini_get('memory_limit');
+        ini_set('memory_limit', '-1');
+
+        $tool = new ResizeTools();
+        $tool->exportpath = $this->tempDir . '/';
+        $tool->exportfile = 'quiet_resample.jpg';
+        $tool->resample   = true;
+        $tool->crop       = false;
+        $tool->fillcolor  = 'ff0000';
+
+        $raised = [];
+        set_error_handler(static function (int $no, string $message) use (&$raised): bool {
+            $raised[] = $message;
+            return true;
+        });
+
+        try {
+            // Act
+            $tool->resize($src, 10, 200);
+        } finally {
+            restore_error_handler();
+            ini_set('memory_limit', $original);
+        }
+
+        // Assert
+        $this->assertSame([], $raised, "resampling raised: " . implode('; ', $raised));
+        $this->assertFileExists($this->tempDir . '/quiet_resample.jpg');
     }
 }

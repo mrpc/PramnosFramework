@@ -3,6 +3,7 @@ use_cases:
   - Handling a file or image upload
   - Generating thumbnails or processing images
   - Organising stored media, or querying its schema
+  - Setting memory_limit for image processing on a constrained host
 ---
 
 # Pramnos Framework - Media System Guide
@@ -471,6 +472,27 @@ CREATE TABLE mediause (
 - `$resample` - Use resampling for quality (default: true)
 - `$fillcolor` - Background fill color for resampling (default: "FFFFFF")
 - `$debug` - Enable debug output (default: false)
+
+#### `memory_limit` while filling a thumbnail
+
+Resampling with a `$fillcolor` other than black calls `imagefill()`, which on a large
+image can want more memory than a constrained host allows. `ResizeTools` therefore raises
+`memory_limit` to **at least 256 MB** for that one call and puts the old value back.
+
+**It only ever raises it.** A host configured with 512 MB, or with no limit, is left
+alone. That is worth knowing because it used to set 256 MB unconditionally, which on such
+a host is a *reduction* — the opposite of the intent — and PHP refuses it outright once
+the process is already using more:
+
+```
+Failed to set memory limit to 268435456 bytes (Current memory usage is 279969792 bytes)
+```
+
+So on a generous host the fill silently ran with **less** memory than the request already
+had. Nothing to configure; the behaviour is simply correct now.
+
+If 256 MB is not enough for the images an application handles, raise the host's own
+`memory_limit` — anything at or above the floor is respected as-is.
 
 ### Thumbnail Class Properties
 
