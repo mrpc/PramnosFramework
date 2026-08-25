@@ -496,6 +496,68 @@ class PageCacheConfigAndCspTest extends TestCase
         $this->assertStringContainsString("style-src 'self' 'nonce-ABC'", $unsafe);
     }
 
+    // ── 2c. What a hit tells the browser ─────────────────────────────────────
+
+    /**
+     * By default a hit does not touch the browser-facing cache headers.
+     *
+     * Observed in a running install: `x-pramnos-cache: HIT` alongside
+     * `pragma: no-cache`. That comes from PHP's `session.cache_limiter`, which
+     * defaults to `nocache` and fires on `session_start()` — and a front controller
+     * calls `$app->init()` before the pipeline, so those headers are queued before
+     * this class is asked anything.
+     *
+     * The default stays hands-off because the accidental answer is the safe one: a hit
+     * is a *shared* copy, and telling the browser not to store one is right. Asserting
+     * it here so that "we left it alone" is a decision on record rather than an
+     * omission somebody tidies up later.
+     */
+    public function testAHitDoesNotSetCacheControlByDefault(): void
+    {
+        // Arrange
+        $this->application([]);
+        $middleware = new PageCacheMiddleware(
+            new PageCache(['enabled' => true], new ArrayAdapter())
+        );
+        $next = static fn (): Response => Response::make('<html>catalogue</html>');
+        $middleware->handle($this->request(), $next);
+
+        // Act
+        $hit = $middleware->handle($this->request(), $next);
+
+        // Assert
+        $this->assertNull($hit->getHeaderLine('Cache-Control'),
+            'the cache must not invent a browser policy nobody configured');
+    }
+
+    /**
+     * With `cacheControl` set, the hit carries it.
+     *
+     * For pages that really are public and a browser or CDN in front is worth having.
+     * The `Pragma`/`Expires` left over from the session limiter are removed at the same
+     * time — not asserted here, because `header_remove()` is invisible under the CLI
+     * SAPI, but it is why the two go together: `Cache-Control: public` alongside a
+     * queued `Pragma: no-cache` is worse than either alone, since every HTTP/1.0
+     * intermediary believes the `Pragma`.
+     */
+    public function testCacheControlIsSentWhenConfigured(): void
+    {
+        // Arrange
+        $this->application([]);
+        $middleware = new PageCacheMiddleware(new PageCache(
+            ['enabled' => true, 'cacheControl' => 'public, max-age=300'],
+            new ArrayAdapter()
+        ));
+        $next = static fn (): Response => Response::make('<html>catalogue</html>');
+        $middleware->handle($this->request(), $next);
+
+        // Act
+        $hit = $middleware->handle($this->request(), $next);
+
+        // Assert
+        $this->assertSame('public, max-age=300', $hit->getHeaderLine('Cache-Control'));
+    }
+
     // ── 3. The session cookie bypasses the cache ─────────────────────────────
 
     /**

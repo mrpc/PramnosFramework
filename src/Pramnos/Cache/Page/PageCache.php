@@ -149,6 +149,30 @@ final class PageCache
             'lockTtl'        => 30,
             'gzip'           => true,
             'etag'           => true,
+            // What a hit tells the *browser* — null leaves whatever PHP already put
+            // there, which today is not a decision anybody made.
+            //
+            // `session_start()` emits `Pragma: no-cache`, `Expires: 1981` and
+            // `Cache-Control: no-store, no-cache, must-revalidate`, because PHP's
+            // `session.cache_limiter` defaults to `nocache` and nothing here changes
+            // it. A front controller calls `$app->init()` before the pipeline runs,
+            // so on a hit those headers are already queued before this class is asked
+            // anything — and with `'session' => 'lazy'` an anonymous visitor starts no
+            // session and gets none of them. The header set on a hit therefore depends
+            // on whether a session happened to start, which is not something a cache
+            // should leave to chance.
+            //
+            // Null is still the default because the accidental answer is the *safe*
+            // one: a page-cache hit is a shared copy, and "do not store this" is the
+            // right thing to tell a browser about one. The failure it prevents is the
+            // reverse — a browser or CDN keeping the anonymous page and handing it back
+            // after the visitor signs in.
+            //
+            // Set it when the pages really are public and a second cache layer is
+            // worth having: `'cacheControl' => 'public, max-age=300'`. The leftover
+            // `Pragma` and `Expires` are removed then, because they would contradict
+            // it for anything speaking HTTP/1.0.
+            'cacheControl'   => null,
             'debugHeader'    => true,
             // The diagnostics somebody actually needs when a page is not cached the way
             // they expect: which key it went under, how long it lives, when it dies.
@@ -934,6 +958,8 @@ final class PageCache
             );
         }
 
+        $response = $this->withCacheControl($response);
+
         if (!$this->config['debugHeader']) {
             return $response;
         }
@@ -962,6 +988,38 @@ final class PageCache
                 'X-Pramnos-Cache-Expires',
                 gmdate('D, d M Y H:i:s \G\M\T', (int) ($entry['created'] ?? time()) + $ttl)
             );
+    }
+
+    /**
+     * Replace the browser-facing cache headers, when the application said what they
+     * should be.
+     *
+     * Does nothing unless `cacheControl` is configured — see {@see defaults()} for why
+     * the default is to leave PHP's session limiter alone.
+     *
+     * **`header_remove()` rather than a `Response` header**, and it has to be:
+     * `Pragma` and `Expires` were queued by `session_start()` long before this runs,
+     * and a `Response` can only add or replace what it carries itself. Sending
+     * `Cache-Control: public` while `Pragma: no-cache` is still queued is worse than
+     * either alone — every HTTP/1.0 intermediary believes the `Pragma`.
+     *
+     * Guarded on `headers_sent()` because a call after output has begun is a warning
+     * and nothing else; there is no useful recovery, and the page is already going.
+     */
+    private function withCacheControl(Response $response): Response
+    {
+        $value = $this->config['cacheControl'] ?? null;
+
+        if (!is_string($value) || $value === '') {
+            return $response;
+        }
+
+        if (!headers_sent()) {
+            header_remove('Pragma');
+            header_remove('Expires');
+        }
+
+        return $response->withHeader('Cache-Control', $value);
     }
 
     /**

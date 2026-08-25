@@ -524,6 +524,52 @@ Three things to know:
 
 ---
 
+## What a hit tells the browser
+
+A hit routinely goes out carrying this:
+
+```
+x-pramnos-cache: HIT
+pragma: no-cache
+expires: Thu, 19 Nov 1981 08:52:00 GMT
+cache-control: no-store, no-cache, must-revalidate
+```
+
+**Nothing here chose those.** They are PHP's, from `session.cache_limiter` — which
+defaults to `nocache` and fires on `session_start()`. A front controller calls
+`$app->init()` before the pipeline runs, so they are queued before the cache is asked
+anything. And with [`'session' => 'lazy'`](#when-a-page-is-not-being-cached) an
+anonymous visitor starts no session and gets none of them, so *which* headers a hit
+carries currently depends on whether a session happened to start.
+
+**It is not a problem after login — it is what prevents one.** A hit is a **shared**
+copy, and `no-store` is the right thing to tell a browser about one: the browser will
+not keep the anonymous page and hand it back once the visitor has signed in. The
+dangerous shape is the reverse. A hit carrying `Cache-Control: public, max-age=3600`
+lets the browser — and any CDN in front — keep the anonymous page for an hour and serve
+it to a signed-in user, and nothing in this framework can reach into either to purge it.
+
+So the default is to leave them alone. What you lose is the second cache layer: a page
+you have already decided is shareable still costs every visitor a full round trip.
+
+```php
+'cacheControl' => 'public, max-age=300',   // only for pages that really are public
+```
+
+Set it and a hit carries that instead, with the leftover `Pragma` and `Expires`
+removed — they have to go together, because `Cache-Control: public` alongside a queued
+`Pragma: no-cache` is worse than either alone: every HTTP/1.0 intermediary believes the
+`Pragma`.
+
+Before setting it, be sure of two things, because a CDN is not purgeable from here:
+
+- the page is identical for **every** visitor who can reach it, signed in or not — the
+  bypass rules protect the server-side cache, not somebody's browser;
+- `max-age` is short enough that you can live with the staleness, because
+  `PageCache::purgeUrl()` clears this store and cannot clear theirs.
+
+---
+
 ## Configuration reference
 
 | Key | Default | |
@@ -551,6 +597,7 @@ Three things to know:
 | `lockTtl` | `30` | `0` disables locking |
 | `gzip` | `true` | |
 | `etag` | `true` | |
+| `cacheControl` | `null` | what a hit tells the **browser**; null leaves PHP's session limiter alone |
 | `debugHeader` | `true` | `X-Pramnos-Cache` and `Age` |
 | `debugDetail` | `false` | adds the key, TTL and expiry |
 | `writer` | `'cache'` | or `'static'` |
