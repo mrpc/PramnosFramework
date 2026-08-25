@@ -1089,6 +1089,71 @@ set_exception_handler(function (\Throwable $e) {
 
 ---
 
+## Reading a user agent
+
+`Pramnos\General\Helpers::getBrowser($agent)` returns the browser, its version, the
+operating system and its version, the rendering engine — and **which engine worked it
+out**:
+
+```php
+$b = \Pramnos\General\Helpers::getBrowser($_SERVER['HTTP_USER_AGENT'] ?? '');
+
+$b->browser;    // 'Chrome'
+$b->version;    // '120.0'
+$b->majorver;   // '120'
+$b->platform;   // 'Windows'    — the operating system
+$b->os_number;  // '10'         — its version
+$b->engine;     // 'Blink'
+$b->detector;   // 'device-detector' | 'browscap' | 'sniff'
+```
+
+### Install the parser, or get a name and nothing else
+
+Three engines are tried in order, and only the first fills every field:
+
+| `detector` | Needs | Fills |
+|---|---|---|
+| `device-detector` | `composer require matomo/device-detector` | everything above |
+| `browscap` | PHP's `browscap` ini pointing at a browscap.ini | all but `os_number` |
+| `sniff` | nothing | `browser` only |
+
+**`sniff` is what an installation gets by default**, and it is a six-branch regex that
+returns a lowercase name — `version`, `platform`, `majorver`, `os_number` and `engine`
+come back empty. The method has always returned a valid object either way, which is what
+made this hard to notice: one consuming application measured 3,040 visits with a browser
+name and 771 with an operating system, and nothing had gone wrong as far as any code
+could tell.
+
+`matomo/device-detector` is a **suggest**, not a requirement — a framework should not put
+a user-agent parser into every project that installs it. Add it when you store or report
+any of these fields:
+
+```bash
+composer require matomo/device-detector
+```
+
+Its regexes ship inside the package, so unlike `browscap/browscap-php` there is no data
+file to provision and no monthly refresh: staleness becomes `composer update` rather than
+a cron job, and there is no way for a missing download to degrade it silently.
+
+### What `detector` is for
+
+An empty `version` used to mean either *this agent is not identifiable* or *there was no
+parser running*, and those call for opposite responses — the first is a fact about the
+visitor, the second is a missing package. `detector` is how a caller tells them apart,
+and it is the reason the field exists at all.
+
+### Two details that are deliberate
+
+**`platform` is the operating system.** device-detector has a `platform` of its own and
+it means the CPU architecture — `x64`, `ARM`. Passing that through would have been the
+obvious mapping and would have quietly changed what a public field means for every
+existing caller.
+
+**A crawler gets a name and nothing else.** `Googlebot` with an empty version and engine,
+rather than an invented version. This object goes into statistics tables a row at a time,
+and a fabricated number is worse there than an empty one.
+
 ## Related Documentation
 
 - **[Database API Guide](Pramnos_Database_API_Guide.md)** — Database operations and best practices

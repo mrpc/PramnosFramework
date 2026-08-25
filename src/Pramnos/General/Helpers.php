@@ -230,11 +230,56 @@ class Helpers
     }
 
     /**
+     * What browser, version, platform and engine made this request.
      *
-     * @param string $agent
-     * @return object
+     * Three engines, tried in order, and the caller is told which one answered.
+     *
+     * ## Why there are three
+     *
+     * The signature has always been right and the machinery under it was not.
+     * `get_browser()` — PHP's own answer — needs the `browscap` ini directive to point
+     * at a browscap.ini, and that directive is unset on a default installation. When it
+     * is missing the fallback is {@see get_user_browser()}, a six-branch regex that
+     * returns a **name and nothing else**: `version`, `platform`, `majorver`,
+     * `os_number` and `engine` all empty. So the method returned one useful field out of
+     * six on almost every installation, and returned it as a perfectly valid object.
+     *
+     * Measured in a consuming application, which writes this into a row per visit:
+     * 3,040 visits with a browser name, 771 with an OS or an engine. Filed as FW-017
+     * with the numbers, and with the observation that the caller had no way to tell a
+     * browser it could not identify from an engine that was never running.
+     *
+     * ## Why `matomo/device-detector`
+     *
+     * Its regexes ship **inside the package**, so there is no data file to provision and
+     * no monthly refresh — which is the whole problem with `browscap/browscap-php`, and
+     * a problem that shows up as silent degradation exactly like the one above. Staleness
+     * becomes `composer update` rather than a cron job.
+     *
+     * `suggest`, not `require`: a framework should not put a user-agent parser in every
+     * project that installs it. Without the package the behaviour is what it always was.
+     *
+     * ## `detector` says who answered
+     *
+     * The field asked for in the filing, and the reason it matters: an empty `version`
+     * used to mean either "this browser is unknown to the parser" or "there was no
+     * parser", and those call for opposite responses. `device-detector`, `browscap` or
+     * `sniff`.
+     *
+     * @param  string $agent The user-agent string
+     * @return object {userAgent, browser, version, platform, majorver, os_number, engine, detector}
      */
     public static function getBrowser($agent) {
+
+        $agent = (string) $agent;
+
+        // `static::`, not `self::` — late static binding, so the seam is real: a subclass
+        // (or a test) can substitute a different parser, and `self::` would have bound to
+        // this class and silently ignored the override.
+        $detected = static::detectWithDeviceDetector($agent);
+        if ($detected !== null) {
+            return $detected;
+        }
 
         // `get_browser()` needs the `browscap` ini directive to point at a
         // browscap.ini file. That directive is unset by default and on most
@@ -245,19 +290,20 @@ class Helpers
         // Asking first is cheaper than calling and recovering, and it is the
         // difference between a log full of a warning nobody can act on and a
         // quiet one. The user-agent parsing below is the answer either way.
-        $browserInfo = self::browscapConfigured()
+        $browserInfo = static::browscapConfigured()
             ? @get_browser($agent, true)
             : false;
 
         if (!$browserInfo) {
             return (object)array(
                 'userAgent' => $agent,
-                'browser'   => self::get_user_browser($agent),
+                'browser'   => static::get_user_browser($agent),
                 'version'   => '',
                 'platform'  => '',
                 'majorver'  => '',
                 'os_number' => '',
-                'engine' => ''
+                'engine' => '',
+                'detector'  => 'sniff'
 
             );
         }
@@ -275,9 +321,74 @@ class Helpers
             'version'   => $browserInfo['version'],
             'platform'  => $browserInfo['platform'],
             'majorver'  => $browserInfo['majorver'],
+            // browscap has no OS version of its own to give, so this stays empty here
+            // and is filled only by device-detector. It was empty on *both* paths
+            // before, which made it look like a field nobody had ever wired up.
             'os_number' => '',
-            'engine' => $engine
+            'engine' => $engine,
+            'detector'  => 'browscap'
 
+        );
+    }
+
+    /**
+     * Parse with `matomo/device-detector`, or null when it is not installed.
+     *
+     * Returns null rather than throwing or half-filling, so the caller falls through to
+     * the engines below it — the package is a `suggest`, and a project that has not
+     * installed one must keep working exactly as it did.
+     *
+     * The field mapping follows browscap's meanings, not device-detector's names, because
+     * the object's shape is already public API and consumers read `platform` expecting an
+     * operating system. `os_number` is the OS version, which is the one field neither of
+     * the other two engines has ever been able to fill.
+     *
+     * A bot gets its name in `browser` and nothing else, which is honest: a crawler has
+     * no browser version, and inventing one would put fiction in a statistics table.
+     *
+     * @param  string $agent
+     * @return object|null
+     */
+    protected static function detectWithDeviceDetector(string $agent): ?object
+    {
+        if (!class_exists('\\DeviceDetector\\DeviceDetector')) {
+            return null;
+        }
+
+        $detector = new \DeviceDetector\DeviceDetector($agent);
+        $detector->parse();
+
+        if ($detector->isBot()) {
+            $bot = $detector->getBot();
+
+            return (object) array(
+                'userAgent' => $agent,
+                'browser'   => (string) ($bot['name'] ?? 'Bot'),
+                'version'   => '',
+                'platform'  => '',
+                'majorver'  => '',
+                'os_number' => '',
+                'engine'    => '',
+                'detector'  => 'device-detector',
+            );
+        }
+
+        $client  = $detector->getClient();
+        $os      = $detector->getOs();
+        $version = is_array($client) ? (string) ($client['version'] ?? '') : '';
+
+        return (object) array(
+            'userAgent' => $agent,
+            'browser'   => is_array($client) ? (string) ($client['name'] ?? '') : '',
+            'version'   => $version,
+            // browscap's `platform` is the operating system name, so that is what goes
+            // here — device-detector calls its own `platform` the CPU architecture,
+            // which is not what any existing caller is reading this field for.
+            'platform'  => is_array($os) ? (string) ($os['name'] ?? '') : '',
+            'majorver'  => $version === '' ? '' : explode('.', $version)[0],
+            'os_number' => is_array($os) ? (string) ($os['version'] ?? '') : '',
+            'engine'    => is_array($client) ? (string) ($client['engine'] ?? '') : '',
+            'detector'  => 'device-detector',
         );
     }
 

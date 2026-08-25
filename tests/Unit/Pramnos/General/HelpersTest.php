@@ -175,8 +175,14 @@ class HelpersTest extends TestCase
      */
     public function testGetBrowserFallbackDetectsBrowserFromUserAgent(): void
     {
-        // Act — standard Chrome UA, no browscap.ini needed
-        $result = Helpers::getBrowser(
+        // Act — standard Chrome UA, and the regex fallback explicitly.
+        //
+        // `Helpers::getBrowser()` prefers matomo/device-detector when it is installed,
+        // which it is here (require-dev) and which answers 'Chrome' rather than 'chrome'.
+        // The fallback is what a consuming installation without the package gets, so it
+        // needs its own assertion rather than being shadowed by the better engine.
+        // {@see \Pramnos\Tests\Unit\General\HelpersWithoutParser}
+        $result = \Pramnos\Tests\Unit\General\HelpersWithoutParser::getBrowser(
             'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 '
             . '(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
         );
@@ -184,6 +190,7 @@ class HelpersTest extends TestCase
         // Assert — browser must be identified even via the simple regex fallback
         $this->assertSame('chrome', $result->browser,
             'getBrowser() fallback must identify Chrome via get_user_browser()');
+        $this->assertSame('sniff', $result->detector);
     }
 
     // =========================================================================

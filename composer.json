@@ -27,7 +27,8 @@
         "web-auth/webauthn-lib": "^5.3"
     },
     "suggest": {
-        "pusher/pusher-php-server": "^7.0 — required for PusherDriver (Broadcasting) to push events to Pusher or any Pusher-compatible server (Reverb)"
+        "pusher/pusher-php-server": "^7.0 — required for PusherDriver (Broadcasting) to push events to Pusher or any Pusher-compatible server (Reverb)",
+        "matomo/device-detector": "^6.5 — required for Helpers::getBrowser() to return a version, platform, OS version and engine. Without it only the browser name is filled in: PHP's own get_browser() needs a browscap.ini that a default installation does not have."
     },
     "require-dev": {
         "php": ">=8.1",
@@ -35,7 +36,8 @@
         "symfony/dom-crawler": "^5.4",
         "symfony/css-selector": "^5.4",
         "pusher/pusher-php-server": "^7.0",
-        "aws/aws-sdk-php": "^3.0"
+        "aws/aws-sdk-php": "^3.0",
+        "matomo/device-detector": "^6.5"
     },
     "autoload": {
         "files": [
