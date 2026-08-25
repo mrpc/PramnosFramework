@@ -1873,18 +1873,25 @@ class Init extends Command
         return array_values(array_unique($prefixes));
     }
 
-    /** Keep build output and node_modules out of version control. */
+    /**
+     * Keep the SPA build output out of version control.
+     *
+     * `node_modules/` used to be added here, which meant only a SPA project had a
+     * rule for it — see {@see scaffoldGitignore()}, which now owns it for every
+     * project. Build output stays here because only a build stack produces any.
+     */
     private function scaffoldSpaGitignore(bool $needsBuild): void
     {
-        $lines = "\n# Front end\nnode_modules/\n";
-        if ($needsBuild) {
-            $lines .= $this->webRoot . '/' . self::SPA_BUILD_DIR . "/\n";
+        if (!$needsBuild || $this->skipWrite('.gitignore')) {
+            return;
         }
 
-        $path = $this->targetBaseDir . '/.gitignore';
+        $line = $this->webRoot . '/' . self::SPA_BUILD_DIR . '/';
+        $path     = $this->targetBaseDir . '/.gitignore';
         $existing = file_exists($path) ? (string) file_get_contents($path) : '';
-        if (!str_contains($existing, 'node_modules/') && !$this->skipWrite('.gitignore')) {
-            file_put_contents($path, $lines, FILE_APPEND);
+
+        if (!str_contains($existing, $line)) {
+            file_put_contents($path, "\n# Front end\n" . $line . "\n", FILE_APPEND);
         }
     }
 
@@ -5164,10 +5171,23 @@ PHP;
         $lines = [];
 
         $lines[] = '/vendor/';
-        $lines[] = '/var/cache/';
-        $lines[] = '/var/logs/';
+        // The whole of var/, not var/cache and var/logs by name. Everything under it
+        // is state this machine wrote and the framework recreates: the two named
+        // directories, and also `var/migrations/*.verified` (a per-database
+        // verification timestamp) and `var/migrations-schemaversion.lock` (a worker
+        // lock carrying a pid, a hostname and a heartbeat). Both of those turned up
+        // untracked in a real scaffolded project, and neither means anything on
+        // another machine. Nothing under var/ is source, and every writer mkdirs its
+        // own directory, so a fresh clone with no var/ at all is fine.
+        $lines[] = '/var/';
         // Machine-specific: it carries this host's user ids for the Docker build.
         $lines[] = '/.env';
+        // Every project, not only the ones with a build stack. It used to be added
+        // by scaffoldSpaGitignore(), which only runs for a SPA — but `npm install`
+        // runs at the project root for the OpenAPI/RapiDoc generator too, and
+        // ./dockernpm is scaffolded for anyone to use. An MVC project that turned on
+        // API docs got a few thousand untracked files and no rule for them.
+        $lines[] = 'node_modules/';
 
         if (in_array('authserver', $features, true)) {
             $lines[] = '/app/keys/private.key';
@@ -5203,7 +5223,13 @@ PHP;
      * configuration for database access) in the project root.
      *
      * CLAUDE.md uses the stub from scaffolding/templates/CLAUDE.md.stub.
-     * .mcp.json is added to .gitignore because it contains DB credentials.
+     *
+     * .mcp.json is **committed**, not ignored. This said the opposite — "added to
+     * .gitignore because it contains DB credentials" — and neither half was true: it
+     * holds a command and its arguments, no credentials, and no code ever added it to
+     * .gitignore. It is project configuration like CLAUDE.md, and the whole point of
+     * it is that the next person to clone the repository gets the MCP server without
+     * being told about it.
      */
     private function scaffoldAiGuidelines(
         string $appName,

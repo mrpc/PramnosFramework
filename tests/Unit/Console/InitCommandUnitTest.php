@@ -1374,6 +1374,51 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * `node_modules/` is ignored in a plain MVC project, not only in a SPA one.
+     *
+     * It used to be written by the SPA scaffolder, so a project with no build stack
+     * had no rule for it — and one does not need a build stack to acquire the
+     * directory: `npm install` runs at the project root for the OpenAPI/RapiDoc
+     * generator, and `./dockernpm` is scaffolded for every project to use. The
+     * result was a few thousand untracked files and nothing to say they were
+     * expected.
+     *
+     * Asserted on the plainest possible scaffold — MVC, plain CSS, no API docs —
+     * because that is the configuration the rule was missing from.
+     */
+    public function testGitignoreExcludesNodeModulesInAPlainProject(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no SPA, no API docs, nothing that would have added the line before.
+        $tester->execute([
+            '--app-name'    => 'NodeModulesApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'NodeModulesApp',
+            '--features'    => '',
+            '--ui-system'   => 'plain-css',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'postgresql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'nodemodules_db',
+            '--db-user'     => 'nodemodules',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $contents = (string) file_get_contents($this->tmpDir . '/.gitignore');
+        $this->assertStringContainsString('node_modules/', $contents,
+            'node_modules/ must be ignored in every scaffolded project, build stack or not');
+    }
+
+    /**
      * .gitignore must NOT contain the private key exclusion when authserver is
      * not enabled — the extra entry would be misleading noise.
      */
