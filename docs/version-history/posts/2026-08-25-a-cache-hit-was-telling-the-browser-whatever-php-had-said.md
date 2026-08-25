@@ -49,3 +49,11 @@ headers were safe and nobody had chosen them.
   browser**, including the two things to be sure of before pointing a CDN at it — the
   bypass rules protect the server-side cache, not somebody's browser, and nothing here
   can purge a CDN.
+
+- [Framework Guide](../../Pramnos_Framework_Guide.md) gains **It also changes the cache
+  headers you send**, under *Declining the automatic session*. That page described what
+  `'session' => 'lazy'` does to `Set-Cookie` and therefore to `store()`, and said nothing
+  about the three headers `session_start()` also queues — so a reader turning lazy mode
+  on for the page cache had no way to know it changed what their responses tell a
+  browser. Two pages describing two halves of one mechanism is how the surprise happened;
+  they now cross-link.

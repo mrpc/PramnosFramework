@@ -526,6 +526,29 @@ something happened to call a token helper.
 | Carrying a session cookie | session started | session started |
 | Signs in during the request | session started | started by the login path |
 
+### It also changes the cache headers you send
+
+`session_start()` does more than set a cookie. PHP's `session.cache_limiter` defaults
+to `nocache`, so starting a session queues three response headers:
+
+```
+Pragma: no-cache
+Expires: Thu, 19 Nov 1981 08:52:00 GMT
+Cache-Control: no-store, no-cache, must-revalidate
+```
+
+Nothing in this framework asks for those, and nothing removes them. So in lazy mode an
+anonymous visitor gets none of them and an eager one gets all three — which means
+**which cache headers a response carries depends on whether a session happened to
+start**, not on any decision about the page.
+
+It matters most on a page-cache hit, where the page did not come from the application
+at all and the headers are left over from `init()`. That is safe as it stands — telling
+a browser not to store a *shared* copy is right, and it is what stops an anonymous page
+being handed back after sign-in — but it is not a decision. Say what you mean with
+[`cacheControl`](Pramnos_Page_Cache_Guide.md#what-a-hit-tells-the-browser), which also
+clears the leftover `Pragma` and `Expires`.
+
 ### If your application writes to `$_SESSION`
 
 Call `ensureStarted()` first, on any request that may not have a session yet:
