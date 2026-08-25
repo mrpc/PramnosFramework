@@ -280,6 +280,34 @@ class PageCacheConfigAndCspTest extends TestCase
     }
 
     /**
+     * `worker-src` allows a same-origin worker, and is configurable.
+     *
+     * It was `'none'`, hard-coded — which forbade the service worker
+     * `init --service-worker=y` scaffolds: `worker-src` governs the service-worker
+     * script as well as `Worker` and `SharedWorker`, so the `register()` promise was
+     * rejected by the policy and nothing installed. Reported from a freshly scaffolded
+     * project as "I don't see it registering the worker".
+     *
+     * `'self'` is the tightest value that works — a browser will not accept a
+     * cross-origin service-worker script anyway — and the second assertion is the half
+     * that stops this recurring: a hard-coded directive in that list is one an
+     * application cannot correct from `app.php`, which is how the same defect reached
+     * `media-src` before it.
+     */
+    public function testWorkerSrcAllowsASameOriginWorkerAndReadsTheConfig(): void
+    {
+        // Act & Assert — the default permits this origin's own worker script.
+        $this->assertStringContainsString("worker-src 'self'", Application::buildCspPolicy([]));
+        $this->assertStringNotContainsString("worker-src 'none'", Application::buildCspPolicy([]));
+
+        // …and an application can widen it, like every directive around it.
+        $this->assertStringContainsString(
+            "worker-src 'self' https://cdn.example",
+            Application::buildCspPolicy(['worker-src' => ['https://cdn.example']])
+        );
+    }
+
+    /**
      * The `csp` block still reaches the policy through the static builder.
      *
      * `cspPolicy()` now delegates to `buildCspPolicy()`, which resolves the

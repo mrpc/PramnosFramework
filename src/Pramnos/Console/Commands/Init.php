@@ -2165,15 +2165,21 @@ CSS;
             return '';
         }
 
-        // The empty catch is deliberate and says so: a browser that declines to
-        // register is a browser without the asset cache, which is the state every
-        // browser was in a moment earlier. There is nothing to recover and nothing a
-        // visitor could do about it, and an unhandled rejection in the console reads
-        // as a broken page. (`SilentFailureTest` scans for exactly this shape and is
-        // right to — the reason has to be written down, in JavaScript as in PHP.)
+        // **The rejection is logged, not swallowed.** The first version of this
+        // discarded it, with a comment arguing that a browser which declines to
+        // register is simply a browser without the cache. That was wrong, and it cost
+        // a real debugging session: the framework's own policy said
+        // `worker-src 'none'`, every registration was refused by CSP, and the only
+        // thing that would have said so was the line this had thrown away. A refused
+        // registration is a misconfiguration somebody can fix, not a status quo.
+        //
+        // `console.warn`, not an unhandled rejection: the message is for whoever is
+        // building the site, and an uncaught error in the console reads as a broken
+        // page to everybody else.
         return "    <script>if('serviceWorker' in navigator){addEventListener('load',"
             . "function(){navigator.serviceWorker.register('<?php echo sURL; ?>sw.js')"
-            . ".catch(function(){/* no worker, no cache: the status quo */});});}</script>\n";
+            . ".catch(function(e){console.warn('Service worker not registered:',e);});"
+            . "});}</script>\n";
     }
 
     private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, array $enabledFeatures = [], string $localServerUrl = '', string $defaultApiKey = '', string $supportEmail = ''): void

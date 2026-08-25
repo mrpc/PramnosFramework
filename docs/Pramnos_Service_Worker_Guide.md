@@ -151,6 +151,40 @@ It is emitted in **two** places, because a project can have both kinds of page:
 
 ---
 
+## CSP: `worker-src` has to allow it
+
+`worker-src` governs `Worker`, `SharedWorker` **and the service-worker script**. The
+framework's default policy used to say `worker-src 'none'`, which refused every
+registration — the `register()` promise rejected and nothing installed.
+
+It is `'self'` now, and reads the `csp` block like every directive around it:
+
+```php
+// app/app.php — only if the worker is served from somewhere else, which is unusual
+'csp' => ['worker-src' => ['https://cdn.example']],
+```
+
+`'self'` is the tightest value that works: a browser will not accept a cross-origin
+service-worker script in the first place. It gives up very little over `'none'` — the
+only extra thing it permits is a same-origin `new Worker(...)`, and reaching that needs a
+script on your origin, at which point `script-src 'self'` has already been defeated.
+
+**If the worker is not registering, read the console.** The registration reports a
+rejected `register()` with `console.warn`, and a CSP refusal names the directive that
+refused it. That message exists because the first version of this discarded the
+rejection, and the argument for discarding it — *a browser that declines to register is
+just a browser without the cache* — was wrong in exactly the case that mattered.
+
+Two other reasons registration silently does nothing, neither of them CSP:
+
+- **`navigator.serviceWorker` is undefined outside a secure context.** `https://…` and
+  `http://localhost` are secure; `http://192.168.…` and a plain `http://` hostname are
+  not, so the guard short-circuits and nothing is logged at all.
+- **The scope.** A worker at `/sub/sw.js` controls `/sub/…` and nothing above it, so a
+  page at `/` is not controlled even though registration succeeded.
+
+---
+
 ## Removing it, or clearing it
 
 Because HTML is never cached, a bad deploy of `sw.js` cannot lock anyone out of the

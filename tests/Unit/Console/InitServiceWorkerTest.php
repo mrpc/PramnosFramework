@@ -347,6 +347,29 @@ class InitServiceWorkerTest extends TestCase
     }
 
     /**
+     * A refused registration is reported, not discarded.
+     *
+     * The first version of this swallowed the rejection, on the reasoning that a
+     * browser which declines to register is simply a browser without the cache. It cost
+     * a real debugging session: the framework's own policy said `worker-src 'none'`,
+     * every registration was refused by CSP, and the only thing that would have said so
+     * had been thrown away. A refused registration is a misconfiguration somebody can
+     * fix.
+     */
+    public function testARefusedRegistrationIsReported(): void
+    {
+        // Act
+        $this->scaffold(['--service-worker' => 'y']);
+
+        // Assert
+        $footer = (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php');
+        $this->assertStringContainsString('console.warn', $footer,
+            'a rejected register() must leave something behind to read');
+        $this->assertStringNotContainsString('.catch(function(){', $footer,
+            'an empty catch is what hid this the first time');
+    }
+
+    /**
      * No unresolved template placeholders survive.
      *
      * A stub token left in a JavaScript file is a syntax error at the worst possible

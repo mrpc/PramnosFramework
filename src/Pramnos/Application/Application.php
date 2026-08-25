@@ -1772,7 +1772,26 @@ class Application extends Base
             "frame-src 'self'",
             "frame-ancestors 'self'",
             "object-src 'none'",
-            "worker-src 'none'",
+            // **`worker-src` was `'none'`, which forbade a feature this framework
+            // scaffolds.** `init --service-worker=y` writes `sw.js` and the lines that
+            // register it, and the policy then refused the registration outright:
+            // `worker-src` governs `Worker`, `SharedWorker` *and* the service-worker
+            // script, so `'none'` means the `register()` promise rejects and nothing
+            // installs. Reported from a freshly scaffolded project as "I don't see it
+            // registering the worker", which is exactly what it looked like.
+            //
+            // `'self'` rather than a wider default because it is the tightest value that
+            // works: a browser will not accept a cross-origin service-worker script in
+            // the first place. And it gives up very little over `'none'` — the only
+            // extra thing it permits is a same-origin `new Worker(...)`, which needs a
+            // script on this origin to reach, at which point `script-src 'self'` has
+            // already been defeated.
+            //
+            // Consulted from `csp` like the directives around it, which `'none'` was not:
+            // this is the second time a hard-coded value in this list has forbidden
+            // something an application could not then permit from configuration — see
+            // `media-src` above, and the audio element it silently blocked.
+            "worker-src 'self'" . self::cspDomains($csp, 'worker-src'),
             "base-uri 'self'",
             "form-action 'self'",
             "upgrade-insecure-requests"
