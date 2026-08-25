@@ -80,6 +80,42 @@ A project scaffolded before these rules existed keeps its own `.htaccess` —
 version control does not update it for you. Add the block by hand, above the
 catch-all.
 
+### A summary built for a person
+
+The two documents above are built for a client library. When you want the one a
+developer reads while integrating — the URLs, the grants that work here, the
+scopes that exist, whether the device flow is on — ask for:
+
+```
+GET /Discovery/serverConfig
+```
+
+It is **not** a standards document and a client should not depend on it; read
+`/.well-known/openid-configuration` for that. This is the page to paste into a
+ticket. Every list in it is read from whatever actually decides it, so it cannot
+drift out of agreement with the server the way a hand-written integration note
+does.
+
+### Is the server up?
+
+```
+GET /.well-known/health
+```
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-08-25T14:46:08+00:00",
+  "components": { "database": "ok", "signing_keys": "ok", "session": "ok" }
+}
+```
+
+`503` when anything is wrong. The `components` map lists every check the server
+has registered — including `signing_keys`, which is the one that catches a server
+answering pages normally and refusing every token. See
+[Health checks](Pramnos_Health_Guide.md) for what each check means and how to add
+one.
+
 ### If a bearer token reads as no token
 
 Apache does not hand the `Authorization` header to PHP-FPM or CGI unless it is

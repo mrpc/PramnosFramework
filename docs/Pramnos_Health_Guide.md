@@ -45,13 +45,15 @@ yourself if yours does.
 
 ```
 GET /health          HTML dashboard          (sign-in required)
-GET /health/check    JSON report             (public — this is the monitor URL)
+GET /health/check    Full JSON report        (public)
+GET /health/status   Flattened verdict       (public — the safe monitor URL)
 GET /health/phpinfo  phpinfo()               (usertype >= 90)
 ```
 
-`/health/check` is the one to give an uptime monitor. It is deliberately public,
-because a monitor calls it with no credentials, and it answers with the status in
-both the body and the HTTP code:
+Both JSON endpoints are deliberately public, because a monitor calls them with no
+credentials, and both answer with the status in the body **and** in the HTTP code.
+
+`/health/check` is the full report:
 
 ```json
 {
@@ -73,11 +75,39 @@ looks at the status code treats reduced capacity as an outage. That is the safer
 default — a cache that has stopped working is not something to discover a week
 later — but if you want the two distinguished, read `status` from the body.
 
-Because the endpoint is public, keep detail out of anything you add to it. The
-built-in checks put versions and paths in `details`, which is visible on
-`/health/check`; that is a deliberate trade for a monitoring endpoint on a
-private network, and it is worth a second thought before you put a hostname or a
-credential fragment there.
+### `/health/status` — when the full report says too much
+
+```json
+{ "status": "healthy", "timestamp": "2026-08-25T14:46:08+00:00", "service": "My App" }
+```
+
+Same verdict, three keys. When something is wrong it adds the **names** of the
+failing checks and nothing else:
+
+```json
+{ "status": "unhealthy", "timestamp": "…", "service": "My App", "errors": ["redis", "disk_space"] }
+```
+
+Reach for it in two situations.
+
+**The probe cannot read a nested document.** A load balancer health probe, a
+status page widget or a shell script wants one field. Asking it to walk
+`checks.*.status` is how a probe ends up parsing JSON with `grep`.
+
+**The endpoint is reachable from the internet.** `/health/check` publishes
+versions, drivers, paths and latencies in `details`. That is a fair trade on a
+private network and not one to make publicly — a database version and a driver
+name are a starting point for somebody who is looking for one. `/health/status`
+gives away whether the application is well and where to look, which is what an
+operator needs and all an attacker gets.
+
+It does not re-probe anything: both endpoints read the same
+`HealthRegistry::runAll()`. Two endpoints answering the same question from two
+sets of probes is how they come to disagree.
+
+Whichever you expose, keep detail out of what you add. If a check's `details`
+would carry a hostname or a fragment of a credential, that is worth a second
+thought even on `/health/check`.
 
 ---
 
@@ -211,6 +241,9 @@ HealthRegistry::register(new \Pramnos\Auth\Health\SigningKeysCheck(
 ## Related
 
 - [Console](Pramnos_Console_Guide.md) — the `health:check` command among the rest
+- `/.well-known/health` — an authserver-only endpoint that reads the same
+  registry and answers in `ok` / `error` per component; see
+  [Third-Party Integration](Pramnos_AuthServer_Integration_Guide.md)
 - [Third-Party Integration](Pramnos_AuthServer_Integration_Guide.md) — what the
   signing keys are used for
 - [Redis](Pramnos_Redis_Guide.md) — registering the Redis connectivity check

@@ -17,7 +17,7 @@ class Discovery extends Controller
 {
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addaction(['configuration', 'jwks', 'oauth2Metadata', 'health']);
+        $this->addaction(['configuration', 'jwks', 'oauth2Metadata', 'health', 'serverConfig']);
         parent::__construct($application);
     }
 
@@ -180,10 +180,22 @@ class Discovery extends Controller
     }
 
     /**
-     * Health-check endpoint — verifies database connectivity.
-     * Returns HTTP 503 when any component is unhealthy.
+     * Health-check endpoint. Returns HTTP 503 when anything is unhealthy.
      *
      * Endpoint: /.well-known/health
+     *
+     * The verdict comes from `HealthRegistry`, the same source `/health/check`
+     * and `health:check` read. It used to run a `SELECT 1` of its own and report
+     * on that alone, which made this the third place in the framework with an
+     * opinion about whether the application was well — and the only one that
+     * could not see a full disk, an unreachable cache or a missing signing key.
+     * Three probes are three answers, and the interesting day is the one they
+     * disagree on.
+     *
+     * The response shape is unchanged: `status`, `timestamp`, and a `components`
+     * map. What changed is that `components` now lists every registered check
+     * rather than a hardcoded pair, so it grows with the application instead of
+     * describing a subset of it.
      */
     public function health(): void
     {
@@ -192,33 +204,160 @@ class Discovery extends Controller
         header('Access-Control-Allow-Headers: Content-Type, Authorization');
         header('Content-Type: application/json');
 
-        $dbStatus = 'ok';
+        $this->ensureDatabaseCheckIsRegistered();
 
-        try {
-            $database = \Pramnos\Database\Database::getInstance();
-            $sql      = $database->prepareQuery('SELECT 1 AS test');
-            $result   = $database->query($sql);
-            if (!$result || $result->numRows == 0) {
-                $dbStatus = 'error';
-            }
-        } catch (\Exception $ex) {
-            $dbStatus = 'error';
+        $report = \Pramnos\Health\HealthRegistry::runAll();
+
+        $components = [];
+        foreach ($report['checks'] ?? [] as $name => $check) {
+            // 'ok' | 'degraded' | 'down' collapses to the 'ok' | 'error' this
+            // endpoint has always spoken; a caller wanting the distinction has
+            // /health/check.
+            $components[$name] = ($check['status'] ?? '') === 'ok' ? 'ok' : 'error';
+        }
+        $components['session'] = session_status() === PHP_SESSION_ACTIVE ? 'ok' : 'inactive';
+
+        $healthy = ($report['status'] ?? 'down') === 'ok';
+
+        // An authorization server without a database cannot do anything, so a
+        // report with no verdict on it is a failure and not a silence. This is
+        // the case an empty registry would otherwise answer `healthy` for.
+        if (!isset($components['database'])) {
+            $components['database'] = 'error';
+            $healthy                = false;
         }
 
         $health = [
-            'status'     => $dbStatus === 'ok' ? 'healthy' : 'unhealthy',
+            'status'     => $healthy ? 'healthy' : 'unhealthy',
             'timestamp'  => date('c'),
-            'components' => [
-                'database' => $dbStatus,
-                'session'  => session_status() === PHP_SESSION_ACTIVE ? 'ok' : 'inactive',
-            ],
+            'components' => $components,
         ];
 
-        if ($health['status'] !== 'healthy') {
+        if (!$healthy) {
             http_response_code(503);
         }
 
         echo json_encode($health, JSON_PRETTY_PRINT);
+        return;
+    }
+
+    /**
+     * Make sure the report has something to say about the database.
+     *
+     * A booted application registers the built-in checks during `init()`, but
+     * this controller can also be reached from a script or a test that never
+     * booted one — and `HealthRegistry::runAll()` on an empty registry answers
+     * `ok`, which would turn a database outage into a healthy report.
+     *
+     * Registering the check here rather than probing inline is what keeps this
+     * endpoint agreeing with `/health/check` and `health:check`: one probe, one
+     * answer. `register()` is keyed by name, so an application that already
+     * registered its own database check keeps it.
+     */
+    private function ensureDatabaseCheckIsRegistered(): void
+    {
+        if (\Pramnos\Health\HealthRegistry::get('database') !== null) {
+            return;
+        }
+
+        try {
+            \Pramnos\Health\HealthRegistry::register(
+                new \Pramnos\Health\Checks\DatabaseConnectivityCheck(
+                    \Pramnos\Database\Database::getInstance()
+                )
+            );
+        } catch (\Throwable) {
+            // No database to check at all. The caller turns a missing database
+            // verdict into an explicit failure, which is the right answer here.
+        }
+    }
+
+    /**
+     * A human-shaped summary of what this server offers.
+     *
+     * Endpoint: `/Discovery/serverConfig`
+     *
+     * This is **not** a standards document — `configuration()` and
+     * `oauth2Metadata()` are, and a client should read those. This one answers
+     * the question a developer asks while integrating: what are the URLs, which
+     * grants work here, which scopes exist, is the device flow on. It is the page
+     * you paste into a ticket.
+     *
+     * Every list is read from whatever actually decides it — `Scopes` for the
+     * scopes, `app.php` features for the feature flags — rather than restated
+     * here. A hardcoded copy goes stale silently: the endpoint keeps answering,
+     * and it answers wrong, which is worse than not existing.
+     *
+     * Nothing here is sensitive: it is the same information the discovery
+     * document publishes, arranged for a person.
+     */
+    public function serverConfig(): void
+    {
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+        header('Content-Type: application/json');
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+            header('Access-Control-Max-Age: 86400');
+            http_response_code(204);
+            return;
+        }
+
+        header('Cache-Control: public, max-age=3600');
+
+        $info     = $this->application->applicationInfo ?? [];
+        $features = $info['features'] ?? [];
+
+        $config = [
+            'server_info' => [
+                'name'      => (string) ($info['name'] ?? ''),
+                'version'   => (string) ($info['api_version'] ?? '1.0'),
+                'framework' => 'Pramnos Framework',
+            ],
+            'endpoints' => [
+                'authorization'        => sURL . 'oauth/authorize',
+                'token'                => sURL . 'oauth/token',
+                'revocation'           => sURL . 'oauth/revoke',
+                'introspection'        => sURL . 'oauth/introspect',
+                'userinfo'             => sURL . 'oauth/userinfo',
+                'logout'               => sURL . 'oauth/logout',
+                'device_authorization' => sURL . 'oauth/deviceauthorization',
+                'session_check'        => sURL . 'session/check',
+                'session_heartbeat'    => sURL . 'session/heartbeat',
+                'session_info'         => sURL . 'session/info',
+                'discovery'            => sURL . '.well-known/openid-configuration',
+                'jwks'                 => sURL . '.well-known/jwks.json',
+            ],
+            'supported_grants' => [
+                'authorization_code',
+                'client_credentials',
+                'password',
+                'refresh_token',
+                'urn:ietf:params:oauth:grant-type:device_code',
+            ],
+            'supported_scopes' => array_keys(Scopes::getScopeDescriptions()),
+            'features' => [
+                'single_sign_on'             => true,
+                'single_logout'              => true,
+                'session_management'         => true,
+                'openid_connect_discovery'   => true,
+                'jwt_tokens'                 => true,
+                'refresh_tokens'             => true,
+                'token_revocation'           => true,
+                'token_introspection'        => true,
+                'scope_authorization'        => true,
+                'pkce'                       => true,
+                'device_authorization_grant' => true,
+                'two_factor_authentication'  => in_array('auth', $features, true),
+                'passkeys'                   => in_array('auth', $features, true),
+                'gdpr_self_service'          => in_array('auth', $features, true),
+                'organizations'              => in_array('authserver', $features, true),
+                'background_queue'           => in_array('queue', $features, true),
+            ],
+        ];
+
+        echo json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         return;
     }
 }

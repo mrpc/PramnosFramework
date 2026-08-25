@@ -17,6 +17,12 @@ class DiscoveryTest extends TestCase
 
     protected function setUp(): void
     {
+        // HealthRegistry is static, and health() now reads it. Without this the
+        // outcome of these tests depends on which health test ran last in the
+        // same process — a check another class left registered as `down` makes
+        // this server unhealthy for reasons that have nothing to do with it.
+        \Pramnos\Health\HealthRegistry::reset();
+
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
@@ -48,6 +54,10 @@ class DiscoveryTest extends TestCase
 
     protected function tearDown(): void
     {
+        // Leave the registry as we found it, so the next class in the process
+        // does not inherit whatever health() registered on our behalf.
+        \Pramnos\Health\HealthRegistry::reset();
+
         if (file_exists($this->publicKeyPath)) {
             unlink($this->publicKeyPath);
         }

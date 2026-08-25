@@ -18,6 +18,9 @@ use Pramnos\User\User;
  *   display() — HTML dashboard: all check results, DB info, cache stats, PHP version.
  *   check()   — JSON endpoint: `{"status":"ok|degraded|down","checks":{…}}`
  *               Suitable for uptime monitoring (Uptime Robot, Grafana, etc.).
+ *   status()  — the same verdict, flattened: `{"status":"healthy|unhealthy",…}`.
+ *               For monitors that cannot read a nested document, and for a public
+ *               endpoint that should give away nothing about what is inside.
  *   phpinfo() — phpinfo() output (superadmin only: usertype >= 90).
  *
  * All actions require an authenticated user.  phpinfo() additionally requires
@@ -32,8 +35,10 @@ class Health extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'phpinfo']);
-        // check() is intentionally PUBLIC — monitoring systems call it unauthenticated.
+        // check() and status() are intentionally PUBLIC — a monitor calls them
+        // with no credentials.
         $this->actions[] = 'check';
+        $this->actions[] = 'status';
         parent::__construct($application);
     }
 
@@ -118,6 +123,65 @@ class Health extends Controller
         };
 
         return \Pramnos\Http\Response::json($report, $httpCode, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            ->withHeader('Cache-Control', 'no-cache, no-store');
+    }
+
+    /**
+     * The same verdict as check(), flattened to three keys.
+     *
+     * ```json
+     * {"status":"healthy","timestamp":"2026-08-25T14:46:08+00:00","service":"my-app"}
+     * ```
+     *
+     * Two reasons this exists next to check() rather than instead of it.
+     *
+     * **Some monitors cannot read a nested document.** A status page, a load
+     * balancer probe or a shell script wants one field, and asking it to walk
+     * `checks.*.status` is how a probe ends up parsing with `grep`.
+     *
+     * **It gives away nothing.** `check()` publishes versions, drivers, paths and
+     * latencies in `details`, which is a fair trade for a monitoring endpoint on a
+     * private network and not one to make on the open internet. This answers only
+     * whether the application is well, and — when it is not — the *names* of the
+     * failing checks, so an operator knows where to look without the endpoint
+     * describing the inside of the system to everybody.
+     *
+     * It does not re-probe anything: the report comes from the same
+     * `HealthRegistry::runAll()` that check() uses. Two endpoints answering the
+     * same question from two sets of probes is how they come to disagree.
+     *
+     * `OPTIONS` is answered for the CORS preflight a browser-based status page
+     * sends.
+     */
+    public function status(): mixed
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+            return \Pramnos\Http\Response::make('', 204)
+                ->withHeader('Access-Control-Allow-Origin', '*')
+                ->withHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                ->withHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+                ->withHeader('Access-Control-Max-Age', '86400');
+        }
+
+        $report  = HealthRegistry::runAll();
+        $healthy = ($report['status'] ?? 'down') === 'ok';
+
+        $payload = [
+            'status'    => $healthy ? 'healthy' : 'unhealthy',
+            'timestamp' => date('c'),
+            'service'   => (string) ($this->application->applicationInfo['name'] ?? ''),
+        ];
+
+        // Names only. What exactly is wrong is for the authenticated dashboard.
+        if (!$healthy) {
+            $payload['errors'] = array_keys(array_filter(
+                $report['checks'] ?? [],
+                static fn (array $check): bool => ($check['status'] ?? '') !== 'ok'
+            ));
+        }
+
+        return \Pramnos\Http\Response::json($payload, $healthy ? 200 : 503, JSON_UNESCAPED_SLASHES)
+            ->withHeader('Access-Control-Allow-Origin', '*')
             ->withHeader('Cache-Control', 'no-cache, no-store');
     }
 

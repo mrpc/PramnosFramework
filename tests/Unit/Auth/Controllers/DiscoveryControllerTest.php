@@ -82,8 +82,8 @@ class DiscoveryControllerTest extends TestCase
     // ── Constructor / registration ────────────────────────────────────────────
 
     /**
-     * All four discovery endpoints must be registered as public actions so
-     * the router can dispatch them without authentication.
+     * Every discovery endpoint must be registered as a public action so the
+     * router can dispatch it without authentication.
      *
      * We verify this without calling exec() — just check that the Controller
      * $actions array contains the expected method names after construction.
@@ -101,8 +101,8 @@ class DiscoveryControllerTest extends TestCase
         // Act
         $discovery = new Discovery(null);
 
-        // Assert — all four endpoints must be in the public $actions list
-        $expectedActions = ['configuration', 'jwks', 'oauth2Metadata', 'health'];
+        // Assert — every endpoint must be in the public $actions list
+        $expectedActions = ['configuration', 'jwks', 'oauth2Metadata', 'health', 'serverConfig'];
         foreach ($expectedActions as $action) {
             $this->assertContains(
                 $action,
