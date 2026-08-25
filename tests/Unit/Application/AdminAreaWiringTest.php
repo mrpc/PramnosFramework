@@ -109,6 +109,48 @@ class AdminAreaWiringTest extends TestCase
     }
 
     /**
+     * Inside the area, the bare prefix opens the area's own front page.
+     *
+     * Without this the bare prefix falls through to the site's default controller
+     * — the public home page, which for a signed-in visitor usually redirects to
+     * their account. An administrator clicking the area's own logo would leave it.
+     */
+    public function testTheBarePrefixOpensTheAreaFrontPage(): void
+    {
+        // Arrange
+        $_GET['r'] = 'admin';
+        $app = new InspectableAdminApplication([
+            'admin' => ['prefix' => 'admin', 'default_controller' => 'Dashboard'],
+        ]);
+
+        // Act
+        $app->enterArea();
+
+        // Assert
+        $this->assertTrue(AdminArea::isActive());
+        $this->assertSame('Dashboard', $app->defaultController);
+    }
+
+    /**
+     * With no front page configured, the site default stands.
+     *
+     * An application may mount an area without wanting to change what its root
+     * opens, and this must not quietly redirect it somewhere.
+     */
+    public function testTheSiteDefaultStandsWithoutAnAreaFrontPage(): void
+    {
+        // Arrange
+        $_GET['r'] = 'admin';
+        $app = new InspectableAdminApplication(['admin' => ['prefix' => 'admin']]);
+
+        // Act
+        $app->enterArea();
+
+        // Assert
+        $this->assertSame('home', $app->defaultController);
+    }
+
+    /**
      * Outside the area the guard has no opinion, whatever the user is.
      *
      * A public page must not acquire a usertype requirement because an admin area

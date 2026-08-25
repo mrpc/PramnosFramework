@@ -24,9 +24,10 @@ namespace Pramnos\Http;
  * ```php
  * // app/app.php
  * 'admin' => [
- *     'prefix'       => 'admin',  // omit or leave empty to switch the area off
- *     'theme'        => 'admin',  // theme used inside the area; optional
- *     'min_usertype' => 80,       // floor for reaching any of it; optional
+ *     'prefix'             => 'admin',     // omit or leave empty to switch the area off
+ *     'theme'              => 'admin',     // theme used inside the area; optional
+ *     'min_usertype'       => 80,          // floor for reaching any of it; optional
+ *     'default_controller' => 'Dashboard', // what the bare prefix opens; optional
  * ],
  * ```
  *

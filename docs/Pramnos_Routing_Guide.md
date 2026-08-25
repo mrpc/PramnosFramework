@@ -655,11 +655,17 @@ Configure it once:
 ```php
 // app/app.php
 'admin' => [
-    'prefix'       => 'admin',       // omit, or leave empty, to switch the area off
-    'theme'        => 'admin',       // theme used inside the area (optional)
-    'min_usertype' => 80,            // floor for reaching any of it (optional)
+    'prefix'             => 'admin',     // omit, or leave empty, to switch the area off
+    'theme'              => 'admin',     // theme used inside the area (optional)
+    'min_usertype'       => 80,          // floor for reaching any of it (optional)
+    'default_controller' => 'Dashboard', // what the bare /admin opens (optional)
 ],
 ```
+
+Set `default_controller` unless you want the bare prefix to fall through to the
+site's own default — which is usually the public home page, and which for a
+signed-in visitor usually redirects to their account. An administrator clicking the
+area's logo would leave the area.
 
 That is the whole setup. **No second set of controllers, and no per-controller
 prefix handling** — `/admin/Users` and `/Users` are served by the same

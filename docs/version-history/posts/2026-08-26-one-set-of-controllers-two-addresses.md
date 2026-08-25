@@ -19,9 +19,10 @@ separates `/admin/Users` from `/Users` is the prefix.
   ```php
   // app/app.php
   'admin' => [
-      'prefix'       => 'admin',
-      'theme'        => 'admin',
-      'min_usertype' => 80,
+      'prefix'             => 'admin',
+      'theme'              => 'admin',
+      'min_usertype'       => 80,
+      'default_controller' => 'Dashboard',
   ],
   ```
 

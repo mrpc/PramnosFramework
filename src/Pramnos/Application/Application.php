@@ -848,6 +848,19 @@ class Application extends Base
         if ($theme !== '') {
             $this->applicationInfo['theme'] = $theme;
         }
+
+        /**
+         * The area's front door.
+         *
+         * Without this, the bare prefix falls through to the site's default
+         * controller — the public home page, which for a signed-in visitor
+         * usually redirects to their account. An administrator clicking the
+         * area's own logo ends up outside it.
+         */
+        $default = trim((string) ($config['default_controller'] ?? ''));
+        if ($default !== '') {
+            $this->defaultController = $default;
+        }
     }
 
     /**
