@@ -1604,6 +1604,33 @@ class Application extends Base
             return;
         }
 
+        header("Content-Security-Policy: " . $this->cspPolicy());
+    }
+
+    /**
+     * The Content-Security-Policy this request should carry, as a header value.
+     *
+     * Split out of {@see sendCspHeader()} because `header()` is not the only way a
+     * policy leaves the framework any more. A page-cache hit returns a
+     * {@see \Pramnos\Http\Response} from the middleware without ever reaching
+     * `render()`, so the only send site was skipped and the page went out with no
+     * policy at all — see
+     * {@see \Pramnos\Http\Middleware\PageCacheMiddleware::handle()}, which now
+     * attaches this to the stored response.
+     *
+     * @return string
+     */
+    public function cspPolicy(): string
+    {
+        // A nonce is per-response, and every path that builds a policy needs one —
+        // including the ones that never ran exec(), where this was interpolating
+        // empty and emitting the source expression `'nonce-'`. That matches no
+        // element, which is the safe direction, but it is not a policy anybody
+        // wrote on purpose.
+        if ($this->cspNonce === '') {
+            $this->cspNonce = base64_encode(random_bytes(16));
+        }
+
         $csp = $this->applicationInfo['csp'] ?? [];
 
         $scriptDomains = $this->getCspDomains($csp, 'script-src');
@@ -1643,7 +1670,7 @@ class Application extends Base
             "upgrade-insecure-requests"
         ];
 
-        header("Content-Security-Policy: " . implode('; ', $policy));
+        return implode('; ', $policy);
     }
 
     /**

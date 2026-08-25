@@ -108,7 +108,28 @@ final class PageCache
             'onlyPaths'      => [],
             'bypassPaths'    => [],
             'bypassQuery'    => [],
-            'bypassCookies'  => ['#^(auth|remember|logged)#i'],
+            // The session cookie is on this list by name, not by guess. A request
+            // that carries one is a visitor the server already holds state for:
+            // serving them a page stored for somebody else, or storing their
+            // response for everybody, are both wrong and the second is the
+            // dangerous direction. `#^(auth|remember|logged)#i` never matched
+            // `PHPSESSID`, so an application whose signed-in state lives only in
+            // `$_SESSION` had nothing here to stop it.
+            //
+            // What makes this the right *default* rather than advice in a guide is
+            // `'session' => 'lazy'`: with it an anonymous reader carries no session
+            // cookie at all, so bypassing on one costs nothing and closes the hole
+            // for everybody who has not opted out of it. Without lazy sessions the
+            // framework set `PHPSESSID` on every response anyway, and `store()`
+            // already refused those for their `Set-Cookie` — so this takes away no
+            // caching that was previously happening.
+            //
+            // session_name() rather than the literal, so an application that renamed
+            // its session is covered too.
+            'bypassCookies'  => [
+                '#^(auth|remember|logged)#i',
+                '#^' . preg_quote((string) session_name(), '#') . '$#i',
+            ],
             'bypassHeaders'  => ['Authorization'],
             'ignoreQuery'    => [
                 'utm_*', 'fbclid', 'gclid', 'msclkid', '_ga', 'ref', 'mc_cid',
@@ -327,6 +348,29 @@ final class PageCache
             if ($marker !== '' && str_contains($body, (string) $marker)) {
                 return false;
             }
+        }
+
+        // A body carrying this request's CSP nonce is per-response by definition —
+        // the same reasoning as privateMarkers, applied to the one marker the
+        // framework itself puts in every page it renders.
+        //
+        // The framework generates a nonce per response (Application::$cspNonce) and
+        // Document\DocumentTypes\Html and Raw stamp it into every inline <script>
+        // and <style>. Storing such a body freezes that nonce for the whole TTL and
+        // hands it to every visitor — and a nonce that is reused is not a nonce; its
+        // entire security property is being unguessable per response. So a page with
+        // nonced inline script and a page cache are mutually exclusive, and this is
+        // the side of that choice that cannot go wrong silently.
+        //
+        // An application that wants those pages cached has a clear instruction
+        // instead of a mystery: serve them without a nonce — external scripts,
+        // hashes, or no inline script — which is work only it can decide to do.
+        // `whyBypassed()` does not report this, because it is a property of the
+        // response rather than the request; `X-Pramnos-Cache: MISS` on every hit of
+        // an otherwise cacheable page is the symptom, and the guide names it.
+        $nonce = self::renderNonce();
+        if ($nonce !== '' && str_contains($body, $nonce)) {
+            return false;
         }
 
         $key = $this->keyFor($request);
@@ -725,6 +769,29 @@ final class PageCache
         }
 
         return $this->decorate($response, $entry, $state, $age, $key);
+    }
+
+    /**
+     * This response's CSP nonce, or an empty string when there is not one.
+     *
+     * Read from the application rather than passed in, because `store()` is handed
+     * a `Response` by a middleware that has no reason to know about CSP. Guarded by
+     * `class_exists` so this class keeps working outside an application — the tests
+     * construct it directly, and so does `serveEarly()`.
+     *
+     * The raw value is what to search the body for: the nonce is base64, whose
+     * alphabet contains nothing `htmlspecialchars()` rewrites, so the escaped form
+     * the document writes is byte-identical.
+     */
+    private static function renderNonce(): string
+    {
+        if (!class_exists('\Pramnos\Application\Application')) {
+            return '';   // @codeCoverageIgnore
+        }
+
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return is_string($app->cspNonce ?? null) ? $app->cspNonce : '';
     }
 
     /**

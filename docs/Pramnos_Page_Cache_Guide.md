@@ -21,8 +21,8 @@ serving one visitor's page to another, and it is silent.
 
 ## Turning it on
 
-Two things — a middleware in the pipeline and a `pagecache` block in the
-application config.
+Three things — a middleware in the pipeline, a `pagecache` block in `app.php`, and
+a front controller that returns a `Response`.
 
 ```php
 // app.php
@@ -47,6 +47,36 @@ With no `pagecache` block at all the middleware is inert: it looks nothing up an
 stores nothing. Adding it to a pipeline can never, by itself, change what
 visitors see.
 
+**Where the block goes.** `app.php` is read first, then `Settings` — so a row in
+the `settings` table works too, and `app.php` wins if both exist. `app.php` is the
+better place: it is in the repository and reviewable, and reading it costs nothing,
+where a settings lookup for a key the store does not hold falls through to a
+database query the cache exists to avoid.
+
+### The pipeline has to return a `Response`
+
+`store()` needs a `Response` — something with a status, headers and a body to keep,
+and something to hang `X-Pramnos-Cache` on. `Application::render()` returns a
+**string**, so a front controller that ends with
+
+```php
+echo $pipeline->run($request, fn () => $app->render());     // nothing is ever cached
+```
+
+hands the middleware a string on the way back out, and a string is left alone: there
+is no reliable body to store and guessing at one would cache half a page. Wrap it:
+
+```php
+$response = $pipeline->run(
+    $request,
+    fn () => \Pramnos\Http\Response::make((string) $app->render())
+);
+$response->send();
+```
+
+This is worth checking first, because the symptom is identical to a `pagecache`
+block that was never read: no `X-Pramnos-Cache` header, nothing stored, no error.
+
 ---
 
 ## What gets cached, and what never does
@@ -62,7 +92,7 @@ this order, cheapest first.
 | 4 | The path is in the allow-list, if there is one | `onlyPaths` |
 | 5 | The path is not excluded | `bypassPaths` |
 | 6 | No excluded query parameter is present | `bypassQuery` |
-| 7 | **No authentication cookie is present** | `bypassCookies` |
+| 7 | **No authentication *or session* cookie is present** | `bypassCookies` |
 | 8 | **No authentication header is present** | `bypassHeaders` |
 
 `PageCache::bypass()` is checked as part of that list, so it applies to **both**
@@ -74,6 +104,7 @@ A response is **stored** only if the request passed all of them *and*:
 - it does **not** carry `Set-Cookie`;
 - its body is not empty;
 - its body contains no `privateMarkers` string;
+- its body does not contain this response's **CSP nonce** — see below;
 - the debug toolbar is not collecting — `skipWhileDebugging`, default `true`.
 
 `Set-Cookie` is refused outright rather than filtered away, because a response
@@ -108,20 +139,79 @@ Turn it off only somewhere the stored pages cannot reach anybody else.
     "debug is broken". `X-Pramnos-Cache` in the response headers is what tells you
     a hit happened.
 
-### The session is never consulted
+### The session is never *started* — but the session cookie is read
 
-Not by oversight — it is what lets the cache answer before the application boots.
-Every rule above reads the request and nothing else: method, host, path, query,
-cookies, headers.
+Not starting one is what lets the cache answer before the application boots. Every
+rule above reads the request and nothing else: method, host, path, query, cookies,
+headers.
 
-The consequence matters for an application whose logged-in state lives only in
-`$_SESSION`: **there is no cookie for rule 7 to see.** Set a marker cookie at
-login and name it in `bypassCookies`, or rely on `privateMarkers` (below), which
-catches the page by what it contains instead.
+The cookie is enough. A request carrying one is a visitor the server already holds
+state for, so **the session cookie is in `bypassCookies` by default**:
 
 ```php
-setcookie('logged', '1', ['path' => '/', 'httponly' => false]);
+'bypassCookies' => [
+    '#^(auth|remember|logged)#i',
+    '#^PHPSESSID$#i',            // session_name(), whatever yours is called
+],
 ```
+
+Serving that visitor a page stored for somebody else, or storing their response for
+everybody, are both wrong, and the second is the dangerous direction. It used to be
+possible: `#^(auth|remember|logged)#i` never matched `PHPSESSID`, so an application
+whose signed-in state lives only in `$_SESSION` had nothing on this list to stop it
+— and a signed-in response that sets no cookie is not caught by the `Set-Cookie`
+rule either.
+
+What makes this a workable *default* is `'session' => 'lazy'`: with it an anonymous
+reader carries no session cookie at all, so bypassing on one costs no cache hits.
+Without lazy sessions the framework set `PHPSESSID` on every response anyway and
+`store()` already refused those, so this takes away no caching that was previously
+happening.
+
+**If you want signed-in visitors served from cache**, drop the pattern and lean on
+`privateMarkers` or `varyBy` instead — but understand that you are then promising
+that the page is byte-identical for everybody who can reach it.
+
+### A cache hit and the CSP nonce
+
+The framework sends a `Content-Security-Policy` whose default is `default-src
+'none'`, with a per-response nonce (`Application::$cspNonce`) stamped into every
+inline `<script>` and `<style>` it writes. Two things follow, and the second is the
+one that decides whether your pages are cacheable at all.
+
+**A hit still gets a policy.** `sendCspHeader()` is called from
+`Application::render()`, which a hit never reaches, so a cached page used to go out
+with **no policy at all** — a page that looks perfect and whose scripts run because
+nothing is left to stop them. `PageCacheMiddleware` now builds a fresh policy and
+attaches it to the hit. Nothing to configure.
+
+**A page with a nonced inline script is never stored.** A stored body freezes the
+nonce it was rendered with and hands that same one to every visitor for the whole
+TTL — and a nonce that is reused is not a nonce; its entire property is being
+unguessable per response. Replaying the stored header would be that bug; not
+replaying it was the first one. So the two features are mutually exclusive for such
+a page, and `store()` takes the side that fails loudly:
+
+| | outcome |
+|---|---|
+| store the body with its nonce | one predictable nonce, shared for the TTL |
+| store it and re-send a fresh policy | the policy matches nothing in the body |
+| **refuse to store it** (what happens) | the page is simply never cached |
+
+The way to make such a page cacheable is to render it without a per-response nonce:
+move the script to a file, use a hash-based policy, or drop the inline script. That
+is a decision only the application can make, which is why the framework will not
+make it silently.
+
+The symptom, if you have not read this far: `X-Pramnos-Cache: MISS` on every single
+request to a page that passes every bypass rule. `whyBypassed()` returns `null` for
+it, correctly — this is a property of the response, not of the request.
+
+!!! warning "`serveEarly()` sends no policy"
+    [Serving before the application boots](#serving-before-the-application-boots)
+    is exactly that — there is no `Application`, so there is nothing to build a
+    policy from. Send one from your rewrite layer or your front controller before
+    calling it, or accept that those responses carry whatever the web server adds.
 
 ---
 
@@ -420,12 +510,13 @@ Three things to know:
 | `onlyPaths` | `[]` | empty means all |
 | `bypassPaths` | `[]` | globs or delimited regexes |
 | `bypassQuery` | `[]` | `name => true` or `name => [values]` |
-| `bypassCookies` | `['#^(auth\|remember\|logged)#i']` | |
+| `bypassCookies` | `['#^(auth\|remember\|logged)#i', '#^' . session_name() . '$#i']` | the session cookie is on the list by default |
 | `bypassHeaders` | `['Authorization']` | |
 | `ignoreQuery` | `utm_*`, `fbclid`, `gclid`, … | dropped before keying |
 | `varyQuery` | `null` | whitelist; overrides `ignoreQuery` |
 | `varyBy` | `[]` | `name => callable` |
 | `privateMarkers` | `[]` | body substrings that prevent storing |
+| *(not configurable)* | — | a body containing this response's CSP nonce is never stored |
 | `staleWhileRevalidate` | `30` | seconds past expiry |
 | `lockTtl` | `30` | `0` disables locking |
 | `gzip` | `true` | |
@@ -478,7 +569,12 @@ Then, in order, and each is one line:
 3. Is the debug toolbar on? Nothing is stored while it collects — see
    `skipWhileDebugging` above.
 4. Check the status is on `statuses` — a redirect is not cached by default.
-5. `X-Pramnos-Cache` absent on a request you expected to hit means the lookup did
+5. Does the page have an inline `<script nonce="…">`? Then it is never stored, on
+   purpose — see [a cache hit and the CSP nonce](#a-cache-hit-and-the-csp-nonce).
+6. Is the front controller returning a `Response`, or echoing `render()`'s string?
+   A string is passed through unstored — see
+   [the pipeline has to return a `Response`](#the-pipeline-has-to-return-a-response).
+7. `X-Pramnos-Cache` absent on a request you expected to hit means the lookup did
    not find an entry. Turn on `debugDetail` and compare `X-Pramnos-Cache-Key`
    across the two requests you expected to share a page — that is the answer
    almost every time.
