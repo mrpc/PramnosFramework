@@ -328,10 +328,8 @@ class ModelTest extends TestCase
     }
 
     /**
-     * Loads the fixture settings and returns a connected Factory database.
-     *
-     * The model under test reaches the database through the Factory, so the fixtures are
-     * built through the same singleton rather than a handle of our own.
+     * Loads the fixture settings and returns a connected database, installed as the
+     * Factory singleton so the fixtures and the code under test share one handle.
      *
      * @return \Pramnos\Database\Database A connected handle
      */
@@ -345,10 +343,31 @@ class ModelTest extends TestCase
         Settings::loadSettings(ROOT . DIRECTORY_SEPARATOR . 'tests' . DIRECTORY_SEPARATOR
             . 'fixtures' . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'settings.php');
 
-        $db = Factory::getDatabase();
-        if (!$db->connected) {
-            $db->connect();
-        }
+        // Built from the settings just loaded, then installed as the singleton — rather
+        // than taking whatever singleton happens to exist.
+        //
+        // Database::getInstance() constructs from the settings that were live at the
+        // moment of *its first call anywhere in the process*, and returns that same
+        // object for ever afterwards. Reloading settings here does not reconfigure it. So
+        // this class passed or failed depending on what else had already run: green in
+        // the full suite, and "No such file or directory" — a connect to a local MySQL
+        // socket, from a handle with no host — when run alone or in a narrow filter,
+        // which is what somebody working on this file actually runs.
+        $config = Settings::getSetting('database');
+
+        $db           = new \Pramnos\Database\Database();
+        $db->type     = $config->type ?? 'mysql';
+        $db->server   = $config->hostname;
+        $db->user     = $config->user;
+        $db->password = $config->password;
+        $db->database = $config->database;
+        $db->port     = $config->port ?? 3306;
+        $db->connect(true);
+
+        // The model under test reaches the database through the Factory, so the fixtures
+        // and the code under test have to share one handle.
+        $singleton = &Factory::getDatabase();
+        $singleton = $db;
 
         return $db;
     }

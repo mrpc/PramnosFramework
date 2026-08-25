@@ -29,6 +29,9 @@ use Pramnos\Framework\Factory;
  */
 class OrmRelationsPostgreSQLTest extends OrmRelationsMySQLTest
 {
+    /** Whatever was the global Database singleton before this test replaced it. */
+    protected ?Database $previousSingleton = null;
+
     // -------------------------------------------------------------------------
     // Override connection setup for PostgreSQL
     // -------------------------------------------------------------------------
@@ -78,6 +81,16 @@ class OrmRelationsPostgreSQLTest extends OrmRelationsMySQLTest
             $this->markTestSkipped('PostgreSQL container not reachable');
         }
 
+        // Kept so tearDown() can put back exactly what was here, rather than clearing
+        // the singleton and trusting the factory to rebuild an equivalent one. It does
+        // not: it rebuilds an *unconnected* Database, and the next test in the process to
+        // reach for it gets a connection attempt to a local socket that does not exist.
+        //
+        // The full suite passed regardless, because its ordering happened to put nothing
+        // that needed the singleton after this class. A narrower filter — `--filter
+        // 'OrmRelations|ModelTest'`, which is what somebody runs locally — did not.
+        $this->previousSingleton = Factory::getDatabase();
+
         // Replace the global Database::getInstance() singleton so ORM internals
         // (Model::_getList, Relations::getResults) use the PostgreSQL connection.
         $singleton  = &Factory::getDatabase();
@@ -94,10 +107,10 @@ class OrmRelationsPostgreSQLTest extends OrmRelationsMySQLTest
     {
         $this->dropTables();
 
-        // Restore the singleton to MySQL so the rest of the test suite is unaffected.
+        // Put back exactly what was here. Leaving the world as found is the version
+        // that does not depend on what runs next.
         $singleton = &Factory::getDatabase();
-        $singleton = null;
-        Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
+        $singleton = $this->previousSingleton;
     }
 
     // -------------------------------------------------------------------------
