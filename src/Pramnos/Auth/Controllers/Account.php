@@ -66,7 +66,7 @@ class Account extends Controller
         // Public authentication-entry actions.
         $this->addaction([
             'login', 'verify', 'passkeyOptions', 'passkeyVerify', 'logout',
-            'forgotpassword', 'resetpassword',
+            'forgotpassword', 'resetpassword', 'register', 'sso',
         ]);
         // Authenticated account-management actions.
         $this->addAuthAction([
@@ -313,6 +313,118 @@ class Account extends Controller
         $this->addMessage('Your password has been reset. Please sign in with your new password.');
         $this->redirect(sURL . 'login');
         return null;
+    }
+
+    /**
+     * Self-service registration. GET renders the form; POST creates the account.
+     *
+     * **Off unless the `auth_allow_registration` setting is on.** A scaffolded
+     * application should not gain an open sign-up page by being upgraded, and
+     * most applications behind this framework create their accounts by some
+     * other route entirely. With the setting off the form still renders — it says
+     * registration is closed, rather than 404-ing a page the navigation links to.
+     *
+     * The registration view exists in every bundled theme and had no controller
+     * at all, so its form posted to a route that did not exist and the discovery
+     * document's `registration_endpoint` pointed at nothing.
+     *
+     * ## What it tells an attacker
+     *
+     * A "that username is taken" message confirms an account exists, and there is
+     * no way to both refuse a duplicate and not confirm it — a form that has to
+     * let a person pick a different name has to say why. So this reveals it, and
+     * the mitigations are the ones that actually work: leave registration off
+     * when you do not need it, and keep the login lockout in place, since the
+     * value of an enumerated username is what you do with it afterwards. The
+     * *email* case is worded so that it does not add a second, independent
+     * confirmation.
+     *
+     * The new account is created active but with the lowest privilege level;
+     * nothing here can grant a usertype.
+     */
+    public function register(): mixed
+    {
+        if ($this->currentUserId() !== null) {
+            $this->redirect($this->postLoginTarget($this->returnUrl()));
+            return null;
+        }
+
+        if (!$this->registrationIsOpen()) {
+            return $this->renderRegister(['error' => 'registration_closed']);
+        }
+
+        if ($this->requestMethod() !== 'POST') {
+            return $this->renderRegister([]);
+        }
+
+        $username = $this->post('username');
+        $email     = $this->post('email');
+        $password  = $this->post('password', false);
+        $confirm   = $this->post('confirm_password', false);
+
+        // Echoed back so a rejected submission does not empty the form. The
+        // password deliberately is not.
+        $formData = ['username' => $username, 'email' => $email];
+
+        if (!$this->checkCsrf()) {
+            return $this->renderRegister(['error' => 'invalid_token', 'formData' => $formData]);
+        }
+
+        $fieldError = $this->validateRegistration($username, $email);
+        if ($fieldError !== null) {
+            return $this->renderRegister(['error' => $fieldError, 'formData' => $formData]);
+        }
+
+        $policyError = $this->validatePasswordPolicy($password, $confirm);
+        if ($policyError !== null) {
+            return $this->renderRegister(['error' => $policyError, 'formData' => $formData]);
+        }
+
+        if ($this->usernameExists($username)) {
+            return $this->renderRegister(['error' => 'username_taken', 'formData' => $formData]);
+        }
+
+        if ($this->findUserIdByEmail($email) !== null) {
+            return $this->renderRegister(['error' => 'email_unavailable', 'formData' => $formData]);
+        }
+
+        $userId = $this->createUser($username, $email, $password);
+        if ($userId === null) {
+            return $this->renderRegister(['error' => 'registration_failed', 'formData' => $formData]);
+        }
+
+        \Pramnos\Auth\ActivityLog::record($userId, 'account_registered');
+
+        $this->addMessage('Your account has been created. Please sign in.');
+        $this->redirect(sURL . 'login');
+        return null;
+    }
+
+    /**
+     * Single sign-on status page — am I signed in here, and to what?
+     *
+     * The page a person lands on from another application to find out whether
+     * this server already knows them, and which applications they have
+     * authorized. Public, because the answer for a signed-out visitor is the
+     * useful half of it.
+     *
+     * The view shipped in every bundled theme without a controller to render it.
+     */
+    public function sso(): mixed
+    {
+        $doc        = $this->document();
+        $doc->title = 'Single sign-on';
+
+        $userId = $this->currentUserId();
+
+        $view             = $this->getView('sso');
+        $view->routeBase  = $this->routeBase;
+        $view->header     = 'Single Sign-On';
+        $view->isLoggedIn = $userId !== null;
+        $view->user       = $userId !== null ? $this->currentUser() : null;
+        $view->activeApps = $userId !== null ? $this->getAuthorizedApplications($userId) : [];
+
+        return $view->display('sso');
     }
 
     // ── Authentication seams (overridable / mockable) ───────────────────────────
@@ -686,6 +798,112 @@ class Account extends Controller
             $view->$key = $value;
         }
         return $view->display('forgotpassword');
+    }
+
+    /**
+     * Is self-service registration switched on?
+     *
+     * A separate seam from `setting()` so a subclass can decide on something
+     * other than a global flag — an invite code, a domain allow-list, a
+     * per-organization policy — without reimplementing the action around it.
+     */
+    protected function registrationIsOpen(): bool
+    {
+        return in_array(
+            strtolower($this->setting('auth_allow_registration')),
+            ['1', 'true', 'yes', 'on'],
+            true
+        );
+    }
+
+    /**
+     * Field-level validation for a registration submission.
+     *
+     * Returns an error key, or null when the fields are acceptable. The password
+     * is checked separately by {@see validatePasswordPolicy()}, which the reset
+     * flow also uses — one policy, one place.
+     *
+     * The username character set is restricted rather than merely non-empty: a
+     * username reaches URLs, log lines and email subjects, and the set below is
+     * the one that needs no escaping in any of them.
+     *
+     * @return string|null Error key for the view, or null when valid
+     */
+    protected function validateRegistration(string $username, string $email): ?string
+    {
+        if ($username === '') {
+            return 'username_required';
+        }
+        if (mb_strlen($username) < 3 || mb_strlen($username) > 60) {
+            return 'username_length';
+        }
+        if (!preg_match('/^[A-Za-z0-9._-]+$/', $username)) {
+            return 'username_invalid';
+        }
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return 'invalid_email';
+        }
+        return null;
+    }
+
+    /** Whether a username is already taken (seam so tests avoid the database). */
+    protected function usernameExists(string $username): bool
+    {
+        return \Pramnos\User\User::getuserid($username, 'username') !== false;
+    }
+
+    /**
+     * Create the account and return its id, or null when it could not be saved.
+     *
+     * Two saves, and the order matters: the first assigns the userid, and
+     * `setPassword()` salts the hash with that id — the same salt
+     * `DatabaseAuthDriver` verifies against. Hashing before the id exists stores
+     * a hash no login can ever match.
+     */
+    protected function createUser(string $username, string $email, string $password): ?int
+    {
+        try {
+            $user            = new \Pramnos\User\User();
+            $user->username  = $username;
+            $user->email     = $email;
+            $user->active    = 1;
+            $user->validated = 1;
+            $user->regdate   = time();
+            $user->save();
+
+            if ((int) $user->userid <= 1) {
+                return null;
+            }
+
+            $user->setPassword($password);
+            $user->save();
+
+            return (int) $user->userid;
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::log('Registration failed: ' . $ex->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Render the registration form. $ctx carries optional 'error' and 'formData'.
+     */
+    protected function renderRegister(array $ctx): mixed
+    {
+        $doc        = $this->document();
+        $doc->title = 'Create account';
+        $this->useStandaloneLayout();
+
+        $view                 = $this->getView('register');
+        $view->routeBase      = $this->routeBase;
+        $view->brand          = $this->brand();
+        $view->header         = 'Create Account';
+        $view->formData       = [];
+        $view->registrationOpen = $this->registrationIsOpen();
+        foreach ($ctx as $key => $value) {
+            $view->$key = $value;
+        }
+        return $view->display('register');
     }
 
     /**
@@ -1176,6 +1394,10 @@ class Account extends Controller
             ->join('applications a', 'ut.applicationid', '=', 'a.appid')
             ->select([
                 'a.appid', 'a.name', 'a.apikey', 'a.description',
+                // The SSO status page links each application, and the view was
+                // documented as receiving `website_url` while the query never
+                // selected it — so every entry rendered without its link.
+                'a.url AS website_url',
                 'MAX(ut.lastused) AS last_used',
                 'COUNT(ut.tokenid) AS token_count',
             ])
@@ -1185,7 +1407,7 @@ class Account extends Controller
             ->where(function ($q) {
                 $q->where('ut.expires', 0)->orWhere('ut.expires', '>', time());
             })
-            ->groupBy(['a.appid', 'a.name', 'a.apikey', 'a.description'])
+            ->groupBy(['a.appid', 'a.name', 'a.apikey', 'a.description', 'a.url'])
             ->get();
 
         $apps = [];

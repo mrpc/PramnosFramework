@@ -28,7 +28,7 @@
                     <?php endif; ?>
 
                     <div class="text-center mt-4">
-                        <a href="<?php echo sURL; ?>Home/login" class="btn btn-primary">Back to Login</a>
+                        <a href="<?php echo sURL; ?>login" class="btn btn-primary">Back to Login</a>
                     </div>
                 </div>
             </div>

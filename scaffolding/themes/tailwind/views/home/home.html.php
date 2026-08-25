@@ -13,8 +13,8 @@ $serviceName = htmlspecialchars($this->serviceInfo['service_name'] ?? 'OAuth2 Au
         <h1 class="text-4xl font-bold mb-3"><?php echo $serviceName; ?></h1>
         <p class="text-gray-500 text-lg mb-6">Secure, standards-compliant OAuth2 authentication and single sign-on.</p>
         <div class="flex justify-center gap-3">
-            <a href="<?php echo sURL; ?>Home/login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-7 rounded-lg transition-colors">Sign In</a>
-            <a href="<?php echo sURL; ?>Home/register" class="border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2.5 px-7 rounded-lg transition-colors">Create Account</a>
+            <a href="<?php echo sURL; ?>login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-7 rounded-lg transition-colors">Sign In</a>
+            <a href="<?php echo sURL; ?>register" class="border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2.5 px-7 rounded-lg transition-colors">Create Account</a>
         </div>
     </div>
 

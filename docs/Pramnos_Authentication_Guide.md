@@ -124,6 +124,77 @@ This method delegates to `Auth::getInstance()->verifyCredentials($username, $pas
 
 ## User Management
 
+### Self-service registration
+
+`/register` is a real route with the `auth` feature enabled, and it is **closed
+until you open it**:
+
+```php
+// app settings
+auth_allow_registration = 1
+```
+
+Off is the default because a scaffolded application should not gain a public
+sign-up page by being upgraded, and most applications on this framework create
+their accounts by some other route entirely. With it off the page still renders —
+it says registration is closed rather than 404-ing a page the bundled views link
+to.
+
+What the endpoint enforces, in this order:
+
+1. Already signed in → redirected away.
+2. Registration closed → refused before the request body is read at all, so a
+   crafted POST to a closed server cannot write a row.
+3. CSRF token → checked before validation, so a form with no token is not even an
+   account-existence oracle.
+4. Username 3–60 characters, `[A-Za-z0-9._-]` only — the set that needs no
+   escaping in a URL, a log line or an email subject.
+5. A valid email address.
+6. The same password policy `resetpassword` uses: 8 characters, a digit, a
+   symbol, and a matching confirmation.
+7. Uniqueness, and only then a write.
+
+The new account is active at the lowest privilege level. Nothing in the flow can
+grant a usertype.
+
+**What it tells an attacker.** "That username is taken" confirms an account
+exists, and there is no way to both refuse a duplicate and not confirm it — a form
+that has to let somebody pick another name has to say why. So it reveals that,
+and the mitigations are the ones that work: leave registration off when you do not
+need it, and keep the login lockout in place, because the value of an enumerated
+username is what you do with it next. The email case is worded so that it does not
+add a second, independent confirmation.
+
+To decide on something other than a global flag — an invite code, a domain
+allow-list, an organization policy — override one method:
+
+```php
+class Register extends \Pramnos\Auth\Controllers\Account
+{
+    protected string $routeBase = 'register';
+
+    public function display()
+    {
+        return $this->register();
+    }
+
+    protected function registrationIsOpen(): bool
+    {
+        return $this->post('invite') === $this->setting('signup_invite_code');
+    }
+}
+```
+
+`createUser()`, `usernameExists()` and `validateRegistration()` are seams on the
+same controller if you need to change how an account is stored or what a username
+may look like.
+
+### The single sign-on status page
+
+`/sso` answers "does this server already know me, and what have I authorized?".
+Public, because for a signed-out visitor that negative answer is the useful half —
+it is what another application sends somebody here to find out.
+
 ### Creating Users
 
 ```php

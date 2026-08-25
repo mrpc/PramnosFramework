@@ -114,7 +114,10 @@ class AccountCharacterizationTest extends BaseTestCase
                 `apikey`     VARCHAR(255) NOT NULL DEFAULT '',
                 `apisecret`  VARCHAR(255) NOT NULL DEFAULT '',
                 `status`     TINYINT      NOT NULL DEFAULT 1,
-                `description` TEXT NULL
+                `description` TEXT NULL,
+                -- The real table has had this since it was created; the fixture
+                -- did not, so a query selecting it failed here and nowhere else.
+                `url`        VARCHAR(500) NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 

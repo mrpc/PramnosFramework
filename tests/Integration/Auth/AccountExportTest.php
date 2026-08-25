@@ -115,7 +115,11 @@ class AccountExportTest extends BaseTestCase
             `apikey` VARCHAR(255) NOT NULL DEFAULT '',
             `apisecret` VARCHAR(255) NOT NULL DEFAULT '',
             `description` TEXT NULL,
-            `status` TINYINT NOT NULL DEFAULT 1
+            `status` TINYINT NOT NULL DEFAULT 1,
+            -- Present in the real table since it was created; absent here, which
+            -- is why a query selecting it failed in the fixture and not in an
+            -- application.
+            `url` VARCHAR(500) NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
         $this->db->query("CREATE TABLE IF NOT EXISTS `{$p}authserver_oauth2_user_consents` (

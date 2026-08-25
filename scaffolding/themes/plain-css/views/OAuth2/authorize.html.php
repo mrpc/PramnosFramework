@@ -81,7 +81,7 @@
                 Redirect: <code style="font-size:10px;word-break:break-all"><?php echo htmlspecialchars($_GET['redirect_uri'] ?? ''); ?></code>
             </p>
             <p style="text-align:center;margin:8px 0 0">
-                <a href="<?php echo sURL; ?>logout?redirect_uri=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" style="font-size:12px">Use a different account</a>
+                <a href="<?php echo sURL; ?>login/logout?redirect_uri=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" style="font-size:12px">Use a different account</a>
             </p>
         </div>
     </div>

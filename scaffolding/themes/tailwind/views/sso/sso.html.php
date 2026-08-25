@@ -34,15 +34,15 @@
 
         <div class="flex gap-3">
             <a href="<?php echo sURL; ?>Dashboard" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-md transition-colors">Dashboard</a>
-            <a href="<?php echo sURL; ?>logout" class="border border-red-500 text-red-600 hover:bg-red-50 font-medium py-2 px-5 rounded-md transition-colors">Sign Out</a>
+            <a href="<?php echo sURL; ?>login/logout" class="border border-red-500 text-red-600 hover:bg-red-50 font-medium py-2 px-5 rounded-md transition-colors">Sign Out</a>
         </div>
     <?php else: ?>
         <div class="bg-gray-100 border border-gray-300 text-gray-700 rounded-lg p-4 mb-5">
             <strong>&#10007; Not Signed In</strong> — You are not currently signed in to any application.
         </div>
         <div class="flex gap-3">
-            <a href="<?php echo sURL; ?>Home/login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-md transition-colors">Sign In</a>
-            <a href="<?php echo sURL; ?>Home/register" class="border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2 px-5 rounded-md transition-colors">Create Account</a>
+            <a href="<?php echo sURL; ?>login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-md transition-colors">Sign In</a>
+            <a href="<?php echo sURL; ?>register" class="border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2 px-5 rounded-md transition-colors">Create Account</a>
         </div>
     <?php endif; ?>
 </div>

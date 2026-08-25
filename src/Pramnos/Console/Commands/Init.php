@@ -6603,6 +6603,77 @@ PHP;
 
         $this->writeFile('src/Controllers/Account.php', $accountController);
 
+        // ── Register + Sso controllers ────────────────────────────────────────
+        // Both bind a root-level URL to an action on the framework Account
+        // controller. They exist because the views did: every bundled theme has
+        // shipped register/register and sso/sso with nothing able to render
+        // them, and the discovery document advertises `registration_endpoint`
+        // as /register — a page that answered 404.
+        //
+        // Registration stays closed until the `auth_allow_registration` setting
+        // is switched on, so scaffolding these does not open a sign-up page on a
+        // server that did not ask for one.
+        $registerController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\Account;
+
+/**
+ * Registration entry point — delegates to the framework Account flow.
+ *
+ * Routes: /register (form and submission).
+ *
+ * Self-service registration is **off** until the `auth_allow_registration`
+ * setting is enabled; until then the page renders and says so. Override
+ * Account::registrationIsOpen() here to decide on something other than a global
+ * flag — an invite code, a domain allow-list, an organization policy.
+ */
+class Register extends Account
+{
+    protected string \$routeBase = 'register';
+
+    /** Both GET and POST on /register go to the registration flow. */
+    public function display()
+    {
+        return \$this->register();
+    }
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Register.php', $registerController);
+
+        $ssoController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\Account;
+
+/**
+ * Single sign-on status page — delegates to the framework Account flow.
+ *
+ * Route: /sso. Public: for a signed-out visitor the answer that they are not
+ * signed in is the useful half of the page.
+ */
+class Sso extends Account
+{
+    protected string \$routeBase = 'sso';
+
+    public function display()
+    {
+        return \$this->sso();
+    }
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Sso.php', $ssoController);
+
         // ── TwoFactorAuth controller ──────────────────────────────────────────
         $twoFactorController = <<<PHP
 <?php

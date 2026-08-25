@@ -80,7 +80,7 @@
             Redirect: <?php echo htmlspecialchars($_GET['redirect_uri'] ?? ''); ?>
         </p>
         <p class="text-center mt-2">
-            <a href="<?php echo sURL; ?>logout?redirect_uri=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" class="text-xs text-blue-600 hover:underline">Use a different account</a>
+            <a href="<?php echo sURL; ?>login/logout?redirect_uri=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" class="text-xs text-blue-600 hover:underline">Use a different account</a>
         </p>
     </div>
 </div>

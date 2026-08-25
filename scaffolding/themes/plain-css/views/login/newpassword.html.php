@@ -43,7 +43,7 @@
                 <button type="submit" class="btn" style="width:100%">Save New Password</button>
             </form>
             <div style="text-align:center;margin-top:12px">
-                <a href="<?php echo sURL; ?>Home/login" style="font-size:13px">&larr; Back to login</a>
+                <a href="<?php echo sURL; ?>login" style="font-size:13px">&larr; Back to login</a>
             </div>
         </div>
     </div>

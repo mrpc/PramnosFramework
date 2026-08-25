@@ -42,7 +42,7 @@
             <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">Save New Password</button>
         </form>
         <p class="text-center text-sm mt-4">
-            <a href="<?php echo sURL; ?>Home/login" class="text-blue-600 hover:underline">&larr; Back to login</a>
+            <a href="<?php echo sURL; ?>login" class="text-blue-600 hover:underline">&larr; Back to login</a>
         </p>
     </div>
 </div>

@@ -26,7 +26,7 @@
             <?php endif; ?>
 
             <div style="text-align:center;margin-top:24px">
-                <a href="<?php echo sURL; ?>Home/login" class="btn">Back to Login</a>
+                <a href="<?php echo sURL; ?>login" class="btn">Back to Login</a>
             </div>
         </div>
     </div>

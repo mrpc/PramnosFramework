@@ -25,7 +25,7 @@
         <?php endif; ?>
 
         <div class="text-center mt-6">
-            <a href="<?php echo sURL; ?>Home/login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition-colors">Back to Login</a>
+            <a href="<?php echo sURL; ?>login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition-colors">Back to Login</a>
         </div>
     </div>
 </div>

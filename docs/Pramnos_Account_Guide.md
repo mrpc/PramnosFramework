@@ -29,6 +29,19 @@ whichever theme (plain-CSS, Bootstrap, Tailwind) the application uses.
 
 ---
 
+## Creating an account
+
+If the server has self-service registration switched on, **Create Account** takes
+you to `/register`. You choose a username and give an email address and a
+password of at least 8 characters containing a digit and a symbol.
+
+Many installations do not offer this — accounts are created by an administrator,
+or by whatever system owns the people using it. On those, the page tells you
+registration is closed rather than disappearing.
+
+Creating an account does not sign you in: you are sent to the sign-in page, so the
+first sign-in goes through the same checks as every other one.
+
 ## Signing in
 
 The login screen accepts your username or email plus your password. Depending on
