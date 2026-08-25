@@ -40,12 +40,17 @@ class AuthServerServiceProvider extends ServiceProvider
     /**
      * Bootstrap OAuth2 services after all providers have registered.
      *
-     * The hook is intentionally minimal — RSA key existence is not checked
-     * here because generating keys is a setup-time action, not a per-request
-     * action. Controllers that use OAuth2 should guard with
-     * file_exists(ROOT . '/app/keys/private.key') themselves.
+     * RSA keys are still not generated here — that is a setup-time action, not a
+     * per-request one, and controllers that need the keys guard for themselves.
+     *
+     * The signing-key **health check** is registered, which is a different thing:
+     * registering it touches nothing, and the check only runs when something asks
+     * for a health report. The built-in checks cover the database, disk and
+     * memory and say nothing about the key pair, so `/health/check` reported `ok`
+     * on a server that could not issue a single token.
      */
     public function boot(): void
     {
+        \Pramnos\Health\HealthRegistry::register(new Health\SigningKeysCheck());
     }
 }

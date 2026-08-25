@@ -41,6 +41,28 @@ class OAuth2ServerFactory
     private string $encryptionKey;
     private \Pramnos\Application\Controller $controller;
 
+    /**
+     * Where the signing key pair lives when nothing says otherwise.
+     *
+     * Exposed as methods rather than left as expressions inside the constructor
+     * because more than one thing needs to know: this factory signs with the
+     * keys, and the health check reports on them. A second copy of the same path
+     * expression is a copy that can drift, and the drift would show up as a
+     * health check reporting on a file the factory does not use.
+     *
+     * `ROOT` is a runtime constant, so these cannot be class constants.
+     */
+    public static function defaultPrivateKeyPath(): string
+    {
+        return ROOT . '/app/keys/private.key';
+    }
+
+    /** @see self::defaultPrivateKeyPath() */
+    public static function defaultPublicKeyPath(): string
+    {
+        return ROOT . '/app/keys/public.key';
+    }
+
     public function __construct(
         \Pramnos\Application\Controller $controller,
         ?string $privateKeyPath  = null,
@@ -48,8 +70,8 @@ class OAuth2ServerFactory
         ?string $encryptionKey   = null
     ) {
         $this->controller     = $controller;
-        $this->privateKeyPath = $privateKeyPath ?? ROOT . '/app/keys/private.key';
-        $this->publicKeyPath  = $publicKeyPath  ?? ROOT . '/app/keys/public.key';
+        $this->privateKeyPath = $privateKeyPath ?? self::defaultPrivateKeyPath();
+        $this->publicKeyPath  = $publicKeyPath  ?? self::defaultPublicKeyPath();
         // In production this must be a fixed key from secure config, not randomly generated.
         $this->encryptionKey  = $encryptionKey  ?? $this->loadOrGenerateEncryptionKey();
     }
