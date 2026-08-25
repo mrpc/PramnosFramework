@@ -306,6 +306,79 @@ retried — verify the signature before acting.
 This is what makes lightweight tokens safe: permissions change instantly without
 re-issuing or bloating tokens.
 
+### Registering an endpoint
+
+Authenticate with your client credentials — the same pair you use at the token
+endpoint, as a Basic header or in the body:
+
+```
+POST /Webhook/register
+Authorization: Basic base64(client_id:client_secret)
+
+endpoint_url=https://your-app.example.com/hooks/auth
+&webhook_type=token_revoked
+
+{
+  "webhook_type": "token_revoked",
+  "endpoint_url": "https://your-app.example.com/hooks/auth",
+  "secret": "…64 hex characters…",
+  "signature": "X-Webhook-Signature: sha256=HMAC-SHA256(secret, body)"
+}
+```
+
+**Store the secret.** It is returned once, by this call, and never shown again —
+an endpoint that hands out its own signing secret to anyone who can reach it is
+not signing anything. Lost it? Register the same type again; that replaces the URL
+and issues a new secret.
+
+`appid` comes from your credentials and is never read from the request, so an
+application can only ever see and change its own endpoints.
+
+| Route | Does |
+|---|---|
+| `POST /Webhook/register` | Register or replace an endpoint for one event type |
+| `GET /Webhook/list` | Your endpoints — without the secrets |
+| `GET /Webhook/stats` | Delivery counts by status |
+| `POST /Webhook/test` | Queue a test event through the real pipeline |
+| `POST /Webhook/delete` | Remove one endpoint |
+
+The endpoint URL must be `https://`. The event describes a person and is signed
+with a shared secret; over plaintext both are readable by anything on the path,
+which makes the signature decorative.
+
+Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
+`user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`.
+One endpoint per type per application.
+
+### Verifying a delivery
+
+```php
+$expected = 'sha256=' . hash_hmac('sha256', $rawBody, $yourSecret);
+
+// hash_equals, not ===: this compares against attacker-supplied input.
+if (!hash_equals($expected, $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '')) {
+    http_response_code(401);
+    exit;
+}
+```
+
+`Pramnos\Auth\WebhookService::verifySignature()` does the same thing if you are
+receiving on this framework.
+
+### If nothing arrives
+
+Deliveries are made by the **`auth:webhook-deliver`** schedule, every five
+minutes — not at the moment the event happens. Check that the scheduler is
+running on the server:
+
+```bash
+php pramnos schedule:list | grep webhook
+php pramnos auth:webhook-deliver -v      # run it by hand
+```
+
+`GET /Webhook/stats` is the other half of that answer: a `pending` count that only
+grows means events are being queued and nothing is sending them.
+
 ---
 
 ## 7. Putting it together

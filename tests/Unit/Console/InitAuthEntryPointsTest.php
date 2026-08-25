@@ -100,6 +100,33 @@ class InitAuthEntryPointsTest extends TestCase
     }
 
     /**
+     * The webhook registration controller is scaffolded with the authserver feature.
+     *
+     * The delivery pipeline and its tables have always existed; without this
+     * controller there was no route to a row in `oauth2_webhook_endpoints` other
+     * than an INSERT by hand, so no relying party could ever be told anything.
+     */
+    public function testTheWebhookControllerIsScaffolded(): void
+    {
+        // Act
+        $this->scaffold();
+
+        // Assert
+        $path = $this->tmpDir . '/src/Controllers/Webhook.php';
+        $this->assertFileExists($path);
+
+        $lint = [];
+        exec('php -l ' . escapeshellarg($path) . ' 2>&1', $lint, $status);
+        $this->assertSame(0, $status, 'Webhook.php must be valid PHP: ' . implode("\n", $lint));
+
+        $code = (string) file_get_contents($path);
+        $this->assertStringContainsString(
+            'class Webhook extends \\Pramnos\\Auth\\Controllers\\Webhook',
+            $code
+        );
+    }
+
+    /**
      * The generated controllers are valid PHP that binds the right action.
      *
      * They are produced from a heredoc with several levels of escaping, so "it

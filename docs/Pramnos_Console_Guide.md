@@ -505,6 +505,26 @@ php bin/pramnos key:generate --force  # rotate (invalidates encrypted data/sessi
 php bin/pramnos tinker
 ```
 
+### Webhook delivery
+
+```bash
+php bin/pramnos auth:webhook-deliver              # send what is due
+php bin/pramnos auth:webhook-deliver --batch=200  # a bigger bite
+php bin/pramnos auth:webhook-deliver --purge=30   # also drop settled events older than 30 days
+```
+
+Registered in the framework schedule to run **every five minutes**, which is where
+the retry back-off starts — a slower cadence would not delay only the first attempt,
+it would delay every one of them.
+
+The command is quiet when the queue is empty, because it runs 288 times a day and a
+line per run buries the ones that matter. A failed delivery exits `0` on purpose:
+the event keeps its attempts and its back-off, and a non-zero exit would make a
+scheduler treat an unreachable relying party as a broken command.
+
+An installation without the authserver feature has no webhook tables; the command
+notices and succeeds quietly rather than failing on every schedule tick.
+
 ### The tier `--admin` grants
 
 `--admin` creates the account at **usertype 90** — the tier the framework's own

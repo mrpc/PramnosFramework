@@ -212,6 +212,19 @@ class FrameworkSchedule
                 'cadence'     => [['daily'], ['at', '03:40']],
                 'description' => 'Retire session tokens idle for a month',
             ],
+
+            // Queued OAuth2 webhook events. The producers — GDPR erasure, device
+            // deauthorization, permission changes — have always written them; for
+            // a long time nothing read them, so they sat `pending` and the relying
+            // parties were never told.
+            //
+            // Every five minutes because that is where the retry back-off starts:
+            // a slower schedule would not delay only the first attempt, it would
+            // delay every one of them.
+            'auth:webhook-deliver' => [
+                'cadence'     => [['everyFiveMinutes']],
+                'description' => 'Deliver queued OAuth2 webhook events',
+            ],
         ];
     }
 }

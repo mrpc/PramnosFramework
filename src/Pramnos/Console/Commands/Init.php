@@ -7127,6 +7127,36 @@ PHP;
 
         $this->writeFile('src/Controllers/Oauth.php', $oauthController);
 
+        // ── Webhook registration ──────────────────────────────────────────────
+        // Where a relying party says where to send the events this server queues
+        // for it. The delivery pipeline and its tables have always existed; until
+        // this controller there was no way to register an endpoint short of an
+        // INSERT by hand.
+        $webhookController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+/**
+ * Webhook endpoint registration for relying parties.
+ *
+ * Routes: /Webhook/register, /Webhook/list, /Webhook/stats, /Webhook/test,
+ *         /Webhook/delete
+ *
+ * Every action authenticates with client credentials, so an application only ever
+ * sees its own endpoints. Delivery is the `auth:webhook-deliver` schedule.
+ */
+class Webhook extends \\Pramnos\\Auth\\Controllers\\Webhook
+{
+    // Override validateRegistration() here to narrow which URLs are acceptable.
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Webhook.php', $webhookController);
+
+
         $applicationsController = <<<PHP
 <?php
 
