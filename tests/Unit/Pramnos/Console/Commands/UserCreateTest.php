@@ -214,7 +214,8 @@ class UserCreateTest extends TestCase
     /**
      * The happy path: with no collisions the user is persisted and the assigned
      * id is echoed. The trimmed username/email and the plain password must reach
-     * persistUser() verbatim; a non-admin account prints no ", admin" suffix.
+     * persistUser() verbatim; a plain account prints no administrator marker and
+     * is persisted at tier 0, leaving the model's own default in place.
      */
     public function testSuccessPersistsAndPrintsUserId(): void
     {
@@ -231,19 +232,23 @@ class UserCreateTest extends TestCase
         // Assert — success + id echoed, no admin marker.
         $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
         $this->assertStringContainsString('userid=5', $tester->getDisplay());
-        $this->assertStringNotContainsString(', admin', $tester->getDisplay());
+        $this->assertStringNotContainsString('administrator', $tester->getDisplay());
 
         // Assert — persistUser received the trimmed values, plain password, non-admin.
         $this->assertSame('alice', $command->persisted['username']);
         $this->assertSame('alice@example.com', $command->persisted['email']);
         $this->assertSame('secret123!', $command->persisted['password']);
-        $this->assertFalse($command->persisted['admin']);
+        $this->assertSame(0, $command->persisted['usertype']);
     }
 
     /**
-     * With --admin the account is persisted as an administrator and the success
-     * line carries the ", admin" marker. Proves the admin flag flows through to
-     * both persistUser() and the output.
+     * `--admin` creates the account at usertype 90.
+     *
+     * The number is the assertion, not a detail. This option used to set 1, which
+     * satisfies none of the framework's administrative screens — they require 80
+     * or 90 — so the command reported success and produced an account that could
+     * not open a single administrative page. Asserting on the tier, rather than on
+     * a boolean reaching a seam, is what keeps that from coming back.
      */
     public function testSuccessAdminAccount(): void
     {
@@ -259,8 +264,110 @@ class UserCreateTest extends TestCase
 
         // Assert
         $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
-        $this->assertStringContainsString('userid=7, admin', $tester->getDisplay());
-        $this->assertTrue($command->persisted['admin'], 'the admin flag must reach persistUser()');
+        $this->assertStringContainsString('usertype=90', $tester->getDisplay());
+        $this->assertStringContainsString('administrator', $tester->getDisplay());
+        $this->assertSame(
+            90,
+            $command->persisted['usertype'],
+            '--admin must create an account the administrative screens accept'
+        );
+    }
+
+    /**
+     * `--usertype` sets the tier explicitly, and wins over `--admin`.
+     *
+     * Somebody who names a number has a number in mind, so the more specific
+     * instruction takes precedence. Tested with both flags present, because that
+     * is the combination where a wrong precedence is invisible: `--admin` alone
+     * would produce 90 either way.
+     */
+    public function testExplicitUsertypeWinsOverAdmin(): void
+    {
+        // Arrange
+        $command = $this->double(['return' => 11]);
+        $tester  = $this->testerFor($command);
+
+        // Act
+        $tester->execute([
+            '--username' => 'editor',
+            '--email'    => 'editor@example.com',
+            '--password' => 'secret123!',
+            '--admin'    => true,
+            '--usertype' => '50',
+        ], ['interactive' => false]);
+
+        // Assert
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertSame(50, $command->persisted['usertype']);
+        $this->assertStringContainsString('usertype=50', $tester->getDisplay());
+        $this->assertStringNotContainsString('administrator', $tester->getDisplay());
+    }
+
+    /**
+     * `--usertype=0` is honoured rather than treated as absent.
+     *
+     * Zero is a real tier, and an option that silently ignored it would leave the
+     * caller unable to say "no privileges at all" without knowing the model's
+     * default happens to agree.
+     */
+    public function testAnExplicitZeroIsHonoured(): void
+    {
+        // Arrange
+        $command = $this->double(['return' => 11]);
+        $tester  = $this->testerFor($command);
+
+        // Act
+        $tester->execute([
+            '--username' => 'plain',
+            '--email'    => 'plain@example.com',
+            '--password' => 'secret123!',
+            '--usertype' => '0',
+        ], ['interactive' => false]);
+
+        // Assert
+        $this->assertSame(0, $tester->getStatusCode());
+        $this->assertSame(0, $command->persisted['usertype']);
+    }
+
+    /**
+     * A `--usertype` that is not a whole number is refused, and nothing is created.
+     *
+     * `(int)` on a typo yields 0, which would create an ordinary account, report
+     * success, and be indistinguishable afterwards from one that was meant to be
+     * ordinary. Refusing is the only outcome the caller can act on.
+     *
+     * @param string $value An invalid --usertype value
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidUsertypes')]
+    public function testAnInvalidUsertypeIsRefused(string $value): void
+    {
+        // Arrange
+        $command = $this->double(['return' => 11]);
+        $tester  = $this->testerFor($command);
+
+        // Act
+        $tester->execute([
+            '--username' => 'typo',
+            '--email'    => 'typo@example.com',
+            '--password' => 'secret123!',
+            '--usertype' => $value,
+        ], ['interactive' => false]);
+
+        // Assert
+        $this->assertSame(1, $tester->getStatusCode());
+        $this->assertStringContainsString('--usertype', $tester->getDisplay());
+        $this->assertNull($command->persisted, 'nothing may be created from invalid input');
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function invalidUsertypes(): array
+    {
+        return [
+            'a word'     => ['admin'],
+            'negative'   => ['-1'],
+            'fractional' => ['1.5'],
+            'trailing'   => ['90x'],
+        ];
     }
 
     /**
@@ -346,7 +453,7 @@ class UserCreateTest extends TestCase
             private array $existsEmails;
             private bool $throwOnPersist;
             private int $persistReturn;
-            /** @var array{username: string, email: string, password: string, admin: bool}|null */
+            /** @var array{username: string, email: string, password: string, usertype: int}|null */
             public ?array $persisted = null;
 
             public function __construct(array $opts)
@@ -365,12 +472,12 @@ class UserCreateTest extends TestCase
                     : in_array($value, $this->existsEmails, true);
             }
 
-            protected function persistUser(string $username, string $email, string $password, bool $admin): int
+            protected function persistUser(string $username, string $email, string $password, int $usertype = 0): int
             {
                 if ($this->throwOnPersist) {
                     throw new \RuntimeException('database unavailable');
                 }
-                $this->persisted = compact('username', 'email', 'password', 'admin');
+                $this->persisted = compact('username', 'email', 'password', 'usertype');
                 return $this->persistReturn;
             }
         };

@@ -494,6 +494,7 @@ php bin/pramnos db:fresh --force --seed
 
 # Create a user / admin from the CLI
 php bin/pramnos user:create --username=admin --email=admin@example.com --admin
+php bin/pramnos user:create --username=editor --email=editor@example.com --usertype=50
 
 # Generate or rotate the application key in .env
 php bin/pramnos key:generate          # refuses to clobber an existing key
@@ -503,6 +504,33 @@ php bin/pramnos key:generate --force  # rotate (invalidates encrypted data/sessi
 # Interactive REPL with the framework bootstrapped (PsySH if installed)
 php bin/pramnos tinker
 ```
+
+### The tier `--admin` grants
+
+`--admin` creates the account at **usertype 90** — the tier the framework's own
+administrative screens require:
+
+| Screen | Minimum usertype |
+|---|---|
+| Users, Settings, Logs, Dashboard, Services, Organizations, Emails, Queue | 80 |
+| Applications, Tokens, Permissions, `/health/phpinfo`, the dev panel | 90 |
+
+This is worth stating because the option used to set 1, which satisfies none of
+them: the command printed "created successfully (admin)" and the account it made
+could not open a single administrative page. `init` has always created its first
+administrator at 90, so the two paths disagreed and the one this command produced
+was the broken one.
+
+For anything in between, name the tier:
+
+```bash
+php bin/pramnos user:create --username=editor --email=editor@example.com --usertype=50
+```
+
+`--usertype` wins over `--admin`, and a value that is not a whole number is
+refused rather than coerced — `(int)` on a typo would create an ordinary account
+and report success, leaving nothing to tell it apart from one that was meant to be
+ordinary.
 
 ### Code generators (`create:`)
 

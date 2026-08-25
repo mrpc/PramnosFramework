@@ -31,13 +31,31 @@ use Pramnos\User\User;
  *   - Duplicate username / email addresses are refused when detectable.
  *   - The password is hashed by the framework's User model (bcrypt, salted with
  *     the securitySalt + userid), exactly like a normally-registered account.
- *   - `--admin` marks the new account as an administrator (usertype = 1).
+ *   - `--admin` creates an administrator: `usertype = 90`, the tier every
+ *     administrative screen in the framework actually requires.
+ *   - `--usertype=N` sets the tier explicitly, for anything in between.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @license    MIT
  */
 class UserCreate extends Command
 {
+    /**
+     * The tier `--admin` grants.
+     *
+     * 90, because that is what the framework's administrative screens require:
+     * Users, Settings, Logs, Dashboard, Services, Organizations, Emails and Queue
+     * ask for 80 or more; Applications, Tokens, Permissions, `phpinfo` and the
+     * dev panel ask for 90.
+     *
+     * This option used to set 1, which satisfied none of them — the command
+     * printed "created successfully (admin)" and the account it made could not
+     * open a single administrative page. `init` has always created its own first
+     * administrator at 90, so the two paths disagreed, and the one this command
+     * produced was the broken one.
+     */
+    public const ADMIN_USERTYPE = 90;
+
     protected static $defaultName = 'user:create';
 
     protected function configure(): void
@@ -48,7 +66,8 @@ class UserCreate extends Command
             ->addOption('username', null, InputOption::VALUE_REQUIRED, 'Username for the new account')
             ->addOption('email', null, InputOption::VALUE_REQUIRED, 'Email address for the new account')
             ->addOption('password', null, InputOption::VALUE_REQUIRED, 'Password for the new account')
-            ->addOption('admin', null, InputOption::VALUE_NONE, 'Create the account as an administrator (usertype = 1)');
+            ->addOption('admin', null, InputOption::VALUE_NONE, 'Create the account as an administrator (usertype = ' . self::ADMIN_USERTYPE . ')')
+            ->addOption('usertype', null, InputOption::VALUE_REQUIRED, 'Set the usertype explicitly (overrides --admin)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -94,7 +113,10 @@ class UserCreate extends Command
         }
 
         // ── Persistence (requires a live database) ────────────────────────────
-        $admin = (bool) $input->getOption('admin');
+        $usertype = $this->resolveUsertype($input, $output);
+        if ($usertype === null) {
+            return Command::FAILURE;
+        }
 
         try {
             if ($this->userExists($username, 'username')) {
@@ -106,7 +128,7 @@ class UserCreate extends Command
                 return Command::FAILURE;
             }
 
-            $userid = $this->persistUser($username, $email, $password, $admin);
+            $userid = $this->persistUser($username, $email, $password, $usertype);
         } catch (\Throwable $e) {
             $output->writeln('<error>Failed to create user: ' . $e->getMessage() . '</error>');
             return Command::FAILURE;
@@ -118,16 +140,48 @@ class UserCreate extends Command
         }
 
         $output->writeln(sprintf(
-            '<info>User "%s" created successfully (userid=%d%s).</info>',
+            '<info>User "%s" created successfully (userid=%d, usertype=%d%s).</info>',
             $username,
             $userid,
-            $admin ? ', admin' : ''
+            $usertype,
+            $usertype >= self::ADMIN_USERTYPE ? ', administrator' : ''
         ));
 
         return Command::SUCCESS;
     }
 
     // ── Persistence (overridable DB seams) ──────────────────────────────────────
+
+    /**
+     * The tier to create the account at.
+     *
+     * `--usertype` wins over `--admin`, because it is the more specific
+     * instruction: somebody who names a number has a number in mind. Without
+     * either, 0 leaves whatever default the User model applies.
+     *
+     * A non-numeric or negative `--usertype` is refused rather than coerced. `(int)`
+     * on a typo would silently create a user at tier 0 and report success, and the
+     * account that results is indistinguishable from one that was meant to be
+     * ordinary.
+     *
+     * @return int|null The tier, or null when the input was invalid
+     */
+    protected function resolveUsertype(InputInterface $input, OutputInterface $output): ?int
+    {
+        $explicit = $input->getOption('usertype');
+
+        if ($explicit !== null && $explicit !== '') {
+            if (!is_numeric($explicit) || (int) $explicit != $explicit || (int) $explicit < 0) {
+                $output->writeln(
+                    '<error>--usertype must be a non-negative whole number, got: ' . $explicit . '</error>'
+                );
+                return null;
+            }
+            return (int) $explicit;
+        }
+
+        return $input->getOption('admin') ? self::ADMIN_USERTYPE : 0;
+    }
 
     /**
      * Whether a user already exists whose $field equals $value.
@@ -163,10 +217,10 @@ class UserCreate extends Command
      * @param string $username Validated, trimmed username.
      * @param string $email    Validated, trimmed email address.
      * @param string $password Plain-text password to hash.
-     * @param bool   $admin    Whether to mark the account as an administrator.
+     * @param int    $usertype Tier to assign, or 0 to leave the model's default.
      * @return int The newly assigned user id.
      */
-    protected function persistUser(string $username, string $email, string $password, bool $admin): int
+    protected function persistUser(string $username, string $email, string $password, int $usertype = 0): int
     {
         // @codeCoverageIgnoreStart
         // Genuine live-DB boundary: instantiates and save()s the User model,
@@ -179,8 +233,8 @@ class UserCreate extends Command
         $user->active   = 1;
         $user->validated = 1;
         $user->regdate  = time();
-        if ($admin) {
-            $user->usertype = 1;
+        if ($usertype > 0) {
+            $user->usertype = $usertype;
         }
 
         $user->save();
