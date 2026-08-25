@@ -1078,7 +1078,10 @@ class InitCommandUnitTest extends TestCase
 
         // Assert
         $settings = file_get_contents($this->tmpDir . '/app/config/settings.php');
-        $this->assertStringContainsString("'type' => 'postgresql'", $settings);
+        // timescaledb is a PostgreSQL driver plus a flag; the driver is the env
+        // default, the flag is a literal because it is a property of the schema and
+        // not of the machine.
+        $this->assertStringContainsString("envvar('APP_DB_TYPE', 'postgresql')", $settings);
         $this->assertStringContainsString("'timescale' => true", $settings);
     }
 

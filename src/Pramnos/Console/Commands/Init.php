@@ -544,6 +544,14 @@ class Init extends Command
         // CLI entry-point name: lowercase alphanumeric, e.g. "myapp" → myapp.php / ./myapp
         $cliName = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $namespace));
 
+        // Before the settings file, because that file is now only a reader of these.
+        $this->scaffoldEnvFiles(
+            $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix,
+            // MySQL's image needs a root password of its own, and it was being written
+            // straight into the committed docker-compose.yml.
+            $dbType === 'mysql' ? ['APP_DB_ROOT_PASSWORD' => [$dbRootPass, '']] : [],
+            $useDocker
+        );
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true, $cacheSystem);
         $this->scaffoldAppConfig(
             'app/app.php', $appName, $namespace, $enabledFeatures, $uiSystem, $withRestApi,
@@ -2825,10 +2833,38 @@ PHP;
         $this->writeFile("src/Api/Controllers/{$class}.php", $content);
     }
 
-    private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev, string $cacheSystem = 'none'): void
+    /**
+     * Write a settings file that reads its secrets from the environment.
+     *
+     * This used to interpolate the values, so `app/config/settings.php` was committed
+     * with the database password in plain text and `'development' => true` — and a real
+     * scaffolded project was found in exactly that state. `.gitignore` has always
+     * covered `/.env`, and nothing was in it.
+     *
+     * So the file is now the same for every checkout and the values come from `.env`,
+     * which is not. Three details are deliberate:
+     *
+     * - **`envvar()`, not `env()`.** The confusingly-named `env()` reads *constants*;
+     *   `envvar()` reads `getenv()`, `$_ENV` and `$_SERVER`, and parses `true`/`false`
+     *   into booleans — which `'development'` needs, because `'false'` is truthy.
+     * - **Non-secret defaults are inline; the password's default is empty.** A clone
+     *   with no `.env` still knows which host and database to try, which makes the
+     *   failure "authentication failed" rather than "no such database" — and no
+     *   committed file ever carries a real credential.
+     * - **`dirname(__DIR__, 2)`, not `ROOT`.** The file is read from a web request, a
+     *   CLI command and a test bootstrap, and this way it does not care whether any of
+     *   them defined the constant yet.
+     *
+     * A real environment variable wins over `.env`: Symfony's Dotenv does not overwrite
+     * what is already set, so a platform that injects `DB_PASSWORD` needs no file.
+     *
+     * @param string $nameVar Which env key holds the database name — the test settings
+     *                        point at a different database on the same server.
+     */
+    private function scaffoldSettings(string $path, string $type, string $host, string $name, string $user, string $pass, string $prefix, bool $dev, string $cacheSystem = 'none', string $nameVar = 'APP_DB_NAME'): void
     {
         $realType      = ($type === 'timescaledb') ? 'postgresql' : $type;
-        $timescaleFlag = ($type === 'timescaledb') ? ",\n        'timescale' => true" : '';
+        $timescaleFlag = ($type === 'timescaledb') ? "\n        'timescale' => true," : '';
 
         $cacheConfig = '';
         if ($cacheSystem !== 'none') {
@@ -2836,8 +2872,141 @@ PHP;
             $cacheConfig = "\n    'cache' => [\n        'method' => '$cacheSystem',\n        'hostname' => 'cache',\n        'port' => $port,\n    ],";
         }
 
-        $content = "<?php\nreturn [\n    'database' => [\n        'type' => '$realType',\n        'hostname' => '$host',\n        'database' => '$name',\n        'user' => '$user',\n        'password' => '$pass',\n        'prefix' => '$prefix'$timescaleFlag\n    ],\n    'dbsettings' => true,\n    'language' => 'en',\n    'development' => " . ($dev ? 'true' : 'false') . ",\n    'forcessl' => false,$cacheConfig\n];\n";
+        // The test settings are never the development environment: the suite asserts
+        // behaviour, and debug output in the middle of it is noise at best.
+        $development = $dev
+            ? "envvar('APP_DEBUG', false)"
+            : 'false';
+
+        $content = <<<PHP
+<?php
+
+/**
+ * Connection and environment settings.
+ *
+ * **Values live in `.env`, which is not committed.** This file is the same in every
+ * checkout; the credentials, the database name and the debug flag are not. Copy
+ * `.env.example` to `.env` and fill it in, or run `<cli> project:setup`.
+ *
+ * A real environment variable takes precedence over `.env`, so a host that injects
+ * `DB_PASSWORD` itself needs no file at all.
+ *
+ * The defaults below are the non-secret ones only. `DB_PASSWORD` has no default on
+ * purpose: a missing `.env` should fail to authenticate, not fall back to something.
+ */
+
+loadDotenv(dirname(__DIR__, 2));
+
+return [
+    'database' => [
+        'type'     => envvar('APP_DB_TYPE', '$realType'),
+        'hostname' => envvar('APP_DB_HOST', '$host'),
+        'database' => envvar('$nameVar', '$name'),
+        'user'     => envvar('APP_DB_USER', '$user'),
+        'password' => (string) envvar('APP_DB_PASSWORD', ''),
+        'prefix'   => (string) envvar('APP_DB_PREFIX', '$prefix'),$timescaleFlag
+    ],
+    'dbsettings'  => true,
+    'language'    => 'en',
+    'development' => $development,
+    'forcessl'    => false,$cacheConfig
+];
+
+PHP;
         $this->writeFile($path, $content);
+    }
+
+    /**
+     * Write `.env` (this machine's values) and `.env.example` (the shape of them).
+     *
+     * `.env` is in `.gitignore` and always was; what changed is that it now carries
+     * something worth keeping out of the repository. `.env.example` is committed and is
+     * the answer to "I have just cloned this, what do I need?" — it lists every key
+     * with its non-secret value filled in and the secrets blank, so a diff of the two
+     * is the list of things a new checkout has to be told.
+     *
+     * `APP_DEBUG` differs between them on purpose: `true` in the `.env` init writes,
+     * because init is setting up a development machine, and `false` in the example,
+     * because the next place that file is copied might not be one.
+     *
+     * @param list<string> $extra Additional `KEY=value` lines (the MySQL root password)
+     */
+    private function scaffoldEnvFiles(
+        string $dbType, string $dbHost, string $dbName, string $dbUser, string $dbPass,
+        string $dbPrefix, array $extra = [], bool $useDocker = false
+    ): void {
+        $realType = ($dbType === 'timescaledb') ? 'postgresql' : $dbType;
+
+        $header = "# Local environment. NOT committed — see .gitignore.\n"
+            . "# .env.example is the committed copy of this file's shape.\n"
+            . "# A real environment variable set by the host wins over anything here.\n\n";
+
+        // **`APP_DB_*`, not `DB_*`.** The bare names are the convention, and they are
+        // also the ones a hosting image, a CI runner or a sibling container is most
+        // likely to have set already — for a different database. Since a real
+        // environment variable deliberately wins over `.env`, that collision connects
+        // the application to somebody else's database and says nothing.
+        //
+        // Not a hypothesis: this framework's own dev container exports `DB_HOST`,
+        // `DB_USER` and `DB_NAME`, and the first run of the scaffolding tests after
+        // this change read `pramnos_test` out of a project configured for
+        // `my_auto_app_db`. If it can happen inside the repository that introduced the
+        // convention, it can happen on a host.
+        $lines = [
+            'APP_DEBUG'        => ['true', 'false'],
+            'APP_DB_TYPE'      => [$realType, $realType],
+            'APP_DB_HOST'      => [$dbHost, $dbHost],
+            'APP_DB_NAME'      => [$dbName, $dbName],
+            'APP_DB_TEST_NAME' => [$dbName . '_test', $dbName . '_test'],
+            'APP_DB_USER'      => [$dbUser, $dbUser],
+            'APP_DB_PASSWORD'  => [$dbPass, ''],
+            'APP_DB_PREFIX'    => [$dbPrefix, $dbPrefix],
+        ];
+
+        $env     = $header;
+        $example = "# Copy to .env and fill in the blanks, or run project:setup.\n"
+            . "# Every key the application reads is listed here; the blank ones are the\n"
+            . "# secrets, which is why this file can be committed and .env cannot.\n\n";
+
+        foreach ($lines as $key => [$real, $sample]) {
+            $env     .= "$key=$real\n";
+            $example .= "$key=$sample\n";
+        }
+
+        foreach ($extra as $key => [$real, $sample]) {
+            $env     .= "$key=$real\n";
+            $example .= "$key=$sample\n";
+        }
+
+        // The host user ids belong in **both** files, and they are the one pair whose
+        // example value is a guess rather than a blank. docker-compose defaults them to
+        // 1000 when unset, which is the first non-root user on a Debian host and wrong
+        // on plenty of others — and getting it wrong means everything the container
+        // writes into the bind mount is owned by somebody who is not you. So the
+        // example carries 1000 and says how to find your own; `project:setup` fills in
+        // the real pair without asking.
+        if ($useDocker) {
+            $note = "\n# Host user ids, so files the container writes into the bind mount\n"
+                . "# (vendor/, node_modules/, var/logs) belong to you and not to root.\n";
+            $env     .= $note;
+            $example .= $note . "# Yours: `id -u` and `id -g`. project:setup fills these in.\n";
+
+            foreach (self::hostUserIds() as $key => $value) {
+                $env     .= "$key=$value\n";
+                $example .= "$key=1000\n";
+            }
+        }
+
+        // Appended rather than written: ensureHostUserEnv() may already have put the
+        // host user ids here, and docker-compose needs both sets in the one file.
+        $path     = $this->targetBaseDir . '/.env';
+        $existing = file_exists($path) ? (string) file_get_contents($path) : '';
+
+        if (!$this->skipWrite('.env')) {
+            file_put_contents($path, $existing === '' ? $env : $existing . "\n" . $env);
+        }
+
+        $this->writeFile('.env.example', $example);
     }
 
     /**
@@ -3534,7 +3703,10 @@ HTML,
         $this->mkdir('tests/Integration');
 
         $testDbName = $dbName . '_test';
-        $this->scaffoldSettings('app/config/testsettings.php', $dbType, $dbHost, $testDbName, $dbUser, $dbPass, $dbPrefix, false);
+        $this->scaffoldSettings(
+            'app/config/testsettings.php', $dbType, $dbHost, $testDbName,
+            $dbUser, $dbPass, $dbPrefix, false, 'none', 'APP_DB_TEST_NAME'
+        );
 
         $bootstrapContent = <<<'PHP'
 <?php
@@ -4287,11 +4459,17 @@ PHP;
             $compose .= "    volumes:\n      - ./docker/mysql-init:/docker-entrypoint-initdb.d\n";
         }
 
+        // `${...}`, not the values: docker-compose.yml is committed, and this is where
+        // the database password used to be written in plain text. Compose interpolates
+        // from the same .env the application reads, so there is one place to change a
+        // credential and one place it can leak from. An unset variable interpolates
+        // empty and the database image refuses to start, which is the right kind of
+        // loud — a silently password-less database would be worse.
         $compose .= "    environment:\n";
         if ($isPostgres) {
-            $compose .= "      POSTGRES_DB: $dbName\n      POSTGRES_USER: $dbUser\n      POSTGRES_PASSWORD: $dbPass\n";
+            $compose .= "      POSTGRES_DB: \${APP_DB_NAME}\n      POSTGRES_USER: \${APP_DB_USER}\n      POSTGRES_PASSWORD: \${APP_DB_PASSWORD}\n";
         } else {
-            $compose .= "      MYSQL_DATABASE: $dbName\n      MYSQL_USER: $dbUser\n      MYSQL_PASSWORD: $dbPass\n      MYSQL_ROOT_PASSWORD: $dbRootPass\n";
+            $compose .= "      MYSQL_DATABASE: \${APP_DB_NAME}\n      MYSQL_USER: \${APP_DB_USER}\n      MYSQL_PASSWORD: \${APP_DB_PASSWORD}\n      MYSQL_ROOT_PASSWORD: \${APP_DB_ROOT_PASSWORD}\n";
             $compose .= "    command: mysqld --default-authentication-plugin=mysql_native_password --sql_mode=\"NO_AUTO_VALUE_ON_ZERO\" --general-log=1 --general-log-file=/var/lib/mysql/general-log.log\n";
             $this->mkdir('docker/mysql-init');
             $this->writeFile('docker/mysql-init/init.sql', "GRANT ALL PRIVILEGES ON *.* TO '$dbUser'@'%';\nFLUSH PRIVILEGES;\n");

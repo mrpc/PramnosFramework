@@ -842,9 +842,13 @@ class InitCommandTest extends TestCase
         $this->assertEquals(0, $commandTester->getStatusCode());
 
         // Verify CliApp and CliNamespace
+        // The settings file reads the environment now; the values it falls back to are
+        // the scaffolded ones, and the credentials are not in it at all. Asserted on the
+        // shape rather than on a literal because a literal password here is precisely
+        // what this stopped writing.
         $settingsContent = file_get_contents($this->tempDir . '/app/config/settings.php');
-        $this->assertStringContainsString("'type' => 'postgresql'", $settingsContent);
-        $this->assertStringContainsString("'database' => 'cli_db'", $settingsContent);
+        $this->assertStringContainsString("envvar('APP_DB_TYPE', 'postgresql')", $settingsContent);
+        $this->assertStringContainsString("envvar('APP_DB_NAME', 'cli_db')", $settingsContent);
 
         $appContent = file_get_contents($this->tempDir . '/app/app.php');
         $this->assertStringContainsString("'namespace' => 'CliNamespace'", $appContent);
