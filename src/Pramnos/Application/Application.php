@@ -1641,6 +1641,41 @@ class Application extends Base
     }
 
     /**
+     * Make sure this response has a CSP nonce before anything needs one.
+     *
+     * `exec()` generates it, and that was the only place — so any render that did not
+     * go through `exec()` produced a page whose inline scripts carried no nonce, under
+     * a policy that then refused to run them.
+     *
+     * **An application overriding `exec()` is the ordinary way to end up there**, and
+     * it happened: a consuming application replaced `exec()` without calling the
+     * parent, `$cspNonce` stayed `''` for the life of every request, and every inline
+     * script on every server-rendered page was blocked. The report was *"the night-mode
+     * button does not work"*, twice — because a blocked inline script is **present and
+     * correct** in the response, on the right storage key, and the browser simply
+     * declines to run it. Nothing in a test suite can see that.
+     *
+     * Here rather than in `exec()` because this is the last point before the two things
+     * that consume the nonce, and they have to agree: {@see sendCspHeader()} puts it in
+     * the policy, and `Document\DocumentTypes\Html::render()` stamps it into every
+     * inline `<script>` afterwards. Generating it any later would send a policy naming a
+     * nonce the body does not have; any earlier is what `exec()` already tries to do.
+     *
+     * Deliberately **not** called on the page-cache hit path. There is no document to
+     * stamp there, {@see \Pramnos\Cache\Page\PageCache::store()} refuses to store a
+     * body containing a nonce, and {@see buildCspPolicy()} omits the nonce source when
+     * there is none — so a hit gets a policy with nothing to match and nothing to miss.
+     *
+     * @return void
+     */
+    protected function ensureCspNonce(): void
+    {
+        if ($this->cspNonce === '') {
+            $this->cspNonce = base64_encode(random_bytes(16));
+        }
+    }
+
+    /**
      * Build and send the Content-Security-Policy header.
      * 
      * This method constructs a CSP header string based on the application's
@@ -1805,6 +1840,7 @@ class Application extends Base
     public function render()
     {
         $this->redirect(); //Redirect if it's needed
+        $this->ensureCspNonce();
         $this->sendCspHeader();
         $doc = \Pramnos\Framework\Factory::getDocument();
 
