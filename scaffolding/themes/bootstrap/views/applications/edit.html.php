@@ -16,7 +16,7 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0"><?php echo $isNew ? 'New Application' : 'Edit Application'; ?></h2>
-        <a href="<?php echo sURL; ?>applications" class="btn btn-outline-secondary btn-sm">Back to list</a>
+        <a href="<?php echo adminUrl('applications'); ?>" class="btn btn-outline-secondary btn-sm">Back to list</a>
     </div>
 
     <?php if (!empty($this->message)): ?>
@@ -36,7 +36,7 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                 <code class="ms-1"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code>
             </div>
             <div class="ms-auto">
-                <a href="<?php echo sURL; ?>applications/rotate/<?php echo (int)$app['appid']; ?>"
+                <a href="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>"
                    class="btn btn-sm btn-outline-warning"
                    data-confirm="Rotate the client secret? All new token requests will use the new secret.">
                    Rotate Secret
@@ -45,7 +45,7 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
         </div>
     <?php endif; ?>
 
-    <form method="post" action="<?php echo sURL; ?>applications/save">
+    <form method="post" action="<?php echo adminUrl('applications/save'); ?>">
         <?php if (!$isNew): ?>
             <input type="hidden" name="appid" value="<?php echo (int)$app['appid']; ?>">
         <?php endif; ?>
@@ -194,9 +194,9 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
 
         <div class="mt-3 d-flex gap-2">
             <button type="submit" class="btn btn-primary">Save Application</button>
-            <a href="<?php echo sURL; ?>applications" class="btn btn-outline-secondary">Cancel</a>
+            <a href="<?php echo adminUrl('applications'); ?>" class="btn btn-outline-secondary">Cancel</a>
             <?php if (!$isNew): ?>
-                <a href="<?php echo sURL; ?>applications/tokens/<?php echo (int)$app['appid']; ?>" class="btn btn-outline-info ms-auto">View Tokens</a>
+                <a href="<?php echo adminUrl('applications' . '/tokens/' . ((int)$app['appid'])); ?>" class="btn btn-outline-info ms-auto">View Tokens</a>
             <?php endif; ?>
         </div>
     </form>

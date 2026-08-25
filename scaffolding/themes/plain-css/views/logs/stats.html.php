@@ -38,7 +38,7 @@ $sURL = defined('sURL') ? sURL : '';
                         <?php foreach ($this->stats as $stat): ?>
                             <tr style="border-bottom:1px solid #f0f0f0">
                                 <td style="padding:8px 12px">
-                                    <a style="color:#2563eb" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($stat['name']); ?>">
+                                    <a style="color:#2563eb" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>">
                                         <?php echo htmlspecialchars($stat['name']); ?>
                                     </a>
                                 </td>
@@ -61,12 +61,12 @@ $sURL = defined('sURL') ? sURL : '';
                                 <td style="padding:8px 12px;color:#555"><?php echo htmlspecialchars($stat['modified_formatted']); ?></td>
                                 <td style="padding:8px 12px">
                                     <div style="display:flex;gap:4px">
-                                        <a href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($stat['name']); ?>"
+                                        <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
                                            class="btn btn-sm" style="background:#0ea5e9;color:#fff" title="View">View</a>
-                                        <a href="<?php echo $sURL; ?>Logs/clearFile/<?php echo htmlspecialchars($stat['name']); ?>"
+                                        <a href="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>"
                                            class="btn btn-sm" style="background:#dc2626;color:#fff" title="Clear"
                                            data-confirm="Are you sure you want to clear this log?">Clear</a>
-                                        <a href="<?php echo $sURL; ?>Logs/raw?file=<?php echo htmlspecialchars($stat['name']); ?>"
+                                        <a href="<?php echo adminUrl('Logs/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
                                            class="btn btn-sm" style="background:#4b5563;color:#fff" title="Raw View" target="_blank">Raw</a>
                                     </div>
                                 </td>

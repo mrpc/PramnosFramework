@@ -73,7 +73,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <div class="divide-y divide-gray-100 text-sm">
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-gray-500">Tokens</span>
-                        <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="font-semibold text-indigo-600 hover:underline">
+                        <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="font-semibold text-indigo-600 hover:underline">
                             <?php echo (int) ($usageStats['total_tokens'] ?? 0); ?>
                         </a>
                     </div>
@@ -83,7 +83,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-gray-500">Sessions</span>
-                        <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>" class="font-semibold text-indigo-600 hover:underline">
+                        <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>" class="font-semibold text-indigo-600 hover:underline">
                             <?php echo $sessionCount; ?>
                         </a>
                     </div>
@@ -101,19 +101,19 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</div>
                 <div class="p-4 grid gap-2">
-                    <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>"
+                    <a href="<?php echo adminUrl('users' . '/edit/' . ($uid)); ?>"
                        class="block text-center px-3 py-2 text-sm bg-indigo-600 text-white rounded-sm hover:bg-indigo-700">Edit User</a>
                     <?php if ($isActive): ?>
-                        <a href="<?php echo sURL; ?>users/lock/<?php echo $uid; ?>"
+                        <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>"
                            class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded-sm hover:bg-yellow-50"
                            data-confirm="Lock this account?">Lock Account</a>
                     <?php else: ?>
-                        <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>"
+                        <a href="<?php echo adminUrl('users' . '/unlock/' . ($uid)); ?>"
                            class="block text-center px-3 py-2 text-sm border border-green-400 text-green-700 rounded-sm hover:bg-green-50">Unlock Account</a>
                     <?php endif; ?>
-                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>"
+                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>"
                        class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">All Tokens</a>
-                    <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>"
+                    <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>"
                        class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">Sessions</a>
                 </div>
             </div>
@@ -164,7 +164,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div class="px-6 py-3 border-b border-gray-100 flex justify-between items-center">
                     <span class="font-semibold text-gray-700">Recent Tokens</span>
-                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>"
+                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>"
                        class="text-sm text-indigo-600 hover:underline">All Tokens</a>
                 </div>
                 <table class="w-full text-sm">

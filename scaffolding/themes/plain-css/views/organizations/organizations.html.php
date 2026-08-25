@@ -17,7 +17,7 @@
     <?php endif; ?>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2>Organizations</h2>
-        <a href="<?php echo sURL; ?>Organizations/edit" class="btn btn-primary">+ New Organization</a>
+        <a href="<?php echo adminUrl('Organizations/edit'); ?>" class="btn btn-primary">+ New Organization</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

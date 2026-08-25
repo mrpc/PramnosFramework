@@ -38,7 +38,7 @@ $sURL = defined('sURL') ? sURL : '';
                             <?php foreach ($this->stats as $stat): ?>
                                 <tr>
                                     <td>
-                                        <a href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($stat['name']); ?>">
+                                        <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>">
                                             <?php echo htmlspecialchars($stat['name']); ?>
                                         </a>
                                     </td>
@@ -61,12 +61,12 @@ $sURL = defined('sURL') ? sURL : '';
                                     <td><?php echo htmlspecialchars($stat['modified_formatted']); ?></td>
                                     <td>
                                         <div class="d-flex gap-1">
-                                            <a href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($stat['name']); ?>"
+                                            <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
                                                class="btn btn-sm btn-info" title="View">View</a>
-                                            <a href="<?php echo $sURL; ?>Logs/clearFile/<?php echo htmlspecialchars($stat['name']); ?>"
+                                            <a href="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>"
                                                class="btn btn-sm btn-danger" title="Clear"
                                                data-confirm="Are you sure you want to clear this log?">Clear</a>
-                                            <a href="<?php echo $sURL; ?>Logs/raw?file=<?php echo htmlspecialchars($stat['name']); ?>"
+                                            <a href="<?php echo adminUrl('Logs/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
                                                class="btn btn-sm btn-secondary" title="Raw View" target="_blank">Raw</a>
                                         </div>
                                     </td>

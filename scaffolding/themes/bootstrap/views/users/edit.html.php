@@ -17,7 +17,7 @@ $u = $this->user ?? [];
     <?php endif; ?>
     <div class="card">
         <div class="card-body">
-            <form method="post" action="<?php echo sURL; ?>Users/save">
+            <form method="post" action="<?php echo adminUrl('Users/save'); ?>">
                 <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="userid" value="<?php echo (int)($u['userid'] ?? 0); ?>">
@@ -67,10 +67,10 @@ $u = $this->user ?? [];
                 </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo sURL; ?>users" class="btn btn-outline-secondary">Cancel</a>
+                    <a href="<?php echo adminUrl('users'); ?>" class="btn btn-outline-secondary">Cancel</a>
                     <?php if (!$this->isNew): ?>
-                        <a href="<?php echo sURL; ?>Tokens/userid/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-info ms-auto">Tokens</a>
-                        <a href="<?php echo sURL; ?>users/sessions/<?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-secondary">Sessions</a>
+                        <a href="<?php echo adminUrl('Tokens/userid/'); ?><?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-info ms-auto">Tokens</a>
+                        <a href="<?php echo adminUrl('users/sessions/'); ?><?php echo (int)($u['userid'] ?? 0); ?>" class="btn btn-outline-secondary">Sessions</a>
                     <?php endif; ?>
                 </div>
             </form>

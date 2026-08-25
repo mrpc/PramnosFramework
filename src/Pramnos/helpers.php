@@ -221,3 +221,28 @@ if (!function_exists("getUrl")) {
     }
 
 }
+if (!function_exists('adminUrl')) {
+    /**
+     * A URL inside the administration area.
+     *
+     * ```php
+     * <a href="<?php echo adminUrl('Users/edit/5'); ?>">Edit</a>
+     * ```
+     *
+     * A view that belongs to the admin area cannot use a bare `sURL . 'Users'`:
+     * inside the area that link leaves it, so every table row, every "back" link
+     * and every pagination control dropped the visitor onto the public copy of the
+     * page with a different layout and no sidebar.
+     *
+     * With no area configured this is exactly `sURL . $path`, so the same view
+     * serves an application that has one and an application that does not.
+     *
+     * @param  string $path Path relative to the area, e.g. `Users/edit/5`
+     * @return string Absolute URL
+     * @see \Pramnos\Http\AdminArea::url()
+     */
+    function adminUrl(string $path = ''): string
+    {
+        return \Pramnos\Http\AdminArea::url($path);
+    }
+}

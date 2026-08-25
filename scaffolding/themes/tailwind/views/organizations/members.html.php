@@ -9,13 +9,13 @@
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>Organizations" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
+        <a href="<?php echo adminUrl('Organizations'); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Members — <?php echo htmlspecialchars($this->org['name'] ?? ''); ?></h2>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">
         <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Add Member</div>
         <div class="p-5">
-            <form method="post" action="<?php echo sURL; ?>Organizations/addmember/<?php echo (int)($this->org['id'] ?? 0); ?>" class="flex gap-2">
+            <form method="post" action="<?php echo adminUrl('Organizations/addmember/'); ?><?php echo (int)($this->org['id'] ?? 0); ?>" class="flex gap-2">
                 <input type="number" name="userid" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm" placeholder="User ID" required style="max-width:180px">
                 <button type="submit" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-sm hover:bg-green-700">Add</button>
             </form>
@@ -34,7 +34,7 @@
                         <td><?php echo htmlspecialchars($m['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($m['email'] ?? ''); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Organizations/removemember/<?php echo (int)($this->org['id'] ?? 0); ?>/<?php echo (int)$m['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Remove member?">Remove</a>
+                            <a href="<?php echo adminUrl('Organizations/removemember/'); ?><?php echo (int)($this->org['id'] ?? 0); ?>/<?php echo (int)$m['userid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Remove member?">Remove</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

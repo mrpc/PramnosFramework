@@ -692,15 +692,38 @@ going. A signed-in user below the floor is sent to the site root instead —
 showing them a login form they are already past reads as a broken session, and
 they retype their password rather than understanding they lack the privilege.
 
+### Links inside the area
+
+A view inside the area **cannot** link with a bare `sURL`:
+
+```php
+<a href="<?php echo sURL; ?>Users/edit/5">Edit</a>       <!-- leaves the area -->
+<a href="<?php echo adminUrl('Users/edit/5'); ?>">Edit</a>  <!-- stays in it -->
+```
+
+The first one reaches the same controller with the *site* layout — no sidebar, no
+admin chrome — which is a confusing way to lose somebody mid-task. Every table
+row, "back" link and pagination control in the bundled admin views goes through
+`adminUrl()` for that reason, and there is a test that walks all three themes
+looking for the bare form.
+
+With no area configured `adminUrl('Users')` is exactly `sURL . 'Users'`, so one
+view serves an application that has an area and one that does not.
+
+**User-facing links stay bare on purpose.** An administrator clicking "My account"
+wants the public account page, not an admin-framed copy of it, so `account`,
+`login`, `register`, `Passkey` and `TwoFactorAuth` are addressed with `sURL`.
+
 ### Navigation
 
 Admin `NavItem`s point into the area automatically, from anywhere — including the
 public site header, which shows the same section. With no area configured they
-are plain application URLs, as before. To build one yourself:
+are plain application URLs, as before. The underlying calls:
 
 ```php
-\Pramnos\Http\AdminArea::url('Users');   // …/admin/Users, or …/Users with no area
-\Pramnos\Http\AdminArea::isActive();     // is this request inside it?
+adminUrl('Users');                       // the helper the views use
+\Pramnos\Http\AdminArea::url('Users');   // what it delegates to
+\Pramnos\Http\AdminArea::isActive();     // is this request inside the area?
 ```
 
 ### One thing to know

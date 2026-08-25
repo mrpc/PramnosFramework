@@ -13,8 +13,8 @@
             <small class="text-muted">All key-value pairs stored in the settings table.</small>
         </div>
         <div class="d-flex gap-2">
-            <a href="<?php echo sURL; ?>settings/edit" class="btn btn-primary btn-sm">+ New Setting</a>
-            <a href="<?php echo sURL; ?>settings" class="btn btn-outline-secondary btn-sm">System Settings</a>
+            <a href="<?php echo adminUrl('settings/edit'); ?>" class="btn btn-primary btn-sm">+ New Setting</a>
+            <a href="<?php echo adminUrl('settings'); ?>" class="btn btn-outline-secondary btn-sm">System Settings</a>
         </div>
     </div>
     <div class="card">
@@ -34,8 +34,8 @@
                         <td class="text-truncate" style="max-width:360px"><?php echo htmlspecialchars($row['value'] ?? ''); ?></td>
                         <td class="text-end">
                             <?php if (!($row['readonly'] ?? false)): ?>
-                                <a href="<?php echo sURL; ?>settings/edit/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                                <a href="<?php echo sURL; ?>settings/delete/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
+                                <a href="<?php echo adminUrl('settings/edit/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                <a href="<?php echo adminUrl('settings/delete/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
                                    data-confirm="Delete setting <?php echo htmlspecialchars($row['key'] ?? '', ENT_QUOTES, 'UTF-8'); ?>?">Delete</a>
                             <?php else: ?>
                                 <span class="badge bg-secondary">Read-only</span>

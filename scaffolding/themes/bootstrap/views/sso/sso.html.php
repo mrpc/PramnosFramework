@@ -34,7 +34,7 @@
                     </ul>
                 <?php endif; ?>
 
-                <a href="<?php echo sURL; ?>Dashboard" class="btn btn-primary me-2">Dashboard</a>
+                <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn btn-primary me-2">Dashboard</a>
                 <a href="<?php echo sURL; ?>login/logout" class="btn btn-outline-danger">Sign Out</a>
             <?php else: ?>
                 <div class="alert alert-secondary">

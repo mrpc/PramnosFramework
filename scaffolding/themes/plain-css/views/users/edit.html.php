@@ -18,7 +18,7 @@ $this->activeNav = 'users_edit';
     <?php endif; ?>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px">
-            <form method="post" action="<?php echo sURL; ?>Users/save">
+            <form method="post" action="<?php echo adminUrl('Users/save'); ?>">
                 <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="userid" value="<?php echo (int)($u['userid'] ?? 0); ?>">
@@ -68,7 +68,7 @@ $this->activeNav = 'users_edit';
                 </div>
                 <div style="display:flex;gap:8px">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo sURL; ?>Users" class="btn btn-outline-secondary">Cancel</a>
+                    <a href="<?php echo adminUrl('Users'); ?>" class="btn btn-outline-secondary">Cancel</a>
                 </div>
             </form>
         </div>

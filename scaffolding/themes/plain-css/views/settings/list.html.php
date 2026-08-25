@@ -13,8 +13,8 @@
             <small style="color:#888">All key-value pairs stored in the settings table.</small>
         </div>
         <div style="display:flex;gap:8px">
-            <a href="<?php echo sURL; ?>settings/edit" class="btn btn-primary">+ New Setting</a>
-            <a href="<?php echo sURL; ?>settings" class="btn btn-outline-secondary">System Settings</a>
+            <a href="<?php echo adminUrl('settings/edit'); ?>" class="btn btn-primary">+ New Setting</a>
+            <a href="<?php echo adminUrl('settings'); ?>" class="btn btn-outline-secondary">System Settings</a>
         </div>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
@@ -34,8 +34,8 @@
                         <td style="padding:8px 12px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:13px"><?php echo htmlspecialchars($row['value'] ?? ''); ?></td>
                         <td style="padding:8px 12px;text-align:right">
                             <?php if (!($row['readonly'] ?? false)): ?>
-                                <a href="<?php echo sURL; ?>settings/edit/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                                <a href="<?php echo sURL; ?>settings/delete/<?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
+                                <a href="<?php echo adminUrl('settings/edit/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                <a href="<?php echo adminUrl('settings/delete/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
                                    data-confirm="Delete this setting?">Delete</a>
                             <?php else: ?>
                                 <span style="font-size:11px;color:#888">Read-only</span>

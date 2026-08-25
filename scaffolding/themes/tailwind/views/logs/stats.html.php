@@ -37,7 +37,7 @@ $sURL = defined('sURL') ? sURL : '';
                         <?php foreach ($this->stats as $stat): ?>
                             <tr class="hover:bg-gray-50">
                                 <td class="px-3 py-2">
-                                    <a class="text-blue-600 hover:underline" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($stat['name']); ?>">
+                                    <a class="text-blue-600 hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>">
                                         <?php echo htmlspecialchars($stat['name']); ?>
                                     </a>
                                 </td>
@@ -60,12 +60,12 @@ $sURL = defined('sURL') ? sURL : '';
                                 <td class="px-3 py-2 text-gray-700"><?php echo htmlspecialchars($stat['modified_formatted']); ?></td>
                                 <td class="px-3 py-2">
                                     <div class="flex gap-1">
-                                        <a href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($stat['name']); ?>"
+                                        <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
                                            class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white text-xs" title="View">View</a>
-                                        <a href="<?php echo $sURL; ?>Logs/clearFile/<?php echo htmlspecialchars($stat['name']); ?>"
+                                        <a href="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>"
                                            class="px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-xs" title="Clear"
                                            data-confirm="Are you sure you want to clear this log?">Clear</a>
-                                        <a href="<?php echo $sURL; ?>Logs/raw?file=<?php echo htmlspecialchars($stat['name']); ?>"
+                                        <a href="<?php echo adminUrl('Logs/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
                                            class="px-2 py-1 rounded bg-gray-600 hover:bg-gray-700 text-white text-xs" title="Raw View" target="_blank">Raw</a>
                                     </div>
                                 </td>

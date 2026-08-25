@@ -16,7 +16,7 @@
     <?php endif; ?>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div class="p-5">
-            <form method="post" action="<?php echo sURL; ?>settings/save">
+            <form method="post" action="<?php echo adminUrl('settings/save'); ?>">
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="original_key" value="<?php echo htmlspecialchars($this->key ?? ''); ?>">
                 <?php endif; ?>
@@ -32,7 +32,7 @@
                 </div>
                 <div class="flex gap-2">
                     <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Save</button>
-                    <a href="<?php echo sURL; ?>settings/list" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
+                    <a href="<?php echo adminUrl('settings/list'); ?>" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
                 </div>
             </form>
         </div>

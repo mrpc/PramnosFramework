@@ -38,7 +38,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-semibold">System Settings</h2>
-        <a href="<?php echo sURL; ?>settings/list" class="<?php echo $btnSec; ?>">Advanced / Raw</a>
+        <a href="<?php echo adminUrl('settings/list'); ?>" class="<?php echo $btnSec; ?>">Advanced / Raw</a>
     </div>
 
     <?php if (!empty($this->success)): ?>
@@ -52,7 +52,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
         </div>
     <?php endif; ?>
 
-    <form method="post" action="<?php echo sURL; ?>settings/saveSystem" id="settingsForm">
+    <form method="post" action="<?php echo adminUrl('settings/saveSystem'); ?>" id="settingsForm">
         <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
 
         <!-- Tab nav -->
@@ -187,7 +187,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
 
         <div class="flex gap-3 mt-2">
             <button type="submit" class="<?php echo $btnPri; ?>">Save Settings</button>
-            <a href="<?php echo sURL; ?>settings/list" class="<?php echo $btnSec; ?>">Advanced / Raw Settings</a>
+            <a href="<?php echo adminUrl('settings/list'); ?>" class="<?php echo $btnSec; ?>">Advanced / Raw Settings</a>
         </div>
     </form>
 </div>

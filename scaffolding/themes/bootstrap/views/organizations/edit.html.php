@@ -12,7 +12,7 @@ $isNew = empty($org['organization_id']);
     <h2 class="mb-4"><?php echo $isNew ? 'New Organization' : 'Edit Organization'; ?></h2>
     <div class="card">
         <div class="card-body">
-            <form method="post" action="<?php echo sURL; ?>Organizations/save">
+            <form method="post" action="<?php echo adminUrl('Organizations/save'); ?>">
                 <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$isNew): ?>
                     <input type="hidden" name="organization_id" value="<?php echo (int)$org['organization_id']; ?>">
@@ -27,7 +27,7 @@ $isNew = empty($org['organization_id']);
                 </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo sURL; ?>Organizations" class="btn btn-outline-secondary">Cancel</a>
+                    <a href="<?php echo adminUrl('Organizations'); ?>" class="btn btn-outline-secondary">Cancel</a>
                 </div>
             </form>
         </div>

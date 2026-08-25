@@ -16,7 +16,7 @@
     <?php endif; ?>
     <div class="card">
         <div class="card-body">
-            <form method="post" action="<?php echo sURL; ?>settings/save">
+            <form method="post" action="<?php echo adminUrl('settings/save'); ?>">
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="original_key" value="<?php echo htmlspecialchars($this->key ?? ''); ?>">
                 <?php endif; ?>
@@ -32,7 +32,7 @@
                 </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo sURL; ?>settings/list" class="btn btn-outline-secondary">Cancel</a>
+                    <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary">Cancel</a>
                 </div>
             </form>
         </div>

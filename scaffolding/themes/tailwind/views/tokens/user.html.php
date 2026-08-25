@@ -59,13 +59,13 @@ $statusBadge = function (int $s): string {
                     </td>
                     <td class="px-4 py-2 text-right flex gap-1 justify-end">
                         <?php if ($status === 1): ?>
-                            <form method="post" action="<?php echo sURL; ?>Tokens/deactivate">
+                            <form method="post" action="<?php echo adminUrl('Tokens/deactivate'); ?>">
                                 <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                 <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                                 <button type="submit" class="px-2 py-1 text-xs border border-yellow-400 text-yellow-700 rounded-sm hover:bg-yellow-50">Deactivate</button>
                             </form>
                         <?php endif; ?>
-                        <form method="post" action="<?php echo sURL; ?>Tokens/delete">
+                        <form method="post" action="<?php echo adminUrl('Tokens/delete'); ?>">
                             <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                             <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                             <button type="submit" class="px-2 py-1 text-xs border border-red-300 text-red-700 rounded-sm hover:bg-red-50"

@@ -29,7 +29,7 @@ function viewCacheItem(key) {
     document.getElementById('cc-detail-key').textContent = key;
     document.getElementById('cc-detail-body').innerHTML = '<p class="text-center text-gray-400 py-4">Loading…</p>';
     document.getElementById('cc-detail-modal').style.display = 'block';
-    fetch('<?php echo sURL; ?>dashboard/cacheitem?key=' + encodeURIComponent(key))
+    fetch('<?php echo adminUrl('dashboard/cacheitem'); ?>?key=' + encodeURIComponent(key))
         .then(function(r){ return r.json(); })
         .then(function(data) {
             if (!data.success) {
@@ -58,7 +58,7 @@ function clearAllCache() {
     if (!confirm('Clear all cache entries? This cannot be undone.')) return;
     var btn = document.getElementById('clearCacheBtn');
     btn.disabled = true; btn.textContent = 'Clearing…';
-    fetch('<?php echo sURL; ?>dashboard/clearcache', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    fetch('<?php echo adminUrl('dashboard/clearcache'); ?>', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
         .then(function(r){ return r.json(); })
         .then(function(d) {
             if (d.success) location.reload();
@@ -83,7 +83,7 @@ document.addEventListener('click', function(e) {
     <!-- Header -->
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div class="flex flex-wrap items-center gap-3">
-            <a href="<?php echo sURL; ?>dashboard" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
+            <a href="<?php echo adminUrl('dashboard'); ?>" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
             <h2 class="mb-0">Cache Details</h2>
             <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-200 text-gray-700">
                 <?php echo htmlspecialchars(strtoupper($method), ENT_QUOTES, 'UTF-8'); ?>

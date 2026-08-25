@@ -17,7 +17,7 @@
     <?php endif; ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Organizations</h2>
-        <a href="<?php echo sURL; ?>Organizations/edit" class="btn btn-primary">+ New Organization</a>
+        <a href="<?php echo adminUrl('Organizations/edit'); ?>" class="btn btn-primary">+ New Organization</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

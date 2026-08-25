@@ -9,7 +9,7 @@
 ?>
 <div class="page-section">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <a href="<?php echo sURL; ?>Applications" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+        <a href="<?php echo adminUrl('Applications'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
         <h2 >Tokens — <?php echo htmlspecialchars($this->app['name'] ?? ''); ?></h2>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
@@ -27,7 +27,7 @@
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($tok['lastused'] ?? ''); ?></td>
                         <td style="color:#888;font-size:0.8em"><?php echo !empty($tok['expires']) ? htmlspecialchars($tok['expires']) : '—'; ?></td>
                         <td style="text-align:right">
-                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</a>
+                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

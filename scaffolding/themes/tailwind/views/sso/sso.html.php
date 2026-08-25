@@ -33,7 +33,7 @@
         <?php endif; ?>
 
         <div class="flex gap-3">
-            <a href="<?php echo sURL; ?>Dashboard" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-md transition-colors">Dashboard</a>
+            <a href="<?php echo adminUrl('Dashboard'); ?>" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-md transition-colors">Dashboard</a>
             <a href="<?php echo sURL; ?>login/logout" class="border border-red-500 text-red-600 hover:bg-red-50 font-medium py-2 px-5 rounded-md transition-colors">Sign Out</a>
         </div>
     <?php else: ?>

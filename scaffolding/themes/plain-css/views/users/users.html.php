@@ -19,7 +19,7 @@ $this->activeNav = 'users';
     <?php endif; ?>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2>Users</h2>
-        <a href="<?php echo sURL; ?>Users/edit" class="btn btn-primary">+ New User</a>
+        <a href="<?php echo adminUrl('Users/edit'); ?>" class="btn btn-primary">+ New User</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

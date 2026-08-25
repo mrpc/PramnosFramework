@@ -9,7 +9,7 @@ $mail = $this->mail ?? [];
 ?>
 <div class="max-w-4xl mx-auto py-6 px-4">
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>Emails" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
+        <a href="<?php echo adminUrl('Emails'); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Email #<?php echo (int)($mail['id'] ?? 0); ?></h2>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">

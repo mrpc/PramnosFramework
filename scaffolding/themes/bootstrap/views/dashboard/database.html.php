@@ -27,7 +27,7 @@ $fmtBytes = function (int $bytes): string {
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex align-items-center gap-2 mb-4">
-        <a href="<?php echo sURL; ?>dashboard" class="btn btn-sm btn-outline-secondary">&larr; Dashboard</a>
+        <a href="<?php echo adminUrl('dashboard'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Dashboard</a>
         <h2 class="mb-0">Database Details</h2>
         <?php if (!empty($stats['version'])): ?>
             <span class="badge bg-secondary"><?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?></span>

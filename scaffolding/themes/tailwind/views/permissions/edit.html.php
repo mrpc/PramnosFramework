@@ -12,7 +12,7 @@ $isNew = empty($p['id']);
     <h2 class="mb-6"><?php echo $isNew ? 'New Permission' : 'Edit Permission'; ?></h2>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div class="p-5">
-            <form method="post" action="<?php echo sURL; ?>Permissions/save">
+            <form method="post" action="<?php echo adminUrl('Permissions/save'); ?>">
                 <?php if (!$isNew): ?>
                     <input type="hidden" name="id" value="<?php echo (int)$p['id']; ?>">
                 <?php endif; ?>
@@ -51,7 +51,7 @@ $isNew = empty($p['id']);
                 </div>
                 <div class="mt-4 flex gap-2">
                     <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Save</button>
-                    <a href="<?php echo sURL; ?>Permissions" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
+                    <a href="<?php echo adminUrl('Permissions'); ?>" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
                 </div>
             </form>
         </div>

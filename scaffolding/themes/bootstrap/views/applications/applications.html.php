@@ -17,7 +17,7 @@
     <?php endif; ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">OAuth2 Applications</h2>
-        <a href="<?php echo sURL; ?>Applications/edit" class="btn btn-primary">+ New Application</a>
+        <a href="<?php echo adminUrl('Applications/edit'); ?>" class="btn btn-primary">+ New Application</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

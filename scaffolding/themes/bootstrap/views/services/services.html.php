@@ -39,13 +39,13 @@
                         </td>
                         <td class="text-muted small"><?php echo htmlspecialchars($svc['updatedAt'] ?? ''); ?></td>
                         <td class="text-end">
-                            <a href="<?php echo sURL; ?>Services/logs/<?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Logs</a>
+                            <a href="<?php echo adminUrl('Services/logs/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Logs</a>
                             <?php if ($svc['status'] === 'running'): ?>
-                                <a href="<?php echo sURL; ?>Services/stop/<?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-warning">Stop</a>
+                                <a href="<?php echo adminUrl('Services/stop/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-warning">Stop</a>
                             <?php else: ?>
-                                <a href="<?php echo sURL; ?>Services/start/<?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-success">Start</a>
+                                <a href="<?php echo adminUrl('Services/start/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-success">Start</a>
                             <?php endif; ?>
-                            <a href="<?php echo sURL; ?>Services/restart/<?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-danger">Restart</a>
+                            <a href="<?php echo adminUrl('Services/restart/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-sm btn-outline-danger">Restart</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

@@ -36,7 +36,7 @@ ksort($initialSteps, SORT_NUMERIC);
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">System Settings</h2>
-        <a href="<?php echo sURL; ?>settings/list" class="btn btn-outline-secondary btn-sm">Advanced / Raw Settings</a>
+        <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary btn-sm">Advanced / Raw Settings</a>
     </div>
 
     <?php if (!empty($this->success)): ?>
@@ -52,7 +52,7 @@ ksort($initialSteps, SORT_NUMERIC);
         </div>
     <?php endif; ?>
 
-    <form method="post" action="<?php echo sURL; ?>settings/saveSystem" id="settingsForm">
+    <form method="post" action="<?php echo adminUrl('settings/saveSystem'); ?>" id="settingsForm">
         <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
 
         <ul class="nav nav-tabs mb-3" id="settingsTabs" role="tablist">
@@ -226,7 +226,7 @@ ksort($initialSteps, SORT_NUMERIC);
 
         <div class="mt-3 d-flex gap-2">
             <button type="submit" class="btn btn-primary">Save Settings</button>
-            <a href="<?php echo sURL; ?>settings/list" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
+            <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
         </div>
     </form>
 </div>

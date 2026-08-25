@@ -54,7 +54,7 @@ $this->activeNav = 'tokens';
                                 : '<span class="badge bg-secondary">Revoked</span>'; ?>
                         </td>
                         <td style="text-align:right">
-                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</a>
+                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

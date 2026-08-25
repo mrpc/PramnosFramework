@@ -32,7 +32,7 @@
             </ul>
         <?php endif; ?>
 
-        <a href="<?php echo sURL; ?>Dashboard" class="btn">Dashboard</a>
+        <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn">Dashboard</a>
         <a href="<?php echo sURL; ?>login/logout" class="btn" style="margin-left:8px;background:#e74c3c;color:white">Sign Out</a>
     <?php else: ?>
         <div class="alert" style="background:#f5f5f5;border:1px solid #ddd;padding:12px 16px;border-radius:4px;margin-bottom:16px">

@@ -11,7 +11,7 @@
 <div class="page-section">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 >Permissions</h2>
-        <a href="<?php echo sURL; ?>Permissions/edit" class="btn btn-primary">+ New Permission</a>
+        <a href="<?php echo adminUrl('Permissions/edit'); ?>" class="btn btn-primary">+ New Permission</a>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px" style="padding:0">
@@ -35,8 +35,8 @@
                                 : '<span class="badge bg-danger">Deny</span>'; ?>
                         </td>
                         <td style="text-align:right">
-                            <a href="<?php echo sURL; ?>Permissions/edit/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo sURL; ?>Permissions/delete/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['id'])); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['id'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

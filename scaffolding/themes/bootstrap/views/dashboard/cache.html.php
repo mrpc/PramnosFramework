@@ -63,7 +63,7 @@ function viewCacheItem(key) {
     document.getElementById('cache-detail-content').innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Loading…</div>';
     document.getElementById('cache-detail-modal').style.display = 'block';
 
-    fetch('<?php echo sURL; ?>dashboard/cacheitem?key=' + encodeURIComponent(key))
+    fetch('<?php echo adminUrl('dashboard/cacheitem'); ?>?key=' + encodeURIComponent(key))
         .then(function(r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
@@ -104,7 +104,7 @@ function clearAllCache() {
     var btn = document.getElementById('clearAllCacheBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Clearing…';
-    fetch('<?php echo sURL; ?>dashboard/clearcache', {
+    fetch('<?php echo adminUrl('dashboard/clearcache'); ?>', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: '{}'
@@ -138,7 +138,7 @@ document.addEventListener('click', function(e) {
     <!-- Header -->
     <div class="d-flex align-items-center justify-content-between gap-2 mb-4 flex-wrap">
         <div class="d-flex align-items-center gap-2">
-            <a href="<?php echo sURL; ?>dashboard" class="btn btn-sm btn-outline-secondary">&larr; Dashboard</a>
+            <a href="<?php echo adminUrl('dashboard'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Dashboard</a>
             <h2 class="mb-0">Cache Details</h2>
             <span class="badge bg-<?php echo $methodBadge; ?> <?php echo $method === 'memcached' ? 'text-dark' : ''; ?>">
                 <?php echo htmlspecialchars(strtoupper($method), ENT_QUOTES, 'UTF-8'); ?>

@@ -14,8 +14,8 @@ $this->activeNav = 'tokenactions';
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 >API Audit Log</h2>
         <div style="display:flex;gap:8px">
-            <button type="button" class="btn btn-outline-info btn-sm" data-stats-open data-stats-url="<?php echo sURL; ?>TokenActions/stats">Stats</button>
-            <a href="<?php echo sURL; ?>TokenActions/export<?php echo !empty($_SERVER['QUERY_STRING']) ? '?' . htmlspecialchars($_SERVER['QUERY_STRING']) : ''; ?>" class="btn btn-outline-secondary btn-sm">Export CSV</a>
+            <button type="button" class="btn btn-outline-info btn-sm" data-stats-open data-stats-url="<?php echo adminUrl('TokenActions/stats'); ?>">Stats</button>
+            <a href="<?php echo adminUrl('TokenActions/export'); ?><?php echo !empty($_SERVER['QUERY_STRING']) ? '?' . htmlspecialchars($_SERVER['QUERY_STRING']) : ''; ?>" class="btn btn-outline-secondary btn-sm">Export CSV</a>
         </div>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
@@ -70,7 +70,7 @@ $this->activeNav = 'tokenactions';
                             $st = (int)($a['servertime'] ?? 0);
                             echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i', $st)) : '—';
                         ?></td>
-                        <td><a href="<?php echo sURL; ?>TokenActions/show/<?php echo (int)$a['actionid']; ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
+                        <td><a href="<?php echo adminUrl('TokenActions' . '/show/' . ((int)$a['actionid'])); ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->actions)): ?>

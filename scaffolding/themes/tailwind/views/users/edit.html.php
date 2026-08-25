@@ -17,7 +17,7 @@ $u = $this->user ?? [];
     <?php endif; ?>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200">
         <div class="p-5">
-            <form method="post" action="<?php echo sURL; ?>Users/save">
+            <form method="post" action="<?php echo adminUrl('Users/save'); ?>">
                 <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="userid" value="<?php echo (int)($u['userid'] ?? 0); ?>">
@@ -67,7 +67,7 @@ $u = $this->user ?? [];
                 </div>
                 <div class="flex gap-2">
                     <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Save</button>
-                    <a href="<?php echo sURL; ?>Users" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
+                    <a href="<?php echo adminUrl('Users'); ?>" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
                 </div>
             </form>
         </div>

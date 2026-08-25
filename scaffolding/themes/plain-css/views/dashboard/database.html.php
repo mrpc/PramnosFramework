@@ -44,7 +44,7 @@ $card = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hid
 
 <div class="page-section" style="padding:16px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-        <a href="<?php echo sURL; ?>dashboard" style="font-size:.85rem">&larr; Dashboard</a>
+        <a href="<?php echo adminUrl('dashboard'); ?>" style="font-size:.85rem">&larr; Dashboard</a>
         <h2 style="margin:0">Database Details</h2>
         <?php if (!empty($stats['version'])): ?>
             <span class="db-badge db-badge-secondary"><?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?></span>

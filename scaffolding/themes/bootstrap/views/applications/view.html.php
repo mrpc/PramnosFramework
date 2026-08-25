@@ -29,7 +29,7 @@ $accessTypeLabel = function (int $t): string {
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex align-items-center gap-2 mb-4">
-        <a href="<?php echo sURL; ?>applications" class="btn btn-sm btn-outline-secondary">&larr; Applications</a>
+        <a href="<?php echo adminUrl('applications'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Applications</a>
         <h2 class="mb-0"><?php echo htmlspecialchars($app['name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
         <span class="badge bg-<?php echo $statusBadge; ?>"><?php echo $statusLabel; ?></span>
     </div>
@@ -66,7 +66,7 @@ $accessTypeLabel = function (int $t): string {
                 <div class="list-group list-group-flush small">
                     <div class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">Total Tokens</span>
-                        <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>" class="fw-semibold text-decoration-none">
+                        <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="fw-semibold text-decoration-none">
                             <?php echo (int) ($tokenStats['total'] ?? 0); ?>
                         </a>
                     </div>
@@ -84,12 +84,12 @@ $accessTypeLabel = function (int $t): string {
             <div class="card">
                 <div class="card-header fw-semibold small text-uppercase text-muted">Actions</div>
                 <div class="card-body d-grid gap-2">
-                    <a href="<?php echo sURL; ?>applications/edit/<?php echo $appId; ?>" class="btn btn-primary btn-sm">Edit Application</a>
-                    <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>" class="btn btn-outline-secondary btn-sm">View Tokens</a>
-                    <a href="<?php echo sURL; ?>applications/rotate/<?php echo $appId; ?>"
+                    <a href="<?php echo adminUrl('applications' . '/edit/' . ($appId)); ?>" class="btn btn-primary btn-sm">Edit Application</a>
+                    <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="btn btn-outline-secondary btn-sm">View Tokens</a>
+                    <a href="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>"
                        class="btn btn-outline-warning btn-sm"
                        data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
-                    <a href="<?php echo sURL; ?>applications/delete/<?php echo $appId; ?>"
+                    <a href="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>"
                        class="btn btn-outline-danger btn-sm"
                        data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
@@ -178,7 +178,7 @@ $accessTypeLabel = function (int $t): string {
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="fw-semibold">Recent Users</span>
-                    <a href="<?php echo sURL; ?>applications/tokens/<?php echo $appId; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
+                    <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
                 </div>
                 <div class="card-body p-0">
                     <table class="table table-sm table-hover align-middle mb-0">
@@ -189,7 +189,7 @@ $accessTypeLabel = function (int $t): string {
                         <?php foreach ($lastUsers as $u): ?>
                             <tr>
                                 <td>
-                                    <a href="<?php echo sURL; ?>users/view/<?php echo (int) ($u['userid'] ?? 0); ?>" class="text-decoration-none">
+                                    <a href="<?php echo adminUrl('users/view/'); ?><?php echo (int) ($u['userid'] ?? 0); ?>" class="text-decoration-none">
                                         <?php echo htmlspecialchars($u['username'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                                     </a>
                                 </td>

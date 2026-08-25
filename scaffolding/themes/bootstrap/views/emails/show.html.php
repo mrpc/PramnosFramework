@@ -9,7 +9,7 @@ $mail = $this->mail ?? [];
 ?>
 <div class="container py-4" style="max-width:860px">
     <div class="d-flex align-items-center gap-3 mb-3">
-        <a href="<?php echo sURL; ?>Emails" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+        <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
         <h2 class="mb-0">Email #<?php echo (int)($mail['id'] ?? 0); ?></h2>
     </div>
     <div class="card mb-3">

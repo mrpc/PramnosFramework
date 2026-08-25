@@ -13,8 +13,8 @@
     <div class="flex justify-between items-center mb-4">
         <h2 >API Audit Log</h2>
         <div class="flex gap-2">
-            <button type="button" class="btn btn-outline-info btn-sm" data-stats-open data-stats-url="<?php echo sURL; ?>TokenActions/stats">Stats</button>
-            <a href="<?php echo sURL; ?>TokenActions/export<?php echo !empty($_SERVER['QUERY_STRING']) ? '?' . htmlspecialchars($_SERVER['QUERY_STRING']) : ''; ?>" class="btn btn-outline-secondary btn-sm">Export CSV</a>
+            <button type="button" class="px-3 py-1.5 border border-sky-400 text-sky-700 text-sm rounded-sm hover:bg-sky-50" data-stats-open data-stats-url="<?php echo adminUrl('TokenActions/stats'); ?>">Stats</button>
+            <a href="<?php echo adminUrl('TokenActions/export'); ?><?php echo !empty($_SERVER['QUERY_STRING']) ? '?' . htmlspecialchars($_SERVER['QUERY_STRING']) : ''; ?>" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Export CSV</a>
         </div>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">
@@ -75,7 +75,7 @@
                             $st = (int)($a['servertime'] ?? 0);
                             echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i', $st)) : '—';
                         ?></td>
-                        <td><a href="<?php echo sURL; ?>TokenActions/show/<?php echo (int)$a['actionid']; ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">View</a></td>
+                        <td><a href="<?php echo adminUrl('TokenActions' . '/show/' . ((int)$a['actionid'])); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">View</a></td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->actions)): ?>
@@ -94,7 +94,7 @@
     <div style="max-width:720px;margin:5vh auto;background:#fff;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:90vh;overflow:auto">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #eee">
             <h3 style="margin:0;font-size:18px">API Performance (last 24h)</h3>
-            <button type="button" class="btn btn-sm btn-outline-secondary" data-stats-close>&times; Close</button>
+            <button type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50" data-stats-close>&times; Close</button>
         </div>
         <div id="pf-stats-body" style="padding:18px">
             <p style="color:#888">Loading…</p>

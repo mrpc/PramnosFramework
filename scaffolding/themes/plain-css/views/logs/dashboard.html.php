@@ -25,7 +25,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         <h2 style="margin:0">Logs Dashboard</h2>
         <div style="display:inline-flex;border:1px solid #eee;border-radius:6px;overflow:hidden">
             <?php foreach ($spans as $key => $label): ?>
-                <a href="<?php echo $sURL; ?>Logs/dashboard?timespan=<?php echo $key; ?>"
+                <a href="<?php echo adminUrl('Logs/dashboard'); ?>?timespan=<?php echo $key; ?>"
                    style="padding:6px 12px;font-size:14px;text-decoration:none;<?php echo $this->timespan === $key ? 'background:#2563eb;color:#fff' : 'background:#fff;color:#555'; ?>">
                     <?php echo $label; ?>
                 </a>
@@ -83,7 +83,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                                     <span class="badge badge-danger"><?php echo (int) $error['count']; ?></span>
                                 </td>
                                 <td style="padding:8px 12px">
-                                    <a style="color:#2563eb" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($error['file']); ?>">
+                                    <a style="color:#2563eb" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
                                         <?php echo htmlspecialchars($error['file']); ?>
                                     </a>
                                 </td>
@@ -109,7 +109,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                             <?php echo strtoupper(substr($file, 0, 1)); ?>
                         </span>
                         <div>
-                            <a style="font-weight:500;color:#333" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($file); ?>">
+                            <a style="font-weight:500;color:#333" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($file))); ?>">
                                 <?php echo htmlspecialchars($file); ?>
                             </a>
                             <div style="font-size:12px;color:#aaa">

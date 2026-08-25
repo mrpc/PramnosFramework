@@ -32,7 +32,7 @@ ksort($initialSteps, SORT_NUMERIC);
 <div class="page-section">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <h2>System Settings</h2>
-        <a href="<?php echo sURL; ?>settings/list" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
+        <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
     </div>
 
     <?php if (!empty($this->success)): ?>
@@ -42,7 +42,7 @@ ksort($initialSteps, SORT_NUMERIC);
         <div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px 16px;border-radius:4px;margin-bottom:12px;color:#856404"><?php echo htmlspecialchars($this->warning); ?></div>
     <?php endif; ?>
 
-    <form method="post" action="<?php echo sURL; ?>settings/saveSystem" id="settingsForm">
+    <form method="post" action="<?php echo adminUrl('settings/saveSystem'); ?>" id="settingsForm">
         <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
 
         <!-- Tab nav -->
@@ -200,7 +200,7 @@ ksort($initialSteps, SORT_NUMERIC);
 
         <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary">Save Settings</button>
-            <a href="<?php echo sURL; ?>settings/list" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
+            <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
         </div>
     </form>
 </div>

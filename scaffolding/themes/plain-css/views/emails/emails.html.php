@@ -30,9 +30,9 @@ $statusLabel = fn($s) => match((int)$s) {
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
                         <td><?php echo $statusLabel($mail['status'] ?? 0); ?></td>
                         <td style="text-align:right">
-                            <a href="<?php echo sURL; ?>Emails/show/<?php echo (int)$mail['id']; ?>" class="btn btn-sm btn-outline-secondary">View</a>
+                            <a href="<?php echo adminUrl('Emails' . '/show/' . ((int)$mail['id'])); ?>" class="btn btn-sm btn-outline-secondary">View</a>
                             <?php if ((int)($mail['status'] ?? 0) === 0): ?>
-                                <a href="<?php echo sURL; ?>Emails/resend/<?php echo (int)$mail['id']; ?>" class="btn btn-sm btn-outline-primary">Resend</a>
+                                <a href="<?php echo adminUrl('Emails' . '/resend/' . ((int)$mail['id'])); ?>" class="btn btn-sm btn-outline-primary">Resend</a>
                             <?php endif; ?>
                         </td>
                     </tr>

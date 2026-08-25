@@ -17,7 +17,7 @@
     <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
         <h2>OAuth2 Applications</h2>
-        <a href="<?php echo sURL; ?>Applications/edit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New Application</a>
+        <a href="<?php echo adminUrl('Applications/edit'); ?>" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New Application</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

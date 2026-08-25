@@ -30,7 +30,7 @@ $fmtBytes = function (int $bytes): string {
 </style>
 <div class="px-4 py-6">
     <div class="flex flex-wrap items-center gap-3 mb-6">
-        <a href="<?php echo sURL; ?>dashboard" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
+        <a href="<?php echo adminUrl('dashboard'); ?>" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
         <h2 class="mb-0">Database Details</h2>
         <?php if (!empty($stats['version'])): ?>
             <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-200 text-gray-700">

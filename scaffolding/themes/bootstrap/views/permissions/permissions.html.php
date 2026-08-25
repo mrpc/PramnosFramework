@@ -11,7 +11,7 @@
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Permissions</h2>
-        <a href="<?php echo sURL; ?>Permissions/edit" class="btn btn-primary">+ New Permission</a>
+        <a href="<?php echo adminUrl('Permissions/edit'); ?>" class="btn btn-primary">+ New Permission</a>
     </div>
     <div class="card">
         <div class="card-body p-0">
@@ -35,8 +35,8 @@
                                 : '<span class="badge bg-danger">Deny</span>'; ?>
                         </td>
                         <td class="text-end">
-                            <a href="<?php echo sURL; ?>Permissions/edit/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo sURL; ?>Permissions/delete/<?php echo (int)$p['id']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['id'])); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['id'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

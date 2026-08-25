@@ -9,7 +9,7 @@
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>Applications" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
+        <a href="<?php echo adminUrl('Applications'); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Tokens — <?php echo htmlspecialchars($this->app['name'] ?? ''); ?></h2>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200">
@@ -27,7 +27,7 @@
                         <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($tok['lastused'] ?? ''); ?></td>
                         <td class="text-gray-400 text-xs"><?php echo !empty($tok['expires']) ? htmlspecialchars($tok['expires']) : '—'; ?></td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Tokens/revoke/<?php echo (int)$tok['tokenid']; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Revoke token?">Revoke</a>
+                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Revoke token?">Revoke</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

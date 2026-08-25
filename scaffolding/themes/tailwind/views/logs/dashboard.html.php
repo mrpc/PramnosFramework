@@ -25,7 +25,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         <h2 class="text-2xl font-bold text-gray-800">Logs Dashboard</h2>
         <div class="inline-flex rounded-md shadow-sm overflow-hidden border border-gray-200">
             <?php foreach ($spans as $key => $label): ?>
-                <a href="<?php echo $sURL; ?>Logs/dashboard?timespan=<?php echo $key; ?>"
+                <a href="<?php echo adminUrl('Logs/dashboard'); ?>?timespan=<?php echo $key; ?>"
                    class="px-3 py-1.5 text-sm <?php echo $this->timespan === $key ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'; ?>">
                     <?php echo $label; ?>
                 </a>
@@ -78,7 +78,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800"><?php echo (int) $error['count']; ?></span>
                                 </td>
                                 <td class="px-3 py-2">
-                                    <a class="text-blue-600 hover:underline" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($error['file']); ?>">
+                                    <a class="text-blue-600 hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
                                         <?php echo htmlspecialchars($error['file']); ?>
                                     </a>
                                 </td>
@@ -102,7 +102,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                             <?php echo strtoupper(substr($file, 0, 1)); ?>
                         </span>
                         <div>
-                            <a class="font-medium text-gray-800 hover:underline" href="<?php echo $sURL; ?>Logs/viewer/<?php echo htmlspecialchars($file); ?>">
+                            <a class="font-medium text-gray-800 hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($file))); ?>">
                                 <?php echo htmlspecialchars($file); ?>
                             </a>
                             <div class="text-xs text-gray-400">

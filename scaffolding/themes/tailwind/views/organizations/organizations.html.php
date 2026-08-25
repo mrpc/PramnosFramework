@@ -17,7 +17,7 @@
     <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
         <h2>Organizations</h2>
-        <a href="<?php echo sURL; ?>Organizations/edit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New Organization</a>
+        <a href="<?php echo adminUrl('Organizations/edit'); ?>" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New Organization</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

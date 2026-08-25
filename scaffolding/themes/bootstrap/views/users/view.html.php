@@ -70,7 +70,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <div class="list-group list-group-flush small">
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <span class="text-muted">Tokens</span>
-                        <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="fw-semibold text-decoration-none">
+                        <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="fw-semibold text-decoration-none">
                             <?php echo (int) ($usageStats['total_tokens'] ?? 0); ?>
                         </a>
                     </div>
@@ -80,7 +80,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     </div>
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <span class="text-muted">Sessions</span>
-                        <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>" class="fw-semibold text-decoration-none">
+                        <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>" class="fw-semibold text-decoration-none">
                             <?php echo $sessionCount; ?>
                         </a>
                     </div>
@@ -98,15 +98,15 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             <div class="card">
                 <div class="card-header fw-semibold small text-uppercase text-muted">Actions</div>
                 <div class="card-body d-grid gap-2">
-                    <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>" class="btn btn-primary btn-sm">Edit User</a>
+                    <a href="<?php echo adminUrl('users' . '/edit/' . ($uid)); ?>" class="btn btn-primary btn-sm">Edit User</a>
                     <?php if ($isActive): ?>
-                        <a href="<?php echo sURL; ?>users/lock/<?php echo $uid; ?>" class="btn btn-outline-warning btn-sm"
+                        <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>" class="btn btn-outline-warning btn-sm"
                            data-confirm="Lock this account?">Lock Account</a>
                     <?php else: ?>
-                        <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>" class="btn btn-outline-success btn-sm">Unlock Account</a>
+                        <a href="<?php echo adminUrl('users' . '/unlock/' . ($uid)); ?>" class="btn btn-outline-success btn-sm">Unlock Account</a>
                     <?php endif; ?>
-                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-outline-secondary btn-sm">All Tokens</a>
-                    <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>" class="btn btn-outline-secondary btn-sm">Sessions</a>
+                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="btn btn-outline-secondary btn-sm">All Tokens</a>
+                    <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>" class="btn btn-outline-secondary btn-sm">Sessions</a>
                 </div>
             </div>
 
@@ -177,7 +177,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="fw-semibold">Recent Tokens</span>
-                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
+                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
                 </div>
                 <div class="card-body p-0">
                     <table class="table table-sm table-hover align-middle mb-0">

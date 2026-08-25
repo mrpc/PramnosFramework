@@ -9,7 +9,7 @@
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo sURL; ?>Services" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
+        <a href="<?php echo adminUrl('Services'); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">&larr; Back</a>
         <h2 >Logs — <?php echo htmlspecialchars($this->service['daemon'] ?? ''); ?></h2>
     </div>
     <div class="bg-white rounded-xl shadow-xs border border-gray-200">

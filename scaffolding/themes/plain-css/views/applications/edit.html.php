@@ -18,7 +18,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
 <div class="page-section">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <h2><?php echo $isNew ? 'New Application' : 'Edit Application'; ?></h2>
-        <a href="<?php echo sURL; ?>applications" class="btn btn-outline-secondary">Back to list</a>
+        <a href="<?php echo adminUrl('applications'); ?>" class="btn btn-outline-secondary">Back to list</a>
     </div>
 
     <?php if (!empty($this->message)): ?>
@@ -35,13 +35,13 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
     <?php if (!$isNew && !empty($app['apikey'])): ?>
         <div style="background:#d1ecf1;border:1px solid #bee5eb;padding:10px 16px;border-radius:4px;margin-bottom:12px;display:flex;align-items:center;gap:16px">
             <div style="font-size:13px"><strong>Client ID:</strong> <code style="background:#fff;padding:2px 4px;border-radius:3px"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
-            <a href="<?php echo sURL; ?>applications/rotate/<?php echo (int)$app['appid']; ?>"
+            <a href="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>"
                style="margin-left:auto" class="btn btn-sm btn-outline-warning"
                data-confirm="Rotate the client secret?">Rotate Secret</a>
         </div>
     <?php endif; ?>
 
-    <form method="post" action="<?php echo sURL; ?>applications/save">
+    <form method="post" action="<?php echo adminUrl('applications/save'); ?>">
         <?php if (!$isNew): ?>
             <input type="hidden" name="appid" value="<?php echo (int)$app['appid']; ?>">
         <?php endif; ?>
@@ -179,9 +179,9 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
 
         <div style="display:flex;gap:8px;align-items:center">
             <button type="submit" class="btn btn-primary">Save Application</button>
-            <a href="<?php echo sURL; ?>applications" class="btn btn-outline-secondary">Cancel</a>
+            <a href="<?php echo adminUrl('applications'); ?>" class="btn btn-outline-secondary">Cancel</a>
             <?php if (!$isNew): ?>
-                <a href="<?php echo sURL; ?>applications/tokens/<?php echo (int)$app['appid']; ?>" style="margin-left:auto" class="btn btn-outline-info">View Tokens</a>
+                <a href="<?php echo adminUrl('applications' . '/tokens/' . ((int)$app['appid'])); ?>" style="margin-left:auto" class="btn btn-outline-info">View Tokens</a>
             <?php endif; ?>
         </div>
     </form>

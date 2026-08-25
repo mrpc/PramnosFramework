@@ -85,15 +85,15 @@ $this->activeNav = 'users_view';
             <div class="card">
                 <div style="padding:8px 14px;background:#f5f5f5;font-size:11px;font-weight:700;text-transform:uppercase;color:#666;letter-spacing:.05em">Actions</div>
                 <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
-                    <a href="<?php echo sURL; ?>users/edit/<?php echo $uid; ?>" class="btn btn-primary" style="text-align:center">Edit User</a>
+                    <a href="<?php echo adminUrl('users' . '/edit/' . ($uid)); ?>" class="btn btn-primary" style="text-align:center">Edit User</a>
                     <?php if ($isActive): ?>
-                        <a href="<?php echo sURL; ?>users/lock/<?php echo $uid; ?>" class="btn btn-outline-warning" style="text-align:center"
+                        <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>" class="btn btn-outline-warning" style="text-align:center"
                            data-confirm="Lock this account?">Lock Account</a>
                     <?php else: ?>
-                        <a href="<?php echo sURL; ?>users/unlock/<?php echo $uid; ?>" class="btn btn-outline-success" style="text-align:center">Unlock Account</a>
+                        <a href="<?php echo adminUrl('users' . '/unlock/' . ($uid)); ?>" class="btn btn-outline-success" style="text-align:center">Unlock Account</a>
                     <?php endif; ?>
-                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-outline-secondary" style="text-align:center">All Tokens</a>
-                    <a href="<?php echo sURL; ?>users/sessions/<?php echo $uid; ?>" class="btn btn-outline-secondary" style="text-align:center">Sessions</a>
+                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="btn btn-outline-secondary" style="text-align:center">All Tokens</a>
+                    <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>" class="btn btn-outline-secondary" style="text-align:center">Sessions</a>
                 </div>
             </div>
 
@@ -144,7 +144,7 @@ $this->activeNav = 'users_view';
                 <style>tr.pf-token-row{cursor:pointer}tr.pf-token-row:hover{background:#f8f9fa}</style>
                 <div style="padding:10px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center">
                     <span style="font-weight:600">Recent Tokens</span>
-                    <a href="<?php echo sURL; ?>Tokens/userid/<?php echo $uid; ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
+                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="btn btn-sm btn-outline-primary">All Tokens</a>
                 </div>
                 <div style="overflow-x:auto">
                     <table style="width:100%;border-collapse:collapse;font-size:13px">

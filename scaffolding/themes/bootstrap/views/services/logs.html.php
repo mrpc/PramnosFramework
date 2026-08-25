@@ -9,7 +9,7 @@
 ?>
 <div class="container-fluid py-4">
     <div class="d-flex align-items-center gap-3 mb-3">
-        <a href="<?php echo sURL; ?>Services" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+        <a href="<?php echo adminUrl('Services'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
         <h2 class="mb-0">Logs — <?php echo htmlspecialchars($this->service['daemon'] ?? ''); ?></h2>
     </div>
     <div class="card">

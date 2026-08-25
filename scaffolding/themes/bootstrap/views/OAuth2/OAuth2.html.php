@@ -11,6 +11,6 @@
     <div class="alert alert-info">
         <strong>OAuth2 Server</strong> — This is the default OAuth2 view. A specific template was not found for the requested action.
     </div>
-    <a href="<?php echo sURL; ?>Dashboard" class="btn btn-primary me-2">Dashboard</a>
+    <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn btn-primary me-2">Dashboard</a>
     <a href="<?php echo sURL; ?>" class="btn btn-secondary">Home</a>
 </div>

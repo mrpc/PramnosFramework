@@ -39,13 +39,13 @@
                         </td>
                         <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($svc['updatedAt'] ?? ''); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo sURL; ?>Services/logs/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Logs</a>
+                            <a href="<?php echo adminUrl('Services/logs/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Logs</a>
                             <?php if ($svc['status'] === 'running'): ?>
-                                <a href="<?php echo sURL; ?>Services/stop/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded-sm hover:bg-yellow-50">Stop</a>
+                                <a href="<?php echo adminUrl('Services/stop/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded-sm hover:bg-yellow-50">Stop</a>
                             <?php else: ?>
-                                <a href="<?php echo sURL; ?>Services/start/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-green-400 text-green-700 text-xs rounded-sm hover:bg-green-50">Start</a>
+                                <a href="<?php echo adminUrl('Services/start/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-green-400 text-green-700 text-xs rounded-sm hover:bg-green-50">Start</a>
                             <?php endif; ?>
-                            <a href="<?php echo sURL; ?>Services/restart/<?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50">Restart</a>
+                            <a href="<?php echo adminUrl('Services/restart/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50">Restart</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

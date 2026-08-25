@@ -9,7 +9,7 @@
 ?>
 <div class="page-section">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <a href="<?php echo sURL; ?>Services" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+        <a href="<?php echo adminUrl('Services'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
         <h2 >Logs — <?php echo htmlspecialchars($this->service['daemon'] ?? ''); ?></h2>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">

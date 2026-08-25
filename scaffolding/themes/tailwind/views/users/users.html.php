@@ -18,7 +18,7 @@
     <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
         <h2>Users</h2>
-        <a href="<?php echo sURL; ?>Users/edit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New User</a>
+        <a href="<?php echo adminUrl('Users/edit'); ?>" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New User</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>
