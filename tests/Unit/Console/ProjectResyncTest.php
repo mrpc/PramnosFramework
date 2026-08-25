@@ -82,6 +82,171 @@ class ProjectResyncTest extends TestCase
         return new CommandTester($cmd);
     }
 
+    // ── The PWA group: icons and the manifest ───────────────────────────────
+
+    /**
+     * A scaffolding directory with a sibling `brand/favicons`, as the framework has.
+     *
+     * Nested one level deeper than the shared fixture, because `collectPwaFiles()`
+     * finds the artwork at `dirname($scaffoldingDir) . '/brand/favicons'` — and with the
+     * flat layout that resolves to the system temp directory itself, which no test may
+     * write into.
+     *
+     * @return string The scaffolding path to hand the command
+     */
+    private function seedBrand(): string
+    {
+        $root     = $this->scaffoldDir . '/nested';
+        $scaffold = $root . '/scaffolding';
+        $brand    = $root . '/brand/favicons';
+        mkdir($scaffold, 0777, true);
+        mkdir($brand, 0777, true);
+
+        file_put_contents($brand . '/favicon-32x32.png', 'FRAMEWORK-PNG');
+        file_put_contents($brand . '/favicon.ico', 'FRAMEWORK-ICO');
+        file_put_contents($brand . '/browserconfig.xml', '<x src="/ms-icon.png"/>');
+        file_put_contents($brand . '/manifest.json', json_encode([
+            'name'  => 'App',
+            'icons' => [['src' => '/favicon-32x32.png', 'sizes' => '32x32']],
+        ]));
+
+        // webRootOf() looks for the front controller, since nothing records the
+        // document root in configuration.
+        $this->seed('www/index.php', '<?php');
+
+        return $scaffold;
+    }
+
+    /**
+     * Custom icons are kept, not overwritten.
+     *
+     * The one thing this group must never do. The framework ships placeholder artwork
+     * and a project is expected to replace it; a resync run for an unrelated reason
+     * that put the framework's logo back would be undoing work with no undo of its own,
+     * and nothing in the output would look wrong.
+     *
+     * Asserted on the file contents rather than the output line, because a command that
+     * printed "kept" and wrote anyway would pass the weaker test.
+     */
+    public function testCustomIconsAreKept(): void
+    {
+        // Arrange — the project has its own artwork under the framework's filename.
+        $scaffold = $this->seedBrand();
+        $this->seed('www/assets/favicons/favicon-32x32.png', 'MY-LOGO');
+
+        // Act
+        $tester = $this->tester(['scaffold' => $scaffold]);
+        $tester->execute(['--pwa' => true]);
+
+        // Assert — untouched, and said so.
+        $this->assertSame('MY-LOGO', $this->read('www/assets/favicons/favicon-32x32.png'));
+        $this->assertStringContainsString('kept', $tester->getDisplay());
+    }
+
+    /**
+     * A missing icon is created, so the group is still useful.
+     *
+     * The counterpart of the test above: "never overwrite" must not collapse into
+     * "never write". A project that has no icon at all wants the placeholder.
+     */
+    public function testAMissingIconIsCreated(): void
+    {
+        // Arrange
+        $scaffold = $this->seedBrand();
+
+        // Act — --all, since the file is absent and absent files are opt-in.
+        $this->tester(['scaffold' => $scaffold])->execute(['--pwa' => true, '--all' => true]);
+
+        // Assert
+        $this->assertSame('FRAMEWORK-PNG', $this->read('www/assets/favicons/favicon-32x32.png'));
+    }
+
+    /**
+     * The manifest gains the keys it lacks and keeps every key it has.
+     *
+     * Merged rather than copied, and that is the difference between this and the
+     * images: an existing manifest is precisely the case that needs fixing. A project
+     * scaffolded before `start_url` and `display` existed was detected by a browser and
+     * then rejected as not installable — while also carrying a `short_name` somebody
+     * shortened and an `icons` array somebody curated, neither of which a regenerated
+     * file would have kept.
+     */
+    public function testTheManifestIsMergedRatherThanReplaced(): void
+    {
+        // Arrange — a manifest as an older scaffold left it, plus local edits.
+        $scaffold = $this->seedBrand();
+        $this->seed('www/manifest.json', json_encode([
+            'name'       => 'My Application',
+            'short_name' => 'MyApp',
+            'icons'      => [['src' => 'assets/favicons/mine.png', 'sizes' => '48x48']],
+        ]));
+
+        // Act
+        $this->tester(['scaffold' => $scaffold])->execute(['--pwa' => true]);
+
+        // Assert
+        $manifest = json_decode($this->read('www/manifest.json'), true);
+
+        // …the missing standard keys arrived…
+        $this->assertSame('./', $manifest['start_url']);
+        $this->assertSame('standalone', $manifest['display']);
+
+        // …and nothing local was lost.
+        $this->assertSame('MyApp', $manifest['short_name'], 'a shortened name must survive');
+        $this->assertSame(
+            'assets/favicons/mine.png',
+            $manifest['icons'][0]['src'],
+            'a curated icon list must survive'
+        );
+    }
+
+    /**
+     * An unparseable manifest is left completely alone.
+     *
+     * It is a hand-editable file, so a syntax error is most likely somebody midway
+     * through a change. Replacing it with a generated one would destroy both the edit
+     * and the reason for it — and a resync is not the moment to find that out.
+     */
+    public function testAnUnparseableManifestIsNotTouched(): void
+    {
+        // Arrange
+        $scaffold = $this->seedBrand();
+        $this->seed('www/manifest.json', '{ "name": "half-edited",');
+
+        // Act
+        $this->tester(['scaffold' => $scaffold])->execute(['--pwa' => true]);
+
+        // Assert
+        $this->assertSame('{ "name": "half-edited",', $this->read('www/manifest.json'));
+    }
+
+    /**
+     * The document root is detected, not assumed.
+     *
+     * `init` takes `--web-root` and writes nothing down, so the only evidence is which
+     * directory holds the front controller. Assuming `www` would write a project's
+     * icons into a directory nothing serves — and they would look present while being
+     * unreachable, which is the shape of bug this whole exercise started with.
+     */
+    public function testTheDocumentRootIsDetected(): void
+    {
+        // Arrange — served from public/, and www/ does not exist.
+        $root     = $this->scaffoldDir . '/nested';
+        $scaffold = $root . '/scaffolding';
+        $brand    = $root . '/brand/favicons';
+        mkdir($scaffold, 0777, true);
+        mkdir($brand, 0777, true);
+        file_put_contents($brand . '/favicon.ico', 'FRAMEWORK-ICO');
+        $this->seed('public/index.php', '<?php');
+
+        // Act
+        $this->tester(['scaffold' => $scaffold])->execute(['--pwa' => true, '--all' => true]);
+
+        // Assert
+        $this->assertFileExists($this->projectDir . '/public/favicon.ico');
+        $this->assertFileDoesNotExist($this->projectDir . '/www/favicon.ico');
+    }
+
     /**
      * A file that cannot be written is reported as failed, not as updated.
      *

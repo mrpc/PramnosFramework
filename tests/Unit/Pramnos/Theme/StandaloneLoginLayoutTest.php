@@ -79,6 +79,66 @@ class StandaloneLoginLayoutTest extends TestCase
     }
 
     /**
+     * A `<head>` in the layout reaches the document's real `<head>`.
+     *
+     * This is the assertion that was missing, and it cost a real bug. `theme.html.php`
+     * had no `<head>` tag, so `getheader()` — whose only job is to lift `<head>…</head>`
+     * out of the theme and hand it to the document — always returned an empty string,
+     * and every line the theme meant for the head was emitted after `<body>` instead.
+     *
+     * A browser hoists a stylesheet link from there, which is why nobody noticed for as
+     * long as CSS was the only thing in it. It does **not** honour
+     * `<link rel="manifest">` outside `<head>`, so a scaffolded project shipped a
+     * manifest no browser ever read — reported as "No manifest detected" in devtools,
+     * with the link plainly visible in the page source.
+     */
+    public function testAHeadInTheLayoutReachesTheDocumentHead(): void
+    {
+        // Arrange — a layout shaped like the scaffolded one.
+        file_put_contents(
+            $this->root . '/' . self::NAME . '/theme.html.php',
+            "<head>MANIFEST-LINK</head>\n<body>\nSITE-HEADER[MODULE]SITE-FOOTER\n</body>\n"
+        );
+        $theme = $this->theme();
+
+        // Act
+        $theme->loadtheme();
+
+        // Assert — the head content is what getheader() hands over…
+        $this->assertStringContainsString('MANIFEST-LINK', $theme->getheader());
+
+        // …and it is NOT repeated in the body, which is what the <body> tag prevents.
+        $this->assertStringNotContainsString('MANIFEST-LINK', $theme->gethead() . $theme->getfoot());
+
+        // The chrome still lands in the body, where it belongs.
+        $this->assertStringContainsString('SITE-HEADER', $theme->gethead());
+    }
+
+    /**
+     * Without a `<head>`, everything falls into the body — the old behaviour.
+     *
+     * Kept as a test rather than deleted, because a theme somebody hand-wrote still
+     * looks like this and has to keep rendering. It also records what the failure was:
+     * `getheader()` empty, and the head content in the body.
+     */
+    public function testWithoutAHeadEverythingFallsIntoTheBody(): void
+    {
+        // Arrange — no <head> or <body>, as every scaffolded theme used to be.
+        file_put_contents(
+            $this->root . '/' . self::NAME . '/theme.html.php',
+            "MANIFEST-LINK\nSITE-HEADER[MODULE]SITE-FOOTER"
+        );
+        $theme = $this->theme();
+
+        // Act
+        $theme->loadtheme();
+
+        // Assert
+        $this->assertSame('', $theme->getheader(), 'nothing to lift, so nothing reaches the head');
+        $this->assertStringContainsString('MANIFEST-LINK', $theme->gethead());
+    }
+
+    /**
      * With `login.php` present, content type `login` renders no site chrome.
      *
      * `gethead()` is everything before `[MODULE]` and `getfoot()` everything after —

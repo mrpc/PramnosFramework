@@ -30,6 +30,35 @@ class Init extends Command
     /** Application styles offered by --app-style. */
     public const APP_STYLES = ['mvc', 'spa', 'hybrid'];
 
+    /**
+     * What turns a list of icons into an installable web app manifest.
+     *
+     * The favicon generator produces `name` and `icons` and nothing else, so the
+     * scaffolded manifest was detected by a browser and then rejected — "'start_url' is
+     * not valid", "'display' property must be one of 'standalone', 'fullscreen', or
+     * 'minimal-ui'" — and the application was not installable. That mattered the moment
+     * the framework also began shipping a service worker: the two together are what an
+     * installable application is.
+     *
+     * `'./'` rather than `'/'` for both URLs. They resolve against the manifest's own
+     * location, so an application served from a subdirectory gets its own root instead
+     * of the origin's — a literal `/` is correct exactly once and silently wrong
+     * everywhere else.
+     *
+     * A constant because two commands add these: `init` when it generates the file and
+     * `project:resync` when it merges them into one that predates them.
+     */
+    public const MANIFEST_DEFAULTS = [
+        'start_url'        => './',
+        'scope'            => './',
+        'display'          => 'standalone',
+        'background_color' => '#ffffff',
+        // The same value faviconLinks() emits as <meta name="theme-color">. Two places
+        // saying different things about one colour is a bug nobody reports; they are
+        // wrong together or right together.
+        'theme_color'      => '#ffffff',
+    ];
+
     /** Front-end stacks offered by --spa-stack. */
     public const SPA_STACKS = ['svelte', 'vanilla-vite', 'vanilla'];
 
@@ -2161,7 +2190,18 @@ CSS;
      */
     private function serviceWorkerRegistration(): string
     {
-        if (!$this->withServiceWorker) {
+        // **Two sources, and the second is not redundant.** The flag answers for `init`,
+        // where the theme is written (line ~589) before the worker file is (line ~657),
+        // so there is nothing on disk to look at yet. The file answers for every *later*
+        // command that rewrites the theme — `project:switch-ui` and `project:resync` go
+        // through `installUiFramework()`, which never sets the flag.
+        //
+        // Without the second check `project:switch-ui` silently deleted the registration
+        // from a project that still had `sw.js` sitting in its web root, leaving a worker
+        // nothing installed. Found by running it against a real project and looking at
+        // the served page, which is the only place the absence shows.
+        if (!$this->withServiceWorker
+            && !file_exists($this->targetBaseDir . '/' . $this->webRoot . '/sw.js')) {
             return '';
         }
 
@@ -3167,6 +3207,7 @@ PHP;
             $this->writeFile($dest . '/theme.html.php', file_get_contents($src));
         }
 
+        $this->writeFile($dest . '/head.php', $this->themeHeadAssets($uiSystem, $catalog));
         $this->writeFile($dest . '/header.php', $this->buildThemeHeader($uiSystem, $appName, $catalog, $features));
         $this->writeFile($dest . '/footer.php', $this->buildThemeFooter($uiSystem, $appName, $catalog));
         $this->writeFile($dest . '/login.php', $this->buildThemeLoginLayout($uiSystem, $catalog));
@@ -3315,9 +3356,12 @@ HTML,
         // heredocs above.
         $nav = str_replace('{{BRAND_LOGO}}', $this->brandLogo($uiSystem), $nav);
 
-        return $this->themeHeadAssets($uiSystem, $catalog)
-            . $navSetup . "\n"
-            . $nav . "\n";
+        // The head assets are **not** here any more: they go to head.php, which
+        // theme.html.php includes inside a real <head>. While they lived in this file
+        // they were emitted after <body> — a browser hoists a stylesheet link from
+        // there, but ignores `<link rel="manifest">`, so every scaffolded project had a
+        // manifest the browser never read.
+        return $navSetup . "\n" . $nav . "\n";
     }
 
     /**
@@ -3512,12 +3556,31 @@ HTML,
      * "assets/favicons/icon.png" (relative, so it resolves correctly regardless
      * of whether the app is served from a domain root or a subdirectory).
      */
-    private function rewriteFaviconManifest(string $file, string $appName): string
+    public function rewriteFaviconManifest(string $file, string $appName): string
     {
         $data = json_decode((string) file_get_contents($file), true) ?: [];
 
         $data['name']       = $appName;
         $data['short_name'] = $appName;
+
+        // **The fields that make this a web app manifest rather than a list of icons.**
+        // The favicon generator produces `name` and `icons` and nothing else, so the
+        // scaffolded manifest was detected and then rejected: devtools reported
+        // "'start_url' is not valid" and "'display' property must be one of
+        // 'standalone', 'fullscreen', or 'minimal-ui'", and the application was not
+        // installable. Which mattered the moment the framework also started shipping a
+        // service worker — the two together are what an installable app is.
+        //
+        // `"./"` rather than `"/"` for both URLs: they resolve against the manifest's own
+        // location, so an application served from a subdirectory gets its own root
+        // instead of the origin's. A literal `/` is correct exactly once and wrong
+        // silently everywhere else.
+        //
+        // Only filled in when absent, so an application that has written its own values
+        // keeps them. `project:resync` merges the same constant into an existing
+        // manifest, which is how a project scaffolded before these fields existed gets
+        // them without losing a short_name or an icon set somebody chose.
+        $data += self::MANIFEST_DEFAULTS;
 
         foreach ($data['icons'] ?? [] as $i => $icon) {
             if (isset($icon['src'])) {
@@ -3533,7 +3596,7 @@ HTML,
      * generator's root-relative "/ms-icon.png" form to the assets/favicons/
      * subdir, matching where scaffoldFavicons() copies the tiles.
      */
-    private function rewriteBrowserconfig(string $file): string
+    public function rewriteBrowserconfig(string $file): string
     {
         $xml = (string) file_get_contents($file);
         return str_replace('src="/', 'src="' . $this->faviconSubdir . '/', $xml);

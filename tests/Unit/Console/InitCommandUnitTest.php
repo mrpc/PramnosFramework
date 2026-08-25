@@ -823,10 +823,12 @@ class InitCommandUnitTest extends TestCase
             '--db-prefix' => '',
         ], ['interactive' => false]);
 
-        // Assert — header references local vendor path, not CDN
-        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
-        $this->assertStringContainsString('assets/vendor/bootstrap', $header);
-        $this->assertStringNotContainsString('cdn.jsdelivr.net', $header);
+        // Assert — the head assets reference the local vendor path, not a CDN.
+        // head.php, not header.php: the stylesheet links moved there when it turned out
+        // that header.php's output lands after <body>, where a manifest link is ignored.
+        $head = file_get_contents($this->tmpDir . '/app/themes/default/head.php');
+        $this->assertStringContainsString('assets/vendor/bootstrap', $head);
+        $this->assertStringNotContainsString('cdn.jsdelivr.net', $head);
 
         // Assert — the CSP style-src relaxation is scoped to tailwind only;
         // bootstrap keeps the strict nonce-based policy (no 'unsafe-inline').
@@ -871,10 +873,10 @@ class InitCommandUnitTest extends TestCase
 
         // Assert — header loads the Tailwind runtime from local vendor, not a CDN.
         // This is the exact reference whose absence left the page unstyled.
-        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
-        $this->assertStringContainsString('assets/vendor/tailwind', $header);
-        $this->assertStringContainsString('<script', $header); // runtime is a script, loaded in <head>
-        $this->assertStringNotContainsString('cdn.jsdelivr.net', $header);
+        $head = file_get_contents($this->tmpDir . '/app/themes/default/head.php');
+        $this->assertStringContainsString('assets/vendor/tailwind', $head);
+        $this->assertStringContainsString('<script', $head); // runtime is a script, loaded in <head>
+        $this->assertStringNotContainsString('cdn.jsdelivr.net', $head);
 
         // Assert — CSP relaxes style-src for tailwind, otherwise the browser
         // build's runtime-injected <style> is blocked (this was the actual
@@ -947,11 +949,39 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('src="assets/favicons/ms-icon-70x70.png"', $browserconfig);
         $this->assertStringNotContainsString('src="/ms-icon', $browserconfig);
 
-        // Assert — the theme header wires the icons, manifest and tile config
-        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
-        $this->assertStringContainsString('rel="manifest"', $header);
-        $this->assertStringContainsString('assets/favicons/apple-icon-180x180.png', $header);
-        $this->assertStringContainsString('msapplication-config', $header);
+        // Assert — head.php wires the icons, manifest and tile config, and
+        // theme.html.php includes it inside a real <head>.
+        //
+        // Both halves matter, and the second is the whole point: these lines used to be
+        // in header.php, whose output the document emits *after* `<body>`. A browser
+        // hoists a stylesheet link from there and **ignores** `<link rel="manifest">`,
+        // so every scaffolded project shipped a manifest no browser ever read — visible
+        // only as "No manifest detected" in devtools.
+        $head = file_get_contents($this->tmpDir . '/app/themes/default/head.php');
+        $this->assertStringContainsString('rel="manifest"', $head);
+        $this->assertStringContainsString('assets/favicons/apple-icon-180x180.png', $head);
+        $this->assertStringContainsString('msapplication-config', $head);
+
+        // The manifest is a web app manifest, not a list of icons. Without start_url
+        // and display, devtools detects it and then rejects it — "'start_url' is not
+        // valid", "'display' property must be one of 'standalone', 'fullscreen', or
+        // 'minimal-ui'" — and the application cannot be installed, which is the whole
+        // reason the file is there.
+        $manifest = json_decode((string) file_get_contents($this->tmpDir . '/www/manifest.json'), true);
+        $this->assertSame('standalone', $manifest['display']);
+        $this->assertSame('#ffffff', $manifest['theme_color']);
+
+        // Relative, so a subdirectory install resolves to its own root rather than the
+        // origin's. A literal '/' is correct exactly once and wrong silently elsewhere.
+        $this->assertSame('./', $manifest['start_url']);
+        $this->assertSame('./', $manifest['scope']);
+
+        $layout = file_get_contents($this->tmpDir . '/app/themes/default/theme.html.php');
+        $this->assertMatchesRegularExpression(
+            '/<head>.*getElement\(.head.\).*<\/head>/s',
+            $layout,
+            'the head assets have to be inside a <head> or Theme::getheader() cannot lift them'
+        );
     }
 
     /**
@@ -1564,11 +1594,11 @@ class InitCommandUnitTest extends TestCase
         ], ['interactive' => false]);
 
         // Assert — bootstrap's own CSS and JS reach both layouts.
-        $header = (string) file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $head   = (string) file_get_contents($this->tmpDir . '/app/themes/default/head.php');
         $footer = (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php');
         $login  = (string) file_get_contents($this->tmpDir . '/app/themes/default/login.php');
 
-        $this->assertStringContainsString('bootstrap.min.css', $header);
+        $this->assertStringContainsString('bootstrap.min.css', $head);
         $this->assertStringContainsString('bootstrap.min.css', $login,
             'the login layout must load the same UI framework as the rest of the site');
         $this->assertStringContainsString('bootstrap.bundle.min.js', $footer);

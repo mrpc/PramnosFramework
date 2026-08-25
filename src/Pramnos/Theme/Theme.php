@@ -105,7 +105,13 @@ class Theme extends \Pramnos\Framework\Base
         'style' => 'style.css', // The main stylesheet.
         'dynamicStyle' => 'style.php',
         'index' => 'theme.html.php',
-        'login' => 'login.php'
+        'login' => 'login.php',
+        // The contents of the document's <head>: stylesheets, the favicon set, the
+        // manifest link. Separate from 'header' — which is the *visible* site header —
+        // because the two end up in different parts of the document and only one of
+        // them can be moved. A `<link rel="manifest">` outside <head> is ignored, and a
+        // theme whose header.php carried both put every one of them in <body>.
+        'head'  => 'head.php'
     );
     protected $_contentType = 'index';
 

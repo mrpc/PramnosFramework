@@ -216,6 +216,47 @@ $this->elements = [
 ];
 ```
 
+### `head.php`, and why `<head>` has to be in the layout
+
+`theme.html.php` writes `<head>` and `<body>` out explicitly, and includes a separate
+`head.php` for the document head:
+
+```php
+<head>
+<?php $this->getElement('head'); ?>
+</head>
+<body>
+<?php $this->get_Header(); ?>
+<main>[MODULE]</main>
+<?php $this->get_Footer(); ?>
+</body>
+```
+
+Both tags are load-bearing.
+
+`Theme::getheader()` exists to lift `<head>…</head>` out of the theme's output so the
+document can append it inside its own head. With no `<head>` tag it finds nothing and
+returns an empty string, and **everything** the theme emits goes through `gethead()`
+instead — which the document writes *after* `<body>`.
+
+That was the case for every scaffolded theme, and it went unnoticed for as long as
+stylesheets were the only thing involved: a browser hoists `<link rel="stylesheet">` out
+of the body and applies it. It does **not** honour `<link rel="manifest">` there. So a
+project shipped a manifest, linked it, served it with a 200 — and devtools said *No
+manifest detected*, with the link plainly visible in the page source.
+
+The `<body>` tag matters for the other half: it is what makes `Theme::loadtheme()` set
+`$body` to the body content alone, so the split at `[MODULE]` cannot pick up the head
+assets as page content and emit them twice.
+
+**`head.php` and `header.php` are different things**, which is the distinction the old
+single file lost: `head.php` is the document head — stylesheets, the favicon set, the
+manifest link, `renderCss()`. `header.php` is the *visible* site header — the logo and
+the navigation. Only one of them can be moved into `<head>`.
+
+A hand-written theme with neither tag keeps working exactly as it did: assets in the
+body, hoisted by the browser, and no manifest.
+
 ### `login.php` — the standalone layout
 
 The `'login'` content type is the one entry in that map the framework selects for

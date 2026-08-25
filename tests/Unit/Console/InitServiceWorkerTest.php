@@ -347,6 +347,64 @@ class InitServiceWorkerTest extends TestCase
     }
 
     /**
+     * A later theme rewrite keeps the registration.
+     *
+     * `project:switch-ui` and `project:resync` rewrite the theme through
+     * `installUiFramework()`, which never sets the scaffold-time flag — so the first
+     * version of this silently deleted the registration from a project that still had
+     * `sw.js` in its web root, leaving a worker that nothing installed. Found by running
+     * the command against a real project and reading the served page, which is the only
+     * place the absence is visible: no error, no missing file, just a feature that
+     * stopped happening.
+     *
+     * The presence of the file on disk is the honest signal, and it is why the check is
+     * two-sided rather than a flag: at `init` time the theme is written before the worker
+     * is, so there is nothing to look at yet.
+     */
+    public function testARewrittenThemeKeepsTheRegistration(): void
+    {
+        // Arrange — a project that already has a worker, as a clone or a scaffold does.
+        $this->scaffold(['--service-worker' => 'y']);
+        $this->assertFileExists($this->tmpDir . '/www/sw.js');
+
+        // Act — the theme rewritten by a command that knows nothing about the option.
+        $fresh = new Init();
+        $fresh->targetBaseDir = $this->tmpDir;
+        $fresh->installUiFramework('bootstrap', 'Worker App');
+
+        // Assert
+        $this->assertStringContainsString(
+            'navigator.serviceWorker.register',
+            (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php'),
+            'switching UI system must not silently drop the registration'
+        );
+    }
+
+    /**
+     * A project with no worker gets no registration from a rewrite either.
+     *
+     * The counterpart: the file check must not turn into "always emit it". A project
+     * that declined a service worker has to stay declined through a UI switch.
+     */
+    public function testARewrittenThemeAddsNothingToAProjectWithoutAWorker(): void
+    {
+        // Arrange — scaffolded without one.
+        $this->scaffold();
+        $this->assertFileDoesNotExist($this->tmpDir . '/www/sw.js');
+
+        // Act
+        $fresh = new Init();
+        $fresh->targetBaseDir = $this->tmpDir;
+        $fresh->installUiFramework('bootstrap', 'Worker App');
+
+        // Assert
+        $this->assertStringNotContainsString(
+            'serviceWorker',
+            (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php')
+        );
+    }
+
+    /**
      * A refused registration is reported, not discarded.
      *
      * The first version of this swallowed the rejection, on the reasoning that a

@@ -74,6 +74,7 @@ class ProjectResync extends Command
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
             ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA debug panel (lib/debug.js)')
+            ->addOption('pwa', null, InputOption::VALUE_NONE, 'Only sync the PWA files: icons (never overwritten) and manifest.json (merged)')
             ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n) and their tests');
     }
 
@@ -116,14 +117,22 @@ class ProjectResync extends Command
         // default would undo that work the first time somebody ran the command
         // for an unrelated reason. --spa-components is how you say you want the
         // newer version.
-        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents;
+        $onlyPwa   = (bool) $input->getOption('pwa');
+        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents && !$onlyPwa;
         $doJs      = $onlyJs || $allGroups;
         $doScripts = $onlyScr || $allGroups;
         $doPanel     = $onlyPanel || $allGroups;
+        // In the default set, unlike --spa-components: the icons are never overwritten
+        // and the manifest is only added to, so there is nothing here a plain resync
+        // can undo.
+        $doPwa       = $onlyPwa || $allGroups;
 
         $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts);
         if ($doPanel) {
             $files = array_merge($files, $this->collectPanelFiles($scaffoldingDir, $base));
+        }
+        if ($doPwa) {
+            $files = array_merge($files, $this->collectPwaFiles($scaffoldingDir, $base));
         }
         if ($onlyComponents) {
             $files = array_merge(
@@ -150,10 +159,13 @@ class ProjectResync extends Command
             ? "<comment>Dry run — no files will be written.</comment>"
             : "<info>Resyncing framework-owned files…</info>");
 
-        $tally = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'skipped' => 0, 'failed' => 0];
+        $tally = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'kept' => 0, 'skipped' => 0, 'failed' => 0];
 
         foreach ($files as $file) {
-            $action = $this->applyFile($base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll, $output);
+            $action = $this->applyFile(
+                $base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll,
+                $output, $file['onlyIfMissing'] ?? false
+            );
             $tally[$action]++;
         }
 
@@ -181,17 +193,18 @@ class ProjectResync extends Command
         // named, reported as absent, and nothing says that the *directory* is the
         // assumption rather than the file.
         if ($tally['skipped'] > 0
-            && ($tally['created'] + $tally['updated'] + $tally['unchanged'] + $tally['failed']) === 0
+            && ($tally['created'] + $tally['updated'] + $tally['unchanged'] + $tally['kept'] + $tally['failed']) === 0
         ) {
             $this->explainEmptyResync($base, $output);
         }
 
         $output->writeln('');
         $summary = sprintf(
-            'Done. %d created, %d updated, %d unchanged, %d skipped',
+            'Done. %d created, %d updated, %d unchanged, %d kept, %d skipped',
             $tally['created'],
             $tally['updated'],
             $tally['unchanged'],
+            $tally['kept'],
             $tally['skipped']
         );
         // The failure count is only ever printed when there is one. A "0 failed" in
@@ -258,10 +271,27 @@ class ProjectResync extends Command
         bool $exec,
         bool $dryRun,
         bool $copyAll,
-        OutputInterface $output
+        OutputInterface $output,
+        bool $onlyIfMissing = false
     ): string {
         $abs    = $base . '/' . $rel;
         $exists = is_file($abs);
+
+        // **The project's file wins, unconditionally.**
+        //
+        // Everything else here is framework-owned: the framework's copy is the correct
+        // one and overwriting is the command's entire purpose. Artwork is the opposite.
+        // A project is *expected* to replace the placeholder icons with its own, and a
+        // resync run for an unrelated reason must not put the framework's logo back —
+        // there is no undo for that, and nothing in the output would look wrong.
+        //
+        // Reported rather than silently skipped, because "your icons are still yours"
+        // is information: without the line, somebody who wanted the newer defaults
+        // would have no way to tell whether the command had considered them.
+        if ($exists && $onlyIfMissing) {
+            $output->writeln("  kept       {$rel} (yours)");
+            return 'kept';
+        }
 
         if (!$exists && !$copyAll) {
             $output->writeln("  <comment>skip</comment>      {$rel} (not present; use --all to add)");
@@ -393,6 +423,135 @@ class ProjectResync extends Command
             'dest'    => $sourceDir . 'lib/debug.js',
             'exec'    => false,
         ]];
+    }
+
+    /**
+     * The directory this project serves as its document root.
+     *
+     * Detected rather than read from configuration, because it is not in any: `init`
+     * takes `--web-root` and uses it to place files, and nothing writes it down. So the
+     * evidence on disk is all there is — the directory that has the front controller in
+     * it.
+     *
+     * `www` is both the default and the fallback, which keeps a project with an unusual
+     * layout from having icons written into a directory nothing serves.
+     */
+    private function webRootOf(string $base): string
+    {
+        foreach (['www', 'public', 'public_html', 'htdocs', 'web'] as $candidate) {
+            if (is_file($base . '/' . $candidate . '/index.php')) {
+                return $candidate;
+            }
+        }
+
+        return 'www';
+    }
+
+    /**
+     * The PWA furniture: the icon set, the Windows tile config, and the manifest.
+     *
+     * Two different rules, because the two kinds of file mean different things.
+     *
+     * **The artwork is written only when it is missing.** The framework ships
+     * placeholders and a project is expected to replace them; a resync that restored the
+     * framework's logo would be undoing work with no undo of its own. Requested
+     * exactly that way after this group was proposed.
+     *
+     * **The manifest is merged.** Only keys it does not already have are added, so a
+     * project scaffolded before `start_url` and `display` existed becomes installable
+     * without losing a `short_name` somebody shortened or an `icons` array somebody
+     * curated. That is why it is not simply "copy when missing" like the images: an
+     * existing manifest is precisely the case that needs fixing.
+     *
+     * The group runs by default, unlike `--spa-components`, and it can afford to: with
+     * those two rules there is nothing here that can overwrite a decision.
+     *
+     * @return list<array{content: string, dest: string, exec: bool, onlyIfMissing?: bool}>
+     */
+    private function collectPwaFiles(string $scaffoldingDir, string $base): array
+    {
+        $brand = dirname($scaffoldingDir) . '/brand/favicons';
+        if (!is_dir($brand)) {
+            return [];   // @codeCoverageIgnore — brand/ ships with the framework
+        }
+
+        $webRoot = $this->webRootOf($base);
+        $init    = new Init();
+        $init->targetBaseDir = $base;
+        $files   = [];
+
+        // The sized icons and favicon.ico — artwork, so never overwritten.
+        foreach (glob($brand . '/*.png') ?: [] as $png) {
+            $files[] = [
+                'content'       => (string) file_get_contents($png),
+                'dest'          => $webRoot . '/assets/favicons/' . basename($png),
+                'exec'          => false,
+                'onlyIfMissing' => true,
+            ];
+        }
+
+        if (is_file($brand . '/favicon.ico')) {
+            $files[] = [
+                'content'       => (string) file_get_contents($brand . '/favicon.ico'),
+                'dest'          => $webRoot . '/favicon.ico',
+                'exec'          => false,
+                'onlyIfMissing' => true,
+            ];
+        }
+
+        if (is_file($brand . '/browserconfig.xml')) {
+            $files[] = [
+                'content'       => $init->rewriteBrowserconfig($brand . '/browserconfig.xml'),
+                'dest'          => $webRoot . '/browserconfig.xml',
+                'exec'          => false,
+                'onlyIfMissing' => true,
+            ];
+        }
+
+        $manifest = $this->buildMergedManifest($base, $webRoot, $brand, $init);
+        if ($manifest !== null) {
+            $files[] = [
+                'content' => $manifest,
+                'dest'    => $webRoot . '/manifest.json',
+                'exec'    => false,
+            ];
+        }
+
+        return $files;
+    }
+
+    /**
+     * The project's manifest with any missing standard keys filled in.
+     *
+     * Returns null when there is nothing to do — no project manifest and no master to
+     * build one from — so the caller adds no entry rather than an empty one.
+     *
+     * An unparseable manifest is left completely alone. It is hand-editable, so a
+     * syntax error is somebody midway through a change; overwriting it with a generated
+     * file would destroy the edit and the reason for it.
+     */
+    private function buildMergedManifest(
+        string $base, string $webRoot, string $brand, Init $init
+    ): ?string {
+        $path = $base . '/' . $webRoot . '/manifest.json';
+
+        if (!is_file($path)) {
+            return is_file($brand . '/manifest.json')
+                ? $init->rewriteFaviconManifest(
+                    $brand . '/manifest.json',
+                    (string) ($this->appConfig($base)['name'] ?? 'App')
+                )
+                : null;
+        }
+
+        $data = json_decode((string) file_get_contents($path), true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $data += Init::MANIFEST_DEFAULTS;
+
+        return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
     }
 
     /**
