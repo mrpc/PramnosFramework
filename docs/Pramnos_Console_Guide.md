@@ -142,6 +142,79 @@ sets `autoloadSuccess = false`, which skips the framework migrations, which skip
 admin user — one stale stat and the scaffold finishes unusable. If all three attempts
 fail, the cause is real and the closing summary says what to run by hand.
 
+### `project:setup` — bringing a clone up
+
+`init` creates a project. This brings an existing checkout to a working local
+environment, and it exists because of a deliberate gap: the credentials now live in
+`.env`, which is **not committed**, so a fresh `git clone` cannot connect to anything
+and nothing said what to create.
+
+```bash
+./pramnos project:setup
+```
+
+Seven steps, each skipped when it is already done — so running it twice is safe, and
+running it after a `git pull` is a reasonable way to catch up:
+
+| | |
+|---|---|
+| 1 | `.env` from `.env.example`, prompting only for the password |
+| 2 | `docker-compose up -d --build` |
+| 3 | `composer install` in the container |
+| 4 | wait for the database to accept connections |
+| 5 | framework migrations |
+| 6 | an administrator, if you want one |
+| 7 | `npm install` and a first build, if the project has a front end |
+
+**The host user ids are read from this machine, not copied.** `.env.example` carries
+`UID=1000`, which is the first non-root user on a Debian host and wrong on plenty of
+others — and getting it wrong means everything the container writes into the bind mount
+is owned by somebody who is not you. Nobody knows their own ids by heart, so it does not
+ask.
+
+**An existing `.env` is left alone** unless you pass `--force-env`. It is the one file in
+the project that is not in version control, so it is the only thing here that
+`git checkout` cannot undo.
+
+**Step 4 is not a courtesy.** `docker-compose up -d` returns as soon as the containers
+are *created*, and a fresh Postgres or MySQL volume takes several seconds more to accept
+a connection. Migrating into that window fails with a connection error that reads exactly
+like a configuration mistake.
+
+```bash
+./pramnos project:setup --dry-run          # print the plan, change nothing
+./pramnos project:setup --no-docker        # a host running its own stack
+./pramnos project:setup --db-pass=…        # for CI, instead of the prompt
+./pramnos project:setup --no-admin         # skip the account offer
+```
+
+**It writes no project file** — only `.env`. Not one of the steps above is a scaffolding
+step: `project:reconfigure` and `project:resync` own that. A command that both set up an
+environment *and* edited tracked files would be one nobody could safely run on a
+checkout with local changes.
+
+For a project scaffolded before the credentials moved there is no `.env.example`, and it
+says so rather than writing an empty `.env`: those projects still keep their settings in
+`app/config/settings.php`.
+
+### `--service-worker` — caching assets in the browser
+
+Off by default. `y` writes `<web-root>/sw.js` and the lines that register it, in the
+theme footer and — for a SPA — in the shell as well:
+
+```bash
+php bin/pramnos init --service-worker=y
+```
+
+It caches static assets only: `GET`, same-origin, and only stylesheet/script/font/image
+paths. HTML is never intercepted, which is what makes it safe to hand to a project by
+name rather than by decision. The full account of what it refuses to do, and why each
+refusal is there, is in the [Service Worker Guide](Pramnos_Service_Worker_Guide.md).
+
+The prompt is step 2e in the interactive wizard, and it defaults to **no** — a service
+worker keeps itself alive across reloads, so unlike every other file `init` writes, a
+mistake in one is not corrected by the next deployment.
+
 ### Serving from a directory other than `www` — `--web-root`
 
 The scaffold writes its document root as `www/` by convention, and that was hardcoded in 38

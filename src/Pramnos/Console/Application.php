@@ -157,6 +157,9 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\LibrariesSync());
         $this->add(new \Pramnos\Console\Commands\ProjectSync());
         $this->add(new \Pramnos\Console\Commands\ProjectResync());
+        // Not a scaffolding utility despite living beside them: it writes no project
+        // file, it brings a clone's environment up. See its class docblock.
+        $this->add(new \Pramnos\Console\Commands\ProjectSetup());
         $this->add(new \Pramnos\Console\Commands\CacheClear());
         $this->add(new \Pramnos\Console\Commands\PageCachePurge());
         // MCP server + debug status (Phase 13)
