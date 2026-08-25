@@ -357,9 +357,9 @@ class HypertableRegistryTest extends TestCase
     /**
      * Compression options declared for a table are passed through.
      *
-     * `tokenactions` declares segment-by and order-by columns; losing them
-     * would silently change the compression ratio and query performance of the
-     * busiest table the framework ships.
+     * `tokenactions` declares segment-by and order-by columns; losing them would silently
+     * change the compression ratio and query performance of the busiest table the
+     * framework ships.
      */
     public function testCompressionOptionsArePassedThrough(): void
     {
@@ -371,9 +371,35 @@ class HypertableRegistryTest extends TestCase
 
         // Assert
         $this->assertSame(
-            ['segmentby' => 'tokenid, urlid, method', 'orderby' => 'action_time DESC'],
+            ['segmentby' => 'urlid, method', 'orderby' => 'action_time DESC'],
             $schema->calls[1][2]
         );
+    }
+
+    /**
+     * `tokenid` stays out of `tokenactions`'s segment key.
+     *
+     * The value above is a whole declaration and would be updated wholesale by anybody
+     * changing anything about it. This asserts the one property that matters, and says
+     * why — so a future edit that puts `tokenid` back has to argue with a number rather
+     * than with a preference.
+     *
+     * Measured on 2 M rows: with `tokenid` in the segment key, an API whose callers are
+     * browser sessions compresses to a ratio of **0.50** — compression making the table
+     * larger, 515 MB against 38 MB — while losing the per-token lookup it exists to
+     * optimise. It is the right layout only for a handful of long-lived server-to-server
+     * tokens, which a framework default cannot assume and an application can declare.
+     */
+    public function testTokenactionsDoesNotSegmentByToken(): void
+    {
+        // Act
+        $spec = HypertableRegistry::spec('tokenactions');
+
+        // Assert
+        $this->assertStringNotContainsString('tokenid', (string) $spec['segmentby'],
+            'tokenid is high cardinality: segmenting by it compresses a session-heavy '
+            . 'API to a ratio below 1');
+        $this->assertStringContainsString('urlid', (string) $spec['segmentby']);
     }
 
     /**

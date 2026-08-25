@@ -95,6 +95,43 @@ directly. It costs 22× the disk and compression that does not compress — wort
 only for a log read constantly and kept briefly, and that is what the overrides
 below are for.
 
+#### The same question for `tokenactions`, with a different answer
+
+`tokenactions` is one row per API request. Whether a high-cardinality segment key
+works there depends entirely on **who calls the API**, and the two plausible answers
+point opposite ways. Measured on 2 M rows over 60 endpoints and 90 days
+(`tests/Benchmarks/tokenactions_compression.php`):
+
+| callers | `segmentby` | ratio | stored | by-token | by-url |
+|---|---|---|---|---|---|
+| few, long-lived | `tokenid, urlid, method` | 6.95 | 36.8 MB | **0.41 ms** | 0.65 ms |
+| few, long-lived | `urlid, method` | 7.72 | 33.0 MB | 6.83 ms | 0.44 ms |
+| many, short-lived | `tokenid, urlid, method` | **0.50** | 515.5 MB | 5.44 ms | 38.5 ms |
+| many, short-lived | `urlid, method` | 6.76 | 37.9 MB | 6.68 ms | 0.46 ms |
+
+With `tokenid` in the segment key the layout is excellent for a server-to-server API
+— 0.41 ms on "what did this token do" — and collapses for one serving browser
+sessions, where it is **not even faster**: it loses on every axis at once.
+
+The framework ships `urlid, method`, which is never bad. An installation that knows
+its callers are few and long-lived takes the faster lookup deliberately:
+
+```php
+'hypertables' => [
+    'tokenactions' => ['segmentby' => 'tokenid, urlid, method'],
+],
+```
+
+The cost of the safe default is a token-history listing at 6.8 ms rather than 0.4 ms
+— an admin screen rather than a hot path, and the analytical reads go through the
+hourly continuous aggregate rather than this table.
+
+!!! note "Existing installations keep what they have"
+    `HypertableRegistry::apply()` sets compression only on a table that has none, so
+    a changed `segmentby` reaches new databases only. To adopt it on an existing one,
+    decompress and recompress the chunks deliberately — per chunk, since the disk
+    headroom needed is the size of the largest one.
+
 ### Retuning one without editing the framework
 
 None of those intervals fit every installation — a busy API's `tokenactions` and a

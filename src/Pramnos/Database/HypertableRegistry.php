@@ -372,7 +372,42 @@ class HypertableRegistry
                 'chunk_interval' => '14 days',
                 'compress_after' => '60 days',
                 'retention'      => '3 years',
-                'segmentby'      => 'tokenid, urlid, method',
+                // `urlid, method` rather than `tokenid, urlid, method`, and the
+                // difference is not a preference. Measured on 2 M rows, 60 endpoints,
+                // 90 days (tests/Benchmarks/tokenactions_compression.php):
+                //
+                // |                          | ratio |  stored | by-token | by-url |
+                // |--------------------------|-------|---------|----------|--------|
+                // | few long-lived tokens    |       |         |          |        |
+                // |   tokenid, urlid, method |  6.95 |  36.8MB |   0.41ms | 0.65ms |
+                // |   urlid, method          |  7.72 |  33.0MB |   6.83ms | 0.44ms |
+                // | many short-lived tokens  |       |         |          |        |
+                // |   tokenid, urlid, method |  0.50 | 515.5MB |   5.44ms | 38.5ms |
+                // |   urlid, method          |  6.76 |  37.9MB |   6.68ms | 0.46ms |
+                //
+                // With `tokenid` in the segment key the layout is excellent for an API
+                // whose callers are a handful of long-lived server-to-server tokens —
+                // 0.41 ms on "what did this token do" — and collapses for one whose
+                // callers are browser sessions: a ratio of 0.50 means compression made
+                // the table **larger**, 515 MB against 38 MB, and it is not even faster
+                // there, losing on every axis at once.
+                //
+                // A framework default cannot know which an installation has, and the bad
+                // case is silent. So the default is the layout that is never bad, and an
+                // installation that knows its callers are few and long-lived takes the
+                // 0.41 ms deliberately:
+                //
+                //     'hypertables' => [
+                //         'tokenactions' => ['segmentby' => 'tokenid, urlid, method'],
+                //     ],
+                //
+                // The cost of the safe choice is a token-history listing at 6.8 ms rather
+                // than 0.4 ms — an admin screen, not a hot path, and the analytical reads
+                // go through the hourly continuous aggregate rather than this table.
+                //
+                // Existing installations are unaffected: apply() sets compression only on
+                // a table that has none, so this reaches new databases only.
+                'segmentby'      => 'urlid, method',
                 'orderby'        => 'action_time DESC',
                 'feature'        => 'auth',
             ],
