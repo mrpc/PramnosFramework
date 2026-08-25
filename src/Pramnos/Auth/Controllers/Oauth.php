@@ -351,6 +351,34 @@ class Oauth extends Controller
      * Revokes all tokens for the session associated with the presented access
      * token. For browser-session logout use the application's /logout route.
      */
+    /**
+     * Revoke the tokens of one session — `POST /oauth/logout`.
+     *
+     * Requires `Authorization: Bearer`, and answers JSON.
+     *
+     * ## What "one session" means here
+     *
+     * It used to mean "every token with the same `usertokens.sid`", and there is
+     * no such column — there never has been. The `SELECT` failed, the failure was
+     * swallowed, and the endpoint took its not-found branch for **every** token,
+     * valid or not: it answered `{"success": true}` and revoked nothing. A
+     * security endpoint that reports success and takes no action is worse than one
+     * that errors, because nothing looks wrong.
+     *
+     * A session is now the **token family**: the access token and the refresh
+     * token issued with it, linked by `usertokens.parentToken` — the column the
+     * refresh-token repository writes precisely so that "revocation can cascade".
+     * A token issued to another device belongs to another family and is left
+     * alone, which is what makes this different from "sign out of everything".
+     *
+     * With `logoutwebsession=1` the browser session is ended as well. Without it
+     * the OAuth tokens go and the browser stays signed in, which is usually what a
+     * backend wants and rarely what a "sign out everywhere" button wants.
+     *
+     * A token that is not found still answers success, in the spirit of RFC 7009:
+     * a logout endpoint that distinguished real tokens from invented ones would be
+     * an oracle for which tokens exist.
+     */
     public function logout(): mixed
     {
         $token = $this->extractBearerToken();
@@ -358,35 +386,110 @@ class Oauth extends Controller
             return \Pramnos\Http\Response::json(['error' => 'invalid_token'], 401);
         }
 
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $result = $db->queryBuilder()
+        $row = $this->findTokenRow($token);
+
+        if ($row === null) {
+            return \Pramnos\Http\Response::json(['success' => true]);
+        }
+
+        $userId  = (int) $row['userid'];
+        $tokenId = (int) $row['tokenid'];
+
+        // The family root: a refresh token points at the access token it was
+        // issued with, so revoking from the root catches both directions.
+        $rootId = (int) ($row['parentToken'] ?? 0) ?: $tokenId;
+
+        $revoked = $this->revokeTokenFamily(
+            \Pramnos\Framework\Factory::getDatabase(),
+            $userId,
+            $rootId
+        );
+
+        if ($this->wantsWebSessionEnded()) {
+            $this->endWebSession();
+        }
+
+        $this->recordLogout($userId);
+
+        return \Pramnos\Http\Response::json([
+            'success'        => true,
+            'user_id'        => $userId,
+            'tokens_revoked' => $revoked,
+        ]);
+    }
+
+    /**
+     * The active token row for a bearer token, or null when there is none.
+     *
+     * A seam, so the endpoint's decisions can be tested without a schema — which
+     * matters here more than usual, because the bug this replaced was a query
+     * against a column that did not exist, failing silently.
+     *
+     * @return array{tokenid: mixed, userid: mixed, parentToken: mixed}|null
+     */
+    protected function findTokenRow(string $token): ?array
+    {
+        $result = \Pramnos\Framework\Factory::getDatabase()
+            ->queryBuilder()
             ->table('usertokens')
-            ->select('userid, sid')
+            ->select(['tokenid', 'userid', 'parentToken'])
             ->where('token', $token)
             ->where('status', 1)
             ->first();
 
         if (!$result || $result->numRows == 0) {
-            // Token not found — still return success per RFC 7009 spirit
-            return \Pramnos\Http\Response::json(['success' => true]);
+            return null;
         }
 
-        $userId = (int) $result->fields['userid'];
-        $sid    = $result->fields['sid'] ?? null;
+        return (array) $result->fields;
+    }
 
-        // Revoke all tokens for this user session
-        $updateQb = $db->queryBuilder()
+    /** Note the logout in the activity log (seam: the log needs a database). */
+    protected function recordLogout(int $userId): void
+    {
+        \Pramnos\Auth\ActivityLog::record($userId, 'oauth_logout');
+    }
+
+    /**
+     * Revoke a token and everything issued alongside it.
+     *
+     * Scoped to the owning user as well as to the family, so a crafted
+     * `parentToken` could never reach another account's tokens.
+     *
+     * @return int How many rows were revoked
+     */
+    protected function revokeTokenFamily(mixed $db, int $userId, int $rootId): int
+    {
+        $rows = $db->queryBuilder()
             ->table('usertokens')
             ->where('userid', $userId)
-            ->where('status', 1);
+            ->where('status', 1)
+            ->where(function ($query) use ($rootId) {
+                $query->where('tokenid', $rootId)->orWhere('parentToken', $rootId);
+            })
+            ->update(['status' => 0]);
 
-        if ($sid !== null) {
-            $updateQb->where('sid', $sid);
+        return is_numeric($rows) ? (int) $rows : 0;
+    }
+
+    /** Did the caller ask for the browser session to be ended too? */
+    protected function wantsWebSessionEnded(): bool
+    {
+        $value = $_POST['logoutwebsession'] ?? $_GET['logoutwebsession'] ?? '';
+
+        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /** End the browser session, the same way the browser logout does. */
+    protected function endWebSession(): void
+    {
+        try {
+            (new \Pramnos\Auth\Auth())->logout();
+        } catch (\Throwable $ex) {
+            // The tokens are already gone; a session that could not be ended is
+            // worth a log line and not worth failing the request over.
+            \Pramnos\Logs\Logger::log('OAuth logout: could not end the web session: ' . $ex->getMessage());
         }
-
-        $updateQb->update(['status' => 0]);
-
-        return \Pramnos\Http\Response::json(['success' => true, 'user_id' => $userId]);
     }
 
     // ── Device Authorization ──────────────────────────────────────────────────
@@ -1051,7 +1154,14 @@ class Oauth extends Controller
     /**
      * Extract the Bearer token from the Authorization header.
      */
-    private function extractBearerToken(): ?string
+    /**
+     * Protected rather than private so a subclass can supply the token.
+     *
+     * Widening this is additive — nothing outside could call it before, and
+     * nothing outside can call it now — and it is what lets the logout and
+     * introspection decisions be tested without building a request.
+     */
+    protected function extractBearerToken(): ?string
     {
         $header = $_SERVER['HTTP_AUTHORIZATION']
             ?? (function_exists('getallheaders') ? (getallheaders()['Authorization'] ?? null) : null);

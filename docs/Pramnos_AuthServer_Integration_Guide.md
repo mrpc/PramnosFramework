@@ -96,6 +96,42 @@ ticket. Every list in it is read from whatever actually decides it, so it cannot
 drift out of agreement with the server the way a hand-written integration note
 does.
 
+### Signing out
+
+Two endpoints, because there are two situations.
+
+```
+POST /oauth/logout      Authorization: Bearer <token>     → JSON
+GET  /login/logout                                        → redirect
+```
+
+**`/oauth/logout`** is for your backend. It revokes the **token family**: the
+access token you present and the refresh token issued with it, linked through
+`usertokens.parentToken`. A token issued to another device belongs to another
+family and is untouched — that is what separates this from "sign out of
+everything".
+
+```
+POST /oauth/logout
+Authorization: Bearer <access_token>
+
+logoutwebsession=1        # optional — end the browser session as well
+
+{ "success": true, "user_id": 42, "tokens_revoked": 2 }
+```
+
+Without `logoutwebsession=1` the browser session is left alone. That is usually
+what a backend wants and rarely what a "sign out everywhere" button wants.
+
+An unknown token still answers `{"success": true}`, in the spirit of RFC 7009: an
+endpoint that distinguished a real token from an invented one would tell an
+attacker which of their guesses exist.
+
+**`/login/logout`** is for a browser. It reads the session cookie, needs no
+header, and redirects afterwards. `?local=1` clears the session and leaves the
+tokens valid — for "sign out of this browser" without breaking a running mobile
+app.
+
 ### Is the server up?
 
 ```
