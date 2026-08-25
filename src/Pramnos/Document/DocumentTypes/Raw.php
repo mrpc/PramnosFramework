@@ -23,24 +23,12 @@ class Raw extends \Pramnos\Document\Document
         // and the `if` below was already written for a null this call could not return.
         $app = \Pramnos\Application\Application::currentInstance();
         if ($app && property_exists($app, 'cspNonce') && $app->cspNonce !== '') {
-            $nonce = htmlspecialchars($app->cspNonce, ENT_QUOTES);
-
-            // Inline <script> tags (no src= attribute)
-            $content = preg_replace_callback(
-                '/<script(?![^>]*\bsrc\s*=)([^>]*)>/i',
-                static function (array $matches) use ($nonce): string {
-                    return '<script nonce="' . $nonce . '"' . $matches[1] . '>';
-                },
-                $content
-            );
-
-            // Inline <style> blocks
-            $content = preg_replace_callback(
-                '/<style([^>]*)>/i',
-                static function (array $matches) use ($nonce): string {
-                    return '<style nonce="' . $nonce . '"' . $matches[1] . '>';
-                },
-                $content
+            // One implementation, on Document. This was an identical copy of the
+            // pattern in the other document type — two copies of a security-relevant
+            // regex that had to agree with each other.
+            $content = $this->injectCspNonces(
+                $content,
+                htmlspecialchars($app->cspNonce, ENT_QUOTES)
             );
         }
 

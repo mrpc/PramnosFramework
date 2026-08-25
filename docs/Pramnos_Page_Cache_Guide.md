@@ -6,6 +6,7 @@ use_cases:
   - Diagnosing why a page is never cached, or is cached when it should not be
   - Serving anonymous traffic from cache when the framework starts a session
   - Deciding between the PHP cache path and the static-file writer
+  - Finding out which inline script is keeping a page out of the cache
 ---
 
 # Page Cache Guide
@@ -202,6 +203,35 @@ The way to make such a page cacheable is to render it without a per-response non
 move the script to a file, use a hash-based policy, or drop the inline script. That
 is a decision only the application can make, which is why the framework will not
 make it silently.
+
+#### Which of your inline scripts actually needs a nonce
+
+Fewer than you would think, and the framework no longer spends one where it cannot be
+spent.
+
+**A `<script>` whose `type` is not JavaScript gets no nonce.** `script-src` gates script
+*execution*, and a `<script type="application/ld+json">` is a data block the browser
+never runs — there is nothing for the policy to allow, so the nonce was inert. Structured
+data has to be inline for a crawler to read it, so this was frequently the only thing
+keeping an otherwise static page out of the cache.
+
+**`importmap` and `speculationrules` do keep theirs.** They look like data and are not: an
+import map needs an inline allowance like any other script, and speculation rules are
+gated by `script-src` so specifically that CSP has an `'inline-speculation-rules'` keyword
+for them. The rule is an allow-list of executable types, because being wrong in that
+direction costs an unnecessary nonce and being wrong the other way costs a working page.
+
+**Inline `<style>` keeps its nonce.** `style-src` genuinely gates inline styles, so a page
+with an inline `<style>` is uncacheable for the same reason as one with inline script.
+
+**The framework's own `no-js` flip is allowed by hash.** The 96 bytes in `<head>` that
+turn `class="no-js"` into `js` are a fixed string, so its `'sha256-…'` is in `script-src`
+and the tag carries no nonce. It stays inline because it has to run before the first
+paint — a blocking request in `<head>` to find out whether JavaScript exists is the very
+thing the `no-js` class exists to avoid.
+
+Between them, that means **a scaffolded page with no inline script of its own is
+cacheable out of the box**, rather than after an audit of the framework's markup.
 
 The symptom, if you have not read this far: `X-Pramnos-Cache: MISS` on every single
 request to a page that passes every bypass rule. `whyBypassed()` returns `null` for
@@ -646,8 +676,16 @@ Then, in order, and each is one line:
 3. Is the debug toolbar on? Nothing is stored while it collects — see
    `skipWhileDebugging` above.
 4. Check the status is on `statuses` — a redirect is not cached by default.
-5. Does the page have an inline `<script nonce="…">`? Then it is never stored, on
-   purpose — see [a cache hit and the CSP nonce](#a-cache-hit-and-the-csp-nonce).
+5. Does the page have an inline `<script nonce="…">` or `<style nonce="…">`? Then it is
+   never stored, on purpose. One command tells you which:
+
+   ```bash
+   curl -s https://example.test/the/page | grep -o 'nonce="[^"]*"[^>]*' | head
+   ```
+
+   Everything it lists is the application's own — the framework does not nonce data
+   blocks or its own `no-js` flip any more. See [which of your inline scripts actually
+   needs a nonce](#which-of-your-inline-scripts-actually-needs-a-nonce).
 6. Is the front controller returning a `Response`, or echoing `render()`'s string?
    A string is passed through unstored — see
    [the pipeline has to return a `Response`](#the-pipeline-has-to-return-a-response).

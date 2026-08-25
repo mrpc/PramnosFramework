@@ -1321,4 +1321,133 @@ class Document extends \Pramnos\Framework\Base
         return $this->type;
     }
 
+    /**
+     * Script types the browser will actually execute.
+     *
+     * The HTML spec's list of JavaScript MIME types, plus the three non-MIME values a
+     * `<script>` may declare and still be run: `module`, `importmap` and
+     * `speculationrules`.
+     *
+     * **`importmap` and `speculationrules` belong here, and that is not obvious.** The
+     * filing that prompted this listed them alongside `application/ld+json` as
+     * non-executable. They are not: an import map needs an inline allowance like any
+     * other script, and speculation rules are gated by `script-src` so specifically that
+     * CSP has a dedicated `'inline-speculation-rules'` keyword for them. Treating them as
+     * data would have silently broken both for anybody using them under a nonce policy —
+     * silently, because the symptom appears only when somebody first tries an import map.
+     *
+     * @var list<string>
+     */
+    private const EXECUTABLE_SCRIPT_TYPES = [
+        'module', 'importmap', 'speculationrules',
+        'application/ecmascript', 'application/javascript',
+        'application/x-ecmascript', 'application/x-javascript',
+        'text/ecmascript', 'text/javascript', 'text/jscript', 'text/livescript',
+        'text/x-ecmascript', 'text/x-javascript',
+        'text/javascript1.0', 'text/javascript1.1', 'text/javascript1.2',
+        'text/javascript1.3', 'text/javascript1.4', 'text/javascript1.5',
+    ];
+
+    /**
+     * Stamp the request's CSP nonce onto the inline scripts and styles that need one.
+     *
+     * One implementation for every document type. It used to be two identical copies —
+     * `Html` and `Raw` each carried the regex — which for a security-relevant pattern
+     * that has to agree with itself is one copy too many.
+     *
+     * ## What is skipped, and why it matters more than it looks
+     *
+     * A `<script>` whose declared `type` is not executable is a **data block**: the
+     * browser never runs it, so `script-src` has nothing to allow or refuse and the nonce
+     * is inert. `application/ld+json` is the common case — structured data that has to be
+     * inline for a crawler to read it.
+     *
+     * That used to be harmless. It stopped being harmless when
+     * {@see \Pramnos\Cache\Page\PageCache::store()} began refusing any body carrying
+     * the request's nonce, because a nonce reused across visitors is not a nonce. A nonce
+     * on a data block is now the difference between a page that can be cached and one
+     * that cannot — and it was measured that way: a consuming application moved its own
+     * inline script into a file to comply, and what was left standing between an
+     * otherwise static catalogue page and the cache was 248 bytes of JSON-LD and 96 bytes
+     * of framework `<head>` script.
+     *
+     * The decision is an **allow-list of executable types**, not a deny-list of data ones.
+     * Wrong in the allow-list direction means an unnecessary nonce — the status quo.
+     * Wrong in the deny-list direction means a script that needed a nonce and lost it,
+     * which is a blocked script and a broken page.
+     *
+     * ## `<style>` is not the same question
+     *
+     * Every inline `<style>` keeps its nonce. `style-src` genuinely gates inline styles,
+     * so those nonces are doing work — and a page with an inline `<style>` is
+     * legitimately uncacheable for the same reason a page with an inline script is.
+     *
+     * @param  string $content The rendered document
+     * @param  string $nonce   Already escaped for an attribute value
+     * @return string
+     */
+    protected function injectCspNonces(string $content, string $nonce): string
+    {
+        $content = preg_replace_callback(
+            '/<script(?![^>]*\bsrc\s*=)([^>]*)>/i',
+            static function (array $matches) use ($nonce): string {
+                // `data-pramnos-hashed` marks a script the framework emits whose *hash*
+                // is in the policy — the `no-js` flip. Nonce it as well and the body
+                // carries a nonce again, which is the one thing that stops the page
+                // being cached. The nonce would also win over the hash, so it would be
+                // doing the allowing while the hash sat there unused.
+                if (str_contains(strtolower($matches[1]), 'data-pramnos-hashed')) {
+                    return $matches[0];
+                }
+
+                if (!self::scriptTagIsExecutable($matches[1])) {
+                    return $matches[0];
+                }
+
+                return '<script nonce="' . $nonce . '"' . $matches[1] . '>';
+            },
+            $content
+        );
+
+        return (string) preg_replace_callback(
+            '/<style([^>]*)>/i',
+            static function (array $matches) use ($nonce): string {
+                return '<style nonce="' . $nonce . '"' . $matches[1] . '>';
+            },
+            (string) $content
+        );
+    }
+
+    /**
+     * Will the browser run the script this open tag begins?
+     *
+     * No `type` at all means a classic script, which runs. A `type` that is present is
+     * compared against {@see EXECUTABLE_SCRIPT_TYPES} — after dropping any MIME
+     * parameters, so `text/javascript; charset=utf-8` is still recognised.
+     *
+     * The `str_contains` fallback is deliberate belt-and-braces: any type naming
+     * javascript or ecmascript in a spelling the list happens not to carry is treated as
+     * executable and keeps its nonce. An unnecessary nonce costs cacheability; a missing
+     * one costs a working page.
+     *
+     * @param string $attributes Everything between `<script` and `>`
+     */
+    private static function scriptTagIsExecutable(string $attributes): bool
+    {
+        if (!preg_match('/\btype\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/i', $attributes, $m)) {
+            return true;
+        }
+
+        $type = strtolower(trim($m[1] !== '' ? $m[1] : ($m[2] !== '' ? $m[2] : ($m[3] ?? ''))));
+        $type = trim(explode(';', $type)[0]);
+
+        if ($type === '') {
+            return true;
+        }
+
+        return in_array($type, self::EXECUTABLE_SCRIPT_TYPES, true)
+            || str_contains($type, 'javascript')
+            || str_contains($type, 'ecmascript');
+    }
+
 }

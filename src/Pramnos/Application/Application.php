@@ -1744,7 +1744,26 @@ class Application extends Base
 
         $nonceSource = $nonce === '' ? '' : " 'nonce-{$nonce}'";
 
-        $scriptNonce = strpos($scriptDomains, "'unsafe-inline'") === false ? $nonceSource : "";
+        // The hash of the `no-js` flip, so that script needs no nonce.
+        //
+        // Computed from the constant it is emitted from, never written down: a hash and
+        // the bytes it covers have to agree exactly, and a hardcoded one would go stale
+        // the first time somebody edited the script — as a blocked script, which is the
+        // failure that leaves a page permanently in its no-JavaScript styling.
+        //
+        // Its purpose is cacheability. `PageCache::store()` refuses a body carrying the
+        // request's nonce, and this is often the only inline script on a page, so a nonce
+        // here made an otherwise static page uncacheable. A hash allows the same script
+        // without putting a per-visitor value in the body.
+        $flipHash = " 'sha256-" . base64_encode(
+            hash('sha256', \Pramnos\Document\DocumentTypes\Html::NO_JS_FLIP, true)
+        ) . "'";
+
+        // `unsafe-inline` is ignored by a browser as soon as a nonce or hash is present,
+        // so an application that asked for it gets neither — otherwise the framework
+        // would be quietly cancelling the thing it was told to allow.
+        $scriptAllowsInline = strpos($scriptDomains, "'unsafe-inline'") !== false;
+        $scriptNonce = $scriptAllowsInline ? "" : $nonceSource . $flipHash;
         $styleNonce = strpos($styleDomains, "'unsafe-inline'") === false ? $nonceSource : "";
 
         $policy = [

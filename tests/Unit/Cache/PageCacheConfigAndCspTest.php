@@ -254,9 +254,19 @@ class PageCacheConfigAndCspTest extends TestCase
         // Act
         $policy = $app->cspPolicy();
 
-        // Assert — no empty source expression, and the directive is otherwise intact.
+        // Assert — no empty source expression…
         $this->assertStringNotContainsString('nonce-', $policy);
-        $this->assertStringContainsString("script-src 'self';", $policy);
+
+        // …but the `no-js` flip's hash is still there, and has to be. This is the policy
+        // a page-cache **hit** goes out with: the stored body contains the flip (emitted
+        // without a nonce so the body could be stored at all), so a policy that dropped
+        // the hash along with the nonce would block it — leaving every cached page in its
+        // no-JavaScript styling, which is the failure this framework has been reported
+        // for twice already.
+        $this->assertMatchesRegularExpression(
+            "/script-src 'self' 'sha256-[A-Za-z0-9+\/=]+';/",
+            $policy
+        );
     }
 
     /**

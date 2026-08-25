@@ -15,16 +15,22 @@ use Pramnos\Document\DocumentTypes\Html;
  *
  * Two findings from consuming applications meet here.
  *
- * A filing said the `no-js` flip script — the two lines that swap `class="no-js"` for
- * `js` on `<html>` — was missing the nonce, and that under a nonce policy it would be
- * blocked, leaving every page permanently in its no-JavaScript styling. **The script
- * does get a nonce**: `Html::render()` post-processes the finished document and injects
- * one into every inline `<script>`, that one included. The first test here is that
- * assertion, because the claim was plausible enough to be filed and the answer was not
- * written down anywhere.
+ * A filing (FW-016) said the framework's own `<head>` script was missing its nonce
+ * because it is written into the markup rather than registered through `addScript()`,
+ * and that under a nonce policy every page would therefore be stuck in its
+ * no-JavaScript styling. The mechanism was misread: `Html::render()` post-processes the
+ * whole finished document, so the injection is by tag and registration is irrelevant.
  *
- * The symptom described, though, is real — a different application lost exactly that
- * way. Its `exec()` override did not call the parent, so `$cspNonce` stayed `''`, and
+ * A later filing then asked for the opposite, for a different and good reason. Since
+ * `PageCache::store()` began refusing any body carrying the request's nonce, a nonce is
+ * what makes a page uncacheable — so the two things that cannot use one should not have
+ * one. A `<script>` whose type is not executable is a data block the browser never runs,
+ * and the `no-js` flip is a fixed string whose **hash** can be in the policy instead.
+ * Both now go out without a nonce, and the tests below cover which scripts still need
+ * one — including the two the filing wrongly listed as data.
+ *
+ * The symptom FW-016 described is real all the same — a different application lost
+ * exactly that way. Its `exec()` override did not call the parent, so `$cspNonce` stayed `''`, and
  * with no nonce there is nothing to inject and nothing for the policy to allow: every
  * inline script on every server-rendered page was refused. It was reported as *"the
  * night-mode button does not work"*, twice, because a blocked inline script is present
@@ -45,11 +51,11 @@ class CspNonceReachesInlineScriptsTest extends TestCase
     /**
      * A live application with the given nonce and nothing else booted.
      */
-    private function application(string $nonce): Application
+    private function application(string $nonce = '', array $info = []): Application
     {
         $rc  = new \ReflectionClass(Application::class);
         $app = $rc->newInstanceWithoutConstructor();
-        $app->applicationInfo = [];
+        $app->applicationInfo = $info;
         $app->cspNonce = $nonce;
 
         $rc->getProperty('appInstances')->setValue(null, ['default' => $app]);
@@ -66,28 +72,291 @@ class CspNonceReachesInlineScriptsTest extends TestCase
         return $matches[0];
     }
 
+    // ── Which scripts need a nonce, and which cannot use one ────────────────
+
     /**
-     * The `no-js` flip script carries the nonce.
+     * A data block gets no nonce, because `script-src` cannot gate it.
      *
-     * The answer to the filing. `Html::render()` runs a post-process over the whole
-     * finished string, so it does not matter that this script is emitted inline in the
-     * `<head>` markup rather than through `addScript()` — the injection is by tag, not
-     * by registration.
+     * `script-src` gates script **execution**. A `<script>` whose declared type is not a
+     * JavaScript MIME type is a data block: the browser never runs it, so there is
+     * nothing for the policy to allow and the nonce is inert. Embedding data in
+     * `application/json` is a well-known way to sidestep CSP precisely because of this.
+     *
+     * Harmless until {@see \Pramnos\Cache\Page\PageCache::store()} began refusing any
+     * body carrying the request's nonce — a nonce reused across visitors is not a nonce.
+     * From then on an inert nonce was the difference between a page that could be cached
+     * and one that could not, measured that way in a consuming application: after moving
+     * its own inline script into a file, what was left on its catalogue pages was 248
+     * bytes of JSON-LD and 96 bytes of framework `<head>` script.
      */
-    public function testTheNoJsFlipScriptCarriesTheNonce(): void
+    public function testADataBlockGetsNoNonce(): void
+    {
+        // Arrange
+        $this->application('DataBlock123');
+
+        // Act
+        $out = $this->renderWith('<script type="application/ld+json">{"a":1}</script>');
+
+        // Assert
+        $this->assertStringContainsString('<script type="application/ld+json">', $out);
+        $this->assertStringNotContainsString('nonce="DataBlock123" type="application/ld+json"', $out);
+    }
+
+    /**
+     * `importmap` and `speculationrules` keep their nonce.
+     *
+     * **The filing that prompted this listed both as non-executable alongside
+     * `application/ld+json`. They are not.** An import map needs an inline allowance like
+     * any other script, and speculation rules are gated by `script-src` so specifically
+     * that CSP has a dedicated `'inline-speculation-rules'` keyword for them; there are
+     * open issues in other frameworks about exactly this.
+     *
+     * Following the filing literally would have broken both under a nonce policy —
+     * silently, because nothing reports it until somebody first tries an import map.
+     * Which is why the decision is an allow-list of executable types rather than a
+     * deny-list of data ones: wrong in the allow-list direction costs an unnecessary
+     * nonce, wrong the other way costs a working page.
+     */
+    public function testImportmapAndSpeculationRulesKeepTheirNonce(): void
+    {
+        // Arrange
+        $this->application('Executable123');
+
+        // Act
+        $out = $this->renderWith(
+            '<script type="importmap">{}</script>'
+            . '<script type="speculationrules">{}</script>'
+        );
+
+        // Assert
+        $this->assertStringContainsString('nonce="Executable123" type="importmap"', $out);
+        $this->assertStringContainsString('nonce="Executable123" type="speculationrules"', $out);
+    }
+
+    /**
+     * A MIME type with parameters is still recognised as executable.
+     *
+     * `text/javascript; charset=utf-8` is a JavaScript MIME type, and comparing the whole
+     * attribute value against a list would have failed it — costing the script its nonce,
+     * which is a blocked script rather than a missed optimisation.
+     */
+    public function testAMimeTypeWithParametersIsStillExecutable(): void
+    {
+        // Arrange
+        $this->application('Params123');
+
+        // Act
+        $out = $this->renderWith('<script type="text/javascript; charset=utf-8">x()</script>');
+
+        // Assert
+        $this->assertStringContainsString('nonce="Params123"', $out);
+    }
+
+    /**
+     * Anything naming javascript keeps its nonce, listed or not.
+     *
+     * Belt-and-braces, and the asymmetry is the reason: an unnecessary nonce costs
+     * cacheability, a missing one costs a page. A spelling the list happens not to carry
+     * must fail towards keeping the nonce.
+     */
+    public function testAnUnlistedJavascriptSpellingKeepsItsNonce(): void
+    {
+        // Arrange
+        $this->application('Fallback123');
+
+        // Act
+        $out = $this->renderWith('<script type="application/vnd.example+javascript">x()</script>');
+
+        // Assert
+        $this->assertStringContainsString('nonce="Fallback123"', $out);
+    }
+
+    /**
+     * An inline `<style>` keeps its nonce, because `style-src` does gate it.
+     *
+     * The half of this that must not change. `style-src` genuinely governs inline styles,
+     * so those nonces are doing work — and a page with an inline `<style>` is
+     * legitimately uncacheable for exactly the same reason as one with inline script.
+     */
+    public function testAnInlineStyleKeepsItsNonce(): void
+    {
+        // Arrange
+        $this->application('Styled123');
+
+        // Act
+        $out = $this->renderWith('<style>.a{color:red}</style>');
+
+        // Assert
+        $this->assertStringContainsString('<style nonce="Styled123"', $out);
+    }
+
+    // ── The no-js flip is allowed by hash, not by nonce ──────────────────────
+
+    /**
+     * The flip carries no nonce, and the policy carries its hash instead.
+     *
+     * 96 bytes, and frequently the only inline script on a page — so nonced, it was the
+     * whole of what stood between an otherwise static page and the cache.
+     *
+     * A hash rather than an external file, because the script has to run before the first
+     * paint: a blocking request in `<head>` to answer *does JavaScript exist* is the very
+     * thing the `no-js` class exists to answer without one.
+     */
+    public function testTheFlipIsAllowedByHashRatherThanNonce(): void
+    {
+        // Arrange
+        $app = $this->application('');
+        (new \ReflectionMethod(Application::class, 'ensureCspNonce'))->invoke($app);
+
+        // Act
+        $out    = (new Html())->render();
+        $policy = $app->cspPolicy();
+
+        // Assert — emitted without a nonce…
+        $this->assertMatchesRegularExpression('/<script data-pramnos-hashed>/', $out);
+        $this->assertStringNotContainsString('data-pramnos-hashed nonce=', $out);
+        $this->assertStringNotContainsString('nonce="' . $app->cspNonce . '" data-pramnos-hashed', $out);
+
+        // …and allowed by a hash in the policy.
+        $this->assertMatchesRegularExpression("/'sha256-[A-Za-z0-9+\/=]+'/", $policy);
+    }
+
+    /**
+     * The hash in the policy is the hash of the bytes actually emitted.
+     *
+     * The invariant that breaks a page if it drifts. A hash covers exact bytes, so a
+     * policy computed from a different string than the one in the document blocks the
+     * script — and a blocked flip leaves every page permanently in its no-JavaScript
+     * styling, which is the failure this framework has already been reported for twice.
+     *
+     * Computed from the emitted document rather than from the constant, so that editing
+     * the script and forgetting the policy fails here instead of in a browser.
+     */
+    public function testThePolicyHashCoversTheBytesActuallyEmitted(): void
+    {
+        // Arrange
+        $app = $this->application('');
+        (new \ReflectionMethod(Application::class, 'ensureCspNonce'))->invoke($app);
+
+        // Act
+        $out = (new Html())->render();
+        $this->assertSame(
+            1,
+            preg_match('/<script data-pramnos-hashed>(.*?)<\/script>/s', $out, $m),
+            'the flip must be in the document for its hash to mean anything'
+        );
+        $expected = "'sha256-" . base64_encode(hash('sha256', $m[1], true)) . "'";
+
+        // Assert
+        $this->assertStringContainsString($expected, $app->cspPolicy());
+    }
+
+    /**
+     * With `unsafe-inline` asked for, neither the nonce nor the hash is emitted.
+     *
+     * A browser ignores `unsafe-inline` the moment a nonce or hash is present, so
+     * emitting either would quietly cancel the thing the application configured. The
+     * Tailwind theme is the case that needs it.
+     */
+    public function testUnsafeInlineSuppressesBothTheNonceAndTheHash(): void
+    {
+        // Arrange
+        $app = $this->application('', ['csp' => ['script-src' => ["'unsafe-inline'"]]]);
+        $app->cspNonce = 'Unsafe123';
+
+        // Act
+        $policy = $app->cspPolicy();
+
+        // Assert — scoped to script-src, because style-src legitimately still carries
+        // the nonce: only script-src was given unsafe-inline.
+        $scriptSrc = '';
+        foreach (explode('; ', $policy) as $directive) {
+            if (str_starts_with($directive, 'script-src ')) {
+                $scriptSrc = $directive;
+            }
+        }
+
+        $this->assertSame("script-src 'self' 'unsafe-inline'", $scriptSrc);
+        $this->assertStringNotContainsString('nonce-', $scriptSrc);
+        $this->assertStringNotContainsString('sha256-', $scriptSrc);
+
+        // …and style-src is untouched by any of this.
+        $this->assertStringContainsString("style-src 'self' 'nonce-Unsafe123'", $policy);
+    }
+
+    /**
+     * A page whose only inline script is a data block is storable.
+     *
+     * The end of the chain, and the reason any of this was worth doing. A catalogue page
+     * with structured data and an external script now carries no nonce at all, so
+     * `PageCache::store()` keeps it — where before, the two scripts the framework itself
+     * emitted were the only thing refusing it.
+     */
+    public function testACataloguePageIsNowStorable(): void
+    {
+        // Arrange
+        $app = $this->application();
+        (new \ReflectionMethod(Application::class, 'ensureCspNonce'))->invoke($app);
+
+        $doc = new Html();
+        $doc->content = '<h1>Genres</h1>'
+            . '<script type="application/ld+json">{"@context":"https://schema.org"}</script>'
+            . '<script src="/js/chrome.js"></script>';
+        $body = $doc->render();
+
+        $_SERVER['HTTP_HOST'] = 'example.test';
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/genres';
+        $_SERVER['PHP_SELF'] = '/index.php';
+        $_GET = [];
+        $_COOKIE = [];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Assert — no nonce reached the body…
+        $this->assertStringNotContainsString($app->cspNonce, $body);
+
+        // …so the page cache keeps it.
+        $cache = new \Pramnos\Cache\Page\PageCache(
+            ['enabled' => true],
+            new \Pramnos\Cache\Adapter\ArrayAdapter()
+        );
+        $this->assertTrue($cache->store(
+            new \Pramnos\Http\Request(),
+            \Pramnos\Http\Response::make($body)
+        ));
+    }
+
+    /** Render a document whose body is the given markup. */
+    private function renderWith(string $markup): string
+    {
+        $doc = new Html();
+        $doc->content = $markup;
+
+        return $doc->render();
+    }
+
+    /**
+     * An inline script in the `<head>` markup is nonced like any other.
+     *
+     * The answer to FW-016, which said the framework's own `<head>` script was missing
+     * its nonce because it is written into the markup rather than registered through
+     * `addScript()`. It is not: `Html::render()` post-processes the whole finished string,
+     * so the injection is by tag and registration has nothing to do with it.
+     *
+     * Asserted on a script placed in the body rather than on the `no-js` flip itself,
+     * because the flip has since become the one deliberate exception — it is allowed by
+     * hash, for cacheability. The mechanism the filing was wrong about is what this pins.
+     */
+    public function testAnInlineScriptIsNoncedWhereverItAppears(): void
     {
         // Arrange
         $this->application('NoJsCanary123');
 
-        // Act
-        $tags = $this->scriptTags();
+        // Act — not registered through addScript(), exactly as the filing described.
+        $out = $this->renderWith('<script>markupWritten()</script>');
 
-        // Assert — there is such a script, and it is nonced.
-        $this->assertNotEmpty($tags, 'the no-js flip script must be in the document');
-        foreach ($tags as $tag) {
-            $this->assertStringContainsString('nonce="NoJsCanary123"', $tag,
-                'every inline script must carry the nonce, including the no-js flip');
-        }
+        // Assert
+        $this->assertStringContainsString('<script nonce="NoJsCanary123">markupWritten()', $out);
     }
 
     /**
@@ -173,12 +442,10 @@ class CspNonceReachesInlineScriptsTest extends TestCase
 
         // Act
         $policy = $app->cspPolicy();
-        $tags   = $this->scriptTags();
+        $out    = $this->renderWith('<script>needsTheNonce()</script>');
 
-        // Assert
+        // Assert — the policy names the nonce the document was stamped with.
         $this->assertStringContainsString("'nonce-" . $app->cspNonce . "'", $policy);
-        foreach ($tags as $tag) {
-            $this->assertStringContainsString('nonce="' . $app->cspNonce . '"', $tag);
-        }
+        $this->assertStringContainsString('nonce="' . $app->cspNonce . '"', $out);
     }
 }

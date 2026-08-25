@@ -47,14 +47,37 @@ class Html extends \Pramnos\Document\Document
      *
      * @return string Empty when this document type does not want it
      */
+    /**
+     * The exact bytes of the `no-js` flip.
+     *
+     * A constant because its **hash is in the policy**, and a hash computed from a
+     * different string than the one emitted blocks the script. Computed at runtime from
+     * this constant rather than written down, so editing the script cannot silently
+     * invalidate the policy that allows it.
+     */
+    public const NO_JS_FLIP = "document.documentElement.className="
+        . "document.documentElement.className.replace(/\\bno-js\\b/,'js');";
+
     protected function noJsFlipScript(): string
     {
         if (!$this->emitNoJsFlip) {
             return '';
         }
 
-        return "\n        <script>document.documentElement.className="
-            . "document.documentElement.className.replace(/\\bno-js\\b/,'js');</script>";
+        // No nonce, and a marker that keeps the injector from adding one: the policy
+        // carries this script's **hash** instead — see
+        // {@see \Pramnos\Application\Application::buildCspPolicy()}.
+        //
+        // Why bother, for 96 bytes: `PageCache::store()` refuses any body carrying the
+        // request's nonce, because a nonce reused across visitors is not a nonce. This is
+        // frequently the *only* inline script on a page, so nonced it was the whole of
+        // what stood between an otherwise static page and the cache — measured that way
+        // in a consuming application that had already moved its own scripts into files.
+        //
+        // A hash rather than a file, because the script has to run before the first
+        // paint: an external one in `<head>` is a blocking request to answer a question
+        // — does JavaScript exist — that the `no-js` class exists to answer without one.
+        return "\n        <script data-pramnos-hashed>" . self::NO_JS_FLIP . "</script>";
     }
 
     public function render()
@@ -194,24 +217,12 @@ class Html extends \Pramnos\Document\Document
         // and the `if` below was already written for a null this call could not return.
         $app = \Pramnos\Application\Application::currentInstance();
         if ($app && property_exists($app, 'cspNonce') && $app->cspNonce !== '') {
-            $nonce = htmlspecialchars($app->cspNonce, ENT_QUOTES);
-
-            // Inline <script> tags (no src= attribute)
-            $content = preg_replace_callback(
-                '/<script(?![^>]*\bsrc\s*=)([^>]*)>/i',
-                static function (array $matches) use ($nonce): string {
-                    return '<script nonce="' . $nonce . '"' . $matches[1] . '>';
-                },
-                $content
-            );
-
-            // Inline <style> blocks
-            $content = preg_replace_callback(
-                '/<style([^>]*)>/i',
-                static function (array $matches) use ($nonce): string {
-                    return '<style nonce="' . $nonce . '"' . $matches[1] . '>';
-                },
-                $content
+            // One implementation, on Document. This was an identical copy of the
+            // pattern in the other document type — two copies of a security-relevant
+            // regex that had to agree with each other.
+            $content = $this->injectCspNonces(
+                $content,
+                htmlspecialchars($app->cspNonce, ENT_QUOTES)
             );
         }
 
