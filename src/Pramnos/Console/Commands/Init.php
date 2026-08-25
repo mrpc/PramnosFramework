@@ -601,7 +601,15 @@ class Init extends Command
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('app/schedule.php', $this->getScheduleTemplate());
         $this->writeFile($this->webRoot . '/index.php', $this->getIndexTemplate($namespace));
-        $this->writeFile($this->webRoot . '/.htaccess', "RewriteEngine On\nRewriteRule ^$ index.php [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteCond %{REQUEST_FILENAME} !-d\nRewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n");
+        $this->writeFile(
+            $this->webRoot . '/.htaccess',
+            "RewriteEngine On\n"
+            . self::commonRewriteRules($enabledFeatures)
+            . "\nRewriteRule ^$ index.php [L]\n"
+            . "RewriteCond %{REQUEST_FILENAME} !-f\n"
+            . "RewriteCond %{REQUEST_FILENAME} !-d\n"
+            . "RewriteRule ^(.*)$ index.php?r=\$1 [QSA,L]\n"
+        );
         $catalog = $this->loadAssetCatalog();
         $this->writeFile('src/Application.php', $this->getApplicationTemplate($namespace, $selectedLibraries, $catalog));
         $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName));
@@ -1511,7 +1519,7 @@ class Init extends Command
             $this->scaffoldSpaBuildlessStack($sourceDir, $tokens);
         }
 
-        $this->scaffoldSpaRouting($appStyle, $shellFile, self::mvcRoutePrefixes($features));
+        $this->scaffoldSpaRouting($appStyle, $shellFile, self::mvcRoutePrefixes($features), $features);
         $this->scaffoldSpaGitignore($needsBuild);
     }
 
@@ -1861,7 +1869,12 @@ class Init extends Command
      * routing works on a refresh or a deep link. A hybrid app keeps the MVC
      * front controller in charge and mounts the SPA under /app only.
      */
-    private function scaffoldSpaRouting(string $appStyle, string $shellFile, array $mvcPrefixes = []): void
+    private function scaffoldSpaRouting(
+        string $appStyle,
+        string $shellFile,
+        array $mvcPrefixes = [],
+        array $features = []
+    ): void
     {
         if ($appStyle === 'spa') {
             // Even a SPA-first project keeps server-rendered areas: the login
@@ -1874,6 +1887,7 @@ class Init extends Command
             // root would serve the MVC index.php instead of the SPA.
             $rules = "DirectoryIndex $shellFile index.php\n"
                 . "RewriteEngine On\n"
+                . self::commonRewriteRules($features)
                 . "# Server-rendered areas scaffolded by init stay with the front controller.\n"
                 . "RewriteCond %{REQUEST_FILENAME} !-f\n"
                 . "RewriteCond %{REQUEST_FILENAME} !-d\n"
@@ -1890,6 +1904,7 @@ class Init extends Command
 
         if ($appStyle === 'hybrid') {
             $rules = "RewriteEngine On\n"
+                . self::commonRewriteRules($features)
                 . "# SPA mounted under /app — client-side routes fall through to the shell.\n"
                 . "RewriteCond %{REQUEST_FILENAME} !-f\n"
                 . "RewriteCond %{REQUEST_FILENAME} !-d\n"
@@ -4565,6 +4580,52 @@ use Pramnos\Scheduling\Scheduler;
 // })->everyFifteenMinutes()->withoutOverlapping();
 
 PHP;
+    }
+
+    /**
+     * The rewrite rules a web root needs regardless of application style.
+     *
+     * Two things belong here rather than in each of the three places that write
+     * an `.htaccess`, because both were missing from all three.
+     *
+     * **The Authorization header.** Apache does not pass it to PHP-FPM or CGI
+     * unless it is copied into the environment first. Every request that
+     * authenticates with `Authorization: Bearer …` — which is every generic HTTP
+     * client, every OpenAPI console, every `curl` in a support ticket — arrives
+     * looking anonymous. That reads as a rejected token, so the time goes into
+     * the token and not into the header that never got there.
+     *
+     * **The well-known paths.** `init` scaffolds a `Discovery` controller
+     * whenever the authserver feature is on, and its endpoints are named by
+     * specification: `/.well-known/openid-configuration`, `jwks.json`,
+     * `oauth-authorization-server`. None of those fit the controller/action URL
+     * shape, so without an explicit rule the scaffolded controller answers 404
+     * on every documented address it has. The underscore spelling of
+     * `openid_configuration` is in no specification and in plenty of clients;
+     * answering it costs one line.
+     *
+     * @param  list<string> $features Enabled framework features
+     * @return string Rules to place directly after `RewriteEngine On`
+     */
+    private static function commonRewriteRules(array $features): string
+    {
+        $rules = "\n# Apache does not hand the Authorization header to PHP-FPM or CGI on its\n"
+            . "# own, so a bearer token would arrive as no token at all.\n"
+            . "RewriteCond %{HTTP:Authorization} .\n"
+            . "RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n";
+
+        if (!in_array('authserver', $features, true)) {
+            return $rules;
+        }
+
+        return $rules
+            . "\n# OAuth2 and OpenID Connect fix these paths by specification, so they\n"
+            . "# cannot be reached through the controller/action URL shape.\n"
+            . "RewriteRule ^\\.well-known/openid-configuration$ index.php?r=Discovery/configuration [L]\n"
+            . "RewriteRule ^\\.well-known/openid_configuration$ index.php?r=Discovery/configuration [L]\n"
+            . "RewriteRule ^\\.well-known/jwks\\.json$ index.php?r=Discovery/jwks [L]\n"
+            . "RewriteRule ^\\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]\n"
+            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n";
     }
 
     private function getIndexTemplate(string $namespace = 'Pramnos'): string

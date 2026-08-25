@@ -238,6 +238,23 @@ Slashes and whitespace are trimmed, so `--web-root=/public/` works. An empty val
 `www` rather than scaffolding a front controller into the repository root, which is easy to
 produce from a shell variable that did not expand and difficult to undo.
 
+### The web root config `init` writes
+
+All three application styles — `mvc`, `spa`, `hybrid` — get the same two blocks
+above their own rules, because both were missing from all three:
+
+- **The `Authorization` header, forwarded into the environment.** Apache does not
+  pass it to PHP-FPM or CGI on its own, so a bearer token arrives as no token.
+- **The `.well-known` discovery paths**, mapped to the `Discovery` controller —
+  only when the `authserver` feature is enabled, since that is what scaffolds the
+  controller they name.
+
+The specific rules are emitted above the catch-all deliberately: `mod_rewrite`
+runs rules in order, and the catch-all matches everything. See
+[Third-Party Integration](Pramnos_AuthServer_Integration_Guide.md#if-discovery-answers-404)
+for the block itself and for what to add to a project scaffolded before it
+existed.
+
 | Flag | Skips |
 | --- | --- |
 | `--no-install` | `composer update` and `dump-autoload` (and, under Docker, the migrations that need them) |

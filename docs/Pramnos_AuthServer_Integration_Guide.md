@@ -51,6 +51,50 @@ The document lists the real endpoints, e.g.:
 
 Validate ID tokens against the keys in `jwks_uri`.
 
+### If discovery answers 404
+
+These paths are fixed by specification, so they cannot be reached through the
+framework's `controller/action` URL shape — the web server has to be told about
+them. `init` writes the rules when the `authserver` feature is enabled:
+
+```apache
+RewriteRule ^\.well-known/openid-configuration$ index.php?r=Discovery/configuration [L]
+RewriteRule ^\.well-known/openid_configuration$ index.php?r=Discovery/configuration [L]
+RewriteRule ^\.well-known/jwks\.json$          index.php?r=Discovery/jwks [L]
+RewriteRule ^\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]
+RewriteRule ^\.well-known/health$               index.php?r=Discovery/health [L]
+```
+
+Two things about that block are worth knowing before you edit it.
+
+**Order matters.** The catch-all rule below them matches every path, and
+`mod_rewrite` runs rules in order — a discovery rule moved beneath the catch-all
+never fires. On a SPA project the failure is worse than a 404: the shell
+fallback answers with the application's HTML and a 200, so a client sees
+malformed JSON rather than a missing endpoint.
+
+**The underscore spelling is deliberate.** `openid_configuration` appears in no
+specification and in a good number of clients. Answering it costs one line.
+
+A project scaffolded before these rules existed keeps its own `.htaccess` —
+version control does not update it for you. Add the block by hand, above the
+catch-all.
+
+### If a bearer token reads as no token
+
+Apache does not hand the `Authorization` header to PHP-FPM or CGI unless it is
+copied into the environment first:
+
+```apache
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+```
+
+`init` writes this for **every** project, not only authorization servers — any
+REST API authenticated with `Authorization: Bearer …` needs it. Without it the
+request arrives anonymous, which reads as a rejected credential; the time then
+goes into the token, and the token was never the problem.
+
 ---
 
 ## 2. Registering your application
