@@ -886,10 +886,34 @@ class HelpersExtendedTest extends TestCase
         // Act — limit to 20 chars
         $result = Helpers::shortenText($text, 20);
 
-        // Assert — result is shorter than original and ends with the default ellipsis
+        // Assert — result is shorter than the original and marked as cut
         $this->assertLessThan(mb_strlen($text), mb_strlen($result));
-        // Default $moreText is '&hellip;' (HTML entity), not the UTF-8 character.
-        $this->assertStringContainsString('&hellip;', $result);
+        $this->assertStringEndsWith('…', $result);
+
+        // The default suffix is now the character, not `&hellip;`. It renders the same in
+        // HTML and is correct in the contexts the entity was wrong in — a plain-text
+        // email, a JSON field, or anything that escapes the result, where `&hellip;`
+        // became a visible `&amp;hellip;`. It also has to be one character rather than
+        // eight, because the length now includes it: charging eight for an ellipsis left
+        // almost nothing of a short excerpt.
+        $this->assertLessThanOrEqual(20, mb_strlen($result), 'the limit includes the suffix');
+    }
+
+    /**
+     * An explicitly passed suffix is still counted and used literally.
+     *
+     * Only the default is translated. A caller that asked for '...' meant three
+     * characters and gets three — the mapping is a fix for one specific spelling, not a
+     * licence to rewrite whatever the caller passed.
+     */
+    public function testAnExplicitSuffixIsUsedLiterally(): void
+    {
+        // Act
+        $result = Helpers::shortenText('The quick brown fox jumps', 12, '...');
+
+        // Assert
+        $this->assertStringEndsWith('...', $result);
+        $this->assertLessThanOrEqual(12, mb_strlen($result));
     }
 
     /**

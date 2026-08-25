@@ -1058,35 +1058,52 @@ class Helpers
 
     /**
      * Similar to substr, but it never splits a word.
+     *
+     * @deprecated Use {@see StringHelper::excerpt()}. `Helpers` is where anything with
+     *             nowhere else to go ends up, and a function whose whole job is
+     *             measuring and cutting a string belongs beside the other string
+     *             functions — where somebody looking for it will find it.
+     *
+     *             Kept as an alias rather than removed, and it forwards, so there is one
+     *             implementation and no way for the two to drift. **The behaviour it
+     *             forwards to is better in two ways, so existing callers see a change:**
+     *             the result now never exceeds `$length` (the suffix used to be appended
+     *             *after* cutting to it), and a single word longer than `$length` is
+     *             hard-cut rather than replaced by the suffix alone — the fallback the
+     *             legacy framework had and this port dropped.
+     *
+     *             `$charset` is ignored. It was `utf-8` at every call site, and
+     *             `excerpt()` uses the internal encoding, which this framework sets to
+     *             UTF-8. Kept in the signature only so existing calls still parse.
+     *
      * @param string $text The text you want to shorten
      * @param int $length Number of characters
      * @param string $moreText Added to text to display that its shorten
-     * @param string $charset
+     * @param string $charset Ignored; see above
      * @return string
      */
     public static function shortenText($text, $length, $moreText = '&hellip;',
         $charset = 'utf-8')
     {
         if (!is_numeric($length)) {
+            // The old contract: a non-numeric length is an Exception, not a TypeError
+            // from excerpt()'s int parameter. Tests pin it and callers may catch it.
             throw new \Exception('Invalid length');
         }
-        $returnText = trim(strip_tags($text ?? ''));
-        if (mb_strlen($returnText, $charset) > $length) {
-            if (version_compare(PHP_VERSION, '7.4.0') >= 0) {
-                $lastSpace = mb_strrpos(
-                    mb_substr($returnText, 0, $length, $charset),
-                    ' ', 0, $charset
-                );
-            } else {
-                $lastSpace = mb_strrpos(
-                    mb_substr($returnText, 0, $length, $charset),
-                    ' ', $charset
-                );
-            }
-            $returnText = mb_substr($returnText, 0, $lastSpace, $charset)
-                . $moreText;
+
+        // `&hellip;` is eight characters of string and one character of rendered output.
+        // `excerpt()` counts the suffix against the budget, correctly — but charging
+        // eight for an ellipsis leaves almost nothing of a short excerpt, so the entity
+        // is mapped to the character it renders as. Identical output in HTML, correct
+        // output in plain text, and a budget that can be measured.
+        //
+        // Only this one spelling. A caller that passed '...' means three characters and
+        // gets three.
+        if ($moreText === '&hellip;') {
+            $moreText = '…';
         }
-        return $returnText;
+
+        return StringHelper::excerpt($text, (int) $length, $moreText);
     }
 
 

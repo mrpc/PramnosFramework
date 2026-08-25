@@ -366,4 +366,86 @@ class StringHelper
         // Including their accented variants from Greek Extended block
         return preg_match('/[ΑΕΗΙΟΥΩαεηιουω\x{1F00}-\x{1F15}\x{1F18}-\x{1F1D}\x{1F20}-\x{1F45}\x{1F48}-\x{1F4D}\x{1F50}-\x{1F57}\x{1F59}\x{1F5B}\x{1F5D}\x{1F5F}-\x{1F7D}\x{1F80}-\x{1FAF}\x{1FB0}-\x{1FC4}\x{1FC6}-\x{1FD3}\x{1FD6}-\x{1FDB}\x{1FDD}-\x{1FEF}\x{1FF2}-\x{1FF4}\x{1FF6}-\x{1FFE}]/u', $text);
     }
+
+    /**
+     * A plain-text excerpt of at most `$length` characters, never splitting a word.
+     *
+     * Replaces `Helpers::shortenText()`, which stays as a deprecated alias. The shape
+     * changed on the way, deliberately: the old signature carried a `$charset` nobody
+     * passed anything but `utf-8` to, and defaulted its suffix to the HTML entity
+     * `&hellip;` in a function whose whole job is to return text with the HTML taken out.
+     *
+     * ## The guarantee
+     *
+     * **At most `$length` characters, ellipsis included.** The old version cut to
+     * `$length` and *then* appended the suffix, so the result could be longer than the
+     * number asked for — which is the one thing a caller sizing a column or a meta
+     * description cannot tolerate. `Console\CommandBase::truncateText()` had this right
+     * and this did not.
+     *
+     * HTML is stripped before measuring, so the length is a length of visible text: an
+     * excerpt of a paragraph of markup gives prose, not `<span class="…">`.
+     *
+     * ## One long word
+     *
+     * A word longer than `$length` is hard-cut. The old version returned the **ellipsis
+     * on its own** — `mb_strrpos()` finds no space, returns `false`, and `mb_substr()`
+     * reads that as 0 — so a single long word came back looking like empty text. The
+     * legacy framework this was ported from had a fallback for exactly that case and the
+     * port dropped it.
+     *
+     * `symfony/string` is already installed and is not used here: measured, its
+     * `truncate($length, $ellipsis, cut: false)` guarantees the opposite — it extends to
+     * the *next* word boundary, so a limit of 5 on "The quick brown fox" returns ten
+     * characters, and a single long word comes back whole and unmarked.
+     *
+     * @param  string|null $text     Source text; null is treated as empty
+     * @param  int         $length   Maximum characters in the result, ellipsis included
+     * @param  string      $ellipsis Appended when the text was actually cut
+     * @return string
+     * @throws \InvalidArgumentException When $length is negative
+     */
+    public static function excerpt(?string $text, int $length, string $ellipsis = '…'): string
+    {
+        if ($length < 0) {
+            throw new \InvalidArgumentException('Excerpt length cannot be negative');
+        }
+
+        $text = trim(strip_tags((string) $text));
+
+        if (mb_strlen($text) <= $length) {
+            return $text;
+        }
+
+        // The ellipsis is part of the budget, so what is kept is whatever is left after
+        // paying for it. A budget of zero or less means the ellipsis alone will not fit
+        // either, and a hard cut of the text is the only honest answer.
+        $budget = $length - mb_strlen($ellipsis);
+
+        if ($budget <= 0) {
+            return mb_substr($text, 0, $length);
+        }
+
+        $kept = mb_substr($text, 0, $budget);
+
+        // If the source breaks exactly where the budget ends, `$kept` is already a whole
+        // number of words and searching backwards would throw the last one away: a limit
+        // of 10 on "The quick brown…" fits "The quick" precisely, and looking for the
+        // previous space returns "The…".
+        if (mb_substr($text, $budget, 1) === ' ') {
+            return $kept . $ellipsis;
+        }
+
+        $lastSpace = mb_strrpos($kept, ' ');
+
+        // No space in what fits: one word longer than the budget. Hard-cut it rather
+        // than return the ellipsis on its own, which is what the version this replaces
+        // did and what made a long single word look like missing text.
+        if ($lastSpace === false || $lastSpace === 0) {
+            return $kept . $ellipsis;
+        }
+
+        return mb_substr($kept, 0, $lastSpace) . $ellipsis;
+    }
+
 }

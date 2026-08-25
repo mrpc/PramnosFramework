@@ -637,6 +637,15 @@ abstract class CommandBase extends Command
 
     /**
      * Truncate text to a maximum visible width, appending '...' on overflow.
+     *
+     * Not a duplicate of {@see \Pramnos\General\StringHelper::excerpt()}, and the
+     * difference is worth stating because a filing spotted the two and asked which was
+     * right: this one measures **visible** width — ANSI escape codes cost nothing — and
+     * it *splits words*. Both are correct for a table column in a terminal and wrong for
+     * prose. `excerpt()` is the one for anything a person reads as a sentence.
+     *
+     * It also had the budget arithmetic right first: the ellipsis is counted against
+     * `$maxLen`, which is what `shortenText()` did not do.
      */
     public function truncateText(string $text, int $maxLen): string
     {

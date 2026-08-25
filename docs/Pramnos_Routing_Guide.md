@@ -8,6 +8,7 @@ use_cases:
   - Working out why HEAD requests, link checkers or uptime monitors report a page as missing
   - Answering 405 Method Not Allowed instead of 404 for a wrong HTTP verb
   - Generating OpenAPI documentation from route attributes
+  - Putting the administration screens behind an /admin prefix with their own layout
 ---
 
 # Pramnos Modern Routing Guide
@@ -637,6 +638,76 @@ $doc = (new OpenApiGenerator(
     $overridesArray
 ))->fromDirectory(ROOT . '/src/Controllers', 'App\\Controllers');
 ```
+
+## An administration area under a prefix
+
+Admin screens usually want to live under one path, with their own layout and a
+floor on who may reach any of them:
+
+```
+/admin              → the admin front page
+/admin/Users        → the Users controller
+/admin/Applications/edit/5
+```
+
+Configure it once:
+
+```php
+// app/app.php
+'admin' => [
+    'prefix'       => 'admin',       // omit, or leave empty, to switch the area off
+    'theme'        => 'admin',       // theme used inside the area (optional)
+    'min_usertype' => 80,            // floor for reaching any of it (optional)
+],
+```
+
+That is the whole setup. **No second set of controllers, and no per-controller
+prefix handling** — `/admin/Users` and `/Users` are served by the same
+`UsersController`, because the prefix is removed before routing splits the path
+into controller and action. Actions, `_option` and the key/value tail behave
+exactly as they do without the prefix, so there is no second code path.
+
+### What changes inside the area
+
+| | Outside | Inside |
+|---|---|---|
+| Route | `Users/edit/5` | `Users/edit/5` — identical |
+| Theme | `theme` from app.php | `admin.theme`, when set |
+| Access | each controller's own check | that, **plus** `min_usertype` |
+
+The floor is not a replacement for the checks each controller makes; those still
+run, and several are stricter. It is what stops the *area* being browsable, so a
+screen that forgot its own check is not the only thing between an ordinary
+account and the dashboard.
+
+The two refusals differ on purpose. A guest is sent to sign in with a `return=`
+carrying the address they asked for, so signing in lands them where they were
+going. A signed-in user below the floor is sent to the site root instead —
+showing them a login form they are already past reads as a broken session, and
+they retype their password rather than understanding they lack the privilege.
+
+### Navigation
+
+Admin `NavItem`s point into the area automatically, from anywhere — including the
+public site header, which shows the same section. With no area configured they
+are plain application URLs, as before. To build one yourself:
+
+```php
+\Pramnos\Http\AdminArea::url('Users');   // …/admin/Users, or …/Users with no area
+\Pramnos\Http\AdminArea::isActive();     // is this request inside it?
+```
+
+### One thing to know
+
+Detection happens in `Application::__construct()`, because the prefix has to be
+gone before anything constructs a `Request` — that is when the path is split. An
+application whose front controller builds a `Request` *before* its `Application`
+will route the prefix as a controller name. No scaffolded front controller does
+that, and the fix is to swap the two lines.
+
+The prefix must match a **whole segment**: `/administration` is not inside an area
+mounted at `admin`, and `REQUEST_URI` is never rewritten, so every `return=`,
+log line and session record keeps the address the visitor actually asked for.
 
 ## Reference
 

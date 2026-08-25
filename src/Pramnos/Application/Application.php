@@ -155,6 +155,10 @@ class Application extends Base
                 APP_PATH . DS . $appName . '.php'
             );
         }
+        // Before anything builds a Request, because that is when the path is
+        // split into controller and action — and the prefix must be gone by then.
+        $this->enterAdminAreaIfRequested();
+
         if (!defined('URL')) {
             define('URL', getUrl()); // @codeCoverageIgnore — URL is always defined before the first Application() in tests
         }
@@ -812,6 +816,113 @@ class Application extends Base
     }
 
     /**
+     * Mount the administration area, if this request is inside it.
+     *
+     * Reads `admin` from `app/app.php`; with no such key, or an empty prefix,
+     * nothing happens and the application behaves exactly as it did before.
+     *
+     * Inside the area two things change: the prefix is stripped from the route so
+     * the ordinary controllers serve it, and the configured theme replaces the
+     * site theme. The usertype floor is enforced later, in `exec()`, because a
+     * refusal has to redirect and that needs a session.
+     *
+     * @see \Pramnos\Http\AdminArea
+     */
+    protected function enterAdminAreaIfRequested(): void
+    {
+        $config = $this->applicationInfo['admin'] ?? null;
+        if (!is_array($config)) {
+            return;
+        }
+
+        $active = \Pramnos\Http\AdminArea::detect(
+            (string) ($config['prefix'] ?? ''),
+            (int) ($config['min_usertype'] ?? 0)
+        );
+
+        if (!$active) {
+            return;
+        }
+
+        $theme = trim((string) ($config['theme'] ?? ''));
+        if ($theme !== '') {
+            $this->applicationInfo['theme'] = $theme;
+        }
+    }
+
+    /**
+     * Refuse a request into the administration area from somebody below its floor.
+     *
+     * A guest is sent to sign in and brought back afterwards. A signed-in user
+     * who is simply not an administrator is sent to the site root — bouncing them
+     * to a login form they are already past would read as a broken session, and
+     * they would try their password again.
+     *
+     * The floor is not a substitute for the checks each controller makes: those
+     * still run, and several are stricter. This is what stops the *area* being
+     * browsable, so a screen that forgot its own check is not the only thing
+     * standing between an ordinary account and the admin dashboard.
+     *
+     * @return bool Whether the request may proceed
+     */
+    protected function allowAdminAreaRequest(): bool
+    {
+        if (!\Pramnos\Http\AdminArea::isActive()) {
+            return true;
+        }
+
+        $minimum = \Pramnos\Http\AdminArea::minUserType();
+        if ($minimum <= 0) {
+            return true;
+        }
+
+        $user = $this->adminAreaUser();
+
+        if (!$this->adminAreaUserIsSignedIn()) {
+            $this->setRedirect(
+                sURL . 'login?return=' . urlencode((string) ($_SERVER['REQUEST_URI'] ?? '/'))
+            );
+            return false;
+        }
+
+        if ((int) ($user->usertype ?? 0) < $minimum) {
+            $this->setRedirect(sURL);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * The user the administration guard should judge.
+     *
+     * A seam, so the guard can be exercised without a session: it is otherwise
+     * the only thing in that method that needs one, and a test for "is an
+     * ordinary account refused" should not have to sign anybody in.
+     */
+    protected function adminAreaUser(): mixed
+    {
+        return \Pramnos\User\User::getCurrentUser();
+    }
+
+    /**
+     * Is there a real, signed-in account behind this request?
+     *
+     * `userid` 0 and 1 are the framework's guest and system rows, so neither
+     * counts — a request carrying one of them must be judged as a guest and sent
+     * to sign in, not measured against a usertype it does not have.
+     */
+    protected function adminAreaUserIsSignedIn(): bool
+    {
+        $user = $this->adminAreaUser();
+
+        return $user !== null
+            && $user !== false
+            && (int) ($user->userid ?? 0) > 1
+            && \Pramnos\Http\Session::staticIsLogged();
+    }
+
+    /**
      * Registers the framework's built-in navigation items into NavRegistry.
      *
      * Called automatically at the end of init().  Applications may call
@@ -823,6 +934,16 @@ class Application extends Base
     public function registerDefaultNavItems(array $features): void
     {
         $base = defined('sURL') ? \sURL : '/';
+
+        /**
+         * Admin links go through the administration area when one is mounted.
+         *
+         * Not only when the current request is already inside it: the site header
+         * shows this same section, and its links have to lead into the area from
+         * outside. With no area configured this is `$base . $path`, exactly as
+         * before.
+         */
+        $admin = static fn (string $path): string => \Pramnos\Http\AdminArea::url($path);
 
         // Home — always visible
         NavRegistry::register(new NavItem(
@@ -846,45 +967,45 @@ class Application extends Base
 
         // Admin section — these are always registered; visibility filtered by minUserType at runtime
         NavRegistry::register(new NavItem(
-            'admin.users', 'Users', $base . 'users',
+            'admin.users', 'Users', $admin('users'),
             NavSection::Admin, 5, requireAuth: true, minUserType: 80,
         ));
         NavRegistry::register(new NavItem(
-            'admin.settings', 'Settings', $base . 'settings',
+            'admin.settings', 'Settings', $admin('settings'),
             NavSection::Admin, 8, requireAuth: true, minUserType: 80,
         ));
         NavRegistry::register(new NavItem(
-            'admin.logs', 'Logs', $base . 'logs',
+            'admin.logs', 'Logs', $admin('logs'),
             NavSection::Admin, 10, requireAuth: true, minUserType: 80,
             parent: 'admin.dashboard',
         ));
         NavRegistry::register(new NavItem(
-            'admin.health', 'Health', $base . 'health',
+            'admin.health', 'Health', $admin('health'),
             NavSection::Admin, 11, requireAuth: true, minUserType: 80,
             parent: 'admin.dashboard',
         ));
 
         // Admin ops dashboard — always
         NavRegistry::register(new NavItem(
-            'admin.dashboard', 'Dashboard', $base . 'Dashboard',
+            'admin.dashboard', 'Dashboard', $admin('Dashboard'),
             NavSection::Admin, 1, requireAuth: true, minUserType: 80,
         ));
 
         // Services / Workers — always
         NavRegistry::register(new NavItem(
-            'admin.services', 'Services', $base . 'Services',
+            'admin.services', 'Services', $admin('Services'),
             NavSection::Admin, 12, requireAuth: true, minUserType: 80,
         ));
 
         // Organizations — always
         NavRegistry::register(new NavItem(
-            'admin.organizations', 'Organizations', $base . 'Organizations',
+            'admin.organizations', 'Organizations', $admin('Organizations'),
             NavSection::Admin, 14, requireAuth: true, minUserType: 80,
         ));
 
         // Emails — always, grouped under Dashboard
         NavRegistry::register(new NavItem(
-            'admin.emails', 'Emails', $base . 'Emails',
+            'admin.emails', 'Emails', $admin('Emails'),
             NavSection::Admin, 16, requireAuth: true, minUserType: 80,
             parent: 'admin.dashboard',
         ));
@@ -892,17 +1013,17 @@ class Application extends Base
         // OAuth Apps — authserver feature
         if (in_array('authserver', $features, true)) {
             NavRegistry::register(new NavItem(
-                'admin.applications', 'Applications', $base . 'Applications',
+                'admin.applications', 'Applications', $admin('Applications'),
                 NavSection::Admin, 20, requireAuth: true, minUserType: 90,
                 feature: 'authserver',
             ));
             NavRegistry::register(new NavItem(
-                'admin.tokens', 'Tokens', $base . 'Tokens',
+                'admin.tokens', 'Tokens', $admin('Tokens'),
                 NavSection::Admin, 22, requireAuth: true, minUserType: 90,
                 feature: 'authserver',
             ));
             NavRegistry::register(new NavItem(
-                'admin.permissions', 'Permissions', $base . 'Permissions',
+                'admin.permissions', 'Permissions', $admin('Permissions'),
                 NavSection::Admin, 24, requireAuth: true, minUserType: 90,
                 feature: 'authserver',
             ));
@@ -911,7 +1032,7 @@ class Application extends Base
         // Token Actions audit log — auth feature, grouped under Users
         if (in_array('auth', $features, true)) {
             NavRegistry::register(new NavItem(
-                'admin.tokenactions', 'Token Actions', $base . 'TokenActions',
+                'admin.tokenactions', 'Token Actions', $admin('TokenActions'),
                 NavSection::Admin, 26, requireAuth: true, minUserType: 80,
                 feature: 'auth',
                 parent: 'admin.users',
@@ -921,7 +1042,7 @@ class Application extends Base
         // Queue — queue feature
         if (in_array('queue', $features, true)) {
             NavRegistry::register(new NavItem(
-                'admin.queue', 'Queue', $base . 'Queue',
+                'admin.queue', 'Queue', $admin('Queue'),
                 NavSection::Admin, 30, requireAuth: true, minUserType: 80,
                 feature: 'queue',
             ));
@@ -1407,6 +1528,12 @@ class Application extends Base
 
         if ($doc->getType() == 'html') {
             $this->addbreadcrumb($lang->_('Home'), sURL);
+        }
+
+        // Before the controller is resolved, so a screen inside the area is never
+        // constructed for somebody who may not be there.
+        if (!$this->allowAdminAreaRequest()) {
+            return '';
         }
 
         /*

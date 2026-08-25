@@ -552,4 +552,174 @@ class StringHelperTest extends TestCase
         $this->assertTrue((bool) $criteria,
             'isPlural() must recognise -a ending (Latin/Greek plural) as plural');
     }
+
+    // ── excerpt() ────────────────────────────────────────────────────────────
+
+    /**
+     * A word longer than the limit is cut, not thrown away.
+     *
+     * The bug this method was written to fix, reported twice — once as FW-018 from a
+     * consuming application with these exact strings measured, and once found here while
+     * moving the method out of `Helpers`.
+     *
+     * `mb_strrpos()` finds no space, returns `false`, `mb_substr()` reads that as 0, and
+     * the result is the ellipsis on its own: **the whole text is lost**. One long word is
+     * ordinary — a Greek compound, a name with no space, a URL, a hashtag — and the
+     * reporting application called this in 20 places, all of them user-facing lists. The
+     * symptom is not an error, it is a column of "…" where titles should be.
+     *
+     * The legacy framework this was ported from had exactly this guard and the port
+     * dropped it.
+     *
+     * @param string $text
+     * @param int    $length
+     * @param string $expected
+     * @return void
+     */
+    #[DataProvider('longWordProvider')]
+    public function testAWordLongerThanTheLimitIsCutRatherThanLost(
+        string $text, int $length, string $expected
+    ): void {
+        // Act
+        $result = StringHelper::excerpt($text, $length);
+
+        // Assert
+        $this->assertSame($expected, $result);
+        $this->assertNotSame('…', $result, 'the text must not be replaced by the ellipsis');
+    }
+
+    /** @return array<string, array{string, int, string}> */
+    public static function longWordProvider(): array
+    {
+        // The three strings FW-018 measured, which all returned '&hellip;' before.
+        return [
+            'greek compound'  => ['Καθηγητήςμαθηματικών', 10, 'Καθηγητής…'],
+            'english long'    => ['Supercalifragilisticexpialidocious', 12, 'Supercalifr…'],
+            'short greek'     => ['Παιδαγωγός', 5, 'Παιδ…'],
+        ];
+    }
+
+    /**
+     * The result never exceeds the requested length.
+     *
+     * The guarantee the old implementation did not make: it cut to `$length` and *then*
+     * appended the suffix, so the result was longer than the number asked for. A caller
+     * sizing a column or a meta description cannot use that.
+     *
+     * Every length from 0 up, so an off-by-one anywhere in the budget arithmetic fails
+     * here rather than in somebody's layout.
+     *
+     * @return void
+     */
+    public function testTheResultNeverExceedsTheRequestedLength(): void
+    {
+        // Arrange
+        $text = 'The quick brown fox jumps over the lazy dog';
+
+        for ($length = 0; $length <= 45; $length++) {
+            // Act
+            $result = StringHelper::excerpt($text, $length);
+
+            // Assert
+            $this->assertLessThanOrEqual(
+                $length,
+                mb_strlen($result),
+                "excerpt(\$length = $length) returned " . mb_strlen($result) . ' characters'
+            );
+        }
+    }
+
+    /**
+     * A boundary that falls exactly on the budget keeps the last whole word.
+     *
+     * The off-by-one this had while being written: `"The quick"` is nine characters and a
+     * complete phrase, so a limit of ten — nine plus the ellipsis — should keep it.
+     * Searching backwards from the cut without checking whether the cut was already on a
+     * space threw the last word away and returned `"The…"`.
+     *
+     * @return void
+     */
+    public function testAWordEndingExactlyOnTheBudgetIsKept(): void
+    {
+        // Act
+        $result = StringHelper::excerpt('The quick brown fox', 10);
+
+        // Assert
+        $this->assertSame('The quick…', $result);
+    }
+
+    /**
+     * Text that fits comes back untouched, with no ellipsis.
+     *
+     * @return void
+     */
+    public function testTextThatFitsIsUnchanged(): void
+    {
+        // Act & Assert
+        $this->assertSame('Hi there', StringHelper::excerpt('Hi there', 50));
+        $this->assertSame('Exactly8', StringHelper::excerpt('Exactly8', 8));
+    }
+
+    /**
+     * HTML is stripped before the length is measured.
+     *
+     * The reason the method exists rather than `mb_substr()`: the length is a length of
+     * *visible* text, so an excerpt of markup gives prose rather than an unclosed
+     * `<span class="…">`.
+     *
+     * @return void
+     */
+    public function testHtmlIsStrippedBeforeMeasuring(): void
+    {
+        // Act
+        $result = StringHelper::excerpt('<p>Hello <b>brave</b> new world</p>', 14);
+
+        // Assert
+        $this->assertSame('Hello brave…', $result);
+        $this->assertStringNotContainsString('<', $result);
+    }
+
+    /**
+     * Null is an empty string, not a TypeError.
+     *
+     * A nullable database column reaches this directly in the reporting application, and
+     * a listing page is not the place to discover a missing description.
+     *
+     * @return void
+     */
+    public function testNullIsTreatedAsEmpty(): void
+    {
+        // Act & Assert
+        $this->assertSame('', StringHelper::excerpt(null, 10));
+    }
+
+    /**
+     * A length too small for the ellipsis still bounds the result.
+     *
+     * The degenerate end of the budget arithmetic. With nothing left after paying for the
+     * ellipsis there is no honest answer but a hard cut of the text — returning the
+     * ellipsis alone would be the very failure this method was written to remove.
+     *
+     * @return void
+     */
+    public function testALengthTooSmallForTheEllipsisStillBounds(): void
+    {
+        // Act & Assert
+        $this->assertSame('T', StringHelper::excerpt('The quick brown fox', 1));
+        $this->assertSame('', StringHelper::excerpt('The quick brown fox', 0));
+    }
+
+    /**
+     * A negative length is rejected rather than guessed at.
+     *
+     * @return void
+     */
+    public function testANegativeLengthIsRejected(): void
+    {
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act
+        StringHelper::excerpt('anything', -1);
+    }
 }

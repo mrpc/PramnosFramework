@@ -9,6 +9,7 @@ use_cases:
   - Reading application configuration in app/app.php
   - Serving anonymous traffic from cache when the framework starts a session
   - Turning off framework behaviour an application does not want
+  - Shortening text for a listing, a column or a meta description
 ---
 
 # Pramnos Framework Guide
@@ -1088,6 +1089,66 @@ set_exception_handler(function (\Throwable $e) {
 | `ExceptionHandler::detectFormat(): string` | Returns `'json'` or `'html'` based on `HTTP_ACCEPT` |
 
 ---
+
+## Shortening text
+
+`Pramnos\General\StringHelper::excerpt()` cuts text to a length without splitting a
+word:
+
+```php
+use Pramnos\General\StringHelper;
+
+StringHelper::excerpt($post->body, 120);          // 'The quick brown fox…'
+StringHelper::excerpt($post->body, 120, ' [more]');
+```
+
+Three things it guarantees, each of them a bug it was written to remove:
+
+- **At most `$length` characters, ellipsis included.** Size a column or a meta
+  description with it and the number holds.
+- **HTML is stripped before measuring**, so the length is a length of visible text — an
+  excerpt of markup gives prose, not an unclosed `<span class="…">`.
+- **A word longer than the limit is cut, not lost.** `Καθηγητήςμαθηματικών` at 10 gives
+  `Καθηγητής…`. It used to give the ellipsis on its own — `mb_strrpos()` finds no space,
+  returns `false`, `mb_substr()` reads that as 0 — so one long word came back looking
+  like missing text. A Greek compound, a name with no space, a URL and a hashtag are all
+  that shape, and a listing page is where you find out.
+
+`null` is an empty string, not a `TypeError`. A negative length is an
+`InvalidArgumentException`.
+
+### `Helpers::shortenText()` is a deprecated alias
+
+It forwards, so there is one implementation. Two behaviours changed on the way and both
+are visible to existing callers:
+
+| | before | now |
+|---|---|---|
+| result length | could exceed `$length` — the suffix was appended *after* cutting to it | never exceeds `$length` |
+| one long word | the suffix alone | the word, hard-cut |
+
+The default suffix is the character `…` rather than the entity `&hellip;`. It renders the
+same in HTML, and it is correct in the places the entity was wrong — a plain-text email, a
+JSON field, or anything that escapes the result and turned `&hellip;` into a visible
+`&amp;hellip;`. It also has to be one character, because the length now includes it, and
+charging eight for an ellipsis leaves almost nothing of a short excerpt. A suffix you pass
+yourself is used and counted literally.
+
+`$charset` is ignored; `excerpt()` uses the internal encoding, which this framework sets
+to UTF-8.
+
+### Not to be confused with `CommandBase::truncateText()`
+
+The console has its own, and it is not a duplicate — it measures **visible** width,
+ignoring ANSI escape codes, and it *does* split words. That is right for a table column
+in a terminal and wrong for prose. Use `excerpt()` for anything a person reads as a
+sentence.
+
+`symfony/string` is installed too, and its `truncate($length, $ellipsis, cut: false)`
+guarantees the opposite of `excerpt()`: it extends to the **next** word boundary, so a
+limit of 5 on `The quick brown fox` returns ten characters, and a single long word comes
+back whole and unmarked. Useful when you want at least `$length`; not when the bound is
+the point.
 
 ## Reading a user agent
 
