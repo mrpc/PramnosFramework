@@ -717,7 +717,26 @@ class Init extends Command
                 if ($this->skipInstall) {
                     $this->reportSkippedInstall($output);
                 } else {
-                    $syncStatus         = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer update --no-interaction 2>/dev/null',      'Syncing dependencies (in container)',     $output);
+                    // Retried, because this step is not reliably deterministic and
+                    // its failure is expensive. Composer extracts ~30 packages into
+                    // the bind-mounted vendor/, and Docker Desktop's macOS bind
+                    // mount intermittently reports a directory it has just created
+                    // as missing: composer's ArchiveDownloader::install() does
+                    // emptyDirectory($path) (which mkdirs it), then file_exists()
+                    // says yes, then isDirEmpty() opens it and gets ENOENT —
+                    // "RecursiveDirectoryIterator: Failed to open directory" on one
+                    // arbitrary package. That is a filesystem metadata race, not a
+                    // dependency problem, and it clears on the next attempt. Without
+                    // the retry it takes down the whole rest of init: no autoloader,
+                    // so no migrations, so no admin user.
+                    $syncStatus = 1;
+                    for ($attempt = 1; $attempt <= 3 && $syncStatus !== 0; $attempt++) {
+                        $syncStatus = $this->runProcessWithSpinner(
+                            'docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer update --no-interaction 2>/dev/null',
+                            $attempt === 1 ? 'Syncing dependencies (in container)' : "Syncing dependencies (retry $attempt/3)",
+                            $output
+                        );
+                    }
                     $syncAutoloadStatus = $this->runProcessWithSpinner('docker-compose exec -T -u www-data -e COMPOSER_HOME=/tmp/composer app composer dump-autoload --no-interaction 2>/dev/null', 'Regenerating autoloader (in container)',  $output);
 
                     if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {

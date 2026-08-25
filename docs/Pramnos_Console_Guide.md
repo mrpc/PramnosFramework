@@ -116,6 +116,32 @@ With Docker (`--docker=y`), `--no-install` also skips the framework migrations t
 follow, since those run the new application's own CLI and need the autoloader that was
 not generated.
 
+### The dependency sync retries — and why
+
+The in-container `composer update` runs up to **three** times before `init` gives up:
+
+```
+Syncing dependencies (in container) FAILED
+  ...
+  Install of phpunit/php-code-coverage failed
+  In RecursiveDirectoryIterator.php line 48:
+    RecursiveDirectoryIterator::__construct(/var/www/html/vendor/phpunit/php-code-coverage):
+    Failed to open directory: No such file or directory
+Syncing dependencies (retry 2/3) DONE
+```
+
+That failure is not a dependency problem, and the named package is arbitrary — it is
+whichever one lost a race. Composer extracts every package into `vendor/`, which is a
+Docker bind mount of your project directory. `ArchiveDownloader::install()` creates the
+target directory, asks `file_exists()` (yes), then opens it — and on Docker Desktop for
+macOS the mount occasionally answers `ENOENT` for a directory it created a moment
+earlier. Metadata coherence, nothing more; the next attempt succeeds.
+
+The retry exists because the failure is not proportionate to its cause: a failed sync
+sets `autoloadSuccess = false`, which skips the framework migrations, which skips the
+admin user — one stale stat and the scaffold finishes unusable. If all three attempts
+fail, the cause is real and the closing summary says what to run by hand.
+
 ### Serving from a directory other than `www` — `--web-root`
 
 The scaffold writes its document root as `www/` by convention, and that was hardcoded in 38
