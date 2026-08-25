@@ -22,6 +22,11 @@ use Symfony\Component\Console\Input\InputOption;
  */
 class Init extends Command
 {
+    // The spinner, the slow-step escalation and the dry-run short-circuit, shared with
+    // project:setup — which runs the same docker-compose, composer and migrate steps
+    // against a checkout instead of a new scaffold.
+    use \Pramnos\Console\Commands\Concerns\RunsProcesses;
+
     /** Application styles offered by --app-style. */
     public const APP_STYLES = ['mvc', 'spa', 'hybrid'];
 
@@ -77,12 +82,6 @@ class Init extends Command
     /** When true, docker-compose up is skipped (test mode). */
     public bool $skipDockerRun = false;
 
-    /**
-     * Seconds a spinner step may run before its subprocess output is surfaced
-     * live. Guards against a silent, endless spinner when a step (e.g.
-     * "docker-compose up --build") hangs. Set to 0 to disable escalation.
-     */
-    public int $slowStepThreshold = 120;
 
     /** Path to the scaffolding/ directory inside the framework package. */
     public string $scaffoldingDir = '';
@@ -130,6 +129,7 @@ class Init extends Command
         $this->addOption('web-root',      null, InputOption::VALUE_OPTIONAL, 'Directory served as the document root (default: www)');
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
         $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (OpenAPI + RapiDoc) (y/n)');
+        $this->addOption('service-worker', null, InputOption::VALUE_OPTIONAL, 'Cache static assets in the browser with a service worker (y/n)');
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
         $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
         $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate <web-root>/webhook.php git webhook receiver (y/n)');
@@ -165,7 +165,6 @@ class Init extends Command
      *
      * @var bool
      */
-    private bool $dryRun = false;
 
     /**
      * Whether to skip installing dependencies (`--no-install`).
@@ -202,6 +201,17 @@ class Init extends Command
      * @var string
      */
     private string $webRoot = 'www';
+
+    /**
+     * Whether this project caches its static assets in the browser.
+     *
+     * A property rather than a parameter threaded through six methods: the theme's
+     * foot assets need to know, and {@see themeFootAssets()} is reached from three
+     * places that have no business carrying the flag.
+     *
+     * @var bool
+     */
+    private bool $withServiceWorker = false;
 
     /**
      * Leave a file alone when the project already has one.
@@ -418,6 +428,8 @@ class Init extends Command
         if ($withRestApi) {
             [$withApiDocs, $apiUrl, $apiColor] = $this->askApiDocs($input, $output, $helper, $appName);
         }
+        // Asked before the theme is written: themeFootAssets() emits the registration.
+        $this->withServiceWorker = $this->askServiceWorker($input, $output, $helper);
 
         // A ready-to-use, stable API key for the seed "Development" application,
         // created after migrations. Fixed value (not random) so it is predictable
@@ -640,6 +652,10 @@ class Init extends Command
 
         $this->scaffoldTests($namespace, $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, $useDocker, $enabledFeatures);
         $this->scaffoldGitignore($enabledFeatures);
+
+        if ($this->withServiceWorker) {
+            $this->scaffoldServiceWorker($appName);
+        }
 
         if ($withRestApi) {
             $this->scaffoldRestApi($namespace, $enabledFeatures);
@@ -1361,6 +1377,18 @@ class Init extends Command
             'apiPrefix'     => rtrim($apiPrefix, '/'),
             'probeEndpoint' => '/status',
             'shellFile'     => $shellFile,
+            // The SPA shell is not an MVC view — it emits its own HTML and never sees
+            // the theme footer — so the registration has to be repeated here, or a SPA
+            // project gets the worker file and nothing that installs it.
+            //
+            // Unlike the theme's copy this one carries **no CSP nonce**, and cannot:
+            // the shell renders nothing through Document\DocumentTypes\Html, so the
+            // post-process that stamps inline scripts never runs over it — and the
+            // shell boots no application, so no policy is sent either. It is in the
+            // same position as the `window.__PRAMNOS__` script already beside it. An
+            // application that adds a nonce policy in front of its SPA has to account
+            // for both.
+            'serviceWorkerRegistration' => $this->serviceWorkerRegistration(),
             'devPort'       => (string) $devPort,
             'appPort'       => (string) $appPort,
             // Where the pages actually live — printed by the dev server, since
@@ -2064,6 +2092,88 @@ CSS;
         $apiColor = $input->getOption('api-color')
             ?: $helper->ask($input, $output, new Question("Primary color for docs UI [$defaultColor]: ", $defaultColor));
         return [$enabled, $apiUrl, $apiColor];
+    }
+
+    /**
+     * Ask whether this project caches its assets in the browser.
+     *
+     * Off by default, and that is the important part. A service worker is the most
+     * persistent thing an application can install on a visitor's machine — it keeps
+     * itself alive across reloads, so a mistake in one is not fixed by the next
+     * deployment the way a mistake in a page is. Shipping one to every scaffolded
+     * project by default would be handing that to people who did not ask for it.
+     *
+     * What it caches makes it safe to say yes to: static assets, same origin, GET
+     * only. HTML is never touched, so it cannot store one visitor's page for another
+     * and it cannot lock anybody out of the site.
+     */
+    private function askServiceWorker(InputInterface $input, OutputInterface $output, mixed $helper): bool
+    {
+        $option = $input->getOption('service-worker');
+        if ($option !== null) {
+            return in_array(strtolower((string) $option), ['y', 'yes', '1', 'true'], true);
+        }
+
+        $output->writeln("\n<comment>Step 2e — Browser asset cache</comment>");
+        $output->writeln('  A service worker that caches CSS, JS, fonts and images in the browser.');
+        $output->writeln('  Static assets only — HTML and API responses are never cached.');
+
+        return (bool) $helper->ask($input, $output, new ConfirmationQuestion(
+            'Install a service worker for asset caching? [y/N] ', false
+        ));
+    }
+
+    /**
+     * Write the service worker and remember to register it.
+     *
+     * The file goes at the **web root**, not under `assets/`, and it has to: a service
+     * worker's default scope is the directory it is served from, so one at
+     * `assets/sw.js` could only ever see requests for `assets/…`. Its own file is the
+     * only thing that decides what it is allowed to intercept.
+     *
+     * The cache name is derived from the application name, so two projects sharing an
+     * origin — a staging path, a subdirectory install — do not share one cache and serve
+     * each other's assets.
+     */
+    private function scaffoldServiceWorker(string $appName): void
+    {
+        $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName) ?: 'app');
+
+        $this->writeFile($this->webRoot . '/sw.js', $this->renderStub('service-worker.js', [
+            'APP_NAME'             => $appName,
+            'APP_SLUG'             => $slug,
+            // The build directory only exists for a stack that builds; the pattern is
+            // harmless either way, and hard-coding it keeps the worker readable.
+            'SPA_BUILD_DIR_REGEX'  => str_replace('/', '\\/', self::SPA_BUILD_DIR),
+        ]));
+    }
+
+    /**
+     * The inline script that registers the worker.
+     *
+     * Inline and PHP-built rather than a static file, for one reason: the URL has to be
+     * right. A worker registered at `/sw.js` is wrong for an application served from a
+     * subdirectory, and its scope — which is what decides the requests it sees — comes
+     * from that path. `sURL` is the only thing that knows.
+     *
+     * `Document\DocumentTypes\Html::render()` stamps the CSP nonce into every inline
+     * script, so this needs nothing of its own to survive a nonce policy.
+     */
+    private function serviceWorkerRegistration(): string
+    {
+        if (!$this->withServiceWorker) {
+            return '';
+        }
+
+        // The empty catch is deliberate and says so: a browser that declines to
+        // register is a browser without the asset cache, which is the state every
+        // browser was in a moment earlier. There is nothing to recover and nothing a
+        // visitor could do about it, and an unhandled rejection in the console reads
+        // as a broken page. (`SilentFailureTest` scans for exactly this shape and is
+        // right to — the reason has to be written down, in JavaScript as in PHP.)
+        return "    <script>if('serviceWorker' in navigator){addEventListener('load',"
+            . "function(){navigator.serviceWorker.register('<?php echo sURL; ?>sw.js')"
+            . ".catch(function(){/* no worker, no cache: the status quo */});});}</script>\n";
     }
 
     private function scaffoldApiDocs(string $appName, string $namespace, string $apiUrl, string $apiColor, array $enabledFeatures = [], string $localServerUrl = '', string $defaultApiKey = '', string $supportEmail = ''): void
@@ -3274,6 +3384,7 @@ HTML,
 
         return $themeJs
             . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
+            . $this->serviceWorkerRegistration()
             . "    <?php \$this->document->renderJs(); ?>\n";
     }
 
@@ -6167,25 +6278,6 @@ PHP;
         return $port; // @codeCoverageIgnore — five busy answers in a row
     }
 
-    /**
-     * Run a shell command with a spinner animation, then show DONE/FAILED.
-     *
-     * @param bool $alwaysShowOutput When true, captured stdout is printed after
-     *                               the spinner line regardless of exit code
-     *                               (useful for migration steps where the output
-     *                               is always informative).
-     */
-    /**
-     * Formats an elapsed duration compactly for the spinner counter:
-     * "45s" under a minute, "2m05s" beyond.
-     */
-    protected function formatElapsed(int $seconds): string
-    {
-        if ($seconds < 60) {
-            return $seconds . 's';
-        }
-        return sprintf('%dm%02ds', intdiv($seconds, 60), $seconds % 60);
-    }
 
     /**
      * Says that dependencies were not installed, and what to run.
@@ -6203,159 +6295,6 @@ PHP;
         $output->writeln('  Run <info>composer install</info> before serving the application.');
     }
 
-    protected function runProcessWithSpinner(string $command, string $message, OutputInterface $output, bool $alwaysShowOutput = false): int
-    {
-        // Every external step goes through here — composer, docker-compose,
-        // migrations, the docs build — so this is the one place a dry run has to
-        // stop. Reported rather than silently skipped: "it did not run composer"
-        // is part of what the reader is checking.
-        if ($this->dryRun) {
-            $output->writeln('  would run: <comment>' . $command . '</comment>');
-            return 0;
-        }
-
-        $isVerbose = $output->getVerbosity() >= OutputInterface::VERBOSITY_VERBOSE;
-
-        // Always strip the 2>/dev/null redirect so we can capture stderr for error display
-        $command = str_replace(' 2>/dev/null', '', $command);
-
-        if ($isVerbose) {
-            $output->writeln("<info>$message...</info>");
-        } else {
-            $output->write("$message ");
-        }
-
-        $symbols   = ['/', '-', '\\', '|'];
-        $i         = 0;
-        $stdoutBuf = '';
-        $stderrBuf = '';
-        $startTime = microtime(true);
-
-        // Once true, subprocess output is streamed live instead of being
-        // buffered until the end. It starts on in verbose mode, and also flips
-        // on automatically once a step runs longer than slowStepThreshold — so
-        // a hung command (e.g. "docker-compose up --build" stuck pulling an
-        // image) becomes diagnosable instead of an endless, silent spinner.
-        $liveOutput = $isVerbose;
-
-        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-        if (!is_resource($process)) {
-            // @codeCoverageIgnoreStart
-            // proc_open only fails when the shell is unavailable — never in the test container.
-            $output->writeln('<error>FAILED</error>');
-            return 1;
-            // @codeCoverageIgnoreEnd
-        }
-
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-
-        while (true) {
-            $status = proc_get_status($process);
-            if (!$status['running']) {
-                break;
-            }
-
-            // Always drain both pipes so buffers can't fill and deadlock the
-            // child, and so we have captured output ready to surface on escalation.
-            $chunkOut = (string) stream_get_contents($pipes[1]);
-            $chunkErr = (string) stream_get_contents($pipes[2]);
-            $stdoutBuf .= $chunkOut;
-            $stderrBuf .= $chunkErr;
-
-            $elapsed = (int) (microtime(true) - $startTime);
-
-            // Escalate a long-running step to live output. This is what makes a
-            // hang observable: after slowStepThreshold seconds we announce the
-            // delay, flush everything captured so far, and stream the rest.
-            if (!$liveOutput && $this->slowStepThreshold > 0 && $elapsed >= $this->slowStepThreshold) {
-                $liveOutput = true;
-                $output->write("\r\033[K");
-                $output->writeln("<comment>$message is still running after " . $this->formatElapsed($elapsed) . " — showing live output:</comment>");
-                $buffered = $stdoutBuf . $stderrBuf;
-                if (trim($buffered) !== '') {
-                    $output->write($buffered);
-                }
-            }
-
-            if ($liveOutput) {
-                // @codeCoverageIgnoreStart
-                // Live streaming only runs under -v or after the slow-step
-                // escalation; the normal, fast test path never reaches it.
-                if ($chunkOut !== '') $output->write($chunkOut);
-                if ($chunkErr !== '') $output->write($chunkErr);
-                // @codeCoverageIgnoreEnd
-            } else {
-                // Spinner carries an elapsed-time counter so the user always
-                // sees the step is alive and how long it has been working.
-                $output->write("\r\033[K$message " . $symbols[$i % 4] . ' (' . $this->formatElapsed($elapsed) . ')');
-            }
-            $i++;
-            usleep(100_000);
-        }
-
-        // Switch to blocking mode before final drain so non-blocking reads
-        // don't silently drop data that arrived just as the process exited.
-        stream_set_blocking($pipes[1], true);
-        stream_set_blocking($pipes[2], true);
-        $remainingOut = stream_get_contents($pipes[1]);
-        $remainingErr = stream_get_contents($pipes[2]);
-
-        if ($liveOutput) {
-            // @codeCoverageIgnoreStart
-            if ($remainingOut) $output->write($remainingOut);
-            if ($remainingErr) $output->write($remainingErr);
-            // @codeCoverageIgnoreEnd
-        } else {
-            $stdoutBuf .= (string) $remainingOut;
-            $stderrBuf .= (string) $remainingErr;
-        }
-
-        foreach ($pipes as $pipe) {
-            fclose($pipe);
-        }
-
-        $exitCode = proc_close($process);
-
-        if ($liveOutput) {
-            $output->writeln($exitCode === 0 ? "<info>$message: DONE</info>" : "<error>$message: FAILED (Exit Code: $exitCode)</error>"); // @codeCoverageIgnore — live output path only under -v or slow-step escalation
-        } else {
-            $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
-            $output->write("\r\033[K$message $suffix\n");
-
-            $showOutput = $alwaysShowOutput || $exitCode !== 0;
-            if ($showOutput) {
-                // @codeCoverageIgnoreStart
-                // This block is only entered when a subprocess fails or alwaysShowOutput=true.
-                // Non-Docker tests run composer commands that always exit 0 with
-                // alwaysShowOutput=false, so this combined output display is never reached.
-                $combined = trim($stdoutBuf . "\n" . $stderrBuf);
-                if ($combined !== '') {
-                    // Output each line indented, avoiding wrapping everything in
-                    // a single <error> tag (which can fail if text contains '<').
-                    foreach (explode("\n", $combined) as $line) {
-                        if (trim($line) === '') {
-                            continue;
-                        }
-                        if ($exitCode !== 0) {
-                            $output->writeln('  <comment>' . \Symfony\Component\Console\Formatter\OutputFormatter::escape($line) . '</comment>');
-                        } else {
-                            $output->writeln('  ' . \Symfony\Component\Console\Formatter\OutputFormatter::escape($line));
-                        }
-                    }
-                }
-                // @codeCoverageIgnoreEnd
-            }
-
-            if ($exitCode !== 0) {
-                // @codeCoverageIgnoreStart — reached only when a subprocess fails
-                $this->explainDockerFailure($stdoutBuf . "\n" . $stderrBuf, $output);
-                // @codeCoverageIgnoreEnd
-            }
-        }
-
-        return $exitCode;
-    }
 
     /**
      * Turn a known Docker failure into something the reader can act on.
