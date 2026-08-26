@@ -1276,9 +1276,7 @@ class OauthCoverageTest extends TestCase
         ]);
 
         // Act
-        ob_start();
-        $this->controller->authorize();
-        $output = ob_get_clean();
+        $output = $this->authorizeFailureOutput();
 
         // Assert — error page must be rendered
         $this->assertStringContainsString('Authorization Error', $output,
@@ -1819,5 +1817,24 @@ class OauthCoverageTest extends TestCase
             $app->currentUser = null;
         }
         $unittesting_logged = false;
+    }
+
+    /**
+     * The page an authorize failure produced.
+     *
+     * The error page used to be `echo`ed, so a test captured the output stream. It
+     * is added to the document now — an echo goes out ahead of the page the
+     * framework then renders, which gave a fragment followed by a whole HTML
+     * document. Nothing may be echoed, and the message must be in the document.
+     */
+    private function authorizeFailureOutput(): string
+    {
+        \Pramnos\Document\Document::reset();
+        ob_start();
+        $this->controller->authorize();
+        $echoed = (string) ob_get_clean();
+        $this->assertSame('', $echoed, 'the error page must not be echoed');
+
+        return (string) \Pramnos\Framework\Factory::getDocument()->render();
     }
 }

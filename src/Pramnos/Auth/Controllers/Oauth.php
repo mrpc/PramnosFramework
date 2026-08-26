@@ -153,6 +153,21 @@ class Oauth extends Controller
             // Show consent form
             $this->showConsentForm($user, $client, $params);
 
+        } catch (\Pramnos\Application\ApplicationClosedException $ex) {
+            /**
+             * The application ended the request itself — sending a signed-out
+             * visitor to the login form is the common case. That is an outcome,
+             * not an authorization error, and swallowing it turned "please sign
+             * in" into an `Authorization Error` page with an empty message.
+             *
+             * In production the redirect `exit`s, so this only ever surfaced
+             * where `close()` throws instead: under test. Which meant the sign-in
+             * redirect — the first step of the whole flow — could not be tested.
+             */
+            throw $ex;
+        } catch (\Pramnos\Http\RedirectException $ex) {
+            // Same reasoning: the framework's own way of saying "go here".
+            throw $ex;
         } catch (OAuthServerException $ex) {
             $this->showErrorPage($ex->getMessage());
         } catch (\Exception $ex) {
@@ -825,7 +840,22 @@ class Oauth extends Controller
         $view->requestedScopes = array_filter(explode(' ', $params['scope']));
         $view->params          = $params;
 
-        $view->display('authorize');
+        /**
+         * Into the document, because `display()` returns the markup — it does not
+         * echo it.
+         *
+         * This line used to call display() as a bare statement, discarding the
+         * return value. `authorize()` is `: void`, so nothing else picked the form
+         * up either: the response was the theme with an empty body and the title
+         * "Authorize Application". The consent screen — the only page on which a
+         * person grants an application access to their account — did not exist.
+         *
+         * Nothing failed. The status was 200, the title was right, the layout
+         * rendered, and the one thing missing was the part a visitor had come for.
+         */
+        \Pramnos\Framework\Factory::getDocument()->addContent(
+            (string) $view->display('authorize')
+        );
     }
 
     /**
@@ -837,7 +867,13 @@ class Oauth extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument('html');
         $doc->title = 'Authorization Error';
 
-        echo '<h1>Authorization Error</h1><p>' . htmlspecialchars($message, ENT_QUOTES) . '</p>';
+        // Added to the document rather than echoed. An echo goes out before the
+        // page the framework is about to render, so the error appeared above a
+        // complete HTML document instead of inside one.
+        $doc->addContent(
+            '<h1>Authorization Error</h1><p>'
+            . htmlspecialchars($message, ENT_QUOTES) . '</p>'
+        );
     }
 
     // ── Auth code generation ──────────────────────────────────────────────────

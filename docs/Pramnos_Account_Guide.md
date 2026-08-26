@@ -183,6 +183,29 @@ export your data first if you want a copy.
 
 ---
 
+## If a screen renders blank
+
+`View::display()` **returns** the markup — it does not echo it. So an action that
+renders must either return that value or add it to the document:
+
+```php
+// An action declared to return
+return $view->display('profile');
+
+// An action declared `: void`
+\Pramnos\Framework\Factory::getDocument()->addContent(
+    (string) $view->display('profile')
+);
+```
+
+Calling `$view->display(...)` as a bare statement from a `void` action throws the
+markup away. The response is still a 200, with the theme, the layout and the
+correct `<title>` — everything except the page.
+
+Before 2026-08-26 six bundled screens did exactly that: the OAuth2 consent form
+and all five pages of the device-authorization flow. If you worked around a blank
+consent screen by marking clients trusted, that is no longer necessary.
+
 ## Related guides
 
 - [Authentication & User Management](Pramnos_Authentication_Guide.md) — how the

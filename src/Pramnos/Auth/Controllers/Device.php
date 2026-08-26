@@ -73,7 +73,20 @@ class Device extends Controller
 
         $view           = $this->getView('device');
         $view->userCode = $userCode;
-        $view->display();
+        /**
+         * Into the document, because `display()` returns the markup — it does not
+         * echo it.
+         *
+         * Every render in this controller discarded that return value, and each
+         * action is declared `: void`, so nothing downstream picked the markup up
+         * either. The whole browser half of the device flow — the code entry form,
+         * the confirmation, the success and denial pages, the error — answered 200
+         * with the theme and an empty body.
+         *
+         * Nothing failed. The status was right, the title was right, and the page
+         * a person had to read to authorize their television was blank.
+         */
+        \Pramnos\Framework\Factory::getDocument()->addContent((string) $view->display());
     }
 
     /**
@@ -209,9 +222,18 @@ class Device extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Device Authorized';
 
-        $view             = $this->getView('device');
-        $view->deviceAuth = (object) $deviceAuth;
-        $view->display('success');
+        $view = $this->getView('device');
+        /**
+         * Handed over as the array it is.
+         *
+         * It used to be cast to an object here, while all three bundled views
+         * index it — `$this->deviceAuth['user_code']` — and say so in their
+         * docblocks. Rendering the page was therefore a fatal error, and nobody
+         * found out because the render was discarded: the success page had never
+         * reached a browser to fail in.
+         */
+        $view->deviceAuth = $deviceAuth;
+        \Pramnos\Framework\Factory::getDocument()->addContent((string) $view->display('success'));
     }
 
     private function showDeniedPage(): void
@@ -220,7 +242,7 @@ class Device extends Controller
         $doc->title = 'Device Authorization Denied';
 
         $view = $this->getView('device');
-        $view->display('deny');
+        \Pramnos\Framework\Factory::getDocument()->addContent((string) $view->display('deny'));
     }
 
     private function showErrorPage(string $error, string $userCode = ''): void
@@ -231,7 +253,7 @@ class Device extends Controller
         $view           = $this->getView('device');
         $view->error    = $error;
         $view->userCode = $userCode;
-        $view->display('errormessage');
+        \Pramnos\Framework\Factory::getDocument()->addContent((string) $view->display('errormessage'));
     }
 
     /**
@@ -251,7 +273,7 @@ class Device extends Controller
         $view->userCode          = $userCode;
         $view->user              = $user;
         $view->isAlreadyLoggedIn = true;
-        $view->display('confirmation');
+        \Pramnos\Framework\Factory::getDocument()->addContent((string) $view->display('confirmation'));
     }
 
     // ── Private — auth helpers ────────────────────────────────────────────────

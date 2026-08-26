@@ -260,9 +260,7 @@ class OauthTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $_GET['client_id'] = '';
         
-        ob_start();
-        $this->controller->authorize();
-        $output = ob_get_clean();
+        $output = $this->authorizeFailureOutput();
         
         $this->assertStringContainsString('Missing client_id', $output);
         $this->assertStringContainsString('Authorization Error', $output);
@@ -453,9 +451,7 @@ class OauthTest extends TestCase
         $_GET['redirect_uri'] = '';
         $_GET['response_type'] = 'code';
 
-        ob_start();
-        $this->controller->authorize();
-        $output = ob_get_clean();
+        $output = $this->authorizeFailureOutput();
         $this->assertStringContainsString('Missing redirect_uri', $output);
     }
 
@@ -466,9 +462,7 @@ class OauthTest extends TestCase
         $_GET['redirect_uri'] = 'https://example.com/cb';
         $_GET['response_type'] = 'token'; // not supported
 
-        ob_start();
-        $this->controller->authorize();
-        $output = ob_get_clean();
+        $output = $this->authorizeFailureOutput();
         $this->assertStringContainsString('Unsupported response_type', $output);
     }
 
@@ -481,9 +475,7 @@ class OauthTest extends TestCase
         $_GET['code_challenge'] = 'short'; // too short for S256
         $_GET['code_challenge_method'] = 'S256';
 
-        ob_start();
-        $this->controller->authorize();
-        $output = ob_get_clean();
+        $output = $this->authorizeFailureOutput();
         $this->assertStringContainsString('Invalid code_challenge', $output);
     }
 
@@ -496,9 +488,7 @@ class OauthTest extends TestCase
         $_GET['code_challenge'] = 'aGVsbG93b3JsZHRlc3QxMjM0NTY3ODkwYWJjZGVm';
         $_GET['code_challenge_method'] = 'RS256'; // invalid method
 
-        ob_start();
-        $this->controller->authorize();
-        $output = ob_get_clean();
+        $output = $this->authorizeFailureOutput();
         $this->assertStringContainsString('Invalid code_challenge_method', $output);
     }
 
@@ -988,5 +978,24 @@ class OauthTest extends TestCase
         $token = $this->db->queryBuilder()->table('usertokens')->where('applicationid', 2)->first();
         $this->assertNotEmpty($token);
         $this->assertEquals('test_scope', $token->fields['scope']);
+    }
+
+    /**
+     * The page an authorize failure produced.
+     *
+     * The error page used to be `echo`ed, so a test captured the output stream. It
+     * is added to the document now — an echo goes out ahead of the page the
+     * framework then renders, which gave a fragment followed by a whole HTML
+     * document. Nothing may be echoed, and the message must be in the document.
+     */
+    private function authorizeFailureOutput(): string
+    {
+        \Pramnos\Document\Document::reset();
+        ob_start();
+        $this->controller->authorize();
+        $echoed = (string) ob_get_clean();
+        $this->assertSame('', $echoed, 'the error page must not be echoed');
+
+        return (string) \Pramnos\Framework\Factory::getDocument()->render();
     }
 }
