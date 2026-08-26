@@ -31,6 +31,16 @@ class Language extends Base
     private $languagePath = '';
 
     /**
+     * The one language object, or null before anything asked for one.
+     *
+     * A property rather than a `static` local inside `getInstance()`, because a static
+     * local is private to its method — {@see setInstance()} could not have reached one.
+     *
+     * @var Language|null
+     */
+    private static ?Language $instance = null;
+
+    /**
      * If a language is set, load it
      * @param string $lang
      * @param string $path Default language path
@@ -106,23 +116,24 @@ class Language extends Base
         }
 
         if ($path == '') {
-            if (file_exists(
-                $this->languagePath . DS . $language . ".php"
-            )) {
-                include $this->languagePath . DS . $language . ".php";
+            // The requested language across every candidate directory, then English
+            // across every candidate directory. Both loops, in that order, because a
+            // project with `app/language/` and no `ROOT/language/` used to reach the
+            // English fallback only under the latter — so a missing language file
+            // returned false and the page rendered untranslated instead of in English.
+            $loaded = false;
+            foreach ([$language, 'english'] as $candidateLanguage) {
+                foreach ($this->languageDirectories() as $directory) {
+                    $file = $directory . DS . $candidateLanguage . ".php";
+                    if (file_exists($file)) {
+                        include $file;
+                        $loaded = true;
+                        break 2;
+                    }
+                }
+            }
 
-            } elseif (file_exists(
-                ROOT . DS . "language" . DS . $language . ".php"
-            )) {
-                include ROOT . DS . "language" . DS . $language . ".php";
-            } elseif (
-                file_exists(
-                    ROOT . DS . "language" . DS . 'english' . ".php"
-                )) {
-                //Load the default language strings if current language
-                //does not exist
-                include ROOT . DS . "language" . DS . 'english' . ".php";
-            } else {
+            if (!$loaded) {
                 return false;
             }
         } else {
@@ -136,18 +147,24 @@ class Language extends Base
                 //Load the default language strings if current language
                 //does not exist
                 include $path . DS . "language" . DS . 'english' . ".php";
-            } elseif (file_exists(
-                ROOT . DS . "language" . DS . $language . ".php"
-            )) {
-                include ROOT . DS . "language" . DS . $language . ".php";
-            } elseif (file_exists(
-                ROOT . DS . "language" . DS . 'english' . ".php"
-            )) {
-                //Load the default language strings if current language
-                //does not exist
-                include ROOT . DS . "language" . DS . 'english' . ".php";
             } else {
-                return false;
+                // An explicit $path that holds neither file falls back to the same
+                // candidate list, rather than to ROOT/language alone.
+                $loaded = false;
+                foreach ([$language, 'english'] as $candidateLanguage) {
+                    foreach ($this->languageDirectories() as $directory) {
+                        $file = $directory . DS . $candidateLanguage . ".php";
+                        if (file_exists($file)) {
+                            include $file;
+                            $loaded = true;
+                            break 2;
+                        }
+                    }
+                }
+
+                if (!$loaded) {
+                    return false;
+                }
             }
         }
         if (isset($lang)) {
@@ -198,10 +215,23 @@ class Language extends Base
     public function _($string = '', $args = '')
     {
         if (!isset($this->_strings[$string])) {
-            return $string;
-        }
+            $supplied = $this->onMissingString($string);
 
-        $translation = $this->_strings[$string];
+            // Nothing supplied one: the key is the answer, and there is nothing to
+            // format. Identity is the test rather than emptiness, because a hook is
+            // entitled to return an empty translation on purpose.
+            if ($supplied === $string) {
+                return $string;
+            }
+
+            // A hook that *did* supply one gets the same formatting a hit would, which
+            // the legacy filter this replaces did not: it returned the filtered string
+            // raw, so a supplied translation containing %s lost the caller's arguments.
+            // Harmless there only because none of its languages used a placeholder.
+            $translation = $supplied;
+        } else {
+            $translation = $this->_strings[$string];
+        }
 
         $_args = func_get_args();
         array_shift($_args);
@@ -225,6 +255,31 @@ class Language extends Base
     }
 
     /**
+     * Last chance to supply a translation for a key that has none.
+     *
+     * Returns the key unchanged, which is what `_()` did on its own. It exists so an
+     * application can override it instead of maintaining a copy of this whole class —
+     * the legacy implementation ran every miss through an addon filter, and the two
+     * things a consuming application does with it are neither of them decorative:
+     *
+     *   - **record the key**, with the file it was found in, to feed a translation tool;
+     *   - **serve a dialect**, where a regional variant is a secondary string rather
+     *     than a language of its own. Without the hook that region silently reads the
+     *     wrong dialect.
+     *
+     * A framework hook rather than a framework dependency on any addon system: what a
+     * subclass does here is its business. Whatever it returns is formatted with the
+     * caller's arguments exactly as a stored translation would be — see `_()`.
+     *
+     * @param  string $string The key that was not found
+     * @return string A translation, or the key unchanged
+     */
+    protected function onMissingString(string $string): string
+    {
+        return $string;
+    }
+
+    /**
      * Return the current language
      * @return string
      */
@@ -241,11 +296,96 @@ class Language extends Base
      */
     public static function &getInstance($lang = '')
     {
-        static $instance=NULL;
-        if (!is_object($instance)) {
-            $instance = new Language($lang);
+        if (!is_object(self::$instance)) {
+            self::$instance = new (self::resolveClass())($lang);
         }
-        return $instance;
+
+        return self::$instance;
+    }
+
+    /**
+     * Install a language object as *the* language object.
+     *
+     * For an application that builds its own — with constructor arguments the framework
+     * cannot supply, or a subclass it wants to be certain about. Call it from the
+     * bootstrap, before anything translates.
+     *
+     * Answers a different question from {@see resolveClass()}, which is why both exist:
+     * that one is *which class*, declared in configuration; this one is *here is the
+     * object*, handed over by code that already has it.
+     */
+    public static function setInstance(?Language $language): void
+    {
+        self::$instance = $language;
+    }
+
+    /**
+     * Forget the current instance, so the next `getInstance()` builds a fresh one.
+     *
+     * A test that changes the configured class or the active language needs this; without
+     * it the first test in a run decides for all of them.
+     */
+    public static function resetInstance(): void
+    {
+        self::$instance = null;
+    }
+
+    /**
+     * Which class `getInstance()` should build.
+     *
+     * ## Why this is not just `new static()`
+     *
+     * The obvious fix for a hardcoded `new Language($lang)` is `new static($lang)`, and it
+     * does work — PHP 8.1 and later share a method's static locals with the inherited
+     * copies, so a subclass and the base end up with one object. Verified on 8.5.9.
+     *
+     * But **which** class you get depends on who asks first:
+     *
+     *     subclass asks first  -> the subclass, and its overrides run
+     *     framework asks first -> the base, and they do not
+     *
+     * `Factory::getLanguage()` is called from seven places inside the framework. Any one
+     * of them running before an application's bootstrap gets the base class — silently,
+     * with the same symptom the filing described: a page rendering untranslated. That
+     * trades a certain bug for a non-deterministic one, which is worse.
+     *
+     * So the class is **declared**, not raced for. `app.php` names it:
+     *
+     * ```php
+     * // app/app.php
+     * 'language_class' => '\App\Language',
+     * ```
+     *
+     * With nothing declared, `\<namespace>\Language` is tried — the same convention
+     * {@see \Pramnos\Application\Application::resolveApplicationClass()} uses for the
+     * application class — and this class is the fallback.
+     *
+     * Read through `currentInstance()`, never `getInstance()`: building an application to
+     * find out which language class to build would be a factory call inside a factory
+     * call, and this framework has been bitten by that before.
+     *
+     * @return class-string<Language>
+     */
+    protected static function resolveClass(): string
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        $info = is_object($app) ? ($app->applicationInfo ?? []) : [];
+
+        $declared = is_array($info) ? ($info['language_class'] ?? '') : '';
+        if (is_string($declared) && $declared !== '' && class_exists($declared)
+            && is_subclass_of($declared, self::class)) {
+            return $declared;
+        }
+
+        $namespace = is_array($info) ? ($info['namespace'] ?? '') : '';
+        if (is_string($namespace) && $namespace !== '') {
+            $candidate = '\\' . $namespace . '\\Language';
+            if (class_exists($candidate) && is_subclass_of($candidate, self::class)) {
+                return $candidate;
+            }
+        }
+
+        return self::class;
     }
 
     /**
@@ -259,11 +399,69 @@ class Language extends Base
         if ($lang == '') {
             $lang = $this->_lang;
         }
-        if (file_exists(ROOT . DS . 'language' . DS . $lang . '.png')) {
-            return sURL . 'language/' . $lang . '.png';
-        } else {
-            return false;
+        // **A flag has to be web-servable, which is a narrower question than "does the
+        // file exist".**
+        //
+        // Filed as part of FW-020 alongside `load()`, on the grounds that this names
+        // `ROOT/language` while everything else searches the candidate directories. Half
+        // right: the search was too narrow, but widening it the same way would return a
+        // URL for a file no browser can fetch. `app/language/` is not under the document
+        // root in the layout `init` creates, and `sURL . 'language/…'` describes exactly
+        // one location.
+        //
+        // So both servable locations are checked and each returns its own URL, and a flag
+        // sitting somewhere unservable answers `false` — which is the truth about it.
+        $servable = [];
+        if (defined('ROOT')) {
+            // The web root, where a flag shipped as an asset belongs.
+            $servable[sURL . 'assets/flags/' . $lang . '.png']
+                = ROOT . DS . 'www' . DS . 'assets' . DS . 'flags' . DS . $lang . '.png';
+            // The historical location, still served on an older layout.
+            $servable[sURL . 'language/' . $lang . '.png']
+                = ROOT . DS . 'language' . DS . $lang . '.png';
         }
+
+        foreach ($servable as $url => $file) {
+            if (file_exists($file)) {
+                return $url;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Where language files may live, most specific first.
+     *
+     * The list {@see getLanguages()} already searched, extracted so its two neighbours
+     * can search the same one. `load()`'s fallbacks and `getFlag()` named
+     * `ROOT . DS . 'language'` and nothing else, while the constructor resolves
+     * `LANGPATH` or `app/language` — so on the layout `init` generates, the fallbacks
+     * pointed at a directory that does not exist.
+     *
+     * That was worse than a dead fallback in `load()`: the **English default** existed
+     * only under `ROOT/language`, so a project laid out the modern way and missing one
+     * language file did not fall back to English — it returned `false` and rendered
+     * untranslated.
+     *
+     * @return list<string> Candidate directories, existing or not — callers test each
+     */
+    protected function languageDirectories(): array
+    {
+        $candidates = [];
+
+        if ($this->languagePath !== '') {
+            $candidates[] = $this->languagePath;
+        }
+        if (defined('LANGPATH')) {
+            $candidates[] = LANGPATH;
+        }
+        if (defined('ROOT')) {
+            $candidates[] = ROOT . DS . 'app' . DS . 'language';
+            $candidates[] = ROOT . DS . 'language';
+        }
+
+        return array_values(array_unique($candidates));
     }
 
     /**

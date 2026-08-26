@@ -5,6 +5,8 @@ use_cases:
   - Discovering untranslated strings in the codebase
   - Translating a SPA or Svelte front end from the same catalogue
   - Listing the languages an installation ships
+  - Making an application's own Language subclass the one the framework uses
+  - Catching every untranslated key, to log it or to serve a dialect
 ---
 
 # Pramnos Framework - Internationalization (i18n) Guide
@@ -305,6 +307,99 @@ Three properties worth knowing:
 It is written only when `app/language/` exists — a project with no catalogue
 does not need an endpoint over an empty array, and `t()` returning its own key is
 already correct with no endpoint at all.
+
+### One language object, and how to make it yours
+
+Everything that translates goes through `Language::getInstance()`, and there is exactly
+one instance. That matters more than it sounds: an application that ends up with **two** —
+its own with the strings loaded, the framework's without — gets a page that renders half in
+English, and nothing reports it. Both objects return the key unchanged for a missing
+translation, so *"untranslated key"* and *"wrong instance"* look identical.
+
+#### Declaring your own subclass
+
+```php
+// app/app.php
+'language_class' => '\MyApp\Language',
+```
+
+With nothing declared, `\<namespace>\Language` is tried — the same convention the
+application class uses — and the framework's own class is the fallback. A declaration that
+names a missing class, or a class that is not a `Language`, is ignored rather than fatal: a
+translation setting should not be able to take a site down.
+
+**Declared rather than inferred, on purpose.** The obvious alternative is `new static()` in
+`getInstance()`, and it does work — PHP 8.1 and later share a method's static locals with
+its inherited copies. But *which* class you get then depends on who asks first:
+
+| asks first | you get |
+|---|---|
+| your subclass | your subclass, overrides running |
+| the framework | the base class, overrides never running |
+
+`Factory::getLanguage()` is called from seven places inside the framework, so the order is
+not yours to control. Declaring the class removes the race.
+
+#### Handing over an object you built yourself
+
+```php
+\Pramnos\Translator\Language::setInstance(new \MyApp\Language('el', $myPath));
+```
+
+For a bootstrap that constructs it with arguments the framework cannot supply. A different
+question from `language_class`: that one is *which class*, this is *here is the object*.
+
+`resetInstance()` exists for tests — without it the first test in a run decides the
+language for every test after it.
+
+### Catching a missing translation
+
+Override `onMissingString()` to get one last chance at a key that has no translation:
+
+```php
+namespace MyApp;
+
+class Language extends \Pramnos\Translator\Language
+{
+    protected function onMissingString(string $string): string
+    {
+        // Record it, so a translation tool has something to work from
+        MissingStrings::note($string);
+
+        // …or answer it, for a regional variant kept as a secondary catalogue
+        return Dialect::lookup($string) ?? $string;
+    }
+}
+```
+
+The default returns the key, which is what `_()` does on its own. Two things worth
+knowing:
+
+- **Whatever you return is formatted with the caller's arguments**, exactly as a stored
+  translation would be. So a supplied `'Καλώς ήρθες, %s'` works with `_('greeting',
+  $name)`. The legacy filter this replaces returned its result raw, which silently dropped
+  the arguments — harmless there only because none of its languages used a placeholder.
+- **Returning the key unchanged means "I have nothing"**, and returning `''` means "show
+  nothing". Identity against the key is the test, not emptiness, so an empty translation is
+  a decision you can make.
+
+The hook is only consulted on a **miss**. A key with a translation never reaches it.
+
+### Where language files are looked for
+
+`load()` searches, in order: the path given to the constructor, `LANGPATH`,
+`ROOT/app/language`, then `ROOT/language`. The requested language across all of them
+first, then `english` across all of them.
+
+That second pass is the part worth stating, because it used to be broken: the English
+fallback existed only under `ROOT/language`, so a project laid out the way `init` lays one
+out — with `app/language/` — did **not** fall back to English when a language file was
+missing. It returned `false` and the page rendered untranslated.
+
+`getFlag()` is narrower on purpose, and answers a different question: a flag has to be
+*servable*, not merely present. It looks under the web root (`www/assets/flags/`) and at
+the historical `ROOT/language/`, and returns `false` for a flag sitting anywhere a browser
+cannot reach — which is the truth about it, and better than a URL that 404s.
 
 ### Listing the languages an installation ships
 

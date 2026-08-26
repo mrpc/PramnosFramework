@@ -285,8 +285,33 @@ class Theme extends \Pramnos\Framework\Base
         if (!isset(self::$instances[$theme])) {
             if (file_exists($path . DS . $theme . DS . $theme . '.php')) {
 
-                include $path . DS . $theme . DS . $theme . '.php';
                 $classname = $theme . '_theme';
+
+                // **The guard has to come before the include, not after it.**
+                //
+                // `class_exists()` used to be checked *below* this line, so it could not
+                // prevent the thing it was obviously there to prevent: if the theme class
+                // was already defined — by another loader, by an autoloader, by a second
+                // path to the same file — the include was a fatal:
+                //
+                //     Cannot redeclare class main_theme
+                //
+                // Reported with a probe that asked for one theme from two places in a
+                // single request and hit it immediately.
+                //
+                // `include_once` would not do: it keys on the *resolved path*, so two
+                // routes to one file — a symlink, or `theme.php` against `Theme.php` on a
+                // case-insensitive filesystem — load it twice and redeclare anyway. The
+                // reporting application has exactly that: a legacy loader asking for
+                // lowercase `theme.php` while Composer loads `Theme.php`.
+                //
+                // `false` for the second argument: do not invoke the autoloader. The
+                // question is "is this class already in memory", and letting an
+                // autoloader answer it would be asking a different one.
+                if (!class_exists($classname, false)) {
+                    include $path . DS . $theme . DS . $theme . '.php';
+                }
+
                 if (class_exists($classname)) {
 
                     self::$instances[$theme] = new $classname(
@@ -453,63 +478,97 @@ class Theme extends \Pramnos\Framework\Base
     }
 
     /**
+     * Where themes may live, most specific first.
+     *
+     * `getTheme()` and the constructor resolve `APP_PATH . DS . 'themes'`, which is the
+     * layout `init` creates. `getThemes()` and `getThemeObjects()` looked only in
+     * `ROOT . DS . 'themes'`, so the same class answered the same question two different
+     * ways depending on which method you asked — and the listing methods answered wrongly.
+     *
+     * Both directories are scanned and the results merged, because a project may
+     * legitimately have both: `app/themes/` for its own and `ROOT/themes/` inherited from
+     * an older layout. The same shape as
+     * {@see \Pramnos\Translator\Language::getLanguages()}, which was fixed for this exact
+     * reason and whose siblings had the same defect.
+     *
+     * @return list<string> Existing directories, without duplicates
+     */
+    protected static function themeDirectories(): array
+    {
+        $candidates = [];
+        if (defined('APP_PATH')) {
+            $candidates[] = APP_PATH . DS . 'themes';
+        }
+        if (defined('ROOT')) {
+            $candidates[] = ROOT . DS . 'themes';
+        }
+
+        return array_values(array_filter(array_unique($candidates), 'is_dir'));
+    }
+
+    /**
      * Returns an array with all theme directories
-     * @param string $path
-     * @return array
+     *
+     * Searched across {@see themeDirectories()} rather than `ROOT/themes` alone. On a
+     * project laid out the way `init` lays one out, that directory does not exist and
+     * this returned an empty array **silently** — the reporting application saw it as an
+     * empty theme picker in its admin settings, with nothing in any log.
+     *
+     * @param string $path Search only here, when given
+     * @return list<string>
      */
     public static function getThemes($path = '')
     {
-        if ($path == '') {
-            $path = ROOT . DS . 'themes';
-        }
+        $directories = $path === '' ? self::themeDirectories() : [$path];
 
-        if (file_exists($path)) {
-            $dh = opendir($path);
-
-            while (false !== ($filename = readdir($dh))) {
-                $dirs[] = $filename;
+        $return = [];
+        foreach ($directories as $directory) {
+            if (!is_dir($directory)) {
+                continue;
             }
-            $return = array();
-            foreach ($dirs as $directory) {
-                if (is_dir($path . DS . $directory) and substr($directory, 0, 1) !== ".") {
-                    $return[] = $directory;
+
+            foreach ((array) scandir($directory) as $entry) {
+                // A leading dot covers `.`, `..` and every hidden directory in one test.
+                if (substr($entry, 0, 1) === '.' || !is_dir($directory . DS . $entry)) {
+                    continue;
                 }
+                $return[$entry] = true;
             }
-            return $return;
-        } else {
-            return array();
         }
+
+        return array_keys($return);
     }
 
     /**
      * Returns an array of all theme objects
-     * @param string $path
-     * @return array
+     *
+     * Rewritten around {@see getThemes()} rather than repeating the directory walk, which
+     * is what let the two drift: this one called `opendir(ROOT . DS . 'themes')` with **no
+     * existence check at all**, so on a project without that directory it warned, got
+     * `false`, and then handed `false` to `readdir()` — a TypeError on PHP 8. It had no
+     * caller in the reporting application, which is the only reason nobody had hit it.
+     *
+     * @param string $path Search only here, when given
+     * @return array<string, Theme>
      */
     public static function getThemeObjects($path = '')
     {
-        if ($path == '') {
-            $dh = opendir(ROOT . DS . 'themes');
-        } else {
-            $dh = opendir($path);
-        }
-        $return = array();
-        while (false !== ($filename = readdir($dh))) {
-            $dirs[] = $filename;
-        }
-        foreach ($dirs as $directory) {
-            if (is_dir(ROOT . DS . 'themes' . DS . $directory)
-                    and $directory != ".."
-                    and $directory != "."
-                    and $directory != "CVS"
-                    and $directory != ".svn"
-                    and $directory != "default") {
-                // `pramnos_theme::getTheme()` until 2026-08-14 — a legacy CMS class name
-                // which, inside this namespace, resolved to Pramnos\Theme\pramnos_theme and
-                // therefore to a fatal. This method could never have run.
-                $return[$directory] = self::getTheme($directory, $path, false);
+        $return = [];
+        foreach (self::getThemes($path) as $theme) {
+            // `default` is excluded because it is the fallback every other theme is
+            // resolved against, not a choice in its own right. CVS and .svn were in this
+            // list too; the leading-dot test in getThemes() covers .svn, and CVS has not
+            // been a thing anybody has to exclude for a very long time.
+            if ($theme === 'default') {
+                continue;
             }
+
+            // `pramnos_theme::getTheme()` until 2026-08-14 — a legacy CMS class name
+            // which, inside this namespace, resolved to Pramnos\Theme\pramnos_theme and
+            // therefore to a fatal. This method could never have run.
+            $return[$theme] = self::getTheme($theme, $path, false);
         }
+
         return $return;
     }
 

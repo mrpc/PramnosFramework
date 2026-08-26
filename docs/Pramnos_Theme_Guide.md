@@ -216,6 +216,35 @@ $this->elements = [
 ];
 ```
 
+### Where themes are looked for
+
+`getTheme()`, the constructor, `getThemes()` and `getThemeObjects()` all search
+`APP_PATH/themes` and then `ROOT/themes`, merging what they find — a project may
+legitimately have both, `app/themes/` for its own and `ROOT/themes/` inherited from an
+older layout.
+
+They did not always agree. `getThemes()` looked **only** at `ROOT/themes`, so on the
+layout `init` creates it returned an empty array *silently* — visible as an empty theme
+picker with nothing in any log. `getThemeObjects()` was worse: it opened that directory
+with no existence check, so it warned, got `false`, and handed `false` to `readdir()` — a
+TypeError on PHP 8.
+
+`getThemeObjects()` is now built on `getThemes()` rather than repeating the directory
+walk, which is what let the two drift in the first place.
+
+!!! note "A theme class is included once, and the check comes first"
+    `getTheme()` asks `class_exists($name, false)` **before** including the theme's PHP
+    file. The check used to come after, where it could not prevent what it was there to
+    prevent: a class already defined — by another loader, by an autoloader, by a second
+    path to the same file — made the include a fatal `Cannot redeclare class`.
+
+    `include_once` would not have fixed it: it keys on the *resolved path*, so two routes
+    to one file (a symlink, or `theme.php` against `Theme.php` on a case-insensitive
+    filesystem) load it twice and redeclare anyway.
+
+    The `false` argument matters too — do not invoke the autoloader. The question is "is
+    this class already in memory", and an autoloader would answer a different one.
+
 ### `head.php`, and why `<head>` has to be in the layout
 
 `theme.html.php` writes `<head>` and `<body>` out explicitly, and includes a separate

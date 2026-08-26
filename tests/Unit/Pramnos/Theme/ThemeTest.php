@@ -1186,8 +1186,16 @@ class ThemeTest extends TestCase
         // Act
         $objects = Theme::getThemeObjects($path);
 
-        // Assert — 'sometheme' is not a dir under ROOT/themes → filtered out
-        $this->assertSame([], $objects);
+        // Assert — the theme in $path is returned, and the stray file is not.
+        //
+        // This used to assert `[]`, with the comment "not a dir under ROOT/themes →
+        // filtered out". It was pinning the defect: the method scanned `$path` for
+        // entries and then tested `is_dir(ROOT . DS . 'themes' . DS . $entry)`, so every
+        // theme it found outside `ROOT/themes` was discarded — an explicit `$path`
+        // argument could never return anything. Filed as FW-023 along with
+        // `getThemes()`, which had the narrower version of the same mistake.
+        $this->assertSame(['sometheme'], array_keys($objects));
+        $this->assertInstanceOf(Theme::class, $objects['sometheme']);
 
         // Cleanup
         unlink($path . DIRECTORY_SEPARATOR . 'stray.txt');
