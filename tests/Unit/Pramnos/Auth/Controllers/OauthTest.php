@@ -114,6 +114,7 @@ class OauthTest extends TestCase
                 `applicationid` int(11) NOT NULL,
                 `tokentype` varchar(50) NOT NULL,
                 `token` text NOT NULL,
+                `parentToken` int(11) DEFAULT NULL,
                 `scope` text,
                 `sid` varchar(255) DEFAULT NULL,
                 `notes` text,
@@ -163,7 +164,9 @@ class OauthTest extends TestCase
             $this->db->query('ALTER TABLE `applications` ADD COLUMN `systemuser` int(11) DEFAULT NULL');
         } catch (\Throwable $e) {}
         try {
-            $this->db->query('ALTER TABLE `usertokens` ADD COLUMN `sid` varchar(255) DEFAULT NULL');
+            // No `sid` column is added: the real table has never had one, and a
+            // fixture that invents it is how a query selecting it passed for years.
+            $this->db->query('ALTER TABLE `usertokens` ADD COLUMN `parentToken` int(11) DEFAULT NULL');
         } catch (\Throwable $e) {}
         try {
             $this->db->query('ALTER TABLE `usertokens` ADD COLUMN `notes` text');

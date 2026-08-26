@@ -5,6 +5,7 @@ use_cases:
   - Joining, grouping or paginating a query
   - Processing a large result set in batches
   - Inspecting the SQL a builder chain produces
+  - Reading a column whose name has upper-case letters, such as parentToken
 ---
 
 # Pramnos QueryBuilder Guide
@@ -894,6 +895,53 @@ $rows = $qb->from('users')->get()->fetchAll();
 | `$result->fetchAll()` | All rows as array |
 | `$result->fetch()` | Advance cursor |
 | `$result->free()` | Free resource |
+
+## Column names with upper-case letters
+
+A bare column name containing an upper-case letter is quoted automatically:
+
+```php
+$db->queryBuilder()->table('usertokens')
+    ->select(['tokenid', 'parentToken'])
+    ->where('parentToken', 42)
+    ->get();
+
+// PostgreSQL: SELECT tokenid, "parentToken" FROM usertokens WHERE "parentToken" = $1
+// MySQL:      SELECT tokenid, `parentToken` FROM usertokens WHERE `parentToken` = ?
+```
+
+You need this because **PostgreSQL folds an unquoted identifier to lower case**.
+`SELECT parentToken` asks for `parenttoken`, which does not exist, and the query
+fails. `INSERT` and `UPDATE` have always quoted, so before this a camelCase column
+could be written and not read — and the failure looks exactly like an empty result,
+because the builder returns nothing either way.
+
+Only a **bare identifier** is quoted, and only when it has an upper-case letter:
+
+| Written | Emitted | Why |
+|---|---|---|
+| `parentToken` | `"parentToken"` | Would otherwise fold |
+| `tokenid` | `tokenid` | Folding cannot affect it |
+| `ut.parentToken` | unchanged | Already qualified — quote it yourself if you need to |
+| `MAX(ut.lastused) AS x` | unchanged | An expression, not an identifier |
+| `*`, `ut.*` | unchanged | Not a name |
+| `"parentToken"` | unchanged | Already quoted |
+
+A **qualified** camelCase column — `ut.parentToken` in a join — is not quoted for
+you, because the builder cannot tell a table alias from a schema without parsing
+the reference. Quote it yourself, per dialect, or select the table with `*` and read
+the field from the result:
+
+```php
+// Portable: the column name survives in the result either way.
+$row = $db->queryBuilder()->table('usertokens')->select('*')
+    ->where('tokenid', $id)->first();
+
+$parent = $row->fields['parentToken'];
+```
+
+Applies to `select()`, `where()` and its variants, `whereIn`, `whereNull`,
+`whereNotNull`, `whereBetween`, `groupBy`, `orderBy` and `having`.
 
 ## Debugging
 

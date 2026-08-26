@@ -541,11 +541,33 @@ class Oauth extends Controller
      */
     protected function findTokenRow(string $token): ?array
     {
+        $row = $this->selectActiveTokenRow($token);
+
+        if ($row === null) {
+            // A client holds the JWT; what is stored is its `jti`. Without this
+            // fallback logout could not find the token it had just been handed —
+            // and, like revoke, it answers success either way, so nobody found out.
+            $jti = $this->extractJwtId($token);
+            if ($jti !== null && $jti !== $token) {
+                $row = $this->selectActiveTokenRow($jti);
+            }
+        }
+
+        return $row;
+    }
+
+    /**
+     * One active `usertokens` row by its stored value.
+     *
+     * @return array{tokenid: mixed, userid: mixed, parentToken: mixed}|null
+     */
+    protected function selectActiveTokenRow(string $stored): ?array
+    {
         $result = \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
             ->table('usertokens')
             ->select(['tokenid', 'userid', 'parentToken'])
-            ->where('token', $token)
+            ->where('token', $stored)
             ->where('status', 1)
             ->first();
 
@@ -572,16 +594,35 @@ class Oauth extends Controller
      */
     protected function revokeTokenFamily(mixed $db, int $userId, int $rootId): int
     {
-        $rows = $db->queryBuilder()
+        // Counted before the UPDATE rather than from it: `update()` answers a
+        // boolean, so a caller reading `tokens_revoked` would always see 0. The
+        // number is the reason that field exists — this endpoint answers success
+        // whether or not anything matched, so it is the only way to tell a real
+        // revocation from a token that was not found. One indexed COUNT on a
+        // logout is worth being able to see that.
+        $family = static function ($query) use ($rootId) {
+            $query->where('tokenid', $rootId)->orWhere('parentToken', $rootId);
+        };
+
+        $count = (int) $db->queryBuilder()
             ->table('usertokens')
             ->where('userid', $userId)
             ->where('status', 1)
-            ->where(function ($query) use ($rootId) {
-                $query->where('tokenid', $rootId)->orWhere('parentToken', $rootId);
-            })
+            ->where($family)
+            ->count();
+
+        if ($count === 0) {
+            return 0;
+        }
+
+        $db->queryBuilder()
+            ->table('usertokens')
+            ->where('userid', $userId)
+            ->where('status', 1)
+            ->where($family)
             ->update(['status' => 0]);
 
-        return is_numeric($rows) ? (int) $rows : 0;
+        return $count;
     }
 
     /** Did the caller ask for the browser session to be ended too? */

@@ -37,6 +37,40 @@ abstract class Grammar implements GrammarInterface
     }
 
     /**
+     * Quote a bare column name whose case would otherwise be lost.
+     *
+     * PostgreSQL folds an unquoted identifier to lower case, so a column named
+     * `parentToken` is looked up as `parenttoken` and reported as not existing.
+     * `compileInsert()` and `compileUpdate()` have always quoted, which is why a
+     * camelCase column could be *written* and not *read*: a `SELECT` or a `WHERE`
+     * naming one failed, the failure was swallowed by the caller, and the query
+     * returned nothing. Real code shipped on top of that — a logout that revoked
+     * no tokens, an introspection that reported every token dead.
+     *
+     * Only a **bare identifier containing an upper-case letter** is quoted:
+     *
+     *  - anything with a dot, a space, a parenthesis, a star or a quote is an
+     *    expression or already qualified, and quoting it would corrupt it;
+     *  - an all-lower-case identifier is unaffected by folding, so it is emitted
+     *    exactly as before and no existing generated SQL changes.
+     *
+     * That second point is deliberate: the change is invisible except where the
+     * query was already broken.
+     */
+    protected function quoteIfCaseSensitive(string $column): string
+    {
+        if ($column === strtolower($column)) {
+            return $column;
+        }
+
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column) !== 1) {
+            return $column;
+        }
+
+        return $this->quoteColumn($column);
+    }
+
+    /**
      * Optionally modify a column reference for a specific operator.
      * Used by PostgreSQLGrammar to add ::text casts on LIKE/ILIKE.
      */
@@ -122,7 +156,10 @@ abstract class Grammar implements GrammarInterface
         if ($qb->isDistinct()) {
             $sql .= 'DISTINCT ';
         }
-        $sql .= implode(', ', $qb->getColumns());
+        $sql .= implode(
+            ', ',
+            array_map(fn ($column) => $this->quoteIfCaseSensitive((string) $column), $qb->getColumns())
+        );
         $sql .= ' FROM ' . $qb->getFrom();
 
         foreach ($qb->getJoins() as $join) {
@@ -144,7 +181,10 @@ abstract class Grammar implements GrammarInterface
 
         $groups = $qb->getGroups();
         if (!empty($groups)) {
-            $sql .= ' GROUP BY ' . implode(', ', $groups);
+            $sql .= ' GROUP BY ' . implode(
+                ', ',
+                array_map(fn ($column) => $this->quoteIfCaseSensitive((string) $column), $groups)
+            );
         }
 
         $havings = $qb->getHavings();
@@ -159,7 +199,8 @@ abstract class Grammar implements GrammarInterface
                 if (isset($order['type']) && $order['type'] === 'Raw') {
                     $orderParts[] = $order['sql'];
                 } else {
-                    $orderParts[] = $order['column'] . ' ' . strtoupper($order['direction']);
+                    $orderParts[] = $this->quoteIfCaseSensitive($order['column'])
+                        . ' ' . strtoupper($order['direction']);
                 }
             }
             $sql .= ' ORDER BY ' . implode(', ', $orderParts);
@@ -196,7 +237,10 @@ abstract class Grammar implements GrammarInterface
 
             switch ($where['type']) {
                 case 'Basic':
-                    $col = $this->wrapColumnForOperator($where['column'], $where['operator']);
+                    $col = $this->wrapColumnForOperator(
+                        $this->quoteIfCaseSensitive($where['column']),
+                        $where['operator']
+                    );
                     $part .= $col . ' ' . $where['operator'] . ' ' . $this->getPlaceholder($where['value']);
                     break;
 
@@ -204,26 +248,26 @@ abstract class Grammar implements GrammarInterface
                 case 'NotIn':
                     $placeholders   = array_map(fn($v) => $this->getPlaceholder($v), $where['values']);
                     $operator       = $where['type'] === 'In' ? 'IN' : 'NOT IN';
-                    $part .= $where['column'] . ' ' . $operator . ' (' . implode(', ', $placeholders) . ')';
+                    $part .= $this->quoteIfCaseSensitive($where['column']) . ' ' . $operator . ' (' . implode(', ', $placeholders) . ')';
                     break;
 
                 case 'Null':
-                    $part .= $where['column'] . ' IS NULL';
+                    $part .= $this->quoteIfCaseSensitive($where['column']) . ' IS NULL';
                     break;
 
                 case 'NotNull':
-                    $part .= $where['column'] . ' IS NOT NULL';
+                    $part .= $this->quoteIfCaseSensitive($where['column']) . ' IS NOT NULL';
                     break;
 
                 case 'Between':
-                    $part .= $where['column'] . ' BETWEEN '
+                    $part .= $this->quoteIfCaseSensitive($where['column']) . ' BETWEEN '
                         . $this->getPlaceholder($where['values'][0])
                         . ' AND '
                         . $this->getPlaceholder($where['values'][1]);
                     break;
 
                 case 'NotBetween':
-                    $part .= $where['column'] . ' NOT BETWEEN '
+                    $part .= $this->quoteIfCaseSensitive($where['column']) . ' NOT BETWEEN '
                         . $this->getPlaceholder($where['values'][0])
                         . ' AND '
                         . $this->getPlaceholder($where['values'][1]);
@@ -266,7 +310,8 @@ abstract class Grammar implements GrammarInterface
             if (isset($having['type']) && $having['type'] === 'Raw') {
                 $part .= $having['sql'];
             } else {
-                $part .= $having['column'] . ' ' . $having['operator'] . ' ' . $this->getPlaceholder($having['value']);
+                $part .= $this->quoteIfCaseSensitive($having['column'])
+                    . ' ' . $having['operator'] . ' ' . $this->getPlaceholder($having['value']);
             }
             $parts[] = $part;
         }

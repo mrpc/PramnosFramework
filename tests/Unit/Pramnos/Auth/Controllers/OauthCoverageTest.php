@@ -209,7 +209,12 @@ class OauthCoverageTest extends TestCase
                 `tokentype`  varchar(50) NOT NULL,
                 `token`      text NOT NULL,
                 `scope`      text,
-                `sid`        varchar(255) DEFAULT NULL,
+                -- parentToken links a refresh token to the access token it was
+                -- issued with; the logout, revoke and introspect paths read it.
+                -- There is deliberately no `sid` column: the real table has never
+                -- had one, and inventing it here is how a query selecting it
+                -- passed its tests while failing in every application.
+                `parentToken` int(11) DEFAULT NULL,
                 `notes`      text,
                 `redirect_uri` text,
                 `code_challenge` varchar(255),
@@ -263,7 +268,7 @@ class OauthCoverageTest extends TestCase
             // Ensure apiversion column has a proper default even if added with NULL default before
             "ALTER TABLE `applications` MODIFY COLUMN `apiversion` varchar(50) NOT NULL DEFAULT 'v1'",
             // usertokens extras
-            'ALTER TABLE `usertokens` ADD COLUMN `sid` varchar(255) DEFAULT NULL',
+            'ALTER TABLE `usertokens` ADD COLUMN `parentToken` int(11) DEFAULT NULL',
             'ALTER TABLE `usertokens` ADD COLUMN `notes` text',
             'ALTER TABLE `usertokens` ADD COLUMN `deviceinfo` varchar(255) DEFAULT NULL',
             // users extras
@@ -320,57 +325,119 @@ class OauthCoverageTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * When the token row has a non-null sid, logout() must include a WHERE
-     * clause on sid so that only tokens from the same session are revoked.
+     * Logout revokes the token family, and nothing beyond it.
      *
-     * This exercises the `if ($sid !== null) { $updateQb->where('sid', $sid); }`
-     * branch (line 372) which is not reached by the existing tests because
-     * they insert tokens without a sid value.
+     * This used to assert on a `sid` column, and the fixture invented one so that
+     * it could — which is precisely how a production query selecting `usertokens.sid`
+     * survived: it was valid against a schema that exists nowhere. The real table
+     * has no `sid` and never has, so the query failed, the failure was swallowed,
+     * and the endpoint revoked nothing at all while answering `{"success": true}`.
+     *
+     * A session is the **token family**: the access token and the refresh token
+     * issued with it, linked by `parentToken`. A token issued to another device is
+     * another family and must survive, which is what separates this from signing
+     * out of everything — and it is the assertion at the end that would catch a
+     * regression in that direction.
      */
-    public function testLogoutRevokesTokensWithMatchingSid(): void
+    public function testLogoutRevokesTheTokenFamilyAndNothingElse(): void
     {
-        // Arrange — two tokens for the same user: one with sid 'sess1', one without
+        // Arrange
         $this->db->queryBuilder()->table('users')->insert([
-            'userid' => 77, 'username' => 'sid_user', 'email' => 'sid@test.com', 'active' => 1
+            'userid' => 77, 'username' => 'family_user', 'email' => 'fam@test.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 3, 'name' => 'SID App', 'status' => 1, 'apikey' => 'sid_key', 'apisecret' => ''
-        ]);
-        // Token we will present — has sid 'sess1'
-        $this->db->queryBuilder()->table('usertokens')->insert([
-            'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
-            'token' => 'sid_bearer_tok', 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'sid' => 'sess1'
-        ]);
-        // Second token for same user, different session — must NOT be revoked
-        $this->db->queryBuilder()->table('usertokens')->insert([
-            'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
-            'token' => 'other_session_tok', 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'sid' => 'sess2'
+            'appid' => 3, 'name' => 'Family App', 'status' => 1, 'apikey' => 'fam_key', 'apisecret' => ''
         ]);
 
-        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer sid_bearer_tok';
+        // The access token we will present.
+        $this->db->queryBuilder()->table('usertokens')->insert([
+            'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
+            'token' => 'family_access', 'expires' => time() + 3600, 'status' => 1,
+            'created' => time()
+        ]);
+        $accessId = (int) $this->db->queryBuilder()->table('usertokens')
+            ->select(['tokenid'])->where('token', 'family_access')->first()->fields['tokenid'];
+
+        // Its refresh token — same family, so it must go too.
+        $this->db->queryBuilder()->table('usertokens')->insert([
+            'userid' => 77, 'applicationid' => 3, 'tokentype' => 'refresh_token',
+            'token' => 'family_refresh', 'expires' => time() + 86400, 'status' => 1,
+            'created' => time(), 'parentToken' => $accessId
+        ]);
+
+        // A token from another sign-in on another device. Same user, different
+        // family: it must survive.
+        $this->db->queryBuilder()->table('usertokens')->insert([
+            'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
+            'token' => 'other_device', 'expires' => time() + 3600, 'status' => 1,
+            'created' => time()
+        ]);
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer family_access';
 
         // Act
         $response = $this->controller->logout();
 
-        // Assert — 200 success
+        // Assert — the response reports what it did
         $this->assertEquals(200, $response->getStatusCode());
         $data = json_decode($response->getBody(), true);
         $this->assertTrue($data['success']);
         $this->assertEquals(77, $data['user_id']);
+        $this->assertEquals(2, $data['tokens_revoked'], 'the access token and its refresh token');
 
-        // The token from sess1 must be revoked
-        $tok1 = $this->db->queryBuilder()->table('usertokens')
-            ->where('token', 'sid_bearer_tok')->first();
-        $this->assertEquals(0, (int) $tok1->fields['status'],
-            'Token with matching sid must be revoked');
+        // Assert — the family is gone
+        foreach (['family_access', 'family_refresh'] as $token) {
+            $row = $this->db->queryBuilder()->table('usertokens')
+                ->where('token', $token)->first();
+            $this->assertEquals(0, (int) $row->fields['status'], $token . ' must be revoked');
+        }
 
-        // The token from sess2 must remain active because sid differs
-        $tok2 = $this->db->queryBuilder()->table('usertokens')
-            ->where('token', 'other_session_tok')->first();
-        $this->assertEquals(1, (int) $tok2->fields['status'],
-            'Token with a different sid must not be revoked');
+        // Assert — the other device is untouched. The assertion that keeps this
+        // from quietly becoming "sign out of everything".
+        $other = $this->db->queryBuilder()->table('usertokens')
+            ->where('token', 'other_device')->first();
+        $this->assertEquals(1, (int) $other->fields['status'],
+            'a token from another sign-in must survive');
+    }
+
+    /**
+     * Presenting the refresh token revokes the family from its parent.
+     *
+     * Revoking only the row presented would leave the access token valid, so
+     * signing out with a refresh token would leave the user signed in.
+     */
+    public function testLogoutWithARefreshTokenRevokesItsParentToo(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('users')->insert([
+            'userid' => 78, 'username' => 'refresh_user', 'email' => 'ref@test.com', 'active' => 1
+        ]);
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 4, 'name' => 'Refresh App', 'status' => 1, 'apikey' => 'ref_key', 'apisecret' => ''
+        ]);
+        $this->db->queryBuilder()->table('usertokens')->insert([
+            'userid' => 78, 'applicationid' => 4, 'tokentype' => 'access_token',
+            'token' => 'parent_access', 'expires' => time() + 3600, 'status' => 1,
+            'created' => time()
+        ]);
+        $accessId = (int) $this->db->queryBuilder()->table('usertokens')
+            ->select(['tokenid'])->where('token', 'parent_access')->first()->fields['tokenid'];
+        $this->db->queryBuilder()->table('usertokens')->insert([
+            'userid' => 78, 'applicationid' => 4, 'tokentype' => 'refresh_token',
+            'token' => 'child_refresh', 'expires' => time() + 86400, 'status' => 1,
+            'created' => time(), 'parentToken' => $accessId
+        ]);
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer child_refresh';
+
+        // Act
+        $this->controller->logout();
+
+        // Assert — the parent went with it
+        $parent = $this->db->queryBuilder()->table('usertokens')
+            ->where('token', 'parent_access')->first();
+        $this->assertEquals(0, (int) $parent->fields['status'],
+            'the access token the refresh token belongs to must be revoked');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
