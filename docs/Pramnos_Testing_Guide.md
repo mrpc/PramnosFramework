@@ -535,6 +535,21 @@ A project scaffolded before this change still has the flock version in its own
 `dockertest`; version control does not update it for you. Copy the lock block from
 a freshly scaffolded project, or replace the file.
 
+### …or that Docker is not responding, when it is
+
+The same platform gap, one guard further on. The daemon-hang timeouts call GNU
+coreutils `timeout`, which macOS also does not ship — so every guard exited 127,
+"command not found", and the first one concluded the daemon was unreachable:
+
+```
+ERROR: Docker is not responding (timed out after 15s, or the daemon is not running).
+```
+
+The script now prefers a real `timeout`, then `gtimeout` (Homebrew coreutils), and
+otherwise uses a small bash implementation that mirrors the two call forms in use
+and returns `124` on a deadline, as GNU `timeout` does — the callers test for that
+code to tell a wedged daemon from a failed command.
+
 ## The JavaScript the framework ships
 
 One browser asset — `src/Pramnos/Debug/assets/debugbar.js`, around 3700 lines, served on every

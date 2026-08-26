@@ -32,6 +32,20 @@ not be started at all.
   runs `bash -n` over it — because a script assembled from a heredoc full of escaped
   dollars being *written* is a long way from it *running*.
 
+- **And it no longer assumes GNU `timeout` exists.** Found immediately after the lock,
+  one guard further on: `timeout` is coreutils and macOS does not ship it either, so
+  every daemon-hang guard exited 127 and the first one announced that Docker was not
+  responding — while Docker was running perfectly.
+
+  A real `timeout` is preferred, then `gtimeout` from Homebrew coreutils, then a small
+  bash implementation covering the two call forms the script uses. It returns `124` on a
+  deadline like GNU `timeout` does, because the callers test for that code to tell a
+  wedged daemon from a command that simply failed.
+
+  Both halves were already fixed in the framework's own runner. Neither had reached the
+  one it generates — which is the pattern worth noticing: a fix applied to the tool and
+  not to its output is a fix that only the maintainer receives.
+
 ## Documentation
 
 - [Testing](../../Pramnos_Testing_Guide.md) gains "`./dockertest` says a run is already

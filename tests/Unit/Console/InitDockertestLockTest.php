@@ -155,6 +155,42 @@ class InitDockertestLockTest extends TestCase
     }
 
     /**
+     * The script does not assume GNU `timeout` exists.
+     *
+     * Same platform story as flock, and found immediately after it: `timeout` is
+     * GNU coreutils and absent from macOS. The daemon-hang guards call it, so on a
+     * Mac every one of them exited 127 — "command not found" — and the very first
+     * guard concluded that Docker was not responding and refused to run, while
+     * Docker was running perfectly.
+     */
+    public function testTheScriptDoesNotAssumeGnuTimeout(): void
+    {
+        // Act
+        $script = $this->scaffoldDockertest();
+
+        // Assert — a real timeout is preferred, gtimeout next, then a bash one
+        $this->assertStringContainsString('command -v timeout', $script);
+        $this->assertStringContainsString('command -v gtimeout', $script);
+        $this->assertStringContainsString('_bash_timeout', $script);
+    }
+
+    /**
+     * The fallback reports GNU timeout's 124 on a deadline.
+     *
+     * The callers test for 124 to tell "the daemon is wedged" from "the command
+     * failed". A fallback that returned something else would turn a hang into a
+     * misleading error.
+     */
+    public function testTheFallbackReportsTheConventionalTimeoutCode(): void
+    {
+        // Act
+        $script = $this->scaffoldDockertest();
+
+        // Assert
+        $this->assertStringContainsString('rc=124', $script);
+    }
+
+    /**
      * The generated script is valid bash.
      *
      * It is assembled from a heredoc with escaped dollars throughout, so "it was

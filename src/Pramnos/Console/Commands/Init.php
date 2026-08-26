@@ -4942,6 +4942,59 @@ fi
 # this catches the rest.
 trap '_release_lock' EXIT
 
+# Portable `timeout`. The daemon-hang guards below rely on GNU coreutils
+# `timeout`, which is absent on macOS by default (there was no `timeout` and no
+# `gtimeout`). Prefer a real one when present; otherwise fall back to a bash
+# implementation that mirrors the two call forms used here — `timeout DURATION
+# cmd…` and `timeout -k KILL_AFTER DURATION cmd…` — and, like GNU timeout,
+# returns 124 when the command is killed for exceeding its deadline (the callers
+# test for 124 to detect a wedged daemon).
+_bash_timeout() {
+    local kill_after=""
+    if [[ "\$1" == "-k" ]]; then kill_after="\$2"; shift 2; fi
+    local duration="\${1%[sS]}"; shift
+
+    # The timer touches this marker the moment the deadline is reached — a
+    # reliable "did we time out?" signal that survives the -k kill-after window
+    # (during which the timer is still alive, so a liveness check misclassifies).
+    local marker
+    marker="\$(mktemp 2>/dev/null || echo "/tmp/dockertest-timeout.\$\$.\$RANDOM")"
+    rm -f "\$marker"
+
+    ( "\$@" ) &
+    local cmd_pid=\$!
+
+    (
+        sleep "\$duration"
+        : >"\$marker"
+        kill -TERM "\$cmd_pid" 2>/dev/null
+        if [[ -n "\$kill_after" ]]; then
+            sleep "\$kill_after"
+            kill -KILL "\$cmd_pid" 2>/dev/null
+        fi
+    ) 2>/dev/null &
+    local timer_pid=\$!
+
+    wait "\$cmd_pid" 2>/dev/null
+    local rc=\$?
+
+    # Command has exited (on its own, or via the timer's TERM/KILL). Stop the
+    # timer and, if it had reached the deadline, report GNU timeout's 124.
+    kill -TERM "\$timer_pid" 2>/dev/null
+    wait "\$timer_pid" 2>/dev/null
+    [[ -e "\$marker" ]] && rc=124
+    rm -f "\$marker"
+    return \$rc
+}
+
+if ! command -v timeout >/dev/null 2>&1; then
+    if command -v gtimeout >/dev/null 2>&1; then
+        timeout() { gtimeout "\$@"; }
+    else
+        timeout() { _bash_timeout "\$@"; }
+    fi
+fi
+
 # Docker can hang indefinitely when the daemon is wedged (a common WSL / Docker
 # Desktop failure mode). Bound every Docker control call below so a stuck daemon
 # fails fast with a clear message instead of an endless, silent hang. The phpunit
