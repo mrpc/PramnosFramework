@@ -295,7 +295,31 @@ class Api extends Application
         }
 
         // Controller dispatch path
-        $moduleObject         = $this->getController($this->controller);
+        try {
+            $moduleObject = $this->getController($this->controller);
+        } catch (\Exception $exception) {
+            /**
+             * No route matched, and there is no controller of that name either.
+             *
+             * This call sat outside the try below — which catches everything the
+             * *action* raises — so a request to a path nothing declares escaped as
+             * an uncaught PHP exception. An API client got a stack trace where it
+             * expected JSON, which is the one response shape it cannot handle: not
+             * a 404 it can act on, not an error object it can read, just a parse
+             * failure attributed to whatever it was doing.
+             *
+             * A missing endpoint is a 404, said in the same shape as every other
+             * answer this application gives.
+             */
+            $this->_recordTokenAction($startTime, ['status' => 404]);
+            $doc->addContent($this->_translateStatus([
+                'status'  => 404,
+                'message' => 'No such endpoint.',
+                'error'   => 'EndpointNotFound',
+            ]));
+
+            return null;
+        }
         $this->activeController = $moduleObject;
 
         try {

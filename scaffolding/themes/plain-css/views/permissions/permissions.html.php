@@ -22,7 +22,7 @@
                 <tbody>
                 <?php foreach (($this->permissions ?? []) as $p): ?>
                     <tr>
-                        <td><?php echo (int)$p['id']; ?></td>
+                        <td><?php echo (int)$p['permissionid']; ?></td>
                         <td>
                             <span class="badge bg-secondary"><?php echo htmlspecialchars($p['subject_type'] ?? ''); ?></span>
                             #<?php echo htmlspecialchars((string)($p['subject_id'] ?? '')); ?>
@@ -35,8 +35,8 @@
                                 : '<span class="badge bg-danger">Deny</span>'; ?>
                         </td>
                         <td style="text-align:right">
-                            <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['id'])); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['id'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['permissionid'])); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['permissionid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

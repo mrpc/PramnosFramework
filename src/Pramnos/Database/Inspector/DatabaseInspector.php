@@ -61,6 +61,25 @@ class DatabaseInspector
      *
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Table sizes, largest first.
+     *
+     * The PostgreSQL query reads `pg_tables`, not `information_schema.tables`.
+     * It selected `schemaname` and `tablename` — which are `pg_tables`' column
+     * names — from `information_schema.tables`, which calls them `table_schema`
+     * and `table_name`. So the statement was invalid, the query failed, and this
+     * returned an empty array on **every** PostgreSQL project: the database
+     * dashboard's main table, which is the reason the page exists, had never
+     * listed anything.
+     *
+     * It failed silently because a failed query and an empty result are the same
+     * thing to the caller — `($r && $r->numRows > 0) ? … : []` — and an empty
+     * table list on a dashboard reads as a page still loading, or as a database
+     * with nothing in it.
+     *
+     * `pg_tables` also drops the `table_type = 'BASE TABLE'` filter, which was
+     * doing that job: it only lists tables.
+     */
     public function getTableSizes(): array
     {
         try {
@@ -73,9 +92,8 @@ class DatabaseInspector
                               - pg_relation_size(quote_ident(schemaname)||'.'||quote_ident(tablename)) AS index_bytes,
                             (SELECT reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                              WHERE n.nspname = schemaname AND c.relname = tablename) AS row_estimate
-                     FROM information_schema.tables
-                     WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-                       AND table_type = 'BASE TABLE'
+                     FROM pg_tables
+                     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
                      ORDER BY total_bytes DESC
                      LIMIT 30"
                 );

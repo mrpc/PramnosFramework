@@ -50,17 +50,23 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
                 <tbody>
                 <?php foreach (($this->jobs ?? []) as $job): ?>
                     <tr>
-                        <td><?php echo (int)$job['id']; ?></td>
-                        <td><?php echo htmlspecialchars($job['type'] ?? $job['classname'] ?? ''); ?></td>
+                        <td><?php echo (int)$job['taskid']; ?></td>
+                        <td><?php echo htmlspecialchars($job['type'] ?? $job['classname'] ?? ''); ?>
+                            <?php if (($job['error'] ?? '') !== ''): ?>
+                                <div style="font-size:12px;color:#b91c1c;margin-top:4px" title="<?php echo htmlspecialchars((string) $job['error']); ?>">
+                                    <?php echo htmlspecialchars(mb_strimwidth((string) $job['error'], 0, 160, '…')); ?>
+                                </div>
+                            <?php endif; ?>
+                        </td>
                         <td><?php echo $statusBadge($job['status'] ?? ''); ?></td>
                         <td><?php echo (int)($job['attempts'] ?? 0); ?></td>
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($job['createdat'] ?? ''); ?></td>
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($job['nextrun'] ?? ''); ?></td>
                         <td style="text-align:right">
                             <?php if (($job['status'] ?? '') === 'failed'): ?>
-                                <a href="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['id'])); ?>" class="btn btn-sm btn-outline-warning">Retry</a>
+                                <a href="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['taskid'])); ?>" class="btn btn-sm btn-outline-warning">Retry</a>
                             <?php endif; ?>
-                            <a href="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['id'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete job?">Delete</a>
+                            <a href="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['taskid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete job?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

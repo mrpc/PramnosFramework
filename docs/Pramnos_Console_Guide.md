@@ -416,6 +416,23 @@ get Chart.js is simply `php bin/pramnos project:install`.
 After enabling a feature, run its migrations (`php bin/pramnos migrate`) and, if it ships
 views, publish them (`php bin/pramnos project:publish-views --list` then `--group=<name>`).
 
+**Republish after 2026-08-26 if you publish the queue, permissions or organizations
+views.** Four of them indexed a key their controller never returns — `$job['id']`
+where the column is `taskid`, `$p['id']` where it is `permissionid`,
+`$this->org['id']` where it is `organization_id`. `(int)` on a missing key is `0`,
+so the pages rendered and every action link on every row addressed record zero,
+silently. The `permissions/edit` form also posted `name="id"` while `save()` reads
+`permissionid`, so editing a permission inserted a new one. All four are fixed in
+the bundled themes; a project's published copies are its own:
+
+```bash
+php bin/pramnos project:publish-views --group=queue,permissions,organizations --force
+```
+
+The empty state is what made this survive: with no rows there are no links and no
+keys to get wrong, and an empty test database renders nothing else. A view is worth
+rendering once with a row in it.
+
 #### `project:resync` — refresh framework-owned files
 
 Some scaffolded files stay the framework's: it keeps improving them, and an existing project

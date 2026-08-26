@@ -6,7 +6,7 @@
  *   $this->permission — permission row array (null when creating)
  */
 $p = $this->permission ?? [];
-$isNew = empty($p['id']);
+$isNew = empty($p['permissionid']);
 ?>
 <div class="max-w-2xl mx-auto py-6 px-4">
     <h2 class="mb-6"><?php echo $isNew ? 'New Permission' : 'Edit Permission'; ?></h2>
@@ -14,7 +14,7 @@ $isNew = empty($p['id']);
         <div class="p-5">
             <form method="post" action="<?php echo adminUrl('Permissions/save'); ?>">
                 <?php if (!$isNew): ?>
-                    <input type="hidden" name="id" value="<?php echo (int)$p['id']; ?>">
+                    <input type="hidden" name="permissionid" value="<?php echo (int)$p['permissionid']; ?>">
                 <?php endif; ?>
                 <div class="grid md:grid-cols-2 gap-4">
                     <div >

@@ -288,4 +288,69 @@ class DatabaseInspectorTest extends TestCase
         // Act + Assert
         $this->assertSame([], (new DatabaseInspector($db))->getPublicViews());
     }
+
+    /**
+     * Capture the SQL an inspector method issues.
+     *
+     * The other tests here hand back rows whatever the SQL says, which is the
+     * right shape for testing the plumbing and the reason an invalid query
+     * survived: `getTableSizes()` selected `pg_tables`' column names from
+     * `information_schema.tables`, so on PostgreSQL the statement failed, the
+     * catch swallowed it and the method returned `[]` — and these tests still
+     * passed, because the mock never ran the SQL.
+     *
+     * A failed query and an empty result are indistinguishable to the caller, so
+     * the only thing that can catch this is the statement itself.
+     */
+    private function captureSql(string $type, callable $call): string
+    {
+        $captured = '';
+        $db = $this->createMock(Database::class);
+        $db->type = $type;
+        $db->method('query')->willReturnCallback(
+            function (string $sql) use (&$captured) {
+                $captured = $sql;
+
+                return $this->makeResult(0);
+            }
+        );
+
+        $call(new DatabaseInspector($db));
+
+        return $captured;
+    }
+
+    /**
+     * The PostgreSQL table-size query reads the relation that has its columns.
+     *
+     * `schemaname` and `tablename` exist on `pg_tables`. `information_schema.tables`
+     * calls them `table_schema` and `table_name`, so selecting the first pair from
+     * the second relation is an error, not a rename.
+     */
+    public function testTheTableSizeQueryReadsPgTables(): void
+    {
+        // Act
+        $sql = $this->captureSql('postgresql', fn (DatabaseInspector $i) => $i->getTableSizes());
+
+        // Assert
+        $this->assertStringContainsString('FROM pg_tables', $sql);
+        $this->assertStringNotContainsString('information_schema.tables', $sql,
+            'schemaname/tablename do not exist on information_schema.tables');
+    }
+
+    /**
+     * And the MySQL one still reads information_schema, where its columns live.
+     *
+     * `table_name`, `data_length` and `index_length` are information_schema
+     * columns; MySQL has no `pg_tables`.
+     */
+    public function testTheMysqlTableSizeQueryStillReadsInformationSchema(): void
+    {
+        // Act
+        $sql = $this->captureSql('mysql', fn (DatabaseInspector $i) => $i->getTableSizes());
+
+        // Assert
+        $this->assertStringContainsString('information_schema.tables', $sql);
+        $this->assertStringNotContainsString('pg_tables', $sql);
+    }
 }
