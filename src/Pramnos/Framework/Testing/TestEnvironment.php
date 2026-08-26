@@ -161,7 +161,16 @@ class TestEnvironment
         // Clean existing sessions and drop DB
         $pdo->exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName'");
         $pdo->exec("DROP DATABASE IF EXISTS \"$dbName\"");
-        $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
+
+        self::retryWhileTemplateBusy(function () use ($pdo, $dbName) {
+            // template1 must be session-free for the copy, and the sessions on it
+            // are not ours to wait for — see retryWhileTemplateBusy().
+            $pdo->exec(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                . "WHERE datname = 'template1' AND pid <> pg_backend_pid()"
+            );
+            $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
+        });
 
         // Import dump via psql if provided. ON_ERROR_STOP makes psql exit non-zero
         // on the first failing statement — without it a dump can fail statement by
@@ -178,6 +187,58 @@ class TestEnvironment
             );
             self::runImport($command, 'psql');
         }
+    }
+
+    /**
+     * Run a CREATE DATABASE attempt, retrying while its template is still busy.
+     *
+     * PostgreSQL refuses to copy a template database that has any session
+     * attached to it, and on TimescaleDB something always does: the extension
+     * runs one background-worker scheduler per database, template1 included, and
+     * that worker reconnects on a schedule of its own. So the copy fails with
+     * SQLSTATE 55006 at random — the test suite could not even bootstrap, and
+     * only sometimes.
+     *
+     * Terminating template1's sessions is not a fix by itself, because the
+     * scheduler can be back before the next statement runs. The terminate and the
+     * copy have to be retried together, which is what $attempt does. Any other
+     * error is rethrown immediately; a busy template is the only thing worth
+     * waiting on.
+     *
+     * @param callable $create      Terminates the template's sessions and copies it
+     * @param int      $attempts    How many times to try before giving up
+     * @param int      $waitMicroseconds Pause between attempts
+     */
+    protected static function retryWhileTemplateBusy(
+        callable $create,
+        int $attempts = 10,
+        int $waitMicroseconds = 200000
+    ): void {
+        for ($attempt = 1;; $attempt++) {
+            try {
+                $create();
+                return;
+            } catch (PDOException $e) {
+                if ($attempt >= $attempts || !self::isTemplateBusy($e)) {
+                    throw $e;
+                }
+                if ($waitMicroseconds > 0) {
+                    usleep($waitMicroseconds);
+                }
+            }
+        }
+    }
+
+    /**
+     * Is this the "source database is being accessed by other users" error?
+     *
+     * SQLSTATE 55006 is object_in_use. PDO reports it both as the exception code
+     * and as errorInfo[0]; either is enough.
+     */
+    protected static function isTemplateBusy(PDOException $e): bool
+    {
+        return ($e->errorInfo[0] ?? null) === '55006'
+            || (string) $e->getCode() === '55006';
     }
 
     /**

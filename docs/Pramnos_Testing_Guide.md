@@ -550,6 +550,32 @@ otherwise uses a small bash implementation that mirrors the two call forms in us
 and returns `124` on a deadline, as GNU `timeout` does — the callers test for that
 code to tell a wedged daemon from a failed command.
 
+## …or that `template1` is being accessed by other users
+
+On a TimescaleDB project the bootstrap can fail before a single test runs:
+
+```
+Database setup failed: SQLSTATE[55006]: Object in use: 7 ERROR:  source database
+"template1" is being accessed by other users
+DETAIL:  There is 1 other session using the database.
+```
+
+`TestEnvironment` builds the PostgreSQL test database as a copy of `template1`,
+because that is where the image installs the `timescaledb` extension — copy
+`template0` instead and the test database has no extension. PostgreSQL refuses to
+copy a template while any session is attached to it, and on TimescaleDB one
+regularly is: the extension runs a background-worker scheduler per database,
+`template1` included, and that worker reconnects on a schedule of its own. So the
+copy failed at random, on a database nothing in the project ever touches.
+
+Terminating `template1`'s sessions is not a fix on its own — the scheduler can be
+back before the next statement runs. `TestEnvironment` now retries the terminate
+and the copy together (ten attempts, 200 ms apart) and rethrows anything that is
+not SQLSTATE 55006 immediately, so a wrong password still fails on the first try
+instead of two seconds later.
+
+Nothing to change in a project: the retry lives in `TestEnvironment::setupPostgres()`.
+
 ## The JavaScript the framework ships
 
 One browser asset — `src/Pramnos/Debug/assets/debugbar.js`, around 3700 lines, served on every
