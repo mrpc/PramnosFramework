@@ -4867,9 +4867,14 @@ PHP;
 #!/usr/bin/env bash
 
 # Prevent concurrent test runs against the shared Docker databases.
-# flock on a file descriptor is released automatically when the process
-# exits (even SIGKILL). If the recorded PID is gone, the lock is stale
-# and is cleared so the new run can proceed without manual intervention.
+#
+# The lock is a directory, not flock: `mkdir` is atomic on Linux, macOS and WSL
+# alike, while flock is Linux-only. On macOS it is simply absent, and
+# `flock: command not found` made every single run report that another run was
+# already in progress — the suite could not be run at all.
+#
+# A PID file inside the lock directory lets a later run recognise a stale lock
+# left behind by a process that was hard-killed before its EXIT trap ran.
 
 nobrowser=false
 coverage=false
@@ -4897,36 +4902,45 @@ for arg in "\$@"; do
     fi
 done
 
-LOCK_FILE="/tmp/dockertest-{$nsLower}.lock"
+LOCK_DIR="/tmp/dockertest-{$nsLower}.lock.d"
+LOCK_PID_FILE="\$LOCK_DIR/pid"
+
+_lock_pid()     { cat "\$LOCK_PID_FILE" 2>/dev/null; }
+_release_lock() { rm -rf "\$LOCK_DIR"; }
+_acquire_lock() {
+    if mkdir "\$LOCK_DIR" 2>/dev/null; then
+        echo \$\$ >"\$LOCK_PID_FILE"
+        return 0
+    fi
+    return 1
+}
 
 if [[ "\$force" == true ]]; then
-    existing_pid=\$(cat "\$LOCK_FILE" 2>/dev/null)
+    existing_pid=\$(_lock_pid)
     if [[ -n "\$existing_pid" ]] && kill -0 "\$existing_pid" 2>/dev/null; then
         echo "Killing existing dockertest process (PID: \$existing_pid) due to --force..." >&2
         kill -9 "\$existing_pid" 2>/dev/null
     fi
-    rm -f "\$LOCK_FILE"
+    _release_lock
 fi
 
-_acquire_lock() {
-    exec 9>>"\$LOCK_FILE"
-    flock -n 9
-}
-
 if ! _acquire_lock; then
-    existing_pid=\$(cat "\$LOCK_FILE" 2>/dev/null)
-    if [[ -n "\$existing_pid" ]] && ! kill -0 "\$existing_pid" 2>/dev/null; then
-        echo "Stale lock detected (PID \$existing_pid is gone). Clearing and proceeding." >&2
-        rm -f "\$LOCK_FILE"
+    existing_pid=\$(_lock_pid)
+    if [[ -z "\$existing_pid" ]] || ! kill -0 "\$existing_pid" 2>/dev/null; then
+        echo "Stale lock detected (PID \${existing_pid:-unknown} is gone). Clearing and proceeding." >&2
+        _release_lock
         _acquire_lock || { echo "Could not acquire lock after clearing stale entry." >&2; exit 1; }
     else
-        echo "Another ./dockertest run is already in progress (PID: \${existing_pid:-unknown})." >&2
-        [[ -n "\$existing_pid" ]] && echo "  To kill it:  kill \$existing_pid  or run with --force" >&2
+        echo "Another ./dockertest run is already in progress (PID: \${existing_pid})." >&2
+        echo "  To kill it:  kill \$existing_pid  or run with --force" >&2
         exit 1
     fi
 fi
-> "\$LOCK_FILE"
-echo \$\$ >"\$LOCK_FILE"
+
+# flock released itself when the process exited; a directory does not, so the
+# release is explicit. Every early exit below goes through _release_lock, and
+# this catches the rest.
+trap '_release_lock' EXIT
 
 # Docker can hang indefinitely when the daemon is wedged (a common WSL / Docker
 # Desktop failure mode). Bound every Docker control call below so a stuck daemon
@@ -4939,7 +4953,7 @@ _die_docker_wedged() {
     echo "ERROR: Docker did not respond within \${DOCKER_CTL_TIMEOUT}s while running: \$1" >&2
     echo "The Docker daemon appears to be wedged (common on WSL / Docker Desktop)." >&2
     echo "Try restarting Docker Desktop, or run 'wsl.exe --shutdown' from PowerShell, then retry." >&2
-    rm -f "\$LOCK_FILE"
+    _release_lock
     exit 1
 }
 
@@ -4948,7 +4962,7 @@ if ! timeout 15 docker version >/dev/null 2>&1; then
     echo "" >&2
     echo "ERROR: Docker is not responding (timed out after 15s, or the daemon is not running)." >&2
     echo "Start Docker Desktop / the daemon (on WSL you may need 'wsl.exe --shutdown' then reopen) and retry." >&2
-    rm -f "\$LOCK_FILE"
+    _release_lock
     exit 1
 fi
 
@@ -4962,7 +4976,7 @@ if ! grep -q "app.*Up" <<<"\$ps_out"; then
         rc=\$?
         [[ \$rc -eq 124 ]] && _die_docker_wedged "docker-compose up -d"
         echo "ERROR: 'docker-compose up -d' failed (exit \$rc)." >&2
-        rm -f "\$LOCK_FILE"
+        _release_lock
         exit 1
     fi
     sleep 5

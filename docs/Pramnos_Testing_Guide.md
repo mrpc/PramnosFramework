@@ -506,6 +506,35 @@ is a third extension of the same shape, not a `setUp()` in the test that noticed
 Existing projects that predate this: see
 [the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
 
+## `./dockertest` says a run is already in progress
+
+Two runs against the same Docker databases corrupt each other, so `dockertest`
+holds a lock. It is a **directory**:
+
+```bash
+/tmp/dockertest-<namespace>.lock.d/pid
+```
+
+`mkdir` is atomic on Linux, macOS and WSL alike, and succeeds only when the
+directory does not already exist. The lock used to be `flock` on a file
+descriptor — which is Linux-only. On macOS `flock` is simply absent, so
+`flock: command not found` made the acquire fail and **every** run reported that
+another was already in progress. There was no other run.
+
+If you see that message and believe it is wrong:
+
+```bash
+./dockertest --force          # kills the recorded process, if any, and takes the lock
+```
+
+A run killed hard leaves the directory behind, and the next run notices: it reads
+the PID file, finds the process gone, says "stale lock detected" and proceeds. You
+should not need to remove anything by hand — if you do, `rm -rf` the path above.
+
+A project scaffolded before this change still has the flock version in its own
+`dockertest`; version control does not update it for you. Copy the lock block from
+a freshly scaffolded project, or replace the file.
+
 ## The JavaScript the framework ships
 
 One browser asset — `src/Pramnos/Debug/assets/debugbar.js`, around 3700 lines, served on every
