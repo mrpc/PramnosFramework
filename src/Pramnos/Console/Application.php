@@ -151,6 +151,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\DbFresh());
         // User administration + key management
         $this->add(new \Pramnos\Console\Commands\UserCreate());
+        $this->add(new \Pramnos\Console\Commands\UserPassword());
         $this->add(new \Pramnos\Console\Commands\KeyGenerate());
         // Scaffolding utilities
         $this->add(new \Pramnos\Console\Commands\ScaffoldViews());

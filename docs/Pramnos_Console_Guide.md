@@ -32,7 +32,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `cache:` | Cache management | `cache:clear` |
 | `route:` | Routing introspection | `route:list` |
 | `queue:` | Background job queue | `queue:process`, `queue:failed`, `queue:retry` |
-| `user:` | User administration | `user:create` |
+| `user:` | User administration | `user:create`, `user:password` |
 | `key:` | Secret/key management | `key:generate` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
@@ -513,6 +513,10 @@ php bin/pramnos db:fresh --force --seed
 php bin/pramnos user:create --username=admin --email=admin@example.com --admin
 php bin/pramnos user:create --username=editor --email=editor@example.com --usertype=50
 
+# Set a password without an email round trip
+php bin/pramnos user:password alice                 # prompts, hidden, twice
+php bin/pramnos user:password alice --generate       # generates one and prints it
+
 # Generate or rotate the application key in .env
 php bin/pramnos key:generate          # refuses to clobber an existing key
 php bin/pramnos key:generate --show   # print without writing
@@ -521,6 +525,51 @@ php bin/pramnos key:generate --force  # rotate (invalidates encrypted data/sessi
 # Interactive REPL with the framework bootstrapped (PsySH if installed)
 php bin/pramnos tinker
 ```
+
+### `user:password` — setting a password without email
+
+```bash
+php bin/pramnos user:password alice                      # prompts, hidden, twice
+php bin/pramnos user:password alice@example.com --generate
+php bin/pramnos user:password 42 --by=userid --password='…'
+php bin/pramnos user:password alice --generate --revoke-sessions
+```
+
+The argument is a **username, an email address or a numeric user id**, tried in that
+order — you know which one you have, and the command can work it out. `--by=username`,
+`--by=email` or `--by=userid` restricts it, which is the answer to the only real
+ambiguity: a numeric username.
+
+#### It is four writes, not one
+
+That is the reason to use it rather than a `UPDATE` by hand. Three of the four are the
+ones that get forgotten:
+
+| | |
+|---|---|
+| the password hash | through the `User` model, so it is salted with `md5(securitySalt . userid)` — a raw `password_hash()` writes a hash login can never match |
+| pending reset tokens | **cleared.** Otherwise a link mailed out ten minutes ago still works and the account has two valid passwords, one of them held by whoever got the mail |
+| a brute-force lockout | **lifted.** A locked-out account refuses the *correct* password with the same message as a wrong one, which is indistinguishable from "the reset did not work" — and is the first thing reported back |
+| the activity log | a password set from a shell leaves no other trace, which is the whole argument for an audit log |
+
+#### Sessions are left signed in
+
+`--revoke-sessions` marks the user's live tokens revoked, and it is **not** the default.
+The ordinary reason to run this command is that somebody cannot get in; signing them out
+of every other device turns one problem into several. Pass it when the reason is a
+suspected compromise, where the opposite is true.
+
+#### The policy applies
+
+The same rules the self-service form enforces — eight characters, a digit, a symbol —
+because a password set here signs in through the same door. `--generate` produces one that
+passes without anybody having to think about it, and prints it, since it is otherwise
+unrecoverable.
+
+`--force` accepts a password the policy would refuse, says so in the output, and records
+the waiver in the audit entry — but **only when something was actually waived.** Forcing a
+password that would have passed anyway waives nothing, and an audit entry claiming
+otherwise is a false record of a security decision.
 
 ### Webhook delivery
 
