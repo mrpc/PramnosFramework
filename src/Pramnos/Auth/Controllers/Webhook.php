@@ -70,6 +70,7 @@ class Webhook extends Controller
         'device_deauthorized',
         'account_deleted',
         'scope_changed',
+        'permissions_changed',
     ];
 
     public function __construct(?\Pramnos\Application\Application $application = null)
@@ -222,11 +223,11 @@ class Webhook extends Controller
             return Response::json(['error' => 'not_found'], 404);
         }
 
-        // userId 0: the event is about the endpoint, not about a person, and the
-        // parameter is a required int rather than a nullable one.
+        // No user: this event is about the endpoint, not about a person. NULL is
+        // what the column holds for that — 0 would violate its foreign key.
         $this->service()->queueEvent(
             (string) $endpoint['webhook_type'],
-            0,
+            null,
             ['test' => true, 'queued_at' => date('c')]
         );
 

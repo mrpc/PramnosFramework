@@ -47,12 +47,22 @@ class WebhookService
      * create_webhook_event() does the same thing inside transactions/triggers.
      * Calling this method from PHP is safe on both engines.
      *
+     * `$userId` is nullable, because the column is: `oauth2_webhook_events.user_id`
+     * is `REFERENCES users(userid) ON DELETE SET NULL`, so NULL is a value the
+     * schema was built to hold. It was declared `int` here, which left no way to
+     * queue an event that is not about a particular person — a test ping, or
+     * anything describing the application rather than a user. Passing 0 instead
+     * violates the foreign key, so the only options were a real user or nothing.
+     *
+     * Widening the parameter is additive: every caller passing an int still
+     * type-checks.
+     *
      * Returns the number of event rows inserted (one per matching endpoint).
      */
     public function queueEvent(
-        string $eventType,
-        int    $userId,
-        array  $payload,
+        string  $eventType,
+        ?int    $userId,
+        array   $payload,
         ?string $deviceCode = null,
         ?int    $tokenId    = null
     ): int {

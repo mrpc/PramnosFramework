@@ -21,7 +21,7 @@ class SpyWebhookService extends WebhookService
 
     public function __construct() { /* skip parent (no DB needed) */ }
 
-    public function queueEvent(string $eventType, int $userId, array $payload, ?string $deviceCode = null, ?int $tokenId = null): int
+    public function queueEvent(string $eventType, ?int $userId, array $payload, ?string $deviceCode = null, ?int $tokenId = null): int
     {
         $this->calls[] = ['event' => $eventType, 'user' => $userId, 'payload' => $payload];
         if ($this->throw) {

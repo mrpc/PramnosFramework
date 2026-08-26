@@ -226,11 +226,20 @@ class Oauth extends Controller
             return \Pramnos\Http\Response::json(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
-        // RFC 7009: revocation always returns 200 (even for unknown tokens)
-        $db = \Pramnos\Framework\Factory::getDatabase();
-        $db->queryBuilder()
+        // RFC 7009: revocation always answers 200, even for a token that does not
+        // exist, so that the endpoint cannot be used to find out which do.
+        //
+        // The value is resolved the same way introspection resolves it: a token
+        // issued through the League server is a JWT, and what is stored is its
+        // `jti`. Matching literally revoked nothing at all for those — and unlike
+        // introspection, which at least answered `active: false`, this failure was
+        // completely silent, because the endpoint answers 200 either way. A caller
+        // revoking on sign-out had no way to discover it had not worked.
+        $stored = $this->resolveStoredTokenValue($token);
+
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
             ->table('usertokens')
-            ->where('token', $token)
+            ->where('token', $stored)
             ->where('status', 1)
             ->update(['status' => 0]);
 
@@ -262,20 +271,13 @@ class Oauth extends Controller
             return \Pramnos\Http\Response::json(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $result = $db->queryBuilder()
-            ->table('usertokens ut')
-            ->join('users u', 'ut.userid = u.userid')
-            ->join('applications a', 'ut.applicationid = a.appid')
-            ->select('ut.*, u.username, u.email, a.apikey AS client_id')
-            ->where('ut.token', $token)
-            ->first();
+        $result = $this->findIntrospectableToken($token);
 
-        if (!$result || $result->numRows == 0) {
+        if ($result === null) {
             return \Pramnos\Http\Response::json(['active' => false]);
         }
 
-        $row     = (array) $result->fields;
+        $row      = $result;
         $isActive = (int) $row['status'] === 1
                  && ((int) $row['expires'] === 0 || (int) $row['expires'] > time());
 
@@ -293,6 +295,116 @@ class Oauth extends Controller
             'iat'        => (int) ($row['created'] ?? 0),
             'sub'        => (string) ($row['userid'] ?? ''),
         ])->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
+     * The value a presented token is stored under.
+     *
+     * The token itself when it is stored verbatim; its `jti` when it is a JWT
+     * issued through the League server. Returns the original when neither
+     * matches, so the caller's query behaves as it did before.
+     */
+    protected function resolveStoredTokenValue(string $token): string
+    {
+        if ($this->selectTokenRow($token) !== null) {
+            return $token;
+        }
+
+        $jti = $this->extractJwtId($token);
+
+        return ($jti !== null && $this->selectTokenRow($jti) !== null) ? $jti : $token;
+    }
+
+    /**
+     * Find the stored row for a token presented to `introspect` or `revoke`.
+     *
+     * ## Why this is not one `WHERE token = ?`
+     *
+     * A token issued through the League server is a **JWT**, and what is stored in
+     * `usertokens.token` is its `jti` — the opaque identifier League generates,
+     * which is what `persistNewAccessToken()` receives. Looking the JWT up
+     * literally therefore never matched anything, and introspection answered
+     * `{"active": false}` for every access token this server had ever issued. For
+     * a resource server that trusts introspection, that is every request refused.
+     *
+     * Two lookups, in this order:
+     *
+     *  1. **The literal value.** Tokens this framework stores verbatim — web
+     *     session tokens, API tokens, the ones the JWT-assertion path writes —
+     *     match here, and looking first keeps them working exactly as before.
+     *  2. **The `jti` inside it**, when the value parses as a JWT.
+     *
+     * The signature is not verified, and that is deliberate: the stored row is the
+     * authority on whether a token is active, and a `jti` is only useful to
+     * somebody who already holds the token it came from. Requiring verification
+     * would also make every token issued before a key rotation introspect as dead
+     * while it was still perfectly valid.
+     *
+     * @return array<string, mixed>|null The row, or null when nothing matches
+     */
+    protected function findIntrospectableToken(string $token): ?array
+    {
+        $row = $this->selectTokenRow($token);
+
+        if ($row === null) {
+            $jti = $this->extractJwtId($token);
+            if ($jti !== null && $jti !== $token) {
+                $row = $this->selectTokenRow($jti);
+            }
+        }
+
+        return $row;
+    }
+
+    /**
+     * One `usertokens` row by its stored value, joined for the introspection body.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function selectTokenRow(string $stored): ?array
+    {
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('usertokens ut')
+            ->join('users u', 'ut.userid = u.userid')
+            ->join('applications a', 'ut.applicationid = a.appid')
+            ->select('ut.*, u.username, u.email, a.apikey AS client_id')
+            ->where('ut.token', $stored)
+            ->first();
+
+        if (!$result || $result->numRows == 0) {
+            return null;
+        }
+
+        return (array) $result->fields;
+    }
+
+    /**
+     * The `jti` claim of a JWT, or null when the value is not one.
+     *
+     * Decode only. The claim is used as a database key and nothing is trusted
+     * because it was in there — see {@see findIntrospectableToken()} for why the
+     * signature is deliberately not checked here.
+     */
+    protected function extractJwtId(string $token): ?string
+    {
+        $parts = explode('.', $token);
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        $payload = base64_decode(strtr($parts[1], '-_', '+/'), false);
+        if ($payload === false) {
+            return null;
+        }
+
+        $claims = json_decode($payload, true);
+        if (!is_array($claims)) {
+            return null;
+        }
+
+        $jti = $claims['jti'] ?? null;
+
+        return is_string($jti) && $jti !== '' ? $jti : null;
     }
 
     // ── UserInfo ──────────────────────────────────────────────────────────────
@@ -1009,29 +1121,22 @@ class Oauth extends Controller
             ], 401);
         }
 
-        // systemuser is already populated by loadByApiKey() — no extra SELECT needed.
-        // This is the key fix for UW-461: reuse the existing system user instead of
-        // creating a new one on every repeated token request.
-        $systemUserId = $app->systemuser ? (int) $app->systemuser : null;
+        // `systemuser` is already populated by loadByApiKey(), so an application
+        // that has one gets it back without a second SELECT — that reuse is what
+        // stopped a new sys_* account being created on every repeated token
+        // request (UW-461).
+        //
+        // The creation itself used to be thirty lines inline here, which is why
+        // the secret-authenticated client_credentials grant — which does not come
+        // through this method — had no system user at all and could not store a
+        // token. One implementation now serves both.
+        $systemUserId = $app->systemUserId();
 
-        // Create a system user only when this application has none yet
-        if (!$systemUserId) {
-            $user             = new \Pramnos\User\User();
-            $user->usertype   = 1; // system user
-            $user->username   = 'sys_' . bin2hex(random_bytes(8));
-            $user->email      = $user->username . '@system.local';
-            $user->active     = 1;
-            $user->validated  = 1;
-            $user->regdate    = time();
-            $user->save();
-            $systemUserId = (int) $user->userid;
-
-            if (!$app->assignSystemUser($systemUserId)) {
-                return \Pramnos\Http\Response::json([
-                    'error'             => 'server_error',
-                    'error_description' => 'Failed to assign system user to application',
-                ], 500);
-            }
+        if ($systemUserId <= 0) {
+            return \Pramnos\Http\Response::json([
+                'error'             => 'server_error',
+                'error_description' => 'Failed to assign system user to application',
+            ], 500);
         }
 
         // Issue a signed JWT access token

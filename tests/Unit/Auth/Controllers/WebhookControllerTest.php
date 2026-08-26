@@ -344,7 +344,7 @@ class StubbedWebhook extends Webhook
 
             public function queueEvent(
                 string $eventType,
-                int $userId,
+                ?int $userId,
                 array $payload,
                 ?string $deviceCode = null,
                 ?int $tokenId = null

@@ -52,22 +52,41 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
      *
      * Resolves the applicationid from the client entity's identifier so that
      * the token is linked to the correct OAuth2 application record.
+     *
+     * ## The owning user
+     *
+     * `usertokens.userid` is a foreign key to `users`, and a client-credentials
+     * token has no end user: League leaves `userIdentifier` null, `(int) null` is
+     * 0, and 0 is not a row in `users`. The insert failed and the grant answered
+     * `server_error` — the ordinary, secret-authenticated `client_credentials`
+     * grant did not work at all.
+     *
+     * The application's system account owns it instead. That is the same account
+     * the JWT-assertion path has always created for itself; it now comes from one
+     * place, so both paths behave the same and `introspect`, `revoke` and the audit
+     * trail have a real subject to point at.
      */
     public function persistNewAccessToken(AccessTokenEntityInterface $accessTokenEntity): void
     {
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
 
-        $appId  = $this->resolveAppId($accessTokenEntity->getClient()->getIdentifier());
-        $scopes = $this->scopeString($accessTokenEntity->getScopes());
+        $clientId = $accessTokenEntity->getClient()->getIdentifier();
+        $appId    = $this->resolveAppId($clientId);
+        $scopes   = $this->scopeString($accessTokenEntity->getScopes());
         $expires = $accessTokenEntity->getExpiryDateTime()
             ? $accessTokenEntity->getExpiryDateTime()->getTimestamp()
             : 0;
 
+        $userId = (int) $accessTokenEntity->getUserIdentifier();
+        if ($userId <= 0) {
+            $userId = $this->resolveSystemUserId((string) $clientId);
+        }
+
         $db->queryBuilder()
             ->table('usertokens')
             ->insert([
-                'userid'        => (int) $accessTokenEntity->getUserIdentifier(),
+                'userid'        => $userId,
                 'tokentype'     => 'access_token',
                 'token'         => $accessTokenEntity->getIdentifier(),
                 'created'       => $now,
@@ -123,6 +142,45 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
             ->where('apikey', (string)$clientIdentifier)
             ->first();
         return ($result && $result->numRows > 0) ? (int)$result->fields['appid'] : 0;
+    }
+
+    /**
+     * The system account that owns a client-credentials token for this client.
+     *
+     * Created on first use and reused afterwards, so a client hammering the token
+     * endpoint does not accumulate an account per request.
+     *
+     * Returns 0 when the client cannot be resolved — the insert then fails as it
+     * did before, which is the honest outcome: a token for an application that
+     * does not exist should not be stored under a user invented for it.
+     */
+    protected function resolveSystemUserId(string $clientIdentifier): int
+    {
+        if ($clientIdentifier === '') {
+            return 0;
+        }
+
+        try {
+            $application = new \Pramnos\Auth\Application(
+                new \Pramnos\Application\Controller()
+            );
+
+            // loadByApiKey returns the hydrated model or false, so the result is
+            // what to work with rather than the object it was called on.
+            $loaded = $application->loadByApiKey($clientIdentifier);
+            if ($loaded === false) {
+                return 0;
+            }
+
+            return $loaded->systemUserId();
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'Could not resolve a system user for client ' . $clientIdentifier
+                . ': ' . $exception->getMessage()
+            );
+
+            return 0;
+        }
     }
 
     /** @param \League\OAuth2\Server\Entities\ScopeEntityInterface[] $scopes */

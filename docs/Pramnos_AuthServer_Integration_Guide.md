@@ -96,6 +96,27 @@ ticket. Every list in it is read from whatever actually decides it, so it cannot
 drift out of agreement with the server the way a hand-written integration note
 does.
 
+### Client credentials, and the account behind the token
+
+A `client_credentials` token has no end user — it represents your application. The
+server still needs an account to hang it on, because `usertokens.userid` is a
+foreign key, so each application gets one **system account**, created on first use
+and reused afterwards.
+
+You never see it directly, but it explains two things you will see:
+
+```
+POST /oauth/introspect → { "active": true, "sub": "4", "username": "sys_3a5c9a25…" }
+```
+
+`sub` is that account, not a person, and `username` is a generated `sys_*` name.
+It is `usertype` 1 — below every administrative threshold — so a token issued to an
+application can never be mistaken for one issued to an operator.
+
+If you need a token that acts *as* a particular person without that person signing
+in, that is the JWT bearer grant (RFC 7523 §2.1) rather than this one — it must be
+enabled per client, because its holder can obtain a token for any user.
+
 ### Signing out
 
 Two endpoints, because there are two situations.

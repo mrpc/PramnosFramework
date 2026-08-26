@@ -74,7 +74,7 @@ class Application extends \Pramnos\Application\Model
     /** @var string|null URL to JWKS endpoint for dynamic public-key rotation */
     public ?string $jwks_uri = null;
 
-    /** @var int|null FK to users.userid — dedicated system account for client_credentials JWT grant */
+    /** @var int|null FK to users.userid — dedicated system account for client-credentials tokens */
     public ?int $systemuser = null;
 
     protected $_primaryKey = 'appid';
@@ -189,6 +189,91 @@ class Application extends \Pramnos\Application\Model
         $this->systemuser = $userId;
 
         return true;
+    }
+
+    /**
+     * The user a client-credentials token for this application belongs to.
+     *
+     * ## Why an application needs a user at all
+     *
+     * `usertokens.userid` is a foreign key to `users`, and a client-credentials
+     * token has no end user — the token represents the application. Something has
+     * to own the row. The answer is a dedicated account per application, created
+     * once and reused: `usertokens` stays referentially intact, and `introspect`,
+     * `revoke` and the audit trail keep working on the issued token because there
+     * is a real subject behind it.
+     *
+     * This used to exist only inside the JWT-client-assertion branch of the token
+     * endpoint, written inline. The consequence was that the **secret-based**
+     * `client_credentials` grant — the ordinary one — wrote `userid = 0`, violated
+     * the key, and answered `server_error`. It was not a subtle failure: that grant
+     * did not work at all, and the one path that did work was the one that happened
+     * to carry this thirty-line block with it.
+     *
+     * Idempotent: an application that already has one gets it back without a write.
+     *
+     * @return int The system account's userid, or 0 when one could not be made
+     */
+    public function systemUserId(): int
+    {
+        // `> 1`, not `> 0`: 0 and 1 are the framework's guest and system rows, and
+        // a column left holding either is not this application's own account. A
+        // token attributed to one would sit under an identity shared with every
+        // other application that had the same gap.
+        if ($this->systemuser !== null && (int) $this->systemuser > 1) {
+            return (int) $this->systemuser;
+        }
+
+        if ($this->appid === 0) {
+            return 0;
+        }
+
+        try {
+            $userId = $this->createSystemUserRow();
+
+            // 0 and 1 are the framework's guest and system rows. Attributing an
+            // application's tokens to either would put them under a shared
+            // identity.
+            if ($userId <= 1) {
+                return 0;
+            }
+
+            $this->assignSystemUser($userId);
+
+            return $userId;
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'Could not create a system user for application ' . $this->appid
+                . ': ' . $exception->getMessage()
+            );
+
+            return 0;
+        }
+    }
+
+    /**
+     * Create the machine account and return its id.
+     *
+     * A seam: making a user row is the one thing here that needs a database, and
+     * the branching around it is what is worth testing.
+     *
+     * `usertype` 1 marks it as a machine account — below every administrative
+     * threshold in the framework, so a token issued to an application can never be
+     * mistaken for one issued to an operator.
+     */
+    protected function createSystemUserRow(): int
+    {
+        $user = new \Pramnos\User\User();
+
+        $user->usertype  = 1;
+        $user->username  = 'sys_' . bin2hex(random_bytes(8));
+        $user->email     = $user->username . '@system.local';
+        $user->active    = 1;
+        $user->validated = 1;
+        $user->regdate   = time();
+        $user->save();
+
+        return (int) $user->userid;
     }
 
     // --- OAuth2 client interface helpers ------------------------------------
