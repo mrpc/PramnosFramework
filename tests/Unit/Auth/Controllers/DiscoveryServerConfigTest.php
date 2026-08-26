@@ -47,7 +47,14 @@ class DiscoveryServerConfigTest extends TestCase
     }
 
     /**
-     * Captures the JSON a discovery action echoes.
+     * Reads the JSON a discovery action answers with.
+     *
+     * These actions used to `echo` the body, so this captured the output stream.
+     * They no longer do: an echo leaves the framework free to render the page it
+     * was going to render anyway, which is how every one of these endpoints came
+     * to answer with valid JSON followed by a full HTML document. The response is
+     * the `raw` document now, so that is where the body is read from — and
+     * nothing may be echoed at all.
      *
      * @param  string $action Method name on the controller
      * @return array<string, mixed> The decoded document
@@ -56,12 +63,16 @@ class DiscoveryServerConfigTest extends TestCase
     {
         $controller = new Discovery(null);
 
+        \Pramnos\Document\Document::reset();
         ob_start();
         $controller->{$action}();
-        $output = (string) ob_get_clean();
+        $echoed = (string) ob_get_clean();
+        $this->assertSame('', $echoed, $action . '() must not echo its body');
+
+        $output = (string) \Pramnos\Framework\Factory::getDocument('raw')->render();
 
         $decoded = json_decode($output, true);
-        $this->assertIsArray($decoded, $action . '() must emit a JSON object');
+        $this->assertIsArray($decoded, $action . '() must answer with a JSON object');
 
         return $decoded;
     }
@@ -163,12 +174,18 @@ class DiscoveryServerConfigTest extends TestCase
         $controller                = new Discovery(null);
 
         // Act
+        \Pramnos\Document\Document::reset();
         ob_start();
         $controller->serverConfig();
-        $output = (string) ob_get_clean();
+        $echoed = (string) ob_get_clean();
 
-        // Assert
-        $this->assertSame('', $output);
+        // Assert — nothing echoed, and the document it hands back is empty too,
+        // so a 204 stays a 204 instead of carrying a rendered page.
+        $this->assertSame('', $echoed);
+        $this->assertSame(
+            '',
+            (string) \Pramnos\Framework\Factory::getDocument('raw')->render()
+        );
     }
 
     /**

@@ -65,9 +65,7 @@ class DiscoveryTest extends TestCase
 
     public function testConfigurationReturnsJson(): void
     {
-        ob_start();
-        $this->controller->configuration();
-        $output = ob_get_clean();
+        $output = $this->responseBody(fn () => $this->controller->configuration());
 
         $json = json_decode($output, true);
         $this->assertIsArray($json);
@@ -82,9 +80,7 @@ class DiscoveryTest extends TestCase
             unlink($this->publicKeyPath);
         }
 
-        ob_start();
-        $this->controller->jwks();
-        $output = ob_get_clean();
+        $output = $this->responseBody(fn () => $this->controller->jwks());
 
         $json = json_decode($output, true);
         $this->assertIsArray($json);
@@ -102,9 +98,7 @@ class DiscoveryTest extends TestCase
         $details = openssl_pkey_get_details($res);
         file_put_contents($this->publicKeyPath, $details['key']);
 
-        ob_start();
-        $this->controller->jwks();
-        $output = ob_get_clean();
+        $output = $this->responseBody(fn () => $this->controller->jwks());
 
         $json = json_decode($output, true);
         $this->assertIsArray($json);
@@ -117,9 +111,7 @@ class DiscoveryTest extends TestCase
 
     public function testOauth2MetadataReturnsJson(): void
     {
-        ob_start();
-        $this->controller->oauth2Metadata();
-        $output = ob_get_clean();
+        $output = $this->responseBody(fn () => $this->controller->oauth2Metadata());
 
         $json = json_decode($output, true);
         $this->assertIsArray($json);
@@ -135,9 +127,7 @@ class DiscoveryTest extends TestCase
             session_start();
         }
 
-        ob_start();
-        $this->controller->health();
-        $output = ob_get_clean();
+        $output = $this->responseBody(fn () => $this->controller->health());
 
         $json = json_decode($output, true);
         $this->assertIsArray($json);
@@ -152,14 +142,35 @@ class DiscoveryTest extends TestCase
             session_write_close();
         }
 
-        ob_start();
-        $this->controller->health();
-        $output = ob_get_clean();
+        $output = $this->responseBody(fn () => $this->controller->health());
 
         $json = json_decode($output, true);
         $this->assertIsArray($json);
         $this->assertEquals('healthy', $json['status']);
         $this->assertEquals('ok', $json['components']['database']);
         $this->assertEquals('inactive', $json['components']['session']);
+    }
+
+    /**
+     * The JSON body one of these actions produced.
+     *
+     * They used to `echo` it, so a test captured the output stream. They no
+     * longer do — an echo leaves the framework free to render the page it was
+     * going to render anyway, which is how every one of these endpoints came to
+     * answer with valid JSON followed by a full HTML document. The response is
+     * now the `raw` document, so that is where the body is read from.
+     */
+    private function responseBody(callable $action): string
+    {
+        \Pramnos\Document\Document::reset();
+        ob_start();
+        $action();
+        $echoed = (string) ob_get_clean();
+
+        // Nothing should be echoed any more; if something is, say so here rather
+        // than in whichever assertion happens to fail next.
+        $this->assertSame('', $echoed, 'a discovery endpoint must not echo its body');
+
+        return (string) \Pramnos\Framework\Factory::getDocument('raw')->render();
     }
 }

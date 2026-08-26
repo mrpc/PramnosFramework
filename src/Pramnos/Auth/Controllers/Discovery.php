@@ -82,8 +82,22 @@ class Discovery extends Controller
             'ui_locales_supported'                      => ['en', 'el'],
         ];
 
-        echo json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        return;
+        /**
+         * The response is the document, not an echo.
+         *
+         * `echo` writes to the output stream and then returns, at which point the
+         * framework renders the page it was going to render anyway — so every one
+         * of these endpoints answered with valid JSON followed by a full HTML
+         * document. `/.well-known/openid-configuration` was 173 KB and would not
+         * parse. Nothing caught it because the JSON is *first*: it looks perfect
+         * in a terminal, in a browser's raw view, in any tail of a log.
+         *
+         * Switching the document to `raw` makes it the one the framework renders,
+         * so the body is exactly this and nothing follows it.
+         */
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+            (string) json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 
     /**
@@ -104,7 +118,10 @@ class Discovery extends Controller
         $publicKeyPath = ROOT . '/app/keys/public.key';
 
         if (!file_exists($publicKeyPath)) {
-            echo json_encode(['keys' => []], JSON_PRETTY_PRINT);
+            \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+                (string) json_encode(['keys' => []], JSON_PRETTY_PRINT)
+            );
+
             return;
         }
 
@@ -141,8 +158,9 @@ class Discovery extends Controller
             $jwks = ['keys' => []];
         }
 
-        echo json_encode($jwks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        return;
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+            (string) json_encode($jwks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 
     /**
@@ -175,8 +193,9 @@ class Discovery extends Controller
             'introspection_endpoint'                => sURL . 'oauth/introspect',
         ];
 
-        echo json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        return;
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+            (string) json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 
     /**
@@ -237,8 +256,9 @@ class Discovery extends Controller
             http_response_code(503);
         }
 
-        echo json_encode($health, JSON_PRETTY_PRINT);
-        return;
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+            (string) json_encode($health, JSON_PRETTY_PRINT)
+        );
     }
 
     /**
@@ -301,6 +321,10 @@ class Discovery extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
             header('Access-Control-Max-Age: 86400');
             http_response_code(204);
+            // A 204 has no body, and without switching the document the framework
+            // would render a whole HTML page into one.
+            \Pramnos\Framework\Factory::getDocument('raw')->setContent('');
+
             return;
         }
 
@@ -357,7 +381,8 @@ class Discovery extends Controller
             ],
         ];
 
-        echo json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        return;
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+            (string) json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 }
