@@ -206,7 +206,13 @@ class ServicesControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
-            $this->controller->stop('test-worker-id');
+            // The action reads its target from the URL segment, the way the
+            // dispatcher supplies it. Passing it as an argument is not something
+            // routing can do — which is how the scalar-typed signature these
+            // actions used to have survived: every test called them in a way no
+            // request ever does, so the TypeError never fired here.
+            $_GET['_option'] = 'test-worker-id';
+            $this->controller->stop();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
@@ -226,7 +232,8 @@ class ServicesControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
-            $this->controller->stop('non-existent');
+            $_GET['_option'] = 'non-existent';
+            $this->controller->stop();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
@@ -246,7 +253,8 @@ class ServicesControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
-            $this->controller->start('test-worker-id');
+            $_GET['_option'] = 'test-worker-id';
+            $this->controller->start();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
@@ -267,7 +275,8 @@ class ServicesControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
-            $this->controller->restart('test-worker-id');
+            $_GET['_option'] = 'test-worker-id';
+            $this->controller->restart();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
@@ -290,7 +299,7 @@ class ServicesControllerTest extends TestCase
         
         ob_start();
         try {
-            $output = $this->controller->logs('test-worker-id');
+            $output = $_GET['_option'] = 'test-worker-id'; $this->controller->logs();
         } finally {
             $obOutput = ob_get_clean();
         }
@@ -312,7 +321,8 @@ class ServicesControllerTest extends TestCase
         $this->expectExceptionMessage('redirect_quit');
 
         try {
-            $this->controller->logs('non-existent');
+            $_GET['_option'] = 'non-existent';
+            $this->controller->logs();
         } finally {
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?error=…` was in the URL and nothing read it.
@@ -362,7 +372,8 @@ class ServicesControllerTest extends TestCase
 
         // Act
         try {
-            $this->controller->stop('no-lock-service');
+            $_GET['_option'] = 'no-lock-service';
+            $this->controller->stop();
         } finally {
             // Assert — must redirect with the no_lock_file error
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -391,7 +402,8 @@ class ServicesControllerTest extends TestCase
 
         // Act — 'nonexistent' is not in the state file; clearStopFile returns early
         try {
-            $this->controller->start('nonexistent');
+            $_GET['_option'] = 'nonexistent';
+            $this->controller->start();
         } finally {
             // Assert — start() still redirects with message=started after clearStopFile no-ops
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -515,7 +527,7 @@ class ServicesControllerTest extends TestCase
         // Act
         ob_start();
         try {
-            $result = $this->controller->logs('test-worker-id');
+            $result = $_GET['_option'] = 'test-worker-id'; $this->controller->logs();
         } finally {
             ob_get_clean();
         }

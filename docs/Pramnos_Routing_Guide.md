@@ -639,6 +639,38 @@ $doc = (new OpenApiGenerator(
 ))->fromDirectory(ROOT . '/src/Controllers', 'App\\Controllers');
 ```
 
+## What a classic-MVC action must accept
+
+`Controller::exec()` calls every action the same way:
+
+```php
+fn() => $this->$action($args)
+```
+
+`$args` is the request's arguments **array**. So an action must accept an array as
+its first parameter — `mixed`, `array`, `iterable`, or nothing at all:
+
+```php
+// Right — and this is the convention the bundled controllers use
+public function view(mixed $id = null): mixed
+{
+    $id = (int) \Pramnos\Http\Request::staticGetOption();
+    // …
+}
+
+// Wrong — a guaranteed TypeError the moment anything routes to it
+public function logs(string $name = ''): mixed
+```
+
+The URL segment is read with `Request::staticGetOption()`, not taken as an
+argument. The parameter is kept for the signature's sake and ignored.
+
+A scalar declaration is not a bug that appears under some input: the action cannot
+be called at all. Five bundled actions had one — `ServicesController`'s `stop`,
+`start`, `restart` and `logs`, which is every button on the services screen, and
+`LogController::clearFile()`. All are fixed, and a structural test now walks every
+bundled controller so the next one fails in the suite rather than on a click.
+
 ## An administration area under a prefix
 
 Admin screens usually want to live under one path, with their own layout and a

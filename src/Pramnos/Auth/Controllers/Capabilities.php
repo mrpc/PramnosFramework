@@ -40,8 +40,22 @@ class Capabilities extends Controller
      * @param string|null $clientId client_id from the path (validated against
      *                              the authenticated client when present).
      */
-    public function sync(?string $clientId = null): mixed
+    public function sync(mixed $clientId = null): mixed
     {
+        /**
+         * Reached two ways, and the declaration has to suit both.
+         *
+         * An API routing table passes the client id straight in from a route
+         * parameter. The classic dispatcher passes the request's arguments
+         * **array** to every action, so a `?string` declaration served the first
+         * caller and made the second a `TypeError` — `/Capabilities/sync` could
+         * not be called at all.
+         */
+        if (!is_string($clientId) || $clientId === '') {
+            $fromUrl = \Pramnos\Http\Request::staticGetOption();
+            $clientId = is_string($fromUrl) && $fromUrl !== '' ? $fromUrl : null;
+        }
+
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method !== 'PUT' && $method !== 'POST') {
             return Response::json(['error' => 'method_not_allowed'], 405);

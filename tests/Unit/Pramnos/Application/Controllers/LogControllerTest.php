@@ -749,7 +749,8 @@ class LogControllerTest extends TestCase
         $this->assertGreaterThan(0, filesize($this->logDir . DS . 'php_error.log'));
 
         // Act
-        $this->controller->clearFile('php_error.log');
+        $_GET['_option'] = 'php_error.log';
+        $this->controller->clearFile();
 
         // Assert — redirect is issued
         $this->assertNotNull($this->controller->redirectUrl);
@@ -765,7 +766,8 @@ class LogControllerTest extends TestCase
         $_SERVER['HTTP_REFERER'] = 'https://example.com/Logs/stats';
 
         // Act
-        $this->controller->clearFile('php_error.log');
+        $_GET['_option'] = 'php_error.log';
+        $this->controller->clearFile();
 
         // Assert — redirected to stats
         $this->assertStringContainsString('stats', $this->controller->redirectUrl ?? '');
@@ -780,7 +782,8 @@ class LogControllerTest extends TestCase
         // Arrange — no file name provided
 
         // Act
-        $this->controller->clearFile('');
+        $_GET['_option'] = '';
+        $this->controller->clearFile();
 
         // Assert — redirect is issued
         $this->assertNotNull($this->controller->redirectUrl);
@@ -797,7 +800,8 @@ class LogControllerTest extends TestCase
         file_put_contents($secret, 'sensitive data');
 
         // Act
-        $this->controller->clearFile('secret.log');
+        $_GET['_option'] = 'secret.log';
+        $this->controller->clearFile();
 
         // Assert — redirect is issued and the file is untouched
         $this->assertNotNull($this->controller->redirectUrl);

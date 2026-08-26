@@ -65,13 +65,22 @@ class ServicesController extends Controller
      * Request graceful stop for a service by ID.
      * Creates `{lockFile}.stop` — the worker exits on next heartbeat check.
      * Redirects back to display with an appropriate status query param.
+     *
+     * The service name comes from the URL segment, read the way every other
+     * controller here reads one. It used to be declared `string $name` and taken
+     * as an argument, which `Controller::exec()` cannot supply: it calls every
+     * action with the request's arguments **array**, so the declaration made this
+     * a guaranteed `TypeError` and the action unreachable. Each of the four
+     * service controls had it, which is to say none of the buttons on the services
+     * screen had ever worked.
      */
-    public function stop(string $name = ''): void
+    public function stop(mixed $name = null): void
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return;
         }
 
+        $name = (string) \Pramnos\Http\Request::staticGetOption();
         $service = $this->findService($name);
 
         if ($service === null) {
@@ -98,12 +107,14 @@ class ServicesController extends Controller
      * on its next reconciliation cycle. Has no effect if the service is already
      * running; the orchestrator itself is responsible for spawning new processes.
      */
-    public function start(string $name = ''): void
+    public function start(mixed $name = null): void
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return;
         }
 
+        // See stop() for why the name is read here rather than taken as an argument.
+        $name = (string) \Pramnos\Http\Request::staticGetOption();
         $this->clearStopFile($name);
         $this->addMessage('Started.');
         $this->redirect(sURL . 'services');
@@ -114,12 +125,14 @@ class ServicesController extends Controller
      * will respawn the process. If the service is currently running, the existing
      * process continues until its next heartbeat sees a changed state.
      */
-    public function restart(string $name = ''): void
+    public function restart(mixed $name = null): void
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return;
         }
 
+        // See stop() for why the name is read here rather than taken as an argument.
+        $name = (string) \Pramnos\Http\Request::staticGetOption();
         $this->clearStopFile($name);
         $this->addMessage('Restarted.');
         $this->redirect(sURL . 'services');
@@ -129,12 +142,14 @@ class ServicesController extends Controller
      * Return the last N lines of the log file for a service.
      * HTML view with pre-formatted log output.
      */
-    public function logs(string $name = ''): mixed
+    public function logs(mixed $name = null): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return null;
         }
 
+        // See stop() for why the name is read here rather than taken as an argument.
+        $name = (string) \Pramnos\Http\Request::staticGetOption();
         $service = $this->findService($name);
 
         if ($service === null) {

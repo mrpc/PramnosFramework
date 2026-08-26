@@ -126,7 +126,8 @@ class LogControllerTest extends TestCase
     {
         ob_start();
         try {
-            @$this->controller->clearFile('test_log.log');
+            $_GET['_option'] = 'test_log.log';
+            @$this->controller->clearFile();
         } catch (\Exception $e) {
             // Might throw redirect exception depending on framework
         }
@@ -263,7 +264,12 @@ class LogControllerTest extends TestCase
         $_SERVER['HTTP_REFERER'] = 'http://localhost/logs/stats';
 
         ob_start();
-        $this->controller->clearFile('test_log.log');
+        // The action reads its target from the URL segment, the way the
+        // dispatcher supplies it — passing it as an argument is not something
+        // routing can do, which is how the scalar-typed signature it used to have
+        // survived: every test called it in a way no request ever does.
+        $_GET['_option'] = 'test_log.log';
+        $this->controller->clearFile();
         $echoed = ob_get_clean();
 
         // Should redirect to logs/stats
@@ -279,7 +285,8 @@ class LogControllerTest extends TestCase
     public function testClearFileInvalid(): void
     {
         ob_start();
-        $this->controller->clearFile('invalid_file.log');
+        $_GET['_option'] = 'invalid_file.log';
+        $this->controller->clearFile();
         $echoed = ob_get_clean();
 
         // Invalid file → redirect to logs

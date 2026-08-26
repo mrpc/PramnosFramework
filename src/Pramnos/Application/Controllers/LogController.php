@@ -523,12 +523,20 @@ class LogController extends Controller
 
     /**
      * Clear an individual log file
-     * @param string $file The log file to clear
+     *
+     * The file comes from the URL segment. It used to be declared `string $file`
+     * and taken as an argument, which `Controller::exec()` cannot supply — it
+     * calls every action with the request's arguments **array**, so the
+     * declaration made this a guaranteed `TypeError`. The link on the logs screen
+     * fatalled on every click.
+     *
+     * @param mixed $file Unused; the file is read from the request
      * @return void
      */
-    public function clearFile(string $file = '')
+    public function clearFile(mixed $file = null)
     {
-        if (empty($file) || !in_array($file, $this->whitelist)) {
+        $file = (string) \Pramnos\Http\Request::staticGetOption();
+        if ($file === '' || !in_array($file, $this->whitelist)) {
             $this->redirect(defined('sURL') ? sURL . 'logs' : '');
             return;
         }
