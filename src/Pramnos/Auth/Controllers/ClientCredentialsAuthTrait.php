@@ -32,6 +32,27 @@ trait ClientCredentialsAuthTrait
             }
         }
 
+        /**
+         * What Apache leaves behind when it has parsed Basic itself.
+         *
+         * Running as a module, Apache decodes an `Authorization: Basic` header into
+         * `PHP_AUTH_USER` and `PHP_AUTH_PW` and does **not** pass the raw header on
+         * — and the `E=HTTP_AUTHORIZATION` rewrite trick does not help, because
+         * there is nothing left to copy. So a client that authenticated exactly as
+         * RFC 6749 §2.3.1 says it may was told `invalid_client`, which reads as a
+         * wrong secret rather than as credentials that never arrived. The obvious
+         * next step is to re-check the secret, and it never helps.
+         *
+         * Read after the raw header, so an explicit header still wins.
+         */
+        $basicUser = (string) ($_SERVER['PHP_AUTH_USER'] ?? '');
+        if ($basicUser !== '') {
+            return [
+                'client_id'     => $basicUser,
+                'client_secret' => (string) ($_SERVER['PHP_AUTH_PW'] ?? ''),
+            ];
+        }
+
         $id     = (string) ($_POST['client_id']     ?? '');
         $secret = (string) ($_POST['client_secret'] ?? '');
         if ($id !== '' && $secret !== '') {

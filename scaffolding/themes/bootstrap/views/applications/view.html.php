@@ -204,6 +204,92 @@ $accessTypeLabel = function (int $t): string {
             </div>
             <?php endif; ?>
 
+            <?php
+            /**
+             * What this client has declared it understands.
+             *
+             * Pushed by the application itself through the capabilities endpoint,
+             * usually from CI — so this is the application's own account of its
+             * resources, scopes and ABAC condition keys, not something an
+             * administrator typed. A permission grant names one of these, which is
+             * why the list belongs next to the client rather than on a screen of
+             * its own.
+             *
+             * A row an application has stopped declaring is shown struck through
+             * rather than hidden: that is exactly what somebody is looking for when
+             * a grant referring to it has stopped working.
+             */
+            $caps = $this->capabilities ?? [];
+            ?>
+            <div class="mt-4">
+                <div class="d-flex justify-content-between align-items-baseline mb-2">
+                    <h3 class="font-semibold">Declared capabilities</h3>
+                    <?php if (!empty($caps['synced_at'])): ?>
+                        <span class="small text-muted">
+                            last pushed <?php echo htmlspecialchars((string) $caps['synced_at'], ENT_QUOTES, 'UTF-8'); ?>
+                        </span>
+                    <?php endif; ?>
+                </div>
+
+                <?php if (empty($caps['resources']) && empty($caps['conditions'])): ?>
+                    <p class="text-muted">
+                        This client has not pushed a capabilities manifest. Until it does,
+                        the server knows no resource or scope names for it.
+                    </p>
+                <?php else: ?>
+                    <?php if (!empty($caps['resources'])): ?>
+                        <table class="table table-sm mb-4">
+                            <thead class="table-light small text-uppercase">
+                                <tr><th >Resource</th><th >Scopes</th></tr>
+                            </thead>
+                            <tbody >
+                            <?php foreach ($caps['resources'] as $resource): ?>
+                                <tr>
+                                    <td class="align-top">
+                                        <span class="font-mono<?php echo $resource['is_active'] ? '' : ' text-decoration-line-through text-muted'; ?>">
+                                            <?php echo htmlspecialchars($resource['name'], ENT_QUOTES, 'UTF-8'); ?>
+                                        </span>
+                                        <?php if (!empty($resource['description'])): ?>
+                                            <div class="small text-muted"><?php echo htmlspecialchars((string) $resource['description'], ENT_QUOTES, 'UTF-8'); ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="align-top">
+                                        <?php if (empty($resource['scopes'])): ?>
+                                            <span class="small text-muted">no scopes declared</span>
+                                        <?php else: ?>
+                                            <?php foreach ($resource['scopes'] as $scope): ?>
+                                                <span class="badge me-1 mb-1 text-dark<?php echo $scope['is_active'] ? ' bg-light' : ' bg-light text-decoration-line-through text-muted'; ?>"
+                                                      title="<?php echo htmlspecialchars((string) ($scope['description'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                                                    <?php echo htmlspecialchars($scope['name'], ENT_QUOTES, 'UTF-8'); ?>
+                                                </span>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+
+                    <?php if (!empty($caps['conditions'])): ?>
+                        <h4 class="h6">Condition keys</h4>
+                        <ul class="list-unstyled">
+                        <?php foreach ($caps['conditions'] as $condition): ?>
+                            <li class="<?php echo $condition['is_active'] ? '' : ' text-decoration-line-through text-muted'; ?>">
+                                <span class="font-mono"><?php echo htmlspecialchars($condition['key'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                <span class="small text-muted">
+                                    <?php echo htmlspecialchars($condition['value_type'], ENT_QUOTES, 'UTF-8'); ?>
+                                    <?php if (!empty($condition['description'])): ?>
+                                        — <?php echo htmlspecialchars((string) $condition['description'], ENT_QUOTES, 'UTF-8'); ?>
+                                    <?php endif; ?>
+                                </span>
+                            </li>
+                        <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+
         </div>
     </div>
 </div>

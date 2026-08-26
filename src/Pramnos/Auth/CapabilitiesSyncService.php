@@ -89,8 +89,8 @@ class CapabilitiesSyncService
             ];
         }
 
-        $resources  = $this->asList($manifest['resources']  ?? []);
-        $conditions = $this->asList($manifest['conditions'] ?? []);
+        $resources  = $this->asList($manifest['resources']  ?? [], 'name');
+        $conditions = $this->asList($manifest['conditions'] ?? [], 'key');
 
         $counts = ['resources' => 0, 'scopes' => 0, 'conditions' => 0, 'deactivated' => 0];
 
@@ -333,6 +333,95 @@ class CapabilitiesSyncService
         return ($row && $row->numRows > 0) ? (string) $row->fields['manifest_hash'] : '';
     }
 
+    /**
+     * What an application has declared, for a person to read.
+     *
+     * The write side of this RFC existed and the read side did not: an application
+     * could push its resources, scopes and conditions, and nothing anywhere could
+     * show an operator what had arrived. Central permission control without that
+     * is not control — a grant refers to a resource name, and the only way to know
+     * which names exist was to query the tables by hand.
+     *
+     * Soft-deleted rows are included, flagged rather than hidden. A resource an
+     * application stopped declaring is exactly what somebody is looking for when a
+     * permission referring to it has stopped working, and dropping it from this
+     * list would hide the answer.
+     *
+     * @param int $applicationId The `applications.appid`
+     * @return array{
+     *     hash: string,
+     *     synced_at: ?string,
+     *     resources: list<array{name: string, description: ?string, is_active: bool, scopes: list<array{name: string, description: ?string, is_active: bool}>}>,
+     *     conditions: list<array{key: string, value_type: string, description: ?string, is_active: bool}>
+     * }
+     */
+    public function describe(int $applicationId): array
+    {
+        $manifest = $this->database->queryBuilder()
+            ->table(self::T_MANIFEST)
+            ->where('applicationid', $applicationId)
+            ->first();
+
+        $resources = [];
+        $resourceRows = $this->database->queryBuilder()
+            ->table(self::T_RESOURCES)
+            ->where('applicationid', $applicationId)
+            ->orderBy('resource_name')
+            ->getAll();
+
+        foreach ($resourceRows as $row) {
+            $scopes = [];
+            $scopeRows = $this->database->queryBuilder()
+                ->table(self::T_SCOPES)
+                ->where('resource_id', (int) $row['id'])
+                ->orderBy('scope_name')
+                ->getAll();
+
+            foreach ($scopeRows as $scope) {
+                $scopes[] = [
+                    'name'        => (string) $scope['scope_name'],
+                    'description' => $scope['description'] ?? null,
+                    'is_active'   => (bool) $scope['is_active'],
+                ];
+            }
+
+            $resources[] = [
+                'name'        => (string) $row['resource_name'],
+                'description' => $row['description'] ?? null,
+                'is_active'   => (bool) $row['is_active'],
+                'scopes'      => $scopes,
+            ];
+        }
+
+        $conditions = [];
+        $conditionRows = $this->database->queryBuilder()
+            ->table(self::T_CONDITIONS)
+            ->where('applicationid', $applicationId)
+            ->orderBy('condition_key')
+            ->getAll();
+
+        foreach ($conditionRows as $row) {
+            $conditions[] = [
+                'key'         => (string) $row['condition_key'],
+                'value_type'  => (string) ($row['value_type'] ?? 'string'),
+                'description' => $row['description'] ?? null,
+                'is_active'   => (bool) $row['is_active'],
+            ];
+        }
+
+        // `?? ''` rather than a bare index: a row can come back from a fixture or a
+        // partially-migrated schema without the column, and a warning on an admin
+        // page is a worse answer than "no manifest recorded".
+        return [
+            'hash'       => ($manifest && $manifest->numRows > 0)
+                ? (string) ($manifest->fields['manifest_hash'] ?? '') : '',
+            'synced_at'  => ($manifest && $manifest->numRows > 0)
+                ? ($manifest->fields['synced_at'] ?? null) : null,
+            'resources'  => $resources,
+            'conditions' => $conditions,
+        ];
+    }
+
     /** Insert or update the stored manifest hash for $applicationId. */
     private function storeHash(int $applicationId, string $hash, ?int $syncedBy): void
     {
@@ -409,9 +498,57 @@ class CapabilitiesSyncService
         return $names;
     }
 
-    /** Coerce a value into a list array (defensive against malformed input). */
-    private function asList(mixed $value): array
+    /**
+     * Normalise a manifest section into a list of entries that each name itself.
+     *
+     * The published manifest format keys its entries by name:
+     *
+     * ```json
+     * "resources": { "invoices": { "description": "…", "scopes": { "read": "View" } } }
+     * ```
+     *
+     * This used to be `array_values()`, which throws the keys away — so every
+     * entry arrived with no `name`, the loops above skipped it, and a correct
+     * manifest synced **zero** resources while answering `200 {"status":"synced"}`.
+     * Scopes were worse than skipped: `{"read": "View invoices"}` became the
+     * string `"View invoices"`, so the scope was created under its own
+     * description and an application asking for `read` would never match it.
+     *
+     * Both shapes are accepted. A list whose entries carry `name` (or `key`) is
+     * passed through unchanged, so anything written against the old behaviour
+     * keeps working; a keyed map takes its name from the key, and a scalar value
+     * is read as the description, which is what the scope form is.
+     *
+     * @param string $keyName Where the name goes: `name` for resources and
+     *                        scopes, `key` for conditions.
+     * @return list<array<string, mixed>|string>
+     */
+    private function asList(mixed $value, string $keyName = 'name'): array
     {
-        return is_array($value) ? array_values($value) : [];
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $entries = [];
+        foreach ($value as $key => $entry) {
+            if (!is_string($key)) {
+                // Already a list: the entry names itself, or it names nothing and
+                // the caller skips it — either way not this method's business.
+                $entries[] = $entry;
+                continue;
+            }
+
+            if (is_array($entry)) {
+                // An explicit name inside wins over the key, so a manifest that
+                // says both is not silently contradicted.
+                $entry[$keyName] = (string) ($entry[$keyName] ?? $key);
+                $entries[] = $entry;
+                continue;
+            }
+
+            $entries[] = [$keyName => $key, 'description' => (string) $entry];
+        }
+
+        return $entries;
     }
 }

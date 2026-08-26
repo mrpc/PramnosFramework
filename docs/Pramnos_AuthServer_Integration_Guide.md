@@ -354,6 +354,56 @@ from the new manifest is **soft-deleted** (`is_active = false`), never hard
 deleted. Send the stored `manifest_hash` to get a no-op `304` when nothing
 changed.
 
+Authenticate with HTTP Basic (`client_id:client_secret`) or with `client_id` and
+`client_secret` as form fields. Either is fine — RFC 6749 §2.3.1 allows both.
+
+`POST` is accepted as well as `PUT`, for a CI runner that has no `PUT`. The
+operation is idempotent either way.
+
+The response reports what it did, and the counts are worth checking in CI:
+
+```json
+{"status":"synced","resources":1,"scopes":2,"conditions":1,"deactivated":0}
+```
+
+> **A manifest that synced zero was possible before 2026-08-26, and reported
+> success.** The normaliser dropped the map keys, so every entry arrived unnamed
+> and every loop skipped it — `200 {"status":"synced","resources":0,…}`. Scopes were
+> worse: `{"read": "View invoices"}` was read as a scope *named* "View invoices",
+> so the server stored a permission keyed on prose and a client asking for `read`
+> matched nothing. Both shapes are accepted now — the keyed map above, and a list
+> whose entries carry their own `name` / `key`.
+>
+> **And Basic auth was refused where Apache runs as a module.** It decodes the
+> header into `PHP_AUTH_USER` and does not pass the raw one on, so the extractor
+> found nothing and answered `invalid_client` — which reads as a wrong secret. If
+> you worked around it by moving to form fields, Basic works now.
+>
+> If your pipeline has been reporting success, check the counts: a manifest may
+> have been accepted and stored as nothing.
+
+### Seeing what a client declared
+
+An administrator opens the client's own page — `/admin/Applications/view/{appid}` —
+and reads its declared resources, the scopes on each, and the condition keys, with
+the manifest's hash and when it last arrived.
+
+That page is the answer to the question a grant raises: a permission names a
+resource, so "which names does this client actually publish" has to be visible
+before anybody can write one. It was not, until 2026-08-26 — the write side existed
+alone, so a server accepted manifests and could show nobody what was in them.
+
+Anything the client has stopped declaring is listed struck through rather than
+removed. A grant may still refer to it, and that is exactly what somebody is
+looking for when a permission has quietly stopped working.
+
+A project that published the `applications` views before that date needs to
+republish `applications/view` to get the section:
+
+```bash
+php bin/pramnos project:publish-views --group=applications --force
+```
+
 ---
 
 ## 6. Instant invalidation — webhooks

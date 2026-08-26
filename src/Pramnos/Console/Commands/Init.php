@@ -2846,7 +2846,28 @@ PHP;
         $this->mkdir($this->webRoot . '/api');
         $this->writeFile($this->webRoot . '/api/index.php', $apiIndex);
 
+        /**
+         * The API directory needs the Authorization passthrough of its own.
+         *
+         * The web root's `.htaccess` sets `HTTP_AUTHORIZATION` from the request
+         * header, but rewriting is per-directory: a request under `/api/` is
+         * rewritten again here, in a new pass, and the environment variable the
+         * outer pass set does not survive it. So Apache handed PHP-FPM no
+         * Authorization header for anything under `/api/` — which is every
+         * endpoint that authenticates with a bearer token or with client
+         * credentials, in the one place an API client is most likely to send one.
+         *
+         * It failed as `invalid_client` / `Client credentials required`, which
+         * reads as wrong credentials rather than as credentials that never
+         * arrived — so the obvious next step is to re-check the secret, and that
+         * never helps.
+         */
         $apiHtaccess = "RewriteEngine On\n"
+            . "\n# Apache does not hand the Authorization header to PHP-FPM or CGI on its\n"
+            . "# own, and the web root's copy of this rule does not carry into this\n"
+            . "# directory's rewrite pass.\n"
+            . "RewriteCond %{HTTP:Authorization} .\n"
+            . "RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n"
             . "RewriteRule ^\$ index.php [L]\n"
             . "RewriteCond %{REQUEST_FILENAME} !-f\n"
             . "RewriteCond %{REQUEST_FILENAME} !-d\n"

@@ -96,6 +96,20 @@ class ApplicationsController extends Controller
         $view->tokenStats = $tokenStats;
         $view->lastUsers  = $lastUsers;
 
+        /**
+         * What this application has declared it understands.
+         *
+         * The capabilities RFC's write side existed on its own: an application
+         * could push its resources, scopes and ABAC condition keys, and nothing
+         * showed an operator what had arrived. A permission grant names a
+         * resource, so "which names exist for this client" is a question this page
+         * is asked constantly and could not answer.
+         *
+         * Read here rather than on a screen of its own, because the answer belongs
+         * to an application and this is the page for an application.
+         */
+        $view->capabilities = $this->capabilitiesReader()->describe((int) $app->fields['appid']);
+
         return $view->display('view');
     }
 
@@ -161,6 +175,14 @@ class ApplicationsController extends Controller
 
         echo json_encode($result);
         $this->terminate();
+    }
+
+    /** The capabilities reader (seam so tests can inject a double). */
+    protected function capabilitiesReader(): \Pramnos\Auth\CapabilitiesSyncService
+    {
+        return new \Pramnos\Auth\CapabilitiesSyncService(
+            \Pramnos\Framework\Factory::getDatabase()
+        );
     }
 
     /**
