@@ -80,6 +80,30 @@ A project scaffolded before these rules existed keeps its own `.htaccess` —
 version control does not update it for you. Add the block by hand, above the
 catch-all.
 
+### If a discovery response will not parse
+
+Before 2026-08-26 it would not. Every endpoint here answered with valid JSON and
+then a complete HTML page appended to it:
+
+```
+$ curl -s https://auth.example.com/.well-known/openid-configuration | wc -c
+173927
+```
+
+The actions `echo`ed their body and returned. An echo writes to the output stream
+and leaves the framework to render the page it was going to render anyway, so the
+response was the document *and* the site's home page. `JSON.parse` fails on it;
+`curl | head` does not, which is why it survived.
+
+Fixed by answering with the framework's `raw` document instead of echoing, so the
+body is the JSON and nothing follows it. All six were affected —
+`openid-configuration`, `jwks.json`, `oauth-authorization-server`,
+`.well-known/health`, `/Discovery/serverConfig` and the project-level `/config`.
+
+Nothing to change in a client. If you built a workaround — reading up to the first
+`}` at column 0, or a regex — you can drop it, and you should: the shape it relies
+on is no longer there.
+
 ### A summary built for a person
 
 The two documents above are built for a client library. When you want the one a
@@ -189,6 +213,27 @@ request arrives anonymous, which reads as a rejected credential; the time then
 goes into the token, and the token was never the problem.
 
 ---
+
+### Which scopes you may ask for
+
+The list in `scopes_supported` is the list. Ask for one that is not in it and the
+token endpoint answers `invalid_scope`:
+
+```json
+{
+  "error": "invalid_scope",
+  "error_description": "The requested scope is invalid, unknown, or malformed",
+  "hint": "Check the `profile` scope"
+}
+```
+
+> **Before 2026-08-26 that happened for scopes that *were* in it.** The token
+> endpoint validated against four identifiers of its own — `read`, `write`,
+> `admin`, `user` — while discovery published the framework's scope registry. Of
+> twelve advertised scopes, eleven were refused, `openid` among them: OpenID
+> Connect could not be used at all against a server whose own discovery document
+> said it could. Both sides read from the registry now, and the four older
+> identifiers are still accepted.
 
 ## 2. Registering your application
 

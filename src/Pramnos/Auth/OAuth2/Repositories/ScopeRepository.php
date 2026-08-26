@@ -12,26 +12,68 @@ use League\OAuth2\Server\Repositories\ScopeRepositoryInterface;
 /**
  * OAuth2 Scope Repository
  *
- * Validates requested scopes against the framework's built-in scope list.
- * Applications that need custom scopes should extend this class or override
- * the $scopes property via setScopes().
+ * Validates requested scopes against {@see \Pramnos\Auth\Scopes} — the framework's
+ * scope registry, and the same list the discovery document publishes, the consent
+ * screen renders and the permission checks read.
  *
- * Built-in scopes (application-agnostic):
- * - read   — Read access to resources
- * - write  — Write access to resources
- * - admin  — Full administrative access
- * - user   — Access to the user's own profile
+ * It did not used to. This class carried four hardcoded scopes of its own — `read`,
+ * `write`, `admin`, `user` — and nothing ever called `setScopes()` to replace them.
+ * So a server published one list and enforced another: of the twelve scopes in
+ * `scopes_supported`, eleven were rejected as `invalid_scope` by the token
+ * endpoint that advertised them. `openid` was one of them, which means OpenID
+ * Connect could not be used at all — a client following the discovery document to
+ * the letter got a 400 on its first request.
  *
+ * The four legacy identifiers are still accepted, so an integration built against
+ * them keeps working. Applications that want their own list still call
+ * `setScopes()` or `addScopes()`.
  */
 class ScopeRepository implements ScopeRepositoryInterface
 {
-    /** @var array<string,string> scope identifier → human-readable description */
-    private array $scopes = [
+    /**
+     * The four this class used to define on its own.
+     *
+     * Kept because an existing integration may be asking for them, and a scope
+     * that stops being accepted is an outage on somebody else's server.
+     *
+     * @var array<string,string>
+     */
+    private const LEGACY_SCOPES = [
         'read'  => 'Read access',
         'write' => 'Write access',
         'admin' => 'Admin access',
         'user'  => 'User profile access',
     ];
+
+    /** @var array<string,string>|null scope identifier → description, or null until read */
+    private ?array $scopes = null;
+
+    /**
+     * The scopes this server accepts.
+     *
+     * Resolved on first use rather than in a property initialiser, because the
+     * registry is a class this one must not force-load at construction time.
+     *
+     * @return array<string,string>
+     */
+    private function scopes(): array
+    {
+        if ($this->scopes !== null) {
+            return $this->scopes;
+        }
+
+        try {
+            $registered = \Pramnos\Auth\Scopes::getScopeDescriptions();
+        } catch (\Throwable) {
+            // A registry that cannot be read must not make every scope invalid;
+            // fall back to what this class accepted before it consulted one.
+            $registered = [];
+        }
+
+        $this->scopes = array_merge(self::LEGACY_SCOPES, $registered);
+
+        return $this->scopes;
+    }
 
     /**
      * Replace or extend the built-in scope list.
@@ -50,7 +92,7 @@ class ScopeRepository implements ScopeRepositoryInterface
      */
     public function addScopes(array $scopes): void
     {
-        $this->scopes = array_merge($this->scopes, $scopes);
+        $this->scopes = array_merge($this->scopes(), $scopes);
     }
 
     /**
@@ -61,7 +103,8 @@ class ScopeRepository implements ScopeRepositoryInterface
      */
     public function getScopeEntityByIdentifier($identifier): ?ScopeEntityInterface
     {
-        if (!array_key_exists($identifier, $this->scopes)) {
+        $scopes = $this->scopes();
+        if (!array_key_exists($identifier, $scopes)) {
             return null;
         }
 
