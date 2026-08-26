@@ -39,6 +39,77 @@ class UserApiTest extends BaseTestCase
 > not. If you have code extending it, it is `BaseTestCase` plus a `TestClient` — the methods
 > below are the same ones, on the client rather than on the test.
 
+> **Before 2026-08-26 the path was ignored.** `TestClient` set `REQUEST_URI` and nothing
+> else, but classic MVC routing reads `$_GET['r']` — which is what the scaffolded rewrite
+> produces — so `calcParams()` never ran and every request fell through to the default
+> controller. The response was the site's home page whatever you asked for, and the
+> assertions passed against it: a test written to prove `/admin/users` is refused to a guest
+> passed on a home page no guard applies to. Attribute-routed projects were unaffected;
+> everything routing the classic way was testing one page.
+>
+> If you have HTTP tests written before that date, re-read them. Some were asserting things
+> the home page happens to satisfy.
+
+### One client, many requests
+
+A web request builds an `Application`, serves one URL and ends, so a good deal of
+per-request state is per-request only by accident. A `TestClient` keeps one
+application across every call, and so does a worker or any long-running server —
+which is where that shows.
+
+`Application::beginRequest()` re-derives it, and `TestClient` calls it for you
+before each request:
+
+```php
+$client->get('/admin');       // admin theme, Dashboard as the default controller
+$client->get('/');            // site theme again — before this, still the admin one
+```
+
+It also resets `Request`'s statics. Those matter for the same reason: routing state
+is only recomputed when there is a path to route, so a request to `/` used to serve
+whatever controller the request before it had resolved.
+
+If you handle several requests in one process yourself, call `beginRequest()` per
+request. A single-request process needs nothing: the constructor calls it.
+
+### Signing a user in
+
+`loginUser()` on `BaseTestCase` establishes a session, and `logoutUser()` drops it:
+
+```php
+$this->loginUser($administratorId);
+$client->get('/admin')->assertStatus(200);
+
+$this->logoutUser();
+$client->get('/admin')->assertStatus(302);
+```
+
+Always pair them. The session is process-wide in a test run, so a sign-in with no
+way back leaks into every test after it — and those tests then pass or fail for a
+reason that is nowhere in them.
+
+The id must be above 1: 0 is the guest and 1 the built-in system account, and every
+guard in the framework rejects both.
+
+> **Before 2026-08-26 `loginUser()` signed nobody in.** It set `$_SESSION['auth']`
+> and `$_SESSION['user_id']`, and nothing reads either — `staticIsLogged()` wants
+> `logged` and `uid`. Tests using it exercised the signed-out path while reading as
+> though they covered the signed-in one. If you have such a test, it is running for
+> the first time now.
+
+### CSS selector assertions
+
+`assertSelectorExists()` and friends need two packages:
+
+```bash
+composer require --dev symfony/dom-crawler symfony/css-selector
+```
+
+Projects scaffolded from 2026-08-26 have them. Earlier ones do not, because they
+are dev dependencies of the framework and a dependency's dev dependencies are never
+installed — which is why those three assertions used to throw a missing-class
+error. They stay out of `require`: nothing in production parses HTML.
+
 ### Available request methods
 
 ```php

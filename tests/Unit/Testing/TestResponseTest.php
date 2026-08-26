@@ -464,4 +464,30 @@ class TestResponseTest extends TestCase
             ->assertDontSee('Error')
             ->assertSeeText('Welcome');
     }
+
+    /**
+     * With the DOM libraries missing, the message names what to install.
+     *
+     * They are the framework's dev dependencies, so downstream they are absent
+     * and the assertion threw `Class "Symfony\Component\DomCrawler\Crawler" not
+     * found` — true, and useless: it names an internal class rather than the two
+     * packages, and it surfaces as an error in the test that used the assertion,
+     * which reads as a fault in the page under test.
+     *
+     * They *are* installed here, so the message itself is asserted from the
+     * source; a test cannot uninstall a class.
+     */
+    public function testTheSelectorAssertionsSayWhatToInstall(): void
+    {
+        // Arrange
+        $path = dirname(__DIR__, 3) . '/src/Pramnos/Testing/TestResponse.php';
+
+        // Act
+        $source = (string) file_get_contents($path);
+
+        // Assert
+        $this->assertStringContainsString('composer require --dev ', $source);
+        $this->assertStringContainsString('symfony/dom-crawler symfony/css-selector', $source);
+        $this->assertStringContainsString('if (!class_exists(Crawler::class))', $source);
+    }
 }

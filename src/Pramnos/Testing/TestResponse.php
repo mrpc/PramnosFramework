@@ -145,6 +145,28 @@ class TestResponse
      */
     private function getCrawler(): Crawler
     {
+        /**
+         * The DOM libraries are this framework's *dev* dependencies, and a
+         * dependency's dev dependencies are not installed downstream — so the
+         * three selector assertions below, all three documented, threw
+         * `Class "Symfony\Component\DomCrawler\Crawler" not found` in every
+         * project that tried them. That is a true message and a useless one: it
+         * names an internal class rather than the two packages to install, and
+         * it arrives as an error in the test that used the assertion, which
+         * reads as a fault in the page under test.
+         *
+         * Kept out of `require` on purpose: nothing in production parses HTML,
+         * and pulling a DOM parser into every deployment to serve an assertion is
+         * the wrong trade. Scaffolded projects get both in `require-dev`.
+         */
+        if (!class_exists(Crawler::class)) {
+            throw new \RuntimeException(
+                'CSS selector assertions need the DOM libraries, which are not '
+                . 'installed. Add them to your project: composer require --dev '
+                . 'symfony/dom-crawler symfony/css-selector'
+            );
+        }
+
         if ($this->crawler === null) {
             $this->crawler = new Crawler($this->response->getBody());
         }

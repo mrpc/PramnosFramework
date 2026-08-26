@@ -5122,6 +5122,14 @@ BASH;
         // PsySH powers a rich `pramnos tinker` REPL; without it tinker falls back
         // to a minimal built-in shell.
         $composer['require-dev']['psy/psysh'] = '^0.12';
+        // TestResponse's CSS selector assertions need these. They are dev
+        // dependencies of the framework, and a dependency's dev dependencies are
+        // not installed downstream — so without them here, three documented
+        // assertions threw a missing-class error in every project that tried
+        // them. They are not in the framework's `require` on purpose: nothing in
+        // production parses HTML.
+        $composer['require-dev']['symfony/dom-crawler'] = '^5.4|^6.0|^7.0';
+        $composer['require-dev']['symfony/css-selector'] = '^5.4|^6.0|^7.0';
 
         $composer['autoload']     = ['psr-4' => ["$namespace\\" => 'src/']];
         $composer['autoload-dev'] = ['psr-4' => ['Tests\\' => 'tests/']];

@@ -298,6 +298,13 @@ class InitCommandTest extends TestCase
         
         // Verify PHPUnit requirement
         $this->assertArrayHasKey('phpunit/phpunit', $composer['require-dev']);
+
+        // The DOM libraries TestResponse's selector assertions need. They are
+        // dev dependencies of the framework, and a dependency's dev dependencies
+        // are not installed downstream — so without them here, three documented
+        // assertions threw a missing-class error in every scaffolded project.
+        $this->assertArrayHasKey('symfony/dom-crawler', $composer['require-dev']);
+        $this->assertArrayHasKey('symfony/css-selector', $composer['require-dev']);
     }
 
     /**

@@ -62,6 +62,91 @@ class TestClientTest extends TestCase
             'TestClient constructor must succeed with a pre-initialised Application');
     }
 
+    // ── Routing ───────────────────────────────────────────────────────────────
+
+    /**
+     * The requested path must decide the controller.
+     *
+     * `Request` splits the path into controller and action from `$_GET['r']`
+     * only, because that is what the scaffolded rewrite produces. TestClient set
+     * `REQUEST_URI` and nothing else, so `calcParams()` never ran and the
+     * controller came back empty for every path — the classic-MVC fallback then
+     * ran the default controller, and the assertions in the test were made
+     * against the site's home page. A test written to prove `/admin/users` is
+     * refused to a guest passed on a home page no guard applies to.
+     */
+    public function testTheRequestedPathDecidesTheController(): void
+    {
+        // Act
+        $this->client->get('/Reports/monthly');
+
+        // Assert — `r` itself is consumed by Request, which records it here
+        $this->assertSame('Reports/monthly', \Pramnos\Http\Request::$originalRequest,
+            'the path must reach Request as the routing parameter');
+        $this->assertSame('Reports', \Pramnos\Http\Request::getInstance()->getController(),
+            'the controller must come from the requested path, not the default');
+    }
+
+    /**
+     * A query string must not become part of the route.
+     *
+     * `?page=2` is a parameter, not a path segment; folding it into the routing
+     * parameter would look for a controller named after it.
+     */
+    public function testAQueryStringIsNotPartOfTheRoute(): void
+    {
+        // Act
+        $this->client->get('/Reports?page=2');
+
+        // Assert
+        $this->assertSame('Reports', \Pramnos\Http\Request::$originalRequest);
+        $this->assertSame('2', $_GET['page'] ?? null);
+    }
+
+    /**
+     * The site root must still reach the default controller.
+     *
+     * There is no path to route, so nothing goes into the routing parameter —
+     * and, because `calcParams()` then does not run, the routing state left by
+     * the previous request must already have been cleared. It was not: `/`
+     * served whatever controller the request before it had resolved.
+     */
+    public function testTheSiteRootReachesTheDefaultController(): void
+    {
+        // Arrange — a previous request whose route must not carry over
+        $this->client->get('/Reports/monthly');
+
+        // Act
+        $this->client->get('/');
+
+        // Assert
+        $this->assertSame('', \Pramnos\Http\Request::$originalRequest);
+        $this->assertSame('', \Pramnos\Http\Request::getInstance()->getController(),
+            'the site root must not inherit the previous request\'s controller');
+    }
+
+    /**
+     * One request's body must not carry the previous request's body.
+     *
+     * The document is per-request by design and `addContent()` appends, so with
+     * one client making several requests, response 2 arrived with response 1's
+     * page in front of its own. `assertDontSee()` then failed on content from a
+     * page the test had already left — and `assertSee()` passed on it, which is
+     * the half that does damage, because a passing test is not investigated.
+     */
+    public function testAResponseDoesNotCarryThePreviousResponseBody(): void
+    {
+        // Arrange
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->addContent('LEFTOVER-FROM-BEFORE');
+
+        // Act
+        $body = (string) $this->client->get('/')->getResponse()->getBody();
+
+        // Assert
+        $this->assertStringNotContainsString('LEFTOVER-FROM-BEFORE', $body);
+    }
+
     // ── get() ─────────────────────────────────────────────────────────────────
 
     /**

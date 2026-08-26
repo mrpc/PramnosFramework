@@ -265,16 +265,60 @@ abstract class BaseTestCase extends TestCase
     }
 
     /**
-     * Simulate a user login by setting session variables.
-     * 
+     * Sign a user in for the rest of the test.
+     *
+     * The keys are the ones the framework reads, which is not what this used to
+     * set. `Session::staticIsLogged()` wants `logged` and a `uid` above 1, and
+     * `User::getCurrentUser()` builds the user from `uid`; this set `auth` and
+     * `user_id`, neither of which anything looks at. So the helper returned
+     * quietly having signed nobody in, and a test using it exercised the
+     * signed-out path while reading as though it covered the signed-in one — the
+     * guard it meant to test was never reached.
+     *
+     * `uid` must be above 1: ids 0 and 1 are reserved for the guest and the
+     * built-in system account, and `staticIsLogged()` rejects both.
+     *
      * @param int|string $userId
      */
     protected function loginUser($userId): void
     {
         $this->initializeSession([
+            // Kept: existing code and the session-tracking middleware read them.
             'auth' => true,
-            'user_id' => $userId
+            'user_id' => $userId,
+            // The ones that decide whether anybody is signed in.
+            'logged' => true,
+            'uid' => $userId,
         ]);
+
+        // The identity is cached on the application for the length of a request,
+        // so a stale one would answer for the user just signed in.
+        $app = \Pramnos\Application\Application::currentInstance();
+        if ($app !== null) {
+            $app->currentUser = null;
+        }
+    }
+
+    /**
+     * Sign out, undoing loginUser().
+     *
+     * A test that signs in and then checks the guest path needs this: the
+     * session is process-wide, so without it the login carries into every test
+     * after it.
+     */
+    protected function logoutUser(): void
+    {
+        unset(
+            $_SESSION['logged'],
+            $_SESSION['uid'],
+            $_SESSION['auth'],
+            $_SESSION['user_id']
+        );
+
+        $app = \Pramnos\Application\Application::currentInstance();
+        if ($app !== null) {
+            $app->currentUser = null;
+        }
     }
 
     /**

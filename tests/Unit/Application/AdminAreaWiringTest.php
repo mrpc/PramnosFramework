@@ -282,6 +282,116 @@ class AdminAreaWiringTest extends TestCase
             $this->assertStringContainsString('login', $app->redirects[0]);
         }
     }
+
+    /**
+     * A request that leaves the area gets the site theme back.
+     *
+     * The theme swap writes over `applicationInfo`, which lives as long as the
+     * application does — one request in a web process, but many in a `TestClient`,
+     * a worker that renders, or any long-running server. So a single request to
+     * `/admin` left every public page after it rendering in the admin layout.
+     */
+    public function testTheSiteThemeComesBackAfterLeavingTheArea(): void
+    {
+        // Arrange — a first request inside the area
+        $_GET['r'] = 'admin/Users';
+        $app = new InspectableAdminApplication([
+            'theme' => 'main',
+            'admin' => ['prefix' => 'admin', 'theme' => 'backoffice', 'default_controller' => 'Dashboard'],
+        ]);
+        $app->nextRequest();
+        $this->assertSame('backoffice', $app->info['theme'], 'precondition');
+
+        // Act — a second request outside it
+        AdminArea::reset();
+        $_GET['r'] = 'Home';
+        $app->nextRequest();
+
+        // Assert
+        $this->assertFalse(AdminArea::isActive());
+        $this->assertSame('main', $app->info['theme']);
+    }
+
+    /**
+     * And so does the default controller.
+     *
+     * The area points the bare prefix at its own front door. Left in place, the
+     * site root afterwards opened the administration dashboard.
+     */
+    public function testTheDefaultControllerComesBackAfterLeavingTheArea(): void
+    {
+        // Arrange
+        $_GET['r'] = 'admin';
+        $app = new InspectableAdminApplication([
+            'theme' => 'main',
+            'admin' => ['prefix' => 'admin', 'theme' => 'backoffice', 'default_controller' => 'Dashboard'],
+        ]);
+        $app->defaultController = 'Home';
+        $app->nextRequest();
+        $this->assertSame('Dashboard', $app->defaultController, 'precondition');
+
+        // Act
+        AdminArea::reset();
+        $_GET['r'] = '';
+        $app->nextRequest();
+
+        // Assert
+        $this->assertSame('Home', $app->defaultController);
+    }
+
+    /**
+     * A second request into the area is recognised as being inside it.
+     *
+     * Detection happened once, in the constructor. Every request after the first
+     * inherited that answer — so in a process serving more than one, `/admin/...`
+     * was routed as an ordinary path with the prefix still attached, and the
+     * usertype floor never applied to it.
+     */
+    public function testALaterRequestIntoTheAreaIsStillDetected(): void
+    {
+        // Arrange — the first request is outside the area
+        $_GET['r'] = 'Home';
+        $app = new InspectableAdminApplication([
+            'theme' => 'main',
+            'admin' => ['prefix' => 'admin', 'theme' => 'backoffice'],
+        ]);
+        $app->nextRequest();
+        $this->assertFalse(AdminArea::isActive(), 'precondition');
+
+        // Act — the second one is inside it
+        $_GET['r'] = 'admin/Users';
+        $app->nextRequest();
+
+        // Assert
+        $this->assertTrue(AdminArea::isActive());
+        $this->assertSame('Users', $_GET['r'], 'the prefix must be stripped for routing');
+        $this->assertSame('backoffice', $app->info['theme']);
+    }
+
+    /**
+     * An application with no theme configured does not acquire one.
+     *
+     * Restoring "what it was before" has to mean absent when it was absent; a
+     * restored empty string would name a theme directory that does not exist.
+     */
+    public function testAnApplicationWithNoThemeDoesNotAcquireOne(): void
+    {
+        // Arrange
+        $_GET['r'] = 'admin/Users';
+        $app = new InspectableAdminApplication([
+            'admin' => ['prefix' => 'admin', 'theme' => 'backoffice'],
+        ]);
+        $app->nextRequest();
+        $this->assertSame('backoffice', $app->info['theme'], 'precondition');
+
+        // Act
+        AdminArea::reset();
+        $_GET['r'] = 'Home';
+        $app->nextRequest();
+
+        // Assert
+        $this->assertArrayNotHasKey('theme', $app->info);
+    }
 }
 
 /**
@@ -311,6 +421,14 @@ class InspectableAdminApplication extends \Pramnos\Application\Application
     {
         $this->applicationInfo = $this->info;
         $this->enterAdminAreaIfRequested();
+        $this->info = $this->applicationInfo;
+    }
+
+    /** One request's worth of entry, the way a second request gets it. */
+    public function nextRequest(): void
+    {
+        $this->applicationInfo = $this->info;
+        $this->beginRequest();
         $this->info = $this->applicationInfo;
     }
 

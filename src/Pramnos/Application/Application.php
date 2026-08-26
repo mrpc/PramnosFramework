@@ -157,7 +157,7 @@ class Application extends Base
         }
         // Before anything builds a Request, because that is when the path is
         // split into controller and action — and the prefix must be gone by then.
-        $this->enterAdminAreaIfRequested();
+        $this->beginRequest();
 
         if (!defined('URL')) {
             define('URL', getUrl()); // @codeCoverageIgnore — URL is always defined before the first Application() in tests
@@ -423,7 +423,7 @@ class Application extends Base
      * @param  object|null $document
      * @return void
      */
-    protected function loadConfiguredTheme($document): void
+    public function loadConfiguredTheme($document): void
     {
         if (!isset($this->applicationInfo['theme'])
             || $this->applicationInfo['theme'] == ''
@@ -816,6 +816,52 @@ class Application extends Base
     }
 
     /**
+     * What the constructor found before any request-scoped override.
+     *
+     * @var array{theme: ?string, defaultController: string}|null
+     */
+    protected ?array $requestDefaults = null;
+
+    /**
+     * Re-derive the state that belongs to one request.
+     *
+     * A web request constructs an `Application` and ends, so whatever the
+     * constructor decided is per-request by accident rather than by design.
+     * Anything handling a second request in the same process — a `TestClient`, a
+     * worker that renders, a long-running server — inherited the first request's
+     * decisions for all of them.
+     *
+     * Not hypothetical: the administration area is recognised from `$_GET['r']`,
+     * so a second request to `/admin/users` was never seen as being inside the
+     * area, and a first one to `/admin` left the admin theme selected for every
+     * public page after it.
+     *
+     * Called by the constructor, so a single-request process behaves exactly as
+     * before. Call it again per request if you handle more than one.
+     */
+    public function beginRequest(): void
+    {
+        // The theme and the default controller are what the area overrides, so
+        // they are what has to be put back before deciding again. Captured on the
+        // first call, while nothing has overridden them yet.
+        if ($this->requestDefaults === null) {
+            $this->requestDefaults = [
+                'theme' => $this->applicationInfo['theme'] ?? null,
+                'defaultController' => $this->defaultController,
+            ];
+        } elseif ($this->requestDefaults['theme'] === null) {
+            unset($this->applicationInfo['theme']);
+            $this->defaultController = $this->requestDefaults['defaultController'];
+        } else {
+            $this->applicationInfo['theme'] = $this->requestDefaults['theme'];
+            $this->defaultController = $this->requestDefaults['defaultController'];
+        }
+
+        \Pramnos\Http\AdminArea::reset();
+        $this->enterAdminAreaIfRequested();
+    }
+
+    /**
      * Mount the administration area, if this request is inside it.
      *
      * Reads `admin` from `app/app.php`; with no such key, or an empty prefix,
@@ -878,7 +924,7 @@ class Application extends Base
      *
      * @return bool Whether the request may proceed
      */
-    protected function allowAdminAreaRequest(): bool
+    public function allowAdminAreaRequest(): bool
     {
         if (!\Pramnos\Http\AdminArea::isActive()) {
             return true;
@@ -1260,11 +1306,11 @@ class Application extends Base
             if ($error !== '') {
                 $payload['message'] = trim(strip_tags(str_replace('<br />', ' ', $error)));
             }
-            $this->close((string) json_encode($payload));
+            $this->closeWithStatus((string) json_encode($payload), $inMaintenance ? 503 : 500);
             return;
         }
 
-        $this->close(
+        $this->closeWithStatus(
             '<html><head><title>'
             . $title
             . '</title>'
@@ -1278,7 +1324,8 @@ class Application extends Base
             . '<p>'
             . $error
             . '</p><br /><br /><br /><br /><br /><br /><br />'
-            . '</div></body></html>'
+            . '</div></body></html>',
+            $inMaintenance ? 503 : 500
         );
     }
 
@@ -1313,7 +1360,7 @@ class Application extends Base
         }
         $safeMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
         $safeHome    = htmlspecialchars($home, ENT_QUOTES, 'UTF-8');
-        $this->close(
+        $this->closeWithStatus(
             '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             . '<meta name="viewport" content="width=device-width, initial-scale=1">'
             . '<meta name="robots" content="noindex, follow">'
@@ -1329,7 +1376,8 @@ class Application extends Base
             . '<body><div class="wrap"><h1>404</h1><h2>Page Not Found</h2>'
             . '<p>' . $safeMessage . '</p>'
             . '<a href="' . $safeHome . '">Go to homepage</a>'
-            . '</div></body></html>'
+            . '</div></body></html>',
+            404
         );
     }
 
@@ -1372,6 +1420,11 @@ class Application extends Base
         }
         //@codeCoverageIgnoreEnd
         if ($url !== null) {
+            // Recorded before it is acted on, so anything that has to work out
+            // afterwards where the request went can read it — `getRedirect()`.
+            // Previously only `setRedirect()` left a trace, so a redirect given
+            // its destination inline left none at all.
+            $this->_redirect = $url;
             if (!headers_sent()) {
                 header("Location: " . $url, true, $code);
             }
@@ -1381,7 +1434,7 @@ class Application extends Base
                 . 'redirect, please click '
                 . '<a href="' . $url . '">here</a>.';
             if ($quit == true) {
-                $this->close();
+                $this->closeWithStatus('', (int) $code);
             }
             return true;
         }
@@ -1395,7 +1448,7 @@ class Application extends Base
                 . 'redirect, please click '
                 . '<a href="' . $this->_redirect . '">here</a>.';
             if ($quit == true) {
-                $this->close();
+                $this->closeWithStatus('', (int) $code);
             }
             return true;
         }
@@ -2062,6 +2115,52 @@ class Application extends Base
      * Exit the application
      * @param string $msg Message to show before quiting
      */
+    /**
+     * End the request with a body and the status that goes with it.
+     *
+     * `close()` cannot take the status: applications subclass `Application` and
+     * override `close($msg = '')`, so adding a parameter to it is a signature
+     * break in every one of them — this framework's own test suite has such a
+     * subclass, which is how that was established rather than assumed.
+     *
+     * The status matters only under test, where `close()` throws instead of
+     * exiting. Without it a 404, a maintenance 503 and a genuine fault all
+     * arrived at the caller as the same exception, so a `TestClient` could only
+     * render them as 500s and no test could assert that a URL is not found.
+     *
+     * @param string $body   What close() would have sent
+     * @param int    $status The status the application decided on
+     */
+    protected function closeWithStatus(string $body, int $status): void
+    {
+        if (defined('PRAMNOS_TESTING')) {
+            throw new ApplicationClosedException(
+                "Application::close() called with msg: " . $body,
+                $status,
+                $body
+            );
+        }
+
+        $this->close($body);
+    }
+
+    /**
+     * Where the application has decided to send the visitor, if anywhere.
+     *
+     * `setRedirect()` records the destination and `render()` performs it, so
+     * between those two points the decision exists and nothing could read it.
+     * Anything that does not call `render()` — a `TestClient`, a worker — saw a
+     * refusal that named no destination and had to guess what had happened.
+     *
+     * A reader, not a behaviour change: `redirect()` still does exactly what it
+     * did, including the `<script>` fallback for a response whose headers have
+     * already gone out.
+     */
+    public function getRedirect(): ?string
+    {
+        return $this->_redirect;
+    }
+
     public function close($msg = "")
     {
         if (defined('DEVELOPMENT') && DEVELOPMENT == true) {
@@ -2071,7 +2170,17 @@ class Application extends Base
             );
         }
         if (defined('PRAMNOS_TESTING')) {
-            throw new \Exception("Application::close() called with msg: " . $msg);
+            // Typed, and carrying the status: everything that ends a request used
+            // to arrive at the caller as the same bare exception, so a 404, a
+            // maintenance 503 and a genuine fault were indistinguishable and a
+            // TestClient could only render all three as a 500. The message shape
+            // is unchanged, and the class extends \Exception, so existing
+            // handlers and assertions are unaffected.
+            throw new ApplicationClosedException(
+                "Application::close() called with msg: " . $msg,
+                200,
+                $msg
+            );
         }
         session_write_close();
         exit($msg);

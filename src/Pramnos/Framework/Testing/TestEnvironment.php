@@ -45,6 +45,16 @@ class TestEnvironment
             define('UNITTESTING', true); // @codeCoverageIgnore — UNITTESTING is always pre-defined by the test bootstrap
         }
 
+        // Application::close() calls exit() unless this is defined, in which case it
+        // throws instead. Under PHPUnit an exit() is not a failing test: the process
+        // stops mid-run, the summary never prints and whatever the dying page wrote
+        // — a maintenance page, a 404 — lands in the terminal as if it were test
+        // output. Every path that can end a request goes through close(), so without
+        // this a single database fault silently truncates the whole suite.
+        if (!defined('PRAMNOS_TESTING')) {
+            define('PRAMNOS_TESTING', true); // @codeCoverageIgnore — pre-defined by this framework's own bootstrap
+        }
+
         if (!defined('ROOT')) {
             // @codeCoverageIgnoreStart
             // ROOT is always defined before tests run; this guard exists only for

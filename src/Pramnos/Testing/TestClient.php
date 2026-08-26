@@ -71,6 +71,31 @@ class TestClient
      */
     public function call(string $method, string $uri, array $parameters = [], array $headers = []): TestResponse
     {
+        /**
+         * The previous request's routing state, which is static and would
+         * otherwise answer for this one.
+         *
+         * `calcParams()` runs only when there is a path to route, so a request to
+         * the site root left `$_controller` holding whatever the request before
+         * it resolved — `/` served the previous URL's controller. `getInstance()`
+         * has the same problem the other way round: it keeps returning the first
+         * request's object no matter how many follow.
+         */
+        Request::resetInstance();
+
+        /**
+         * A fresh document, because a document belongs to one request.
+         *
+         * Everything on it appends: `addContent()`, and `header`/`head`/`foot`,
+         * which `render()` adds the theme's to on every call. So with one client
+         * making several requests, response 2 carried response 1's page in front
+         * of its own and its `<head>` twice; by the fifth the theme had been
+         * concatenated five times and a test died with a 34 MB output buffer and
+         * an exhausted memory limit. `assertSee()` passing on a page the test had
+         * already left is the quieter half of the same bug.
+         */
+        \Pramnos\Document\Document::reset();
+
         // 1. Setup Superglobals
         $_SERVER['REQUEST_METHOD'] = strtoupper($method);
         $_SERVER['REQUEST_URI'] = $uri;
@@ -89,6 +114,28 @@ class TestClient
             parse_str($parsed['query'], $_GET);
         }
 
+        /**
+         * The routing parameter, which is what actually decides the controller.
+         *
+         * `Request` splits the path into controller, action, `_option` and a
+         * key/value tail — but only from `$_GET['r']`, because that is what the
+         * scaffolded `.htaccess` rewrites every URL into. Setting `REQUEST_URI`
+         * alone left it unset, so `calcParams()` never ran and
+         * `$request->getController()` came back empty for **every** path. The
+         * classic-MVC fallback below then ran the default controller, and the
+         * test asserted against the site's home page while believing it had
+         * asked for something else. A test written to prove that `/admin/users`
+         * is refused to a guest passed on a home page that no guard applies to.
+         *
+         * Set the same way the rewrite sets it: the path, no leading slash, with
+         * the query string left to `$_GET` (`calcParams()` re-merges it from
+         * `REQUEST_URI` itself).
+         */
+        $path = ltrim((string) ($parsed['path'] ?? ''), '/');
+        if ($path !== '') {
+            $_GET['r'] = $path;
+        }
+
         if (in_array(strtoupper($method), ['POST', 'PUT', 'DELETE', 'PATCH'])) {
             $_POST = $parameters;
             // Also update raw input for Request
@@ -96,6 +143,18 @@ class TestClient
         } else {
             Request::setRawInput('');
         }
+
+        /**
+         * Per-request application state, re-derived for this URI.
+         *
+         * `Application::__construct()` does this once, and a `TestClient` reuses
+         * one application across many requests — so without it the first URI's
+         * decisions stood for every later one. Most visibly the administration
+         * area: it is detected from `$_GET['r']`, so `/admin/users` was never
+         * recognised as being inside it, and once it had been the admin theme
+         * stayed selected for the public pages that followed.
+         */
+        $this->app->beginRequest();
 
         // 2. Initialize Request
         $request = new Request();
@@ -129,7 +188,63 @@ class TestClient
         $action = $request->getAction() ?: 'display';
 
         try {
-            $controller = $this->app->getController($controllerName);
+            /**
+             * The administration area's usertype floor, where the application
+             * applies it — before a controller inside the area is constructed for
+             * somebody who may not be there.
+             *
+             * `Application::exec()` does this, and TestClient resolves the
+             * controller itself rather than going through `exec()`, so it did
+             * not: every `/admin/...` request in a test was served with no floor
+             * at all. Tests written to prove the floor works passed because the
+             * screens have their own checks — so the suite would have kept
+             * passing right up to the first screen that forgot one.
+             *
+             * A refusal redirects, which now arrives as a `RedirectException` and
+             * is answered below with the destination the application chose.
+             */
+            if (!$this->app->allowAdminAreaRequest()) {
+                // The refusal is a *pending* redirect: the guard records where the
+                // visitor should go and `render()` performs it. Nothing here
+                // renders, so the destination is read directly. A refusal that
+                // named nowhere is a 403 rather than a silent empty 200.
+                $destination = $this->app->getRedirect();
+
+                return new TestResponse(
+                    $destination === null
+                        ? Response::make('', 403)
+                        : Response::redirect($destination, 302)
+                );
+            }
+
+            /**
+             * The theme, where `Application::exec()` loads it: before the
+             * controller runs, because a controller is entitled to read
+             * `$document->themeObject` while it does.
+             *
+             * TestClient never loaded one, so a response was the controller's
+             * output with no layout around it — no header, no navigation, no
+             * footer. A test could say nothing about a page as opposed to a
+             * fragment, and a theme that fails to render was invisible to the
+             * entire suite.
+             */
+            $this->app->loadConfiguredTheme(Factory::getDocument());
+
+            try {
+                $controller = $this->app->getController($controllerName);
+            } catch (\Pramnos\Application\ApplicationClosedException $closed) {
+                throw $closed;
+            } catch (\Exception $missing) {
+                /**
+                 * No such controller. `Application::exec()` catches this exact
+                 * exception and answers with its 404 page; TestClient resolved
+                 * the controller itself and so never reached that, turning every
+                 * unknown URL into a 500 — the one status a not-found test must
+                 * not get. `notFound()` throws, and the handler below renders it
+                 * with the status it carries.
+                 */
+                $this->app->notFound();
+            }
             $content = $controller->exec($action);
             
             // If the controller returned a Response object, use it directly
@@ -147,6 +262,31 @@ class TestClient
 
         } catch (\Pramnos\Http\RedirectException $exception) {
             return new TestResponse(Response::redirect($exception->getUrl(), $exception->getStatusCode()));
+
+        } catch (\Pramnos\Application\ApplicationClosedException $exception) {
+            /**
+             * The application ended the request itself — a 404, a maintenance
+             * stop, an error page. It carries the status it had decided on, which
+             * is the whole point of the typed exception: before it, all three
+             * arrived as a bare `\Exception` and were rendered as a 500, so no
+             * test could assert that a URL is not found.
+             */
+            /**
+             * A redirect that ended the request is answered as a redirect, with
+             * the destination the application chose — otherwise the response is
+             * the `<script>window.location` fallback body with no status and no
+             * Location, and a test cannot tell it from a page.
+             */
+            $status = $exception->getStatusCode();
+            $destination = $this->app->getRedirect();
+            if ($status >= 300 && $status < 400 && $destination !== null) {
+                return new TestResponse(Response::redirect($destination, $status));
+            }
+
+            return new TestResponse(Response::make(
+                $exception->getBody(),
+                $status
+            ));
 
         } catch (\Pramnos\Validation\ValidationException $exception) {
             $_SESSION['_validation_errors'] = $exception->errors();
