@@ -377,6 +377,32 @@ Templates are stored in `/src/Views/ViewName/template_name.html.php`:
 </div>
 ```
 
+### When a template is not found
+
+`getTpl()` returns `false`, logs *"Cannot find view template"* and leaves the view's
+output alone — a missing template is a failure to report, not a page to abandon.
+
+One thing happens before that, and it is worth knowing because it looks like magic
+otherwise: **if the request carries `?format=json` and the view has a model with a
+`getJsonList()` method, the model answers instead.** That is how a view can serve a
+DataTables-style JSON endpoint at the same route as its HTML page without a template for
+it.
+
+```php
+class Posts extends \Pramnos\Application\Model
+{
+    public function getJsonList(): string { /* … */ }
+}
+```
+
+The check is `is_object($this->model) && method_exists(...)`. It used to be
+`isset($this->model)`, which is why this section exists: `$model` is declared
+`public $model = false`, and `isset()` answers *not null* rather than *not empty*, so the
+guard passed for every view that has no model at all — and `method_exists(false, …)` is a
+`TypeError` on PHP 8. The branch that exists to recover from a missing template was
+taking the page down instead, on any request with `?format=json`. Reported from a
+consuming application's home page.
+
 ### Layouts and partials
 
 A template can declare a layout and fill named sections of it:

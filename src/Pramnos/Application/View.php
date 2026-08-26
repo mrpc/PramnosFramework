@@ -786,11 +786,24 @@ class View extends \Pramnos\Framework\Base
             if (\Pramnos\Http\Request::staticGet(
                 'format', '', 'get'
             ) == 'json') {
-                if (isset($this->model)){
-                    if (method_exists($this->model, 'getJsonList')){
-                        $this->output = $this->model->getJsonList();
-                        return true;
-                    }
+                // **`is_object()`, not `isset()`.** The property defaults to `false`
+                // and `isset()` answers "not null" rather than "not empty", so the
+                // guard passed for every view that has no model — and
+                // `method_exists(false, …)` is a TypeError on PHP 8.
+                //
+                // Which made this a fatal in the branch that exists to *recover* from
+                // a missing template: the code a few lines below logs "Cannot find view
+                // template", so the handler for a missing template was taking the page
+                // down instead. Reported from a consuming application's home page, with
+                // the stack trace out of its php_error.log.
+                //
+                // The default stays `false` rather than becoming `null`: `isset()` would
+                // then work, but anything comparing `=== false` would change meaning,
+                // and this guard wants to ask "have I got an object" either way.
+                if (is_object($this->model)
+                    && method_exists($this->model, 'getJsonList')) {
+                    $this->output = $this->model->getJsonList();
+                    return true;
                 }
             }
             if ($this->type != 'raw' && $this->type != 'json') {
