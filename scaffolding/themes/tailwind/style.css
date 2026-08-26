@@ -64,3 +64,114 @@ html ::file-selector-button {
 .breadcrumb-item a { color: #2563eb; text-decoration: none; }
 .breadcrumb-item a:hover { text-decoration: underline; }
 .breadcrumb-item.active { color: #6b7280; }
+
+/* ── Cross-entity search box (Html\SearchBox + data-pf-omnibox) ──────────────
+   Namespaced so it does not collide with a UI framework's own classes, and
+   written with fallbacks so the same block works in all three scaffold themes.
+   The results panel is positioned, not laid out inline: an omnibox that pushes
+   the header taller when results arrive moves the thing you were clicking. */
+.pf-omnibox {
+    position: relative;
+    display: inline-block;
+}
+
+.pf-omnibox-label {
+    /* Visually hidden, not display:none — a screen reader must still read it. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.pf-omnibox-input {
+    width: 100%;
+    min-width: 12rem;
+    padding: 0.45rem 0.75rem;
+    font: inherit;
+    color: var(--text-main, #1e293b);
+    background: var(--white, #fff);
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 0.375rem;
+}
+
+.pf-omnibox-input:focus {
+    outline: 2px solid var(--primary-color, #2563eb);
+    outline-offset: 1px;
+}
+
+.pf-omnibox-results {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    z-index: 60;
+    min-width: 20rem;
+    max-height: 24rem;
+    overflow-y: auto;
+    background: var(--white, #fff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 0.375rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+}
+
+.pf-omnibox-results[hidden] {
+    /* Explicit, because a `display` rule above would otherwise beat the
+       attribute and leave the panel permanently open. */
+    display: none;
+}
+
+.pf-omnibox-group + .pf-omnibox-group {
+    border-top: 1px solid var(--border-color, #f1f5f9);
+}
+
+.pf-omnibox-group-label {
+    margin: 0;
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #64748b);
+}
+
+.pf-omnibox-count {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.pf-omnibox-option {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    color: var(--text-main, #1e293b);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.pf-omnibox-option:hover,
+.pf-omnibox-option.is-active {
+    background: var(--bg-subtle, #f1f5f9);
+}
+
+.pf-omnibox-title {
+    display: block;
+    font-weight: 500;
+}
+
+.pf-omnibox-subtitle {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--text-muted, #64748b);
+}
+
+.pf-omnibox-empty,
+.pf-omnibox-loading {
+    margin: 0;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-muted, #64748b);
+}

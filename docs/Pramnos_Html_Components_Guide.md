@@ -2,6 +2,7 @@
 use_cases:
   - Rendering a dropdown filter outside any form
   - Rendering a search box, checkbox or textarea with no form around it
+  - Placing the cross-entity search box somewhere other than the header
   - Building pagination links for a listing page
   - Choosing between Html\Select and a form field
   - Finding out which reusable HTML components the framework already ships
@@ -17,6 +18,7 @@ each one constructed, configured with public properties, and turned into a strin
 |---|---|
 | [`Select`](#select) | a `<select>`, with no form around it |
 | [`Input`](#input) | one input, textarea, checkbox or radio, with no form around it |
+| [`SearchBox`](#searchbox) | the cross-entity search box in an admin header |
 | [`Pagination`](#pagination) | page links from a count, a current page and a URL pattern |
 | `Datatable` | a DataTables-backed table, with server-side paging and filters |
 | `Breadcrumb` | a breadcrumb trail, plus its `BreadcrumbList` structured data |
@@ -190,6 +192,47 @@ declares what it needs.
 
 ---
 
+## SearchBox
+
+```php
+echo (new \Pramnos\Html\SearchBox())->render();
+```
+
+The markup for the cross-entity search box. The results come from
+[`Search\Registry`](Pramnos_Search_Guide.md), the behaviour from `data-pf-omnibox` in
+`assets/js/pf-utils.js`, and the styles from `assets/css/style.css` — all three already
+on a scaffolded page, so this contributes **no script and no stylesheet** of its own.
+
+A scaffolded theme renders it in the header already. Reach for this class only to put a
+second one somewhere else.
+
+```php
+$box = new \Pramnos\Html\SearchBox('/api/1.0/admin/search');
+$box->placeholder       = 'Find anything…';
+$box->id                = 'sidebar-search';   // renames the input, label and panel together
+$box->minimumCharacters = 3;
+$box->debounce          = 400;
+$box->label             = 'Αναζήτηση';
+```
+
+The endpoint defaults to `<api_prefix>/admin/search`, read from `app/app.php` rather than
+assumed — a project served under `/v1` would otherwise get a box pointing at a 404, and a
+404 on a search box reads as "search is broken".
+
+### The one component that does default an `id`
+
+`Input` and `Select` deliberately invent none. This does, because `aria-controls` and
+`aria-activedescendant` are associations *by id*, and without them a screen reader has a
+text field and an unrelated list rather than a combobox. One box per page is also the
+premise, so the collision risk that made the others refuse does not apply — set `id` if
+you need two.
+
+The accessible name is a real visually-hidden `<label>`, not an `aria-label`: an
+`aria-label` is invisible to a translation tool that only reads element text, and the
+result is a translated interface whose search box announces itself in English.
+
+---
+
 ## Pagination
 
 ```php
@@ -268,4 +311,5 @@ whole reason these are paths rather than a query parameter.
 
 - [Query Builder](Pramnos_QueryBuilder_Guide.md) — `forPage()`, and the query half of paging
 - [Document Output](Pramnos_Document_Output_Guide.md) — where rendered markup goes
+- [Cross-Entity Search](Pramnos_Search_Guide.md) — the registry and endpoint behind `SearchBox`
 - [Theming](Pramnos_Theme_Guide.md) — views, layouts and the theme these render inside

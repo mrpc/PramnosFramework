@@ -82,6 +82,7 @@ class Init extends Command
         'components/Pagination.svelte'    => 'spa-pagination.svelte',
         'components/ConfirmDialog.svelte' => 'spa-confirm-dialog.svelte',
         'components/Field.svelte'         => 'spa-field.svelte',
+        'components/Omnibox.svelte'       => 'spa-omnibox.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
     ];
 
@@ -101,6 +102,7 @@ class Init extends Command
         '__tests__/Pagination.test.js'    => 'spa-pagination.test.js',
         '__tests__/ConfirmDialog.test.js' => 'spa-confirm-dialog.test.js',
         '__tests__/Field.test.js'         => 'spa-field.test.js',
+        '__tests__/Omnibox.test.js'       => 'spa-omnibox.test.js',
         '__tests__/i18n.test.js'          => 'spa-i18n.test.js',
         '__tests__/router.test.js'        => 'spa-router.test.js',
     ];
@@ -600,6 +602,7 @@ class Init extends Command
         );
         $this->writeFile('app/language/en.php', "<?php\n\$lang = [\n    'CHARSET' => 'UTF-8',\n    'LangShort' => 'en'\n];\nreturn \$lang;\n");
         $this->writeFile('app/schedule.php', $this->getScheduleTemplate());
+        $this->writeFile('app/search.php', $this->getSearchTemplate($enabledFeatures));
         $this->writeFile($this->webRoot . '/index.php', $this->getIndexTemplate($namespace));
         $this->writeFile(
             $this->webRoot . '/.htaccess',
@@ -2969,6 +2972,10 @@ PHP;
             $lines[] = "        \$r->get('/admin/logs', function () {";
             $lines[] = "            return (new {$admin}(\$this))->logs();";
             $lines[] = "        });";
+            $lines[] = "        // Cross-entity search — sources declared in app/search.php";
+            $lines[] = "        \$r->get('/admin/search', function () {";
+            $lines[] = "            return (new {$admin}(\$this))->search();";
+            $lines[] = "        });";
             $lines[] = "";
             $lines[] = "        // Account — token-based auth (login issues a bearer token)";
             $lines[] = "        \$r->post('/account/login', function () {";
@@ -3310,6 +3317,9 @@ PHP;
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
                     <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
                     <?php endforeach; ?>
+                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value]) && \Pramnos\Search\Registry::loadDefinitions()): ?>
+                    <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
+                    <?php endif; ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Admin</a>
@@ -3340,6 +3350,9 @@ HTML,
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
                     <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>" class="text-blue-600 font-semibold hover:text-blue-800 transition-colors"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
                     <?php endforeach; ?>
+                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value]) && \Pramnos\Search\Registry::loadDefinitions()): ?>
+                    <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
+                    <?php endif; ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="relative group">
                         <span class="inline-block py-2 text-gray-700 hover:text-blue-600 font-medium transition-colors cursor-pointer">Admin &#9660;</span>
@@ -3370,6 +3383,9 @@ HTML,
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::Feature->value] ?? [] as $_item): ?>
                     <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
                     <?php endforeach; ?>
+                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value]) && \Pramnos\Search\Registry::loadDefinitions()): ?>
+                    <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
+                    <?php endif; ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-admin">
                         <span>Admin</span>
@@ -4567,6 +4583,79 @@ PHP;
     </source>
 </phpunit>
 XML;
+    }
+
+    /**
+     * The app/search.php stub — the official place to declare searchable entities.
+     *
+     * Loaded by `Search\Registry::loadDefinitions()`, which the `/admin/search`
+     * endpoint calls. The same convention as `app/schedule.php`: declarations live in
+     * code, not in a table, so they are reviewable in a diff.
+     *
+     * `User` is registered when the auth feature is on, because it is the one entity the
+     * framework itself owns — an omnibox that starts out searching nothing is
+     * indistinguishable from a broken one.
+     *
+     * @param  array<int, string> $features Enabled feature flags
+     */
+    private function getSearchTemplate(array $features): string
+    {
+        $userBlock = in_array('auth', $features, true)
+            ? <<<'PHP'
+
+// The framework's own entity. Users are searched by username and email — the columns
+// User::apiListSearchConditions() looks at.
+Registry::register('Users', \Pramnos\User\User::class, [
+    'display' => ['username', 'email'],
+    'url'     => '/users/edit/:id',
+]);
+
+PHP
+            : <<<'PHP'
+
+// Nothing is registered yet: the search box renders only once something is.
+
+PHP;
+
+        return <<<PHP
+<?php
+
+/**
+ * Searchable entities.
+ *
+ * This file is loaded by `Pramnos\Search\Registry::loadDefinitions()`, which the
+ * `GET /admin/search` endpoint calls. Each registered source is queried with the same
+ * term and its results come back as a group.
+ *
+ * Per-entity search needs nothing here: every model implements `ApiListSource`, so a
+ * `Datatable` or a generated CRUD list already searches. This file is only about the
+ * cross-entity box — one term, several entities.
+ *
+ * Options:
+ *   display    — columns to show. First is the title, the rest become the subtitle.
+ *   url        — link pattern; `:id` is replaced with the primary key.
+ *   limit      — cap for this source (default: 5).
+ *   permission — an ability name (checked with Gate) or fn(\$user): bool. A source the
+ *                viewer may not see is left out of the response entirely.
+ *   filter     — a WHERE body applied before the term. As a callable it receives the
+ *                current user, which is how a per-viewer scope is written.
+ *
+ * Both permission and filter fail closed: a source whose permission cannot be evaluated,
+ * or whose filter callable returns no scope, is dropped rather than returned unscoped.
+ */
+
+use Pramnos\Search\Registry;
+{$userBlock}
+// Add your own:
+//
+// Registry::register('Orders', \\Your\\App\\Models\\Order::class, [
+//     'display'    => ['reference', 'customer_name'],
+//     'url'        => '/orders/edit/:id',
+//     'permission' => 'orders.list',
+//     'filter'     => static fn(\$user) => 'deleted = 0 AND tenant_id = ' . (int) \$user->tenantid,
+// ]);
+
+PHP;
     }
 
     /**

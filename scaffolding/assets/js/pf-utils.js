@@ -18,6 +18,9 @@
  *   data-stats-open             — open the stats modal and load JSON from data-stats-url
  *   data-stats-url="url"        — (with data-stats-open) endpoint returning the stats JSON
  *   data-stats-close            — close the stats modal
+ *   data-pf-omnibox             — cross-entity search box (see Html\SearchBox); the
+ *                                 endpoint, minimum length, debounce and the loading /
+ *                                 empty strings come from data-pf-omnibox-* attributes
  *
  * Stats modal markup contract (rendered by the view, styled by the theme):
  *   #pf-stats-overlay  — the full-screen overlay (toggled via style.display)
@@ -193,4 +196,183 @@
         });
         return html + '</tbody></table>';
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-omnibox — cross-entity search
+    //
+    // Markup comes from \Pramnos\Html\SearchBox, results from the endpoint named in
+    // data-pf-omnibox-url (the scaffolded /admin/search, backed by Search\Registry).
+    // Nothing here is specific to a UI system: the classes are namespaced and the
+    // styles live in style.css, so bootstrap, tailwind and plain themes share this.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var boxes = document.querySelectorAll('[data-pf-omnibox]');
+        if (!boxes.length) { return; }
+
+        Array.prototype.forEach.call(boxes, function (box) {
+            var input   = box.querySelector('.pf-omnibox-input');
+            var results = box.querySelector('.pf-omnibox-results');
+            if (!input || !results) { return; }
+
+            var url      = box.getAttribute('data-pf-omnibox-url') || '';
+            var minimum  = parseInt(box.getAttribute('data-pf-omnibox-min') || '2', 10);
+            var wait     = parseInt(box.getAttribute('data-pf-omnibox-debounce') || '250', 10);
+            var loading  = box.getAttribute('data-pf-omnibox-loading') || 'Searching…';
+            var empty    = box.getAttribute('data-pf-omnibox-empty') || 'No results';
+            var timer    = null;
+            var inFlight = null;
+            var active   = -1;
+
+            function close() {
+                results.hidden = true;
+                results.innerHTML = '';
+                input.setAttribute('aria-expanded', 'false');
+                input.removeAttribute('aria-activedescendant');
+                active = -1;
+            }
+
+            function open(html) {
+                results.innerHTML = html;
+                results.hidden = false;
+                input.setAttribute('aria-expanded', 'true');
+            }
+
+            function options() {
+                return results.querySelectorAll('[role="option"]');
+            }
+
+            // Moves the visual and the announced selection together. Keeping them in
+            // one place is the point: a highlight without aria-activedescendant is a
+            // selection only sighted users can see.
+            function highlight(index) {
+                var items = options();
+                if (!items.length) { return; }
+
+                if (active >= 0 && items[active]) {
+                    items[active].classList.remove('is-active');
+                    items[active].setAttribute('aria-selected', 'false');
+                }
+
+                active = (index + items.length) % items.length;
+                items[active].classList.add('is-active');
+                items[active].setAttribute('aria-selected', 'true');
+                input.setAttribute('aria-activedescendant', items[active].id);
+
+                if (items[active].scrollIntoView) {
+                    items[active].scrollIntoView({ block: 'nearest' });
+                }
+            }
+
+            function render(payload) {
+                var groups = (payload && payload.groups) || [];
+                if (!groups.length) {
+                    open('<p class="pf-omnibox-empty">' + escapeHtml(empty) + '</p>');
+                    return;
+                }
+
+                var html = '';
+                var index = 0;
+
+                groups.forEach(function (group) {
+                    var rows = group.results || [];
+                    if (!rows.length) { return; }
+
+                    html += '<div class="pf-omnibox-group">';
+                    html += '<p class="pf-omnibox-group-label">' + escapeHtml(group.label);
+                    // "5 of 137" — the group total comes from the same count the list
+                    // endpoints use, so it is the real number and not the page size.
+                    if (group.total > rows.length) {
+                        html += ' <span class="pf-omnibox-count">'
+                            + rows.length + '/' + group.total + '</span>';
+                    }
+                    html += '</p>';
+
+                    rows.forEach(function (row) {
+                        var id  = box.id + '-option-' + (index++);
+                        var tag = row.url ? 'a' : 'div';
+                        html += '<' + tag + ' class="pf-omnibox-option" role="option"'
+                            + ' aria-selected="false" id="' + escapeHtml(id) + '"'
+                            + (row.url ? ' href="' + escapeHtml(row.url) + '"' : '')
+                            + '>';
+                        html += '<span class="pf-omnibox-title">' + escapeHtml(row.title) + '</span>';
+                        if (row.subtitle) {
+                            html += '<span class="pf-omnibox-subtitle">' + escapeHtml(row.subtitle) + '</span>';
+                        }
+                        html += '</' + tag + '>';
+                    });
+
+                    html += '</div>';
+                });
+
+                open(html || '<p class="pf-omnibox-empty">' + escapeHtml(empty) + '</p>');
+            }
+
+            function search(term) {
+                // Abort rather than ignore: without this, a slow response to "an" can
+                // land after a fast one to "anna" and replace the newer results.
+                if (inFlight) { inFlight.abort(); }
+                inFlight = typeof AbortController === 'function' ? new AbortController() : null;
+
+                open('<p class="pf-omnibox-loading">' + escapeHtml(loading) + '</p>');
+
+                fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(term), {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' },
+                    signal: inFlight ? inFlight.signal : undefined
+                }).then(function (response) {
+                    if (!response.ok) { throw new Error('HTTP ' + response.status); }
+                    return response.json();
+                }).then(render).catch(function (error) {
+                    if (error && error.name === 'AbortError') { return; }
+                    // Shown, not swallowed: a search box that silently returns nothing
+                    // when the endpoint 403s is indistinguishable from one with no
+                    // matches, and that is the bug people spend an afternoon on.
+                    open('<p class="pf-omnibox-empty">' + escapeHtml(empty) + '</p>');
+                    if (window.console) { console.warn('Omnibox request failed:', error); }
+                });
+            }
+
+            input.addEventListener('input', function () {
+                var term = input.value.trim();
+                if (timer) { clearTimeout(timer); }
+
+                if (term.length < minimum) {
+                    if (inFlight) { inFlight.abort(); }
+                    close();
+                    return;
+                }
+
+                timer = setTimeout(function () { search(term); }, wait);
+            });
+
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') {
+                    close();
+                    return;
+                }
+                if (results.hidden) { return; }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    highlight(active + 1);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    highlight(active - 1);
+                } else if (e.key === 'Enter' && active >= 0) {
+                    var items = options();
+                    if (items[active]) {
+                        e.preventDefault();
+                        items[active].click();
+                    }
+                }
+            });
+
+            // Closing on outside click only — not on blur, which fires before the click
+            // that follows a result and would cancel the navigation.
+            document.addEventListener('click', function (e) {
+                if (!box.contains(e.target)) { close(); }
+            });
+        });
+    })();
+
 })();

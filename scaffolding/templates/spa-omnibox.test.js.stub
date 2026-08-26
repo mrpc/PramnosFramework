@@ -1,0 +1,231 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Omnibox from '../components/Omnibox.svelte';
+
+/**
+ * Tests for the cross-entity search box.
+ *
+ * The component's job is small — type, wait, ask `/admin/search`, group what comes
+ * back — and every interesting case is about *not* asking: below the minimum length,
+ * while the term is still being typed, and after a newer request has superseded an
+ * older one.
+ *
+ * That last one is the reason the abort exists and the reason it is tested here rather
+ * than trusted: a slow answer to "an" landing after a fast answer to "anna" replaces
+ * newer results with older ones, and on screen that looks like the search returning
+ * wrong matches rather than like a race.
+ */
+
+/** One group in the shape `Search\Registry::query()` returns. */
+const group = (label, rows, total = null) => ({
+    label,
+    total: total ?? rows.length,
+    results: rows,
+});
+
+const row = (title, over = {}) => ({
+    id: 1,
+    title,
+    subtitle: '',
+    url: '/users/edit/1',
+    ...over,
+});
+
+let calls;
+
+vi.mock('../lib/api.js', () => ({
+    ApiError: class ApiError extends Error {},
+    api: {
+        get: (path, query, options) => {
+            const call = { path, query, options, resolve: null, reject: null };
+            call.promise = new Promise((resolve, reject) => {
+                call.resolve = resolve;
+                call.reject = reject;
+            });
+            calls.push(call);
+
+            return call.promise;
+        },
+    },
+}));
+
+vi.mock('../lib/i18n.svelte.js', () => ({ t: (s) => s }));
+
+beforeEach(() => {
+    calls = [];
+    vi.useFakeTimers();
+});
+
+afterEach(() => {
+    vi.useRealTimers();
+});
+
+/** Type into the box and let the debounce elapse. */
+async function type(term, { debounce = 250 } = {}) {
+    const input = screen.getByRole('combobox');
+    await fireEvent.input(input, { target: { value: term } });
+    await vi.advanceTimersByTimeAsync(debounce + 10);
+
+    return input;
+}
+
+describe('Omnibox', () => {
+    it('asks nothing until the minimum length is reached', async () => {
+        // Arrange
+        render(Omnibox, { minimum: 3 });
+
+        // Act
+        await type('an');
+
+        // Assert — two characters is below the floor, so no request at all.
+        expect(calls).toHaveLength(0);
+    });
+
+    it('debounces, so a typed word is one request and not five', async () => {
+        // Arrange
+        render(Omnibox);
+        const input = screen.getByRole('combobox');
+
+        // Act — five keystrokes inside the debounce window.
+        for (const term of ['an', 'ann', 'anna', 'annak', 'annaki']) {
+            await fireEvent.input(input, { target: { value: term } });
+            await vi.advanceTimersByTimeAsync(50);
+        }
+        await vi.advanceTimersByTimeAsync(300);
+
+        // Assert — only the last term is ever sent.
+        expect(calls).toHaveLength(1);
+        expect(calls[0].query).toEqual({ q: 'annaki' });
+    });
+
+    it('sends the term as a query object, not glued into the path', async () => {
+        // Arrange
+        render(Omnibox);
+
+        // Act
+        await type('a b&c');
+
+        // Assert — `api.get(path, query, options)`: a term in the path would be
+        // double-encoded, and a term in the options position would never be sent.
+        expect(calls[0].path).toBe('/admin/search');
+        expect(calls[0].query).toEqual({ q: 'a b&c' });
+        expect(calls[0].options.signal).toBeDefined();
+    });
+
+    it('renders results grouped, with a count when a group is truncated', async () => {
+        // Arrange
+        render(Omnibox);
+
+        // Act
+        await type('ann');
+        calls[0].resolve({
+            groups: [
+                group('Users', [row('annak', { subtitle: 'anna@example.com' })], 12),
+                group('Orders', [row('ANN-4', { url: '/orders/edit/4' })]),
+            ],
+        });
+
+        // Assert
+        await waitFor(() => expect(screen.getByText('annak')).toBeTruthy());
+        expect(screen.getByText('anna@example.com')).toBeTruthy();
+        expect(screen.getByText('Users')).toBeTruthy();
+        expect(screen.getByText('Orders')).toBeTruthy();
+        // 1 shown of 12 found — the honest number, so nobody reads one result as one match.
+        expect(screen.getByText('1/12')).toBeTruthy();
+    });
+
+    it('aborts the previous request so an older answer cannot win', async () => {
+        // Arrange
+        render(Omnibox);
+        await type('an');
+        const first = calls[0];
+
+        // Act — a second term supersedes the first.
+        await type('anna');
+
+        // Assert — the first request was cancelled, not merely ignored.
+        expect(first.options.signal.aborted).toBe(true);
+        expect(calls[1].options.signal.aborted).toBe(false);
+    });
+
+    it('distinguishes an empty result from a failed request', async () => {
+        // Arrange
+        render(Omnibox);
+
+        // Act — nothing matched.
+        await type('zzz');
+        calls[0].resolve({ groups: [] });
+
+        // Assert
+        await waitFor(() => expect(screen.getByText('No results')).toBeTruthy());
+
+        // Act — the endpoint refused.
+        await type('zzzz');
+        calls[1].reject(new Error('boom'));
+
+        // Assert — a different message, because a 403 and no matches look identical
+        // otherwise and only one of them is the searcher's problem.
+        await waitFor(() =>
+            expect(screen.getByText('Search is unavailable right now.')).toBeTruthy()
+        );
+    });
+
+    it('closes and clears when the term drops below the minimum', async () => {
+        // Arrange
+        render(Omnibox);
+        await type('ann');
+        calls[0].resolve({ groups: [group('Users', [row('annak')])] });
+        await waitFor(() => expect(screen.getByText('annak')).toBeTruthy());
+
+        // Act
+        await type('a');
+
+        // Assert — the panel is gone, and the combobox says so.
+        await waitFor(() => expect(screen.queryByText('annak')).toBeNull());
+        expect(screen.getByRole('combobox').getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('walks the results with the arrow keys and announces the active one', async () => {
+        // Arrange
+        render(Omnibox);
+        const input = await type('ann');
+        calls[0].resolve({
+            groups: [
+                group('Users', [row('first'), row('second', { url: '/users/edit/2' })]),
+            ],
+        });
+        await waitFor(() => expect(screen.getByText('first')).toBeTruthy());
+
+        // Act
+        await fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+        // Assert — aria-activedescendant, not only a class: a highlight without it is
+        // a selection only sighted users can perceive.
+        await waitFor(() =>
+            expect(input.getAttribute('aria-activedescendant')).toBe('omnibox-option-0')
+        );
+
+        // Act — wrapping round the end returns to the first.
+        await fireEvent.keyDown(input, { key: 'ArrowDown' });
+        await fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+        // Assert
+        await waitFor(() =>
+            expect(input.getAttribute('aria-activedescendant')).toBe('omnibox-option-0')
+        );
+    });
+
+    it('closes on Escape', async () => {
+        // Arrange
+        render(Omnibox);
+        const input = await type('ann');
+        calls[0].resolve({ groups: [group('Users', [row('annak')])] });
+        await waitFor(() => expect(screen.getByText('annak')).toBeTruthy());
+
+        // Act
+        await fireEvent.keyDown(input, { key: 'Escape' });
+
+        // Assert
+        await waitFor(() => expect(screen.queryByText('annak')).toBeNull());
+    });
+});

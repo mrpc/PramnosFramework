@@ -59,6 +59,34 @@ class ApiAdmin extends ApiCrudController
     }
 
     /**
+     * GET /admin/search — one term across every registered entity.
+     *
+     * The aggregate that no single model can implement for itself. Per-entity search
+     * already exists — every model is an `ApiListSource` and `ApiListQuery` runs the
+     * term — so this registers nothing of its own: it loads `app/search.php` and loops
+     * the sources it declares.
+     *
+     * Guarded as its own action rather than reusing `users`: an omnibox reaches whatever
+     * the application registered, which is a wider grant than "may list users" and must
+     * be grantable separately.
+     */
+    public function search(): mixed
+    {
+        if (($denied = $this->guard('search')) !== null) {
+            return $denied;
+        }
+
+        \Pramnos\Search\Registry::loadDefinitions();
+
+        return Response::json(\Pramnos\Search\Registry::query(
+            (string) Request::staticGet('q', '', 'get'),
+            // Capped rather than taken from the request: an omnibox asking for 500 rows
+            // from six tables is a denial-of-service endpoint with a friendly name.
+            min(20, max(1, (int) Request::staticGet('limit', 5, 'get', 'int')))
+        ));
+    }
+
+    /**
      * GET /admin/logs — one page of a log file.
      *
      * The file is chosen from the viewer's whitelist, never from the raw

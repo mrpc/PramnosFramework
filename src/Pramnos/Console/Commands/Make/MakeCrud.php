@@ -54,6 +54,12 @@ class MakeCrud extends MakeCommandBase
         $this->crudTarget = $target;
         $output->writeln($this->createCrud($name));
 
+        // Asked after the files exist, so answering yes registers something real.
+        $registration = $this->offerSearchRegistration($input, $output, $name);
+        if ($registration !== '') {
+            $output->write($registration);
+        }
+
         return 0;
     }
 }

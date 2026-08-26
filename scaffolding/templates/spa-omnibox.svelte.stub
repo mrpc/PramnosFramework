@@ -1,0 +1,187 @@
+<script>
+    import { api, ApiError } from '../lib/api.js';
+    import { t } from '../lib/i18n.svelte.js';
+
+    /**
+     * Cross-entity search — one term, several entities, grouped results.
+     *
+     * The front end of `GET /admin/search`, which loops whatever `app/search.php`
+     * registered with `Pramnos\Search\Registry`. Per-entity search needs nothing from
+     * this component: every list screen already passes a `search` parameter to its own
+     * endpoint. What this covers is the case a single list cannot — finding something
+     * when you do not yet know which screen it is on.
+     *
+     * The server-rendered themes get the same feature from `Html\SearchBox` and the
+     * `data-pf-omnibox` handler in `pf-utils.js`. Two implementations, one endpoint and
+     * one registry: the shape of the results is defined in exactly one place.
+     */
+
+    /** @type {{ minimum?: number, debounce?: number, placeholder?: string }} */
+    let { minimum = 2, debounce = 250, placeholder = '' } = $props();
+
+    let term    = $state('');
+    let groups  = $state([]);
+    let open    = $state(false);
+    let loading = $state(false);
+    let failed  = $state(false);
+    let active  = $state(-1);
+
+    let timer      = null;
+    let controller = null;
+
+    /** Every result across every group, in the order they are rendered. */
+    const flat = $derived(groups.flatMap((group) => group.results ?? []));
+
+    function close() {
+        open   = false;
+        active = -1;
+    }
+
+    async function run(query) {
+        // Abort rather than ignore. Without this a slow answer to "an" can land after a
+        // fast answer to "anna" and replace the newer results with older ones — which
+        // looks like the search returning wrong matches, not like a race.
+        controller?.abort();
+        controller = new AbortController();
+
+        loading = true;
+        failed  = false;
+        open    = true;
+
+        try {
+            // api.get(path, query, options) — the query object is the second argument,
+            // so the signal goes in the third. Passing it as the second silently sends
+            // `?signal=…` and never cancels anything.
+            const result = await api.get(
+                '/admin/search',
+                { q: query },
+                { signal: controller.signal }
+            );
+            groups = result.groups ?? [];
+            active = -1;
+        } catch (err) {
+            if (err?.name === 'AbortError') {
+                return;
+            }
+            // Distinguished from "no matches": a 403 on the endpoint and an empty
+            // result set look identical in a dropdown, and only one of them is
+            // something the person searching can do anything about.
+            groups = [];
+            failed = true;
+            if (!(err instanceof ApiError)) {
+                console.warn('Omnibox request failed', err);
+            }
+        } finally {
+            loading = false;
+        }
+    }
+
+    function onInput() {
+        clearTimeout(timer);
+        const query = term.trim();
+
+        if (query.length < minimum) {
+            controller?.abort();
+            groups = [];
+            close();
+            return;
+        }
+
+        timer = setTimeout(() => run(query), debounce);
+    }
+
+    function onKeydown(event) {
+        if (event.key === 'Escape') {
+            close();
+            return;
+        }
+        if (!open || flat.length === 0) {
+            return;
+        }
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            active = (active + 1) % flat.length;
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            active = (active - 1 + flat.length) % flat.length;
+        } else if (event.key === 'Enter' && active >= 0 && flat[active]?.url) {
+            event.preventDefault();
+            window.location.href = flat[active].url;
+        }
+    }
+
+    /** The index a result has in the flattened list, for keyboard highlighting. */
+    function indexOf(row) {
+        return flat.indexOf(row);
+    }
+</script>
+
+<!-- Closing on an outside pointerdown rather than on blur: blur fires before the click
+     that follows a result, so closing there cancels the navigation. -->
+<svelte:window onpointerdown={(e) => { if (!e.target.closest('[data-omnibox]')) close(); }} />
+
+<div class="dropdown dropdown-end" data-omnibox>
+    <label class="sr-only" for="omnibox-input">{t('Search')}</label>
+    <input
+        id="omnibox-input"
+        type="search"
+        class="input input-bordered input-sm w-48"
+        placeholder={placeholder || t('Search')}
+        autocomplete="off"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls="omnibox-results"
+        aria-autocomplete="list"
+        aria-activedescendant={active >= 0 ? `omnibox-option-${active}` : undefined}
+        bind:value={term}
+        oninput={onInput}
+        onkeydown={onKeydown}
+    />
+
+    {#if open}
+        <div
+            id="omnibox-results"
+            class="dropdown-content menu z-50 mt-1 max-h-96 w-80 overflow-y-auto rounded-box bg-base-100 p-0 shadow-lg"
+            role="listbox"
+            aria-label={t('Search')}
+        >
+            {#if loading}
+                <p class="p-3 text-sm opacity-70">{t('Searching…')}</p>
+            {:else if failed}
+                <p class="p-3 text-sm text-error">{t('Search is unavailable right now.')}</p>
+            {:else if flat.length === 0}
+                <p class="p-3 text-sm opacity-70">{t('No results')}</p>
+            {:else}
+                {#each groups as group}
+                    {#if (group.results ?? []).length > 0}
+                        <p class="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide opacity-60">
+                            {group.label}
+                            {#if group.total > group.results.length}
+                                <span class="font-normal normal-case">
+                                    {group.results.length}/{group.total}
+                                </span>
+                            {/if}
+                        </p>
+                        {#each group.results as row}
+                            {@const i = indexOf(row)}
+                            <a
+                                id={`omnibox-option-${i}`}
+                                role="option"
+                                aria-selected={active === i}
+                                class="block px-3 py-2 hover:bg-base-200"
+                                class:bg-base-200={active === i}
+                                href={row.url ?? '#'}
+                            >
+                                <span class="block font-medium">{row.title}</span>
+                                {#if row.subtitle}
+                                    <span class="block text-xs opacity-60">{row.subtitle}</span>
+                                {/if}
+                            </a>
+                        {/each}
+                    {/if}
+                {/each}
+            {/if}
+        </div>
+    {/if}
+</div>

@@ -2252,6 +2252,118 @@ abstract class MakeCommandBase extends Command
     }
 
     /**
+     * Offer to make a freshly generated entity searchable from the admin search box.
+     *
+     * Asked rather than done. A registration is a decision about what an omnibox may
+     * surface, and some entities should never appear in one — an audit table, a join
+     * table, anything holding another tenant's rows. Registering every generated CRUD
+     * silently would make that decision by default and in the direction that leaks.
+     *
+     * Skipped without a prompt when there is nothing to register into (`app/search.php`
+     * missing, as in a project scaffolded before the registry existed) or when the
+     * command is not interactive — a `create:crud` in CI must not block on a question.
+     *
+     * Not part of {@see createCrud()} because that method is public and documented as
+     * overridable, so its signature stays as it was; the prompt needs `$input`.
+     *
+     * @param  string $name Entity name, as passed to `create:crud`
+     * @return string A line for the command's own output, or ''
+     */
+    protected function offerSearchRegistration(
+        InputInterface $input,
+        OutputInterface $output,
+        string $name
+    ): string {
+        $file = ROOT . DS . 'app' . DS . 'search.php';
+        if (!is_file($file) || !is_writable($file)) {
+            return '';
+        }
+
+        $modelClass = $this->searchModelClass($name);
+        if ($modelClass === '' || str_contains((string) file_get_contents($file), $modelClass)) {
+            // Already registered — a second `create:crud` for the same entity must not
+            // append a duplicate block that then searches the same table twice.
+            return '';
+        }
+
+        if (!$input->isInteractive()) {
+            return " <comment>Not registered for admin search.</comment> Add it to app/search.php to include "
+                . $name . " in the search box.\n";
+        }
+
+        /** @var \Symfony\Component\Console\Helper\QuestionHelper $helper */
+        $helper = $this->getHelper('question');
+        $answer = $helper->ask($input, $output, new ConfirmationQuestion(
+            " Make <info>{$name}</info> findable from the admin search box? [<comment>yes</comment>] ",
+            true
+        ));
+
+        if (!$answer) {
+            return '';
+        }
+
+        $columns = $this->searchDisplayColumns($name);
+        $display = $columns === []
+            ? "['name'], // TODO: the columns to show — the first is the result title"
+            : '[' . implode(', ', array_map(static fn($c) => "'" . $c . "'", $columns)) . '],';
+
+        $block = "\nRegistry::register('" . $name . "', \\" . ltrim($modelClass, '\\') . "::class, [\n"
+            . "    'display' => " . $display . "\n"
+            . "    'url'     => '/" . strtolower($name) . "/edit/:id',\n"
+            . "]);\n";
+
+        file_put_contents($file, $block, FILE_APPEND);
+
+        return " Registered <info>{$name}</info> in app/search.php"
+            . ($columns === [] ? " — set its <comment>display</comment> columns.\n" : ".\n");
+    }
+
+    /**
+     * The generated model's fully-qualified class name, or '' when it cannot be named.
+     */
+    protected function searchModelClass(string $name): string
+    {
+        $application = $this->getApplication()->internalApplication;
+        $namespace   = $application->applicationInfo['namespace'] ?? '';
+
+        if (!is_string($namespace) || trim($namespace) === '') {
+            return '';
+        }
+
+        return '\\' . trim($namespace, '\\') . '\\Models\\' . ucfirst($name);
+    }
+
+    /**
+     * Two columns worth showing in a search result, guessed from the table.
+     *
+     * A guess, and a cheap one: the first two textual columns that are not the primary
+     * key. Wrong is recoverable — the registration is a line in a file the developer
+     * owns — while a wrong *guess that is silent* is not, which is why the caller says
+     * so when this returns nothing.
+     *
+     * @return list<string>
+     */
+    protected function searchDisplayColumns(string $name): array
+    {
+        try {
+            $table   = $this->dbtable ?: '#PREFIX#' . strtolower($name) . 's';
+            $columns = $this->introspectTableAsWizardColumns($table);
+        } catch (\Throwable) {
+            // No database, no table yet, no schema — all ordinary at generation time.
+            return [];
+        }
+
+        $textual = [];
+        foreach ($columns as $column) {
+            if (($column['type'] ?? '') === 'string' && ($column['name'] ?? '') !== '') {
+                $textual[] = (string) $column['name'];
+            }
+        }
+
+        return array_slice($textual, 0, 2);
+    }
+
+    /**
      * Determine whether the CRUD view directory for an entity already exists and
      * contains generated files.
      *

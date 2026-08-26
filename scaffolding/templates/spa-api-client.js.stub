@@ -104,10 +104,13 @@ export function setToken(value) {
  * @param {*}      [options.body]    Payload, JSON-encoded when present
  * @param {object} [options.headers] Extra headers
  * @param {boolean} [options.anonymous] Send no access token (for signing in)
+ * @param {AbortSignal} [options.signal] Cancels the request. Needed by anything that
+ *   fires a call per keystroke: without it a slow answer to an earlier term can land
+ *   after a fast answer to a later one and replace newer results with older.
  * @returns {Promise<*>} Decoded body, or null for 204
  * @throws {ApiError} When the response status is not 2xx
  */
-export async function request(path, { method = 'GET', body = null, query = null, headers = {}, anonymous = false } = {}) {
+export async function request(path, { method = 'GET', body = null, query = null, headers = {}, anonymous = false, signal = null } = {}) {
     const { apiPrefix = DEFAULT_PREFIX, apiKey = '' } = config();
     const requestHeaders = { Accept: 'application/json', ...headers };
 
@@ -152,8 +155,16 @@ export async function request(path, { method = 'GET', body = null, query = null,
             // Sends the session cookie, which the API accepts as a credential.
             credentials: 'same-origin',
             body: encodedBody,
+            signal,
         });
     } catch (error) {
+        // A deliberate cancellation is not a failure and must not be reported as one:
+        // a search box that aborts a request per keystroke would otherwise fill the
+        // debug panel's request tab with network errors that nothing went wrong for.
+        if (error?.name === 'AbortError') {
+            throw error;
+        }
+
         // A network failure produces no response, so nothing else records it —
         // there is no status, no `_debug`, and the request tab would show
         // nothing at all. This is the one failure mode where the panel would

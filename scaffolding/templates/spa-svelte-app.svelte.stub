@@ -15,6 +15,7 @@
     import { reportError } from './lib/debug.js';
     import { start as startRouter, go, href } from './lib/router.js';
     import { screens } from './screens/registry.js';
+    import Omnibox from './components/Omnibox.svelte';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
     const appName = window.__PRAMNOS__?.appName ?? '{{ appName }}';
@@ -138,6 +139,12 @@
             </nav>
 
             <div class="ml-auto flex items-center gap-3">
+                {#if hasAuth && user && screens.some((s) => s.admin)}
+                    <!-- Cross-entity search. Rendered only for a signed-in user who can
+                         reach the admin screen: the endpoint is permission-checked, so a
+                         box that always 403s is worse than no box. -->
+                    <Omnibox />
+                {/if}
                 {#if hasAuth && user}
                     <span class="text-sm opacity-70">{user.username ?? user.email}</span>
                     <button class="btn btn-sm" onclick={submitLogout}>Sign out</button>
