@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Rendering a dropdown filter outside any form
+  - Rendering a search box, checkbox or textarea with no form around it
   - Building pagination links for a listing page
   - Choosing between Html\Select and a form field
   - Finding out which reusable HTML components the framework already ships
@@ -15,6 +16,7 @@ each one constructed, configured with public properties, and turned into a strin
 | Class | What it renders |
 |---|---|
 | [`Select`](#select) | a `<select>`, with no form around it |
+| [`Input`](#input) | one input, textarea, checkbox or radio, with no form around it |
 | [`Pagination`](#pagination) | page links from a count, a current page and a URL pattern |
 | `Datatable` | a DataTables-backed table, with server-side paging and filters |
 | `Breadcrumb` | a breadcrumb trail, plus its `BreadcrumbList` structured data |
@@ -100,6 +102,91 @@ $select->extraAttributes = 'data-role="filter"';
 No `id` is invented from the name, deliberately: two selects for one field on a page is
 ordinary — a filter above a table and another below it — and duplicate ids are invalid
 HTML that breaks `<label for>` and `getElementById` with no visible error.
+
+---
+
+## Input
+
+```php
+$search = new \Pramnos\Html\Input('q', $current);
+$search->placeholder = 'Search…';
+echo $search->render();
+```
+
+The companion to [`Select`](#select), and there for the same reason: `Form\Field` is for a
+control **in a form** and its `render()` needs the form's style preset; a filter above a
+table has no form.
+
+### One class, not five
+
+It replaces four legacy classes — `input`, `checkbox`, `colorpicker` and a `time` widget —
+and covers more than they did. The old `input` was a *dispatcher*: `type` decided, and for
+`date`, `time`, `checkbox` and `color` it constructed a different class and forwarded a
+dozen properties. Most of that existed because those input types did not work in browsers
+when it was written. `<input type="color">` and `type="time"` have been native for years,
+and what is left once the widgets are gone is a tag with attributes.
+
+### Types
+
+```php
+$input->type = 'number';   // text hidden password email url tel search number range
+                           // date time datetime-local month week color
+                           // checkbox radio file
+                           // textarea
+```
+
+`textfield` is accepted as a spelling of `text` and `colorpicker` as one of `color`,
+because the classes this replaces used them. An unrecognised type becomes `text` rather
+than being emitted — a browser treats an unknown type as text anyway, so passing a typo
+through only adds an attribute a validator will reject.
+
+`textarea` is in the list even though it is not an `<input>`: it is the same job from a
+caller's point of view, and `Form\Field` already treats it as a type. The value goes
+between the tags.
+
+### Checkbox and radio
+
+```php
+$active = new \Pramnos\Html\Input('active', $row['active']);
+$active->type = 'checkbox';           // checked when $row['active'] === '1'
+$active->checkedValue = 'yes';        // for a column that stores something else
+```
+
+`value` is the **current state**; `checkedValue` is what gets **submitted**. Swapping them
+renders a checkbox that submits whatever the row already held — which looks correct until
+somebody unticks it and the old value is saved back.
+
+### Attributes
+
+| Property | Applies to |
+|---|---|
+| `label` | all — rendered before the control, escaped, no trailing colon |
+| `id` | all — none is emitted unless you set one |
+| `required` / `readonly` / `disabled` | all |
+| `placeholder` | everything except checkbox, radio, file, color |
+| `min` / `max` / `step` | `number`, `range` and the date/time types |
+| `maxlength` / `size` / `pattern` | the textual types |
+| `rows` | `textarea` (and `size` becomes `cols`) |
+| `autocomplete` | all |
+| `multiple` | `file` — appends `[]` to the name |
+| `extraAttributes` | all — rendered verbatim, **not escaped** |
+
+Each is emitted only where it applies, so a text input does not arrive carrying `min=""`.
+`min` on a text field is invalid markup and a validator is the only thing that will ever
+tell you.
+
+Two more things it does without being asked: **a file input carries no value** — every
+browser ignores it, validators reject it, and it is the one type whose value could only
+have come from the server; and **no `id` is invented from the name**, for the same reason
+as `Select` — two controls for one field on a page is ordinary, and duplicate ids break
+`<label for>` and `getElementById` with no visible error.
+
+### What it does not do
+
+No `validate` / `addcss` / `addjs`. The legacy properties of those names made an element
+push CSS and JavaScript into the document while rendering itself, so echoing a search box
+changed the page's asset list. `Document::addScript()` and `addStyle()` are how a page
+declares what it needs.
 
 ---
 
