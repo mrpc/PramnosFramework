@@ -549,7 +549,11 @@ class AppRegistryTest extends TestCase
 
         // Assert
         $this->assertSame(['apikey' => 'k', 'apisecret' => 's'], $row);
-        $this->assertSame('applications', $database->calls['table']);
+        // With the prefix marker: `QueryBuilder::table()` substitutes `#PREFIX#`
+        // at compile time and leaves a bare name alone, so a query written
+        // without it reads a table that does not exist on any installation that
+        // has a prefix.
+        $this->assertSame('#PREFIX#applications', $database->calls['table']);
         $this->assertSame('k', $database->calls['where']['apikey']);
         $this->assertSame(1, $database->calls['where']['status'], 'disabled apps must not authorize');
     }

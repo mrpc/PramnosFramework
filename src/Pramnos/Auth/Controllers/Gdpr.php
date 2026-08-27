@@ -493,7 +493,7 @@ class Gdpr extends Controller
     private function revokeUserTokens(\Pramnos\Database\Database $db, int $userId): int
     {
         $result = $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $userId)
             ->where('status', 1)
             ->update(['status' => 0]);

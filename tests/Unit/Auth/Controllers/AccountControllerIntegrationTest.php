@@ -341,7 +341,10 @@ class AccountControllerIntegrationTest extends TestCase
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
         $this->assertContains('authserver.user_privacy_settings', $tablesWritten);
-        $this->assertContains('userdetails', $tablesWritten);
+        // With the prefix marker, which is what reaches the query builder: a bare
+        // name is left as written and reads a table that does not exist wherever
+        // there is a prefix.
+        $this->assertContains('#PREFIX#userdetails', $tablesWritten);
     }
 
     public function testSecurity()

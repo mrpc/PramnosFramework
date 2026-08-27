@@ -81,7 +81,7 @@ class Oauth extends Controller
         $db = \Pramnos\Framework\Factory::getDatabase();
 
         $result = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             // `added`, not `created`: that is what the applications table calls
             // its creation timestamp. Selecting and ordering by a column that
             // does not exist made this listing fail outright.
@@ -253,7 +253,7 @@ class Oauth extends Controller
         $stored = $this->resolveStoredTokenValue($token);
 
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $stored)
             ->where('status', 1)
             ->update(['status' => 0]);
@@ -440,7 +440,7 @@ class Oauth extends Controller
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->select('userid, scope, expires, status')
             ->where('token', $token)
             ->where('tokentype', 'access_token')
@@ -580,7 +580,7 @@ class Oauth extends Controller
     {
         $result = \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->select(['tokenid', 'userid', 'parentToken'])
             ->where('token', $stored)
             ->where('status', 1)
@@ -620,7 +620,7 @@ class Oauth extends Controller
         };
 
         $count = (int) $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $userId)
             ->where('status', 1)
             ->where($family)
@@ -631,7 +631,7 @@ class Oauth extends Controller
         }
 
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $userId)
             ->where('status', 1)
             ->where($family)
@@ -897,7 +897,7 @@ class Oauth extends Controller
 
         // Get application ID from client_id (apikey)
         $appResult = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->select('appid')
             ->where('apikey', $clientId)
             ->where('status', 1)
@@ -909,7 +909,7 @@ class Oauth extends Controller
         $appId = (int) $appResult->fields['appid'];
 
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->insert([
                 'token'               => $code,
                 'userid'              => $userId,
@@ -952,7 +952,7 @@ class Oauth extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('users')
+            ->table('#PREFIX#users')
             ->where('userid', $userId)
             ->where('active', 1)
             ->first();
@@ -1098,7 +1098,7 @@ class Oauth extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('apikey', $clientId)
             ->where('status', 1)
             ->first();
@@ -1243,7 +1243,7 @@ class Oauth extends Controller
         // Persist the token so introspect() / revoke() can find it
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->insert([
                 'userid'        => $systemUserId,
                 'tokentype'     => 'access_token',

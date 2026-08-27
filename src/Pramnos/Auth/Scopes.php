@@ -247,7 +247,7 @@ class Scopes
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->select('scope')
             ->where('apikey', $apiKey)
             ->first();

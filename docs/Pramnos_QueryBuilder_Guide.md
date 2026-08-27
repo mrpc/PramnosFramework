@@ -285,6 +285,31 @@ that has one.
 
 Rule of thumb: if the raw SQL you are replacing had `#PREFIX#`, keep it.
 
+!!! danger "The suite cannot catch a missing prefix — a static check does"
+    Both test fixtures declare `'prefix' => ''`, which makes `#PREFIX#users` and
+    `users` the same string. Every test passes either way, so nothing about running
+    the suite tells you a query is missing its prefix.
+
+    That is not hypothetical: **seventy-nine** queries in the framework had lost
+    it, ten of them in `User\User` — three inside its constructor, so on a
+    prefixed installation simply constructing a user failed. It was reported by an
+    application whose suite produced 97 failures, all
+    `Table '….users' doesn't exist`, on its first migration attempt. This guide
+    already said what would happen; saying it was not enough.
+
+    `tests/Unit/Database/TablePrefixInQueriesTest.php` now fails on any bare
+    occurrence, in a `table()` / `from()` / join position, of a name the framework
+    writes with `#PREFIX#` anywhere. It derives that list from the source, so a new
+    table following the convention is covered without editing the test.
+
+!!! tip "A configurable table name belongs behind one accessor"
+    `User\User` computes `DB_USERSTABLE` into a property *and* had ten queries
+    naming the table themselves — six lines referenced the resolved name while ten
+    bypassed it. Both the users and the user-details tables now go through one
+    private static accessor each, which is also what makes them usable from the
+    class's static methods. A constant that only some queries honour is worse than
+    no constant: it works until somebody sets it.
+
 #### Schema-qualified tables
 
 `authserver.roles` is resolved per driver: a PostgreSQL schema, and a

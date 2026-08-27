@@ -95,10 +95,10 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             return $this->load($userid);
         }
         if ($this->_userstable === null) {
-            $this->_userstable = defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users';
+            $this->_userstable = self::usersTable();
         }
         if ($this->_userdetailstable === null) {
-            $this->_userdetailstable = defined('DB_USERDETAILSTABLE') ? DB_USERDETAILSTABLE : '#PREFIX#userdetails';
+            $this->_userdetailstable = self::userDetailsTable();
         }
         parent::__construct();
     }
@@ -111,7 +111,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $database = \Pramnos\Framework\Factory::getDatabase();
         if ($this->_isnew == false) {
             $database->queryBuilder()
-                ->table('users')
+                ->table(self::usersTable())
                 ->where('userid', $this->userid)
                 ->delete();
             $this->_isnew = 1;
@@ -135,7 +135,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             $this->active = true;
             $database = \Pramnos\Framework\Factory::getDatabase();
             $database->queryBuilder()
-                ->table('users')
+                ->table(self::usersTable())
                 ->where('userid', $this->userid)
                 ->update(['active' => 1]);
             $database->cacheflush('userlist');
@@ -157,7 +157,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             $this->active = 0;
             $database = \Pramnos\Framework\Factory::getDatabase();
             $database->queryBuilder()
-                ->table('users')
+                ->table(self::usersTable())
                 ->where('userid', $this->userid)
                 ->update(['active' => 0]);
             $database->cacheflush('userlist');
@@ -218,7 +218,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     static function getUsers($where = '')
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $qb = $database->queryBuilder()->table('users')->select('userid');
+        $qb = $database->queryBuilder()->table(self::usersTable())->select('userid');
         if ($where != '') {
             // Backward-compatible raw where string: sanitised via prepareInput
             // before being passed to whereRaw to preserve legacy call sites.
@@ -608,7 +608,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             if ($this->$fieldname === NULL) {
                 try {
                     $database->queryBuilder()
-                        ->table('userdetails')
+                        ->table(self::userDetailsTable())
                         ->where('userid', $this->userid)
                         ->where('fieldname', $fieldname)
                         ->delete();
@@ -627,7 +627,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                         ['fieldName' => 'fieldname', 'value' => $fieldname, 'type' => 'string'],
                         ['fieldName' => 'value', 'value' => serialize($this->$fieldname), 'type' => 'string']
                     ];
-                    $database->upsert('#PREFIX#userdetails', $upsertData, ['userid', 'fieldname']);
+                    $database->upsert(self::userDetailsTable(), $upsertData, ['userid', 'fieldname']);
                 }
 
             } elseif (!isset($this->originalOtherinfo[$fieldname])
@@ -640,7 +640,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                     ['fieldName' => 'fieldname', 'value' => $fieldname, 'type' => 'string'],
                     ['fieldName' => 'value', 'value' => $this->$fieldname, 'type' => 'string']
                 ];
-                $database->upsert('#PREFIX#userdetails', $upsertData, ['userid', 'fieldname']);
+                $database->upsert(self::userDetailsTable(), $upsertData, ['userid', 'fieldname']);
             }
         }
         $database->cacheflush('userlist');
@@ -682,7 +682,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
         $result = $database->queryBuilder()
-            ->table('users')
+            ->table(self::usersTable())
             ->where('userid', $uid)
             ->get(true, 10, 'userlist');
         if ($result === false || $result === null || $result->numRows == 0) {
@@ -701,7 +701,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         // reason. The category is flushed wherever a user is written, so the
         // two cannot disagree.
         $result = $database->queryBuilder()
-            ->table('userdetails')
+            ->table(self::userDetailsTable())
             ->where('userid', $uid)
             ->get(true, 10, 'userlist');
         while ($result->fetch()) { //This should load all special settings
@@ -748,7 +748,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $result = $database->queryBuilder()
-            ->table('userdetails')
+            ->table(self::userDetailsTable())
             ->select('userid')
             ->where('fieldname', $param)
             ->where('value', $value)
@@ -771,7 +771,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             return false;
         }
         $result = $database->queryBuilder()
-            ->table('users')
+            ->table(self::usersTable())
             ->select('userid')
             ->where($by, $username)
             ->limit(1)
@@ -950,14 +950,55 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     }
 
     /**
+     * The users table, honouring `DB_USERSTABLE`.
+     *
+     * Static because two of this class's queries are — `getUsers()` and
+     * `getuserid()` — and ten queries in here wrote the bare literal `'users'`
+     * while six lines referenced the resolved name. `QueryBuilder::table()`
+     * substitutes `#PREFIX#` and leaves a bare name alone, so on **every**
+     * installation with a prefix those ten hit a table that does not exist. It is
+     * not an edge case: three of them are in the constructor, so simply
+     * constructing a user failed. A consuming application's suite reported 97
+     * failures, all `Table '….users' doesn't exist`.
+     *
+     * The default is `#PREFIX#users`, which is also what the framework defines
+     * `DB_USERSTABLE` as — so the bare literal only ever worked on an
+     * installation whose prefix was empty.
+     */
+    private static function usersTable(): string
+    {
+        return defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users';
+    }
+
+    /**
+     * The user-details table, honouring `DB_USERDETAILSTABLE`.
+     *
+     * Same shape as {@see usersTable()} and the same defect: the class computed
+     * the configured name into a property and then five queries wrote
+     * `'#PREFIX#userdetails'` as a literal. That is right on a default
+     * installation and wrong on any that set the constant — which is what the
+     * constant is for.
+     */
+    private static function userDetailsTable(): string
+    {
+        return defined('DB_USERDETAILSTABLE')
+            ? DB_USERDETAILSTABLE
+            : '#PREFIX#userdetails';
+    }
+
+    /**
      * Returns an array with the database tables this class uses
      * @return array
      */
     public function getTableNames()
     {
         return array(
-            'users' => $this->_userstable,
-            'userdetails' => $this->_userdetailstable
+            // Resolved rather than read off the property: the constructor returns
+            // early when it is given a user id — `return $this->load($userid)` —
+            // so on that path the property was never assigned and this reported
+            // `null` for the table every other method was using.
+            'users' => $this->_userstable ?? self::usersTable(),
+            'userdetails' => $this->_userdetailstable ?? self::userDetailsTable()
         );
     }
 
@@ -1166,7 +1207,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         if ($expires !== null) {
             $data['expires'] = $expires;
         }
-        $database->queryBuilder()->table('usertokens')->insert($data);
+        $database->queryBuilder()->table('#PREFIX#usertokens')->insert($data);
         return $this;
     }
 
@@ -1183,14 +1224,14 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         if ($database->type == 'postgresql') {
             // PostgreSQL: no parentToken cascade — update only the exact token
             $database->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->where('tokenid', $tokenid)
                 ->where('userid', $this->userid)
                 ->update(['status' => 2, 'removedate' => $now]);
         } else {
             // MySQL: also mark child tokens that reference this token via parentToken
             $database->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->where('userid', $this->userid)
                 ->where(function ($q) use ($tokenid) {
                     $q->where('tokenid', $tokenid)
@@ -1210,7 +1251,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $this->userid)
             ->update(['status' => 2, 'removedate' => time()]);
         $database->cacheflush('usertokens');
@@ -1225,7 +1266,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $result = $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->whereIn('tokentype', ['auth', 'access_token'])
             ->where('status', 1)
             ->where('userid', $this->userid)
@@ -1244,7 +1285,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $result = $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $this->userid)
             ->orderBy('created', 'desc')
             ->get();
@@ -1275,7 +1316,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('tokenid', $tokenId)
             ->where('userid', $this->userid)
             ->update(['status' => 0]);
@@ -1292,7 +1333,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('tokenid', $tokenId)
             ->where('userid', $this->userid)
             ->update(['expires' => time(), 'status' => 0]);
@@ -1315,7 +1356,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $oneMonthAgo = time() - ($days * 24 * 60 * 60);
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $this->userid)
             ->where('created', '<', $oneMonthAgo)
             ->where('lastused', '<', $oneMonthAgo)
@@ -1342,7 +1383,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         }
         try {
             $r = $database->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->where('status', '=', 1)
                 ->whereIn('tokentype', [1, 3])
                 ->count();
@@ -1380,7 +1421,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $cutoff   = time() - ($days * 24 * 60 * 60);
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('created', '<', $cutoff)
             ->where('lastused', '<', $cutoff)
             ->whereIn('tokentype', $types ?? [
@@ -1405,7 +1446,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $database = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
         $qb = $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $token)
             ->where('status', 1)
             ->where(function ($q) use ($now) {
@@ -1648,14 +1689,14 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $database = \Pramnos\Framework\Factory::getDatabase();
         $where = $this->apiListUsersWhere($filter);
 
-        $countQb = $database->queryBuilder()->table('users');
+        $countQb = $database->queryBuilder()->table(self::usersTable());
         if ($where !== '') {
             $countQb->whereRaw($where);
         }
         $total = (int) $countQb->count();
         $pages = $itemsPerPage > 0 ? (int) ceil($total / $itemsPerPage) : 0;
 
-        $qb = $database->queryBuilder()->table('users')->select($selectFields);
+        $qb = $database->queryBuilder()->table(self::usersTable())->select($selectFields);
         if ($where !== '') {
             $qb->whereRaw($where);
         }
@@ -1677,7 +1718,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
     ) {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $qb = $database->queryBuilder()->table('users')->select($selectFields);
+        $qb = $database->queryBuilder()->table(self::usersTable())->select($selectFields);
         $where = $this->apiListUsersWhere($filter);
         if ($where !== '') {
             $qb->whereRaw($where);
@@ -1717,7 +1758,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     public function apiListRecordsTotal($baseFilter, $table, $key, $join, $selectFields, $group, $addedfields): int
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $qb = $database->queryBuilder()->table('users');
+        $qb = $database->queryBuilder()->table(self::usersTable());
         $where = $this->apiListUsersWhere($baseFilter);
         if ($where !== '') {
             $qb->whereRaw($where);
@@ -1792,7 +1833,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
 
         // Count all tokens for this user via QB (prefix handled automatically)
         $tokenCount = $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('userid', $this->userid)
             ->count();
 
@@ -1800,7 +1841,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         // so pluck all applicationid values and count unique non-null entries.
         try {
             $appIds = $database->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->select('applicationid')
                 ->where('userid', $this->userid)
                 ->pluck('applicationid');
@@ -1893,7 +1934,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
 
         $database   = \Pramnos\Framework\Factory::getDatabase();
         $result     = $database->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $rawToken)
             ->where('userid', $this->userid)
             ->first();

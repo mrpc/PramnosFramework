@@ -260,7 +260,7 @@ class Passkey extends Controller
     protected function resolveUserId(string $username): ?int
     {
         $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('users')
+            ->table('#PREFIX#users')
             ->select('userid')
             ->where('username', $username)
             ->orWhere('email', $username)

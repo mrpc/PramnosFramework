@@ -297,7 +297,7 @@ class PasskeyService implements PasskeyServiceInterface
     protected function userIdentity(int $userId): array
     {
         $row = $this->database->queryBuilder()
-            ->table('users')
+            ->table('#PREFIX#users')
             ->where('userid', $userId)
             ->first();
 

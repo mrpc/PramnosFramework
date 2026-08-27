@@ -59,7 +59,7 @@ class ApplicationsController extends Controller
 
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $app = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('appid', $id)
             ->first();
 
@@ -222,7 +222,7 @@ class ApplicationsController extends Controller
         if ($id > 0) {
             $db     = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()
-                ->table('applications')
+                ->table('#PREFIX#applications')
                 ->where('appid', $id)
                 ->first();
 
@@ -305,7 +305,7 @@ class ApplicationsController extends Controller
 
         if ($id > 0) {
             $db->queryBuilder()
-                ->table('applications')
+                ->table('#PREFIX#applications')
                 ->where('appid', $id)
                 ->update($fields);
         } else {
@@ -313,7 +313,7 @@ class ApplicationsController extends Controller
             $fields['apisecret'] = bin2hex(random_bytes(32));
             $fields['added']     = time();
             $db->queryBuilder()
-                ->table('applications')
+                ->table('#PREFIX#applications')
                 ->insert($fields);
         }
 
@@ -349,7 +349,7 @@ class ApplicationsController extends Controller
 
         // Soft-delete the application
         $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('appid', $id)
             ->update(['status' => 0]);
 
@@ -375,7 +375,7 @@ class ApplicationsController extends Controller
 
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $app = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->select(['appid', 'name', 'apikey'])
             ->where('appid', $appId)
             ->first();
@@ -427,7 +427,7 @@ class ApplicationsController extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('appid', $id)
             ->update(['apisecret' => $newSecret]);
 

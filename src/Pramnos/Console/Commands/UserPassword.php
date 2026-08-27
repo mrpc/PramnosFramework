@@ -357,7 +357,7 @@ class UserPassword extends Command
         // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
         $db = \Pramnos\Framework\Factory::getDatabase();
         foreach (['password_reset_hash', 'password_reset_expires'] as $field) {
-            $db->queryBuilder()->table('userdetails')
+            $db->queryBuilder()->table('#PREFIX#userdetails')
                 ->where('userid', $userId)
                 ->where('fieldname', $field)
                 ->delete();
@@ -412,7 +412,7 @@ class UserPassword extends Command
         // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
         $db = \Pramnos\Framework\Factory::getDatabase();
 
-        $db->queryBuilder()->table('usertokens')
+        $db->queryBuilder()->table('#PREFIX#usertokens')
             ->where('userid', $userId)
             ->where('status', 1)
             ->update(['status' => 3, 'removedate' => time()]);

@@ -5938,11 +5938,11 @@ require ROOT . '/vendor/autoload.php';
 ob_end_clean();
 try {
     \$db = \Pramnos\Framework\Factory::getDatabase();
-    \$existing = \$db->queryBuilder()->table('applications')->where('apikey', '$safeKey')->count();
+    \$existing = \$db->queryBuilder()->table('#PREFIX#applications')->where('apikey', '$safeKey')->count();
     if (\$existing > 0) {
         echo 'EXISTS';
     } else {
-        \$db->queryBuilder()->table('applications')->insert([
+        \$db->queryBuilder()->table('#PREFIX#applications')->insert([
             'name'      => 'Development',
             'apikey'    => '$safeKey',
             'apisecret' => '$safeSecret',

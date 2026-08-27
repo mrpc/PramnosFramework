@@ -84,7 +84,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         }
 
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->insert([
                 'userid'        => $userId,
                 'tokentype'     => 'access_token',
@@ -105,7 +105,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $tokenId)
             ->where('tokentype', 'access_token')
             ->update(['status' => 0]);
@@ -118,7 +118,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->select('status')
             ->where('token', $tokenId)
             ->where('tokentype', 'access_token')
@@ -137,7 +137,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         }
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->select('appid')
             ->where('apikey', (string)$clientIdentifier)
             ->first();

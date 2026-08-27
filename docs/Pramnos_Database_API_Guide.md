@@ -22,7 +22,7 @@ The Pramnos framework provides a database abstraction layer that must be used fo
 ```php
 // Modern approach (v1.2+)
 $users = $db->queryBuilder()
-    ->from('users')
+    ->from('#PREFIX#users')
     ->where('active', 1)
     ->get();
 
@@ -326,7 +326,7 @@ While `prepareQuery()` and `query()` are the foundational patterns, v1.2 introdu
 ```php
 // SELECT with conditions and ordering
 $users = $this->application->database->queryBuilder()
-    ->from('users')
+    ->from('#PREFIX#users')
     ->where('status', 1)
     ->where('role', 'admin')
     ->orderBy('last_login', 'desc')
@@ -343,7 +343,7 @@ $applications = $this->application->database->queryBuilder()
 
 // INSERT with auto-binding
 $newId = $this->application->database->queryBuilder()
-    ->table('users')
+    ->table('#PREFIX#users')
     ->insert([
         'username' => 'newuser',
         'email' => 'user@example.com',

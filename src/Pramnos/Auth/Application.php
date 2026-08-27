@@ -123,7 +123,7 @@ class Application extends \Pramnos\Application\Model
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $result   = $database->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('apikey', $apikey)
             ->where('status', 1)
             ->first();
@@ -153,7 +153,7 @@ class Application extends \Pramnos\Application\Model
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $qb       = $database->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('apikey', $clientId)
             ->where('status', 1);
 
@@ -182,7 +182,7 @@ class Application extends \Pramnos\Application\Model
 
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->where('appid', $this->appid)
             ->update(['systemuser' => $userId]);
 

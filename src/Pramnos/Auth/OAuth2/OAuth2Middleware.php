@@ -86,7 +86,7 @@ class OAuth2Middleware
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         return (bool) $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $token)
             ->where('tokentype', 'access_token')
             ->update(['status' => 0]);
@@ -139,7 +139,7 @@ class OAuth2Middleware
         }
 
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('tokenid', (int)$row['tokenid'])
             ->update(['lastused' => $now]);
 

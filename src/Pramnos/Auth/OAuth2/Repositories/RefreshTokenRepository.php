@@ -52,7 +52,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
             : 0;
 
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->insert([
                 'userid'        => (int) ($parentRow['userid'] ?? 0),
                 'tokentype'     => 'refresh_token',
@@ -73,7 +73,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $tokenId)
             ->where('tokentype', 'refresh_token')
             ->update(['status' => 0]);
@@ -86,7 +86,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->select('status')
             ->where('token', $tokenId)
             ->where('tokentype', 'refresh_token')
@@ -102,7 +102,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->select('tokenid')
             ->where('token', $identifier)
             ->where('tokentype', 'access_token')
@@ -117,7 +117,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         }
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->select('userid, applicationid')
             ->where('tokenid', $tokenId)
             ->first();

@@ -167,7 +167,7 @@ class AuthServerAppRegistry implements AppRegistryInterface
             // dialect (a schema on PostgreSQL, a prefix on MySQL) and binds the
             // key instead of interpolating it.
             $row = $database->queryBuilder()
-                ->table('applications')
+                ->table('#PREFIX#applications')
                 ->where('apikey', $key)
                 ->where('status', 1)
                 ->first();

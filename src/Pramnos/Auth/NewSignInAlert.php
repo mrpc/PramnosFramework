@@ -94,7 +94,7 @@ class NewSignInAlert
 
         try {
             $value = self::db($database)->queryBuilder()
-                ->table('userdetails')
+                ->table('#PREFIX#userdetails')
                 ->where('userid', $userId)
                 ->where('fieldname', self::PREFERENCE)
                 ->value('value');
@@ -122,7 +122,7 @@ class NewSignInAlert
         }
 
         self::db($database)->queryBuilder()
-            ->table('userdetails')
+            ->table('#PREFIX#userdetails')
             ->upsert(
                 array(
                     'userid'    => $userId,

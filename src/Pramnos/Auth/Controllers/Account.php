@@ -698,7 +698,7 @@ class Account extends Controller
             'password_reset_hash'    => $tokenHash,
             'password_reset_expires' => (string) $expires,
         ] as $field => $value) {
-            $db->queryBuilder()->table('userdetails')->upsert(
+            $db->queryBuilder()->table('#PREFIX#userdetails')->upsert(
                 ['userid' => $userId, 'fieldname' => $field, 'value' => $value],
                 ['userid', 'fieldname'],
                 ['value']
@@ -716,7 +716,7 @@ class Account extends Controller
             return null;
         }
         $db  = \Pramnos\Framework\Factory::getDatabase();
-        $row = $db->queryBuilder()->table('userdetails')
+        $row = $db->queryBuilder()->table('#PREFIX#userdetails')
             ->select(['userid'])
             ->where('fieldname', 'password_reset_hash')
             ->where('value', hash('sha256', $token))
@@ -725,7 +725,7 @@ class Account extends Controller
             return null;
         }
         $userId  = (int) $row->fields['userid'];
-        $expRow  = $db->queryBuilder()->table('userdetails')
+        $expRow  = $db->queryBuilder()->table('#PREFIX#userdetails')
             ->select(['value'])
             ->where('userid', $userId)
             ->where('fieldname', 'password_reset_expires')
@@ -743,7 +743,7 @@ class Account extends Controller
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
         foreach (['password_reset_hash', 'password_reset_expires'] as $field) {
-            $db->queryBuilder()->table('userdetails')
+            $db->queryBuilder()->table('#PREFIX#userdetails')
                 ->where('userid', $userId)
                 ->where('fieldname', $field)
                 ->delete();
@@ -1052,7 +1052,7 @@ class Account extends Controller
         try {
             $db     = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()
-                ->table('applications')
+                ->table('#PREFIX#applications')
                 ->select(['appid', 'name'])
                 ->where('apikey', $clientId)
                 ->where('status', 1)
@@ -1068,7 +1068,7 @@ class Account extends Controller
 
             // Revoke tokens (status 3 = revoked, kept for audit trail)
             $db->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->where('userid', $currentUser->userid)
                 ->where('applicationid', $appId)
                 ->where('status', 1)
@@ -1312,7 +1312,7 @@ class Account extends Controller
         $sid = (string) ($_POST['sid'] ?? '');
         if ($sid !== '') {
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('sessions')
+                ->table('#PREFIX#sessions')
                 ->where('userid', (int) $currentUser->userid)
                 ->where('sid', $sid)
                 ->update(['logout' => 1]);
@@ -1460,7 +1460,7 @@ class Account extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('sessions')
+            ->table('#PREFIX#sessions')
             ->select(['sid', 'host_addr', 'agent', 'time', 'url'])
             ->where('userid', $userId)
             ->where('guest', 0)
@@ -1502,7 +1502,7 @@ class Account extends Controller
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('users')
+            ->table('#PREFIX#users')
             ->where('userid', $userId)
             ->first();
 
@@ -1654,7 +1654,7 @@ class Account extends Controller
         $deny = ['password_reset_hash', 'password_reset_expires'];
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('userdetails')
+                ->table('#PREFIX#userdetails')
                 ->select(['fieldname', 'value'])
                 ->where('userid', $userId)
                 ->get();
@@ -1684,7 +1684,7 @@ class Account extends Controller
     {
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->select([
                     'tokentype', 'notes', 'created', 'lastused', 'status',
                     'applicationid', 'actions', 'expires', 'ipaddress',
@@ -1764,7 +1764,7 @@ class Account extends Controller
         }
 
         $db->queryBuilder()
-            ->table('users')
+            ->table('#PREFIX#users')
             ->where('userid', $userId)
             ->delete();
     }

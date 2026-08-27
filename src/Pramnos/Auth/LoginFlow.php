@@ -248,7 +248,7 @@ class LoginFlow
         // failed-login into a hard error.
         try {
             $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('users')
+                ->table('#PREFIX#users')
                 ->select('userid')
                 ->where('username', $identifier)
                 ->orWhere('email', $identifier)

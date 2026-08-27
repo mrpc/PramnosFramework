@@ -365,7 +365,7 @@ class ApiAccount extends Controller
     protected function revokeToken(string $token): void
     {
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('usertokens')
+            ->table('#PREFIX#usertokens')
             ->where('token', $token)
             ->update(['status' => 2]);
     }
