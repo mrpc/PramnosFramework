@@ -107,6 +107,47 @@ class ExampleController extends \Pramnos\Application\Controller
 3. **Namespaces**: Use project-specific namespaces (e.g., `Project\Controllers`)
 4. **Methods**: Use camelCase for action methods
 
+### Reading an id out of the URL
+
+**An action's parameters are not URL segments.** The classic dispatcher passes the
+request's arguments **array** to every action, so an action declaring
+`mixed $id = null` receives that array — and `(int)` of an array is not the id.
+Read it from the request instead:
+
+```php
+public function view(mixed $id = null): mixed
+{
+    // The route may pass one (an API routing table does); the dispatcher does not.
+    if (!is_scalar($id) || (int) $id < 1) {
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+    }
+    // …
+}
+```
+
+This has cost real features twice. `Capabilities::sync()` could not be called
+through the classic dispatcher at all — a `?string` declaration made it a
+`TypeError`. `Organizations::addmember()` and `removemember()` trusted the
+argument, so **adding a member to an organization was impossible**: the form posts
+to `organizations/addmember/{id}`, the id never arrived, and the screen answered
+"No valid entries were selected" and redirected to `organizations/0/members`. Both
+actions look correct in isolation and their unit tests passed, because a test that
+calls `addmember(5)` constructs a state no request can produce.
+
+**One id per path, and the rest as query parameters.** `staticGetOption()` returns
+a single option, and the parser only fills it when the path has exactly one segment
+after the action. `action/a/b` becomes `$_GET['a'] = 'b'` — so a second id in a
+second segment does not arrive as an option *or* as an argument:
+
+```php
+adminUrl('Organizations/removemember/' . $orgId) . '?userid=' . $userId   // reads back
+adminUrl('Organizations/removemember/' . $orgId . '/' . $userId)          // does not
+```
+
+And read the second id from `$_GET`/`$_POST` only — never from
+`staticGetOption()`, which is the *first* segment. Resolving both the same way made
+them equal, the update matched no row, and the screen still reported success.
+
 ### Authentication and Authorization
 
 ```php

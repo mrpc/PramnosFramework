@@ -332,6 +332,10 @@ class OrganizationsControllerIntegrationTest extends TestCase
 
     public function testRemoveMember()
     {
+        $row = new \stdClass();
+        $row->numRows = 1;
+        $row->fields = ['userid' => 100, 'organization_id' => 5, 'is_active' => 1];
+        $this->queryBuilderMock->method('first')->willReturn($row);
         $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
 
         ob_start();
@@ -342,6 +346,95 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $this->assertContains(
             'Removed.',
             $_SESSION['_messages'] ?? []
+        );
+    }
+
+    /**
+     * Adding a member works when the organization is only in the URL.
+     *
+     * Which is the only way the screen sends it: the form posts to
+     * `organizations/addmember/{id}` and carries just `userid`. The action used to
+     * read the id from its own route argument, and the classic dispatcher passes
+     * the arguments **array** — so `(int)` of it was never the id, `$_POST`
+     * carried no `org_id`, and adding a member to an organization was simply
+     * impossible. The screen answered "No valid entries were selected" and
+     * redirected to `organizations/0/members`.
+     */
+    public function testAddMemberTakesTheOrganizationFromTheUrl()
+    {
+        // Arrange — a URL option, no org_id in the body
+        $_GET['_option'] = '5';
+        $_POST['userid'] = '100';
+
+        // Assert — the membership is written
+        $this->queryBuilderMock->expects($this->once())->method('upsert')->willReturn(true);
+
+        // Act
+        ob_start();
+        $this->controller->addmember();
+        ob_get_clean();
+
+        $this->assertContains('Added.', $_SESSION['_messages'] ?? []);
+    }
+
+    /**
+     * Removing a member works when the ids arrive as the link supplies them.
+     *
+     * `removemember/{orgId}?userid={userId}` — the organization as the URL
+     * option, the user as a query parameter. Two path segments cannot carry both:
+     * the framework's URL parser turns `action/a/b` into `$_GET['a'] = 'b'`
+     * rather than into two options, so the second id never arrived at all.
+     *
+     * And the user id must NOT be read from the URL option, which is the
+     * organization segment — resolving both the same way made them equal, the
+     * update matched nothing, and the screen still said "Removed."
+     */
+    public function testRemoveMemberTakesTheUserFromTheQueryString()
+    {
+        // Arrange
+        $_GET['_option'] = '5';
+        $_GET['userid'] = '100';
+        $row = new \stdClass();
+        $row->numRows = 1;
+        $row->fields = ['userid' => 100, 'organization_id' => 5, 'is_active' => 1];
+        $this->queryBuilderMock->method('first')->willReturn($row);
+
+        // Assert
+        $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
+
+        // Act — no arguments, as the dispatcher calls it
+        ob_start();
+        $this->controller->removemember();
+        ob_get_clean();
+
+        $this->assertContains('Removed.', $_SESSION['_messages'] ?? []);
+    }
+
+    /**
+     * Removing somebody who is not a member says so, and changes nothing.
+     *
+     * A second click, a back button, a link bookmarked before somebody else
+     * removed them — all of those matched no row and still reported "Removed.",
+     * which is the report an operator would act on.
+     */
+    public function testRemovingSomebodyWhoIsNotAMemberSaysSo()
+    {
+        // Arrange — no membership row
+        $_GET['_option'] = '5';
+        $_GET['userid'] = '100';
+        $this->queryBuilderMock->method('first')->willReturn(false);
+
+        // Assert — nothing is written
+        $this->queryBuilderMock->expects($this->never())->method('update');
+
+        // Act
+        ob_start();
+        $this->controller->removemember();
+        ob_get_clean();
+
+        $this->assertContains(
+            'That person is not a member of this organization.',
+            $_SESSION['_errors'] ?? []
         );
     }
 }

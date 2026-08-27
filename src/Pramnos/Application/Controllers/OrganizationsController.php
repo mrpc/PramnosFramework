@@ -258,11 +258,18 @@ class OrganizationsController extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Members — ' . htmlspecialchars((string) ($org->fields['name'] ?? ''), ENT_QUOTES);
 
+        // Current members only. `removemember()` keeps the row and sets
+        // `is_active = 0` for the audit trail, and this listed every row — so a
+        // removed member stayed on the screen, indistinguishable from one who
+        // still has access. The Remove button looked broken, and the page
+        // answered "who is in this organization" with a list of everyone who ever
+        // was.
         $members = $db->queryBuilder()
             ->table($orgTable . ' uo')
             ->join('#PREFIX#users u', 'uo.userid', '=', 'u.userid')
             ->select(['u.userid', 'u.username', 'u.email', 'uo.granted_at', 'uo.is_active'])
             ->where('uo.' . $orgCol, $orgId)
+            ->where('uo.is_active', 1)
             ->orderBy('u.username')
             ->getAll();
 
@@ -275,7 +282,10 @@ class OrganizationsController extends Controller
 
     /**
      * POST handler: assign a user to an organization.
-     * Expects POST fields: userid, org_id (or orgId from route).
+     *
+     * The organization comes from the URL (`organizations/addmember/{id}`, which
+     * is what the members screen posts to), or from an `org_id` POST field. The
+     * user comes from the `userid` POST field.
      */
     public function addmember(mixed $orgId = null): void
     {
@@ -283,7 +293,7 @@ class OrganizationsController extends Controller
             return;
         }
 
-        $orgId  = (int) ($orgId  ?? $_POST['org_id'] ?? 0);
+        $orgId  = $this->idFromRoute($orgId, (int) ($_POST['org_id'] ?? 0));
         $userId = (int) ($_POST['userid'] ?? 0);
 
         if ($orgId <= 0 || $userId <= 0) {
@@ -318,6 +328,11 @@ class OrganizationsController extends Controller
     /**
      * Remove a user's membership from an organization.
      * Sets is_active=0 rather than deleting the row to preserve the audit trail.
+     *
+     * `organizations/removemember/{orgId}?userid={userId}` — the organization in
+     * the URL segment, the user as a query parameter. Not two segments: the
+     * framework's URL parser turns `action/a/b` into `$_GET['a'] = 'b'` rather
+     * than into two options, so the second id never arrived as an argument.
      */
     public function removemember(mixed $orgId = null, mixed $userId = null): void
     {
@@ -325,8 +340,16 @@ class OrganizationsController extends Controller
             return;
         }
 
-        $orgId  = (int) ($orgId  ?? 0);
-        $userId = (int) ($userId ?? 0);
+        $userIdFromRoute = $userId;
+        $orgId = $this->idFromRoute($orgId, 0);
+        // The user id comes from the request, never from the URL option — that
+        // option *is* the organization segment, so resolving both the same way
+        // made the user id equal the organization id. The update then matched no
+        // row, and the screen still reported "Removed."
+        $userId = (int) ($_GET['userid'] ?? $_POST['userid'] ?? 0);
+        if ($userId <= 0 && is_scalar($userIdFromRoute) && (int) $userIdFromRoute > 0) {
+            $userId = (int) $userIdFromRoute;
+        }
 
         if ($orgId <= 0 || $userId <= 0) {
             $this->addError('No valid entries were selected.');
@@ -337,6 +360,23 @@ class OrganizationsController extends Controller
         $db       = \Pramnos\Framework\Factory::getDatabase();
         $orgTable = $this->resolveOrgMembershipTable();
         $orgCol   = $this->resolveOrgColumn();
+
+        // Say what happened, rather than "Removed." regardless. A stale link — a
+        // second click, a back button, a bookmark from before someone else
+        // removed them — matched no row and still reported success, which is the
+        // report an operator would act on.
+        $membership = $db->queryBuilder()
+            ->table($orgTable)
+            ->where('userid', $userId)
+            ->where($orgCol, $orgId)
+            ->where('is_active', 1)
+            ->first();
+
+        if (!$membership || $membership->numRows === 0) {
+            $this->addError('That person is not a member of this organization.');
+            $this->redirect(sURL . 'organizations/' . $orgId . '/members');
+            return;
+        }
 
         $db->queryBuilder()
             ->table($orgTable)
@@ -349,6 +389,37 @@ class OrganizationsController extends Controller
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * An id from a route argument, the URL option, or a fallback.
+     *
+     * The classic dispatcher hands every action the request's arguments **array**,
+     * not the individual segments, so an action declaring `mixed $id = null`
+     * receives something `(int)` turns into 0 or 1 — and `addmember` and
+     * `removemember` both trusted it. The result was that adding a member to an
+     * organization was impossible: the form posted to
+     * `organizations/addmember/{id}`, the id never arrived, and the screen
+     * answered "No valid entries were selected" and redirected to
+     * `organizations/0/members`. Removing one failed the same way. So the two
+     * actions that make the members screen a screen rather than a list could
+     * neither of them run.
+     *
+     * `members()` had it right all along, reading `staticGetOption()`. This is
+     * the same read, in one place.
+     */
+    private function idFromRoute(mixed $argument, int $fallback): int
+    {
+        if (is_scalar($argument) && (int) $argument > 0) {
+            return (int) $argument;
+        }
+
+        $fromUrl = \Pramnos\Http\Request::staticGetOption();
+        if (is_scalar($fromUrl) && (int) $fromUrl > 0) {
+            return (int) $fromUrl;
+        }
+
+        return $fallback;
+    }
 
     protected function terminate(): void
     {

@@ -34,7 +34,7 @@
                         <td><?php echo htmlspecialchars($m['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($m['email'] ?? ''); ?></td>
                         <td class="text-end">
-                            <a href="<?php echo adminUrl('Organizations/removemember/'); ?><?php echo (int)($this->org['organization_id'] ?? 0); ?>/<?php echo (int)$m['userid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Remove member?">Remove</a>
+                            <a href="<?php echo adminUrl('Organizations/removemember/'); ?><?php echo (int)($this->org['organization_id'] ?? 0); ?>?userid=<?php echo (int)$m['userid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Remove member?">Remove</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
