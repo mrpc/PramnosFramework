@@ -80,6 +80,10 @@ everything on it appends — content, and the `header`/`head`/`foot` that `rende
 adds the theme's to on each call. Response 2 arrived with response 1's page in
 front of its own and its `<head>` twice; by the fifth request in one test the theme
 had been concatenated five times and the run died on a 34 MB output buffer.
+
+The content half of this went deeper than the instances and was not finished here —
+see [reset() left the page where the next request would find
+it](2026-08-27-reset-left-the-page-where-the-next-request-would-find-it.md).
 `assertSee()` passing on a page the test had already left is the quieter half of
 the same bug. `TestClient` now resets the document per request.
 
