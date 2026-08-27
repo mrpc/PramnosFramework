@@ -415,7 +415,7 @@ class Api extends Application
                 $inputData = json_encode(\Pramnos\Http\Request::$putData);
                 break;
             default:
-                $inputData = file_get_contents("php://input");
+                $inputData = \Pramnos\Http\Request::rawBody();
                 break;
         }
         $log = "URL: " . $url . "\nInput Data: "

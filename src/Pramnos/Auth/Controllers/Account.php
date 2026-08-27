@@ -444,7 +444,7 @@ class Account extends Controller
     /** The raw request body (seam so tests can supply a WebAuthn assertion). */
     protected function rawRequestBody(): string
     {
-        return (string) file_get_contents('php://input');
+        return \Pramnos\Http\Request::rawBody();
     }
 
     /** Current logged-in user id (> 1), or null when not authenticated. */

@@ -212,15 +212,42 @@ class Request extends Base
     }
 
     /**
+     * The raw request body, read once per request.
+     *
+     * `php://input` is a stream, and reading it is not always repeatable: with
+     * `enable_post_data_reading` off, behind some SAPIs, and for
+     * `multipart/form-data` under every SAPI, the second read returns an empty
+     * string. So a request whose body was already read — by
+     * {@see decodeBody()}, by a middleware, by anything — reached a handler
+     * reading `php://input` for itself as a request with *no body*, and the
+     * handler answered "malformed or missing payload" for a payload that was
+     * there. Reading once and keeping the result is what makes the body
+     * available to everyone who needs it, in whatever order they ask.
+     *
+     * This is also the value {@see setRawInput()} sets, which is what makes a
+     * body testable: a handler calling `file_get_contents('php://input')`
+     * directly cannot see what a test supplied, so its body-reading path could
+     * not be exercised at all.
+     *
+     * @return string
+     */
+    public static function rawBody(): string
+    {
+        if (self::$rawInput === null) {
+            $raw = file_get_contents("php://input");
+            self::$rawInput = $raw === false ? '' : $raw;
+        }
+
+        return (string) self::$rawInput;
+    }
+
+    /**
      * Get raw input content
      * @return string
      */
     protected function getRawInput()
     {
-        if (self::$rawInput !== null) {
-            return self::$rawInput;
-        }
-        return file_get_contents("php://input");
+        return self::rawBody();
     }
 
     /**

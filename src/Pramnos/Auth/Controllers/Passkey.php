@@ -284,7 +284,7 @@ class Passkey extends Controller
     /** The raw request body (seam so tests can supply a body). */
     protected function rawRequestBody(): string
     {
-        return (string) file_get_contents('php://input');
+        return \Pramnos\Http\Request::rawBody();
     }
 
     private function unauthorized(): mixed

@@ -122,7 +122,7 @@ class Capabilities extends Controller
     /** The raw request body (seam so tests can supply a body without php://input). */
     protected function rawRequestBody(): string
     {
-        return (string) file_get_contents('php://input');
+        return \Pramnos\Http\Request::rawBody();
     }
 
     /** The sync service (seam so tests can inject a double). */

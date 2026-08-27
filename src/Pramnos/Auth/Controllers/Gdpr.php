@@ -510,8 +510,8 @@ class Gdpr extends Controller
      */
     protected function readJsonBody(): array
     {
-        $raw = file_get_contents('php://input');
-        if ($raw === false || $raw === '') {
+        $raw = \Pramnos\Http\Request::rawBody();
+        if ($raw === '') {
             return [];
         }
         return json_decode($raw, true) ?? [];

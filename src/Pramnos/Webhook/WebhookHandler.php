@@ -117,7 +117,7 @@ class WebhookHandler
      */
     public function handle(?string $rawBody = null, ?array $headers = null): never
     {
-        $body    = $rawBody  ?? (string) file_get_contents('php://input');
+        $body    = $rawBody  ?? \Pramnos\Http\Request::rawBody();
         $headers = $headers  ?? $this->getRequestHeaders();
 
         // Normalise header names to lowercase for provider-agnostic matching

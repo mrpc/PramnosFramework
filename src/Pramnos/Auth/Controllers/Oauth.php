@@ -1377,9 +1377,12 @@ class Oauth extends Controller
 
         $request = $factory->createServerRequest($method, $uri, $_SERVER);
 
-        // Attach request body so League can read POST fields from php://input
-        $bodyStream = $factory->createStreamFromResource(fopen('php://input', 'r'));
-        $request    = $request->withBody($bodyStream);
+        // Attach the request body so League can read POST fields from it. Read
+        // through Request::rawBody() rather than opening php://input here: the
+        // stream is consumable, and a body already read left League with an
+        // empty one — a token request with every field present, refused as
+        // `invalid_request`.
+        $request = $request->withBody($factory->createStream(\Pramnos\Http\Request::rawBody()));
 
         // Attach parsed body ($_POST) for application/x-www-form-urlencoded requests
         if (!empty($_POST)) {

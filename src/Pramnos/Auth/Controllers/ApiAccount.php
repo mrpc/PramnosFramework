@@ -386,14 +386,10 @@ class ApiAccount extends Controller
         return strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
     }
 
-    /**
-     * Raw request body (seam so tests can supply a JSON payload).
-     *
-     * @codeCoverageIgnore — reads php://input; a payload is supplied in tests.
-     */
+    /** Raw request body (seam so tests can supply a JSON payload). */
     protected function rawBody(): string
     {
-        return (string) file_get_contents('php://input');
+        return \Pramnos\Http\Request::rawBody();
     }
 
     /**

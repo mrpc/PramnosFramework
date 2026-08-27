@@ -308,6 +308,36 @@ array, deliberately. It is not handed to `parse_str`, because
 `all('DELETE')` and friends return; `body()` is the accessor that saves you having
 to know which one applies.
 
+### The raw body, when you need the bytes
+
+A signature to verify, a WebAuthn assertion, a JSON manifest — anything where the
+exact bytes matter and a decoded array will not do. Read it with
+`Request::rawBody()`:
+
+```php
+$raw = \Pramnos\Http\Request::rawBody();   // '' when the request carried no body
+```
+
+**Never `file_get_contents('php://input')`.** It is a stream, and reading it is
+not repeatable: for `multipart/form-data` the second read returns an empty string
+under every SAPI, and with `enable_post_data_reading` off so does the first one
+after anything else has read it. So a request whose body had already been read —
+by `body()`, by a middleware, by another handler — reached the second reader as a
+request with *no body*, and the handler answered "malformed or missing payload"
+for a payload that was present. `rawBody()` reads once and keeps the result, so
+every reader in a request gets it, in whatever order they ask.
+
+It returns a `string`, never `false`: a `false` from `file_get_contents()` passes
+an `if ($raw === '')` check for "no payload" and then reaches `json_decode()`,
+which turns a 400 into a 500.
+
+The cache is per request — `Request::resetInstance()` clears it, so a worker
+handling several requests in one process does not answer with the previous body.
+
+In a test, supply a body with `Request::setRawInput($body)`; that is the same
+value `rawBody()` returns, which is what makes a handler's body-reading branch
+reachable at all.
+
 ## Views and Templates
 
 ### View Structure
