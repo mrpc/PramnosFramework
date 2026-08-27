@@ -413,6 +413,17 @@ get Chart.js is simply `php bin/pramnos project:install`.
 `libraries` key in its `FeatureRegistry` definition; enabling it with
 `project:reconfigure --enable-feature=` installs them automatically.
 
+**One palette, built for every UI system.** `theme:build` reads `app/theme.css` — the
+format daisyUI's theme generator emits — and writes the tokens as plain custom
+properties plus JSON, which is what a project without npm needs to be themed:
+
+```bash
+pramnos theme:build            # www/assets/css/theme-tokens.css + theme-tokens.json
+pramnos theme:build --check    # exit 1 if they are stale — for CI
+```
+
+See [One palette, every UI system](Pramnos_Theme_Guide.md#one-palette-every-ui-system).
+
 **A vendored stylesheet brings what it points at.** A CSS file is rarely the whole
 library: FontAwesome's `all.min.css` is nothing but `@font-face` rules naming
 `../webfonts/*.woff2`, and a Google Fonts stylesheet is a list of absolute

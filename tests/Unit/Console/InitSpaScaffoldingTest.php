@@ -750,12 +750,13 @@ class InitSpaScaffoldingTest extends TestCase
             $status
         );
 
-        // Assert
+        // Assert — the palette's own tokens, copied rather than mapped
         $this->assertSame(0, $status, implode("\n", $output));
         $theme = $this->read('frontend/theme.css');
-        $this->assertStringContainsString('--color-primary: #2563eb', $theme, "the theme's --primary-color");
-        $this->assertStringContainsString('--color-base-content: #1e293b', $theme, "its --text-main");
-        $this->assertStringContainsString('--color-neutral: #64748b', $theme, "its --text-muted");
+        $this->assertStringContainsString('Source: app/theme.css', $theme, 'read from the palette');
+        $this->assertStringContainsString('--color-primary: oklch(', $theme, "the palette's primary");
+        $this->assertStringContainsString('spaapp-dark', $theme, 'both themes, not only the default');
+        $this->assertStringContainsString('prefers-color-scheme: dark', $theme, 'and the OS preference');
         $this->assertStringContainsString('GENERATED', $theme, 'and it says not to edit it');
     }
 
@@ -772,11 +773,11 @@ class InitSpaScaffoldingTest extends TestCase
         }
         $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'plain-css']);
 
-        $style = $this->tmpDir . '/www/assets/css/style.css';
-        file_put_contents($style, str_replace(
-            '--primary-color: #2563eb',
-            '--primary-color: #dc2626',
-            (string) file_get_contents($style)
+        $palette = $this->tmpDir . '/app/theme.css';
+        file_put_contents($palette, str_replace(
+            '--color-primary: oklch(54.6% 0.215 262.9)',
+            '--color-primary: oklch(57.7% 0.215 27.3)',
+            (string) file_get_contents($palette)
         ));
 
         // Act
@@ -784,13 +785,21 @@ class InitSpaScaffoldingTest extends TestCase
 
         // Assert
         $this->assertSame(0, $status, implode("\n", $out));
-        $this->assertStringContainsString('--color-primary: #dc2626', $this->read('frontend/theme.css'));
+        $this->assertStringContainsString(
+            '--color-primary: oklch(57.7% 0.215 27.3)',
+            $this->read('frontend/theme.css'),
+            'a colour changed in app/theme.css reaches the SPA on the next build'
+        );
     }
 
     /**
-     * A theme that declares no custom properties falls back to the colour its
-     * own framework paints with — not daisyUI's default, which would match
-     * nothing on the server-rendered side — and the generated file says so.
+     * A project with no palette falls back to the colour its own UI framework paints
+     * with — not daisyUI's default, which would match nothing on the server-rendered
+     * side — and the generated file says so.
+     *
+     * That is the path for a project scaffolded before `app/theme.css` existed. It
+     * guesses: it knows `--primary-color` and invents the rest, which is exactly why
+     * the palette exists.
      */
     public function testPaletteFallsBackToTheUiFrameworkColour(): void
     {
@@ -800,6 +809,8 @@ class InitSpaScaffoldingTest extends TestCase
             $this->markTestSkipped('node is not available in this environment');
         }
         $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'bootstrap']);
+        // …as a project that predates the palette: no app/theme.css to read
+        unlink($this->tmpDir . '/app/theme.css');
 
         // Act
         exec('cd ' . escapeshellarg($this->tmpDir) . ' && node scripts/build-theme.mjs 2>&1', $out, $status);

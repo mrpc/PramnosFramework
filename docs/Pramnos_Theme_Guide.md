@@ -7,6 +7,8 @@ use_cases:
   - Diagnosing a theme that renders a header and footer with an empty page
   - Rendering a document outside the framework's own MVC path
   - Choosing or switching the scaffolded UI framework (plain-css / bootstrap / tailwind)
+  - Changing the application's colours, or sharing one palette between a server-rendered
+    side and a SPA
   - Styling a screen so it stays readable in the dark theme
 ---
 
@@ -24,10 +26,11 @@ The Pramnos Framework includes a powerful theming system that provides flexible 
 6. [Menu System](#menu-system)
 7. [Theme Settings](#theme-settings)
 8. [Content Types](#content-types)
-9. [Asset Management](#asset-management)
-10. [Theme Development](#theme-development)
-11. [Advanced Features](#advanced-features)
-12. [Best Practices](#best-practices)
+9. [One palette, every UI system](#one-palette-every-ui-system)
+10. [Asset Management](#asset-management)
+11. [Theme Development](#theme-development)
+12. [Advanced Features](#advanced-features)
+13. [Best Practices](#best-practices)
 
 ## Architecture Overview
 
@@ -1047,6 +1050,89 @@ class MyTheme extends \Pramnos\Theme\Theme
     }
 }
 ```
+
+## One palette, every UI system
+
+A project's colours live in **one file**, `app/theme.css`, written in the format
+[daisyUI's theme generator](https://daisyui.com/theme-generator/) already emits:
+
+```css
+@plugin "daisyui/theme" {
+    name: "acme";
+    default: true;
+    color-scheme: light;
+
+    --color-base-100: oklch(100% 0 0);
+    --color-base-content: oklch(21% 0.032 264.7);
+    --color-primary: oklch(54.6% 0.215 262.9);
+    --color-primary-content: oklch(100% 0 0);
+    --radius-box: 0.75rem;
+}
+
+@plugin "daisyui/theme" {
+    name: "acme-dark";
+    prefersdark: true;
+    color-scheme: dark;
+    /* … */
+}
+```
+
+`pramnos init` writes it, named after the application, and nothing else in a scaffolded
+project carries a colour value.
+
+**Why that format rather than a config file of our own.** It is the one a designer can
+produce without this framework existing — pick colours on daisyUI's site, copy the
+block, paste it in — and for a Tailwind project with npm it needs no build step at all:
+`assets/src/app.css` imports the file and the plugin reads the blocks directly.
+
+### The build tool
+
+Everything that is not Tailwind-with-npm needs the same tokens in a form it can read,
+and that is generated:
+
+```bash
+pramnos theme:build            # write both outputs
+pramnos theme:build --check    # exit 1 if they are stale — for CI
+```
+
+| Output | Read by |
+|---|---|
+| `www/assets/css/theme-tokens.css` | Every server-rendered theme — buildless Tailwind, Bootstrap, plain CSS. Linked from `head.php` before the theme's own stylesheet. |
+| `www/assets/theme-tokens.json` | A SPA's own components, and anything else that reads JavaScript rather than CSS. |
+
+The generated stylesheet puts each theme under `[data-theme="<name>"]`, the one flagged
+`default` on `:root` as well, and the one flagged `prefersdark` inside a
+`prefers-color-scheme: dark` block scoped to `:root:not([data-theme])` — so the
+operating system decides for a visitor who has not chosen, and an explicit choice still
+wins. Without that scoping a theme switch works only for visitors whose OS is already
+in light mode.
+
+A scaffolded SPA's `scripts/build-theme.mjs` reads `app/theme.css` too, on every build
+and every dev-server start. It used to scrape the server theme's `:root` properties and
+map what it recognised — which meant guessing the two thirds of the palette it had no
+name for.
+
+### Reading a token from PHP
+
+For the places a custom property cannot reach — `<meta name="theme-color">`, an HTML
+email:
+
+```php
+$brand = \Pramnos\Theme\ThemeTokens::token('--color-primary', fallback: '#2563eb');
+```
+
+The file is read once per request. `ThemeTokens::load()` returns every theme;
+`defaultTheme()` picks the one a page gets when it asks for none — the one flagged
+`default`, or the first declared, which is what daisyUI itself does.
+
+### What this does not do
+
+**Bootstrap's own variables are not generated.** Bootstrap 5 wants `--bs-primary` as a
+hex plus a `--bs-primary-rgb` triplet, and an `oklch()` value cannot be decomposed into
+one without a colour-space conversion this framework has no business doing at build
+time. A Bootstrap project gets the tokens and uses them directly
+(`background: var(--color-primary)`); theming Bootstrap's own components still means
+Bootstrap's own Sass.
 
 ## Asset Management
 

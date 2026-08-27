@@ -3532,4 +3532,107 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('Mozilla/5.0', (string) ($inter['user_agent'] ?? ''));
         $this->assertSame('assets/vendor/inter/latest', $inter['local_path'] ?? null);
     }
+
+    /**
+     * A scaffolded project has one palette, and every UI system reads it.
+     *
+     * Before this, colours lived wherever the chosen UI system kept them: a daisyUI
+     * `@plugin` block for Tailwind-with-npm, hand-written custom properties for a
+     * buildless one, and a third copy inside a SPA's own theme file. Same palette,
+     * three places, and the first thing to go wrong is that they stop agreeing — in
+     * whichever theme nobody develops in.
+     *
+     * The generated forms are written at scaffold time rather than left for a first
+     * `theme:build`: a stylesheet referencing tokens no file declares renders in black
+     * and white, and "run theme:build" is not discoverable from that symptom.
+     */
+    public function testScaffoldingWritesOnePaletteAndLinksIt(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'Acme Portal',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MyApp',
+            '--features'    => '',
+            '--ui-system'   => 'tailwind',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'myapp_db',
+            '--db-user'     => 'myapp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — the palette, in daisyUI's own format, named after the application
+        $palette = (string) file_get_contents($this->tmpDir . '/app/theme.css');
+        $this->assertStringContainsString('@plugin "daisyui/theme"', $palette);
+        $this->assertStringContainsString('name: "acme-portal";', $palette);
+        $this->assertStringContainsString('name: "acme-portal-dark";', $palette);
+
+        // …its generated forms
+        $tokens = (string) file_get_contents($this->tmpDir . '/www/assets/css/theme-tokens.css');
+        $this->assertStringContainsString('[data-theme="acme-portal"]', $tokens);
+        $this->assertStringContainsString('--color-primary', $tokens);
+        $this->assertFileExists($this->tmpDir . '/www/assets/theme-tokens.json');
+
+        // …linked from the head, before the project's own stylesheet
+        $head = (string) file_get_contents($this->tmpDir . '/app/themes/default/head.php');
+        $this->assertStringContainsString('assets/css/theme-tokens.css', $head);
+        $this->assertLessThan(
+            strpos($head, 'assets/css/style.css'),
+            strpos($head, 'assets/css/theme-tokens.css'),
+            'the tokens have to be declared before the stylesheet that uses them'
+        );
+    }
+
+    /**
+     * The theme toggle switches between *this project's* themes.
+     *
+     * It wrote `light` and `dark` — daisyUI's stock themes — so a project with a
+     * palette of its own lost it the first time a visitor pressed the button, and got
+     * it back by reloading. Which reads as a rendering glitch rather than as a theme
+     * name.
+     */
+    public function testTheThemeToggleUsesTheProjectsOwnThemeNames(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'Acme Portal',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MyApp',
+            '--features'    => '',
+            '--ui-system'   => 'tailwind',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'myapp_db',
+            '--db-user'     => 'myapp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $header = (string) file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString("'acme-portal-dark'", $header);
+        $this->assertStringContainsString("'acme-portal'", $header);
+        $this->assertStringNotContainsString('{{THEME_', $header, 'every placeholder must be substituted');
+    }
+
 }

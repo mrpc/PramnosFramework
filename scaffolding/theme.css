@@ -1,0 +1,93 @@
+/**
+ * This application's palette — the one place its colours are written.
+ *
+ * The format is the one daisyUI's theme generator emits
+ * (https://daisyui.com/theme-generator/): pick colours there, copy the block, paste
+ * it here. Nothing else in the project should carry a colour value.
+ *
+ * Who reads this file:
+ *
+ *   - **Tailwind with npm** — `assets/src/app.css` imports it and the daisyUI plugin
+ *     reads these blocks directly. Nothing to generate.
+ *   - **Everything else** — `pramnos theme:build` turns the same tokens into plain
+ *     custom properties in `www/assets/css/theme-tokens.css`, which is all a buildless
+ *     Tailwind, Bootstrap or plain-CSS project needs, and into
+ *     `www/assets/theme-tokens.json` for a SPA's own components.
+ *
+ * So: change a colour here, run `pramnos theme:build`, and every part of the
+ * application changes with it. Run it in CI with `--check` to be told when a
+ * generated file has gone stale.
+ *
+ * The token names are daisyUI's, which is the point — a vocabulary somebody else
+ * maintains is one we do not have to. `--color-primary` is the brand colour,
+ * `--color-*-content` is what stays readable on top of it, and `--color-base-*` are
+ * the page's own surfaces from lightest to darkest.
+ */
+
+@plugin "daisyui/theme" {
+    name: "app";
+    default: true;
+    color-scheme: light;
+
+    --color-base-100: oklch(100% 0 0);
+    --color-base-200: oklch(98.5% 0.002 247.8);
+    --color-base-300: oklch(92.8% 0.006 264.5);
+    --color-base-content: oklch(21% 0.032 264.7);
+
+    --color-primary: oklch(54.6% 0.215 262.9);
+    --color-primary-content: oklch(100% 0 0);
+    --color-secondary: oklch(37.3% 0.031 259.7);
+    --color-secondary-content: oklch(100% 0 0);
+    --color-accent: oklch(58.8% 0.139 242);
+    --color-accent-content: oklch(100% 0 0);
+    --color-neutral: oklch(27.8% 0.03 256.8);
+    --color-neutral-content: oklch(98.5% 0.002 247.8);
+
+    --color-info: oklch(58.8% 0.139 242);
+    --color-info-content: oklch(100% 0 0);
+    --color-success: oklch(62.7% 0.17 149.2);
+    --color-success-content: oklch(100% 0 0);
+    --color-warning: oklch(68.1% 0.142 75.8);
+    --color-warning-content: oklch(21% 0.032 264.7);
+    --color-error: oklch(57.7% 0.215 27.3);
+    --color-error-content: oklch(100% 0 0);
+
+    --radius-selector: 0.5rem;
+    --radius-field: 0.5rem;
+    --radius-box: 0.75rem;
+    --border: 1px;
+}
+
+@plugin "daisyui/theme" {
+    name: "app-dark";
+    prefersdark: true;
+    color-scheme: dark;
+
+    --color-base-100: oklch(20.8% 0.04 265.8);
+    --color-base-200: oklch(18.3% 0.031 263.4);
+    --color-base-300: oklch(27.9% 0.037 260);
+    --color-base-content: oklch(98.4% 0.003 247.9);
+
+    --color-primary: oklch(65% 0.19 262.9);
+    --color-primary-content: oklch(18.3% 0.031 263.4);
+    --color-secondary: oklch(70% 0.03 259.7);
+    --color-secondary-content: oklch(18.3% 0.031 263.4);
+    --color-accent: oklch(70% 0.13 242);
+    --color-accent-content: oklch(18.3% 0.031 263.4);
+    --color-neutral: oklch(27.9% 0.037 260);
+    --color-neutral-content: oklch(98.4% 0.003 247.9);
+
+    --color-info: oklch(70% 0.13 242);
+    --color-info-content: oklch(18.3% 0.031 263.4);
+    --color-success: oklch(70% 0.15 149.2);
+    --color-success-content: oklch(18.3% 0.031 263.4);
+    --color-warning: oklch(76% 0.13 75.8);
+    --color-warning-content: oklch(18.3% 0.031 263.4);
+    --color-error: oklch(66% 0.19 27.3);
+    --color-error-content: oklch(18.3% 0.031 263.4);
+
+    --radius-selector: 0.5rem;
+    --radius-field: 0.5rem;
+    --radius-box: 0.75rem;
+    --border: 1px;
+}

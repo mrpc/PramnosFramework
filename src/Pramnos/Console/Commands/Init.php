@@ -1610,6 +1610,11 @@ class Init extends Command
             // an author edits the palette.
             'themePath'   => $this->webRoot . '/assets/css/style.css',
             'themeOutput' => $sourceDir . '/theme.css',
+            // The palette itself, which is what the script prefers: the tokens in
+            // it are already daisyUI's, so there is nothing to map and nothing to
+            // guess. The scrape below it is the path for a project that predates
+            // this file.
+            'palettePath'  => 'app/theme.css',
             // The colour this UI framework actually paints with, for a theme
             // that declares no custom properties of its own.
             'fallbackPrimary' => match ($uiSystem) {
@@ -3215,6 +3220,76 @@ PHP;
      * per-page by controllers via addScript()/addStyle().
      */
     /**
+     * The name this project's themes are declared under.
+     *
+     * Named after the application rather than `light`/`dark`, because daisyUI already
+     * ships those two: a project overriding them by name can no longer put its own
+     * beside theirs, and every consumer of a theme name — the toggle, the pre-paint
+     * script, `data-theme` in the markup — has to agree with the palette file. This is
+     * where they agree.
+     */
+    private function paletteSlug(string $appName): string
+    {
+        $slug = strtolower((string) preg_replace('/[^a-z0-9]+/i', '-', $appName));
+        $slug = trim($slug, '-');
+
+        return $slug === '' ? 'app' : $slug;
+    }
+
+    /**
+     * The project's palette, and the generated forms of it.
+     *
+     * One file — `app/theme.css`, in the format daisyUI's theme generator emits — and
+     * everything else derived from it: plain custom properties for a build without
+     * npm, JSON for a SPA's own components. Before this, a project's colours lived
+     * wherever its UI system kept them, which for an application with a
+     * server-rendered side and a SPA meant the same palette written twice and drifting
+     * apart in whichever theme nobody develops in.
+     *
+     * The theme is named after the application rather than "light"/"dark", because
+     * daisyUI already ships those two and a project overriding them by name can no
+     * longer put its own beside theirs.
+     *
+     * @see \Pramnos\Theme\ThemeTokens
+     * @see \Pramnos\Console\Commands\ThemeBuild
+     */
+    private function scaffoldPalette(string $appName): void
+    {
+        $source = $this->scaffoldingDir . '/theme.css';
+        if (!file_exists($source)) {
+            return; // @codeCoverageIgnore — scaffolding/theme.css ships with the package
+        }
+
+        $slug = $this->paletteSlug($appName);
+        $css  = (string) file_get_contents($source);
+        // The two theme names, so a project's themes are its own rather than a
+        // generic pair every scaffolded project shares.
+        $css = str_replace(['name: "app";', 'name: "app-dark";'], [
+            'name: "' . $slug . '";',
+            'name: "' . $slug . '-dark";',
+        ], $css);
+
+        $this->writeFile('app/theme.css', $css);
+
+        // Generated here rather than left for the developer to run: a project whose
+        // stylesheet references tokens no file declares renders in black and white,
+        // and "run theme:build" is not discoverable from that symptom.
+        $themes = \Pramnos\Theme\ThemeTokens::parse($css);
+        if ($themes === []) {
+            return; // @codeCoverageIgnore — the shipped palette declares two themes
+        }
+
+        $this->writeFile(
+            $this->webRoot . '/assets/css/theme-tokens.css',
+            \Pramnos\Theme\ThemeTokens::toCss($themes)
+        );
+        $this->writeFile(
+            $this->webRoot . '/assets/theme-tokens.json',
+            \Pramnos\Theme\ThemeTokens::toJson($themes)
+        );
+    }
+
+    /**
      * Re-install a scaffolding UI framework into an existing project (in place).
      *
      * Public entry point used by the project:switch-ui command so a project can
@@ -3259,6 +3334,8 @@ PHP;
         if (file_exists($cssFile)) {
             $this->writeFile($this->webRoot . '/assets/css/style.css', file_get_contents($cssFile));
         }
+
+        $this->scaffoldPalette($appName);
 
         $pfUtils = $this->scaffoldingDir . '/assets/js/pf-utils.js';
         if (file_exists($pfUtils)) {
@@ -3472,10 +3549,10 @@ HTML,
                 var stored = null;
                 try { stored = localStorage.getItem('pf-theme'); } catch (e) { /* private mode */ }
                 box.checked = stored
-                    ? stored === 'dark'
+                    ? stored === '{{THEME_DARK}}'
                     : window.matchMedia('(prefers-color-scheme: dark)').matches;
                 box.addEventListener('change', function () {
-                    var theme = box.checked ? 'dark' : 'light';
+                    var theme = box.checked ? '{{THEME_DARK}}' : '{{THEME_LIGHT}}';
                     document.documentElement.setAttribute('data-theme', theme);
                     try { localStorage.setItem('pf-theme', theme); } catch (e) { /* private mode */ }
                 });
@@ -3527,6 +3604,21 @@ HTML,
         // is injected here rather than written literally into the single-quoted
         // heredocs above.
         $nav = str_replace('{{BRAND_LOGO}}', $this->brandLogo($uiSystem), $nav);
+
+        /**
+         * The toggle switches between *this project's* two themes.
+         *
+         * It used to write `light` and `dark`, which are daisyUI's own stock themes —
+         * so a project with a palette of its own lost it the first time a visitor
+         * pressed the button, and got it back by reloading. The names come from
+         * `app/theme.css` through the same slug that generated them.
+         */
+        $slug = $this->paletteSlug($appName);
+        $nav  = str_replace(
+            ['{{THEME_LIGHT}}', '{{THEME_DARK}}'],
+            [$slug, $slug . '-dark'],
+            $nav
+        );
 
         // The head assets are **not** here any more: they go to head.php, which
         // theme.html.php includes inside a real <head>. While they lived in this file
@@ -3639,9 +3731,20 @@ HTML,
             }
         }
 
+        /**
+         * The project's palette, before anything that uses it.
+         *
+         * Generated from `app/theme.css` by `pramnos theme:build`, and linked for every
+         * UI system rather than only the ones without a build step: a project that
+         * later drops npm keeps its colours, and one that adds npm is simply setting
+         * the same values twice from the same source.
+         */
+        $tokens = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/theme-tokens.css\">\n";
+
         return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
             . $this->faviconLinks()
             . $themeCss
+            . $tokens
             . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
             . "    <?php \$this->document->renderCss(); ?>\n";
     }

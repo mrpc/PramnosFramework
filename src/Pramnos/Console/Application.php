@@ -163,6 +163,7 @@ class Application extends \Symfony\Component\Console\Application
         // file, it brings a clone's environment up. See its class docblock.
         $this->add(new \Pramnos\Console\Commands\ProjectSetup());
         $this->add(new \Pramnos\Console\Commands\CacheClear());
+        $this->add(new \Pramnos\Console\Commands\ThemeBuild());
         $this->add(new \Pramnos\Console\Commands\PageCachePurge());
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());

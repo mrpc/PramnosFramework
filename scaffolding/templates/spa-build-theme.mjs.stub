@@ -2,10 +2,16 @@
 /**
  * Generate the daisyUI palette from this project's server-rendered theme.
  *
- * The two halves of the application must not look like two products. The theme
- * under `app/themes/` declares its palette as CSS custom properties, and
- * daisyUI 5 reads its own palette from custom properties too — so the colours
- * are mapped across here rather than being chosen twice by hand.
+ * The two halves of the application must not look like two products, so neither
+ * half chooses colours. `app/theme.css` declares them once, in daisyUI's own
+ * format, and this copies those blocks in — no mapping, no guessing, because the
+ * names already match.
+ *
+ * A project scaffolded before that file existed falls back to reading the
+ * server-rendered theme's `:root` custom properties and mapping what it
+ * recognises. That path guesses: it knows `--primary-color`, and invents the
+ * rest. `pramnos theme:build` and an `app/theme.css` are how a project stops
+ * guessing.
  *
  * This runs from `prebuild` and `predev`, so changing a colour in the theme
  * reaches the SPA on the next build — which is when the CSS is rebuilt anyway.
@@ -19,9 +25,10 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root  = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const THEME = resolve(root, '{{ themePath }}');
-const OUT   = resolve(root, '{{ themeOutput }}');
+const root    = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const THEME   = resolve(root, '{{ themePath }}');
+const PALETTE = resolve(root, '{{ palettePath }}');
+const OUT     = resolve(root, '{{ themeOutput }}');
 
 /**
  * The colour this project's UI framework actually paints with, used when the
@@ -55,11 +62,65 @@ function rootVariables(css) {
     return vars;
 }
 
+/**
+ * Every `@plugin "daisyui/theme"` block in the project's palette.
+ *
+ * Emitted as plain custom properties rather than as `@plugin` blocks: this file is
+ * imported by the SPA's stylesheet, and the plugin has already run by then.
+ *
+ * @param {string} css
+ * @returns {string} The declarations, or '' when the file declares no theme
+ */
+function paletteBlocks(css) {
+    let out = '';
+
+    for (const [, body] of css.matchAll(/@plugin\s+["']daisyui\/theme["']\s*\{([^}]*)\}/g)) {
+        let name = '';
+        let isDefault = false;
+        let prefersDark = false;
+        const declarations = [];
+
+        for (const line of body.split(';')) {
+            const trimmed = line.trim();
+            if (!trimmed.includes(':')) { continue; }
+            const key = trimmed.slice(0, trimmed.indexOf(':')).trim();
+            const value = trimmed.slice(trimmed.indexOf(':') + 1).trim().replace(/^["']|["']$/g, '');
+
+            if (key === 'name') { name = value; continue; }
+            if (key === 'default') { isDefault = value === '' || value === 'true'; continue; }
+            if (key === 'prefersdark') { prefersDark = value === '' || value === 'true'; continue; }
+            declarations.push(`    ${key}: ${value};`);
+        }
+
+        if (!name || declarations.length === 0) { continue; }
+
+        // Doubled, for the same reason as below: this file is imported first, so
+        // equal specificity would let daisyUI's own defaults win on order.
+        const selectors = [`[data-theme="${name}"]:root`];
+        if (isDefault) { selectors.unshift(':root:root'); }
+        out += `${selectors.join(',\n')} {\n${declarations.join('\n')}\n}\n\n`;
+
+        if (prefersDark) {
+            out += `@media (prefers-color-scheme: dark) {\n`
+                + `    :root:root:not([data-theme]) {\n`
+                + declarations.map((d) => `    ${d}`).join('\n')
+                + `\n    }\n}\n\n`;
+        }
+    }
+
+    return out;
+}
+
+const paletteExists = existsSync(PALETTE);
+const blocks = paletteExists ? paletteBlocks(readFileSync(PALETTE, 'utf8')) : '';
+
 const themeExists = existsSync(THEME);
 const vars = themeExists ? rootVariables(readFileSync(THEME, 'utf8')) : {};
-const source = themeExists
-    ? '{{ themePath }}' + (Object.keys(vars).length ? '' : ' — no custom properties, using the framework palette')
-    : '{{ themePath }} (not found — using the framework palette)';
+const source = blocks
+    ? '{{ palettePath }}'
+    : (themeExists
+        ? '{{ themePath }}' + (Object.keys(vars).length ? '' : ' — no custom properties, using the framework palette')
+        : '{{ themePath }} (not found — using the framework palette)');
 
 const palette = {
     '--color-primary': vars['--primary-color'] ?? FALLBACK_PRIMARY,
@@ -87,8 +148,11 @@ const css = `/**
  * rules, so this file is emitted before daisyUI's own theme, and equal
  * specificity would let daisyUI's defaults win on order.
  */
-:root:root {
+${blocks || `:root:root {
 ${Object.entries(palette).map(([name, value]) => `    ${name}: ${value};`).join('\n')}
+}`}
+
+:root:root {
     --font-sans: {{ fontFamily }};
 }
 
@@ -99,7 +163,7 @@ body {
 
 writeFileSync(OUT, css);
 
-const derived = themeExists && Object.keys(vars).length > 0;
+const derived = Boolean(blocks) || (themeExists && Object.keys(vars).length > 0);
 
 if (derived) {
     console.log(`theme: palette written to {{ themeOutput }} from ${source}`);
@@ -115,7 +179,8 @@ if (derived) {
         + (themeExists
             ? `  It exists but declares no \`:root\` custom properties to map.\n`
             : `  It does not exist.\n`)
-        + `  Fix: point THEME in scripts/build-theme.mjs at this project's `
-        + `stylesheet, or declare --primary-color / --text-main / --text-muted in it.\n`
+        + `  Fix: declare the palette in {{ palettePath }} — the format daisyUI's `
+        + `theme generator emits — and run \`pramnos theme:build\`. Or point THEME in `
+        + `scripts/build-theme.mjs at this project's stylesheet.\n`
     );
 }
