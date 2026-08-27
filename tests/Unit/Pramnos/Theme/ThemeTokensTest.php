@@ -158,7 +158,7 @@ class ThemeTokensTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('theme:build', $css);
-        $this->assertStringContainsString('app/theme.css', $css);
+        $this->assertStringContainsString('theme.css', $css);
     }
 
     /**

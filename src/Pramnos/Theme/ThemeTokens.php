@@ -13,7 +13,7 @@ namespace Pramnos\Theme;
  * a SPA's own theme file. Four places, one palette, and the first thing to go wrong is
  * that they stop agreeing — usually in the theme nobody develops in.
  *
- * So the source of truth is a single `app/theme.css` written in the format
+ * So the source of truth is a single `app/themes/theme.css` written in the format
  * [daisyUI's theme generator](https://daisyui.com/theme-generator/) already emits, and
  * everything else is generated from it:
  *
@@ -44,8 +44,26 @@ namespace Pramnos\Theme;
  */
 final class ThemeTokens
 {
-    /** Where a project keeps its palette, relative to the application root. */
-    public const DEFAULT_PATH = 'app/theme.css';
+    /**
+     * Where a project keeps its palette, relative to the application root.
+     *
+     * Under `app/themes/`, beside the theme directories that read it, rather than loose
+     * in `app/` next to `app.php` and `settings.php` — those are configuration, this is
+     * design, and a stylesheet in a directory of PHP config files is the first thing
+     * somebody tidying up moves.
+     */
+    public const DEFAULT_PATH = 'app/themes/theme.css';
+
+    /**
+     * Paths {@see load()} tries, in order.
+     *
+     * The second is where the file was first written. Kept as a fallback because the
+     * failure mode of not looking is silent: a project that upgrades and keeps its
+     * palette where it was would render with no palette and nothing to say why.
+     *
+     * @var list<string>
+     */
+    private const CANDIDATE_PATHS = ['app/themes/theme.css', 'app/theme.css'];
 
     /**
      * Parsed themes, keyed by path, so a request that asks twice reads once.
@@ -199,13 +217,13 @@ final class ThemeTokens
     /**
      * The project's palette, read from disk once per request.
      *
-     * @param string|null $path Absolute path, or null for `ROOT/app/theme.css`
+     * @param string|null $path Absolute path, or null for `ROOT/app/themes/theme.css`
      * @return array<string, array<string, mixed>> Empty when the file is absent —
      *         a project that never declared a palette is not an error
      */
     public static function load(?string $path = null): array
     {
-        $path ??= (defined('ROOT') ? ROOT . '/' : '') . self::DEFAULT_PATH;
+        $path ??= self::locate();
 
         if (array_key_exists($path, self::$cache)) {
             return self::$cache[$path];
@@ -214,6 +232,35 @@ final class ThemeTokens
         $css = is_readable($path) ? (string) file_get_contents($path) : '';
 
         return self::$cache[$path] = self::parse($css);
+    }
+
+    /**
+     * The palette's path in this project, whichever of the two it uses.
+     *
+     * Returns the conventional path when neither exists, so a caller reporting "no
+     * palette at …" names the place to create one.
+     */
+    public static function locate(): string
+    {
+        return self::locateIn(defined('ROOT') ? (string) ROOT : '');
+    }
+
+    /**
+     * The same answer for a project root that is not `ROOT`.
+     *
+     * A console command may be pointed at another directory, and a test always is.
+     */
+    public static function locateIn(string $root): string
+    {
+        $base = $root === '' ? '' : rtrim($root, '/') . '/';
+
+        foreach (self::CANDIDATE_PATHS as $candidate) {
+            if (is_readable($base . $candidate)) {
+                return $base . $candidate;
+            }
+        }
+
+        return $base . self::DEFAULT_PATH;
     }
 
     /**

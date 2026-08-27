@@ -11,7 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * theme:build — turn `app/theme.css` into the forms every UI system can read.
+ * theme:build — turn `app/themes/theme.css` into the forms every UI system can read.
  *
  * The palette is declared once, in the format daisyUI's theme generator emits, and
  * this writes out what a build without npm cannot produce for itself:
@@ -21,7 +21,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *     project needs to be themed;
  *   - `www/assets/theme-tokens.json` — the same values for a SPA's own components.
  *
- * A Tailwind project **with** npm needs neither: its `app.css` imports `app/theme.css`
+ * A Tailwind project **with** npm needs neither: its `app.css` imports `app/themes/theme.css`
  * and the plugin reads the blocks directly. Running this anyway is harmless — the
  * numbers come from the same file — and it is what keeps a project that later drops
  * the build step from losing its colours.
@@ -40,13 +40,13 @@ class ThemeBuild extends Command
     {
         $this
             ->setName('theme:build')
-            ->setDescription('Generate CSS custom properties and JSON from app/theme.css')
+            ->setDescription('Generate CSS custom properties and JSON from app/themes/theme.css')
             ->addOption(
                 'source',
                 null,
                 InputOption::VALUE_REQUIRED,
-                'The palette to read',
-                ThemeTokens::DEFAULT_PATH
+                'The palette to read (default: ' . ThemeTokens::DEFAULT_PATH . ')',
+                ''
             )
             ->addOption(
                 'css',
@@ -75,8 +75,12 @@ class ThemeBuild extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $root   = $this->projectRoot();
-        $source = $this->resolve($root, (string) $input->getOption('source'));
+        $root  = $this->projectRoot();
+        $given = (string) $input->getOption('source');
+        // Nothing given: whichever of the conventional paths this project uses.
+        $source = $given !== ''
+            ? $this->resolve($root, $given)
+            : ThemeTokens::locateIn($root);
 
         if (!is_readable($source)) {
             $output->writeln('<error>No palette at ' . $source . '</error>');
@@ -180,4 +184,5 @@ class ThemeBuild extends Command
     {
         return str_starts_with($path, '/') ? $path : rtrim($root, '/') . '/' . $path;
     }
+
 }

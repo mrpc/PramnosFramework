@@ -3573,7 +3573,7 @@ class InitCommandUnitTest extends TestCase
         ], ['interactive' => false]);
 
         // Assert — the palette, in daisyUI's own format, named after the application
-        $palette = (string) file_get_contents($this->tmpDir . '/app/theme.css');
+        $palette = (string) file_get_contents($this->tmpDir . '/app/themes/theme.css');
         $this->assertStringContainsString('@plugin "daisyui/theme"', $palette);
         $this->assertStringContainsString('name: "acme-portal";', $palette);
         $this->assertStringContainsString('name: "acme-portal-dark";', $palette);

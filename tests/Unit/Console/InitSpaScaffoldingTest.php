@@ -753,7 +753,7 @@ class InitSpaScaffoldingTest extends TestCase
         // Assert — the palette's own tokens, copied rather than mapped
         $this->assertSame(0, $status, implode("\n", $output));
         $theme = $this->read('frontend/theme.css');
-        $this->assertStringContainsString('Source: app/theme.css', $theme, 'read from the palette');
+        $this->assertStringContainsString('Source: app/themes/theme.css', $theme, 'read from the palette');
         $this->assertStringContainsString('--color-primary: oklch(', $theme, "the palette's primary");
         $this->assertStringContainsString('spaapp-dark', $theme, 'both themes, not only the default');
         $this->assertStringContainsString('prefers-color-scheme: dark', $theme, 'and the OS preference');
@@ -773,7 +773,7 @@ class InitSpaScaffoldingTest extends TestCase
         }
         $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'plain-css']);
 
-        $palette = $this->tmpDir . '/app/theme.css';
+        $palette = $this->tmpDir . '/app/themes/theme.css';
         file_put_contents($palette, str_replace(
             '--color-primary: oklch(54.6% 0.215 262.9)',
             '--color-primary: oklch(57.7% 0.215 27.3)',
@@ -788,7 +788,7 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertStringContainsString(
             '--color-primary: oklch(57.7% 0.215 27.3)',
             $this->read('frontend/theme.css'),
-            'a colour changed in app/theme.css reaches the SPA on the next build'
+            'a colour changed in app/themes/theme.css reaches the SPA on the next build'
         );
     }
 
@@ -797,7 +797,7 @@ class InitSpaScaffoldingTest extends TestCase
      * with — not daisyUI's default, which would match nothing on the server-rendered
      * side — and the generated file says so.
      *
-     * That is the path for a project scaffolded before `app/theme.css` existed. It
+     * That is the path for a project scaffolded before `app/themes/theme.css` existed. It
      * guesses: it knows `--primary-color` and invents the rest, which is exactly why
      * the palette exists.
      */
@@ -809,8 +809,8 @@ class InitSpaScaffoldingTest extends TestCase
             $this->markTestSkipped('node is not available in this environment');
         }
         $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => 'bootstrap']);
-        // …as a project that predates the palette: no app/theme.css to read
-        unlink($this->tmpDir . '/app/theme.css');
+        // …as a project that predates the palette: no palette to read
+        unlink($this->tmpDir . '/app/themes/theme.css');
 
         // Act
         exec('cd ' . escapeshellarg($this->tmpDir) . ' && node scripts/build-theme.mjs 2>&1', $out, $status);

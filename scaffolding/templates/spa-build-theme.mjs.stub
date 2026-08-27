@@ -3,14 +3,14 @@
  * Generate the daisyUI palette from this project's server-rendered theme.
  *
  * The two halves of the application must not look like two products, so neither
- * half chooses colours. `app/theme.css` declares them once, in daisyUI's own
+ * half chooses colours. `app/themes/theme.css` declares them once, in daisyUI's own
  * format, and this copies those blocks in — no mapping, no guessing, because the
  * names already match.
  *
  * A project scaffolded before that file existed falls back to reading the
  * server-rendered theme's `:root` custom properties and mapping what it
  * recognises. That path guesses: it knows `--primary-color`, and invents the
- * rest. `pramnos theme:build` and an `app/theme.css` are how a project stops
+ * rest. `pramnos theme:build` and an `app/themes/theme.css` are how a project stops
  * guessing.
  *
  * This runs from `prebuild` and `predev`, so changing a colour in the theme

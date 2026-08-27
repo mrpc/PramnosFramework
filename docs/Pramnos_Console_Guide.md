@@ -413,7 +413,7 @@ get Chart.js is simply `php bin/pramnos project:install`.
 `libraries` key in its `FeatureRegistry` definition; enabling it with
 `project:reconfigure --enable-feature=` installs them automatically.
 
-**One palette, built for every UI system.** `theme:build` reads `app/theme.css` — the
+**One palette, built for every UI system.** `theme:build` reads `app/themes/theme.css` — the
 format daisyUI's theme generator emits — and writes the tokens as plain custom
 properties plus JSON, which is what a project without npm needs to be themed:
 

@@ -1614,7 +1614,7 @@ class Init extends Command
             // it are already daisyUI's, so there is nothing to map and nothing to
             // guess. The scrape below it is the path for a project that predates
             // this file.
-            'palettePath'  => 'app/theme.css',
+            'palettePath'  => 'app/themes/theme.css',
             // The colour this UI framework actually paints with, for a theme
             // that declares no custom properties of its own.
             'fallbackPrimary' => match ($uiSystem) {
@@ -3239,7 +3239,7 @@ PHP;
     /**
      * The project's palette, and the generated forms of it.
      *
-     * One file — `app/theme.css`, in the format daisyUI's theme generator emits — and
+     * One file — `app/themes/theme.css`, in the format daisyUI's theme generator emits — and
      * everything else derived from it: plain custom properties for a build without
      * npm, JSON for a SPA's own components. Before this, a project's colours lived
      * wherever its UI system kept them, which for an application with a
@@ -3269,7 +3269,7 @@ PHP;
             'name: "' . $slug . '-dark";',
         ], $css);
 
-        $this->writeFile('app/theme.css', $css);
+        $this->writeFile('app/themes/theme.css', $css);
 
         // Generated here rather than left for the developer to run: a project whose
         // stylesheet references tokens no file declares renders in black and white,
@@ -3611,7 +3611,7 @@ HTML,
          * It used to write `light` and `dark`, which are daisyUI's own stock themes —
          * so a project with a palette of its own lost it the first time a visitor
          * pressed the button, and got it back by reloading. The names come from
-         * `app/theme.css` through the same slug that generated them.
+         * `app/themes/theme.css` through the same slug that generated them.
          */
         $slug = $this->paletteSlug($appName);
         $nav  = str_replace(
@@ -3734,7 +3734,7 @@ HTML,
         /**
          * The project's palette, before anything that uses it.
          *
-         * Generated from `app/theme.css` by `pramnos theme:build`, and linked for every
+         * Generated from `app/themes/theme.css` by `pramnos theme:build`, and linked for every
          * UI system rather than only the ones without a build step: a project that
          * later drops npm keeps its colours, and one that adds npm is simply setting
          * the same values twice from the same source.

@@ -34,7 +34,7 @@ class ThemeBuildTest extends TestCase
     protected function setUp(): void
     {
         $this->root = sys_get_temp_dir() . '/pf-theme-build-' . getmypid() . '-' . uniqid();
-        mkdir($this->root . '/app', 0777, true);
+        mkdir($this->root . '/app/themes', 0777, true);
     }
 
     protected function tearDown(): void
@@ -50,7 +50,7 @@ class ThemeBuildTest extends TestCase
     public function testItWritesTheStylesheetAndTheJson(): void
     {
         // Arrange
-        file_put_contents($this->root . '/app/theme.css', self::PALETTE);
+        file_put_contents($this->root . '/app/themes/theme.css', self::PALETTE);
 
         // Act
         $tester = $this->build([]);
@@ -77,7 +77,7 @@ class ThemeBuildTest extends TestCase
     public function testASecondRunReportsUnchanged(): void
     {
         // Arrange
-        file_put_contents($this->root . '/app/theme.css', self::PALETTE);
+        file_put_contents($this->root . '/app/themes/theme.css', self::PALETTE);
         $this->build([]);
 
         // Act
@@ -96,7 +96,7 @@ class ThemeBuildTest extends TestCase
     public function testCheckFailsWhenTheOutputIsStaleAndWritesNothing(): void
     {
         // Arrange — an output from an older palette
-        file_put_contents($this->root . '/app/theme.css', self::PALETTE);
+        file_put_contents($this->root . '/app/themes/theme.css', self::PALETTE);
         mkdir($this->root . '/www/assets/css', 0777, true);
         file_put_contents($this->root . '/www/assets/css/theme-tokens.css', '/* old */');
 
@@ -119,7 +119,7 @@ class ThemeBuildTest extends TestCase
     public function testCheckPassesOnAFreshBuild(): void
     {
         // Arrange
-        file_put_contents($this->root . '/app/theme.css', self::PALETTE);
+        file_put_contents($this->root . '/app/themes/theme.css', self::PALETTE);
         $this->build([]);
 
         // Act
@@ -152,7 +152,7 @@ class ThemeBuildTest extends TestCase
     public function testAPaletteWithNoThemesIsRefused(): void
     {
         // Arrange
-        file_put_contents($this->root . '/app/theme.css', "body { color: red; }\n");
+        file_put_contents($this->root . '/app/themes/theme.css', "body { color: red; }\n");
 
         // Act
         $tester = $this->build([]);
@@ -168,7 +168,7 @@ class ThemeBuildTest extends TestCase
     public function testTheJsonOutputCanBeSkipped(): void
     {
         // Arrange
-        file_put_contents($this->root . '/app/theme.css', self::PALETTE);
+        file_put_contents($this->root . '/app/themes/theme.css', self::PALETTE);
 
         // Act
         $tester = $this->build(['--json' => '']);
@@ -221,5 +221,28 @@ class ThemeBuildTest extends TestCase
             is_dir($full) ? $this->removeTree($full) : @unlink($full);
         }
         @rmdir($path);
+    }
+
+    /**
+     * A palette still at the path the feature first used is found.
+     *
+     * The file moved to `app/themes/` — beside the theme directories that read it, rather
+     * than loose among `app.php` and `settings.php`. Not looking in the old place would
+     * fail silently: the project would build with no palette and nothing to say why.
+     */
+    public function testAPaletteAtTheOlderPathIsStillFound(): void
+    {
+        // Arrange — only the old location exists
+        file_put_contents($this->root . '/app/theme.css', self::PALETTE);
+
+        // Act
+        $tester = $this->build([]);
+
+        // Assert
+        $this->assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        $this->assertStringContainsString(
+            '--color-primary',
+            (string) file_get_contents($this->root . '/www/assets/css/theme-tokens.css')
+        );
     }
 }

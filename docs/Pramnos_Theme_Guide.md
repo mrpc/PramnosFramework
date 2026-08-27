@@ -1053,7 +1053,7 @@ class MyTheme extends \Pramnos\Theme\Theme
 
 ## One palette, every UI system
 
-A project's colours live in **one file**, `app/theme.css`, written in the format
+A project's colours live in **one file**, `app/themes/theme.css`, written in the format
 [daisyUI's theme generator](https://daisyui.com/theme-generator/) already emits:
 
 ```css
@@ -1107,7 +1107,7 @@ operating system decides for a visitor who has not chosen, and an explicit choic
 wins. Without that scoping a theme switch works only for visitors whose OS is already
 in light mode.
 
-A scaffolded SPA's `scripts/build-theme.mjs` reads `app/theme.css` too, on every build
+A scaffolded SPA's `scripts/build-theme.mjs` reads `app/themes/theme.css` too, on every build
 and every dev-server start. It used to scrape the server theme's `:root` properties and
 map what it recognised — which meant guessing the two thirds of the palette it had no
 name for.
