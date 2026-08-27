@@ -7,7 +7,7 @@
  *
  * Variables:
  *   $this->setupData — array { secret, qr_code_url, qr_code_data_uri,
- *                              manual_entry_key, backup_codes[] }
+ *                              manual_entry_key }
  *   $this->user — User object
  */
 $this->accountBase = 'Account';
@@ -63,27 +63,17 @@ $this->activeNav   = 'twofactor_setup';
                 </div>
             </div>
 
-            <!-- Step 2: Save backup codes -->
-            <?php if (!empty($this->setupData['backup_codes'])): ?>
+            <!-- Step 2: backup codes, shown after verification. Listing them
+                 here meant listing a set enrolment then replaced. -->
             <div class="card mb-4 border-warning">
-                <div class="card-header bg-warning-subtle fw-semibold">Step 2 — Save your backup codes</div>
+                <div class="card-header bg-warning-subtle fw-semibold">Step 2 — Your backup codes</div>
                 <div class="card-body">
-                    <p class="small text-muted mb-3">
-                        Store these codes in a safe place. Each code can be used once if you lose access to your authenticator app.
-                        <strong>They will not be shown again.</strong>
+                    <p class="small text-muted mb-0">
+                        You will be given ten one-time codes as soon as the code below is verified.
+                        <strong>Save them then</strong> — they are shown once.
                     </p>
-                    <div class="row row-cols-2 g-2 mb-3">
-                        <?php foreach ($this->setupData['backup_codes'] as $code): ?>
-                            <div class="col">
-                                <code class="d-block text-center border rounded py-1 bg-light">
-                                    <?php echo htmlspecialchars($code); ?>
-                                </code>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
                 </div>
             </div>
-            <?php endif; ?>
 
             <!-- Step 3: Verify -->
             <div class="card">

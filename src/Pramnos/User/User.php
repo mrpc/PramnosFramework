@@ -1955,6 +1955,17 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         if ($this->userid < 2) {
             return false;
         }
+
+        // An account with no stored password cannot verify one. Without this the
+        // null reached `password_verify()`, which PHP 8.4 deprecates and a later
+        // version will refuse outright — and the check it was performing was a
+        // comparison against nothing. Accounts in this state are real: one
+        // created by an administrator or an SSO provisioning run and never given
+        // a password of its own.
+        if (!is_string($this->password) || $this->password === '') {
+            return false;
+        }
+
         $pwd = $password
             . md5(
             \Pramnos\Application\Settings::getSetting('securitySalt')

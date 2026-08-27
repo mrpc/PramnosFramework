@@ -164,7 +164,8 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
     /**
      * Fast-track: complete the full setup flow for a user and return the plain backup codes.
      *
-     * @return array{secret: string, backup_codes: string[]}
+     * @return array{secret: string, backup_codes: string[]} The secret, and the
+     *         backup codes enrolment stored — read once from the service.
      */
     protected function setupUser(int $userId): array
     {
@@ -172,7 +173,12 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $secret = $info['secret'];
         $code   = TOTPHelper::generateCode($secret, time());
         $this->service->completeSetup($userId, $code);
-        return ['secret' => $secret, 'backup_codes' => $info['backup_codes']];
+
+        // The codes enrolment stored, which are the ones the user is given.
+        // `startSetup()` used to return a set of its own and the setup screen
+        // listed them — a different set from this one, already overwritten by
+        // the time the page rendered.
+        return ['secret' => $secret, 'backup_codes' => $this->service->takeNewBackupCodes()];
     }
 
     // -------------------------------------------------------------------------
@@ -196,9 +202,10 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->assertArrayHasKey('secret', $info);
         $this->assertArrayHasKey('qr_code_url', $info);
         $this->assertArrayHasKey('manual_entry_key', $info);
-        $this->assertArrayHasKey('backup_codes', $info);
-        $this->assertIsArray($info['backup_codes']);
-        $this->assertCount(10, $info['backup_codes']);
+        // No backup codes here, deliberately: they belong to enrolment, which
+        // generates and stores its own. Returning a set from setup meant the
+        // screen listed ten codes that could never work.
+        $this->assertArrayNotHasKey('backup_codes', $info);
 
         // Assert — secret is valid base32
         $this->assertTrue(TOTPHelper::isValidSecret($info['secret']));
@@ -408,15 +415,15 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         // Arrange — complete setup but use a known backup code
         $info   = $this->service->startSetup(40, 'eve@example.com');
         $secret = $info['secret'];
-        $backupCodes = $info['backup_codes']; // plain-text codes shown to user
         $code   = TOTPHelper::generateCode($secret, time());
         $this->service->completeSetup(40, $code);
 
-        // The backup codes returned by startSetup are for display only;
-        // completeSetup generates a fresh set and stores their hashes.
-        // To get a usable backup code, we need to regenerate via regenerateBackupCodes().
-        $freshCodes = $this->service->regenerateBackupCodes(40);
-        $this->assertIsArray($freshCodes);
+        // The codes enrolment handed out. This used to have to call
+        // `regenerateBackupCodes()` to obtain a usable code at all, because the
+        // set enrolment stored was thrown away — so the account's recovery codes
+        // were known to nobody, and this test worked around it.
+        $freshCodes = $this->service->takeNewBackupCodes();
+        $this->assertCount(10, $freshCodes);
 
         $beforeCount = $this->service->getRemainingBackupCodes(40);
 

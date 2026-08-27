@@ -113,7 +113,12 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $secret = $info['secret'];
         $code   = TOTPHelper::generateCode($secret, time());
         $this->service->completeSetup($userId, $code);
-        return ['secret' => $secret, 'backup_codes' => $info['backup_codes']];
+
+        // The codes enrolment stored, which are the ones the user is given.
+        // `startSetup()` used to return a set of its own and the setup screen
+        // listed them — a different set from this one, already overwritten by
+        // the time the page rendered.
+        return ['secret' => $secret, 'backup_codes' => $this->service->takeNewBackupCodes()];
     }
 
     // -------------------------------------------------------------------------
@@ -132,9 +137,11 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         // Assert — return value shape
         $this->assertArrayHasKey('secret', $info);
         $this->assertArrayHasKey('qr_code_url', $info);
-        $this->assertArrayHasKey('backup_codes', $info);
-        $this->assertCount(10, $info['backup_codes']);
         $this->assertTrue(TOTPHelper::isValidSecret($info['secret']));
+        // No backup codes here, deliberately: they belong to enrolment, which
+        // generates and stores its own. Returning a set from setup meant the
+        // screen listed ten codes that could never work.
+        $this->assertArrayNotHasKey('backup_codes', $info);
 
         // Assert — row was inserted
         $result = $this->db->query("SELECT userid, used, expires_at FROM authserver.twofactor_setup WHERE userid = 1");
@@ -312,7 +319,12 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $secret = $info['secret'];
         $this->service->completeSetup(40, TOTPHelper::generateCode($secret, time()));
 
-        $freshCodes  = $this->service->regenerateBackupCodes(40);
+        // The codes enrolment handed out. This used to have to regenerate to
+        // obtain a usable code at all, because the set enrolment stored was
+        // thrown away — the account's recovery codes were known to nobody, and
+        // this test worked around it rather than reporting it.
+        $freshCodes  = $this->service->takeNewBackupCodes();
+        $this->assertCount(10, $freshCodes);
         $beforeCount = $this->service->getRemainingBackupCodes(40);
 
         // Act
@@ -324,6 +336,129 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
 
         // Second use rejected
         $this->assertFalse($this->service->verifyCode(40, $freshCodes[0]));
+    }
+
+    // -------------------------------------------------------------------------
+    // Step-up: the password a caller collected must actually be checked
+    // -------------------------------------------------------------------------
+
+    /**
+     * Disabling with a password that does not match is refused.
+     *
+     * The controller in front of this has always collected the account password
+     * and passed it — and this method used to take one parameter, so PHP dropped
+     * the argument and the check never happened. Any signed-in session could turn
+     * 2FA off with an arbitrary password, and the controller's "That password is
+     * not correct" branch was unreachable: `disable()` returned false only when
+     * the account had no 2FA row at all.
+     *
+     * A stolen session cookie is exactly the case a second factor exists for, so
+     * a step-up check that does not check is worth a test of its own.
+     */
+    public function testDisablingWithAWrongPasswordIsRefused(): void
+    {
+        // Arrange — an enrolled account. No `users` row exists for this id in
+        // this schema, so no password can match, which is the point: a caller
+        // that supplies one must be refused rather than waved through.
+        $this->setupUser(70);
+        $this->assertTrue($this->service->isEnabled(70));
+
+        // Act
+        $result = $this->service->disable(70, 'not-the-password');
+
+        // Assert
+        $this->assertFalse($result, 'a wrong password must not disable the second factor');
+        $this->assertTrue($this->service->isEnabled(70), 'and 2FA must still be on');
+    }
+
+    /**
+     * An empty password is wrong, not absent.
+     *
+     * `null` means "administrative call, no password to check". Collapsing the
+     * two would make a form that submitted nothing pass the step-up check, which
+     * is the easiest possible way through it.
+     */
+    public function testAnEmptyPasswordDoesNotCountAsNoPassword(): void
+    {
+        // Arrange
+        $this->setupUser(71);
+
+        // Act
+        $result = $this->service->disable(71, '');
+
+        // Assert
+        $this->assertFalse($result);
+        $this->assertTrue($this->service->isEnabled(71));
+    }
+
+    /**
+     * Regenerating with a wrong password is refused, and leaves the codes alone.
+     *
+     * The same discarded argument. Rotating the codes both invalidates every code
+     * the account's owner had written down and prints ten new ones to whoever
+     * asked — so this is destructive as well as disclosing.
+     */
+    public function testRegeneratingWithAWrongPasswordIsRefused(): void
+    {
+        // Arrange
+        $data = $this->setupUser(72);
+        $before = $this->service->getRemainingBackupCodes(72);
+
+        // Act
+        $result = $this->service->regenerateBackupCodes(72, 'not-the-password');
+
+        // Assert
+        $this->assertFalse($result);
+        $this->assertSame($before, $this->service->getRemainingBackupCodes(72));
+        $this->assertTrue($this->service->verifyCode(72, $data['backup_codes'][0]),
+            "and the owner's existing codes must still work");
+    }
+
+    /**
+     * The administrative path still works: no password given, none checked.
+     *
+     * An operator clearing 2FA off an account whose owner cannot reach it has no
+     * password to supply, and that has to stay possible — a fix that made every
+     * call require one would lock out the recovery path it was protecting.
+     */
+    public function testTheAdministrativePathNeedsNoPassword(): void
+    {
+        // Arrange
+        $this->setupUser(73);
+
+        // Act
+        $result = $this->service->disable(73);
+
+        // Assert
+        $this->assertTrue($result);
+        $this->assertFalse($this->service->isEnabled(73));
+    }
+
+    /**
+     * Enrolment hands over the codes it stored, once.
+     *
+     * They used to be generated, hashed, stored and dropped: the page enrolment
+     * redirects to says "save your backup codes before leaving" and had none to
+     * show, while the set displayed during setup was already overwritten. A user
+     * who followed the instructions exactly held ten codes that could never work,
+     * and found out the first time they lost their phone.
+     */
+    public function testEnrolmentHandsOverTheCodesItStored(): void
+    {
+        // Arrange
+        $info = $this->service->startSetup(74, 'frank@example.com');
+        $this->service->completeSetup(74, TOTPHelper::generateCode($info['secret'], time()));
+
+        // Act
+        $codes = $this->service->takeNewBackupCodes();
+
+        // Assert — they are the stored ones, which is what makes them usable
+        $this->assertCount(10, $codes);
+        $this->assertTrue($this->service->verifyCode(74, $codes[0]),
+            'a code handed out at enrolment must open the account');
+
+        // …and only once: this is a show-once value
+        $this->assertSame([], $this->service->takeNewBackupCodes());
     }
 
     // -------------------------------------------------------------------------

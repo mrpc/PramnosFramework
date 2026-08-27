@@ -553,18 +553,66 @@ class TwoFactorAuthTest extends BaseTestCase
     }
 
     /**
-     * disable() with a valid 2FA record must redirect to success=disabled.
+     * A password that does not belong to the account does not disable 2FA.
      *
-     * When TwoFactorAuthService::disable() returns true (record found and cleared),
-     * the controller must redirect to the 2FA overview with success=disabled.
+     * The controller has always collected the password and passed it to the
+     * service — and the service used to take one parameter, so PHP dropped the
+     * argument and nothing was checked. Any signed-in session could strip the
+     * second factor with an arbitrary string, which is precisely the case a
+     * second factor exists for: a stolen session.
+     *
+     * Uses the real service, because the point is that the two agree about what
+     * the second argument means.
      */
-    public function testDisableSucceedsAndRedirectsWithSuccessDisabled(): void
+    public function testDisableWithAPasswordThatIsNotTheAccountsIsRefused(): void
     {
-        // Arrange — user is logged in, 2FA record exists → service returns true
+        // Arrange — an enrolled account, and a password that is not its own
         $this->setMockUser(80);
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->query("INSERT INTO `authserver_user_twofactor` (`userid`, `enabled`, `secret`, `created_at`, `updated_at`) VALUES (2, 1, 'JBSWY3DPEHPK3PXP', 0, 0)");
         $_POST['confirm_password'] = 'any_password_value';
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect_quit');
+
+        try {
+            // Act
+            $this->controller->disable();
+        } finally {
+            // Assert
+            $this->assertContains(
+                'That password is not correct.',
+                $_SESSION['_errors'] ?? [],
+                'a wrong password must be reported, not accepted'
+            );
+            $row = $db->query(
+                "SELECT enabled FROM `authserver_user_twofactor` WHERE userid = 2"
+            );
+            $this->assertSame(1, (int) $row->fields['enabled'],
+                'and the second factor must still be on');
+        }
+    }
+
+    /**
+     * disable() with the account's own password redirects, saying it is off.
+     *
+     * The success branch. Unreachable through the real service here — it needs a
+     * `users` row with a hashed password, which this schema has no part of — so
+     * the service is doubled, the same way the other password-gated branches in
+     * this file are. The service's own side is covered against a real database in
+     * TwoFactorAuthServicePostgreSQLTest.
+     */
+    public function testDisableSucceedsAndRedirectsWithSuccessDisabled(): void
+    {
+        // Arrange — the service accepts the password and reports success
+        $this->setMockUser(80);
+        $_POST['confirm_password'] = 'the-accounts-own-password';
+
+        $mockService = $this->createMock(TwoFactorAuthService::class);
+        $mockService->method('disable')->willReturn(true);
+
+        $ref = new \ReflectionProperty(TwoFactorAuth::class, 'twoFactorService');
+        $ref->setValue($this->controller, $mockService);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');

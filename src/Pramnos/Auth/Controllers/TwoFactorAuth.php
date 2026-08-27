@@ -210,6 +210,11 @@ class TwoFactorAuth extends Controller
         if ($request->get('setup', '', 'get') === 'complete') {
             $view->setupComplete = true;
             $view->success       = 'Two-factor authentication has been enabled successfully!';
+            // The codes the enrolment just stored. This page says "save your
+            // backup codes before leaving" and used to show none: they were
+            // generated, hashed and dropped, so the account's recovery codes
+            // were known to nobody.
+            $view->newBackupCodes = $this->twoFactorService->takeNewBackupCodes();
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();

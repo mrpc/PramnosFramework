@@ -7,7 +7,7 @@
  *
  * Variables:
  *   $this->setupData — array { secret, qr_code_url, qr_code_data_uri,
- *                              manual_entry_key, backup_codes[] }
+ *                              manual_entry_key }
  *   $this->user — User object
  */
 $this->accountBase = 'Account';
@@ -60,24 +60,18 @@ $this->activeNav   = 'twofactor_setup';
                 </div>
             </div>
 
-            <?php if (!empty($this->setupData['backup_codes'])): ?>
+            <!-- Backup codes are shown after verification, not before: the set
+                 listed here used to be a different set from the one enrolment
+                 stored. -->
             <div class="card" style="border-color:#f0ad4e;margin-top:16px">
-                <div class="card-header" style="background:#fcf8e3"><strong>Step 2 — Save your backup codes</strong></div>
+                <div class="card-header" style="background:#fcf8e3"><strong>Step 2 — Your backup codes</strong></div>
                 <div class="card-body">
                     <p style="font-size:.9em;color:#666">
-                        Store these codes in a safe place. Each can be used once.
-                        <strong>They will not be shown again.</strong>
+                        You will be given ten one-time codes as soon as the code below is verified.
+                        <strong>Save them then</strong> — they are shown once.
                     </p>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-                        <?php foreach ($this->setupData['backup_codes'] as $code): ?>
-                            <code style="display:block;text-align:center;background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:6px">
-                                <?php echo htmlspecialchars($code); ?>
-                            </code>
-                        <?php endforeach; ?>
-                    </div>
                 </div>
             </div>
-            <?php endif; ?>
 
             <div class="card" style="margin-top:16px">
                 <div class="card-header"><strong>Step 3 — Verify</strong></div>

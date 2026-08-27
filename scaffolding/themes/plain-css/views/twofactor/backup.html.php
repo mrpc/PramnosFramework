@@ -8,7 +8,7 @@
  * Variables:
  *   $this->user             — User object
  *   $this->remainingCodes   — int
- *   $this->newBackupCodes   — string[] (set only after regeneration)
+ *   $this->newBackupCodes   — string[] (set after enrolment and after regeneration)
  *   $this->success          — string|null
  *   $this->error            — string|null
  *   $this->setupComplete    — bool

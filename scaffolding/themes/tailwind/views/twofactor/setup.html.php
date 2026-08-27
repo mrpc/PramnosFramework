@@ -7,7 +7,7 @@
  *
  * Variables:
  *   $this->setupData — array { secret, qr_code_url, qr_code_data_uri,
- *                              manual_entry_key, backup_codes[] }
+ *                              manual_entry_key }
  *   $this->user — User object
  */
 $this->accountBase = 'Account';
@@ -64,27 +64,21 @@ $this->activeNav   = 'twofactor_setup';
                 </div>
             </div>
 
-            <!-- Step 2: Backup codes -->
-            <?php if (!empty($this->setupData['backup_codes'])): ?>
+            <!-- Step 2: Backup codes — shown after the code below is verified.
+                 They used to be listed here, before enrolment, and they were a
+                 different set from the one enrolment went on to store: whoever
+                 wrote these down had ten codes that could never work. -->
             <div class="bg-white border border-amber-200 rounded-xl shadow-xs">
                 <div class="px-5 py-3 border-b border-amber-100 bg-amber-50 font-medium text-amber-800 text-sm rounded-t-xl">
-                    Step 2 — Save your backup codes
+                    Step 2 — Your backup codes
                 </div>
                 <div class="p-5">
-                    <p class="text-xs text-gray-500 mb-3">
-                        Store these codes in a safe place. Each is one-time-use.
-                        <strong class="text-gray-700">They will not be shown again.</strong>
+                    <p class="text-xs text-gray-500">
+                        You will be given ten one-time codes as soon as the code below is verified.
+                        <strong class="text-gray-700">Save them then</strong> — they are shown once.
                     </p>
-                    <div class="grid grid-cols-2 gap-2 mb-3">
-                        <?php foreach ($this->setupData['backup_codes'] as $code): ?>
-                            <code class="block text-center text-sm font-mono bg-gray-50 border border-gray-200 rounded-sm py-1.5">
-                                <?php echo htmlspecialchars($code); ?>
-                            </code>
-                        <?php endforeach; ?>
-                    </div>
                 </div>
             </div>
-            <?php endif; ?>
 
             <!-- Step 3: Verify -->
             <div class="bg-white border border-gray-200 rounded-xl shadow-xs">

@@ -30,6 +30,9 @@ class TwoFactorAuthService
     /** @var \Pramnos\Database\Database */
     private $database;
 
+    /** Session key holding the codes from an enrolment that just completed. */
+    private const NEW_BACKUP_CODES_KEY = '_2fa_new_backup_codes';
+
     public function __construct($database = null)
     {
         $this->database = $database ?: \Pramnos\Framework\Factory::getDatabase();
@@ -134,7 +137,15 @@ class TwoFactorAuthService
      * @param int    $userId    The user's ID
      * @param string $userLabel The identifier shown in the authenticator app (email/username)
      * @param string $issuer    The service name shown in the authenticator app
-     * @return array{secret: string, qr_code_url: string, qr_code_data_uri: string|null, manual_entry_key: string, backup_codes: string[]}
+     * **No backup codes.** This used to return a generated set, and the setup
+     * screen listed them with "save these, they will not be shown again" — but
+     * {@see completeSetup()} generates and stores its *own* set, so the ones on
+     * screen were dead before the user finished reading them. Codes now come
+     * from {@see takeNewBackupCodes()} after enrolment is verified, which is also
+     * the right moment: a user who abandons setup halfway should not be walking
+     * away with recovery codes for an account that has no second factor.
+     *
+     * @return array{secret: string, qr_code_url: string, qr_code_data_uri: string|null, manual_entry_key: string}
      */
     public function startSetup(int $userId, string $userLabel, string $issuer = 'Pramnos'): array
     {
@@ -163,7 +174,6 @@ class TwoFactorAuthService
             'qr_code_data_uri'  => TOTPHelper::getQRCodeDataUri($secret, $userLabel, $issuer),
             'qr_code_url'       => TOTPHelper::getQRCodeUrl($secret, $userLabel, $issuer),
             'manual_entry_key'  => $secret,
-            'backup_codes'      => TOTPHelper::generateBackupCodes(),
         ];
     }
 
@@ -204,9 +214,12 @@ class TwoFactorAuthService
             return false;
         }
 
-        // Generate and hash backup codes
+        // Generate and hash backup codes, and keep the plain ones so the page
+        // this enrolment lands on can show them. Without that they were
+        // generated, hashed, stored and dropped — see takeNewBackupCodes().
         $plainCodes  = TOTPHelper::generateBackupCodes();
         $hashedCodes = array_map([TOTPHelper::class, 'hashBackupCode'], $plainCodes);
+        $this->rememberNewBackupCodes($plainCodes);
 
         // Upsert user_twofactor: check for existing row first (cross-DB portable)
         $exists = $this->database->queryBuilder()
@@ -303,12 +316,36 @@ class TwoFactorAuthService
      * Disable 2FA for a user.
      *
      * Clears the secret and backup codes and marks the account as disabled.
-     * Password verification is the caller's responsibility.
      *
-     * @param int $userId
+     * **Pass the password when one was collected.** The controller in front of
+     * this has always collected it and passed it — and this method used to take
+     * one parameter, so PHP dropped the extra argument on the floor and the
+     * check never happened. Any signed-in session could turn 2FA off with an
+     * arbitrary password, and the controller's "That password is not correct"
+     * branch was unreachable: `disable()` only ever returned false when the
+     * account had no 2FA row at all.
+     *
+     * That is the whole value of a step-up check, so it is worth stating what
+     * each call means:
+     *
+     *   - `disable($userId, $password)` — the user's own action. Verified, and
+     *     refused when the password is wrong or empty.
+     *   - `disable($userId)` — the administrative path, for an operator clearing
+     *     2FA off an account whose owner cannot. There is no password to check;
+     *     the authority is the caller's own.
+     *
+     * @param int         $userId
+     * @param string|null $password The account password, when the caller
+     *                              collected one. Null is the administrative
+     *                              path — deliberate, not a default to reach for.
      */
-    public function disable(int $userId): bool
+    public function disable(int $userId, ?string $password = null): bool
     {
+        if ($password !== null && !$this->passwordMatches($userId, $password)) {
+            $this->logAttempt($userId, false, 'DISABLE', \Pramnos\Http\Request::clientIp() ?: null);
+            return false;
+        }
+
         $result = $this->database->queryBuilder()
             ->table('authserver.user_twofactor')
             ->select('userid')
@@ -343,14 +380,28 @@ class TwoFactorAuthService
      * Generate and store a fresh set of backup codes for the user.
      *
      * Returns the plain-text codes for display to the user (show once).
-     * Password verification is the caller's responsibility.
      *
-     * @param int $userId
-     * @return string[]|false New plain-text backup codes, or false if 2FA is not enabled
+     * **Pass the password when one was collected**, for the same reason as
+     * {@see disable()} — and with the same history: the controller collected one
+     * and passed it, this method took a single parameter, and the argument was
+     * discarded. So any signed-in session could rotate the codes, which both
+     * invalidates every code the account's owner had written down and prints ten
+     * new ones to whoever asked for them.
+     *
+     * @param int         $userId
+     * @param string|null $password The account password, when the caller
+     *                              collected one. Null is the administrative path.
+     * @return string[]|false New plain-text backup codes, false when 2FA is not
+     *                        enabled or the password does not match
      */
-    public function regenerateBackupCodes(int $userId)
+    public function regenerateBackupCodes(int $userId, ?string $password = null)
     {
         if (!$this->isEnabled($userId)) {
+            return false;
+        }
+
+        if ($password !== null && !$this->passwordMatches($userId, $password)) {
+            $this->logAttempt($userId, false, 'REGEN_BACKUP', \Pramnos\Http\Request::clientIp() ?: null);
             return false;
         }
 
@@ -370,6 +421,35 @@ class TwoFactorAuthService
     }
 
     /**
+     * The backup codes from the enrolment that just completed, once.
+     *
+     * Enrolment generated ten codes, hashed them, stored the hashes and threw
+     * the plain codes away — so the account's recovery codes were known to
+     * nobody. The page enrolment redirects to says "Setup complete. Save your
+     * backup codes before leaving this page" and had none to show, while the set
+     * the setup screen had displayed *before* verification was a different set
+     * entirely, already overwritten. A user who followed the instructions
+     * exactly ended up with ten codes that could never work, and found out the
+     * first time they lost their phone.
+     *
+     * Kept in the session because the codes have to survive one redirect, and
+     * cleared on read: they are shown once, by design.
+     *
+     * @return string[] The codes, or an empty array when there are none to show.
+     */
+    public function takeNewBackupCodes(): array
+    {
+        if (!isset($_SESSION[self::NEW_BACKUP_CODES_KEY])) {
+            return [];
+        }
+
+        $codes = $_SESSION[self::NEW_BACKUP_CODES_KEY];
+        unset($_SESSION[self::NEW_BACKUP_CODES_KEY]);
+
+        return is_array($codes) ? array_values($codes) : [];
+    }
+
+    /**
      * Delete expired setup sessions.
      *
      * Intended for scheduled cleanup jobs.
@@ -384,6 +464,40 @@ class TwoFactorAuthService
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Stash the plain backup codes for the page that will display them.
+     *
+     * @param string[] $codes
+     */
+    private function rememberNewBackupCodes(array $codes): void
+    {
+        \Pramnos\Http\Session::getInstance()->ensureStarted();
+        if (isset($_SESSION)) {
+            $_SESSION[self::NEW_BACKUP_CODES_KEY] = array_values($codes);
+        }
+    }
+
+    /**
+     * Does this password belong to this account?
+     *
+     * An empty password counts as wrong, not as absent: absent is `null`, and it
+     * means an administrative call with no password to check. Collapsing the two
+     * would make a form that submitted nothing pass the step-up check.
+     */
+    private function passwordMatches(int $userId, string $password): bool
+    {
+        if ($password === '') {
+            return false;
+        }
+
+        $user = new \Pramnos\User\User();
+        if (!$user->load($userId)) {
+            return false;
+        }
+
+        return $user->verifyPassword($password);
+    }
 
     /**
      * Verify and consume a backup code.

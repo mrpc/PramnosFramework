@@ -1128,11 +1128,14 @@ $svc = new TwoFactorAuthService(); // uses Factory::getDatabase()
 
 // Step 1 — generate secret and show QR code to user
 $info = $svc->startSetup($userId, $userEmail);
-// ['secret', 'qr_code_data_uri', 'qr_code_url', 'manual_entry_key', 'backup_codes']
-// Show backup_codes ONCE — user must record them
+// ['secret', 'qr_code_data_uri', 'qr_code_url', 'manual_entry_key']
+// No backup codes here — see below
 
 // Step 2 — user scans QR, enters first code to confirm
 $success = $svc->completeSetup($userId, $submittedCode); // bool
+
+// Step 3 — NOW show the backup codes, once
+$codes = $svc->takeNewBackupCodes();       // string[]; [] when there are none
 
 // Verify on login
 $valid = $svc->verifyCode($userId, $code); // accepts TOTP or backup code
@@ -1143,11 +1146,39 @@ $remaining = $svc->getRemainingBackupCodes($userId); // int
 $status    = $svc->getStatus($userId);
 // ['enabled' => bool, 'setup' => bool, 'backup_codes_remaining' => int]
 
-// Management
-$svc->disable($userId);                   // clears secret, sets enabled=0
-$newCodes = $svc->regenerateBackupCodes($userId); // string[]|false
-$svc->cleanupExpiredSessions();            // removes used/expired setup rows
+// Management — pass the password whenever you collected one
+$svc->disable($userId, $password);                   // verified, refused when wrong
+$newCodes = $svc->regenerateBackupCodes($userId, $password); // string[]|false
+$svc->disable($userId);                              // administrative: no password to check
+$svc->cleanupExpiredSessions();                      // removes used/expired setup rows
 ```
+
+**Backup codes come from enrolment, not from setup.** `startSetup()` deliberately
+returns none. It used to return a generated set, and the setup screen listed them under
+"save these, they will not be shown again" — but `completeSetup()` generates and stores
+its *own* set, so the codes on screen were dead before the user finished reading them.
+The account's real recovery codes were known to nobody, and the user found out the first
+time they lost their phone. `takeNewBackupCodes()` returns what enrolment stored, once
+(it survives one redirect, in the session, and is cleared on read).
+
+It is also the right moment to show them: somebody who abandons setup halfway should not
+walk away holding recovery codes for an account with no second factor.
+
+**Pass the password to `disable()` and `regenerateBackupCodes()`.** Both take an optional
+second argument and verify it. Both used to take one parameter while the controller in
+front of them collected a password and passed it — and PHP discards an extra argument to a
+userland function, so nothing was checked. Any signed-in session could strip the second
+factor, or rotate the backup codes (which invalidates every code the owner wrote down and
+prints ten new ones to whoever asked). A stolen session is the case a second factor exists
+for, so a step-up check that does not check is worth stating plainly:
+
+| Call | Meaning |
+| --- | --- |
+| `disable($userId, $password)` | the user's own action — verified, refused on a wrong **or empty** password |
+| `disable($userId)` | administrative — an operator clearing 2FA off an account whose owner cannot |
+
+An empty string counts as wrong, not as absent; `null` is absent. Collapsing the two would
+let a form that submitted nothing through the check.
 
 **Replay protection:** `verifyCode()` compares the current 30-second window against `last_used`. If the same window was already used, the code is rejected even if cryptographically valid.
 
