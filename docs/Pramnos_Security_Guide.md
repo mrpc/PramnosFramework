@@ -209,6 +209,8 @@ off by default**:
         'session_absolute_timeout'             => 2592000,
         'revoke_sessions_on_password_change'   => true,
         'require_second_factor_from_usertype'  => 90,
+        'password_history'                     => 5,
+        'totp_replay_cache'                    => true,
     ],
 ],
 ```
@@ -228,6 +230,8 @@ control.
 | `session_absolute_timeout` | a session that stays valid for a year because it is used daily | everybody re-authenticates on a schedule |
 | `revoke_sessions_on_password_change` | the attacker keeping the account after the owner "fixes" it | other devices are signed out, which reads as a fault if it was routine hygiene |
 | `require_second_factor_from_usertype` | an administrator with a password and nothing else | a step-up the person did not choose; it resolves to a mailed code, so it cannot lock them out |
+| `password_history` | "change it" meaning "type the same one again" | somebody who wants their old password back cannot have it, and support cannot give it to them |
+| `totp_replay_cache` | one TOTP code completing two logins inside the same 30-second window | needs a cache that can count atomically (Redis, memcached); without one the older guard applies and nothing is refused |
 
 Three of them are worth expanding, because their shape matters more than their name.
 
@@ -250,6 +254,22 @@ controllers' guard, the API's session exchange. A timeout in a middleware is a t
 paths that skip the middleware do not have. A session with no recorded start is treated as
 starting now, so switching either limit on does not sign out every existing session at
 once — which is how a security setting gets switched straight back off.
+
+**The TOTP replay guard closes a window the old one could not see.** `last_used` on the
+account stops a code being reused one request *after* another; it cannot stop two requests
+inside the same window, because both read the same timestamp and both conclude the code is
+fresh. That is not theoretical — it is a phished code replayed immediately, or a
+double-submitted form. Answering it needs a store both requests can see atomically, which
+is what `Cache::increment()` is; a count of 1 means this request claimed the code. When no
+counting cache is available the code is *allowed* on the older guard rather than refused,
+because a login that fails when Redis is down is worse than the window.
+
+**Password history is compared with the login's own verifier.** A previous password is
+stored exactly as `users.password` stored it and checked with `PasswordHash::verify()` — a
+second comparison written for this would be a second thing to get wrong. It costs one
+bcrypt verification per remembered hash, on a password change and nowhere else. And it
+fails *open*: with no table, nothing is refused, because the change is something somebody is
+doing for a reason.
 
 **What is deliberately not here**: checking passwords against breach corpora. It needs an
 outbound call per password change to a third party, and that is a decision an application

@@ -48,6 +48,15 @@ class NewDeviceAuthLink
     /** How long a link lives, in seconds. */
     public const TTL = 900;
 
+    /** The shortest gap between two links, in seconds — see {@see EmailSecondFactor}. */
+    public const RESEND_INTERVAL = 60;
+
+    /** How many links may be sent inside {@see SEND_WINDOW}. */
+    public const MAX_SENDS = 5;
+
+    /** The window the send count applies to, in seconds. */
+    public const SEND_WINDOW = 900;
+
     /** `userdetails.fieldname` holding the hash. */
     public const FIELD_HASH = 'newdevice_authlink_hash';
 
@@ -77,6 +86,13 @@ class NewDeviceAuthLink
         $user = new \Pramnos\User\User($userId);
         $address = (string) ($user->email ?? '');
         if ($address === '' || filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
+            return false;
+        }
+
+        // Refused before a new token is generated, so a refused send leaves the link the
+        // person is already holding alive. Same two limits as the mailed code, for the same
+        // reason: the button sits where anybody with a correct password can reach it.
+        if (!$this->maySend($userId)) {
             return false;
         }
 
@@ -155,6 +171,70 @@ class NewDeviceAuthLink
         }
 
         return $userId;
+    }
+
+    /**
+     * Is another link allowed right now?
+     *
+     * A minimum gap and a count per window, read from the same activity rows that record
+     * the sends — the audit trail and the accounting are one record on purpose.
+     */
+    public function maySend(int $userId): bool
+    {
+        $sends = $this->recentSends($userId);
+
+        if ($sends === array()) {
+            return true;
+        }
+
+        if ((time() - $sends[0]) < self::RESEND_INTERVAL) {
+            return false;
+        }
+
+        return count($sends) < self::MAX_SENDS;
+    }
+
+    /**
+     * Timestamps of recent link sends, newest first.
+     *
+     * @return list<int>
+     */
+    private function recentSends(int $userId): array
+    {
+        try {
+            // No time filter in SQL, and that is deliberate. `ActivityLog` writes
+            // `created_at` with `date('c')` — an ISO-8601 string carrying an offset — while
+            // the column is a datetime, and a string comparison between the two formats is
+            // right by accident on some rows and wrong on others. Taking the newest few for
+            // this action and filtering by a parsed timestamp needs no assumption about
+            // either format or the server's timezone.
+            $result = $this->database->queryBuilder()
+                ->table('authserver.user_activity_log')
+                ->select(['created_at'])
+                ->where('userid', $userId)
+                ->where('action', 'newdevice_authlink_sent')
+                ->orderBy('id', 'desc')
+                ->limit(self::MAX_SENDS + 20)
+                ->get();
+        } catch (\Throwable $exception) {
+            // No log, no accounting — and allowing the send, because refusing every link
+            // when a log table is missing would refuse the login itself.
+            return array();
+        }
+
+        $sends = array();
+        if ($result === null) {
+            return $sends;
+        }
+
+        while (($row = $result->fetch()) !== null) {
+            $when = (int) strtotime((string) ($row['created_at'] ?? ''));
+            if ($when > 0 && $when > time() - self::SEND_WINDOW) {
+                $sends[] = $when;
+            }
+        }
+
+        return $sends;
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────

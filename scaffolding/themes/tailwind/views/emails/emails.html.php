@@ -1,47 +1,27 @@
 <?php
 /**
- * Email log list (Tailwind theme).
+ * Email log (Tailwind theme).
  *
  * Variables:
- *   $this->mails — iterable rows (id, recipient, subject, date, status)
- *   $this->page  — current page
- *   $this->total — total count
+ *   $this->datatable — \Pramnos\Html\Datatable instance (server-side AJAX)
+ *
+ * Was a hand-rolled table with page links: no sorting, no search, fifty rows at a time
+ * over a table that grows with every mail the site sends. "Did the code reach this
+ * address" — the question this screen exists for — could only be answered by paging.
  */
-$statusLabel = fn($s) => match((int)$s) {
-    1 => '<span class="badge badge-success">Sent</span>',
-    2 => '<span class="badge badge-warning">Queued</span>',
-    default => '<span class="badge badge-neutral">Pending</span>',
-};
 ?>
 <div class="px-4 py-6">
-    <h2 class="mb-6">Email Log</h2>
-    <div class="card bg-base-100 border border-base-300 shadow-xs">
-        <div >
-            <table class="table table-sm text-sm">
-                <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
-                    <tr><th>ID</th><th>Recipient</th><th>Subject</th><th>Date</th><th>Status</th><th></th></tr>
-                </thead>
-                <tbody>
-                <?php foreach (($this->mails ?? []) as $mail): ?>
-                    <tr>
-                        <td><?php echo (int)$mail['id']; ?></td>
-                        <td><?php echo htmlspecialchars($mail['recipient'] ?? $mail['mailto'] ?? ''); ?></td>
-                        <td><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></td>
-                        <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
-                        <td><?php echo $statusLabel($mail['status'] ?? 0); ?></td>
-                        <td class="text-right">
-                            <a href="<?php echo adminUrl('Emails' . '/show/' . ((int)$mail['id'])); ?>" class="btn btn-outline btn-xs">View</a>
-                            <?php if ((int)($mail['status'] ?? 0) === 0): ?>
-                                <a href="<?php echo adminUrl('Emails' . '/resend/' . ((int)$mail['id'])); ?>" class="btn btn-outline btn-primary btn-xs">Resend</a>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if (empty($this->mails)): ?>
-                    <tr><td colspan="6" class="text-center text-base-content/60 py-8">No emails found.</td></tr>
-                <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+    <?php $this->activeNav = 'emails'; $this->insert('../partials/admin_breadcrumb'); ?>
+    <?php if (!empty($this->success)): ?>
+        <div class="alert alert-success mb-4"><?php echo htmlspecialchars($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
+    <div class="flex justify-between items-center mb-4">
+        <h2>Email history</h2>
+        <a href="<?php echo adminUrl('MailTemplates'); ?>" class="btn btn-ghost btn-sm"
+           title="The templates these are rendered from">Mail templates</a>
     </div>
+    <?php echo $this->datatable->render(); ?>
 </div>

@@ -25,7 +25,7 @@ $statusLabel = fn($s) => match((int)$s) {
                 <?php foreach (($this->mails ?? []) as $mail): ?>
                     <tr>
                         <td><?php echo (int)$mail['id']; ?></td>
-                        <td><?php echo htmlspecialchars($mail['recipient'] ?? $mail['mailto'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($mail['tomail'] ?? $mail['recipient'] ?? $mail['mailto'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></td>
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
                         <td><?php echo $statusLabel($mail['status'] ?? 0); ?></td>

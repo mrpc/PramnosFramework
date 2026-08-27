@@ -18,11 +18,16 @@ $errorMessages = [
     'missing_code'  => 'Please enter your verification code.',
     'invalid_code'  => 'Invalid or expired code. Please try again.',
     'email_code_failed' => 'We could not send a code to your email address.',
+    'email_code_wait'   => 'We have already sent you a code. You can ask for another one in %d seconds.',
     'auth_link_failed'  => 'We could not email you a sign-in link.',
     'authlink_invalid'  => 'That sign-in link has been used or has expired. Please sign in again.',
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+// The wait message carries a number, so it is the one error that is formatted.
+if ($errorKey === 'email_code_wait') {
+    $errorText = sprintf($errorText, max(1, $resendIn));
+}
 $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
 
 /*
@@ -41,6 +46,7 @@ $noticeMessages = [
     'email_code_sent' => 'We have sent a code to your email address.',
     'auth_link_sent'  => 'We have emailed you a link to finish signing in.',
 ];
+$resendIn   = (int) ($this->resendIn ?? 0);
 $noticeKey  = (string) ($this->notice ?? '');
 $noticeText = $noticeMessages[$noticeKey] ?? $noticeKey;
 
@@ -121,8 +127,16 @@ $intro = $authLink
                 <form method="POST" action="<?php echo $base; ?>/verify">
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <input type="hidden" name="send_email_code" value="1">
-                    <button type="submit" class="btn btn-ghost btn-sm w-full">
-                        <?php echo $codePending ? 'Send another code' : 'Email me a code instead'; ?>
+                    <button type="submit" class="btn btn-ghost btn-sm w-full"
+                            <?php echo $resendIn > 0 ? 'disabled' : ''; ?>>
+                        <?php
+                        // Disabled rather than hidden while the limit applies, with the wait
+                        // in the label: a control that disappears leaves somebody wondering
+                        // whether they imagined it.
+                        echo $resendIn > 0
+                            ? 'Another code in ' . $resendIn . 's'
+                            : ($codePending ? 'Send another code' : 'Email me a code instead');
+                        ?>
                     </button>
                 </form>
             </div>

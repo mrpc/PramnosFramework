@@ -243,6 +243,23 @@ class LoginFlow
     }
 
     /**
+     * Seconds until the pending login may ask for another code, or 0 when it may now.
+     *
+     * So a screen can say "you can ask again in 40 seconds" instead of refusing without a
+     * reason. A button that silently does nothing reads as broken, and the response to a
+     * broken button is to press it again.
+     */
+    public function secondsUntilResend(): int
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return 0;
+        }
+
+        return $this->emailFactor()->secondsUntilResend($pending['userId']);
+    }
+
+    /**
      * Is a code already outstanding for the pending login?
      *
      * So the step-up screen can say "enter the code we sent" instead of offering to send

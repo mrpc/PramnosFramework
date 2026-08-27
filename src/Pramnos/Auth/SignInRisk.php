@@ -292,13 +292,16 @@ class SignInRisk
         }
 
         $rows = array();
-        while ($result !== null && ($result->numRows ?? 0) > 0 && !$result->eof) {
-            $details = json_decode((string) ($result->fields['details'] ?? ''), true);
+        if ($result === null) {
+            return $rows;
+        }
+
+        while (($row = $result->fetch()) !== null) {
+            $details = json_decode((string) ($row['details'] ?? ''), true);
             $rows[] = array(
                 'country' => is_array($details) ? (string) ($details['country'] ?? '') : '',
-                'when'    => (int) strtotime((string) ($result->fields['created_at'] ?? '')),
+                'when'    => (int) strtotime((string) ($row['created_at'] ?? '')),
             );
-            $result->MoveNext();
         }
 
         return $rows;
@@ -337,12 +340,15 @@ class SignInRisk
             return false;
         }
 
-        while ($result !== null && ($result->numRows ?? 0) > 0 && !$result->eof) {
-            $there = (string) ($result->fields['host_addr'] ?? '');
+        if ($result === null) {
+            return false;
+        }
+
+        while (($row = $result->fetch()) !== null) {
+            $there = (string) ($row['host_addr'] ?? '');
             if ($there !== '' && !self::samePlace($here, $there)) {
                 return true;
             }
-            $result->MoveNext();
         }
 
         return false;

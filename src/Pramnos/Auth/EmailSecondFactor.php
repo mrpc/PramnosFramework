@@ -57,6 +57,26 @@ class EmailSecondFactor
     /** Failed attempts before the code is destroyed. */
     public const MAX_ATTEMPTS = 5;
 
+    /**
+     * The shortest gap between two sends, in seconds.
+     *
+     * "Send another code" with nothing behind it sends one mail per click. Ten clicks is
+     * ten mails — to somebody who may not have asked for any of them, since the button
+     * sits on a step-up that anybody holding a correct password can reach. That is both a
+     * way to flood a mailbox and, at scale, a way to spend an installation's send quota.
+     *
+     * A gap rather than a hard daily cap: the honest case is a person who did not receive
+     * the first one, and they should be able to try again shortly rather than be locked
+     * out of their own login for an hour.
+     */
+    public const RESEND_INTERVAL = 60;
+
+    /** How many sends are allowed inside {@see SEND_WINDOW}. */
+    public const MAX_SENDS = 5;
+
+    /** The window the send count applies to, in seconds. */
+    public const SEND_WINDOW = 900;
+
     /** The purpose a login step-up uses. */
     public const PURPOSE_LOGIN = 'login';
 
@@ -232,6 +252,13 @@ class EmailSecondFactor
             return false;
         }
 
+        // Refused before anything is generated, so a refused send does not invalidate the
+        // code the person is already holding — which is what made repeated clicking worse
+        // than useless rather than merely wasteful.
+        if (!$this->maySend($userId, $purpose)) {
+            return false;
+        }
+
         // Six digits, from the CSPRNG, keeping leading zeros — `random_int` then
         // padding, rather than a string built digit by digit, so the distribution is
         // uniform and obviously so.
@@ -282,6 +309,9 @@ class EmailSecondFactor
             return false;
         }
 
+        // This row is both the audit trail and the accounting {@see maySend()} reads —
+        // the same record on purpose, so the two cannot drift apart. Written after the
+        // mail, so a send that failed does not consume the allowance.
         ActivityLog::record($userId, 'twofactor_email_code_sent', ['purpose' => $purpose]);
 
         return true;
@@ -372,6 +402,114 @@ class EmailSecondFactor
                 'auth'
             );
         }
+    }
+
+    // ── How often a code may be sent ──────────────────────────────────────────
+
+    /**
+     * Is another send allowed right now?
+     *
+     * Two limits, because they answer different abuses: a minimum gap stops a person (or a
+     * script) clicking "send another" repeatedly, and a count per window stops the same
+     * thing done patiently. Both are per account and per purpose, so an enrolment and a
+     * login step-up do not consume each other's allowance.
+     *
+     * The record lives in the activity log rather than in a table of its own. It is the
+     * same question that log exists for — what has been done to this account — and it is
+     * the place an operator investigating "why did I get eleven codes" would look.
+     */
+    public function maySend(int $userId, string $purpose = self::PURPOSE_LOGIN): bool
+    {
+        $sends = $this->recentSends($userId, $purpose);
+
+        if ($sends === []) {
+            return true;
+        }
+
+        if ((time() - $sends[0]) < self::RESEND_INTERVAL) {
+            return false;
+        }
+
+        return count($sends) < self::MAX_SENDS;
+    }
+
+    /**
+     * Seconds until another send is allowed, or 0 when one is allowed now.
+     *
+     * For a screen that would rather say "you can ask again in 40 seconds" than refuse
+     * without explanation — a refusal with no reason reads as a broken button, and the
+     * person clicks it more.
+     */
+    public function secondsUntilResend(int $userId, string $purpose = self::PURPOSE_LOGIN): int
+    {
+        $sends = $this->recentSends($userId, $purpose);
+        if ($sends === []) {
+            return 0;
+        }
+
+        $sinceLast = time() - $sends[0];
+        if ($sinceLast < self::RESEND_INTERVAL) {
+            return self::RESEND_INTERVAL - $sinceLast;
+        }
+
+        if (count($sends) < self::MAX_SENDS) {
+            return 0;
+        }
+
+        // The window is full: the next send becomes possible when the oldest one in it
+        // ages out.
+        $oldest = $sends[count($sends) - 1];
+
+        return max(1, self::SEND_WINDOW - (time() - $oldest));
+    }
+
+    /**
+     * Timestamps of recent sends, newest first.
+     *
+     * @return list<int>
+     */
+    private function recentSends(int $userId, string $purpose): array
+    {
+        try {
+            // No time filter in SQL, and that is deliberate. `ActivityLog` writes
+            // `created_at` with `date('c')` — an ISO-8601 string carrying an offset — while
+            // the column is a datetime, and a string comparison between the two formats is
+            // right by accident on some rows and wrong on others. Taking the newest few for
+            // this action and filtering by a parsed timestamp needs no assumption about
+            // either format or the server's timezone.
+            $result = $this->database->queryBuilder()
+                ->table('authserver.user_activity_log')
+                ->select(['details', 'created_at'])
+                ->where('userid', $userId)
+                ->where('action', 'twofactor_email_code_sent')
+                ->orderBy('id', 'desc')
+                ->limit(self::MAX_SENDS + 20)
+                ->get();
+        } catch (\Throwable $exception) {
+            // No log, no accounting. Allowing the send is the right failure: the limit
+            // exists to prevent nuisance, and refusing every code because a log table is
+            // missing would prevent sign-in.
+            return array();
+        }
+
+        $sends = array();
+        if ($result === null) {
+            return $sends;
+        }
+
+        while (($row = $result->fetch()) !== null) {
+            $details = json_decode((string) ($row['details'] ?? ''), true);
+            if (is_array($details) && ($details['purpose'] ?? self::PURPOSE_LOGIN) !== $purpose) {
+                continue;
+            }
+
+            $when = (int) strtotime((string) ($row['created_at'] ?? ''));
+            if ($when > 0 && $when > time() - self::SEND_WINDOW) {
+                $sends[] = $when;
+            }
+        }
+
+        return $sends;
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────

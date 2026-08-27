@@ -305,6 +305,31 @@ class TwoFactorAuthService
                 return false;
             }
 
+            /**
+             * And reject a code already used by *another request*, when asked to.
+             *
+             * `isRecentlyUsed()` compares a timestamp on the account, which stops the same
+             * code being reused one request after another. It cannot stop two requests
+             * inside the same 30-second window: both read the same `last_used`, both
+             * decide the code is fresh, and both are let in. That is not theoretical —
+             * it is what happens when a code is phished and replayed immediately, or when
+             * somebody double-submits a form on a slow connection.
+             *
+             * Answering it needs a store both requests can see, atomically, which is what
+             * {@see \Pramnos\Cache\Cache::increment()} is. A count of 1 means this
+             * request is the one that claimed the code.
+             *
+             * Opt-in: it needs a cache backend that can count (Redis, memcached). Without
+             * one the claim cannot be made, and the code is allowed through on the older
+             * guard rather than refused — a login that fails because the cache is missing
+             * is a worse outcome than the narrow window this closes.
+             */
+            if (SecurityPolicy::cachesTotpReplays() && !$this->claimCode($userId, $code)) {
+                $this->logAttempt($userId, false, 'REPLAY', \Pramnos\Http\Request::clientIp() ?: null);
+
+                return false;
+            }
+
             $this->updateLastUsed($userId);
             $this->logAttempt($userId, true, $code, \Pramnos\Http\Request::clientIp() ?: null);
             return true;
@@ -664,6 +689,42 @@ class TwoFactorAuthService
      * @param string $codeUsed  The code or a label ('SETUP', 'BACKUP', etc.)
      * @param string|null $ipAddress
      */
+    /**
+     * Claim a code for this request, once, across every request in the window.
+     *
+     * True when this request is the first to present this code for this account. False
+     * when somebody has already used it — and false is only returned when the store could
+     * actually answer: an unavailable or non-counting cache returns true, because refusing
+     * every login when Redis is down is a larger failure than the replay window.
+     *
+     * The key is a hash of the code rather than the code, so a cache dump does not hand
+     * out live second factors, and it expires with the TOTP window it belongs to.
+     */
+    private function claimCode(int $userId, string $code): bool
+    {
+        try {
+            $cache = \Pramnos\Cache\Cache::getInstance('auth');
+            if (!$cache->supportsAtomicCounter()) {
+                return true;
+            }
+
+            $key = 'totpclaim_' . $userId . '_' . hash('sha256', $code);
+
+            // 90 seconds: the current 30-second window plus the drift TOTPHelper accepts
+            // on either side, so a code cannot be replayed anywhere it would still verify.
+            $count = $cache->increment($key, 90);
+
+            return $count === false || (int) $count === 1;
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'TOTP replay claim failed for ' . $userId . ': ' . $exception->getMessage(),
+                'auth'
+            );
+
+            return true;
+        }
+    }
+
     private function logAttempt(int $userId, bool $success, string $codeUsed, ?string $ipAddress): void
     {
         $this->database->queryBuilder()

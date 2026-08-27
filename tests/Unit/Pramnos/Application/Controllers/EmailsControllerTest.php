@@ -31,6 +31,10 @@ class TestableEmailsController extends EmailsController
             public mixed $mail;
             public mixed $total;
             public mixed $page;
+            /** The list is a DataTable now; the real View takes this through `__set`. */
+            public mixed $datatable;
+            public mixed $success;
+            public mixed $error;
 
             public function display($view = '') {
                 return 'mock html view for ' . $view;

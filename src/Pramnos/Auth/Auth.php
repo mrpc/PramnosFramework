@@ -582,6 +582,13 @@ class Auth extends \Pramnos\Framework\Base
             // back to the agent string, which is what makes the feature work against
             // the months of history that predate it.
             'device'   => SignInFingerprint::current(),
+            // The country, when anything can say — Cloudflare's header or a listener an
+            // application registers. Recorded rather than derived later because there is
+            // no IP-to-location database here: an address in an old row can no longer be
+            // resolved, so a country not written at sign-in is a country lost. This is
+            // what makes "a country this account has never used" and "too far, too soon"
+            // answerable at all; see {@see SignInRisk}.
+            'country'  => SignInRisk::country(),
         ]);
 
         // Tell the account owner if this is a browser/platform they have not used.

@@ -168,11 +168,18 @@ class Account extends Controller
         }
 
         if ($sendFactor !== '') {
-            return $this->renderStepUp(
-                $this->flow()->sendFactorChallenge($sendFactor)
-                    ? ['notice' => 'email_code_sent']
-                    : ['error' => 'email_code_failed']
-            );
+            if ($this->flow()->sendFactorChallenge($sendFactor)) {
+                return $this->renderStepUp(['notice' => 'email_code_sent']);
+            }
+
+            // A refusal is usually the rate limit rather than a failure, and the two need
+            // different words: "we could not send" invites another click, "you can ask
+            // again in 40 seconds" does not.
+            $wait = $this->flow()->secondsUntilResend();
+
+            return $this->renderStepUp($wait > 0
+                ? ['error' => 'email_code_wait', 'resendIn' => $wait]
+                : ['error' => 'email_code_failed']);
         }
 
         $code = $this->post('code');
@@ -736,6 +743,10 @@ class Account extends Controller
         // would be a field with no source. The link was already sent when the step-up
         // began — see LoginFlow::beginStepUp().
         $view->authLink         = in_array(\Pramnos\Auth\NewDeviceAuthLink::METHOD, $methods, true);
+        // 0 when another code may be asked for now. The screen uses it to label the button
+        // rather than to hide it: a control that vanishes leaves somebody wondering whether
+        // they imagined it.
+        $view->resendIn         = $this->flow()->secondsUntilResend();
 
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
@@ -1601,7 +1612,28 @@ class Account extends Controller
                 return;
             }
 
+            /**
+             * Refuse a password this account has already used, when asked to.
+             *
+             * Checked after the policy and before the write, so the message is about the
+             * password rather than about the attempt. Only meaningful where there is a
+             * reason to change — in that situation the first instinct is the password the
+             * person already knows, which looks like a change and is not one.
+             */
+            $history = new \Pramnos\Auth\PasswordHistory();
+            if ($history->wasUsedBefore((int) $currentUser->userid, $newPassword)) {
+                $this->addError('You have used that password before. Please choose a different one.');
+                $this->redirect(sURL . $this->routeBase . '/changepassword');
+
+                return;
+            }
+
+            // Kept before the write: this is the hash the account is moving away from, and
+            // it is what the list of "may not be reused" is made of.
+            $previousHash = (string) ($currentUser->password ?? '');
+
             $this->updatePassword((int) $currentUser->userid, $newPassword);
+            $history->remember((int) $currentUser->userid, $previousHash);
             \Pramnos\Auth\ActivityLog::record(
                 (int) $currentUser->userid,
                 'password_changed'

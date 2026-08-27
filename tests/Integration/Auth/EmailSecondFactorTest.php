@@ -70,7 +70,11 @@ class EmailSecondFactorTest extends BaseTestCase
 
     protected function tearDown(): void
     {
-        foreach (['authserver.twofactor_email_codes', 'authserver.user_twofactor'] as $table) {
+        foreach ([
+            'authserver.twofactor_email_codes',
+            'authserver.user_twofactor',
+            'authserver.user_activity_log',
+        ] as $table) {
             try {
                 $this->db->queryBuilder()->table($table)->where('userid', $this->uid)->delete();
             } catch (\Throwable $exception) {
@@ -105,11 +109,18 @@ class EmailSecondFactorTest extends BaseTestCase
             $this->db->query('DROP TABLE IF EXISTS `' . $prefix . $table . '`');
         }
 
+        $this->db->query('DROP TABLE IF EXISTS `' . $prefix . 'authserver_user_activity_log`');
+
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
             \Pramnos\Framework\Migrations\AuthServer\AddEmailFactorToUserTwofactor::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateTwofactorEmailCodesTable::class,
+            // The send accounting reads the activity log — the same rows that audit the
+            // sends. Without the table the limit silently does not apply, which is the
+            // documented failure mode in production and a test that proves nothing here.
+            \Pramnos\Framework\Migrations\Auth\CreateUserActivityLogTable::class,
         ], $this->db);
+        \Pramnos\Auth\ActivityLog::resetTableCache();
 
         // The attempt log is written best-effort by the service; created so the write
         // succeeds rather than being swallowed, since a silently unwritten security log is
@@ -135,13 +146,23 @@ class EmailSecondFactorTest extends BaseTestCase
             {
             }
         };
-        $stub->applicationInfo = ['auth' => ['twofactor_methods' => ['totp', 'email']]];
+        // `features` matters as much as the methods: `ActivityLog::record()` gates on the
+        // `auth` feature being enabled, and the send accounting reads the rows it writes.
+        // Without it the log is silently a no-op and the rate limit cannot be observed.
+        $stub->applicationInfo = [
+            'features' => ['auth', 'authserver'],
+            'auth'     => ['twofactor_methods' => ['totp', 'email']],
+        ];
 
         $reflection = new \ReflectionProperty(Application::class, 'appInstances');
         $instances  = $reflection->getValue() ?? [];
         $this->savedInstances = $instances;
         $instances['default'] = $stub;
         $reflection->setValue(null, $instances);
+
+        // The registry is loaded from configuration, not read off applicationInfo, so
+        // declaring the feature on the stub is not enough on its own.
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['auth', 'authserver']);
     }
 
     /** The live row for the fixture user, straight from the table. */
@@ -481,4 +502,118 @@ class EmailSecondFactorTest extends BaseTestCase
         $this->assertTrue($factor->hasLiveCode($this->uid), 'the live code survives');
         $this->assertSame((int) $live['id'], (int) $this->storedRow()['id']);
     }
+
+    // ── How often a code may be sent ──────────────────────────────────────────
+
+    /**
+     * A second send straight after the first is refused.
+     *
+     * Reported from the screen: "send another code" sent one mail per click, so ten clicks
+     * sent ten mails — to somebody who may not have asked for any of them, since that
+     * button sits on a step-up anybody holding a correct password can reach.
+     */
+    public function testASecondSendStraightAfterIsRefused(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->db);
+        $this->assertTrue($factor->send($this->uid));
+
+        // Assert the accounting row exists at all — without it the limit cannot apply,
+        // and a failure here means the log, not the limit.
+        $rows = $this->db->queryBuilder()
+            ->table('authserver.user_activity_log')
+            ->where('userid', $this->uid)
+            ->where('action', 'twofactor_email_code_sent')
+            ->get();
+        $this->assertGreaterThan(0, (int) ($rows->numRows ?? 0), 'the send must be recorded');
+
+        // Act & Assert
+        $this->assertFalse($factor->send($this->uid), 'a second send must wait');
+        $this->assertGreaterThan(0, $factor->secondsUntilResend($this->uid));
+    }
+
+    /**
+     * A refused send leaves the code the person is holding alive.
+     *
+     * The important half. Refusing *after* generating a new code would invalidate the one
+     * already in their inbox, so clicking twice would leave them unable to sign in with
+     * either — worse than the nuisance the limit exists to stop.
+     */
+    public function testARefusedSendDoesNotInvalidateTheLiveCode(): void
+    {
+        // Arrange — a known code, then a refused send
+        $factor = new EmailSecondFactor($this->db);
+        $this->storeCode('424242');
+        $this->db->queryBuilder()->table('authserver.user_activity_log')->insert([
+            'userid'     => $this->uid,
+            'action'     => 'twofactor_email_code_sent',
+            'details'    => json_encode(['purpose' => EmailSecondFactor::PURPOSE_LOGIN]),
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+
+        // Act
+        $this->assertFalse($factor->send($this->uid));
+
+        // Assert
+        $this->assertTrue($factor->verify($this->uid, '424242'));
+    }
+
+    /**
+     * Once the gap has passed, a send is allowed again — up to the window's count.
+     *
+     * A gap rather than a daily cap: the honest case is somebody who did not receive the
+     * first one, and they must be able to try again shortly rather than be locked out of
+     * their own login.
+     */
+    public function testAfterTheGapASendIsAllowedUntilTheWindowIsFull(): void
+    {
+        // Arrange — four sends, all older than the gap but inside the window
+        $factor = new EmailSecondFactor($this->db);
+        for ($i = 0; $i < 4; $i++) {
+            $this->db->queryBuilder()->table('authserver.user_activity_log')->insert([
+                'userid'     => $this->uid,
+                'action'     => 'twofactor_email_code_sent',
+                'details'    => json_encode(['purpose' => EmailSecondFactor::PURPOSE_LOGIN]),
+                'created_at' => gmdate('Y-m-d H:i:s', time() - 300 - $i),
+            ]);
+        }
+
+        // Act & Assert — the fifth is allowed, and it fills the window
+        $this->assertTrue($factor->maySend($this->uid));
+        $this->assertSame(0, $factor->secondsUntilResend($this->uid));
+
+        $this->db->queryBuilder()->table('authserver.user_activity_log')->insert([
+            'userid'     => $this->uid,
+            'action'     => 'twofactor_email_code_sent',
+            'details'    => json_encode(['purpose' => EmailSecondFactor::PURPOSE_LOGIN]),
+            'created_at' => gmdate('Y-m-d H:i:s', time() - 299),
+        ]);
+
+        $this->assertFalse($factor->maySend($this->uid), 'five in the window is the limit');
+        $this->assertGreaterThan(0, $factor->secondsUntilResend($this->uid));
+    }
+
+    /**
+     * Enrolment and login sends do not consume each other's allowance.
+     *
+     * They are different acts by different people in different places — somebody enrolling
+     * on their account screen, and a step-up in the middle of a login — and one exhausting
+     * the other would make the second look broken.
+     */
+    public function testTheTwoPurposesAreCountedSeparately(): void
+    {
+        // Arrange — the login allowance, spent
+        $factor = new EmailSecondFactor($this->db);
+        $this->db->queryBuilder()->table('authserver.user_activity_log')->insert([
+            'userid'     => $this->uid,
+            'action'     => 'twofactor_email_code_sent',
+            'details'    => json_encode(['purpose' => EmailSecondFactor::PURPOSE_LOGIN]),
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+
+        // Act & Assert
+        $this->assertFalse($factor->maySend($this->uid, EmailSecondFactor::PURPOSE_LOGIN));
+        $this->assertTrue($factor->maySend($this->uid, EmailSecondFactor::PURPOSE_ENROL));
+    }
+
 }
