@@ -210,6 +210,82 @@ The body is stored as written: an email template *is* markup, and a screen that 
 it would make the feature useless. It is escaped where it is displayed — into a
 `<textarea>` and a `<pre>` — which is the correct half to do it in.
 
+## The wrapper a message is sent in
+
+Bodies are fragments — a paragraph, a code, a link — and every application wants the same
+shell around all of them: its logo, its colours, a footer with a company name in it. That
+shell is a **wrapper**, named rather than derived:
+
+```php
+// Every message, from the settings
+Settings::setSetting('emailtheme', 'default');
+
+// Or one message
+(new Email())->setBody('<p>Your code is 123456</p>')->setTemplate('branded')->send();
+```
+
+`mailtemplates.emailtemplate` is the per-template version of the same choice, and the
+test-send on `/admin/MailTemplates` uses it — so what arrives in a test is what a recipient
+would get.
+
+**Off until it is named.** `emailtheme` is empty on an existing installation and an empty
+name wraps nothing: bodies go out exactly as they did before. That matters more than it
+sounds — an application whose bodies are already complete documents would otherwise get a
+second `<html>` inside the first on an upgrade.
+
+**`null`, `''` and a name are three different things.** `null` (the default) takes the
+installation's setting; a name overrides it; and `''` sends *this* message bare, which is
+the only way to send an unwrapped one from an installation that wraps everything — a body
+that is already a whole document, or one meant to be parsed rather than read.
+
+### Where a wrapper lives
+
+`{name}.html.php`, in the first of these that has it:
+
+| Path | For |
+| --- | --- |
+| `app/emails/` | the application's own |
+| `emails/` at the project root | an older layout |
+| the framework's bundled copy | so `default` resolves with nothing published |
+
+Copy the bundled `default` into `app/emails/` and edit it there: the application's file of
+the same name wins, so the copy is the customisation and the bundled one stays the
+fallback.
+
+Not per theme, deliberately. A theme is a stylesheet and an email cannot use one — HTML mail
+is nested tables and inline attributes, because Outlook renders with Word's engine and
+Gmail strips `<style>` from anything forwarded. An application that wants two looks names
+two wrappers.
+
+### What the file receives
+
+```php
+<?php /* app/emails/branded.html.php */ ?>
+<!DOCTYPE html>
+<html><body>
+    <h1><?php echo htmlspecialchars($sitename); ?></h1>
+    <?php echo $content; ?>
+    <footer><?php echo htmlspecialchars($sitename . ' · ' . $year); ?></footer>
+</body></html>
+```
+
+`$content` is the body, already HTML. `$subject`, `$sitename`, `$siteurl` and `$year` come
+with it, so a wrapper needs no arguments; anything else passed to `EmailTheme::wrap()` is in
+scope under its own key. `$content` is the one variable a wrapper cannot replace.
+
+### It fails open, and the name is not a path
+
+A wrapper that is missing, or that raises while rendering, logs to the `email` log and the
+message is sent **unwrapped**. A mail whose shell is broken still has to be delivered: the
+code in it is what somebody is waiting for, and a missing footer is not a reason to withhold
+it. That is also what makes a typo in a settings field cost one unbranded email rather than
+every email.
+
+The name is checked against `[A-Za-z0-9_-]` before it reaches a path, because it arrives
+from a column an administrator edits. Anything with a separator in it is refused rather than
+sanitised — there is no correct number of `..` segments to strip, and a name with a slash in
+it was never a wrapper name.
+
 ## Email Tracking
 
 The framework includes built-in email tracking functionality that can track when emails are opened.

@@ -271,11 +271,18 @@ class MailTemplatesController extends Controller
         }
 
         try {
-            $sent = \Pramnos\Email\Email::sendMail(
-                '[test] ' . ($template->defaultsubject !== '' ? $template->defaultsubject : $template->title),
-                $body,
-                $address
+            // In the wrapper this template names, which is the point of a test send: what
+            // arrives has to be what a recipient would get, and until now the field on the
+            // edit form was written to the database and read by nothing.
+            $email = new \Pramnos\Email\Email();
+            $email->setSubject(
+                '[test] ' . ($template->defaultsubject !== '' ? $template->defaultsubject : $template->title)
             );
+            $email->setBody($body);
+            $email->setTo($address);
+            $email->setTemplate((string) $template->emailtemplate);
+
+            $sent = $email->send();
             $sent
                 ? $this->addMessage('Test sent to ' . $address . '.')
                 : $this->addError('The mailer refused the message — check the mail settings.');

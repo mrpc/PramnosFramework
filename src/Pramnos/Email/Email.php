@@ -57,6 +57,28 @@ class Email extends \Pramnos\Framework\Base
      * @var string
      */
     public $body = '';
+
+    /**
+     * The wrapper this message is sent in, overriding the `emailtheme` setting.
+     *
+     * Null means "whatever the installation is configured to use", which on an
+     * installation that has configured nothing is no wrapper at all.
+     *
+     * @var ?string
+     * @see \Pramnos\Email\EmailTheme
+     */
+    public $template = null;
+
+    /**
+     * The wrapped body, from the last {@see send()}.
+     *
+     * Kept because the mailer and the audit log both need it and neither should wrap it
+     * again: rendering twice would nest the shell inside itself, and the recorded copy
+     * would not be the message that was delivered.
+     *
+     * @var ?string
+     */
+    protected $renderedBody = null;
     
     /**
      * Recipient email address(es) - can be string or array
@@ -182,6 +204,24 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * Send this message in a named wrapper, whatever the installation's default is.
+     *
+     * `null` puts the choice back to the `emailtheme` setting. An empty string means "no
+     * wrapper for this one", which is the only way to send a bare body from an installation
+     * that wraps everything — a machine-readable mail, or one whose body is a whole
+     * document already.
+     *
+     * @param  ?string $template Wrapper name, `''` for none, `null` for the default.
+     * @return $this
+     * @see \Pramnos\Email\EmailTheme
+     */
+    public function setTemplate(?string $template)
+    {
+        $this->template = $template;
+        return $this;
+    }
+
+    /**
      * Set the recipient(s)
      * @param mixed $to Email address or array of addresses
      * @return $this
@@ -243,6 +283,14 @@ class Email extends \Pramnos\Framework\Base
      */
     public function send()
     {
+        // The wrapper, once, before anybody reads the body: the mailer sends this and the
+        // audit log records it, so they have to be the same string.
+        $this->renderedBody = EmailTheme::wrap(
+            (string) $this->body,
+            $this->template,
+            ['subject' => (string) $this->subject]
+        );
+
         try {
             // Reset last error before attempting to send
             $this->lastError = '';
@@ -289,7 +337,7 @@ class Email extends \Pramnos\Framework\Base
                     'tomail'     => $tomail,
                     'toname'     => '',
                     'subject'    => (string) $this->subject,
-                    'content'    => (string) $this->body,
+                    'content'    => (string) ($this->renderedBody ?? $this->body),
                     'date'       => $date,
                     'module'     => (string) $this->module,
                     'moduleinfo' => '',
@@ -405,9 +453,10 @@ class Email extends \Pramnos\Framework\Base
             
             // Create Email
             $email = new \Symfony\Component\Mime\Email();
+            $body = $this->renderedBody ?? (string) $this->body;
             $email->subject($this->subject)
-                  ->html($this->body)
-                  ->text(strip_tags($this->body ?? ''));
+                  ->html($body)
+                  ->text(strip_tags($body));
             
             // Set priority
             $email->priority($this->getPriorityForSymfony());
