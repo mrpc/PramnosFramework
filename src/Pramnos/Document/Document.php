@@ -542,6 +542,24 @@ class Document extends \Pramnos\Framework\Base
     {
         self::$instances = [];
         self::$type      = 'html';
+
+        /**
+         * The content buffer is static, so discarding the documents was not enough.
+         *
+         * `addContent()` writes to `self::$buffer` — every concrete document type
+         * reads the body from there rather than from an instance property — and a
+         * fresh instance therefore started with the previous request's page already
+         * in it. `reset()` cleared the instances and left the buffer, so this
+         * method did not do the one thing its name promises.
+         *
+         * Measured in a suite: a login page grew by about 2.9 KB on every request
+         * and reached 1.7 MB, carrying a hundred copies of an unrelated screen's
+         * inline script. Assertions written against such a response pass on content
+         * from pages the test never asked for — `assertDontSee()` fails on a page
+         * the test has left, and `assertSee()` succeeds on one, which is the half
+         * that does the damage.
+         */
+        self::$buffer = '';
     }
 
     /**

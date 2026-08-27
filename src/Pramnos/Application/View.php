@@ -217,6 +217,27 @@ class View extends \Pramnos\Framework\Base
             return $this->getTpl($tpl, '', $render);
         }
 
+        /**
+         * Start from empty, because `getTpl()` appends.
+         *
+         * `$output .= $finalOutput` is deliberate — it lets a caller render several
+         * templates into one buffer with successive `getTpl()` calls. `display()`
+         * is not that caller: it renders one template and returns the result, and
+         * returning `$this->output` gave it everything the view had *ever*
+         * rendered.
+         *
+         * A view is cached per controller and a controller per application, so in
+         * any process that serves more than one request — a test client, a worker,
+         * a long-running server — the same view object renders again and its
+         * caller receives the previous pages in front of this one. Measured in a
+         * suite: a login page grew by 2.9 KB on every request and reached 1.7 MB,
+         * with one screen's inline script repeated a hundred times in a page that
+         * had nothing to do with it. Assertions written against such a response
+         * pass on content from a page the test never asked for.
+         *
+         * `getTpl()` keeps appending; only this entry point resets first.
+         */
+        $this->output = '';
         $this->getTpl($tpl, '', $render);
         return $this->output;
     }
