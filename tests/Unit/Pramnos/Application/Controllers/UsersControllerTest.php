@@ -39,6 +39,7 @@ class UsersControllerTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         $db = self::bootDatabase();
+        self::createAuthServerTables($db);
 
         // Once per class: clears whatever an earlier class left in the SQL cache. It costs
         // 85 ms, which is why it is not per test.
@@ -138,6 +139,79 @@ class UsersControllerTest extends TestCase
             $db->query('DROP TABLE IF EXISTS `' . $table . '`');
         }
         $db->query('SET FOREIGN_KEY_CHECKS = 1');
+
+        self::dropAuthServerTables($db);
+    }
+
+    /**
+     * The `authserver.*` tables these actions write to.
+     *
+     * They ship with the `authserver` feature's migrations, and without them the operator
+     * actions below can only be tested through the branch that reports "the feature is
+     * off" — which leaves the half that actually changes something untested. On MySQL the
+     * qualified name is a database, so the fixture makes one.
+     *
+     * Dropped again in `tearDownAfterClass()`, and `ActivityLog`'s memoized table probe is
+     * reset on both sides: it is a per-process cache, so a later test class in the same
+     * process would otherwise inherit this class's answer to "does that table exist".
+     */
+    private static function createAuthServerTables(\Pramnos\Database\Database $db): void
+    {
+        $db->query('CREATE DATABASE IF NOT EXISTS `authserver`');
+        $db->query('DROP TABLE IF EXISTS `authserver`.`user_activity_log`');
+        $db->query('
+            CREATE TABLE `authserver`.`user_activity_log` (
+                `id` bigint NOT NULL AUTO_INCREMENT,
+                `userid` bigint NOT NULL,
+                `action` varchar(100) NOT NULL,
+                `details` text,
+                `ip_address` varchar(45) DEFAULT NULL,
+                `user_agent` text,
+                `created_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+        $db->query('DROP TABLE IF EXISTS `authserver`.`loginlockouts`');
+        $db->query('
+            CREATE TABLE `authserver`.`loginlockouts` (
+                `id` bigint NOT NULL AUTO_INCREMENT,
+                `userid` bigint NOT NULL,
+                `attempts` int NOT NULL DEFAULT 0,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+        $db->query('DROP TABLE IF EXISTS `authserver`.`passkey_credentials`');
+        $db->query('
+            CREATE TABLE `authserver`.`passkey_credentials` (
+                `id` bigint NOT NULL AUTO_INCREMENT,
+                `userid` bigint NOT NULL,
+                `name` varchar(190) DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+        $db->query('DROP TABLE IF EXISTS `authserver`.`permissions`');
+        $db->query('
+            CREATE TABLE `authserver`.`permissions` (
+                `permissionid` bigint NOT NULL AUTO_INCREMENT,
+                `subject_type` varchar(50) NOT NULL,
+                `subject_id` bigint NOT NULL,
+                `object_type` varchar(100) NOT NULL,
+                `object_id` varchar(190) DEFAULT NULL,
+                `action` varchar(100) NOT NULL,
+                `grant_type` varchar(10) NOT NULL DEFAULT \'allow\',
+                `priority` int NOT NULL DEFAULT 100,
+                `granted_by` bigint DEFAULT NULL,
+                PRIMARY KEY (`permissionid`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+        \Pramnos\Auth\ActivityLog::resetTableCache();
+    }
+
+    private static function dropAuthServerTables(\Pramnos\Database\Database $db): void
+    {
+        foreach (['user_activity_log', 'loginlockouts', 'passkey_credentials', 'permissions'] as $table) {
+            $db->query('DROP TABLE IF EXISTS `authserver`.`' . $table . '`');
+        }
+        $db->query('DROP DATABASE IF EXISTS `authserver`');
+
+        \Pramnos\Auth\ActivityLog::resetTableCache();
     }
 
     /**
@@ -586,6 +660,473 @@ class UsersControllerTest extends TestCase
         $this->assertSame([], $records['activity']);
         $this->assertSame(0, $records['activityCount']);
         $this->assertNull($records['twofactor']);
+    }
+
+    // ── The per-user operator actions ───────────────────────────────────────────
+    //
+    // Thirteen actions were added to this controller so that everything the framework
+    // records about a user can be read and changed where the user is, instead of in a
+    // development panel or nowhere. Each one is small and each one ends in a redirect,
+    // which is exactly the shape that goes untested and then 500s in somebody's hands.
+    //
+    // Two things are asserted per action: the guard (an id that cannot name a user goes
+    // back to the list without touching anything) and the outcome (the operator is
+    // returned to the screen they came from, and told what happened).
+    //
+    // The `authserver.*` tables are not in this fixture, so several of these take their
+    // documented "the feature is off" branch. That is deliberate and is the branch most
+    // likely to be wrong: it is the one that must not become a stack trace on screen.
+
+    /**
+     * Clearing a login lockout returns to the user and says something either way.
+     */
+    public function testUnlockLoginReportsBackToTheUsersScreen(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        $this->controller->unlocklogin();
+
+        // Assert
+        $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+        $this->assertTrue(
+            isset($_SESSION['users_success']) || isset($_SESSION['users_error']),
+            'the operator must be told what happened'
+        );
+    }
+
+    /**
+     * An id that cannot name a user goes back to the list.
+     *
+     * `1` is the guest/system row and `0` is nothing at all; both used to reach the query.
+     * Checked on one action per shape rather than on all thirteen, since it is the same
+     * guard — the point is that the guard exists and returns without a write.
+     */
+    public function testAnImpossibleIdIsRefusedBeforeAnythingIsWritten(): void
+    {
+        foreach (['unlocklogin', 'disabletwofactor', 'signinalerts'] as $action) {
+            // Arrange
+            $_GET['_option'] = 1;
+            $this->redirectUrl = null;
+
+            // Act
+            $this->controller->$action();
+
+            // Assert
+            $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'),
+                $action . ' must send an impossible id back to the list');
+        }
+    }
+
+    /**
+     * Turning off a user's second factor is an operator action, and is recorded as one.
+     */
+    public function testDisableTwoFactorReturnsToTheUser(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        $this->controller->disabletwofactor();
+
+        // Assert
+        $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * Revoking a passkey needs both the user and the credential.
+     *
+     * Without the credential id the action would delete by user alone — every key on the
+     * account — from a link that says "revoke this one".
+     */
+    public function testRevokingAPasskeyNeedsTheCredentialToo(): void
+    {
+        // Arrange — no credential
+        $_GET['_option'] = 3;
+
+        // Act
+        $this->controller->revokepasskey();
+
+        // Assert
+        $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
+
+        // …and with one, it acts and reports
+        $_GET['credential'] = 7;
+        $this->controller->revokepasskey();
+        $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * A per-user setting is stored, and JSON text is stored as the structure.
+     *
+     * A form field cannot say which it meant, so the value is decoded when it parses.
+     * Guessing in this direction is harmless — `"1"` and `1` read the same for a flag —
+     * and it is what lets an operator repair a structured setting from the screen.
+     */
+    public function testSavingAndDeletingAPerUserSetting(): void
+    {
+        // Arrange — `usersettings` is a legacy table no migration creates, so the fixture
+        // makes it: without it `setSetting()` returns false and the assertion below would
+        // be testing the failure path instead of the JSON-decoding this is about.
+        $this->db->query('DROP TABLE IF EXISTS `usersettings`');
+        $this->db->query('
+            CREATE TABLE `usersettings` (
+                `userid` bigint NOT NULL,
+                `setting` varchar(190) NOT NULL,
+                `value` text,
+                `updated_at` int DEFAULT NULL,
+                `updated_by` bigint DEFAULT NULL,
+                PRIMARY KEY (`userid`, `setting`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+        $_GET['_option']  = 3;
+        $_POST['setting'] = 'dashboard_layout';
+        $_POST['value']   = '{"columns":2}';
+
+        // Act
+        $this->controller->savesetting();
+
+        // Assert
+        $this->assertStringContainsString('users/edit/3', (string) $this->redirectUrl);
+        $user = new \Pramnos\User\User();
+        $user->load(3);
+        $this->assertSame(['columns' => 2], $user->getSetting('dashboard_layout'));
+
+        // …and removing it
+        $_GET['setting'] = 'dashboard_layout';
+        $this->controller->deletesetting();
+        $this->assertNull((new \Pramnos\User\User(3))->getSetting('dashboard_layout'));
+
+        $this->db->query('DROP TABLE IF EXISTS `usersettings`');
+    }
+
+    /**
+     * A setting with no name is refused rather than stored under an empty key.
+     */
+    public function testASettingWithNoNameIsRefused(): void
+    {
+        // Arrange
+        $_GET['_option']  = 3;
+        $_POST['setting'] = '   ';
+
+        // Act
+        $this->controller->savesetting();
+
+        // Assert
+        $this->assertSame('A setting needs a name.', $_SESSION['users_error'] ?? null);
+    }
+
+    /**
+     * Deleting a setting needs a name as well.
+     */
+    public function testDeletingASettingNeedsAName(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        $this->controller->deletesetting();
+
+        // Assert
+        $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
+    }
+
+    /**
+     * The per-account new-sign-in alert toggle reads the state from the link.
+     *
+     * Both directions from one action, because a screen that can only turn something on
+     * is a screen an operator cannot undo.
+     */
+    public function testSignInAlertsCanBeTurnedOnAndOff(): void
+    {
+        foreach (['1', '0'] as $state) {
+            // Arrange
+            $_GET['_option'] = 3;
+            $_GET['enabled'] = $state;
+            unset($_SESSION['users_success'], $_SESSION['users_error']);
+
+            // Act
+            $this->controller->signinalerts();
+
+            // Assert
+            $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+            $this->assertTrue(
+                isset($_SESSION['users_success']) || isset($_SESSION['users_error'])
+            );
+        }
+    }
+
+    /**
+     * The activity screen renders its own table rather than the users one.
+     */
+    public function testTheActivityScreenRendersItsTable(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        ob_start();
+        $output = ob_get_clean() . (string) $this->controller->activity();
+
+        // Assert
+        $this->assertStringContainsString('dt-useractivity', $output);
+    }
+
+    /**
+     * The activity endpoint lists the account's own history, escaped.
+     *
+     * `details` is JSON as the action recorded it, and is shown as text rather than parsed
+     * into columns: what is in there differs per action, and a screen that assumes a shape
+     * hides the actions that do not have it. Escaped because it is written by whatever
+     * recorded the entry.
+     */
+    public function testTheActivityEndpointListsTheAccountsHistory(): void
+    {
+        // Arrange — one entry, with something that must not reach the page as markup
+        $this->db->query(
+            "INSERT INTO `authserver`.`user_activity_log`"
+            . " (`userid`, `action`, `details`, `ip_address`, `created_at`)"
+            . " VALUES (3, '<b>login</b>', '{\"by\":2}', '10.0.0.1', NOW())"
+        );
+        $_GET['_option'] = 3;
+
+        // Act
+        ob_start();
+        $response = $this->controller->activitydata();
+        $body = ob_get_clean() . ($response ? $response->getBody() : '');
+
+        // Assert
+        $decoded = json_decode($body, true);
+        $this->assertIsArray($decoded);
+        $rows = $decoded['data'] ?? $decoded['aaData'] ?? null;
+        $this->assertIsArray($rows, 'the endpoint must answer in a shape the table reads');
+        $this->assertCount(1, $rows);
+        // Asserted on the decoded row rather than on the body: JSON escapes the slash in
+        // a closing tag, so a substring check on the body passes or fails for the wrong
+        // reason.
+        $this->assertSame('&lt;b&gt;login&lt;/b&gt;', $rows[0][1]);
+        $this->assertStringContainsString('&quot;by&quot;:2', $rows[0][3]);
+    }
+
+    /**
+     * With no table it answers an empty list rather than a 500.
+     *
+     * `authserver.user_activity_log` arrives with the `authserver` feature. A datatable
+     * handles an empty list; it cannot handle an error, and shows a permanent "Loading…"
+     * instead — which reads as a hung page rather than as a feature that is off.
+     */
+    public function testTheActivityEndpointAnswersAnEmptyListWithNoTable(): void
+    {
+        // Arrange — and flush the SQL cache, or the listing from the test above is
+        // served from it and the missing table is never reached
+        $this->db->query('DROP TABLE IF EXISTS `authserver`.`user_activity_log`');
+        $this->db->cacheflush();
+        $_GET['_option'] = 3;
+
+        try {
+            // Act
+            ob_start();
+            $response = $this->controller->activitydata();
+            $body = ob_get_clean() . ($response ? $response->getBody() : '');
+
+            // Assert — whichever shape it answers in, it answers, and it is empty
+            $decoded = json_decode($body, true);
+            $this->assertIsArray($decoded);
+            $this->assertSame([], $decoded['data'] ?? $decoded['aaData'] ?? null);
+        } finally {
+            self::createAuthServerTables($this->db);
+        }
+    }
+
+    /**
+     * And it refuses an id that cannot name a user, with an empty list rather than an error.
+     */
+    public function testTheActivityEndpointRefusesAnImpossibleIdAsAnEmptyList(): void
+    {
+        // Arrange
+        $_GET['_option'] = 0;
+
+        // Act
+        ob_start();
+        $response = $this->controller->activitydata();
+        $body = ob_get_clean() . ($response ? $response->getBody() : '');
+
+        // Assert
+        $this->assertSame(0, json_decode($body, true)['recordsTotal'] ?? null);
+    }
+
+    /**
+     * The message form renders for a real account and refuses a placeholder one.
+     */
+    public function testTheMessageFormRendersForARealAccount(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        ob_start();
+        $output = ob_get_clean() . (string) $this->controller->notify();
+
+        // Assert — the account's own address is on the form
+        $this->assertStringContainsString('@', $output);
+
+        // …and an id that names nobody goes back to the list
+        $_GET['_option'] = 1;
+        $this->controller->notify();
+        $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
+    }
+
+    /**
+     * A message with no subject or no body is refused before the mailer is asked.
+     *
+     * An empty message is worse than no message: the account gets mail with nothing in
+     * it, and the operator is told it was sent.
+     */
+    public function testAnEmptyMessageIsRefusedBeforeTheMailer(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+        $_POST['subject'] = 'Something';
+        $_POST['message'] = '   ';
+
+        // Act
+        $this->controller->sendnotification();
+
+        // Assert
+        $this->assertSame('A message needs a subject and a body.', $_SESSION['users_error'] ?? null);
+        $this->assertStringContainsString('users/notify/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * An account with no usable address is not handed to the mailer either.
+     */
+    public function testAnAccountWithNoUsableAddressIsNotMailed(): void
+    {
+        // Arrange — a row of its own rather than an edit to a cached one: the per-process
+        // user cache would hand the controller the address the edit replaced, and the test
+        // would be asserting the mailer path while looking like it asserts this one.
+        $this->db->query(
+            "INSERT INTO `users` (`username`, `email`, `usertype`, `active`, `validated`)"
+            . " VALUES ('noaddress', 'not-an-address', 0, 1, 1)"
+        );
+        $id = (int) $this->db->getInsertId();
+
+        $_GET['_option']  = $id;
+        $_POST['subject'] = 'Subject';
+        $_POST['message'] = 'Body';
+
+        // Act
+        $this->controller->sendnotification();
+
+        // Assert
+        $this->assertSame(
+            'This account has no usable email address.',
+            $_SESSION['users_error'] ?? null
+        );
+        $this->assertStringContainsString('users/view/' . $id, (string) $this->redirectUrl);
+    }
+
+    /**
+     * A well-formed message reaches the mailer, and the operator is told the outcome.
+     *
+     * Both outcomes are the same code path and both are reported: whether the mailer
+     * accepts the message depends on the installation's mail settings, and an operator who
+     * is told "sent" when nothing was sent has no way to find out otherwise. The activity
+     * log records the attempt either way, with `sent` in it.
+     */
+    public function testAWellFormedMessageIsHandedToTheMailerAndReported(): void
+    {
+        // Arrange
+        $_GET['_option']  = 3;
+        $_POST['subject'] = 'About your account';
+        $_POST['message'] = "Something an operator typed.\nWith two lines.";
+
+        // Act
+        $this->controller->sendnotification();
+
+        // Assert — one of the two outcomes, and the operator is returned to the user
+        $this->assertTrue(
+            isset($_SESSION['users_success']) || isset($_SESSION['users_error']),
+            'the operator must be told whether the message went out'
+        );
+        $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * A permission needs an object type and an action, and returns to the edit screen.
+     */
+    public function testGrantingAPermissionNeedsAnObjectTypeAndAnAction(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        $this->controller->grantpermission();
+
+        // Assert
+        $this->assertSame(
+            'A permission needs an object type and an action.',
+            $_SESSION['users_error'] ?? null
+        );
+        $this->assertStringContainsString('users/edit/3', (string) $this->redirectUrl);
+
+        // …and with both, it reports back rather than throwing
+        $_POST['object_type'] = 'invoice';
+        $_POST['action']      = 'read';
+        $_POST['grant_type']  = 'deny';
+        $this->controller->grantpermission();
+        $this->assertStringContainsString('users/edit/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * Revoking one needs the permission's own id.
+     *
+     * Without it the delete would match on the subject alone — every permission the
+     * account has — from a link that says "revoke this one".
+     */
+    public function testRevokingAPermissionNeedsItsId(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+
+        // Act
+        $this->controller->revokepermission();
+
+        // Assert
+        $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
+
+        // …and with one it acts and returns to the edit screen
+        $_GET['permission'] = 5;
+        $this->controller->revokepermission();
+        $this->assertStringContainsString('users/edit/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * The usertype reference screen renders every band the registry declares.
+     *
+     * The screen exists so that "what is 85 here" has one answer, so the test is that the
+     * bands on it come from `UserTypes` — not that any particular band exists.
+     */
+    public function testTheUsertypeReferenceScreenRendersTheRegistry(): void
+    {
+        // Act
+        ob_start();
+        $output = ob_get_clean() . (string) $this->controller->types();
+
+        // Assert
+        foreach (\Pramnos\User\UserTypes::labels() as $label) {
+            $this->assertStringContainsString($label, $output);
+        }
+
+        // …and the capabilities each band resolves to are on it. Asserted because the
+        // first version of this screen built that column with
+        // `$view->resolved[$floor] = ...`, an indirect write to an overloaded property
+        // that PHP discards: every band rendered with an empty column, and the only
+        // complaint was a notice nobody sees on a rendered page.
+        foreach (\Pramnos\User\UserTypes::capabilities(90) as $capability) {
+            $this->assertStringContainsString($capability, $output);
+        }
     }
 }
 

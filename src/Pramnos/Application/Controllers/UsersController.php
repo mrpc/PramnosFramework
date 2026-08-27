@@ -273,10 +273,16 @@ class UsersController extends Controller
         $view->types        = \Pramnos\User\UserTypes::labels();
         $view->tones        = \Pramnos\User\UserTypes::tones();
         $view->capabilities = \Pramnos\User\UserTypes::capabilityMap();
-        $view->resolved     = [];
-        foreach ($view->types as $floor => $label) {
-            $view->resolved[$floor] = \Pramnos\User\UserTypes::capabilities((int) $floor);
+        // Built here and assigned once. Assigning into `$view->resolved[...]` element by
+        // element is an *indirect modification of an overloaded property*: the view stores
+        // its data through `__set`, so each write went to a temporary copy and was
+        // discarded. PHP says so as a notice, which nobody reads on a rendered page — the
+        // column simply came out empty for every band.
+        $resolved = [];
+        foreach (\Pramnos\User\UserTypes::labels() as $floor => $label) {
+            $resolved[$floor] = \Pramnos\User\UserTypes::capabilities((int) $floor);
         }
+        $view->resolved = $resolved;
         // The floor the administration area itself applies, which is a different decision
         // from any type's capabilities and the one people conflate with them.
         $view->areaFloor = \Pramnos\Http\AdminArea::minUserType();

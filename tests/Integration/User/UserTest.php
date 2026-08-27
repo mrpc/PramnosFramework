@@ -242,19 +242,28 @@ class UserTest extends TestCase
         // Assert — it verifies, and the stored hash is no longer the old one
         $this->assertTrue($verified, 'the retired scheme must still verify');
 
-        $stored = new User($userId);
-        $this->assertNotSame($legacy, $stored->password, 'the row must have been migrated');
+        // Read from the row rather than through a `new User($userId)`: the per-process user
+        // cache was populated by the load above, so a fresh object hands back the hash as
+        // it was *before* the migration — the assertion would fail while the database was
+        // correct.
+        $row = $this->db->query($this->db->prepareQuery(
+            'SELECT password FROM ' . $userTable . ' WHERE userid = %d',
+            $userId
+        ));
+        $storedHash = (string) ($row->fields['password'] ?? '');
+
+        $this->assertNotSame($legacy, $storedHash, 'the row must have been migrated');
         $this->assertSame(
             \Pramnos\Auth\PasswordHash::PREFERRED,
-            \Pramnos\Auth\PasswordHash::verify('mysecret123', (string) $stored->password, $userId),
+            \Pramnos\Auth\PasswordHash::verify('mysecret123', $storedHash, $userId),
             'and migrated into the preferred scheme'
         );
 
         // …and the password still works afterwards, which is the only part a user sees
-        $this->assertTrue($stored->verifyPassword('mysecret123'));
+        $this->assertTrue($loaded->verifyPassword('mysecret123'));
 
         // Cleanup
-        $stored->deleteuser();
+        $loaded->deleteuser();
     }
 
     /**

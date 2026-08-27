@@ -199,4 +199,169 @@ class UserTypesTest extends TestCase
             $this->assertContains($tone, UserTypes::TONES);
         }
     }
+
+    // ── What an application declares for itself ─────────────────────────────────
+
+    /**
+     * Install an `applicationInfo` for the registry to read, and take it away again.
+     *
+     * A real `Application` with its constructor skipped, as the driver tests do: the
+     * registry declares `?Application` and a `stdClass` would TypeError. Nothing here
+     * wants a database, a session or a language — this is a configuration read.
+     *
+     * @param array<string,mixed> $info
+     */
+    private function withApplicationInfo(array $info): void
+    {
+        $stub = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = $info;
+
+        $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $instances = $ref->getValue() ?? [];
+        $this->savedInstances = $instances;
+        $instances['default'] = $stub;
+        $ref->setValue(null, $instances);
+    }
+
+    /** @var array<string,mixed>|null The registry as it was before a test replaced it. */
+    private ?array $savedInstances = null;
+
+    protected function tearDown(): void
+    {
+        if ($this->savedInstances !== null) {
+            $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+            $ref->setValue(null, $this->savedInstances);
+            $this->savedInstances = null;
+        }
+
+        parent::tearDown();
+    }
+
+    /**
+     * An application replaces the bands, and may list them in any order.
+     *
+     * Sorted by the registry rather than trusted from the configuration, because the
+     * lookup reads the first band at or below a value: a config listing its bands
+     * lowest-first would otherwise label an administrator with the lowest band's name.
+     */
+    public function testAnApplicationReplacesTheBandsInAnyOrder(): void
+    {
+        // Arrange — deliberately lowest first
+        $this->withApplicationInfo(['usertypes' => [
+            0 => 'Customer', 50 => 'Staff', 100 => 'Owner',
+        ]]);
+
+        // Act & Assert
+        $this->assertSame('Owner', UserTypes::label(100));
+        $this->assertSame('Staff', UserTypes::label(50));
+        $this->assertSame('Staff', UserTypes::label(99), 'the band below, not the one above');
+        $this->assertSame('Customer', UserTypes::label(0));
+        $this->assertSame([100, 50, 0], array_keys(UserTypes::labels()));
+    }
+
+    /**
+     * An entry that cannot be a band is dropped rather than accepted.
+     *
+     * `app.php` is written by hand, so a typo is a normal event: a non-numeric floor or
+     * an empty label would otherwise become a band that no value can ever match, or one
+     * that renders as nothing where a name belongs.
+     */
+    public function testUnusableEntriesAreDropped(): void
+    {
+        // Arrange
+        $this->withApplicationInfo(['usertypes' => [
+            'nine' => 'Nonsense',
+            10     => '',
+            20     => 'Real',
+        ]]);
+
+        // Act & Assert
+        $this->assertSame([20 => 'Real'], UserTypes::labels());
+    }
+
+    /**
+     * Declaring nothing usable leaves the framework's own bands in place.
+     *
+     * An empty or wholly invalid `usertypes` must not produce an application with *no*
+     * bands, where every account would render as the fallback and the administration
+     * screens would all read the same.
+     */
+    public function testAWhollyInvalidDeclarationFallsBackToTheDefaults(): void
+    {
+        // Arrange
+        $this->withApplicationInfo(['usertypes' => ['nope' => 5]]);
+
+        // Act & Assert
+        $this->assertSame('Administrator', UserTypes::label(90));
+    }
+
+    /**
+     * Tones are merged over the framework's, and an unknown tone name is dropped.
+     *
+     * Merged rather than replaced because an application may want to recolour one band it
+     * inherited; dropped because a theme maps the four names to classes and has nothing
+     * for a fifth — the band would render unstyled, which looks like a broken page rather
+     * than like a bad configuration.
+     */
+    public function testTonesAreMergedAndValidated(): void
+    {
+        // Arrange
+        $this->withApplicationInfo(['usertype_tones' => [
+            90 => 'danger',
+            50 => 'chartreuse',
+        ]]);
+
+        // Act & Assert
+        $this->assertSame('danger', UserTypes::tone(90), 'the application recoloured this one');
+        $this->assertSame('primary', UserTypes::tone(50), 'and the invented name was dropped');
+        $this->assertSame('danger', UserTypes::tone(99), 'the inherited bands are still there');
+    }
+
+    /**
+     * Capabilities are **replaced**, not merged.
+     *
+     * The opposite of tones, deliberately. A tone is decoration and inheriting one is
+     * harmless; a capability is permission, and an application that writes its own list
+     * must not silently keep the framework's — it would be granting rights it never
+     * declared, which is the one direction of surprise that matters here.
+     */
+    public function testCapabilitiesAreReplacedRatherThanMerged(): void
+    {
+        // Arrange
+        $this->withApplicationInfo(['usertype_capabilities' => [
+            90 => ['reports.read'],
+            0  => ['account.self'],
+        ]]);
+
+        // Act & Assert
+        $this->assertTrue(UserTypes::can(90, 'reports.read'));
+        $this->assertFalse(
+            UserTypes::can(90, 'admin.users'),
+            'a framework default the application did not declare must not survive'
+        );
+        $this->assertSame([90, 0], array_keys(UserTypes::capabilityMap()));
+    }
+
+    /**
+     * A capability list that is all rubbish leaves the defaults alone.
+     *
+     * Same reasoning as the bands: an application with an unreadable declaration must not
+     * end up with an empty map, where `can()` answers false for everything and every
+     * screen refuses everybody.
+     */
+    public function testAnUnreadableCapabilityDeclarationFallsBackToTheDefaults(): void
+    {
+        // Arrange
+        $this->withApplicationInfo(['usertype_capabilities' => [
+            'ninety' => ['nope'],
+            90       => 'not a list',
+        ]]);
+
+        // Act & Assert
+        $this->assertTrue(UserTypes::can(98, 'admin.settings'));
+    }
 }
