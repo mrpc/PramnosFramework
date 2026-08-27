@@ -5059,6 +5059,18 @@ trap '_release_lock' EXIT
 # cmd…` and `timeout -k KILL_AFTER DURATION cmd…` — and, like GNU timeout,
 # returns 124 when the command is killed for exceeding its deadline (the callers
 # test for 124 to detect a wedged daemon).
+# A note on the redirection inside the timer below.
+#
+# The timer subshell must not inherit stdout. Every caller here that captures
+# output does so with a command substitution — `ps_out=\$(timeout … docker-compose
+# ps)` — and a command substitution does not return when its command exits: it
+# returns when the write end of the pipe is closed by *everything* holding it.
+# The timer holds it, and the timer sleeps for the full duration. So a
+# `docker-compose ps` that answered in 90 ms took the whole 45-second budget, and
+# a run that executed no tests at all took 45.9 seconds.
+#
+# The stderr-only redirection that was here silenced the timer's noise and left
+# stdout open, which is the file descriptor that matters.
 _bash_timeout() {
     local kill_after=""
     if [[ "\$1" == "-k" ]]; then kill_after="\$2"; shift 2; fi
@@ -5082,7 +5094,7 @@ _bash_timeout() {
             sleep "\$kill_after"
             kill -KILL "\$cmd_pid" 2>/dev/null
         fi
-    ) 2>/dev/null &
+    ) >/dev/null 2>&1 &
     local timer_pid=\$!
 
     wait "\$cmd_pid" 2>/dev/null

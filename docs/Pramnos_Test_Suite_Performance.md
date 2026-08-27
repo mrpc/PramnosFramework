@@ -43,6 +43,74 @@ Coverage instrumentation costs **≈124 s, about 12%**. Real, and not the lever.
 > A real regression will not announce itself either; it will look like the suite
 > having grown.
 
+## 2026-08-27: three findings, and the suite roughly quartered again
+
+| Run | Before | After |
+| --- | --- | --- |
+| This framework, `--no-coverage` | **12:28** (11420 tests) | **3:19** |
+| A scaffolded project, `--no-coverage` | **48.4 s** (188 tests) | **3.2 s** |
+
+Three causes, none of them in the tests themselves.
+
+### `clear()` walked the whole cache on every model save
+
+`FileAdapter::clear()` finished by calling `cleanup()`, which walks the entire cache
+tree and reads every file to decide whether it has expired. `Database::cacheflush()`
+calls `clear()`, and every model save calls `cacheflush()` — so writing one row cost
+an inspection of everything cached.
+
+**Measured at 1358 ms per call, on a cache holding no files at all.** The walk was of
+**3064 empty directories**, which is the second half of the bug: `cleanup()` ended with
+`cleanEmptyDirectories($this->cacheDir)`, and that method's first line returns when it
+is handed the root — it walks *upward* from a directory, so passing the root is a
+guaranteed no-op. Every directory a cache write ever created stayed, and each one was
+walked again by the next sweep.
+
+Expired entries are not a correctness problem: `load()` checks the timestamp before
+returning anything, so a stale file is never served. The sweep only reclaims disk,
+which makes it exactly the sort of work to sample. It now runs on one `clear()` in a
+hundred — and never under `PRAMNOS_TESTING`, because a suite in which some calls sweep
+and others do not is a suite whose outcome depends on a coin. `cleanup()` also prunes
+empty directories properly now.
+
+**1358 ms → 0.21 ms.** This is a production fix that happens to show up as a test-suite
+one: every model save on every deployment was paying it.
+
+### A scaffolded project hashed passwords at the production cost
+
+This framework's own `tests/bootstrap.php` has set `PRAMNOS_BCRYPT_COST=4` since the
+first profiling. The bootstrap it *scaffolds* never did — the same shape as
+`PRAMNOS_TESTING`, `flock` and `timeout` before it: a fix applied to the tool and not to
+its output.
+
+One project's 188 integration tests took 69 s, of which **62 s belonged to the 23 that
+enrol two-factor authentication** — enrolment hashes ten backup codes at 143 ms each.
+The cost is now set in `TestEnvironment::setup()`, which every project already calls,
+so existing projects get it without editing anything.
+
+**69 s → 3.5 s of measured test time.**
+
+### The bash `timeout` fallback held a pipe open for its whole budget
+
+macOS ships no `timeout`, so the runner falls back to a bash implementation: the
+command in the background, a timer subshell beside it, wait for whichever finishes.
+
+The timer inherited stdout. A command substitution does not return when its command
+exits — it returns when **everything** holding the write end of the pipe lets go, and
+the preflight uses one:
+
+```bash
+ps_out=$(timeout -k 5 45 docker-compose ps)
+```
+
+`docker-compose ps` answered in 90 ms and the substitution waited 45 s for the timer.
+A run that executed **no tests at all** took 45.9 s before PHPUnit started. The
+redirection that was there sent the timer's *stderr* to `/dev/null`, silencing its
+noise and leaving open the descriptor that mattered.
+
+`) >/dev/null 2>&1 &`. **45.9 s → 1.1 s** for an empty run, on every macOS and WSL
+machine.
+
 ## The distribution is the finding
 
 From the JUnit log of the `--no-coverage` run (891 s of measured test time):
