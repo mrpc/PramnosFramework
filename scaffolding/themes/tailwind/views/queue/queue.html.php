@@ -21,30 +21,30 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
     <div class="flex justify-between items-center mb-4">
         <h2 >Queue</h2>
         <div class="flex gap-2">
-            <a href="<?php echo adminUrl('Queue/stats'); ?>" class="px-3 py-1 border border-blue-300 text-blue-700 text-xs rounded-sm hover:bg-blue-50">Stats</a>
-            <a href="<?php echo adminUrl('Queue/retryall'); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded-sm hover:bg-yellow-50" data-confirm="Retry all failed jobs?">Retry All Failed</a>
+            <a href="<?php echo adminUrl('Queue/stats'); ?>" class="btn btn-outline btn-primary btn-xs">Stats</a>
+            <a href="<?php echo adminUrl('Queue/retryall'); ?>" class="btn btn-outline btn-warning btn-xs" data-confirm="Retry all failed jobs?">Retry All Failed</a>
         </div>
     </div>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-4">
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-4">
         <div class="px-4 py-2">
             <form method="get" class="flex gap-2 items-center">
-                <select name="status" class="px-2 py-1 border border-gray-300 rounded-sm text-sm" style="max-width:160px">
+                <select name="status" class="input input-sm" style="max-width:160px">
                     <option value="">All statuses</option>
                     <?php foreach (['pending','processing','completed','failed','deleted'] as $st): ?>
                         <option value="<?php echo $st; ?>" <?php echo $filterStatus === $st ? 'selected' : ''; ?>><?php echo ucfirst($st); ?></option>
                     <?php endforeach; ?>
                 </select>
-                <button class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Filter</button>
+                <button class="btn btn-outline btn-xs">Filter</button>
                 <?php if ($filterStatus === 'failed' || $filterStatus === 'completed' || $filterStatus === 'deleted'): ?>
-                    <a href="<?php echo adminUrl('Queue/clear'); ?>?status=<?php echo $filterStatus; ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Clear all <?php echo $filterStatus; ?> jobs?">Clear</a>
+                    <a href="<?php echo adminUrl('Queue/clear'); ?>?status=<?php echo $filterStatus; ?>" class="btn btn-outline btn-error btn-xs" data-confirm="Clear all <?php echo $filterStatus; ?> jobs?">Clear</a>
                 <?php endif; ?>
             </form>
         </div>
     </div>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
+    <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div >
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+            <table class="table table-sm text-sm">
+                <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                     <tr><th>ID</th><th>Type</th><th>Status</th><th>Attempts</th><th>Created</th><th>Next Run</th><th></th></tr>
                 </thead>
                 <tbody>
@@ -55,27 +55,27 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
                             <?php if (($job['error'] ?? '') !== ''): ?>
                                 <?php /* The reason a job failed was selected by the
                                          controller and rendered nowhere, so the screen
-                                         said a job had failed and not why - with the
+                                         said a job had failed and not why — with the
                                          answer already in hand. */ ?>
-                                <div class="text-xs text-red-600 mt-1" title="<?php echo htmlspecialchars((string) $job['error']); ?>">
+                                <div class="text-xs text-error mt-1" title="<?php echo htmlspecialchars((string) $job['error']); ?>">
                                     <?php echo htmlspecialchars(mb_strimwidth((string) $job['error'], 0, 160, '…')); ?>
                                 </div>
                             <?php endif; ?>
                         </td>
                         <td><?php echo $statusBadge($job['status'] ?? ''); ?></td>
                         <td><?php echo (int)($job['attempts'] ?? 0); ?></td>
-                        <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($job['createdat'] ?? ''); ?></td>
-                        <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($job['nextrun'] ?? ''); ?></td>
+                        <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($job['createdat'] ?? ''); ?></td>
+                        <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($job['nextrun'] ?? ''); ?></td>
                         <td class="text-right">
                             <?php if (($job['status'] ?? '') === 'failed'): ?>
-                                <a href="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['taskid'])); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded-sm hover:bg-yellow-50">Retry</a>
+                                <a href="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['taskid'])); ?>" class="btn btn-outline btn-warning btn-xs">Retry</a>
                             <?php endif; ?>
-                            <a href="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['taskid'])); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Delete job?">Delete</a>
+                            <a href="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['taskid'])); ?>" class="btn btn-outline btn-error btn-xs" data-confirm="Delete job?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->jobs)): ?>
-                    <tr><td colspan="7" class="text-center text-gray-400 py-8">No jobs found.</td></tr>
+                    <tr><td colspan="7" class="text-center text-base-content/60 py-8">No jobs found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

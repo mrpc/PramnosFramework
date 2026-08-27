@@ -15,10 +15,10 @@ $this->activeNav   = 'twofactor';
 <div class="container mx-auto px-4 py-8">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2 class="text-2xl font-bold text-gray-900 mb-6">Two-Factor Authentication</h2>
+    <h2 class="text-2xl font-bold text-base-content mb-6">Two-Factor Authentication</h2>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 p-4 text-red-800 text-sm">
+        <div class="alert alert-error mb-4">
             <?php
             $messages = [
                 'already_enabled'   => 'Two-factor authentication is already enabled.',
@@ -30,7 +30,7 @@ $this->activeNav   = 'twofactor';
         </div>
     <?php endif; ?>
     <?php if (!empty($_GET['success'])): ?>
-        <div class="mb-4 rounded-md bg-green-50 border border-green-200 p-4 text-green-800 text-sm">
+        <div class="alert alert-success mb-4">
             <?php
             $messages = ['disabled' => 'Two-factor authentication has been disabled.'];
             echo htmlspecialchars($messages[$_GET['success']] ?? 'Done.');
@@ -43,46 +43,46 @@ $this->activeNav   = 'twofactor';
         <?php $this->insert('../partials/account_sidebar'); ?>
 
         <div class="md:col-span-3">
-            <div class="bg-white border border-gray-200 rounded-xl shadow-xs p-6 max-w-xl">
+            <div class="card bg-base-100 border border-base-300 shadow-xs p-6 max-w-xl">
 
                 <div class="flex items-center gap-3 mb-4">
                     <?php if ($this->status['enabled']): ?>
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <span class="badge badge-success badge-sm inline-flex items-center">
                             Enabled
                         </span>
-                        <h3 class="text-lg font-medium text-gray-900">Your account is protected</h3>
+                        <h3 class="text-lg font-medium text-base-content">Your account is protected</h3>
                     <?php else: ?>
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        <span class="badge badge-neutral badge-sm inline-flex items-center">
                             Disabled
                         </span>
-                        <h3 class="text-lg font-medium text-gray-900">Add extra security</h3>
+                        <h3 class="text-lg font-medium text-base-content">Add extra security</h3>
                     <?php endif; ?>
                 </div>
 
-                <p class="text-sm text-gray-500 mb-6">
+                <p class="text-sm text-base-content/70 mb-6">
                     Two-factor authentication adds a second layer of security to your account.
                     After entering your password you will be asked for a code from your authenticator app.
                 </p>
 
                 <?php if ($this->status['enabled']): ?>
-                    <div class="bg-gray-50 rounded-lg p-4 mb-6 inline-block">
-                        <div class="text-3xl font-bold text-indigo-600"><?php echo (int) $this->status['backup_codes_remaining']; ?></div>
-                        <div class="text-xs text-gray-500 mt-1">backup codes remaining</div>
+                    <div class="bg-base-200 rounded-lg p-4 mb-6 inline-block">
+                        <div class="text-3xl font-bold text-primary"><?php echo (int) $this->status['backup_codes_remaining']; ?></div>
+                        <div class="text-xs text-base-content/70 mt-1">backup codes remaining</div>
                     </div>
 
                     <div class="flex gap-3 flex-wrap">
                         <a href="<?php echo sURL; ?>TwoFactorAuth/backup"
-                           class="inline-flex items-center px-4 py-2 border border-indigo-300 rounded-md text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 transition-colors">
+                           class="btn btn-outline btn-primary btn-sm inline-flex items-center">
                             Manage Backup Codes
                         </a>
                         <button type="button" data-modal-show="disableModal"
-                                class="inline-flex items-center px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors">
+                                class="btn btn-outline btn-error btn-sm inline-flex items-center">
                             Disable 2FA
                         </button>
                     </div>
                 <?php else: ?>
                     <a href="<?php echo sURL; ?>TwoFactorAuth/setup"
-                       class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                       class="btn btn-primary btn-sm inline-flex items-center">
                         Enable Two-Factor Authentication
                     </a>
                 <?php endif; ?>
@@ -94,20 +94,20 @@ $this->activeNav   = 'twofactor';
 
 <?php if ($this->status['enabled']): ?>
 <div id="disableModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+    <div class="card bg-base-100 shadow-xl p-6 w-full max-w-md mx-4">
         <h3 class="text-lg font-semibold mb-2">Disable Two-Factor Authentication</h3>
-        <p class="text-sm text-gray-500 mb-4">Enter your account password to confirm.</p>
+        <p class="text-sm text-base-content/70 mb-4">Enter your account password to confirm.</p>
         <form method="post" action="<?php echo sURL; ?>TwoFactorAuth/disable">
-            <label class="block text-sm font-medium text-gray-700 mb-1" for="confirm_password">Password</label>
+            <label class="block text-sm font-medium text-base-content mb-1" for="confirm_password">Password</label>
             <input type="password" id="confirm_password" name="confirm_password" required autocomplete="current-password"
-                   class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-4 focus:outline-hidden focus:ring-2 focus:ring-indigo-500">
+                   class="input input-sm block w-full mb-4">
             <div class="flex justify-end gap-2">
                 <button type="button" data-modal-hide="disableModal"
-                        class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        class="btn btn-outline btn-sm">
                     Cancel
                 </button>
                 <button type="submit"
-                        class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors">
+                        class="btn btn-error btn-sm">
                     Disable 2FA
                 </button>
             </div>

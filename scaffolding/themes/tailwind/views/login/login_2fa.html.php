@@ -22,13 +22,13 @@ $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
 $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
 ?>
-<div class="flex items-center justify-center min-h-screen bg-gray-100 px-4">
-    <div class="w-full max-w-sm bg-white rounded-xl shadow-md p-8">
+<div class="flex items-center justify-center min-h-screen bg-base-200 px-4">
+    <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
         <h1 class="text-2xl font-semibold mb-1">Two-step verification</h1>
-        <p class="text-sm text-gray-500 mb-6">Enter the 6-digit code from your authenticator app.</p>
+        <p class="text-sm text-base-content/70 mb-6">Enter the 6-digit code from your authenticator app.</p>
 
         <?php if ($errorText !== ''): ?>
-            <div class="bg-red-100 border border-red-300 text-red-800 rounded-sm p-3 mb-4"><?php echo htmlspecialchars($errorText); ?></div>
+            <div class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
         <?php endif; ?>
 
         <form method="POST" action="<?php echo $base; ?>/verify" class="space-y-4">
@@ -37,42 +37,42 @@ $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
             <?php endif; ?>
             <div>
-                <label for="code" class="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
+                <label for="code" class="block text-sm font-medium text-base-content mb-1">Verification Code</label>
                 <input type="text" id="code" name="code" data-pf-otp
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 text-center text-2xl font-mono tracking-widest focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                       class="input w-full text-center text-2xl font-mono tracking-widest"
                        maxlength="6" pattern="[0-9]{6}" placeholder="000000"
                        autocomplete="one-time-code" required autofocus>
             </div>
-            <button type="submit" class="w-full text-white font-medium py-2 px-4 rounded-md transition-colors" style="background-color:<?php echo $primary; ?>">Verify &amp; Sign In</button>
+            <button type="submit" class="btn btn-primary w-full">Verify &amp; Sign In</button>
         </form>
 
         <?php if ($offerPasskey): ?>
-        <div class="text-center text-sm text-gray-400 my-4">or</div>
-        <button type="button" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 px-4 rounded-md transition-colors"
+        <div class="text-center text-sm text-base-content/60 my-4">or</div>
+        <button type="button" class="btn btn-neutral w-full"
                 data-pf-passkey-stepup
                 data-options-url="<?php echo $base; ?>/passkeyOptions"
                 data-verify-url="<?php echo $base; ?>/passkeyVerify"
                 data-redirect="<?php echo sURL; ?>"
                 data-error="#passkey-error">Use a passkey</button>
-        <p id="passkey-error" class="text-red-700 text-sm mt-2 hidden"></p>
+        <p id="passkey-error" class="text-error text-sm mt-2 hidden"></p>
         <?php endif; ?>
 
         <details class="mt-4">
-            <summary class="text-sm text-gray-500 cursor-pointer">Use a backup code instead</summary>
+            <summary class="text-sm text-base-content/70 cursor-pointer">Use a backup code instead</summary>
             <form method="POST" action="<?php echo $base; ?>/verify" class="mt-3 space-y-2">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php if (!empty($this->returnUrl)): ?>
                     <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
                 <?php endif; ?>
                 <input type="text" name="code"
-                       class="w-full border border-gray-300 rounded-md px-3 py-2 uppercase tracking-widest focus:outline-hidden focus:ring-2 focus:ring-gray-400"
+                       class="input w-full uppercase tracking-widest"
                        maxlength="8" placeholder="XXXXXXXX">
-                <button type="submit" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors">Use Backup Code</button>
+                <button type="submit" class="btn btn-neutral btn-sm w-full">Use Backup Code</button>
             </form>
         </details>
 
         <p class="text-center text-sm mt-4">
-            <a href="<?php echo $base; ?>/login" class="text-blue-600 hover:underline">&larr; Back to login</a>
+            <a href="<?php echo $base; ?>/login" class="text-primary hover:underline">&larr; Back to login</a>
         </p>
     </div>
 </div>

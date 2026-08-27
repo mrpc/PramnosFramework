@@ -304,6 +304,33 @@ SQL;
     }
 
     /**
+     * This class's own scratch directory, one per process.
+     *
+     * The fixtures used to be written straight into `sys_get_temp_dir()` under
+     * fixed basenames — `orig_del.jpg`, `img1.jpg`, `rotate_test.png`. Two runs
+     * on one machine then share those paths, and
+     * `testAddImageWithDeleteOriginalRemovesSourceFile` fails intermittently
+     * because the file it asserts was deleted was deleted by somebody else, or
+     * recreated after it. `removeDirectoryRecursive()` warned from `scandir()`
+     * for the same reason: a directory that disappeared mid-walk.
+     *
+     * A flaky test is a test nobody reads the output of, so this is worth the
+     * three lines.
+     */
+    private function scratchDir(): string
+    {
+        static $dir = null;
+        if ($dir === null) {
+            $dir = sys_get_temp_dir() . DS . 'pramnos_media_test_' . getmypid();
+            if (!is_dir($dir)) {
+                mkdir($dir, 0777, true);
+            }
+        }
+
+        return $dir;
+    }
+
+    /**
      * Create a physical dummy JPEG image at the system temporary directory.
      *
      * The resulting file path is added to `$createdFiles` for automatic cleanup.
@@ -315,7 +342,7 @@ SQL;
      */
     private function createDummyJpg(string $filename = 'dummy.jpg', int $width = 10, int $height = 10): string
     {
-        $path = sys_get_temp_dir() . DS . $filename;
+        $path = $this->scratchDir() . DS . $filename;
         $img  = imagecreatetruecolor($width, $height);
         imagejpeg($img, $path);
         unset($img);
@@ -334,7 +361,7 @@ SQL;
      */
     private function createDummyFile(string $filename, string $content): string
     {
-        $path = sys_get_temp_dir() . DS . $filename;
+        $path = $this->scratchDir() . DS . $filename;
         file_put_contents($path, $content);
         $this->createdFiles[] = $path;
         return $path;
@@ -1950,7 +1977,7 @@ SQL;
     public function testRotateRightOnPng(): void
     {
         // Arrange – create a real PNG file
-        $pngPath = sys_get_temp_dir() . DS . 'rotate_test.png';
+        $pngPath = $this->scratchDir() . DS . 'rotate_test.png';
         $img = imagecreatetruecolor(30, 20);
         imagepng($img, $pngPath);
         unset($img);
@@ -2017,7 +2044,7 @@ SQL;
     public function testFixJpegOrientationCase3(): void
     {
         // Arrange – file named to trigger case 3 in the namespace override
-        $jpgPath = sys_get_temp_dir() . DS . 'exif_test_3.jpg';
+        $jpgPath = $this->scratchDir() . DS . 'exif_test_3.jpg';
         $img = imagecreatetruecolor(20, 10);
         imagejpeg($img, $jpgPath);
         unset($img);
@@ -2052,7 +2079,7 @@ SQL;
     public function testFixJpegOrientationCase8(): void
     {
         // Arrange – file named to trigger case 8 in the namespace override
-        $jpgPath = sys_get_temp_dir() . DS . 'exif_test_8.jpg';
+        $jpgPath = $this->scratchDir() . DS . 'exif_test_8.jpg';
         $img = imagecreatetruecolor(20, 10);
         imagejpeg($img, $jpgPath);
         unset($img);
@@ -2295,7 +2322,7 @@ SQL;
         $this->assertGreaterThan(0, $media1->mediaid);
 
         // Create a second copy with identical content
-        $srcJpg2 = sys_get_temp_dir() . DS . 'dup_upload2.jpg';
+        $srcJpg2 = $this->scratchDir() . DS . 'dup_upload2.jpg';
         copy($srcJpg, $srcJpg2);
         $this->createdFiles[] = $srcJpg2;
 

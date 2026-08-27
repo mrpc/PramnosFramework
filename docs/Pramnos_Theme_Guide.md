@@ -6,6 +6,8 @@ use_cases:
   - Getting a page's HTML to appear inside a theme's [MODULE] placeholder
   - Diagnosing a theme that renders a header and footer with an empty page
   - Rendering a document outside the framework's own MVC path
+  - Choosing or switching the scaffolded UI framework (plain-css / bootstrap / tailwind)
+  - Styling a screen so it stays readable in the dark theme
 ---
 
 # Pramnos Framework - Theme System Guide
@@ -244,6 +246,69 @@ walk, which is what let the two drift in the first place.
 
     The `false` argument matters too — do not invoke the autoloader. The question is "is
     this class already in memory", and an autoloader would answer a different one.
+
+### The bundled scaffold themes
+
+`init` installs one of three, and `project:switch-ui` swaps between them in an existing
+project:
+
+```bash
+./myapp project:switch-ui bootstrap
+./myapp project:switch-ui tailwind
+./myapp project:switch-ui plain-css
+```
+
+It rewrites `scaffold_theme` in `app/app.php`, re-installs the theme chrome into
+`app/themes/default`, writes `www/assets/css/style.css`, and vendors the framework's
+CSS/JS for that system. The scaffolded views themselves are resolved per-system from the
+bundled scaffolding, so nothing needs copying per screen.
+
+| System | What it is |
+| --- | --- |
+| `plain-css` | hand-written CSS, no framework, no vendored assets |
+| `bootstrap` | Bootstrap 5, vendored locally |
+| `tailwind` | Tailwind 4 **and daisyUI 5** — see below |
+
+#### The tailwind theme is a daisyUI theme
+
+It renders through daisyUI components — `btn btn-primary`, `card bg-base-100`,
+`alert alert-error`, `navbar`, `menu`, `table` — and reads colours from daisyUI's tokens
+(`base-100`, `base-200`, `base-300`, `base-content`, `primary`, `error`) rather than from
+Tailwind's palette. Both halves matter:
+
+- **A component carries the theme; a utility carries one palette.** `bg-white` and
+  `text-gray-700` are invisible or unreadable under `data-theme="dark"`, and nothing in
+  any log says so — the page renders, the text is simply not there. This theme had
+  Bootstrap classes leak into it once by the same route, so
+  `tests/Unit/Http/AdminUrlInViewsTest.php` now fails on a hardcoded palette in any
+  bundled view.
+- **Light and dark both ship.** A toggle in the header stores the choice, and `head.php`
+  applies it to `data-theme` before the first paint — inline and synchronous, because
+  deferring it paints light and then flips.
+
+**No build step.** daisyUI 5 is a Tailwind *plugin*, and a plugin needs module resolution,
+which Tailwind's browser build cannot do — so `@plugin "daisyui"` is not available to a
+scaffolded project, and a scaffolded project has no npm. What it uses instead is the
+prebuilt stylesheet daisyUI publishes for exactly this case: one file with every component
+and both token sets, vendored locally like any other asset. The order in `head.php` is
+load-bearing:
+
+1. Tailwind's browser build (a script — it scans the DOM and generates the utilities)
+2. `daisyui.css` — components, in a `daisyui` sublayer of `utilities`
+3. `style.css` — the project's own
+
+so Tailwind's utilities override a component's defaults, and the project overrides both.
+
+**A project that wants a build step should have one.** Tailwind's browser build is a
+runtime compile and daisyUI's prebuilt CSS is the whole library, unpurged: fine for a
+scaffolded application, and not what you want in front of real traffic. An application
+with npm should compile `@import "tailwindcss"; @plugin "daisyui";` into
+`www/assets/css/style.css` and define its own themes as token blocks — the theme's markup
+does not change, because it was written against the tokens rather than against a palette.
+
+Both need `'unsafe-inline'` in the CSP's `style-src` while the browser build is in use;
+`init` and `project:switch-ui` set that for the tailwind system and leave the other two
+strict.
 
 ### `head.php`, and why `<head>` has to be in the layout
 

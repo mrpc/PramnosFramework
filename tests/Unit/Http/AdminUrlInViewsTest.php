@@ -145,6 +145,55 @@ class AdminUrlInViewsTest extends TestCase
     }
 
     /**
+     * The Tailwind theme carries no hardcoded palette.
+     *
+     * It is a daisyUI theme now, and daisyUI ships two themes: a `bg-white` or a
+     * `text-gray-700` is invisible or unreadable under `data-theme="dark"`. That
+     * is the whole failure mode, and it is invisible in every log — the page
+     * renders, the text is simply not there.
+     *
+     * Asserted on the bundled views because that is where the next one would
+     * appear: this theme already had Bootstrap classes leak into it once (see
+     * above), by the same route — a view edited without the theme in mind.
+     *
+     * @param string $pattern A regex matching a hardcoded-palette utility
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('hardcodedPaletteClasses')]
+    public function testTheTailwindThemeCarriesNoHardcodedPalette(string $pattern): void
+    {
+        // Arrange / Act
+        $offenders = [];
+        foreach (glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [] as $path) {
+            $content = (string) file_get_contents($path);
+            foreach (preg_split('/\r?\n/', $content) ?: [] as $number => $line) {
+                // Only inside a class attribute: `#2563eb` as a brand-colour
+                // fallback in PHP is a different thing, and legitimate.
+                if (preg_match('/class="[^"]*' . $pattern . '/', $line)) {
+                    $offenders[] = basename(dirname($path)) . '/' . basename($path)
+                        . ':' . ($number + 1);
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $offenders,
+            'these carry a palette daisyUI cannot theme: ' . implode(', ', $offenders));
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function hardcodedPaletteClasses(): array
+    {
+        return [
+            'white surface'   => ['\bbg-white\b'],
+            'grey text'       => ['\b(?:bg|text|border|divide)-gray-[0-9]'],
+            'blue'            => ['\b(?:bg|text|border|ring)-blue-[0-9]'],
+            'red'             => ['\b(?:bg|text|border)-red-[0-9]'],
+            'green'           => ['\b(?:bg|text|border)-green-[0-9]'],
+            'yellow or amber' => ['\b(?:bg|text|border)-(?:yellow|amber)-[0-9]'],
+        ];
+    }
+
+    /**
      * `adminUrl()` is the helper the views call, and it follows the area.
      *
      * Asserted through the global function rather than the class, because that is

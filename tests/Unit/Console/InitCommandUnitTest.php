@@ -884,6 +884,80 @@ class InitCommandUnitTest extends TestCase
         // drops the style nonce when 'unsafe-inline' is present.
         $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
         $this->assertStringContainsString("'unsafe-inline'", $appConfig);
+
+        // Assert — daisyUI's stylesheet is there too, from local vendor. The
+        // Tailwind runtime generates the utilities; daisyUI carries the
+        // components and the theme tokens. With only the first, every `btn`,
+        // `card` and `alert` in the scaffolded views is an unknown class, so the
+        // page renders as unstyled text — which reads as a broken install rather
+        // than a missing stylesheet.
+        $this->assertStringContainsString('assets/vendor/daisyui', $head);
+        $this->assertStringContainsString('daisyui.css', $head);
+
+        // …and the theme choice is applied before the first paint. daisyUI reads
+        // `data-theme` off the root element, and `<html>` is written by Document
+        // rather than by the theme, so it cannot be set in the markup. Deferring
+        // it paints light and then flips.
+        $this->assertStringContainsString("localStorage.getItem('pf-theme')", $head);
+        $this->assertStringContainsString('data-theme', $head);
+    }
+
+    /**
+     * The tailwind theme's chrome is built from daisyUI components.
+     *
+     * The header used to be a hand-built bar with a hardcoded palette —
+     * `bg-white`, `text-gray-700`, `hover:text-blue-600` — which is invisible or
+     * unreadable under `data-theme="dark"`, and that is how such a class is
+     * usually found. daisyUI's components carry the theme; the utilities carry
+     * one palette.
+     */
+    public function testTheTailwindThemeChromeUsesDaisyuiComponents(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'MyApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MyApp',
+            '--features'    => '',
+            '--ui-system'   => 'tailwind',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'myapp_db',
+            '--db-user'     => 'myapp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — the header is a daisyUI navbar with a real menu
+        $header = file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        $this->assertStringContainsString('navbar bg-base-100', $header);
+        $this->assertStringContainsString('menu menu-horizontal', $header);
+        $this->assertStringContainsString('pf-theme-toggle', $header,
+            'the theme has two themes, so it needs a way to choose');
+
+        // …and nothing in the chrome is a hardcoded colour
+        foreach (['header.php', 'footer.php'] as $file) {
+            $content = (string) file_get_contents($this->tmpDir . '/app/themes/default/' . $file);
+            $this->assertDoesNotMatchRegularExpression(
+                '/class="[^"]*\b(?:bg-white|(?:bg|text|border)-(?:gray|blue|red|green|yellow|amber|slate|zinc)-[0-9])/',
+                $content,
+                $file . ' must not carry a hardcoded palette: it is invisible in the dark theme'
+            );
+        }
+
+        // The stylesheet reads daisyUI tokens rather than literals
+        $css = (string) file_get_contents($this->tmpDir . '/www/assets/css/style.css');
+        $this->assertStringContainsString('--color-base-content', $css);
+        $this->assertStringContainsString('--color-primary', $css);
     }
 
     /**

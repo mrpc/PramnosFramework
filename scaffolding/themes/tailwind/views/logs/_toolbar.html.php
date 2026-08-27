@@ -10,14 +10,14 @@
  *   $this->clearList — string[] log files the "Clear Logs" action will wipe
  */
 $variantClasses = [
-    'info'      => 'bg-sky-600 hover:bg-sky-700 text-white',
-    'primary'   => 'bg-blue-600 hover:bg-blue-700 text-white',
-    'warning'   => 'bg-amber-500 hover:bg-amber-600 text-white',
-    'secondary' => 'bg-gray-600 hover:bg-gray-700 text-white',
-    'danger'    => 'bg-red-600 hover:bg-red-700 text-white',
+    'info'      => 'bg-info hover:bg-info text-white',
+    'primary'   => 'bg-primary hover:bg-primary text-white',
+    'warning'   => 'bg-warning hover:bg-warning text-white',
+    'secondary' => 'bg-neutral hover:bg-neutral text-white',
+    'danger'    => 'bg-error hover:bg-error text-white',
 ];
 ?>
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+<div class="card bg-base-100 border border-base-300 shadow-sm p-4 mb-6">
     <div class="flex flex-wrap gap-2">
         <?php foreach (($this->toolbar ?? []) as $link): ?>
             <a href="<?php echo htmlspecialchars($link['url']); ?>"
@@ -28,7 +28,7 @@ $variantClasses = [
         <?php endforeach; ?>
     </div>
     <?php if (!empty($this->clearList)): ?>
-        <p class="text-xs text-gray-400 mt-3">
+        <p class="text-xs text-base-content/60 mt-3">
             &#9432; "Clear Logs" will clear: <?php echo htmlspecialchars(implode(', ', $this->clearList)); ?>
         </p>
     <?php endif; ?>

@@ -10,12 +10,12 @@
 <div class="px-4 py-6">
     <h2 class="mb-6">Services</h2>
     <?php if (!empty($_GET['msg'])): ?>
-        <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-sm mb-4"><?php echo htmlspecialchars($_GET['msg']); ?></div>
+        <div class="alert alert-info mb-4"><?php echo htmlspecialchars($_GET['msg']); ?></div>
     <?php endif; ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
+    <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div >
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+            <table class="table table-sm text-sm">
+                <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                     <tr><th>Service</th><th>Worker ID</th><th>PID</th><th>Status</th><th>Updated</th><th></th></tr>
                 </thead>
                 <tbody>
@@ -23,7 +23,7 @@
                     <tr>
                         <td><strong><?php echo htmlspecialchars($svc['daemon'] ?? ''); ?></strong>
                             <?php if (!empty($svc['profile'])): ?>
-                                <small class="text-gray-500">(<?php echo htmlspecialchars($svc['profile']); ?>)</small>
+                                <small class="text-base-content/70">(<?php echo htmlspecialchars($svc['profile']); ?>)</small>
                             <?php endif; ?>
                         </td>
                         <td><?php echo htmlspecialchars($svc['workerId'] ?? ''); ?></td>
@@ -37,20 +37,20 @@
                                 <span class="badge bg-secondary">Stopped</span>
                             <?php endif; ?>
                         </td>
-                        <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($svc['updatedAt'] ?? ''); ?></td>
+                        <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($svc['updatedAt'] ?? ''); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo adminUrl('Services/logs/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Logs</a>
+                            <a href="<?php echo adminUrl('Services/logs/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-outline btn-xs">Logs</a>
                             <?php if ($svc['status'] === 'running'): ?>
-                                <a href="<?php echo adminUrl('Services/stop/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-yellow-400 text-yellow-700 text-xs rounded-sm hover:bg-yellow-50">Stop</a>
+                                <a href="<?php echo adminUrl('Services/stop/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-outline btn-warning btn-xs">Stop</a>
                             <?php else: ?>
-                                <a href="<?php echo adminUrl('Services/start/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-green-400 text-green-700 text-xs rounded-sm hover:bg-green-50">Start</a>
+                                <a href="<?php echo adminUrl('Services/start/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-outline btn-success btn-xs">Start</a>
                             <?php endif; ?>
-                            <a href="<?php echo adminUrl('Services/restart/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50">Restart</a>
+                            <a href="<?php echo adminUrl('Services/restart/'); ?><?php echo urlencode($svc['id'] ?? ''); ?>" class="btn btn-outline btn-error btn-xs">Restart</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->services)): ?>
-                    <tr><td colspan="6" class="text-center text-gray-400 py-8">No services registered.</td></tr>
+                    <tr><td colspan="6" class="text-center text-base-content/60 py-8">No services registered.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

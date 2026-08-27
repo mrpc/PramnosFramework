@@ -18,17 +18,17 @@ $this->activeNav = 'dashboard';
 
     <div class="flex items-center justify-between mb-6">
         <div>
-            <h2 class="text-2xl font-bold text-gray-800">Account Dashboard</h2>
-            <p class="text-sm text-gray-500 mt-1">
+            <h2 class="text-2xl font-bold text-base-content">Account Dashboard</h2>
+            <p class="text-sm text-base-content/70 mt-1">
                 Welcome back, <?php echo htmlspecialchars($this->user->firstname ?? $this->user->username ?? ''); ?>
             </p>
         </div>
         <?php if ($this->twoFactorEnabled): ?>
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+            <span class="badge badge-success inline-flex items-center">
                 &#10003; 2FA Active
             </span>
         <?php else: ?>
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+            <span class="badge badge-warning inline-flex items-center">
                 &#9888; 2FA Inactive
             </span>
         <?php endif; ?>
@@ -42,35 +42,35 @@ $this->activeNav = 'dashboard';
         <div class="md:col-span-3 space-y-6">
 
             <!-- Authorized apps -->
-            <div class="bg-white rounded-lg shadow-sm">
-                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                    <h3 class="font-semibold text-gray-700">Authorized Applications</h3>
+            <div class="card bg-base-100 shadow-sm">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-base-300">
+                    <h3 class="font-semibold text-base-content">Authorized Applications</h3>
                     <a href="<?php echo sURL . $routeBase; ?>/applications"
-                       class="text-sm text-blue-600 hover:underline">Manage</a>
+                       class="text-sm text-primary hover:underline">Manage</a>
                 </div>
                 <?php if (empty($this->authorizedApps)): ?>
-                    <p class="px-4 py-4 text-sm text-gray-400">No authorized applications.</p>
+                    <p class="px-4 py-4 text-sm text-base-content/60">No authorized applications.</p>
                 <?php else: ?>
-                    <ul class="divide-y divide-gray-100">
+                    <ul class="divide-y divide-base-300">
                         <?php foreach (array_slice($this->authorizedApps, 0, 3) as $app): ?>
                             <li class="flex items-center justify-between px-4 py-3">
                                 <div>
-                                    <span class="font-medium text-sm text-gray-800">
+                                    <span class="font-medium text-sm text-base-content">
                                         <?php echo htmlspecialchars($app['name']); ?>
                                     </span>
                                     <?php if (!empty($app['description'])): ?>
-                                        <p class="text-xs text-gray-400 mt-0.5">
+                                        <p class="text-xs text-base-content/60 mt-0.5">
                                             <?php echo htmlspecialchars($app['description']); ?>
                                         </p>
                                     <?php endif; ?>
                                 </div>
-                                <span class="text-xs text-gray-400">
+                                <span class="text-xs text-base-content/60">
                                     <?php echo (int) $app['token_count']; ?> token<?php echo $app['token_count'] != 1 ? 's' : ''; ?>
                                 </span>
                             </li>
                         <?php endforeach; ?>
                         <?php if (count($this->authorizedApps) > 3): ?>
-                            <li class="px-4 py-3 text-center text-sm text-blue-600">
+                            <li class="px-4 py-3 text-center text-sm text-primary">
                                 <a href="<?php echo sURL . $routeBase; ?>/applications">
                                     + <?php echo count($this->authorizedApps) - 3; ?> more
                                 </a>
@@ -81,26 +81,26 @@ $this->activeNav = 'dashboard';
             </div>
 
             <!-- Recent activity -->
-            <div class="bg-white rounded-lg shadow-sm">
-                <div class="px-4 py-3 border-b border-gray-100 font-semibold text-gray-700">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="px-4 py-3 border-b border-base-300 font-semibold text-base-content">
                     Recent Activity
                 </div>
                 <?php if (empty($this->recentActivity)): ?>
-                    <p class="px-4 py-4 text-sm text-gray-400">No recent activity.</p>
+                    <p class="px-4 py-4 text-sm text-base-content/60">No recent activity.</p>
                 <?php else: ?>
-                    <ul class="divide-y divide-gray-100">
+                    <ul class="divide-y divide-base-300">
                         <?php foreach ($this->recentActivity as $entry): ?>
                             <li class="px-4 py-3">
                                 <div class="flex items-center justify-between">
-                                    <span class="text-sm text-gray-700">
+                                    <span class="text-sm text-base-content">
                                         <?php echo htmlspecialchars($entry['action']); ?>
                                     </span>
-                                    <span class="text-xs text-gray-400">
+                                    <span class="text-xs text-base-content/60">
                                         <?php echo htmlspecialchars($entry['created_at']); ?>
                                     </span>
                                 </div>
                                 <?php if (!empty($entry['ip_address'])): ?>
-                                    <span class="text-xs text-gray-400">
+                                    <span class="text-xs text-base-content/60">
                                         from <?php echo htmlspecialchars($entry['ip_address']); ?>
                                     </span>
                                 <?php endif; ?>

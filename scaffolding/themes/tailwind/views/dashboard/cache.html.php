@@ -27,14 +27,14 @@ function escHtml(t) { var d=document.createElement('div');d.textContent=t;return
 
 function viewCacheItem(key, ns) {
     document.getElementById('cc-detail-key').textContent = key;
-    document.getElementById('cc-detail-body').innerHTML = '<p class="text-center text-gray-400 py-4">Loading…</p>';
+    document.getElementById('cc-detail-body').innerHTML = '<p class="text-center text-base-content/60 py-4">Loading…</p>';
     document.getElementById('cc-detail-modal').style.display = 'block';
     fetch('<?php echo adminUrl('dashboard/cacheitem'); ?>?key=' + encodeURIComponent(key)
         + '&namespace=' + encodeURIComponent(ns || ''))
         .then(function(r){ return r.json(); })
         .then(function(data) {
             if (!data.success) {
-                document.getElementById('cc-detail-body').innerHTML = '<p class="text-red-600">' + escHtml(data.error||'Error') + '</p>';
+                document.getElementById('cc-detail-body').innerHTML = '<p class="text-error">' + escHtml(data.error||'Error') + '</p>';
                 return;
             }
             var m = data.metadata || {};
@@ -49,7 +49,7 @@ function viewCacheItem(key, ns) {
             document.getElementById('cc-detail-body').innerHTML = html;
         })
         .catch(function(e) {
-            document.getElementById('cc-detail-body').innerHTML = '<p class="text-red-600">' + escHtml(e.message) + '</p>';
+            document.getElementById('cc-detail-body').innerHTML = '<p class="text-error">' + escHtml(e.message) + '</p>';
         });
 }
 
@@ -92,44 +92,44 @@ document.addEventListener('click', function(e) {
     <!-- Header -->
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div class="flex flex-wrap items-center gap-3">
-            <a href="<?php echo adminUrl('dashboard'); ?>" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
+            <a href="<?php echo adminUrl('dashboard'); ?>" class="text-sm text-primary hover:underline">&larr; Dashboard</a>
             <h2 class="mb-0">Cache Details</h2>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-200 text-gray-700">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-base-300 text-base-content">
                 <?php echo htmlspecialchars(strtoupper($method), ENT_QUOTES, 'UTF-8'); ?>
             </span>
         </div>
-        <button id="clearCacheBtn" class="text-sm border border-red-400 text-red-600 rounded-sm px-4 py-1.5 hover:bg-red-50">
+        <button id="clearCacheBtn" class="btn btn-outline btn-error btn-sm">
             Clear All Cache
         </button>
     </div>
 
     <!-- Overview -->
     <div class="grid grid-cols-3 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
             <div class="text-lg font-bold mb-1"><?php echo htmlspecialchars(ucfirst($method), ENT_QUOTES, 'UTF-8'); ?></div>
-            <div class="text-xs <?php echo $cacheStatus ? 'text-green-600' : 'text-red-600'; ?>">
+            <div class="text-xs <?php echo $cacheStatus ? 'text-success' : 'text-error'; ?>">
                 <?php echo $cacheStatus ? 'Active' : 'Inactive'; ?>
             </div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div class="text-2xl font-bold text-blue-600 mb-1"><?php echo (int) ($cacheStats['categories'] ?? 0); ?></div>
-            <div class="text-xs text-gray-500">Namespaces</div>
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
+            <div class="text-2xl font-bold text-primary mb-1"><?php echo (int) ($cacheStats['categories'] ?? 0); ?></div>
+            <div class="text-xs text-base-content/70">Namespaces</div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div class="text-2xl font-bold text-green-600 mb-1"><?php echo (int) ($cacheStats['items'] ?? 0); ?></div>
-            <div class="text-xs text-gray-500">Total Items</div>
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
+            <div class="text-2xl font-bold text-success mb-1"><?php echo (int) ($cacheStats['items'] ?? 0); ?></div>
+            <div class="text-xs text-base-content/70">Total Items</div>
         </div>
     </div>
 
     <!-- Namespace Stats -->
     <?php if (!empty($namespaceStats)): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Cache by Namespace</div>
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Cache by Namespace</div>
         <div class="p-5 flex flex-wrap gap-4">
             <?php foreach ($namespaceStats as $ns => $count): ?>
-            <div class="border border-gray-200 rounded-lg px-5 py-3 text-center min-w-24">
-                <div class="text-xl font-bold text-blue-600"><?php echo (int) $count; ?></div>
-                <div class="text-xs text-gray-500 font-mono"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></div>
+            <div class="border border-base-300 rounded-lg px-5 py-3 text-center min-w-24">
+                <div class="text-xl font-bold text-primary"><?php echo (int) $count; ?></div>
+                <div class="text-xs text-base-content/70 font-mono"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></div>
             </div>
             <?php endforeach; ?>
         </div>
@@ -139,18 +139,18 @@ document.addEventListener('click', function(e) {
     <!-- Categories toggle -->
     <?php if (!empty($cacheCategories)): ?>
     <div class="mb-4">
-        <button id="toggleCatBtn" class="text-sm border border-gray-300 rounded-sm px-3 py-1.5 hover:bg-gray-50">
+        <button id="toggleCatBtn" class="text-sm border border-base-300 rounded-sm px-3 py-1.5 hover:bg-base-200">
             Categories (<?php echo count($cacheCategories); ?>) ▼
         </button>
     </div>
-    <div id="catSection" style="display:none" class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Cache Categories</div>
-        <ul class="divide-y divide-gray-100">
+    <div id="catSection" style="display:none" class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Cache Categories</div>
+        <ul class="divide-y divide-base-300">
             <?php foreach ($cacheCategories as $cat): ?>
             <li class="flex justify-between items-center px-5 py-2 text-sm">
-                <span class="font-mono text-gray-700"><?php echo htmlspecialchars($cat !== '' ? $cat : 'default', ENT_QUOTES, 'UTF-8'); ?></span>
+                <span class="font-mono text-base-content"><?php echo htmlspecialchars($cat !== '' ? $cat : 'default', ENT_QUOTES, 'UTF-8'); ?></span>
                 <?php if (isset($namespaceStats[$cat])): ?>
-                    <span class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full"><?php echo (int) $namespaceStats[$cat]; ?></span>
+                    <span class="badge badge-primary badge-sm"><?php echo (int) $namespaceStats[$cat]; ?></span>
                 <?php endif; ?>
             </li>
             <?php endforeach; ?>
@@ -168,21 +168,21 @@ document.addEventListener('click', function(e) {
     <?php endif; ?>
 
     <!-- Cache Items -->
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
             <span>Cache Items</span>
-            <span class="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full"><?php echo count($cacheItems); ?></span>
+            <span class="badge badge-neutral badge-sm"><?php echo count($cacheItems); ?></span>
         </div>
         <?php if ($memcachedLimitation): ?>
-            <div class="m-4 p-4 bg-yellow-50 border border-yellow-300 rounded-lg text-sm">
+            <div class="m-4 p-4 bg-warning/10 border border-warning rounded-lg text-sm">
                 <strong>Memcached Limitation:</strong> <?php echo htmlspecialchars($memcachedLimitationMessage, ENT_QUOTES, 'UTF-8'); ?>
             </div>
         <?php elseif (empty($cacheItems)): ?>
-            <p class="text-center text-gray-400 py-6 text-sm">No cache items available.</p>
+            <p class="text-center text-base-content/60 py-6 text-sm">No cache items available.</p>
         <?php else: ?>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr>
                         <th class="px-3 py-2 text-left">Key</th>
                         <th class="px-3 py-2 text-left">Namespace</th>
@@ -194,7 +194,7 @@ document.addEventListener('click', function(e) {
                         <th class="px-3 py-2"></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($cacheItems as $item):
                     if (!is_array($item)) continue;
                     $key     = $item['key'] ?? '';
@@ -209,38 +209,38 @@ document.addEventListener('click', function(e) {
                     elseif ($size >= 1024) $sizeStr = round($size/1024, 2).' KB';
                     else                   $sizeStr = $size.' B';
 
-                    if ($ttl === null)   { $ttlTxt = '—'; $ttlCls = 'bg-gray-100 text-gray-600'; }
-                    elseif ($ttl === -1) { $ttlTxt = 'Never'; $ttlCls = 'bg-green-100 text-green-800'; }
-                    elseif ($ttl <= 0)   { $ttlTxt = 'Expired'; $ttlCls = 'bg-red-100 text-red-800'; }
-                    else                 { $ttlTxt = $ttl.'s'; $ttlCls = 'bg-blue-100 text-blue-800'; }
+                    if ($ttl === null)   { $ttlTxt = '—'; $ttlCls = 'bg-base-200 text-base-content/80'; }
+                    elseif ($ttl === -1) { $ttlTxt = 'Never'; $ttlCls = 'bg-success/10 text-success'; }
+                    elseif ($ttl <= 0)   { $ttlTxt = 'Expired'; $ttlCls = 'bg-error/10 text-error'; }
+                    else                 { $ttlTxt = $ttl.'s'; $ttlCls = 'bg-primary/10 text-primary'; }
                 ?>
-                <tr class="hover:bg-gray-50 <?php echo $expired ? 'bg-yellow-50' : ''; ?>">
+                <tr class="hover:bg-base-200 <?php echo $expired ? 'bg-warning/10' : ''; ?>">
                     <td class="px-3 py-2">
-                        <code class="font-mono text-blue-600 cursor-pointer hover:bg-blue-100 px-1 rounded-sm"
+                        <code class="btn btn-ghost btn-primary font-mono"
                               data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>"
                               data-cache-namespace="<?php echo htmlspecialchars($ns, ENT_QUOTES, 'UTF-8'); ?>"
                               title="Click to view"><?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?></code>
                     </td>
                     <td class="px-3 py-2">
-                        <span class="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-sm"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></span>
+                        <span class="bg-base-200 text-base-content text-xs px-2 py-0.5 rounded-sm"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></span>
                     </td>
-                    <td class="px-3 py-2 text-right text-gray-400"><?php echo $sizeStr; ?></td>
-                    <td class="px-3 py-2 text-gray-400"><?php echo htmlspecialchars($created, ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td class="px-3 py-2 text-right text-base-content/60"><?php echo $sizeStr; ?></td>
+                    <td class="px-3 py-2 text-base-content/60"><?php echo htmlspecialchars($created, ENT_QUOTES, 'UTF-8'); ?></td>
                     <td class="px-3 py-2">
                         <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $ttlCls; ?>"><?php echo $ttlTxt; ?></span>
                     </td>
-                    <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($itype, ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($itype, ENT_QUOTES, 'UTF-8'); ?></td>
                     <td class="px-3 py-2">
                         <?php if ($expired): ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-red-100 text-red-800">Expired</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-error/10 text-error">Expired</span>
                         <?php elseif (!empty($item['note'])): ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-yellow-100 text-yellow-800">Info</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-warning/10 text-warning">Info</span>
                         <?php else: ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-800">Active</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-success/10 text-success">Active</span>
                         <?php endif; ?>
                     </td>
                     <td class="px-3 py-2">
-                        <button class="text-xs border border-blue-400 text-blue-600 rounded-sm px-2 py-0.5 hover:bg-blue-50"
+                        <button class="btn btn-outline btn-primary btn-xs"
                                 data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>"
                               data-cache-namespace="<?php echo htmlspecialchars($ns, ENT_QUOTES, 'UTF-8'); ?>">View</button>
                     </td>
@@ -249,7 +249,7 @@ document.addEventListener('click', function(e) {
                 </tbody>
             </table>
             <?php if (count($cacheItems) >= 50): ?>
-                <p class="px-5 py-2 text-gray-400 text-xs">Showing first 50 items.</p>
+                <p class="px-5 py-2 text-base-content/60 text-xs">Showing first 50 items.</p>
             <?php endif; ?>
         </div>
         <?php endif; ?>

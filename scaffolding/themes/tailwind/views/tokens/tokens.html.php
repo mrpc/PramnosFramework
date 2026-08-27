@@ -13,9 +13,9 @@
     <div class="flex justify-between items-center mb-4">
         <h2 >OAuth2 Tokens</h2>
         <form method="get" class="flex gap-2">
-            <input type="number" name="user_id" class="px-2 py-1 border border-gray-300 rounded-sm text-sm" placeholder="User ID" value="<?php echo (int)($_GET['user_id'] ?? 0) ?: ''; ?>">
-            <input type="number" name="app_id" class="px-2 py-1 border border-gray-300 rounded-sm text-sm" placeholder="App ID" value="<?php echo (int)($_GET['app_id'] ?? 0) ?: ''; ?>">
-            <button class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Filter</button>
+            <input type="number" name="user_id" class="input input-sm" placeholder="User ID" value="<?php echo (int)($_GET['user_id'] ?? 0) ?: ''; ?>">
+            <input type="number" name="app_id" class="input input-sm" placeholder="App ID" value="<?php echo (int)($_GET['app_id'] ?? 0) ?: ''; ?>">
+            <button class="btn btn-outline btn-xs">Filter</button>
         </form>
     </div>
     <style>
@@ -26,16 +26,16 @@
     .pf-tw-table td:last-child,.pf-tw-table th:last-child{text-align:right}
     .pf-badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:.72rem;font-weight:600}
     </style>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-x-auto">
+    <div class="card bg-base-100 border border-base-300 shadow-xs overflow-x-auto">
         <div >
-            <table class="pf-tw-table text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+            <table class="table table-sm pf-tw-table text-sm">
+                <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                     <tr><th>ID</th><th>User</th><th>Application</th><th>Scope</th><th>Last Used</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
                     <?php $actionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
-                    <tr class="cursor-pointer hover:bg-gray-50" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
+                    <tr class="cursor-pointer hover:bg-base-200" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
                         <td><?php echo (int)$tok['tokenid']; ?></td>
                         <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($tok['app_name'] ?? ('— ' . ($tok['tokentype'] ?? ''))); ?></td>
@@ -43,22 +43,22 @@
                             $sc = trim((string) ($tok['scope'] ?? ''));
                             echo ($sc === '' || $sc === '[]') ? '—' : htmlspecialchars($sc);
                         ?></td>
-                        <td class="text-gray-400 text-xs"><?php
+                        <td class="text-base-content/60 text-xs"><?php
                             $lu = (int) ($tok['lastused'] ?? 0);
                             echo $lu > 0 ? htmlspecialchars(date('Y-m-d H:i', $lu)) : '—';
                         ?></td>
                         <td>
                             <?php echo (int)($tok['status'] ?? 1) === 1
-                                ? '<span class="pf-badge bg-green-100 text-green-700">Active</span>'
-                                : '<span class="pf-badge bg-gray-100 text-gray-600">Revoked</span>'; ?>
+                                ? '<span class="pf-badge bg-success/10 text-success">Active</span>'
+                                : '<span class="pf-badge bg-base-200 text-base-content/80">Revoked</span>'; ?>
                         </td>
                         <td class="text-right">
-                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Revoke token?">Revoke</a>
+                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="btn btn-outline btn-error btn-xs" data-confirm="Revoke token?">Revoke</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->tokens)): ?>
-                    <tr><td colspan="7" class="text-center text-gray-400 py-8">No tokens found.</td></tr>
+                    <tr><td colspan="7" class="text-center text-base-content/60 py-8">No tokens found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

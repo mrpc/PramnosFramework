@@ -28,9 +28,9 @@ $accessTypeLabel = function (int $t): string {
 ?>
 <div class="px-4 py-6">
     <div class="flex items-center gap-3 mb-6">
-        <a href="<?php echo adminUrl('applications'); ?>" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">&larr; Applications</a>
+        <a href="<?php echo adminUrl('applications'); ?>" class="btn btn-outline btn-sm">&larr; Applications</a>
         <h2 class="text-2xl font-semibold"><?php echo htmlspecialchars($app['name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></h2>
-        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
+        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $isActive ? 'bg-success/10 text-success' : 'bg-error/10 text-error'; ?>">
             <?php echo $isActive ? 'Active' : 'Disabled'; ?>
         </span>
     </div>
@@ -39,26 +39,26 @@ $accessTypeLabel = function (int $t): string {
         <!-- Left: credentials + stats + actions -->
         <div class="space-y-4">
 
-            <div class="bg-white rounded-xl shadow-xs border border-gray-200">
-                <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide rounded-t-xl">Credentials</div>
+            <div class="card bg-base-100 border border-base-300 shadow-xs">
+                <div class="px-4 py-2 bg-base-200 text-xs font-semibold text-base-content/70 uppercase tracking-wide rounded-t-xl">Credentials</div>
                 <div class="p-4 space-y-3">
                     <div>
-                        <div class="text-xs text-gray-400 mb-1">Client ID (API Key)</div>
+                        <div class="text-xs text-base-content/60 mb-1">Client ID (API Key)</div>
                         <div class="flex gap-1">
                             <input type="text" readonly
-                                   class="flex-1 text-xs font-mono border border-gray-200 rounded-sm px-2 py-1.5 bg-gray-50"
+                                   class="input input-xs flex-1 font-mono"
                                    value="<?php echo htmlspecialchars($app['apikey'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
-                            <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded-sm text-xs hover:bg-gray-50"
+                            <button class="btn btn-outline btn-xs"
                                     data-copy-prev title="Copy">&#128203;</button>
                         </div>
                     </div>
                     <div>
-                        <div class="text-xs text-gray-400 mb-1">Client Secret</div>
+                        <div class="text-xs text-base-content/60 mb-1">Client Secret</div>
                         <div class="flex gap-1">
                             <input type="password" readonly id="twAppSecret<?php echo $appId; ?>"
-                                   class="flex-1 text-xs font-mono border border-gray-200 rounded-sm px-2 py-1.5 bg-gray-50"
+                                   class="input input-xs flex-1 font-mono"
                                    value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
-                            <button class="px-2 py-1 border border-gray-300 text-gray-500 rounded-sm text-xs hover:bg-gray-50"
+                            <button class="btn btn-outline btn-xs"
                                     data-toggle-type="twAppSecret<?php echo $appId; ?>"
                                     title="Toggle">&#128065;</button>
                         </div>
@@ -66,38 +66,38 @@ $accessTypeLabel = function (int $t): string {
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">Token Statistics</div>
-                <div class="divide-y divide-gray-100 text-sm">
+            <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+                <div class="px-4 py-2 bg-base-200 text-xs font-semibold text-base-content/70 uppercase tracking-wide">Token Statistics</div>
+                <div class="divide-y divide-base-300 text-sm">
                     <div class="px-4 py-2.5 flex justify-between">
-                        <span class="text-gray-500">Total</span>
-                        <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="font-semibold text-indigo-600 hover:underline">
+                        <span class="text-base-content/70">Total</span>
+                        <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="font-semibold text-primary hover:underline">
                             <?php echo (int) ($tokenStats['total'] ?? 0); ?>
                         </a>
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
-                        <span class="text-gray-500">Active</span>
-                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-700"><?php echo (int) ($tokenStats['active'] ?? 0); ?></span>
+                        <span class="text-base-content/70">Active</span>
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-success/10 text-success"><?php echo (int) ($tokenStats['active'] ?? 0); ?></span>
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
-                        <span class="text-gray-500">Revoked</span>
-                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-red-100 text-red-700"><?php echo (int) ($tokenStats['revoked'] ?? 0); ?></span>
+                        <span class="text-base-content/70">Revoked</span>
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-error/10 text-error"><?php echo (int) ($tokenStats['revoked'] ?? 0); ?></span>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div class="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide rounded-t-xl">Actions</div>
+            <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+                <div class="px-4 py-2 bg-base-200 text-xs font-semibold text-base-content/70 uppercase tracking-wide rounded-t-xl">Actions</div>
                 <div class="p-4 grid gap-2">
                     <a href="<?php echo adminUrl('applications' . '/edit/' . ($appId)); ?>"
-                       class="block text-center px-3 py-2 text-sm bg-indigo-600 text-white rounded-sm hover:bg-indigo-700">Edit Application</a>
+                       class="btn btn-primary btn-sm block text-center">Edit Application</a>
                     <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>"
-                       class="block text-center px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50">View Tokens</a>
+                       class="btn btn-outline btn-sm block text-center">View Tokens</a>
                     <a href="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>"
-                       class="block text-center px-3 py-2 text-sm border border-yellow-400 text-yellow-700 rounded-sm hover:bg-yellow-50"
+                       class="btn btn-outline btn-warning btn-sm block text-center"
                        data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
                     <a href="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>"
-                       class="block text-center px-3 py-2 text-sm border border-red-300 text-red-700 rounded-sm hover:bg-red-50"
+                       class="btn btn-outline btn-error btn-sm block text-center"
                        data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
             </div>
@@ -107,43 +107,43 @@ $accessTypeLabel = function (int $t): string {
         <!-- Right: details + last users -->
         <div class="lg:col-span-2 space-y-4">
 
-            <div class="bg-white rounded-xl shadow-xs border border-gray-200">
-                <div class="px-6 py-3 border-b border-gray-100 font-semibold text-gray-700">Application Details</div>
+            <div class="card bg-base-100 border border-base-300 shadow-xs">
+                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Application Details</div>
                 <div class="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                     <?php $field = function(string $label, string $value) { ?>
                         <div>
-                            <div class="text-xs text-gray-400 mb-0.5"><?php echo $label; ?></div>
-                            <div class="text-gray-800"><?php echo $value; ?></div>
+                            <div class="text-xs text-base-content/60 mb-0.5"><?php echo $label; ?></div>
+                            <div class="text-base-content"><?php echo $value; ?></div>
                         </div>
                     <?php }; ?>
                     <?php $field('App ID', '<code class="text-xs">' . $appId . '</code>'); ?>
                     <?php $field('Type', $appTypeLabel((int) ($app['apptype'] ?? 0))); ?>
                     <?php $field('Access Type', $accessTypeLabel((int) ($app['accesstype'] ?? 0))); ?>
                     <?php $field('API Version', htmlspecialchars($app['apiversion'] ?? 'v1', ENT_QUOTES, 'UTF-8')); ?>
-                    <?php $field('App Version', ($app['appversion'] ?? '') !== '' ? htmlspecialchars($app['appversion'], ENT_QUOTES, 'UTF-8') : '<span class="text-gray-300">—</span>'); ?>
+                    <?php $field('App Version', ($app['appversion'] ?? '') !== '' ? htmlspecialchars($app['appversion'], ENT_QUOTES, 'UTF-8') : '<span class="text-base-content/50">—</span>'); ?>
                     <div>
-                        <div class="text-xs text-gray-400 mb-0.5">Public</div>
-                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo (int) ($app['public'] ?? 0) ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'; ?>">
+                        <div class="text-xs text-base-content/60 mb-0.5">Public</div>
+                        <span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo (int) ($app['public'] ?? 0) ? 'bg-primary/10 text-primary' : 'bg-base-200 text-base-content/80'; ?>">
                             <?php echo (int) ($app['public'] ?? 0) ? 'Yes' : 'No'; ?>
                         </span>
                     </div>
                     <?php $field('Added', ($app['added'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $app['added']) : '—'); ?>
                     <?php if (!empty($app['description'])): ?>
                     <div class="col-span-full">
-                        <div class="text-xs text-gray-400 mb-0.5">Description</div>
-                        <div class="text-gray-700"><?php echo htmlspecialchars($app['description'], ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="text-xs text-base-content/60 mb-0.5">Description</div>
+                        <div class="text-base-content"><?php echo htmlspecialchars($app['description'], ENT_QUOTES, 'UTF-8'); ?></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($app['callback'])): ?>
                     <div class="col-span-full">
-                        <div class="text-xs text-gray-400 mb-0.5">Callback URL</div>
-                        <div class="font-mono text-xs text-gray-600 break-all"><?php echo htmlspecialchars($app['callback'], ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="text-xs text-base-content/60 mb-0.5">Callback URL</div>
+                        <div class="font-mono text-xs text-base-content/80 break-all"><?php echo htmlspecialchars($app['callback'], ENT_QUOTES, 'UTF-8'); ?></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($app['scope'])): ?>
                     <div class="col-span-full">
-                        <div class="text-xs text-gray-400 mb-0.5">Scope</div>
-                        <div class="font-mono text-xs text-gray-600"><?php echo htmlspecialchars($app['scope'], ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="text-xs text-base-content/60 mb-0.5">Scope</div>
+                        <div class="font-mono text-xs text-base-content/80"><?php echo htmlspecialchars($app['scope'], ENT_QUOTES, 'UTF-8'); ?></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($app['organization'])): ?>
@@ -154,22 +154,22 @@ $accessTypeLabel = function (int $t): string {
                     <?php endif; ?>
                     <?php if (!empty($app['public_key'])): ?>
                     <div class="col-span-full">
-                        <div class="text-xs text-gray-400 mb-0.5">Public Key</div>
-                        <pre class="bg-gray-50 rounded-sm p-2 text-xs overflow-x-auto max-h-28"><?php echo htmlspecialchars($app['public_key'], ENT_QUOTES, 'UTF-8'); ?></pre>
+                        <div class="text-xs text-base-content/60 mb-0.5">Public Key</div>
+                        <pre class="bg-base-200 rounded-sm p-2 text-xs overflow-x-auto max-h-28"><?php echo htmlspecialchars($app['public_key'], ENT_QUOTES, 'UTF-8'); ?></pre>
                     </div>
                     <?php endif; ?>
                 </div>
             </div>
 
             <?php if (!empty($lastUsers)): ?>
-            <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div class="px-6 py-3 border-b border-gray-100 flex justify-between items-center">
-                    <span class="font-semibold text-gray-700">Recent Users</span>
+            <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+                <div class="px-6 py-3 border-b border-base-300 flex justify-between items-center">
+                    <span class="font-semibold text-base-content">Recent Users</span>
                     <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>"
-                       class="text-sm text-indigo-600 hover:underline">All Tokens</a>
+                       class="text-sm text-primary hover:underline">All Tokens</a>
                 </div>
-                <table class="w-full text-sm">
-                    <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+                <table class="table table-sm text-sm">
+                    <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                         <tr>
                             <th class="px-4 py-2 text-left">User</th>
                             <th class="px-4 py-2 text-left">Scope</th>
@@ -177,17 +177,17 @@ $accessTypeLabel = function (int $t): string {
                             <th class="px-4 py-2 text-left">Last Used</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
+                    <tbody class="divide-y divide-base-300">
                     <?php foreach ($lastUsers as $u): ?>
-                        <tr class="hover:bg-gray-50">
+                        <tr class="hover:bg-base-200">
                             <td class="px-4 py-2">
                                 <a href="<?php echo adminUrl('users/view/'); ?><?php echo (int) ($u['userid'] ?? 0); ?>"
-                                   class="text-indigo-600 hover:underline">
+                                   class="text-primary hover:underline">
                                     <?php echo htmlspecialchars($u['username'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                                 </a>
                             </td>
-                            <td class="px-4 py-2 text-xs text-gray-400"><?php echo htmlspecialchars($u['scope'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td class="px-4 py-2 text-xs text-gray-400"><?php echo htmlspecialchars($u['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="px-4 py-2 text-xs text-base-content/60"><?php echo htmlspecialchars($u['scope'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="px-4 py-2 text-xs text-base-content/60"><?php echo htmlspecialchars($u['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                             <td class="px-4 py-2 text-xs"><?php echo ($u['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $u['lastused']) : '—'; ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -215,42 +215,42 @@ $accessTypeLabel = function (int $t): string {
             ?>
             <div class="mt-8">
                 <div class="flex items-baseline justify-between mb-2">
-                    <h3 class="font-semibold">Declared capabilities</h3>
+                    <h3 class="font-semibold text-base-content">Declared capabilities</h3>
                     <?php if (!empty($caps['synced_at'])): ?>
-                        <span class="text-xs text-gray-400">
+                        <span class="text-xs text-base-content/60">
                             last pushed <?php echo htmlspecialchars((string) $caps['synced_at'], ENT_QUOTES, 'UTF-8'); ?>
                         </span>
                     <?php endif; ?>
                 </div>
 
                 <?php if (empty($caps['resources']) && empty($caps['conditions'])): ?>
-                    <p class="text-sm text-gray-500">
+                    <p class="text-sm text-base-content/70">
                         This client has not pushed a capabilities manifest. Until it does,
                         the server knows no resource or scope names for it.
                     </p>
                 <?php else: ?>
                     <?php if (!empty($caps['resources'])): ?>
                         <table class="w-full text-sm mb-4">
-                            <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+                            <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                                 <tr><th class="px-4 py-2 text-left">Resource</th><th class="px-4 py-2 text-left">Scopes</th></tr>
                             </thead>
-                            <tbody class="divide-y divide-gray-100">
+                            <tbody class="divide-y divide-base-300">
                             <?php foreach ($caps['resources'] as $resource): ?>
                                 <tr>
                                     <td class="px-4 py-2 align-top">
-                                        <span class="font-mono<?php echo $resource['is_active'] ? '' : ' line-through text-gray-400'; ?>">
+                                        <span class="font-mono<?php echo $resource['is_active'] ? '' : ' line-through text-base-content/40'; ?>">
                                             <?php echo htmlspecialchars($resource['name'], ENT_QUOTES, 'UTF-8'); ?>
                                         </span>
                                         <?php if (!empty($resource['description'])): ?>
-                                            <div class="text-xs text-gray-500"><?php echo htmlspecialchars((string) $resource['description'], ENT_QUOTES, 'UTF-8'); ?></div>
+                                            <div class="text-xs text-base-content/70"><?php echo htmlspecialchars((string) $resource['description'], ENT_QUOTES, 'UTF-8'); ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-4 py-2 align-top">
                                         <?php if (empty($resource['scopes'])): ?>
-                                            <span class="text-xs text-gray-400">no scopes declared</span>
+                                            <span class="text-xs text-base-content/60">no scopes declared</span>
                                         <?php else: ?>
                                             <?php foreach ($resource['scopes'] as $scope): ?>
-                                                <span class="inline-block mr-2 mb-1 px-2 py-0.5 rounded-sm text-xs<?php echo $scope['is_active'] ? ' bg-gray-100' : ' bg-gray-50 line-through text-gray-400'; ?>"
+                                                <span class="badge badge-sm mr-1 mb-1<?php echo $scope['is_active'] ? ' badge-neutral' : ' badge-ghost line-through'; ?>"
                                                       title="<?php echo htmlspecialchars((string) ($scope['description'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
                                                     <?php echo htmlspecialchars($scope['name'], ENT_QUOTES, 'UTF-8'); ?>
                                                 </span>
@@ -264,12 +264,12 @@ $accessTypeLabel = function (int $t): string {
                     <?php endif; ?>
 
                     <?php if (!empty($caps['conditions'])): ?>
-                        <h4 class="text-sm font-semibold mb-1">Condition keys</h4>
+                        <h4 class="text-sm font-semibold mb-1 text-base-content">Condition keys</h4>
                         <ul class="text-sm">
                         <?php foreach ($caps['conditions'] as $condition): ?>
-                            <li class="py-0.5<?php echo $condition['is_active'] ? '' : ' line-through text-gray-400'; ?>">
+                            <li class="py-0.5<?php echo $condition['is_active'] ? '' : ' line-through text-base-content/40'; ?>">
                                 <span class="font-mono"><?php echo htmlspecialchars($condition['key'], ENT_QUOTES, 'UTF-8'); ?></span>
-                                <span class="text-xs text-gray-500">
+                                <span class="text-xs text-base-content/70">
                                     <?php echo htmlspecialchars($condition['value_type'], ENT_QUOTES, 'UTF-8'); ?>
                                     <?php if (!empty($condition['description'])): ?>
                                         — <?php echo htmlspecialchars((string) $condition['description'], ENT_QUOTES, 'UTF-8'); ?>

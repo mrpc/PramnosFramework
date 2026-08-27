@@ -15,10 +15,10 @@ $statusLabel = fn($s) => match((int)$s) {
 ?>
 <div class="px-4 py-6">
     <h2 class="mb-6">Email Log</h2>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
+    <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div >
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+            <table class="table table-sm text-sm">
+                <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                     <tr><th>ID</th><th>Recipient</th><th>Subject</th><th>Date</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody>
@@ -27,18 +27,18 @@ $statusLabel = fn($s) => match((int)$s) {
                         <td><?php echo (int)$mail['id']; ?></td>
                         <td><?php echo htmlspecialchars($mail['recipient'] ?? $mail['mailto'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></td>
-                        <td class="text-gray-400 text-xs"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
+                        <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
                         <td><?php echo $statusLabel($mail['status'] ?? 0); ?></td>
                         <td class="text-right">
-                            <a href="<?php echo adminUrl('Emails' . '/show/' . ((int)$mail['id'])); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">View</a>
+                            <a href="<?php echo adminUrl('Emails' . '/show/' . ((int)$mail['id'])); ?>" class="btn btn-outline btn-xs">View</a>
                             <?php if ((int)($mail['status'] ?? 0) === 0): ?>
-                                <a href="<?php echo adminUrl('Emails' . '/resend/' . ((int)$mail['id'])); ?>" class="px-3 py-1 border border-blue-400 text-blue-700 text-xs rounded-sm hover:bg-blue-50">Resend</a>
+                                <a href="<?php echo adminUrl('Emails' . '/resend/' . ((int)$mail['id'])); ?>" class="btn btn-outline btn-primary btn-xs">Resend</a>
                             <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->mails)): ?>
-                    <tr><td colspan="6" class="text-center text-gray-400 py-8">No emails found.</td></tr>
+                    <tr><td colspan="6" class="text-center text-base-content/60 py-8">No emails found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

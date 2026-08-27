@@ -11,12 +11,12 @@
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
         <h2 >Permissions</h2>
-        <a href="<?php echo adminUrl('Permissions/edit'); ?>" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New Permission</a>
+        <a href="<?php echo adminUrl('Permissions/edit'); ?>" class="btn btn-primary btn-sm">+ New Permission</a>
     </div>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
+    <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div >
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+            <table class="table table-sm text-sm">
+                <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                     <tr><th>ID</th><th>Subject</th><th>Object Type</th><th>Action</th><th>Grant</th><th></th></tr>
                 </thead>
                 <tbody>
@@ -35,13 +35,13 @@
                                 : '<span class="badge bg-danger">Deny</span>'; ?>
                         </td>
                         <td class="text-right">
-                            <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['permissionid'])); ?>" class="px-3 py-1 border border-gray-300 text-gray-700 text-xs rounded-sm hover:bg-gray-50">Edit</a>
-                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['permissionid'])); ?>" class="px-3 py-1 border border-red-300 text-red-700 text-xs rounded-sm hover:bg-red-50" data-confirm="Delete permission?">Delete</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['permissionid'])); ?>" class="btn btn-outline btn-xs">Edit</a>
+                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['permissionid'])); ?>" class="btn btn-outline btn-error btn-xs" data-confirm="Delete permission?">Delete</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->permissions)): ?>
-                    <tr><td colspan="6" class="text-center text-gray-400 py-8">No permissions found.</td></tr>
+                    <tr><td colspan="6" class="text-center text-base-content/60 py-8">No permissions found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

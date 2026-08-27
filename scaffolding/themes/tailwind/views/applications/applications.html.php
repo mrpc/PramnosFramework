@@ -10,14 +10,14 @@
 ?>
 <div class="px-4 py-6">
     <?php if (!empty($this->success)): ?>
-        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-sm text-green-800 text-sm"><?php echo htmlspecialchars($this->success); ?></div>
+        <div class="alert alert-success mb-4"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-sm text-red-800 text-sm"><?php echo htmlspecialchars($this->error); ?></div>
+        <div class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
         <h2>OAuth2 Applications</h2>
-        <a href="<?php echo adminUrl('Applications/edit'); ?>" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">+ New Application</a>
+        <a href="<?php echo adminUrl('Applications/edit'); ?>" class="btn btn-primary btn-sm">+ New Application</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

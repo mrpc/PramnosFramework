@@ -22,8 +22,8 @@ $errorMessages = [
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
 ?>
-<div class="flex items-center justify-center min-h-screen bg-gray-100 px-4">
-    <div class="w-full max-w-sm bg-white rounded-xl shadow-md p-8">
+<div class="flex items-center justify-center min-h-screen bg-base-200 px-4">
+    <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
         <div class="text-center mb-6">
             <?php if (!empty($brand['logo'])): ?>
                 <img src="<?php echo htmlspecialchars((string) $brand['logo']); ?>" alt="<?php echo htmlspecialchars((string) ($brand['name'] ?? '')); ?>" class="mx-auto" style="max-width:220px;max-height:64px">
@@ -33,10 +33,10 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
         </div>
 
         <?php if ($errorText !== ''): ?>
-            <div class="bg-red-100 border border-red-300 text-red-800 rounded-sm p-3 mb-4"><?php echo htmlspecialchars($errorText); ?></div>
+            <div class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
         <?php endif; ?>
         <?php if ($this->hasMessages()): ?>
-            <div class="bg-blue-100 border border-blue-300 text-blue-800 rounded-sm p-3 mb-4"><?php echo $this->_printMessages(); ?></div>
+            <div class="alert alert-info mb-4"><?php echo $this->_printMessages(); ?></div>
         <?php endif; ?>
 
         <?php if (($this->lockoutSeconds ?? 0) > 0): ?>
@@ -65,36 +65,36 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
             <?php endif; ?>
             <div>
-                <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username or Email</label>
-                <input type="text" name="username" id="username" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username" autofocus>
+                <label for="username" class="block text-sm font-medium text-base-content mb-1">Username or Email</label>
+                <input type="text" name="username" id="username" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username" autofocus>
             </div>
             <div>
-                <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" name="password" id="password" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500" required autocomplete="current-password">
+                <label for="password" class="block text-sm font-medium text-base-content mb-1">Password</label>
+                <input type="password" name="password" id="password" class="input w-full" required autocomplete="current-password">
             </div>
-            <label class="flex items-center gap-2 text-sm text-gray-700">
+            <label class="flex items-center gap-2 text-sm text-base-content">
                 <input type="checkbox" name="remember" value="1" checked> Remember me
             </label>
-            <button type="submit" class="login-submit w-full text-white font-medium py-2 px-4 rounded-md transition-colors" style="background-color:<?php echo $primary; ?>">Sign In</button>
+            <button type="submit" class="btn btn-primary login-submit w-full">Sign In</button>
         </form>
 
         <div id="passkey-login-wrap" class="hidden">
-            <div class="text-center text-sm text-gray-400 my-4">or</div>
-            <button type="button" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 px-4 rounded-md transition-colors"
+            <div class="text-center text-sm text-base-content/60 my-4">or</div>
+            <button type="button" class="btn btn-neutral w-full"
                     data-pf-passkey-login
                     data-options-url="<?php echo sURL; ?>Passkey/loginOptions"
                     data-verify-url="<?php echo sURL; ?>Passkey/login"
                     data-redirect="<?php echo sURL; ?>"
                     data-wrap="#passkey-login-wrap"
                     data-error="#passkey-login-error">Sign in with a passkey</button>
-            <p id="passkey-login-error" class="text-red-700 text-sm mt-2 hidden"></p>
+            <p id="passkey-login-error" class="text-error text-sm mt-2 hidden"></p>
         </div>
 
         <p class="text-center text-sm mt-4">
-            <a href="<?php echo $base; ?>/forgotpassword" class="text-blue-600 hover:underline">Forgot your password?</a>
+            <a href="<?php echo $base; ?>/forgotpassword" class="text-primary hover:underline">Forgot your password?</a>
         </p>
         <?php if (!empty($brand['footer'])): ?>
-            <p class="text-center text-gray-400 text-xs mt-4"><?php echo htmlspecialchars((string) $brand['footer']); ?></p>
+            <p class="text-center text-base-content/60 text-xs mt-4"><?php echo htmlspecialchars((string) $brand['footer']); ?></p>
         <?php endif; ?>
     </div>
 </div>

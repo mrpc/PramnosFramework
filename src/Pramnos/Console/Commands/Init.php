@@ -3336,35 +3336,124 @@ PHP;
     </nav>
 HTML,
             'tailwind' => <<<'HTML'
-    <header class="bg-white shadow-sm sticky top-0 z-50">
-        <div class="container mx-auto px-4 max-w-5xl flex items-center justify-between h-16">
-            {{BRAND_LOGO}}
-            <nav>
-                <ul class="flex gap-6 items-center">
-                    <?php foreach ($_nav[\Pramnos\Application\NavSection::Main->value] ?? [] as $_item): ?>
-                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>" class="text-gray-700 hover:text-blue-600 font-medium transition-colors"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+    <?php
+    // Admin items may declare a parent, which renders as a nested submenu. A flat
+    // list of thirty administration screens is a list nobody reads.
+    $_adminTop = [];
+    $_adminSub = [];
+    foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] ?? [] as $_item) {
+        if ($_item->parent === null) {
+            $_adminTop[] = $_item;
+        } else {
+            $_adminSub[$_item->parent][] = $_item;
+        }
+    }
+    $_e = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+    ?>
+    <header class="navbar bg-base-100 shadow-sm sticky top-0 z-50 px-4">
+        <div class="navbar-start">
+            <div class="dropdown lg:hidden">
+                <div tabindex="0" role="button" class="btn btn-ghost btn-square" aria-label="Menu">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </div>
+                <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-50 p-2 shadow-lg bg-base-100 rounded-box w-60">
+                    <?php foreach (array_merge($_nav[\Pramnos\Application\NavSection::Main->value] ?? [], $_nav[\Pramnos\Application\NavSection::Feature->value] ?? []) as $_item): ?>
+                    <li><a href="<?php echo $_e($_item->url); ?>"><?php echo $_e($_item->label); ?></a></li>
                     <?php endforeach; ?>
-                    <?php foreach ($_nav[\Pramnos\Application\NavSection::Feature->value] ?? [] as $_item): ?>
-                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>" class="text-gray-700 hover:text-blue-600 font-medium transition-colors"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
-                    <?php endforeach; ?>
-                    <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
-                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>" class="text-blue-600 font-semibold hover:text-blue-800 transition-colors"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
-                    <?php endforeach; ?>
-                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value]) && \Pramnos\Search\Registry::loadDefinitions()): ?>
-                    <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
-                    <?php endif; ?>
-                    <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
-                    <li class="relative group">
-                        <span class="inline-block py-2 text-gray-700 hover:text-blue-600 font-medium transition-colors cursor-pointer">Admin &#9660;</span>
-                        <ul class="absolute right-0 top-full bg-white border border-gray-200 rounded-sm shadow-lg hidden group-hover:block z-50 pt-2 pb-1 min-w-[180px]">
-                            <?php foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] as $_item): ?>
-                            <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>" class="block px-4 py-2 text-gray-700 hover:bg-gray-100 whitespace-nowrap"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
-                            <?php endforeach; ?>
-                        </ul>
+                    <?php if (!empty($_adminTop)): ?>
+                    <li>
+                        <details open>
+                            <summary>Administration</summary>
+                            <ul>
+                                <?php foreach ($_adminTop as $_item): ?>
+                                <li><a href="<?php echo $_e($_item->url); ?>"><?php echo $_e($_item->label); ?></a></li>
+                                <?php foreach ($_adminSub[$_item->id] ?? [] as $_child): ?>
+                                <li><a href="<?php echo $_e($_child->url); ?>" class="pl-6"><?php echo $_e($_child->label); ?></a></li>
+                                <?php endforeach; ?>
+                                <?php endforeach; ?>
+                            </ul>
+                        </details>
                     </li>
                     <?php endif; ?>
                 </ul>
-            </nav>
+            </div>
+            {{BRAND_LOGO}}
+        </div>
+
+        <div class="navbar-center hidden lg:flex">
+            <ul class="menu menu-horizontal gap-1 px-1">
+                <?php foreach (array_merge($_nav[\Pramnos\Application\NavSection::Main->value] ?? [], $_nav[\Pramnos\Application\NavSection::Feature->value] ?? []) as $_item): ?>
+                <li><a href="<?php echo $_e($_item->url); ?>"><?php echo $_e($_item->label); ?></a></li>
+                <?php endforeach; ?>
+                <?php if (!empty($_adminTop)): ?>
+                <li>
+                    <details>
+                        <summary>Administration</summary>
+                        <ul class="bg-base-100 rounded-box shadow-lg z-50 w-56">
+                            <?php foreach ($_adminTop as $_item): ?>
+                                <?php $_children = $_adminSub[$_item->id] ?? []; ?>
+                                <?php if ($_children): ?>
+                            <li>
+                                <details>
+                                    <summary><?php echo $_e($_item->label); ?></summary>
+                                    <ul class="bg-base-100 rounded-box shadow-lg z-50 w-48">
+                                        <li><a href="<?php echo $_e($_item->url); ?>"><?php echo $_e($_item->label); ?></a></li>
+                                        <?php foreach ($_children as $_child): ?>
+                                        <li><a href="<?php echo $_e($_child->url); ?>"><?php echo $_e($_child->label); ?></a></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </details>
+                            </li>
+                                <?php else: ?>
+                            <li><a href="<?php echo $_e($_item->url); ?>"><?php echo $_e($_item->label); ?></a></li>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </ul>
+                    </details>
+                </li>
+                <?php endif; ?>
+            </ul>
+        </div>
+
+        <div class="navbar-end gap-1">
+            <?php if (!empty($_adminTop) && \Pramnos\Search\Registry::loadDefinitions()): ?>
+            <div class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></div>
+            <?php endif; ?>
+
+            <?php
+            /**
+             * Light/dark, remembered.
+             *
+             * daisyUI reads `data-theme` off the root element, so the choice has
+             * to be applied before the first paint — head.php does that. This is
+             * only the control: it reflects what is stored and writes back.
+             */
+            ?>
+            <label class="swap swap-rotate btn btn-ghost btn-square" aria-label="Toggle dark mode">
+                <input type="checkbox" id="pf-theme-toggle" class="hidden">
+                <svg class="swap-off h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                <svg class="swap-on h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            </label>
+            <script>
+            (function () {
+                var box = document.getElementById('pf-theme-toggle');
+                if (!box) { return; }
+                var stored = null;
+                try { stored = localStorage.getItem('pf-theme'); } catch (e) { /* private mode */ }
+                box.checked = stored
+                    ? stored === 'dark'
+                    : window.matchMedia('(prefers-color-scheme: dark)').matches;
+                box.addEventListener('change', function () {
+                    var theme = box.checked ? 'dark' : 'light';
+                    document.documentElement.setAttribute('data-theme', theme);
+                    try { localStorage.setItem('pf-theme', theme); } catch (e) { /* private mode */ }
+                });
+            })();
+            </script>
+
+            <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
+            <a href="<?php echo $_e($_item->url); ?>" class="btn btn-ghost btn-sm"><?php echo $_e($_item->label); ?></a>
+            <?php endforeach; ?>
         </div>
     </header>
 HTML,
@@ -3452,6 +3541,52 @@ HTML,
                 $themeCss = "    <script src=\"<?php echo sURL; ?>"
                     . $twDef['local_path'] . '/' . $filename . "\"></script>\n";
             }
+
+            /**
+             * daisyUI, as its prebuilt stylesheet.
+             *
+             * daisyUI 5 is a Tailwind *plugin*, and a plugin needs module
+             * resolution — which the browser build cannot do. So a scaffolded
+             * project cannot reach it through `@plugin "daisyui"`, and a
+             * scaffolded project has no npm. What it can use is the distribution
+             * daisyUI publishes for exactly this case: one stylesheet carrying
+             * every component and the light/dark token sets.
+             *
+             * Loaded after the browser build and before `style.css`, which is the
+             * order the cascade needs: daisyUI puts its components in a `daisyui`
+             * sublayer of `utilities`, so Tailwind's own utilities — written
+             * directly into that layer — still win over a component's defaults,
+             * and the project's own CSS wins over both.
+             */
+            $dsDef = $catalog['libraries']['daisyui'] ?? null;
+            if ($dsDef) {
+                $filename = basename(parse_url($dsDef['css'][0] ?? '', PHP_URL_PATH));
+                $themeCss .= "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>"
+                    . $dsDef['local_path'] . '/' . $filename . "\">\n";
+            }
+
+            /**
+             * The remembered light/dark choice, applied before the first paint.
+             *
+             * daisyUI reads `data-theme` off the root element, and `<html>` is
+             * written by `Document` rather than by the theme — so it cannot be set
+             * in the markup. Inline and synchronous on purpose: deferring it to a
+             * loaded script paints the light theme first and then flips, which is
+             * the flash this exists to avoid. With nothing stored the OS
+             * preference stands, which daisyUI's own `prefers-color-scheme` rules
+             * already answer.
+             *
+             * No `nonce` here — `Document` stamps the request's nonce onto every
+             * inline script, and a hand-written one would be a stale duplicate.
+             */
+            $themeCss .= "    <script>\n"
+                . "    (function () {\n"
+                . "        try {\n"
+                . "            var t = localStorage.getItem('pf-theme');\n"
+                . "            if (t) { document.documentElement.setAttribute('data-theme', t); }\n"
+                . "        } catch (e) { /* private mode: keep the OS preference */ }\n"
+                . "    })();\n"
+                . "    </script>\n";
         }
 
         return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
@@ -3533,10 +3668,10 @@ HTML,
     </footer>
 HTML,
             'tailwind' => <<<HTML
-    <footer class="bg-gray-800 text-gray-300 py-8 mt-auto">
-        <div class="container mx-auto px-4 max-w-5xl text-center">
-            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
-        </div>
+    <footer class="footer footer-center bg-base-200 text-base-content/70 p-6 mt-auto">
+        <aside>
+            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
+        </aside>
     </footer>
 HTML,
             default => <<<HTML
@@ -3737,7 +3872,8 @@ HTML,
 
         return match ($uiSystem) {
             'bootstrap' => "<a class=\"navbar-brand d-flex align-items-center\" href=\"<?php echo sURL; ?>\">$img height=\"34\"></a>",
-            'tailwind'  => "<a href=\"<?php echo sURL; ?>\" class=\"flex items-center\">$img class=\"h-9 w-auto\"></a>",
+            'tailwind'  => "<a href=\"<?php echo sURL; ?>\" class=\"btn btn-ghost px-2 gap-2 normal-case\">$img class=\"h-8 w-auto\">"
+                . "<span class=\"font-semibold text-base hidden sm:inline\">$name</span></a>",
             default     => "<a href=\"<?php echo sURL; ?>\" class=\"logo\">$img style=\"height:38px;display:block\"></a>",
         };
     }
@@ -3762,11 +3898,20 @@ HTML,
     private function ensureTailwindAssets(): void
     {
         $catalog = $this->loadAssetCatalog();
-        $lib     = $catalog['libraries']['tailwind'] ?? null;
-        if ($lib === null) {
-            return; // @codeCoverageIgnore — assets.json has a 'tailwind' entry; null is never returned in tests
+
+        // Both, or the theme is half installed: the browser build generates the
+        // utilities the views use, daisyUI's stylesheet carries the components
+        // and the theme tokens. With only the first, every `btn`, `card` and
+        // `alert` in the scaffolded views is an unknown class — the page renders
+        // as unstyled text, which reads as a broken install rather than a missing
+        // stylesheet.
+        foreach (['tailwind', 'daisyui'] as $key) {
+            $lib = $catalog['libraries'][$key] ?? null;
+            if ($lib === null) {
+                continue; // @codeCoverageIgnore — assets.json has both entries
+            }
+            $this->downloadLibraryAssets($key, $lib, false);
         }
-        $this->downloadLibraryAssets('tailwind', $lib, false);
     }
 
     /**

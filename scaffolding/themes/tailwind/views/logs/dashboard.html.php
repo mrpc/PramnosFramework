@@ -22,11 +22,11 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
 ?>
 <div class="px-4 py-6">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 class="text-2xl font-bold text-gray-800">Logs Dashboard</h2>
-        <div class="inline-flex rounded-md shadow-sm overflow-hidden border border-gray-200">
+        <h2 class="text-2xl font-bold text-base-content">Logs Dashboard</h2>
+        <div class="inline-flex rounded-md shadow-sm overflow-hidden border border-base-300">
             <?php foreach ($spans as $key => $label): ?>
                 <a href="<?php echo adminUrl('Logs/dashboard'); ?>?timespan=<?php echo $key; ?>"
-                   class="px-3 py-1.5 text-sm <?php echo $this->timespan === $key ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'; ?>">
+                   class="px-3 py-1.5 text-sm <?php echo $this->timespan === $key ? 'bg-primary text-white' : 'bg-base-100 text-base-content hover:bg-base-200'; ?>">
                     <?php echo $label; ?>
                 </a>
             <?php endforeach; ?>
@@ -36,53 +36,53 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
     <?php $this->insert('_toolbar'); ?>
 
     <?php if (!empty($this->truncated)): ?>
-        <div class="rounded-md bg-amber-50 text-amber-800 px-4 py-3 text-sm mb-6">
+        <div class="rounded-md bg-warning/10 text-warning px-4 py-3 text-sm mb-6">
             &#9888; Some log files are very large — only their most recent entries were analysed.
         </div>
     <?php endif; ?>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-            <h3 class="font-semibold text-gray-700 mb-3">Log Entry Trends</h3>
+        <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
+            <h3 class="font-semibold text-base-content mb-3">Log Entry Trends</h3>
             <div style="height:300px"><canvas id="log_trends_chart"></canvas></div>
         </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-            <h3 class="font-semibold text-gray-700 mb-3">Log Levels Distribution</h3>
+        <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
+            <h3 class="font-semibold text-base-content mb-3">Log Levels Distribution</h3>
             <div style="height:300px"><canvas id="log_levels_chart"></canvas></div>
         </div>
     </div>
 
     <!-- Top errors -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
-        <h3 class="font-semibold text-gray-700 mb-3">Top Errors</h3>
+    <div class="card bg-base-100 border border-base-300 shadow-sm p-5 mb-6">
+        <h3 class="font-semibold text-base-content mb-3">Top Errors</h3>
         <?php if (empty($this->topErrors)): ?>
-            <div class="rounded-md bg-sky-50 text-sky-800 px-4 py-3 text-sm">No errors found in the selected time period.</div>
+            <div class="rounded-md bg-info/10 text-info px-4 py-3 text-sm">No errors found in the selected time period.</div>
         <?php else: ?>
             <div class="overflow-x-auto">
-                <table class="min-w-full text-sm">
+                <table class="table table-sm min-w-full text-sm">
                     <thead>
-                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                        <tr class="text-left text-base-content/70 border-b border-base-300">
                             <th class="px-3 py-2 font-medium">Error Message</th>
                             <th class="px-3 py-2 font-medium w-24">Count</th>
                             <th class="px-3 py-2 font-medium w-40">Log File</th>
                             <th class="px-3 py-2 font-medium w-40">Last Seen</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
+                    <tbody class="divide-y divide-base-300">
                         <?php foreach ($this->topErrors as $error): ?>
-                            <tr class="hover:bg-gray-50 align-top">
-                                <td class="px-3 py-2 text-gray-700">
-                                    <?php echo htmlspecialchars(substr($error['message'], 0, 200)); ?><?php echo strlen($error['message']) > 200 ? '<span class="text-gray-400">...</span>' : ''; ?>
+                            <tr class="hover:bg-base-200 align-top">
+                                <td class="px-3 py-2 text-base-content">
+                                    <?php echo htmlspecialchars(substr($error['message'], 0, 200)); ?><?php echo strlen($error['message']) > 200 ? '<span class="text-base-content/60">...</span>' : ''; ?>
                                 </td>
                                 <td class="px-3 py-2 text-center">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800"><?php echo (int) $error['count']; ?></span>
+                                    <span class="badge badge-error badge-sm inline-flex items-center"><?php echo (int) $error['count']; ?></span>
                                 </td>
                                 <td class="px-3 py-2">
-                                    <a class="text-blue-600 hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
+                                    <a class="text-primary hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
                                         <?php echo htmlspecialchars($error['file']); ?>
                                     </a>
                                 </td>
-                                <td class="px-3 py-2 text-gray-600"><?php echo htmlspecialchars($error['last_seen']); ?></td>
+                                <td class="px-3 py-2 text-base-content/80"><?php echo htmlspecialchars($error['last_seen']); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -92,32 +92,32 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
     </div>
 
     <!-- System status -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-        <h3 class="font-semibold text-gray-700 mb-3">System Status</h3>
+    <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
+        <h3 class="font-semibold text-base-content mb-3">System Status</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <?php foreach ($this->systemStatus as $file => $status): ?>
-                <div class="border border-gray-200 rounded-lg p-4">
+                <div class="border border-base-300 rounded-lg p-4">
                     <div class="flex items-center gap-3 mb-3">
-                        <span class="flex items-center justify-center w-9 h-9 rounded-full bg-red-100 text-red-700 font-semibold">
+                        <span class="flex items-center justify-center w-9 h-9 rounded-full bg-error/10 text-error font-semibold">
                             <?php echo strtoupper(substr($file, 0, 1)); ?>
                         </span>
                         <div>
-                            <a class="font-medium text-gray-800 hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($file))); ?>">
+                            <a class="font-medium text-base-content hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($file))); ?>">
                                 <?php echo htmlspecialchars($file); ?>
                             </a>
-                            <div class="text-xs text-gray-400">
+                            <div class="text-xs text-base-content/60">
                                 <?php echo !empty($status['last_entry']) ? 'Last activity: ' . htmlspecialchars($status['last_entry']) : 'No recent activity'; ?>
                             </div>
                         </div>
                     </div>
                     <div class="grid grid-cols-2 text-center">
                         <div>
-                            <div class="text-lg font-bold text-gray-800"><?php echo number_format($status['total_entries']); ?></div>
-                            <div class="text-xs text-gray-400">Entries</div>
+                            <div class="text-lg font-bold text-base-content"><?php echo number_format($status['total_entries']); ?></div>
+                            <div class="text-xs text-base-content/60">Entries</div>
                         </div>
                         <div>
-                            <div class="text-lg font-bold <?php echo $status['error_rate'] > 0 ? 'text-red-600' : 'text-gray-800'; ?>"><?php echo $status['error_rate']; ?>%</div>
-                            <div class="text-xs text-gray-400" title="Share of lines matching error/exception/fatal or an error log level">Error lines</div>
+                            <div class="text-lg font-bold <?php echo $status['error_rate'] > 0 ? 'text-error' : 'text-base-content'; ?>"><?php echo $status['error_rate']; ?>%</div>
+                            <div class="text-xs text-base-content/60" title="Share of lines matching error/exception/fatal or an error log level">Error lines</div>
                         </div>
                     </div>
                 </div>

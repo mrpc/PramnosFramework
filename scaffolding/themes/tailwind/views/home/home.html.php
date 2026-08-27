@@ -11,10 +11,10 @@ $serviceName = htmlspecialchars($this->serviceInfo['service_name'] ?? 'OAuth2 Au
 
     <div class="text-center mb-12">
         <h1 class="text-4xl font-bold mb-3"><?php echo $serviceName; ?></h1>
-        <p class="text-gray-500 text-lg mb-6">Secure, standards-compliant OAuth2 authentication and single sign-on.</p>
+        <p class="text-base-content/70 text-lg mb-6">Secure, standards-compliant OAuth2 authentication and single sign-on.</p>
         <div class="flex justify-center gap-3">
-            <a href="<?php echo sURL; ?>login" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-7 rounded-lg transition-colors">Sign In</a>
-            <a href="<?php echo sURL; ?>register" class="border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2.5 px-7 rounded-lg transition-colors">Create Account</a>
+            <a href="<?php echo sURL; ?>login" class="btn btn-primary">Sign In</a>
+            <a href="<?php echo sURL; ?>register" class="btn btn-outline">Create Account</a>
         </div>
     </div>
 
@@ -33,21 +33,21 @@ $serviceName = htmlspecialchars($this->serviceInfo['service_name'] ?? 'OAuth2 Au
             <div class="text-3xl leading-none"><?php echo $f['icon']; ?></div>
             <div>
                 <h3 class="font-semibold text-sm mb-1"><?php echo $f['title']; ?></h3>
-                <p class="text-gray-500 text-xs"><?php echo $f['desc']; ?></p>
+                <p class="text-base-content/70 text-xs"><?php echo $f['desc']; ?></p>
             </div>
         </div>
         <?php endforeach; ?>
     </div>
 
     <?php if (!empty($this->serviceInfo['endpoints'])): ?>
-    <div class="bg-white rounded-xl shadow-xs overflow-hidden">
-        <div class="px-6 py-3 border-b border-gray-100 font-semibold text-sm text-gray-700">OAuth2 Endpoints</div>
-        <table class="w-full text-sm">
-            <tbody class="divide-y divide-gray-50">
+    <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+        <div class="px-6 py-3 border-b border-base-300 font-semibold text-sm text-base-content">OAuth2 Endpoints</div>
+        <table class="table table-sm text-sm">
+            <tbody class="divide-y divide-base-200">
             <?php foreach ($this->serviceInfo['endpoints'] as $name => $url): ?>
                 <tr>
-                    <td class="px-6 py-3 font-medium text-gray-600 whitespace-nowrap w-48"><?php echo htmlspecialchars(ucfirst($name)); ?></td>
-                    <td class="px-6 py-3"><code class="text-xs text-gray-700"><?php echo htmlspecialchars($url); ?></code></td>
+                    <td class="text-xs"><?php echo htmlspecialchars(ucfirst($name)); ?></td>
+                    <td class="px-6 py-3"><code class="text-xs text-base-content"><?php echo htmlspecialchars($url); ?></code></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

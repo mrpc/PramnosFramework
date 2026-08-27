@@ -16,7 +16,6 @@ $tableSizes  = $this->tableSizes  ?? [];
 $tsData      = $this->tsData      ?? ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0, 'ts_version' => null];
 $replication = $this->replication ?? [];
 $publicViews = $this->publicViews ?? [];
-$dbType      = $stats['type'] ?? 'mysql';
 
 $fmtBytes = function (int $bytes): string {
     if ($bytes >= 1073741824) return round($bytes / 1073741824, 2) . ' GB';
@@ -30,15 +29,15 @@ $fmtBytes = function (int $bytes): string {
 </style>
 <div class="px-4 py-6">
     <div class="flex flex-wrap items-center gap-3 mb-6">
-        <a href="<?php echo adminUrl('dashboard'); ?>" class="text-sm text-blue-600 hover:underline">&larr; Dashboard</a>
+        <a href="<?php echo adminUrl('dashboard'); ?>" class="text-sm text-primary hover:underline">&larr; Dashboard</a>
         <h2 class="mb-0">Database Details</h2>
         <?php if (!empty($stats['version'])): ?>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-200 text-gray-700">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-base-300 text-base-content">
                 <?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php endif; ?>
         <?php if (!empty($tsData['ts_version'])): ?>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-cyan-100 text-cyan-800">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-info/10 text-info">
                 TimescaleDB <?php echo htmlspecialchars($tsData['ts_version'], ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php endif; ?>
@@ -46,43 +45,42 @@ $fmtBytes = function (int $bytes): string {
 
     <!-- Overview cards -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div class="text-2xl font-bold text-blue-600 mb-1">
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
+            <div class="text-2xl font-bold text-primary mb-1">
                 <?php echo $stats['db_size_bytes'] !== null ? $fmtBytes((int) $stats['db_size_bytes']) : '—'; ?>
             </div>
-            <div class="text-xs text-gray-500">Database Size</div>
+            <div class="text-xs text-base-content/70">Database Size</div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div class="text-2xl font-bold text-green-600 mb-1"><?php echo $stats['connections_total'] ?? '—'; ?></div>
-            <div class="text-xs text-gray-500">Connections Total</div>
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
+            <div class="text-2xl font-bold text-success mb-1"><?php echo $stats['connections_total'] ?? '—'; ?></div>
+            <div class="text-xs text-base-content/70">Connections Total</div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div class="text-2xl font-bold text-yellow-500 mb-1"><?php echo $stats['connections_active'] ?? '—'; ?></div>
-            <div class="text-xs text-gray-500">Active Connections</div>
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
+            <div class="text-2xl font-bold text-warning mb-1"><?php echo $stats['connections_active'] ?? '—'; ?></div>
+            <div class="text-xs text-base-content/70">Active Connections</div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
             <?php $chr = $stats['cache_hit_ratio'] ?? null;
-            $chrCls = $chr !== null && (float)$chr >= 95 ? 'text-green-600' : ($chr !== null && (float)$chr >= 80 ? 'text-orange-500' : 'text-red-600'); ?>
+            $chrCls = $chr !== null && (float)$chr >= 95 ? 'text-success' : ($chr !== null && (float)$chr >= 80 ? 'text-warning' : 'text-error'); ?>
             <div class="text-2xl font-bold <?php echo $chrCls; ?> mb-1">
                 <?php echo $chr !== null ? $chr . '%' : '—'; ?>
             </div>
-            <div class="text-xs text-gray-500">Cache Hit Ratio</div>
+            <div class="text-xs text-base-content/70">Cache Hit Ratio</div>
         </div>
     </div>
 
     <!-- Active Processes -->
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
             <span>Active Processes</span>
-            <span class="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full"><?php echo count($processes); ?></span>
+            <span class="badge badge-neutral badge-sm"><?php echo count($processes); ?></span>
         </div>
         <?php if (empty($processes)): ?>
-            <p class="text-center text-gray-400 py-6 text-sm">No active processes.</p>
+            <p class="text-center text-base-content/60 py-6 text-sm">No active processes.</p>
         <?php else: ?>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
-                    <?php if ($dbType === 'postgresql'): ?>
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr>
                         <th class="px-3 py-2 text-left">PID</th>
                         <th class="px-3 py-2 text-left">User</th>
@@ -94,32 +92,20 @@ $fmtBytes = function (int $bytes): string {
                         <th class="px-3 py-2 text-left">State</th>
                         <th class="px-3 py-2 text-left">Query</th>
                     </tr>
-                    <?php else: ?>
-                    <tr>
-                        <th class="px-3 py-2 text-left">ID</th>
-                        <th class="px-3 py-2 text-left">User</th>
-                        <th class="px-3 py-2 text-left">DB</th>
-                        <th class="px-3 py-2 text-left">Cmd</th>
-                        <th class="px-3 py-2 text-left">Time</th>
-                        <th class="px-3 py-2 text-left">State</th>
-                        <th class="px-3 py-2 text-left">Info</th>
-                    </tr>
-                    <?php endif; ?>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($processes as $p): ?>
-                    <?php if ($dbType === 'postgresql'): ?>
                     <?php $durSec = (int) ($p['duration_sec'] ?? 0); ?>
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono"><?php echo (int) ($p['pid'] ?? 0); ?></td>
                         <td class="px-3 py-2"><?php echo htmlspecialchars($p['usename'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($p['datname'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($p['application_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 font-mono text-gray-400"><?php echo htmlspecialchars($p['client_addr'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-gray-400"><?php echo htmlspecialchars($p['backend_start'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($p['datname'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($p['application_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 font-mono text-base-content/60"><?php echo htmlspecialchars($p['client_addr'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php echo htmlspecialchars($p['backend_start'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2">
                             <?php if ($durSec > 0):
-                                $cls = $durSec > 300 ? 'bg-red-100 text-red-800' : ($durSec > 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800');
+                                $cls = $durSec > 300 ? 'bg-error/10 text-error' : ($durSec > 60 ? 'bg-warning/10 text-warning' : 'bg-primary/10 text-primary');
                                 $min = intdiv($durSec, 60);
                                 $sec = $durSec % 60;
                                 $txt = $min > 0 ? "{$min}m {$sec}s" : "{$durSec}s"; ?>
@@ -127,7 +113,7 @@ $fmtBytes = function (int $bytes): string {
                             <?php else: ?>—<?php endif; ?>
                         </td>
                         <td class="px-3 py-2">
-                            <?php $stCls = ($p['state'] ?? '') === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>
+                            <?php $stCls = ($p['state'] ?? '') === 'active' ? 'bg-success/10 text-success' : 'bg-base-200 text-base-content/80'; ?>
                             <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $stCls; ?>">
                                 <?php echo htmlspecialchars($p['state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                             </span>
@@ -135,26 +121,13 @@ $fmtBytes = function (int $bytes): string {
                         <td class="px-3 py-2 font-mono max-w-xs">
                             <?php if (!empty($p['query'])): ?>
                             <div class="overflow-hidden text-ellipsis whitespace-nowrap" title="<?php echo htmlspecialchars($p['query'], ENT_QUOTES, 'UTF-8'); ?>">
-                                <button class="text-xs border border-gray-300 rounded-sm px-1 mr-1 hover:bg-gray-100"
+                                <button class="text-xs border border-base-300 rounded-sm px-1 mr-1 hover:bg-base-200"
                                         data-copy-query="<?php echo htmlspecialchars($p['query'], ENT_QUOTES, 'UTF-8'); ?>">Copy</button>
                                 <?php echo htmlspecialchars($p['query'], ENT_QUOTES, 'UTF-8'); ?>
                             </div>
-                            <?php else: ?><span class="text-gray-400">—</span><?php endif; ?>
+                            <?php else: ?><span class="text-base-content/60">—</span><?php endif; ?>
                         </td>
                     </tr>
-                    <?php else: ?>
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-3 py-2 font-mono"><?php echo (int) ($p['Id'] ?? 0); ?></td>
-                        <td class="px-3 py-2"><?php echo htmlspecialchars($p['User'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($p['db'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2"><?php echo htmlspecialchars($p['Command'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2"><?php echo (int) ($p['Time'] ?? 0); ?>s</td>
-                        <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($p['State'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 font-mono text-gray-400 max-w-xs overflow-hidden text-ellipsis whitespace-nowrap">
-                            <?php echo htmlspecialchars($p['Info'] ?? '', ENT_QUOTES, 'UTF-8'); ?>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
                 <?php endforeach; ?>
                 </tbody>
             </table>
@@ -162,16 +135,15 @@ $fmtBytes = function (int $bytes): string {
         <?php endif; ?>
     </div>
 
-    <!-- Replication Status (PostgreSQL only) -->
-    <?php if ($dbType === 'postgresql'): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Replication Status</div>
+    <!-- Replication Status -->
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Replication Status</div>
         <?php if (empty($replication)): ?>
-            <p class="text-center text-gray-400 py-6 text-sm">No replication configured. Standalone instance or replica.</p>
+            <p class="text-center text-base-content/60 py-6 text-sm">No replication configured. Standalone instance or replica.</p>
         <?php else: ?>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr>
                         <th class="px-3 py-2 text-left">Client Address</th>
                         <th class="px-3 py-2 text-left">State</th>
@@ -179,28 +151,28 @@ $fmtBytes = function (int $bytes): string {
                         <th class="px-3 py-2 text-left">Lag</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($replication as $repl): ?>
                     <?php $lagSec = (int) ($repl['lag_sec'] ?? 0); ?>
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono"><?php echo htmlspecialchars($repl['client_addr'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2">
-                            <?php $sCls = ($repl['state'] ?? '') === 'streaming' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'; ?>
+                            <?php $sCls = ($repl['state'] ?? '') === 'streaming' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'; ?>
                             <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sCls; ?>"><?php echo htmlspecialchars($repl['state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2">
-                            <?php $sysCls = ($repl['sync_state'] ?? '') === 'sync' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'; ?>
+                            <?php $sysCls = ($repl['sync_state'] ?? '') === 'sync' ? 'bg-primary/10 text-primary' : 'bg-base-200 text-base-content/80'; ?>
                             <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sysCls; ?>"><?php echo htmlspecialchars($repl['sync_state'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2">
                             <?php if (($repl['sync_state'] ?? '') === 'sync'): ?>
-                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-green-100 text-green-800">In Sync</span>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-success/10 text-success">In Sync</span>
                             <?php elseif ($lagSec > 0):
-                                $lagCls = $lagSec > 300 ? 'bg-red-100 text-red-800' : ($lagSec > 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800');
+                                $lagCls = $lagSec > 300 ? 'bg-error/10 text-error' : ($lagSec > 60 ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success');
                                 $lagTxt = $lagSec > 60 ? intdiv($lagSec,60).'m '.($lagSec%60).'s' : $lagSec.'s'; ?>
                                 <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $lagCls; ?>"><?php echo $lagTxt; ?></span>
                             <?php else: ?>
-                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-gray-100 text-gray-600">N/A</span>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-base-200 text-base-content/80">N/A</span>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -210,15 +182,14 @@ $fmtBytes = function (int $bytes): string {
         </div>
         <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <!-- Table Sizes -->
     <?php if (!empty($tableSizes)): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Table Sizes (top 30)</div>
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Table Sizes (top 30)</div>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr>
                         <th class="px-3 py-2 text-left">Table</th>
                         <th class="px-3 py-2 text-right">Rows</th>
@@ -227,18 +198,18 @@ $fmtBytes = function (int $bytes): string {
                         <th class="px-3 py-2 text-right">Total</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($tableSizes as $t): ?>
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono">
                             <?php if (!empty($t['schemaname']) && $t['schemaname'] !== 'public'): ?>
-                                <span class="text-gray-400"><?php echo htmlspecialchars($t['schemaname'], ENT_QUOTES, 'UTF-8'); ?>.</span>
+                                <span class="text-base-content/60"><?php echo htmlspecialchars($t['schemaname'], ENT_QUOTES, 'UTF-8'); ?>.</span>
                             <?php endif; ?>
                             <?php echo htmlspecialchars($t['table_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?>
                         </td>
-                        <td class="px-3 py-2 text-right text-gray-400"><?php echo $t['row_estimate'] !== null ? number_format((int)$t['row_estimate']) : '—'; ?></td>
+                        <td class="px-3 py-2 text-right text-base-content/60"><?php echo $t['row_estimate'] !== null ? number_format((int)$t['row_estimate']) : '—'; ?></td>
                         <td class="px-3 py-2 text-right"><?php echo $t['data_bytes'] !== null ? $fmtBytes((int)$t['data_bytes']) : '—'; ?></td>
-                        <td class="px-3 py-2 text-right text-gray-400"><?php echo $t['index_bytes'] !== null ? $fmtBytes((int)$t['index_bytes']) : '—'; ?></td>
+                        <td class="px-3 py-2 text-right text-base-content/60"><?php echo $t['index_bytes'] !== null ? $fmtBytes((int)$t['index_bytes']) : '—'; ?></td>
                         <td class="px-3 py-2 text-right font-semibold"><?php echo $t['total_bytes'] !== null ? $fmtBytes((int)$t['total_bytes']) : '—'; ?></td>
                     </tr>
                 <?php endforeach; ?>
@@ -248,28 +219,28 @@ $fmtBytes = function (int $bytes): string {
     </div>
     <?php endif; ?>
 
-    <!-- Public Views (PostgreSQL only) -->
-    <?php if ($dbType === 'postgresql' && !empty($publicViews)): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex justify-between items-center">
+    <!-- Public Views -->
+    <?php if (!empty($publicViews)): ?>
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
             <span>Public Schema Views</span>
-            <span class="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full"><?php echo count($publicViews); ?></span>
+            <span class="badge badge-neutral badge-sm"><?php echo count($publicViews); ?></span>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr><th class="px-3 py-2 text-left">View Name</th><th class="px-3 py-2 text-left">Definition (truncated)</th><th class="px-3 py-2"></th></tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($publicViews as $i => $v): ?>
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono font-semibold"><?php echo htmlspecialchars($v['view_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 font-mono text-gray-400 max-w-sm overflow-hidden text-ellipsis whitespace-nowrap">
+                        <td class="px-3 py-2 font-mono text-base-content/60 max-w-sm overflow-hidden text-ellipsis whitespace-nowrap">
                             <?php echo htmlspecialchars(substr($v['view_definition'] ?? '', 0, 120), ENT_QUOTES, 'UTF-8'); ?>
                         </td>
                         <td class="px-3 py-2">
                             <?php if (!empty($v['view_definition'])): ?>
-                            <button class="text-xs border border-blue-400 text-blue-600 rounded-sm px-2 py-0.5 hover:bg-blue-50"
+                            <button class="btn btn-outline btn-primary btn-xs"
                                     data-view-def-index="<?php echo (int) $i; ?>">View</button>
                             <?php endif; ?>
                         </td>
@@ -301,39 +272,39 @@ $fmtBytes = function (int $bytes): string {
     <?php if (!empty($tsData['ts_version'])): ?>
 
     <div class="grid grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-            <div class="text-2xl font-bold text-cyan-500 mb-1"><?php echo (int) ($tsData['chunkCount'] ?? 0); ?></div>
-            <div class="text-xs text-gray-500">Total Chunks</div>
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
+            <div class="text-2xl font-bold text-info mb-1"><?php echo (int) ($tsData['chunkCount'] ?? 0); ?></div>
+            <div class="text-xs text-base-content/70">Total Chunks</div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+        <div class="card bg-base-100 border border-base-300 p-4 text-center">
             <?php $cc = 0; foreach ($tsData['hypertables'] as $ht) { if (!empty($ht['compression_enabled'])) $cc++; } ?>
-            <div class="text-2xl font-bold text-green-600 mb-1"><?php echo $cc; ?></div>
-            <div class="text-xs text-gray-500">Compressed Hypertables</div>
+            <div class="text-2xl font-bold text-success mb-1"><?php echo $cc; ?></div>
+            <div class="text-xs text-base-content/70">Compressed Hypertables</div>
         </div>
     </div>
 
     <?php if (!empty($tsData['hypertables'])): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex items-center gap-2">
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex items-center gap-2">
             Hypertables
-            <span class="bg-cyan-100 text-cyan-800 text-xs px-2 py-0.5 rounded-full"><?php echo count($tsData['hypertables']); ?></span>
+            <span class="badge badge-info badge-sm"><?php echo count($tsData['hypertables']); ?></span>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr><th class="px-3 py-2 text-left">Name</th><th class="px-3 py-2 text-right">Chunks</th><th class="px-3 py-2 text-right">Dims</th><th class="px-3 py-2 text-left">Compression</th><th class="px-3 py-2 text-left">Tablespaces</th></tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($tsData['hypertables'] as $ht): ?>
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono"><?php echo htmlspecialchars($ht['hypertable_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2 text-right"><?php echo (int) ($ht['num_chunks'] ?? 0); ?></td>
                         <td class="px-3 py-2 text-right"><?php echo (int) ($ht['num_dimensions'] ?? 0); ?></td>
                         <td class="px-3 py-2">
                             <?php $comp = $ht['compression_enabled'] ?? false; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $comp ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $comp ? 'bg-success/10 text-success' : 'bg-base-200 text-base-content/80'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
                         </td>
-                        <td class="px-3 py-2 text-gray-400"><?php echo htmlspecialchars($ht['tablespaces'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php echo htmlspecialchars($ht['tablespaces'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
@@ -343,30 +314,30 @@ $fmtBytes = function (int $bytes): string {
     <?php endif; ?>
 
     <?php if (!empty($tsData['aggregates'])): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm flex items-center gap-2">
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex items-center gap-2">
             Continuous Aggregates
-            <span class="bg-cyan-100 text-cyan-800 text-xs px-2 py-0.5 rounded-full"><?php echo count($tsData['aggregates']); ?></span>
+            <span class="badge badge-info badge-sm"><?php echo count($tsData['aggregates']); ?></span>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr><th class="px-3 py-2 text-left">Schema</th><th class="px-3 py-2 text-left">View</th><th class="px-3 py-2 text-left">Mat. Schema</th><th class="px-3 py-2 text-left">Mat. Table</th><th class="px-3 py-2 text-left">Mat. Only</th><th class="px-3 py-2 text-left">Compression</th></tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($tsData['aggregates'] as $ca): ?>
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($ca['view_schema'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                    <tr class="hover:bg-base-200">
+                        <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($ca['view_schema'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2 font-mono"><?php echo htmlspecialchars($ca['view_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-gray-400"><?php echo htmlspecialchars($ca['materialization_schema'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 font-mono text-gray-400"><?php echo htmlspecialchars($ca['materialization_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php echo htmlspecialchars($ca['materialization_schema'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 font-mono text-base-content/60"><?php echo htmlspecialchars($ca['materialization_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2">
                             <?php $mo = $ca['materialized_only'] ?? 'No'; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $mo === 'Yes' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo htmlspecialchars($mo, ENT_QUOTES, 'UTF-8'); ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $mo === 'Yes' ? 'bg-primary/10 text-primary' : 'bg-base-200 text-base-content/80'; ?>"><?php echo htmlspecialchars($mo, ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
                         <td class="px-3 py-2">
                             <?php $comp = $ca['compression_enabled'] ?? false; ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $comp ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
+                            <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $comp ? 'bg-success/10 text-success' : 'bg-base-200 text-base-content/80'; ?>"><?php echo $comp ? 'On' : 'Off'; ?></span>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -377,33 +348,33 @@ $fmtBytes = function (int $bytes): string {
     <?php endif; ?>
 
     <?php if (!empty($tsData['jobs'])): ?>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200 mb-6">
-        <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 font-semibold text-sm">Scheduled Jobs</div>
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Scheduled Jobs</div>
         <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-500 uppercase">
+            <table class="table table-sm text-xs">
+                <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">Procedure</th><th class="px-3 py-2 text-left">Interval</th><th class="px-3 py-2 text-left">Last Run</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Next Run</th><th class="px-3 py-2"></th></tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-base-300">
                 <?php foreach ($tsData['jobs'] as $job): ?>
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono"><?php echo (int) ($job['job_id'] ?? 0); ?></td>
                         <td class="px-3 py-2 font-mono">
                             <?php if (!empty($job['proc_schema']) && $job['proc_schema'] !== '_timescaledb_internal'): ?>
-                                <span class="text-gray-400"><?php echo htmlspecialchars($job['proc_schema'], ENT_QUOTES, 'UTF-8'); ?>.</span>
+                                <span class="text-base-content/60"><?php echo htmlspecialchars($job['proc_schema'], ENT_QUOTES, 'UTF-8'); ?>.</span>
                             <?php endif; ?>
                             <?php echo htmlspecialchars($job['proc_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                         </td>
-                        <td class="px-3 py-2 text-gray-500"><?php echo htmlspecialchars($job['schedule_interval'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-gray-400"><?php echo !empty($job['last_run_started_at']) ? htmlspecialchars($job['last_run_started_at'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($job['schedule_interval'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php echo !empty($job['last_run_started_at']) ? htmlspecialchars($job['last_run_started_at'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
                         <td class="px-3 py-2">
                             <?php $ls = $job['last_run_status'] ?? '—';
-                            $lsCls = $ls === 'Success' ? 'bg-green-100 text-green-800' : ($ls === '—' ? 'bg-gray-100 text-gray-600' : 'bg-red-100 text-red-800'); ?>
+                            $lsCls = $ls === 'Success' ? 'bg-success/10 text-success' : ($ls === '—' ? 'bg-base-200 text-base-content/80' : 'bg-error/10 text-error'); ?>
                             <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $lsCls; ?>"><?php echo htmlspecialchars($ls, ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
-                        <td class="px-3 py-2 text-gray-400"><?php echo !empty($job['next_start']) ? htmlspecialchars($job['next_start'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php echo !empty($job['next_start']) ? htmlspecialchars($job['next_start'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
                         <td class="px-3 py-2">
-                            <button class="text-xs border border-red-400 text-red-600 rounded-sm px-2 py-0.5 hover:bg-red-50"
+                            <button class="btn btn-outline btn-error btn-xs"
                                     data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>">
                                 Error History
                             </button>
@@ -420,7 +391,7 @@ $fmtBytes = function (int $bytes): string {
             <h6 id="jobHistTitle" style="margin:0 0 12px;font-size:1rem;font-weight:600"></h6>
             <div style="overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:.8rem">
-                    <thead style="background:#f5f5f5"><tr><th style="padding:6px 10px;text-align:left">Start</th><th style="padding:6px 10px;text-align:left">Finish</th><th style="padding:6px 10px;text-align:left">Status</th><th style="padding:6px 10px;text-align:left">Procedure</th><th style="padding:6px 10px;text-align:left">Error</th></tr></thead>
+                    <thead class="bg-base-200"><tr><th style="padding:6px 10px;text-align:left">Start</th><th style="padding:6px 10px;text-align:left">Finish</th><th style="padding:6px 10px;text-align:left">Status</th><th style="padding:6px 10px;text-align:left">Procedure</th><th style="padding:6px 10px;text-align:left">Error</th></tr></thead>
                     <tbody id="jobHistBody"></tbody>
                 </table>
             </div>

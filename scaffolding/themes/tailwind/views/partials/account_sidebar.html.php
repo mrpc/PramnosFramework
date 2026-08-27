@@ -35,12 +35,12 @@ $navItems = [
 ];
 ?>
 <div class="md:col-span-1">
-    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div class="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Account Settings</div>
-        <nav class="divide-y divide-gray-100">
+    <div class="card bg-base-100 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 font-semibold text-base-content bg-base-200">Account Settings</div>
+        <nav class="divide-y divide-base-300">
             <?php foreach ($navItems as $item): ?>
                 <a href="<?php echo sURL . $item['href']; ?>"
-                   class="block px-4 py-2 text-sm <?php echo $item['key'] === $active ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'; ?>">
+                   class="block px-4 py-2 text-sm <?php echo $item['key'] === $active ? 'bg-primary/10 text-primary font-semibold' : 'text-base-content hover:bg-base-200'; ?>">
                     <?php echo htmlspecialchars($item['label']); ?>
                 </a>
             <?php endforeach; ?>

@@ -38,15 +38,15 @@ $this->activeNav   = 'passkey';
 
         <div class="md:col-span-3" data-pf-passkey-manage data-base="<?php echo $base; ?>">
             <div class="flex justify-between items-center mb-3">
-                <p class="text-sm text-gray-500">Passkeys let you sign in without a password, using your device's fingerprint, face or screen lock.</p>
-                <button type="button" data-pf-passkey-add class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md whitespace-nowrap">Add a passkey</button>
+                <p class="text-sm text-base-content/70">Passkeys let you sign in without a password, using your device's fingerprint, face or screen lock.</p>
+                <button type="button" data-pf-passkey-add class="btn btn-primary whitespace-nowrap">Add a passkey</button>
             </div>
 
             <p data-pf-passkey-message class="hidden"></p>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
-                <ul data-pf-passkey-list class="divide-y divide-gray-100" style="margin:0;padding:0">
-                    <li class="p-4 text-gray-500">Loading&hellip;</li>
+            <div class="card bg-base-100 border border-base-300 shadow-sm">
+                <ul data-pf-passkey-list class="divide-y divide-base-300" style="margin:0;padding:0">
+                    <li class="p-4 text-base-content/70">Loading&hellip;</li>
                 </ul>
             </div>
         </div>

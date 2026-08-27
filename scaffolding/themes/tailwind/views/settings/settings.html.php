@@ -29,11 +29,11 @@ if (trim($stepsSetting) !== '') {
 if (count($initialSteps) === 0) { $initialSteps = $defaultSteps; }
 ksort($initialSteps, SORT_NUMERIC);
 
-$input  = 'w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500';
-$label  = 'block text-sm font-semibold text-gray-700 mb-1';
-$card   = 'bg-white rounded-xl shadow-xs border border-gray-200 p-5 mb-4';
-$btnPri = 'px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700';
-$btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-sm hover:bg-gray-50';
+$input  = 'w-full border border-base-300 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary';
+$label  = 'block text-sm font-semibold text-base-content mb-1';
+$card   = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
+$btnPri = 'px-4 py-2 bg-primary text-white text-sm font-medium rounded-sm hover:bg-primary';
+$btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-medium rounded-sm hover:bg-base-200';
 ?>
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
@@ -42,12 +42,12 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
     </div>
 
     <?php if (!empty($this->success)): ?>
-        <div class="bg-green-50 border border-green-300 text-green-800 rounded-sm px-4 py-3 mb-4 text-sm">
+        <div class="alert alert-success mb-4">
             <?php echo htmlspecialchars($this->success); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->warning)): ?>
-        <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 rounded-sm px-4 py-3 mb-4 text-sm">
+        <div class="alert alert-warning mb-4">
             <?php echo htmlspecialchars($this->warning); ?>
         </div>
     <?php endif; ?>
@@ -56,11 +56,11 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
         <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
 
         <!-- Tab nav -->
-        <div class="flex border-b border-gray-200 mb-4 gap-1">
-            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-gray-200 bg-white text-blue-600" data-tab="settings-tab-general">General</button>
-            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-email">Email / SMTP</button>
-            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-security">Security</button>
-            <?php if ($devpanelEnabled): ?><button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-gray-600 hover:text-blue-600" data-tab="settings-tab-devpanel">DevPanel</button><?php endif; ?>
+        <div class="flex border-b border-base-300 mb-4 gap-1">
+            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-base-300 bg-base-100 text-primary" data-tab="settings-tab-general">General</button>
+            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="settings-tab-email">Email / SMTP</button>
+            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="settings-tab-security">Security</button>
+            <?php if ($devpanelEnabled): ?><button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="settings-tab-devpanel">DevPanel</button><?php endif; ?>
         </div>
 
         <!-- General -->
@@ -87,16 +87,16 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                                 <option value="<?php echo $tz; ?>"<?php echo $sel; ?>><?php echo $tz; ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <p class="text-xs text-gray-400 mt-1">Server time: <?php echo date('H:i'); ?></p>
+                        <p class="text-xs text-base-content/60 mt-1">Server time: <?php echo date('H:i'); ?></p>
                     </div>
                     <div><label class="<?php echo $label; ?>">Debug Mode</label>
                         <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
-                            <p class="text-xs text-yellow-600 mt-1">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</p>
+                            <p class="text-xs text-warning mt-1">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</p>
                         <?php else: ?>
                         <label class="flex items-center gap-2 mt-1 cursor-pointer">
                             <input type="checkbox" name="debug" value="yes" class="w-4 h-4"
                                 <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                            <span class="text-sm text-gray-600">Enabled</span>
+                            <span class="text-sm text-base-content/80">Enabled</span>
                         </label>
                         <?php endif; ?>
                     </div>
@@ -104,7 +104,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                         <label class="flex items-center gap-2 mt-1 cursor-pointer">
                             <input type="checkbox" name="forcessl" value="yes" class="w-4 h-4"
                                 <?php echo (($s['forcessl'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                            <span class="text-sm text-gray-600">Enabled</span>
+                            <span class="text-sm text-base-content/80">Enabled</span>
                         </label>
                     </div>
                 </div>
@@ -124,7 +124,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                         <label class="flex items-center gap-2 mt-1 cursor-pointer">
                             <input type="checkbox" name="smtp_tls" value="yes" class="w-4 h-4"
                                 <?php echo (($s['smtp_tls'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                            <span class="text-sm text-gray-600">Enabled</span>
+                            <span class="text-sm text-base-content/80">Enabled</span>
                         </label>
                     </div>
                     <div><label class="<?php echo $label; ?>">SMTP Username</label>
@@ -145,18 +145,18 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                                 $w = (int) ($s['loginlockoutwindowseconds'] ?? 0);
                                 echo $w > 0 ? $w : \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_WINDOW_SECONDS;
                             ?>">
-                        <p class="text-xs text-gray-400 mt-1">Sliding window for counting failed logins.</p>
+                        <p class="text-xs text-base-content/60 mt-1">Sliding window for counting failed logins.</p>
                     </div>
                     <div>
                         <div class="flex justify-between items-center mb-2">
                             <label class="<?php echo $label; ?> mb-0">Progressive Lockout Rules</label>
-                            <button type="button" id="add-lockout-rule" class="text-xs px-3 py-1 border border-blue-400 text-blue-600 rounded-sm hover:bg-blue-50">+ Add Rule</button>
+                            <button type="button" id="add-lockout-rule" class="btn btn-outline btn-primary btn-xs">+ Add Rule</button>
                         </div>
                         <div id="lockout-rules-container"></div>
-                        <div id="lockout-rules-errors" class="hidden mt-2 bg-red-50 border border-red-300 text-red-700 rounded-sm px-3 py-2 text-sm"></div>
+                        <div id="lockout-rules-errors" class="alert alert-error hidden mt-2"></div>
                         <input type="hidden" name="loginlockoutsteps" id="loginlockoutsteps"
                             value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
-                        <p class="text-xs text-gray-400 mt-1">Durations must increase with failed attempt count.</p>
+                        <p class="text-xs text-base-content/60 mt-1">Durations must increase with failed attempt count.</p>
                     </div>
                 </div>
             </div>
@@ -173,12 +173,12 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
                                 $dpu = $s['devpanel.min_usertype'] ?? '';
                                 echo htmlspecialchars($dpu !== '' ? $dpu : '90');
                             ?>">
-                        <p class="text-xs text-gray-400 mt-1">Users below this type cannot access the DevPanel.</p>
+                        <p class="text-xs text-base-content/60 mt-1">Users below this type cannot access the DevPanel.</p>
                     </div>
                     <div><label class="<?php echo $label; ?>">DevPanel Mount Point</label>
                         <input type="text" name="devpanel.mount" class="<?php echo $input; ?>"
                             value="<?php echo htmlspecialchars($s['devpanel.mount'] !== '' ? $s['devpanel.mount'] : 'devpanel'); ?>">
-                        <p class="text-xs text-gray-400 mt-1">URL segment where the DevPanel is mounted.</p>
+                        <p class="text-xs text-base-content/60 mt-1">URL segment where the DevPanel is mounted.</p>
                     </div>
                 </div>
             </div>
@@ -210,10 +210,10 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
         function activate(id) {
             btns.forEach(function (b) {
                 var active = b.getAttribute('data-tab') === id;
-                b.classList.toggle('text-blue-600', active);
-                b.classList.toggle('bg-white', active);
-                b.classList.toggle('border-gray-200', active);
-                b.classList.toggle('text-gray-600', !active);
+                b.classList.toggle('text-primary', active);
+                b.classList.toggle('bg-base-100', active);
+                b.classList.toggle('border-base-300', active);
+                b.classList.toggle('text-base-content/80', !active);
                 b.classList.toggle('border-transparent', !active);
             });
             panes.forEach(function (p) { p.classList.toggle('hidden', p.id !== id); });
@@ -242,7 +242,7 @@ $btnSec = 'px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium ro
         var sl = document.createElement('label'); sl.textContent = 'Lockout (s):';
         var si = document.createElement('input'); si.type = 'number'; si.min = '1'; si.className = 'lockout-seconds'; si.value = seconds || '';
         var rb = document.createElement('button'); rb.type = 'button';
-        rb.className = 'ml-auto text-xs px-2 py-1 border border-red-300 text-red-600 rounded-sm hover:bg-red-50';
+        rb.className = 'ml-auto text-xs px-2 py-1 border border-error text-error rounded-sm hover:bg-error/10';
         rb.textContent = 'Remove'; rb.addEventListener('click', function () { card.remove(); });
         card.appendChild(al); card.appendChild(ai); card.appendChild(sl); card.appendChild(si); card.appendChild(rb);
         return card;

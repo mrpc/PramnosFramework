@@ -141,6 +141,15 @@
             ],
             "local_path": "assets/vendor/tailwind/4.3.2"
         },
+        "daisyui": {
+            "version": "5.7.22",
+            "requires_ui": ["tailwind"],
+            "css": [
+                "https://cdn.jsdelivr.net/npm/daisyui@5.7.22/daisyui.css"
+            ],
+            "js": [],
+            "local_path": "assets/vendor/daisyui/5.7.22"
+        },
         "pramnos-adapters": {
             "version": "1.2.0",
             "bundled": true,

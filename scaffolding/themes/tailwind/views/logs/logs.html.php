@@ -10,9 +10,9 @@
  */
 ?>
 <div class="px-4 py-6">
-    <h2 class="text-2xl font-bold text-gray-800 mb-4">Log Files</h2>
+    <h2 class="text-2xl font-bold text-base-content mb-4">Log Files</h2>
     <?php $this->insert('_toolbar'); ?>
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <div class="card bg-base-100 border border-base-300 shadow-sm overflow-hidden">
         <?php echo $this->viewerHtml ?? ''; ?>
     </div>
 </div>

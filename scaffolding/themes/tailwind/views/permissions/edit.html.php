@@ -10,7 +10,7 @@ $isNew = empty($p['permissionid']);
 ?>
 <div class="max-w-2xl mx-auto py-6 px-4">
     <h2 class="mb-6"><?php echo $isNew ? 'New Permission' : 'Edit Permission'; ?></h2>
-    <div class="bg-white rounded-xl shadow-xs border border-gray-200">
+    <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="p-5">
             <form method="post" action="<?php echo adminUrl('Permissions/save'); ?>">
                 <?php if (!$isNew): ?>
@@ -18,40 +18,40 @@ $isNew = empty($p['permissionid']);
                 <?php endif; ?>
                 <div class="grid md:grid-cols-2 gap-4">
                     <div >
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Subject Type</label>
-                        <select name="subject_type" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm">
+                        <label class="block text-sm font-medium text-base-content mb-1">Subject Type</label>
+                        <select name="subject_type" class="input input-sm w-full">
                             <option value="user" <?php echo ($p['subject_type'] ?? 'user') === 'user' ? 'selected' : ''; ?>>User</option>
                             <option value="role" <?php echo ($p['subject_type'] ?? '') === 'role' ? 'selected' : ''; ?>>Role</option>
                             <option value="group" <?php echo ($p['subject_type'] ?? '') === 'group' ? 'selected' : ''; ?>>Group</option>
                         </select>
                     </div>
                     <div >
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Subject ID</label>
-                        <input type="text" name="subject_id" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm" value="<?php echo htmlspecialchars((string)($p['subject_id'] ?? '')); ?>">
+                        <label class="block text-sm font-medium text-base-content mb-1">Subject ID</label>
+                        <input type="text" name="subject_id" class="input input-sm w-full" value="<?php echo htmlspecialchars((string)($p['subject_id'] ?? '')); ?>">
                     </div>
                     <div >
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Object Type</label>
-                        <input type="text" name="object_type" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm" value="<?php echo htmlspecialchars($p['object_type'] ?? ''); ?>" placeholder="e.g. resource">
+                        <label class="block text-sm font-medium text-base-content mb-1">Object Type</label>
+                        <input type="text" name="object_type" class="input input-sm w-full" value="<?php echo htmlspecialchars($p['object_type'] ?? ''); ?>" placeholder="e.g. resource">
                     </div>
                     <div >
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Object ID</label>
-                        <input type="text" name="object_id" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm" value="<?php echo htmlspecialchars((string)($p['object_id'] ?? '')); ?>" placeholder="Leave blank for all">
+                        <label class="block text-sm font-medium text-base-content mb-1">Object ID</label>
+                        <input type="text" name="object_id" class="input input-sm w-full" value="<?php echo htmlspecialchars((string)($p['object_id'] ?? '')); ?>" placeholder="Leave blank for all">
                     </div>
                     <div >
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Action</label>
-                        <input type="text" name="action" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm" required value="<?php echo htmlspecialchars($p['action'] ?? ''); ?>" placeholder="e.g. read, write, *">
+                        <label class="block text-sm font-medium text-base-content mb-1">Action</label>
+                        <input type="text" name="action" class="input input-sm w-full" required value="<?php echo htmlspecialchars($p['action'] ?? ''); ?>" placeholder="e.g. read, write, *">
                     </div>
                     <div >
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Grant Type</label>
-                        <select name="grant_type" class="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm">
+                        <label class="block text-sm font-medium text-base-content mb-1">Grant Type</label>
+                        <select name="grant_type" class="input input-sm w-full">
                             <option value="allow" <?php echo ($p['grant_type'] ?? 'allow') === 'allow' ? 'selected' : ''; ?>>Allow</option>
                             <option value="deny" <?php echo ($p['grant_type'] ?? '') === 'deny' ? 'selected' : ''; ?>>Deny</option>
                         </select>
                     </div>
                 </div>
                 <div class="mt-4 flex gap-2">
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Save</button>
-                    <a href="<?php echo adminUrl('Permissions'); ?>" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">Cancel</a>
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                    <a href="<?php echo adminUrl('Permissions'); ?>" class="btn btn-outline btn-sm">Cancel</a>
                 </div>
             </form>
         </div>
