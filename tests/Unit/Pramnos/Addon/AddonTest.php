@@ -994,6 +994,42 @@ class AddonTest extends TestCase
         $this->assertTrue(Addon::isActive('system', 'present'),
             'isActive() must return true when the addon is registered');
     }
+
+    /**
+     * A name that cannot name an addon is refused before anything is asked of it.
+     *
+     * `null` arrives from real data rather than from a mistaken caller: the `addons`
+     * setting holds a serialized list, and an entry saved with no name selected stores
+     * `null`. One consuming installation has 19 of those out of 24, so this ran 19 times
+     * per request.
+     *
+     * It was harmless while `load()` only looked for a file — `file_exists()` on a path
+     * ending in `/.php` is `false`. Once a class-name branch went in front of it, the
+     * same input became *Passing null to parameter #1 ($class) of class_exists()* on
+     * PHP 8.1+.
+     */
+    public function testLoadRefusesANamelessAddon(): void
+    {
+        // Act & Assert
+        $this->assertFalse(Addon::load(null));
+        $this->assertFalse(Addon::load(''));
+    }
+
+    /**
+     * The lookups refuse it too: nothing is registered under a nameless key.
+     *
+     * `isset($array[null])` is a deprecation on the way to answering "no", which is the
+     * answer either way.
+     */
+    public function testTheLookupsRefuseANamelessAddon(): void
+    {
+        // Act & Assert
+        $this->assertFalse(Addon::isActive('system', null));
+        $this->assertFalse(Addon::getAddon('system', null));
+        $this->assertFalse(Addon::isActive('system', ''));
+        $this->assertFalse(Addon::getAddon('system', ''));
+    }
+
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

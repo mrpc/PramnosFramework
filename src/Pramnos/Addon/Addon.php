@@ -399,6 +399,12 @@ class Addon extends \Pramnos\Framework\Base
 
     static function isActive($type, $addon)
     {
+        // Nothing is registered under a nameless key, and `isset($array[null])` is a
+        // deprecation on the way to answering that. See {@see load()}.
+        if (!is_string($addon) || $addon === '') {
+            return false;
+        }
+
         if (isset(self::$_addons[$type])) {
             if (isset(self::$_addons[$type][$addon])) {
                 return true;
@@ -409,6 +415,12 @@ class Addon extends \Pramnos\Framework\Base
 
     static function getAddon($type, $addon)
     {
+        // As in isActive(): a nameless key matches nothing, and asking costs a
+        // deprecation notice.
+        if (!is_string($addon) || $addon === '') {
+            return false;
+        }
+
         if (isset(self::$_addons[$type])) {
             if (isset(self::$_addons[$type][$addon])) {
                 return self::$_addons[$type][$addon];
@@ -528,6 +540,24 @@ class Addon extends \Pramnos\Framework\Base
      */
     static function load($addon, $type = 'system')
     {
+        /**
+         * A name that cannot name an addon is refused before anything is asked of it.
+         *
+         * `null` reaches here from real data, not from a mistaken caller: the `addons`
+         * setting holds a serialized list, and an entry written by an admin screen with
+         * no name selected stores `null`. One consuming project has 19 such entries out
+         * of 24 — so this ran 19 times per request.
+         *
+         * It used to be swallowed by accident: `file_exists()` on a path ending in
+         * `/.php` is simply `false`. Once the class-name branch was added in front of
+         * it, the same input became *Passing null to parameter #1 ($class) of
+         * class_exists()* on PHP 8.1+, and `isset($array[null])` below is deprecated
+         * too.
+         */
+        if (!is_string($addon) || $addon === '') {
+            return false;
+        }
+
         if (class_exists($addon)) {
             $addonObject = new $addon;
             $addonObject->type = $type;

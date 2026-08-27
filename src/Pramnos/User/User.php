@@ -291,6 +291,51 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     }
 
     /**
+     * Is a non-standard field set?
+     *
+     * On `$otherinfo`, which is where {@see __get()} and {@see __set()} keep it. The
+     * inherited pair from {@see \Pramnos\Framework\Base} answered from `$_data`, a
+     * store this class never writes — so `isset($user->anything)` was `false` for every
+     * field `__get()` would have returned.
+     *
+     * **The consequence was not an inaccurate `isset()`.** `??` asks `__isset()` first
+     * and calls `__get()` only when the class declares no `__isset()`. So
+     * `$user->preference ?? ''` returned `''` for a value that was in the object and in
+     * the database all along — no error, no warning. It was found by an unrelated test
+     * on a project reading every notification preference that way.
+     *
+     * @param string $name
+     */
+    public function __isset($name)
+    {
+        if (isset($this->otherinfo[$name])) {
+            return true;
+        }
+
+        // The same `getinfo_` → `setinfo_` alias `__get()` resolves, so the pair
+        // agrees about what exists.
+        if (strpos($name, 'getinfo_') === 0) {
+            return isset($this->otherinfo['setinfo_' . substr($name, 8)]);
+        }
+
+        return false;
+    }
+
+    /**
+     * Unset a non-standard field, from the store the other three use.
+     *
+     * @param string $name
+     */
+    public function __unset($name)
+    {
+        unset($this->otherinfo[$name]);
+
+        if (strpos($name, 'getinfo_') === 0) {
+            unset($this->otherinfo['setinfo_' . substr($name, 8)]);
+        }
+    }
+
+    /**
      * Check user's access
      * @param string $moduletype
      * @param string $moduleid
@@ -674,6 +719,22 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 return false;
             }
         }
+
+        /**
+         * `null` is a normal argument, not a caller's mistake.
+         *
+         * `new User($record->userid)` on a record that did not load passes `null`, and
+         * the next line is usually a `userid < 2` check and a redirect. It reached this
+         * method as an array offset — *Using null as an array offset is deprecated* on
+         * PHP 8.1+, twice per call, on a path that was about to be handled correctly.
+         *
+         * Refused rather than coerced: `0` already means "load whoever is in the
+         * session", which is a different question, and no user has a null id.
+         */
+        if ($uid === null || $uid === '') {
+            return false;
+        }
+
         if (is_array(self::$_usercache) && isset(self::$_usercache[$uid])) {
             foreach (self::$_usercache[$uid] as $key => $value) {
                 $this->$key = $value;
@@ -794,7 +855,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $database = \Pramnos\Framework\Factory::getDatabase();
         self::removefriends($usera, $userb);
         $database->queryBuilder()
-            ->table('userfriends')
+            ->table(self::userFriendsTable())
             ->insert([
                 'from_userid' => (int) $usera,
                 'to_userid'   => (int) $userb,
@@ -814,7 +875,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $usera = (int) $usera;
         $userb = (int) $userb;
         $database->queryBuilder()
-            ->table('userfriends')
+            ->table(self::userFriendsTable())
             ->where(function ($q) use ($usera, $userb) {
                 $q->where(function ($q2) use ($usera, $userb) {
                     $q2->where('from_userid', $usera)
@@ -840,7 +901,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $usera = (int) $usera;
         $userb = (int) $userb;
         $result = $database->queryBuilder()
-            ->table('userfriends')
+            ->table(self::userFriendsTable())
             ->where('confirm', 1)
             ->where(function ($q) use ($usera, $userb) {
                 $q->where(function ($q2) use ($usera, $userb) {
@@ -867,7 +928,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $userid = (int) $userid;
         $return = array();
         $result = $database->queryBuilder()
-            ->table('userfriends')
+            ->table(self::userFriendsTable())
             ->where('confirm', 1)
             ->where(function ($q) use ($userid) {
                 $q->where('from_userid', $userid)
@@ -890,7 +951,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $friends = array();
         $sql = $database->prepareQuery(
             "select * "
-            . "from `#PREFIX#userfriends` "
+            . "from `" . self::userFriendsTable() . "` "
             . "where `confirm` = 1 "
             . "and (`from_userid` = %d or `to_userid`=%d)", $this->userid,
             $this->userid
@@ -984,6 +1045,22 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         return defined('DB_USERDETAILSTABLE')
             ? DB_USERDETAILSTABLE
             : '#PREFIX#userdetails';
+    }
+
+    /**
+     * The user-friends table, honouring `DB_USERFRIENDSTABLE`.
+     *
+     * Same shape as {@see usersTable()}, and the four friend methods had the defect the
+     * other queries had: a **bare** `userfriends`. `QueryBuilder::table()` substitutes
+     * `#PREFIX#` and leaves a bare name as written, so on any installation with a table
+     * prefix — which is every installation the scaffolder produces — all four addressed
+     * a table that does not exist.
+     */
+    private static function userFriendsTable(): string
+    {
+        return defined('DB_USERFRIENDSTABLE')
+            ? DB_USERFRIENDSTABLE
+            : '#PREFIX#userfriends';
     }
 
     /**

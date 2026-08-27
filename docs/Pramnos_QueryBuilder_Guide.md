@@ -305,9 +305,14 @@ Rule of thumb: if the raw SQL you are replacing had `#PREFIX#`, keep it.
 !!! tip "A configurable table name belongs behind one accessor"
     `User\User` computes `DB_USERSTABLE` into a property *and* had ten queries
     naming the table themselves — six lines referenced the resolved name while ten
-    bypassed it. Both the users and the user-details tables now go through one
+    bypassed it. The users, user-details and user-friends tables now go through one
     private static accessor each, which is also what makes them usable from the
-    class's static methods. A constant that only some queries honour is worse than
+    class's static methods.
+
+    The four friend methods were the last of them, with the harsher version of the
+    same defect: a **bare** `userfriends`, no `#PREFIX#` at all, so they addressed
+    a table that does not exist on a prefixed installation rather than the wrong
+    one. A constant that only some queries honour is worse than
     no constant: it works until somebody sets it.
 
 #### Schema-qualified tables

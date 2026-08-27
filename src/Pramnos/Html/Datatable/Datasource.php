@@ -30,6 +30,21 @@ class Datasource extends Base
     public $idrow = 0;
 
     /**
+     * The SQL of the last list query this class executed, across all instances.
+     *
+     * A debug and test hook, and the only way to see what a filter actually produced:
+     * an admin screen that logs it can show the query behind a list, and a test can
+     * assert on an `ORDER BY` without standing up a dataset that makes the ordering
+     * observable. Nothing reads it to decide anything.
+     *
+     * Static because the caller does not hold the instance — `getList()` builds one,
+     * uses it and drops it.
+     *
+     * @var string
+     */
+    public static $lastQuery = '';
+
+    /**
      * Declare a column, and how the global search should treat it.
      *
      * **Every parameter has to be declared, not just accepted.** `render()`
@@ -42,7 +57,16 @@ class Datasource extends Base
      * @param string  $name          Column, optionally `table.column` or `expr as alias`
      * @param string  $format        `text` (default), `email`, `phone`, `numeric`/`number`/`int`, `date`
      * @param string  $formatdetails Format argument — for `date`, the output format
-     * @param bool    $startWildcard Put a `%` before the search term for this column
+     * @param bool    $startWildcard Put a `%` **before** the search term for this column.
+     *                               Off by default, and that default is the real rule
+     *                               almost everywhere: `render()` calls this with a bare
+     *                               column name for any field declared as a plain string,
+     *                               which is how most applications declare all of them.
+     *                               A leading wildcard turns `LIKE 'term%'` into
+     *                               `LIKE '%term%'` — the index stops being usable, the
+     *                               range scan becomes a full one, and the result set
+     *                               changes. Pass `true` per column where matching
+     *                               mid-word is worth that.
      * @param bool    $endWildcard   Put a `%` after it
      * @param bool    $ignoreOnOthertypes Leave this column out of the global search when
      *                               the term is a number or an email address. For a wide
@@ -55,7 +79,7 @@ class Datasource extends Base
      * @param int|null $max          Upper bound, read the same way.
      */
     public function addField($name, $format = 'text', $formatdetails = '',
-        $startWildcard = true, $endWildcard = true,
+        $startWildcard = false, $endWildcard = true,
         $ignoreOnOthertypes = false, $min = null, $max = null)
     {
         $this->fields[] = $name;
@@ -492,8 +516,12 @@ class Datasource extends Base
             $qb->groupByRaw($groupBy);
         }
 
+        // Published before the call, so it is available whether the query succeeds,
+        // returns nothing or throws — the failing query is the one worth reading.
+        self::$lastQuery = $qb->toSql();
+
         if ($debug) {
-            echo '<pre>Final Query: ' . $qb->toSql() . "\n\n</pre>";
+            echo '<pre>Final Query: ' . self::$lastQuery . "\n\n</pre>";
         }
 
         try {

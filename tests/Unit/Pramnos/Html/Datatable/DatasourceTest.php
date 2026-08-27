@@ -113,8 +113,14 @@ class DatasourceTest extends TestCase
             'addField() must create a $fielddetails entry for the field');
         $this->assertSame('text', $ds->fielddetails['username']['format'],
             'addField() default format must be "text"');
-        $this->assertTrue($ds->fielddetails['username']['startWildcard'],
-            'addField() default startWildcard must be true');
+        // A **prefix** search by default: `LIKE 'term%'` can use an index, and
+        // `LIKE '%term%'` cannot. `render()` calls addField() with a bare column name
+        // for every field declared as a plain string — which is how most applications
+        // declare all of them — so this default is the real rule almost everywhere,
+        // not a rarely-hit fallback.
+        $this->assertFalse($ds->fielddetails['username']['startWildcard'],
+            'addField() default startWildcard must be false — a leading wildcard '
+            . 'turns every column search into a full scan');
         $this->assertTrue($ds->fielddetails['username']['endWildcard'],
             'addField() default endWildcard must be true');
     }
@@ -1738,5 +1744,77 @@ class DatasourceTest extends TestCase
             ('Widget B', 14.99, 2, {$ts}),
             ('Gadget',   99.99, 1, {$ts}),
             ('Donut',    1.50,  2, {$ts})");
+    }
+
+    /**
+     * The SQL of the last list query is published, for a screen or a test to read.
+     *
+     * The only way to see what a filter actually produced: an admin screen can show the
+     * query behind a list, and a test can assert on an `ORDER BY` without building a
+     * dataset large enough to make the ordering observable.
+     */
+    public function testTheLastQueryIsPublished(): void
+    {
+        // Arrange
+        Datasource::$lastQuery = '';
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => ''],
+            'columns' => [['searchable' => 'true']],
+        ]);
+        $ds = new Datasource();
+        $ds->addField('id', 'int');
+
+        // Act
+        $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — the query that ran, not a fragment of it
+        $this->assertStringContainsStringIgnoringCase('select', Datasource::$lastQuery);
+        $this->assertStringContainsString('ds_items', Datasource::$lastQuery);
+    }
+
+    /**
+     * A column search matches from the start of the value unless told otherwise.
+     *
+     * Asserted on rows rather than on the SQL, because the wildcard travels as a bound
+     * parameter and never appears in the statement. `Widget` is a prefix of the fixture
+     * row; `idget` is inside it — so the two forms differ on exactly this term, which is
+     * what makes the assertion meaningful rather than incidental.
+     *
+     * The difference matters because `LIKE '%term%'` cannot use an index: the same
+     * screen goes from a range scan to a full one, per keystroke, and the result set
+     * changes with it.
+     */
+    public function testAColumnSearchMatchesFromTheStartUnlessAskedOtherwise(): void
+    {
+        // Arrange
+        $this->db->query("INSERT INTO `ds_items` (`name`, `price`, `category_id`) VALUES ('Widget Prefix', 3.50, 1)");
+        $post = [
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => 'idget Prefix'],
+            'columns' => [['searchable' => 'true']],
+        ];
+
+        // Act — the default
+        $this->setPost($post);
+        $ds = new Datasource();
+        $ds->addField('name');
+        $prefixOnly = $ds->render('ds_items', null, false, '', '', false);
+
+        // Act — the same term with a leading wildcard asked for
+        $this->setPost($post);
+        $ds = new Datasource();
+        $ds->addField('name', 'text', '', true);
+        $anywhere = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert
+        $this->assertSame(0, $prefixOnly['recordsFiltered'],
+            'a mid-word term must not match by default');
+        $this->assertSame(1, $anywhere['recordsFiltered'],
+            'and must match when the column asks for a leading wildcard');
     }
 }

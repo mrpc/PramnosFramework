@@ -124,6 +124,28 @@ This method delegates to `Auth::getInstance()->verifyCredentials($username, $pas
 
 ## User Management
 
+### Fields the users table does not have
+
+`User` keeps anything outside its own columns in `$otherinfo`, reached with plain property
+syntax:
+
+```php
+$user->notifyByEmail = '1';
+$user->notifyByEmail;                  // '1'
+isset($user->notifyByEmail);           // true
+$user->neverSet ?? 'default';          // 'default'
+```
+
+All four magic methods read that one store. That is worth stating because the third and
+fourth lines are not obvious: **`??` asks `__isset()` first** and only calls `__get()` when a
+class declares no `__isset()`. A class whose `__isset()` answered from a different store than
+its `__get()` would return the fallback for a value that is present — with no error, no
+warning, and the value correctly in the database the whole time.
+
+`load(null)` returns `false` rather than looking anything up: `new User($record->userid)` on
+a record that did not load is a normal path, and `0` already means "load whoever is in the
+session", which is a different question.
+
 ### Self-service registration
 
 `/register` is a real route with the `auth` feature enabled, and it is **closed
@@ -876,6 +898,15 @@ Mail only. A database notification would put the warning in the panel of the ses
 that triggered it, which in the case worth warning about is the wrong person.
 
 ## Authentication Addons
+
+`Addon::load($name)` takes a file name **or** a fully-qualified class name, and refuses
+anything that is neither — a `null` or an empty string returns `false` before the name is used
+for anything. `isActive()` and `getAddon()` do the same.
+
+That is not defensive coding for its own sake: the `addons` setting holds a serialized list,
+and an entry saved from an admin screen with no addon selected stores a null name. One
+installation had 19 such rows out of 24, so a request asked 19 impossible questions before
+this refused them.
 
 ### User Database Addon
 

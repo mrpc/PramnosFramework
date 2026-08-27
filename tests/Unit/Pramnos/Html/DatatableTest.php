@@ -1508,4 +1508,82 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('var ms = 900;', $js);
         $this->assertStringNotContainsString('alert(1)', $js);
     }
+
+    /**
+     * A footer column filter waits for three characters, and debounces.
+     *
+     * The per-column inputs filtered from the first keystroke and with no debounce, so
+     * typing `papadopoulos` into one sent twelve AJAX requests and twelve server-side
+     * queries — the first of them `LIKE '%p%'` across the whole table. A consuming
+     * application has `footerTextSearch` on 23 admin tables, the largest ones included.
+     *
+     * Both halves are asserted: the guard, and that the handler is wrapped in the
+     * debounce the class already had for its global box. Either alone leaves most of the
+     * requests in place.
+     */
+    public function testAFooterColumnFilterWaitsForEnoughCharactersAndDebounces(): void
+    {
+        // Arrange — a table with a searchable footer column
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'userList';
+        $table->addColumn('Name', true, true, true, '', '', true, 'left', true);
+
+        // Act — renderTable() is what builds the footer handler
+        $table->renderTable();
+        $js = $table->renderJs() . $table->codeEmbed;
+
+        // Assert
+        $this->assertStringContainsString('this.value.length < 3', $js,
+            'the filter must not fire on one or two characters');
+        $this->assertStringContainsString('DataTableDelay( function ()', $js,
+            'and the handler must go through the debounce the class already has');
+        $this->assertStringContainsString('this.value.length > 0', $js,
+            'an empty box must still clear the filter — otherwise the column stays '
+            . 'filtered on a term no longer on screen');
+    }
+
+    /**
+     * The minimum is configurable, and `0` turns it off.
+     *
+     * A list of short codes wants no guard at all; a list of surnames wants more than
+     * three. A fixed number would be wrong for one of them.
+     */
+    public function testTheFooterFilterMinimumIsConfigurable(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'codeList';
+        $table->minSearchLength = 0;
+        $table->addColumn('Code', true, true, true, '', '', true, 'left', true);
+
+        // Act
+        $table->renderTable();
+        $js = $table->renderJs() . $table->codeEmbed;
+
+        // Assert — a zero-length guard can never block anything
+        $this->assertStringContainsString('this.value.length < 0', $js);
+    }
+
+    /**
+     * A non-numeric minimum cannot become markup.
+     *
+     * The value lands inside a `<script>`, so it is cast at the boundary — the same
+     * treatment `searchDelay` gets, for the same reason.
+     */
+    public function testTheFooterFilterMinimumIsCastAtTheBoundary(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'codeList';
+        $table->minSearchLength = '3; alert(1)';
+        $table->addColumn('Code', true, true, true, '', '', true, 'left', true);
+
+        // Act
+        $table->renderTable();
+        $js = $table->renderJs() . $table->codeEmbed;
+
+        // Assert
+        $this->assertStringContainsString('this.value.length < 3', $js);
+        $this->assertStringNotContainsString('alert(1)', $js);
+    }
 }

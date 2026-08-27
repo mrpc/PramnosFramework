@@ -164,6 +164,26 @@ class Datatable extends Base
     public $searchDelay = 500;
 
     /**
+     * Characters a footer filter needs before it searches at all.
+     *
+     * The per-column inputs under `footerTextSearch` used to filter from the first
+     * keystroke and without a debounce: typing `papadopoulos` into a column filter sent
+     * twelve AJAX requests and twelve server-side queries, and the first of them was
+     * `LIKE '%p%'` across the whole table. On a consuming application that is 23 admin
+     * tables, the largest ones included.
+     *
+     * Three, like the global search box's own minimum, and `0` turns the guard off.
+     *
+     * **An empty box is always let through**, which is the one deliberate difference
+     * from the value's older behaviour: clearing a filter has to clear the filter, and
+     * a guard that blocks every length below three blocks that too — so the column
+     * stayed filtered on a term no longer on screen.
+     *
+     * @var int
+     */
+    public $minSearchLength = 3;
+
+    /**
      *
      * @var string
      */
@@ -373,6 +393,9 @@ class Datatable extends Base
      */
     private function fixColumnSearch()
     {
+        // Cast at the boundary, like $searchDelay: this lands inside a <script>, so a
+        // non-numeric value would be markup rather than a number.
+        $minSearchLength = max(0, (int) $this->minSearchLength);
         $c = 0;
         foreach ($this->aoColumns as $key => $column) {
             if ($column->footsearch === true) {
@@ -422,11 +445,20 @@ embed;
 
         if ($this->footerTextSearch == true) {
             $this->codeEmbed.=<<<embed
-   $("tfoot input").keyup( function () {
+   $("tfoot input").keyup( DataTableDelay( function () {
         /* Filter on the column (the index) of this element */
 
+        /*
+         * Below the minimum, and not empty: too little to be worth a query on
+         * every table this filters. Empty always passes — clearing the box has to
+         * clear the filter.
+         */
+        if (this.value.length > 0 && this.value.length < {$minSearchLength}) {
+            return;
+        }
+
         $this->name.fnFilter( this.value, $(this).attr('name') );
-    } );
+    } ) );
     /*
      * Support functions to provide a little bit of
      * 'user friendlyness' to the textboxes in

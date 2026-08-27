@@ -237,4 +237,132 @@ class UserUnitTest extends TestCase
         // Clean up
         $ref->setValue(null, []);
     }
+
+    /**
+     * `isset()` on a non-standard field answers from the store `__get()` reads.
+     *
+     * `__get()`/`__set()` were overridden onto `$otherinfo`; `__isset()`/`__unset()` were
+     * inherited and read `$_data`, a store this class never writes. So `isset()` was
+     * `false` for every field `__get()` would have returned.
+     */
+    public function testIssetAnswersFromTheSameStoreAsGet(): void
+    {
+        // Arrange
+        $user = new User();
+        $user->favouriteColour = 'petrol';
+
+        // Act & Assert
+        $this->assertTrue(isset($user->favouriteColour));
+        $this->assertFalse(isset($user->neverSetAnything));
+    }
+
+    /**
+     * `??` returns the value, not the fallback.
+     *
+     * This is the consequence that mattered, and it is not obvious from the `isset()`
+     * bug: `??` asks `__isset()` **first** and calls `__get()` only when the class
+     * declares no `__isset()`. With a broken inherited one, `$user->pref ?? ''` returned
+     * `''` for a value that was in the object and in the database all along — silently.
+     * A consuming project read every notification preference that way, and the whole set
+     * became "no preference" with no error anywhere.
+     */
+    public function testNullCoalescingReturnsTheStoredValue(): void
+    {
+        // Arrange
+        $user = new User();
+        $user->notifyByEmail = '1';
+
+        // Act
+        $value = $user->notifyByEmail ?? '';
+
+        // Assert
+        $this->assertSame('1', $value);
+    }
+
+    /**
+     * `unset()` removes it from the same store, so the four agree.
+     */
+    public function testUnsetRemovesFromTheSameStore(): void
+    {
+        // Arrange
+        $user = new User();
+        $user->temporary = 'x';
+
+        // Act
+        unset($user->temporary);
+
+        // Assert
+        $this->assertFalse(isset($user->temporary));
+        $this->assertNull($user->temporary);
+    }
+
+    /**
+     * The `getinfo_` alias `__get()` resolves is visible to `isset()` too.
+     *
+     * `__get('getinfo_foo')` falls back to `setinfo_foo`. If `isset()` did not follow
+     * that, `$user->getinfo_foo ?? 'default'` would return the default for a value
+     * `__get()` can produce — the same class of bug one level down.
+     */
+    public function testTheGetinfoAliasIsVisibleToIsset(): void
+    {
+        // Arrange
+        $user = new User();
+        $user->setinfo_country = 'GR';
+
+        // Act & Assert
+        $this->assertTrue(isset($user->getinfo_country));
+        $this->assertSame('GR', $user->getinfo_country ?? 'default');
+    }
+
+    /**
+     * `load(null)` refuses instead of using null as an array key.
+     *
+     * `null` is a normal argument, not a caller's mistake: `new User($record->userid)`
+     * on a record that did not load passes it, and the next line is usually a
+     * `userid < 2` check. It reached the user cache as an array offset — *Using null as
+     * an array offset is deprecated* on PHP 8.1+, twice per call.
+     *
+     * Refused rather than coerced to `0`: `0` already means "load whoever is in the
+     * session", which is a different question.
+     */
+    public function testLoadRefusesANullId(): void
+    {
+        // Arrange
+        $user = new User();
+        $previous = $_SESSION['uid'] ?? null;
+        unset($_SESSION['uid']);
+
+        try {
+            // Act
+            $result = $user->load(null);
+
+            // Assert
+            $this->assertFalse($result);
+        } finally {
+            if ($previous !== null) {
+                $_SESSION['uid'] = $previous;
+            }
+        }
+    }
+
+    /**
+     * The friend methods address the prefixed table.
+     *
+     * `QueryBuilder::table()` substitutes `#PREFIX#` and leaves a bare name as written,
+     * so the four friend methods addressed `userfriends` — a table that does not exist
+     * on any installation with a prefix, which is every installation the scaffolder
+     * produces.
+     */
+    public function testTheFriendMethodsUseThePrefixedTable(): void
+    {
+        // Arrange
+        $method = new \ReflectionMethod(User::class, 'userFriendsTable');
+
+        // Act
+        $table = $method->invoke(null);
+
+        // Assert
+        $this->assertStringContainsString('userfriends', $table);
+        $this->assertStringStartsWith('#PREFIX#', $table);
+    }
 }

@@ -317,25 +317,38 @@ requests DataTables makes. This section covers what a caller configures, not a f
 
 ```php
 $table = new \Pramnos\Html\Datatable('users', sURL . 'users/data');
-$table->searchDelay = 1200;   // ms; default 500
+$table->searchDelay     = 1200;   // ms; default 500
+$table->minSearchLength = 3;      // characters before a column filter searches; 0 = no guard
 ```
 
 The table debounces in two places — its footer filters' own `keyup` handler, and
-DataTables' `searchDelay` option for the global box — and this feeds both. It is a property
-because it is not one number for every table: a list with six `LEFT JOIN`s behind it wants a
-second or more, and a consuming application sets `1200` on its heaviest admin list against
-`600` on two reports. With a fixed value the query rate on exactly the heaviest lists is the
-one nobody can lower.
+DataTables' `searchDelay` option for the global box — and `searchDelay` feeds both. It is a
+property because it is not one number for every table: a list with six `LEFT JOIN`s behind it
+wants a second or more, against `600` on a light report. With a fixed value the query rate on
+exactly the heaviest lists is the one nobody can lower.
+
+`minSearchLength` guards the **per-column footer filters** (`footerTextSearch`). Without it
+each keystroke is one AJAX request and one server-side query: typing `papadopoulos` into a
+column filter sends twelve, and the first of them is `LIKE '%p%'` across the whole table.
+
+An **empty** box is always let through, whatever the minimum — clearing a filter has to clear
+the filter, or the column stays filtered on a term no longer on screen.
 
 ### Telling the Datasource what a column is
 
 ```php
 $ds = new \Pramnos\Html\Datatable\Datasource();
 //        name        format     details  start  end   ignoreOnOthertypes  min   max
-$ds->addField('id',    'int',     '',      true,  true, false,              1,    null);
+$ds->addField('id',    'int',     '',      false, true, false,              1,    null);
 $ds->addField('email', 'email');
 $ds->addField('notes', 'text',    '',      true,  true, true,               3,    null);
 ```
+
+**`$startWildcard` is `false` by default**, so a column search is `LIKE 'term%'`. That
+default is the rule almost everywhere rather than a rarely-hit fallback: `render()` calls
+`addField()` with a bare column name for every field declared as a plain string, which is how
+most applications declare all of them. Pass `true` per column where matching mid-word is
+worth losing the index for.
 
 The global search sends **one** term, and each column decides whether it applies to it:
 
@@ -359,9 +372,21 @@ Each of those is a real cost avoided rather than a nicety:
   costs a scan each and returns noise; the numeric columns answer that query.
 - **`min` / `max`.** A one-character term against a large text column is a full scan, and a
   term outside a numeric column's range cannot match it at all.
-- **The wildcards.** A leading `%` is what makes an index unusable. They were stored and
-  ignored until 2026-08-27 — the global search hardcoded `LIKE '%term%'` — so a caller
-  turning one off was asking for something real and getting the opposite.
+- **The wildcards.** A leading `%` is what makes an index unusable, which is why it is off
+  by default and asked for per column.
+
+### Reading the query a filter produced
+
+```php
+$ds->render('orders', $fields);
+echo \Pramnos\Html\Datatable\Datasource::$lastQuery;
+```
+
+The SQL of the last list query, across all instances — a debug and test hook, and the only
+way to see what a filter actually produced. An admin screen can show the query behind a list;
+a test can assert on an `ORDER BY` without building a dataset large enough to make the
+ordering observable. It is set before the query runs, so a query that throws is still there
+to read. Nothing reads it to decide anything.
 
 ### Grouping
 
