@@ -51,6 +51,8 @@ class ApiAuthMiddlewareTest extends TestCase
         unset($_SERVER['HTTP_USERAUTH']);
         unset($_SESSION['logged']);
         unset($_SESSION['user']);
+        unset($_SESSION['usertoken'], $_SESSION['uid'], $_SESSION['csrf_token']);
+        unset($_SERVER['HTTP_X_CSRF_TOKEN'], $_SERVER['HTTP_X_XSRF_TOKEN']);
 
         $this->originalAppDebug = getenv('APP_DEBUG');
     }
@@ -63,6 +65,8 @@ class ApiAuthMiddlewareTest extends TestCase
         unset($_SERVER['HTTP_USERAUTH']);
         unset($_SESSION['logged']);
         unset($_SESSION['user']);
+        unset($_SESSION['usertoken'], $_SESSION['uid'], $_SESSION['csrf_token']);
+        unset($_SERVER['HTTP_X_CSRF_TOKEN'], $_SERVER['HTTP_X_XSRF_TOKEN']);
 
         // Whether the process is "developing" is ambient state; a test that
         // changes it puts it back, or it decides the answer for everything that
@@ -556,5 +560,176 @@ class ApiAuthMiddlewareTest extends TestCase
         $this->assertArrayHasKey('statusmessage', $decoded);
         $this->assertArrayHasKey('message', $decoded);
         $this->assertArrayHasKey('error', $decoded);
+    }
+
+    // -------------------------------------------------------------------------
+    // The application's own signed-in page — no API key, session + CSRF instead
+    // -------------------------------------------------------------------------
+
+    /**
+     * A same-origin request from a signed-in page is let through without an API key.
+     *
+     * The one caller that legitimately has none: a page cannot be given a key, since
+     * anything the document can read a reader of the document can read. Until this
+     * existed a server-rendered screen could not call its own endpoint at all — the
+     * framework's own search box answered 403 on every project.
+     */
+    public function testSignedInPageWithCsrfTokenIsLetThroughWithoutAnApiKey(): void
+    {
+        // Arrange — a live web session, and the token only our own document can read
+        $csrf = $this->injectWebSession(7);
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = $csrf;
+
+        $mw     = new ApiAuthMiddleware(fn() => true);
+        $called = false;
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/api/1.0/admin/search', 'GET'),
+            function () use (&$called): string { $called = true; return 'ok'; }
+        );
+
+        // Assert
+        $this->assertTrue($called, 'a signed-in page must reach its own endpoint');
+        $this->assertSame('ok', $result);
+        $this->assertSame(
+            7,
+            (int) (\Pramnos\User\User::getCurrentUser()->userid ?? 0),
+            'and be identified as the user whose session it is'
+        );
+    }
+
+    /**
+     * The session cookie alone is not enough.
+     *
+     * It is attached to a cross-site request too, so accepting it by itself would
+     * turn every API endpoint into one any other site could call on a visitor's
+     * behalf. The CSRF token is the half that proves the caller read our page.
+     */
+    public function testSessionWithoutTheCsrfHeaderIsStillRefused(): void
+    {
+        // Arrange — signed in, but the request carries no CSRF header
+        $this->injectWebSession(7);
+
+        $mw     = new ApiAuthMiddleware(fn() => true);
+        $called = false;
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/api/1.0/admin/search', 'GET'),
+            function () use (&$called): string { $called = true; return 'ok'; }
+        );
+
+        // Assert
+        $this->assertFalse($called, '$next must not run on a cookie alone');
+        $this->assertSame('APIKeyMissing', json_decode($result, true)['error']);
+    }
+
+    /**
+     * A wrong CSRF token is refused, which is the whole point of comparing it.
+     */
+    public function testSessionWithAMismatchedCsrfTokenIsRefused(): void
+    {
+        // Arrange
+        $this->injectWebSession(7);
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = 'not-the-session-token';
+
+        $mw     = new ApiAuthMiddleware(fn() => true);
+        $called = false;
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/api/1.0/admin/search', 'GET'),
+            function () use (&$called): string { $called = true; return 'ok'; }
+        );
+
+        // Assert
+        $this->assertFalse($called);
+        $this->assertSame('APIKeyMissing', json_decode($result, true)['error']);
+    }
+
+    /**
+     * A session belonging to the anonymous account authenticates nothing.
+     *
+     * User 1 is the anonymous/system account: letting it through would publish it as
+     * the caller's identity, and every `isAuthenticated()` check downstream reads
+     * that as a signed-in user.
+     */
+    public function testAnonymousSessionIsRefusedRatherThanPublishedAsAnIdentity(): void
+    {
+        // Arrange
+        $csrf = $this->injectWebSession(1);
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = $csrf;
+
+        $mw     = new ApiAuthMiddleware(fn() => true);
+        $called = false;
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/api/1.0/admin/search', 'GET'),
+            function () use (&$called): string { $called = true; return 'ok'; }
+        );
+
+        // Assert
+        $this->assertFalse($called);
+        $this->assertSame(401, json_decode($result, true)['status']);
+    }
+
+    /**
+     * A token of some other type in the session is not a web session.
+     *
+     * `$_SESSION['usertoken']` is written by more than the login path, and an
+     * access token that happened to be parked there must not become a way past the
+     * API key check.
+     */
+    public function testATokenThatIsNotAWebSessionDoesNotOpenThePath(): void
+    {
+        // Arrange
+        $csrf = $this->injectWebSession(7);
+        $_SESSION['usertoken']->tokentype = \Pramnos\User\Token::TYPE_ACCESS_TOKEN;
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = $csrf;
+
+        $mw     = new ApiAuthMiddleware(fn() => true);
+        $called = false;
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/api/1.0/admin/search', 'GET'),
+            function () use (&$called): string { $called = true; return 'ok'; }
+        );
+
+        // Assert
+        $this->assertFalse($called);
+        $this->assertSame('APIKeyMissing', json_decode($result, true)['error']);
+    }
+
+    /**
+     * A signed-in browser session, as the login path leaves it.
+     *
+     * @param int $userid Who the session belongs to
+     * @return string The session's CSRF token, to be echoed as the header
+     */
+    private function injectWebSession(int $userid): string
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $csrf = bin2hex(random_bytes(16));
+        $_SESSION['csrf_token'] = $csrf;
+
+        $token            = new \Pramnos\User\Token();
+        $token->tokentype = \Pramnos\User\Token::TYPE_WEB_SESSION;
+        $token->status    = 1;
+        $token->tokenid   = 42;
+        $token->userid    = $userid;
+        $_SESSION['usertoken'] = $token;
+        $_SESSION['uid']       = $userid;
+
+        // Pre-set, so the middleware needs no database to answer who this is.
+        $user         = new \stdClass();
+        $user->userid = $userid;
+        $_SESSION['user'] = $user;
+
+        return $csrf;
     }
 }

@@ -291,12 +291,49 @@ abstract class BaseTestCase extends TestCase
             'uid' => $userId,
         ]);
 
+        /**
+         * The web-session token a real login also leaves behind.
+         *
+         * `Auth::` creates one on every sign-in, and more than request logging reads
+         * it: it is half of what lets a page call the application's own API — see
+         * {@see \Pramnos\Http\Middleware\ApiAuthMiddleware}. Without it a test
+         * signed a user in to a session that no real login produces, and the
+         * same-origin path could not be tested at all.
+         *
+         * Best-effort: a unit test has no database, and failing to write a token is
+         * not a reason to fail signing in.
+         */
+        try {
+            $user = new \Pramnos\User\User((int) $userId);
+            if ((int) $user->userid > 1) {
+                $user->createWebSessionToken();
+            }
+        } catch (\Throwable) {
+            // No database, or no usertokens table — the rest of the session stands.
+        }
+
         // The identity is cached on the application for the length of a request,
         // so a stale one would answer for the user just signed in.
         $app = \Pramnos\Application\Application::currentInstance();
         if ($app !== null) {
             $app->currentUser = null;
         }
+    }
+
+    /**
+     * The `X-CSRF-Token` header a same-origin call to this application's API needs.
+     *
+     * A page presents no API key — it presents its session plus this token, which is
+     * what `ApiAuthMiddleware` accepts in place of one. Spelled as a `$_SERVER` key
+     * because that is what a test dispatcher takes.
+     *
+     * @return array{HTTP_X_CSRF_TOKEN: string}
+     */
+    protected function sameOriginApiHeaders(): array
+    {
+        return [
+            'HTTP_X_CSRF_TOKEN' => \Pramnos\Http\Session::getInstance()->getCsrfToken(),
+        ];
     }
 
     /**
@@ -312,7 +349,10 @@ abstract class BaseTestCase extends TestCase
             $_SESSION['logged'],
             $_SESSION['uid'],
             $_SESSION['auth'],
-            $_SESSION['user_id']
+            $_SESSION['user_id'],
+            // Left behind, this is still a live credential: it is what
+            // ApiAuthMiddleware accepts from a same-origin page.
+            $_SESSION['usertoken']
         );
 
         $app = \Pramnos\Application\Application::currentInstance();

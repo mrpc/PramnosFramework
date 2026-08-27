@@ -51,6 +51,9 @@ use Pramnos\Http\Request;
  */
 class ApiAuthMiddleware implements MiddlewareInterface
 {
+    // Lets the application's own signed-in page call its own API without a key.
+    use SameOriginSessionTrait;
+
     /**
      * @param callable    $apiKeyChecker  fn(string $key): bool — returns true for a valid API key.
      * @param string      $authKey        Symmetric HMAC key for HS256 JWT verification.
@@ -66,7 +69,41 @@ class ApiAuthMiddleware implements MiddlewareInterface
     {
         // --- API key check ---
         if (empty($_SERVER['HTTP_APIKEY'])) {
-            return $this->error(403, 'APIKeyMissing', 'API key is missing.');
+            /**
+             * One caller legitimately has no API key: the application's own
+             * signed-in page.
+             *
+             * An API key names the *client*, and for a same-origin request from
+             * our own document the client is us. A browser page cannot be given
+             * one either — anything the page can read, a reader of the page can
+             * read — so a server-rendered screen calling its own endpoint had no
+             * way to be let in, and every such call answered 403 with the key
+             * missing. That is what the framework's own search box did on every
+             * scaffolded project.
+             *
+             * The session cookie alone would not do: the browser attaches it to
+             * a cross-site request too. Paired with a CSRF token the page had to
+             * be read to obtain, it is the same signal
+             * {@see UnifiedAuthMiddleware} accepts, and no weaker.
+             */
+            if (!$this->hasValidSessionWithCsrf()) {
+                return $this->error(403, 'APIKeyMissing', 'API key is missing.');
+            }
+
+            $sessionUser = isset($_SESSION['user']) && is_object($_SESSION['user'])
+                ? $_SESSION['user']
+                : $this->resolveUser($_SESSION['uid'] ?? null);
+
+            if (!is_object($sessionUser) || (int) ($sessionUser->userid ?? 0) < 2) {
+                return $this->error(401, 'Unauthenticated', 'Session is not signed in.');
+            }
+
+            // 'session', so a controller asking how this request was authenticated
+            // is told the truth — this is the one path where the cookie is the
+            // credential rather than something to be ignored.
+            $this->setRequestUser($sessionUser, 'session');
+
+            return $next($request);
         }
 
         if (!($this->apiKeyChecker)($_SERVER['HTTP_APIKEY'])) {

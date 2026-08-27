@@ -58,6 +58,9 @@ use Pramnos\Http\Request;
  */
 class UnifiedAuthMiddleware implements MiddlewareInterface
 {
+    // The session-cookie + CSRF check, shared with ApiAuthMiddleware.
+    use SameOriginSessionTrait;
+
     /**
      * @param string      $authKey       HS256 HMAC key for JWT verification.
      * @param string|null $appNamespace  Application namespace for User class resolution.
@@ -160,43 +163,6 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
         }
 
         return $next($request);
-    }
-
-    /**
-     * Return true when a valid web-session token exists in the session AND
-     * the X-CSRF-Token header matches the session CSRF token.
-     */
-    private function hasValidSessionWithCsrf(): bool
-    {
-        // Must have an active web-session token in the session
-        if (!isset($_SESSION['usertoken']) || !is_object($_SESSION['usertoken'])) {
-            return false;
-        }
-        /** @var \Pramnos\User\Token $tkn */
-        $tkn = $_SESSION['usertoken'];
-        if ($tkn->tokentype !== \Pramnos\User\Token::TYPE_WEB_SESSION) {
-            return false;
-        }
-        if ((int) $tkn->status !== 1) {
-            return false;
-        }
-
-        // Must have X-CSRF-Token header that matches the session CSRF token
-        $csrfHeader = $_SERVER['HTTP_X_CSRF_TOKEN']
-            ?? $_SERVER['HTTP_X_XSRF_TOKEN']
-            ?? '';
-        if ($csrfHeader === '') {
-            return false;
-        }
-
-        try {
-            $session    = \Pramnos\Http\Session::getInstance();
-            $csrfSess   = $session->getCsrfToken();
-            // Constant-time comparison to avoid timing attacks
-            return hash_equals($csrfSess, $csrfHeader);
-        } catch (\Throwable) {
-            return false;
-        }
     }
 
     /**

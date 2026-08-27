@@ -188,6 +188,21 @@ it, create the file, register at least one source, and:
 The route is `GET <api_prefix>/admin/search`, handled by
 `\Pramnos\Auth\Controllers\ApiAdmin::search()`.
 
+## How the box authenticates
+
+It doesn't send an API key — a page has none to send. It sends the session cookie plus
+`X-CSRF-Token`, read from the `<meta name="csrf">` tag the document prints for a
+signed-in visitor, and `ApiAuthMiddleware` accepts that pair in place of a key. See
+[Calling your own API from your own page](Pramnos_API_Guide.md#calling-your-own-api-from-your-own-page).
+
+Two things follow for a project adopting this:
+
+- **`pf-utils.js` has to be current.** The handler and `pfApiHeaders()` both live
+  there; an older copy renders the box and does nothing with it.
+  `pramnos project:resync` brings the file forward.
+- **The token comes from the framework's document**, not from your theme — nothing to
+  add to `head.php`.
+
 ## See also
 
 - [HTML Components](Pramnos_Html_Components_Guide.md) — `SearchBox`, `Input`, `Select`, `Pagination`

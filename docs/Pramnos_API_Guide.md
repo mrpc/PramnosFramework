@@ -445,10 +445,44 @@ new \Pramnos\Http\Middleware\ApiAuthMiddleware(
 
 | Condition | HTTP status | `error` key |
 |---|---|---|
-| `HTTP_APIKEY` missing | 403 | `APIKeyMissing` |
+| `HTTP_APIKEY` missing, and no same-origin session (below) | 403 | `APIKeyMissing` |
 | API key invalid | 401 | `APIKeyInvalid` |
 | JWT malformed / unreadable | 403 | `InvalidAccessToken` |
 | JWT valid but user not found | 403 | `InvalidAccessToken` |
+
+#### Calling your own API from your own page
+
+One caller legitimately has no API key: a page of your own application. A key names
+the *client*, and for a same-origin request from your own document the client is you —
+and a page cannot be given one anyway, because anything the document can read, a
+reader of the document can read.
+
+So a request with **no API key** is accepted when both of these hold:
+
+- the session carries an active `web_session` token — which every web login creates;
+- the request carries `X-CSRF-Token` matching the session's CSRF token.
+
+The cookie alone is not enough: the browser attaches it to a cross-site request too.
+The CSRF token is the half that proves the caller read your page.
+
+Nothing to configure — the pieces are already on a scaffolded page:
+
+- the document prints `<meta name="csrf" content="…">` in the `<head>`, for a
+  signed-in visitor only (an anonymous page gets no tag, because reading the token
+  would start a session on every public URL);
+- `assets/js/pf-utils.js` exposes `window.pfApiHeaders(extra)`, which adds the header
+  from that tag. Use it for your own calls:
+
+```js
+fetch('/api/1.0/admin/users', {
+    credentials: 'same-origin',
+    headers: pfApiHeaders({ 'Accept': 'application/json' })
+});
+```
+
+Without the header the request is anonymous and answers 403 `APIKeyMissing`, which is
+what `Html\SearchBox` did before this existed: the box rendered, the endpoint
+answered, and typing did nothing.
 
 ### UnifiedAuthMiddleware (SPA / same-origin auth)
 

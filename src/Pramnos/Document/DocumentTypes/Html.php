@@ -173,6 +173,9 @@ class Html extends \Pramnos\Document\Document
         // before and meant every application escaped the URL itself or did not.
         $content .= $this->seoHeadMarkup();
 
+        // What lets this page's own JavaScript call this application's own API.
+        $content .= $this->csrfHeadMarkup();
+
 
         $content .= $this->header;
         // Space-separated, and **escaped**. A class name reaches this from

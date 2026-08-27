@@ -805,6 +805,43 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * The CSRF token, as a `<meta name="csrf">` tag, for a signed-in page.
+     *
+     * A page that calls its own API has no API key to send — anything the document
+     * can read, a reader of the document can read — so what it presents instead is
+     * this token, echoed as an `X-CSRF-Token` header.
+     * {@see \Pramnos\Http\Middleware\ApiAuthMiddleware} and
+     * {@see \Pramnos\Http\Middleware\UnifiedAuthMiddleware} accept that pair in
+     * place of a key, and `assets/js/pf-utils.js` reads the tag. Without it the
+     * framework's own search box answered 403 everywhere, with the theme, the
+     * endpoint and the browser handler each individually correct.
+     *
+     * Emitted for a **signed-in** page only, and only when a session is already
+     * running. Two reasons, both practical rather than tidy: on an anonymous page the
+     * token authenticates nothing, and reading it would start a session on every
+     * public URL — which is the difference between a page a shared cache can hold and
+     * one it cannot.
+     *
+     * @return string
+     */
+    protected function csrfHeadMarkup()
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE || !isset($_SESSION['usertoken'])) {
+            return '';
+        }
+
+        try {
+            $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+        } catch (\Throwable) {
+            // A page is not worth failing over a token it may not even use.
+            return '';
+        }
+
+        return "\n        " . '<meta name="csrf" content="'
+            . $this->escapeHeadValue($token) . '" />';
+    }
+
+    /**
      * The head markup for the canonical link and every structured-data block.
      *
      * @return string

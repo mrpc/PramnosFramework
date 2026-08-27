@@ -18,6 +18,10 @@
  *   data-stats-open             — open the stats modal and load JSON from data-stats-url
  *   data-stats-url="url"        — (with data-stats-open) endpoint returning the stats JSON
  *   data-stats-close            — close the stats modal
+ *
+ * Same-origin API calls made from here send `X-CSRF-Token` from `<meta name="csrf">`
+ * (window.pfApiHeaders) — that is what authenticates a page against its own API.
+ *
  *   data-pf-omnibox             — cross-entity search box (see Html\SearchBox); the
  *                                 endpoint, minimum length, debounce and the loading /
  *                                 empty strings come from data-pf-omnibox-* attributes
@@ -28,6 +32,28 @@
  */
 (function () {
     'use strict';
+
+    /**
+     * The headers a same-origin call to this application's own API needs.
+     *
+     * The API expects an `apikey` header, which a page cannot carry: anything the
+     * document can read, a reader of the document can read. What it can prove
+     * instead is that it *is* our document — by echoing the CSRF token printed in
+     * `<meta name="csrf">`, which a cross-site page cannot read. `ApiAuthMiddleware`
+     * accepts that pair in place of a key.
+     *
+     * With no meta tag the request goes out without the header and the API answers
+     * 403: the tag is what a server-rendered theme has to print, not something this
+     * can invent.
+     */
+    function pfApiHeaders(extra) {
+        var headers = extra || {};
+        var meta = document.querySelector('meta[name="csrf"]');
+        if (meta && meta.content) { headers['X-CSRF-Token'] = meta.content; }
+        return headers;
+    }
+
+    window.pfApiHeaders = pfApiHeaders;
 
     document.addEventListener('click', function (e) {
         // ── data-confirm ──────────────────────────────────────────────────────
@@ -134,7 +160,10 @@
             return;
         }
 
-        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+        fetch(url, {
+            headers: pfApiHeaders({ 'X-Requested-With': 'XMLHttpRequest' }),
+            credentials: 'same-origin'
+        })
             .then(function (r) { return r.json(); })
             .then(function (d) { body.innerHTML = renderStats(d); })
             .catch(function () {
@@ -317,7 +346,7 @@
 
                 fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(term), {
                     credentials: 'same-origin',
-                    headers: { 'Accept': 'application/json' },
+                    headers: pfApiHeaders({ 'Accept': 'application/json' }),
                     signal: inFlight ? inFlight.signal : undefined
                 }).then(function (response) {
                     if (!response.ok) { throw new Error('HTTP ' + response.status); }
