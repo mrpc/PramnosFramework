@@ -39,6 +39,9 @@ class UsersController extends Controller
             'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword',
             // The per-user record screens and the operator actions they offer.
             'activity', 'activitydata', 'unlocklogin', 'disabletwofactor', 'revokepasskey',
+            // Per-user settings and per-user permissions, edited where the user is.
+            'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
+            'notify', 'sendnotification', 'signinalerts',
         ]);
         parent::__construct($application);
     }
@@ -111,6 +114,39 @@ class UsersController extends Controller
         // Everything else the framework records about this account — see userRecords().
         $view->records      = $this->userRecords($id);
         return $view->display('view');
+    }
+
+    /**
+     * The permission rows granted directly to one user.
+     *
+     * Only the direct grants: the resolver also answers from usertype and from group
+     * membership, and a screen that mixed the two would offer a "revoke" button for a
+     * permission this user does not have a row for. What can be removed here is what was
+     * granted here.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function userPermissions(int $userId): array
+    {
+        if ($userId < 2) {
+            return [];
+        }
+
+        try {
+            $result = \Pramnos\Database\Database::getInstance()->queryBuilder()
+                ->table('authserver.permissions')
+                ->where('subject_type', 'user')
+                ->where('subject_id', $userId)
+                ->orderBy('object_type')
+                ->orderBy('action')
+                ->get();
+
+            return $result ? (array) $result->fetchAll() : [];
+        } catch (\Throwable) {
+            // The table ships with the `authserver` feature; without it there are no
+            // per-user grants to show, which is not an error.
+            return [];
+        }
     }
 
     /**
@@ -189,6 +225,15 @@ class UsersController extends Controller
             // What the user chose about their own data.
             'privacy' => $rows(fn ($qb) => $qb->table('authserver.user_privacy_settings')
                 ->where('userid', $userId)->limit(1)->get())[0] ?? null,
+
+            // Whether this account is told about a sign-in from a device it has not
+            // used, and whether that is its own choice or the site's policy.
+            'signInAlerts' => [
+                'policy'  => (string) (\Pramnos\Application\Settings::getSetting(
+                    \Pramnos\Auth\NewSignInAlert::POLICY_SETTING
+                ) ?: 'optin'),
+                'enabled' => \Pramnos\Auth\NewSignInAlert::isEnabledFor($userId),
+            ],
 
             // What was done with this account's tokens — issued, revoked, refreshed.
             'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions')
@@ -379,6 +424,13 @@ class UsersController extends Controller
         $view                  = $this->getView('users');
         $view->action          = 'edit';
         $view->currentUserType = $currentUserType;
+        /**
+         * Every column the framework's own schema gives a user.
+         *
+         * The form had eight of them. The rest — phone, mobile, language, timezone —
+         * exist in `users`, are written by the account screens the user sees, and an
+         * operator correcting a typo in somebody's phone number had no way to do it.
+         */
         $view->user            = [
             'userid'    => (int) ($user->userid ?? 0),
             'username'  => (string) ($user->username ?? ''),
@@ -386,12 +438,24 @@ class UsersController extends Controller
             'usertype'  => (int) ($user->usertype ?? 1),
             'firstname' => (string) ($user->firstname ?? ''),
             'lastname'  => (string) ($user->lastname ?? ''),
+            'phone'     => (string) ($user->phone ?? ''),
+            'mobile'    => (string) ($user->mobile ?? ''),
+            'language'  => (string) ($user->language ?? ''),
+            'timezone'  => (string) ($user->timezone ?? ''),
             'active'    => (int) ($user->active ?? 1),
             'validated' => (int) ($user->validated ?? 1),
         ];
         $view->isNew   = $isNew;
+
+        // The two things an operator edits *about* an account rather than *on* it: the
+        // switches an application keeps per user, and what this user may do.
+        $view->settings    = $isNew ? [] : $user->listSettings();
+        $view->permissions = $isNew ? [] : $this->userPermissions($id);
+        $view->usertypes   = \Pramnos\User\UserTypes::labels();
+
         $view->error   = $_SESSION['users_error'] ?? '';
-        unset($_SESSION['users_error']);
+        $view->success = $_SESSION['users_success'] ?? '';
+        unset($_SESSION['users_error'], $_SESSION['users_success']);
         return $view->display('edit');
     }
 
@@ -452,6 +516,15 @@ class UsersController extends Controller
         $user->usertype  = $usertype;
         $user->active    = $active;
         $user->validated = $validated;
+
+        // The contact and locale columns the schema has always carried. Only written when
+        // the form sent them, so a subclass rendering a shorter form does not blank a
+        // column it never showed.
+        foreach (['phone', 'mobile', 'language', 'timezone'] as $field) {
+            if (array_key_exists($field, $_POST)) {
+                $user->$field = trim(strip_tags((string) $_POST[$field]));
+            }
+        }
 
         if ($password !== '') {
             if ($id === 0) {
@@ -515,6 +588,336 @@ class UsersController extends Controller
             $this->setActiveFlag($id, 1);
         }
         $this->redirect(adminUrl('users'));
+    }
+
+    /**
+     * Turn new-sign-in alerts on or off for one account.
+     *
+     * The preference is the user's own — it lives beside their other account settings —
+     * and an operator needs to be able to set it too: the person asking "why did I not get
+     * an email when somebody logged in as me" cannot be walked through a settings screen
+     * over the phone as reliably as it can simply be turned on.
+     *
+     * A no-op when the site's policy is `always` or `off`, and the screen says so rather
+     * than offering a switch that decides nothing.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function signinalerts(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id      = (int) \Pramnos\Http\Request::staticGetOption();
+        $enabled = (string) \Pramnos\Http\Request::staticGet('enabled', '', 'get') === '1';
+
+        if ($id < 2) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            \Pramnos\Auth\NewSignInAlert::setEnabledFor($id, $enabled);
+            \Pramnos\Auth\ActivityLog::record($id, 'signin_alerts_' . ($enabled ? 'enabled' : 'disabled'), [
+                'by' => (int) (User::getCurrentUser()->userid ?? 0),
+            ]);
+            $_SESSION['users_success'] = $enabled
+                ? 'New-sign-in alerts turned on for this account.'
+                : 'New-sign-in alerts turned off for this account.';
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not change that: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * The form for sending one user a message.
+     *
+     * An operator looking at an account frequently needs to *say* something to it — "your
+     * export is ready", "we reset your second factor", "your account is locked because".
+     * Before this the only route was the operator's own mail client, which leaves no
+     * record on the account and uses whatever address they happen to type.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function notify(mixed $id = null): mixed
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+
+        $user = new User();
+        if ($id > 1) {
+            $user->load($id);
+        }
+        if ((int) $user->userid < 2) {
+            $this->redirect(adminUrl('users'));
+
+            return null;
+        }
+
+        $doc        = Factory::getDocument();
+        $doc->title = 'Message ' . htmlspecialchars((string) $user->username, ENT_QUOTES, 'UTF-8');
+
+        $view       = $this->getView('users');
+        $view->user = [
+            'userid'    => (int) $user->userid,
+            'username'  => (string) $user->username,
+            'email'     => (string) $user->email,
+            'firstname' => (string) $user->firstname,
+            'lastname'  => (string) $user->lastname,
+        ];
+
+        return $view->display('notify');
+    }
+
+    /**
+     * Send the message from {@see notify()}.
+     *
+     * Recorded in the activity log — what was sent to an account, and by whom, is part of
+     * that account's history, and an operator who has to ask "did anybody tell them?" is
+     * asking a question the log should answer.
+     *
+     * The body is sent as text: an operator writing to one user is writing a sentence, not
+     * building a template, and accepting markup here would make every message a place to
+     * paste something that renders in somebody's mail client.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function sendnotification(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id      = (int) \Pramnos\Http\Request::staticGetOption();
+        $subject = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('subject', '', 'post')));
+        $message = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('message', '', 'post')));
+
+        $user = new User();
+        if ($id > 1) {
+            $user->load($id);
+        }
+        if ((int) $user->userid < 2) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        if ($subject === '' || $message === '') {
+            $_SESSION['users_error'] = 'A message needs a subject and a body.';
+            $this->redirect(adminUrl('users/notify/') . $id);
+
+            return;
+        }
+
+        $address = (string) $user->email;
+        if ($address === '' || filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
+            $_SESSION['users_error'] = 'This account has no usable email address.';
+            $this->redirect(adminUrl('users/view/') . $id);
+
+            return;
+        }
+
+        $operator = User::getCurrentUser();
+
+        try {
+            $sent = \Pramnos\Email\Email::sendMail($subject, nl2br(htmlspecialchars(
+                $message,
+                ENT_QUOTES,
+                'UTF-8'
+            )), $address);
+
+            \Pramnos\Auth\ActivityLog::record($id, 'operator_message_sent', [
+                'subject' => $subject,
+                'by'      => $operator ? (int) $operator->userid : 0,
+                'sent'    => (bool) $sent,
+            ]);
+
+            $_SESSION[$sent ? 'users_success' : 'users_error'] = $sent
+                ? 'Message sent.'
+                : 'The mailer refused the message — check the mail settings.';
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not send: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * Create or replace one per-user setting.
+     *
+     * The switches an application keeps about an account — a feature flag, a quota, a
+     * default — live in `usersettings`, and an operator answering "why is this account
+     * behaving like that" has to be able to see and change them. Before this the only
+     * way in was a database client.
+     *
+     * The value is taken as text and stored as JSON: text that *is* JSON is stored as the
+     * structure it describes, so a list stays a list, and anything else is stored as a
+     * string. That is what lets one form field serve a flag, a number and a list without
+     * asking the operator to know which is which.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function savesetting(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id      = (int) \Pramnos\Http\Request::staticGetOption();
+        $setting = trim((string) \Pramnos\Http\Request::staticGet('setting', '', 'post'));
+        $raw     = (string) \Pramnos\Http\Request::staticGet('value', '', 'post');
+
+        if ($id < 2 || $setting === '') {
+            $_SESSION['users_error'] = 'A setting needs a name.';
+            $this->redirect(adminUrl('users/edit/') . max(0, $id));
+
+            return;
+        }
+
+        // Text that is JSON is stored as the structure; anything else as a string. A
+        // form field cannot ask which, and guessing wrong in this direction is harmless:
+        // `"1"` and `1` read the same for a flag, and a mistyped object stays readable.
+        $decoded = json_decode($raw, true);
+        $value   = json_last_error() === JSON_ERROR_NONE ? $decoded : $raw;
+
+        $user = new User();
+        $user->load($id);
+        $operator = User::getCurrentUser();
+
+        $user->setSetting($setting, $value, $operator ? (int) $operator->userid : null)
+            ? $_SESSION['users_success'] = 'Setting saved.'
+            : $_SESSION['users_error']   = 'Could not save that setting.';
+
+        $this->redirect(adminUrl('users/edit/') . $id);
+    }
+
+    /**
+     * Remove one per-user setting.
+     *
+     * Deleted rather than blanked: no row means the application's own default applies
+     * again, and a null value means somebody deliberately set it to nothing. An operator
+     * undoing a change wants the first.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function deletesetting(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id      = (int) \Pramnos\Http\Request::staticGetOption();
+        $setting = (string) \Pramnos\Http\Request::staticGet('setting', '', 'get');
+
+        if ($id < 2 || $setting === '') {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        $user = new User();
+        $user->load($id);
+        $user->deleteSetting($setting);
+        $_SESSION['users_success'] = 'Setting removed.';
+
+        $this->redirect(adminUrl('users/edit/') . $id);
+    }
+
+    /**
+     * Grant one permission to this user.
+     *
+     * The permission store has always been able to hold this — `authserver.permissions`,
+     * subject/object/action — and the only screen that wrote to it was the permissions
+     * list, which asks for a user id in a field. Granting from the user's own screen is
+     * the direction an operator actually works in: they are looking at a person and
+     * deciding what that person may do.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function grantpermission(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id         = (int) \Pramnos\Http\Request::staticGetOption();
+        $objectType = trim((string) \Pramnos\Http\Request::staticGet('object_type', '', 'post'));
+        $action     = trim((string) \Pramnos\Http\Request::staticGet('action', '', 'post'));
+        $objectId   = trim((string) \Pramnos\Http\Request::staticGet('object_id', '', 'post'));
+        $grantType  = \Pramnos\Http\Request::staticGet('grant_type', 'allow', 'post') === 'deny'
+            ? 'deny'
+            : 'allow';
+
+        if ($id < 2 || $objectType === '' || $action === '') {
+            $_SESSION['users_error'] = 'A permission needs an object type and an action.';
+            $this->redirect(adminUrl('users/edit/') . max(0, $id));
+
+            return;
+        }
+
+        $operator = User::getCurrentUser();
+
+        try {
+            \Pramnos\Database\Database::getInstance()->queryBuilder()
+                ->table('authserver.permissions')
+                ->insert([
+                    'subject_type' => 'user',
+                    'subject_id'   => $id,
+                    'object_type'  => $objectType,
+                    'object_id'    => $objectId !== '' ? $objectId : null,
+                    'action'       => $action,
+                    // A deny is not decoration: the resolver treats an explicit deny as
+                    // final, which is how one account is excluded from something its
+                    // usertype otherwise allows.
+                    'grant_type'   => $grantType,
+                    'priority'     => max(0, (int) \Pramnos\Http\Request::staticGet('priority', 100, 'post', 'int')),
+                    'granted_by'   => $operator ? (int) $operator->userid : null,
+                ]);
+            \Pramnos\Auth\ActivityLog::record($id, 'permission_granted', [
+                'object_type' => $objectType,
+                'action'      => $action,
+                'grant_type'  => $grantType,
+                'by'          => $operator ? (int) $operator->userid : 0,
+            ]);
+            $_SESSION['users_success'] = 'Permission ' . $grantType . 'ed.';
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not save that permission: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/edit/') . $id);
+    }
+
+    /**
+     * Remove one permission row from this user.
+     *
+     * By its own id, and matched on the user as well: a request naming somebody else's
+     * grant removes nothing rather than removing theirs.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function revokepermission(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id           = (int) \Pramnos\Http\Request::staticGetOption();
+        $permissionId = (int) \Pramnos\Http\Request::staticGet('permission', 0, 'get', 'int');
+
+        if ($id < 2 || $permissionId < 1) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            $affected = \Pramnos\Database\Database::getInstance()->queryBuilder()
+                ->table('authserver.permissions')
+                ->where('permissionid', $permissionId)
+                ->where('subject_type', 'user')
+                ->where('subject_id', $id)
+                ->delete();
+
+            if ($affected) {
+                \Pramnos\Auth\ActivityLog::record($id, 'permission_revoked', [
+                    'permission' => $permissionId,
+                    'by'         => (int) (User::getCurrentUser()->userid ?? 0),
+                ]);
+            }
+            $_SESSION['users_success'] = $affected
+                ? 'Permission removed.'
+                : 'That permission does not belong to this user.';
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not remove that permission: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/edit/') . $id);
     }
 
     /**
@@ -934,14 +1337,4 @@ class UsersController extends Controller
         ));
     }
 
-    /**
-     * Redirect to homepage if the current user's usertype is below $minType.
-     */
-    protected function requireMinUserType(int $minType): void
-    {
-        $user = User::getCurrentUser();
-        if ($user === null || (int) $user->usertype < $minType) {
-            $this->redirect(sURL);
-        }
-    }
 }

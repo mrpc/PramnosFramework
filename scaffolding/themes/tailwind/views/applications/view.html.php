@@ -88,17 +88,39 @@ $accessTypeLabel = function (int $t): string {
 
             <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
                 <div class="px-4 py-2 bg-base-200 text-xs font-semibold text-base-content/70 uppercase tracking-wide rounded-t-xl">Actions</div>
+                <?php
+                /**
+                 * Left-aligned, icon-first, `btn-block` — the same shape the user record
+                 * uses, from the same `Html\Icon` set. Centred label-only buttons in a
+                 * narrow column read as four identical pills: the icon is what makes the
+                 * list scannable, and a daisyUI `btn` centres its content unless the
+                 * content is told where to go.
+                 */
+                $action = static function (
+                    string $url,
+                    string $icon,
+                    string $label,
+                    string $classes = 'btn-outline',
+                    string $confirm = ''
+                ): void {
+                    echo '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '"'
+                        . ' class="btn btn-sm btn-block justify-start gap-2 ' . $classes . '"'
+                        . ($confirm !== ''
+                            ? ' data-confirm="' . htmlspecialchars($confirm, ENT_QUOTES, 'UTF-8') . '"'
+                            : '')
+                        . '>' . \Pramnos\Html\Icon::svg($icon)
+                        . '<span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span></a>';
+                };
+                ?>
                 <div class="p-4 grid gap-2">
-                    <a href="<?php echo adminUrl('applications' . '/edit/' . ($appId)); ?>"
-                       class="btn btn-primary btn-sm btn-block">Edit Application</a>
-                    <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>"
-                       class="btn btn-outline btn-sm btn-block">View Tokens</a>
-                    <a href="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>"
-                       class="btn btn-outline btn-warning btn-sm btn-block"
-                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
-                    <a href="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>"
-                       class="btn btn-outline btn-error btn-sm btn-block"
-                       data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
+                    <?php
+                    $action(adminUrl('applications/edit/' . $appId), 'edit', 'Edit application', 'btn-primary');
+                    $action(adminUrl('applications/tokens/' . $appId), 'tokens', 'View tokens');
+                    $action(adminUrl('applications/rotate/' . $appId), 'retry', 'Rotate secret', 'btn-outline btn-warning',
+                        'Rotate the client secret? Existing tokens remain valid.');
+                    $action(adminUrl('applications/delete/' . $appId), 'deactivate', 'Disable application', 'btn-outline btn-error',
+                        'Disable this application and revoke all active tokens?');
+                    ?>
                 </div>
             </div>
 

@@ -170,6 +170,24 @@ ksort($initialSteps, SORT_NUMERIC);
                         value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
                     <small style="color:#888;font-size:11px">Durations must increase with each threshold.</small>
                 </div>
+                <div>
+                    <?php
+                    // New-sign-in alerts: the site's policy, inside which the per-user
+                    // preference sits. See NewSignInAlert::POLICY_SETTING.
+                    $policyKey   = \Pramnos\Auth\NewSignInAlert::POLICY_SETTING;
+                    $policyValue = (string) ($s[$policyKey] ?? '') ?: 'optin';
+                    ?>
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo $policyKey; ?>">New sign-in alerts</label>
+                    <select id="<?php echo $policyKey; ?>" name="<?php echo $policyKey; ?>" style="width:100%;padding:6px 8px">
+                        <option value="optin" <?php echo $policyValue === 'optin' ? 'selected' : ''; ?>>Each user decides (default)</option>
+                        <option value="always" <?php echo $policyValue === 'always' ? 'selected' : ''; ?>>Always notify</option>
+                        <option value="off" <?php echo $policyValue === 'off' ? 'selected' : ''; ?>>Never notify</option>
+                    </select>
+                    <small style="color:#888;font-size:11px">
+                        Whether an account is emailed when it is used from a device and browser it has not
+                        signed in from before.
+                    </small>
+                </div>
             </div>
         </div>
 

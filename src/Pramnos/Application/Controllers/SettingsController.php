@@ -93,6 +93,8 @@ class SettingsController extends Controller
             'default_language', 'timezone', 'debug', 'forcessl',
             'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_tls',
             'loginlockoutwindowseconds', 'loginlockoutsteps',
+            // Whether an account is told about a sign-in from a device it has not used.
+            \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
         ];
         if ($devpanelEnabled) {
             $keys[] = 'devpanel.min_usertype';
@@ -144,6 +146,24 @@ class SettingsController extends Controller
         Settings::setSetting('smtp_user', trim($request->get('smtp_user', '', 'post')));
         Settings::setSetting('smtp_pass', $request->get('smtp_pass', '', 'post'));
         Settings::setSetting('smtp_tls',  $this->normalizeYesNo($request->get('smtp_tls', 'no', 'post')));
+
+        /**
+         * New-sign-in alerts: `optin` (the user decides), `always` or `off`.
+         *
+         * The feature was per-user opt-in and nothing else, so an operator could neither
+         * turn it on for everybody nor turn it off during an incident generating thousands
+         * of sign-ins. Unknown values fall back to `optin`, which is the behaviour every
+         * installation had before this setting existed.
+         */
+        $policy = (string) $request->get(
+            \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
+            'optin',
+            'post'
+        );
+        Settings::setSetting(
+            \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
+            in_array($policy, ['optin', 'always', 'off'], true) ? $policy : 'optin'
+        );
 
         // Security
         Settings::setSetting('loginlockoutwindowseconds', (string) $this->normalizeIntRange(
@@ -323,23 +343,6 @@ class SettingsController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Normalize a checkbox/toggle value to 'yes' or 'no'. */
-    /**
-     * Redirect away when the current user is below $minType.
-     *
-     * Returns true when the redirect was issued, so the caller returns early —
-     * the same shape as the other administration controllers.
-     */
-    protected function requireMinUserType(int $minType): bool
-    {
-        $user = \Pramnos\User\User::getCurrentUser();
-
-        if ($user === null || $user === false || (int) $user->usertype < $minType) {
-            $this->redirect(sURL);
-            return true;
-        }
-
-        return false;
-    }
 
     protected function normalizeYesNo(string $value): string
     {

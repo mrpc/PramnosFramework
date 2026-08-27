@@ -791,4 +791,35 @@ class Controller extends \Pramnos\Framework\Base
         }
     }
 
+    /**
+     * Refuse this request unless the signed-in user is at least `$minType`.
+     *
+     * The guard every administration screen opens with, and it lived as an **identical
+     * eleven-line copy in eleven controllers** — so a new admin screen either copied it
+     * again or, as happened, assumed the base class had it and failed at runtime with
+     * `Call to undefined method`. One definition, and a screen that forgets to call it is
+     * the only remaining way to be unguarded.
+     *
+     * Returns `true` when the request was refused, so the caller's first line reads
+     * `if ($this->requireMinUserType(...)) { return; }` — the shape the copies used.
+     *
+     * Redirects to the site root rather than to a login form: somebody signed in who is
+     * merely not senior enough is not helped by being asked to sign in again, and being
+     * asked would read as a broken session.
+     *
+     * @param  int  $minType The usertype floor for this screen
+     * @return bool Whether the request was refused
+     */
+    protected function requireMinUserType(int $minType): bool
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        if ($user === null || $user === false || (int) $user->usertype < $minType) {
+            $this->redirect(defined('sURL') ? \sURL : '/');
+
+            return true;
+        }
+
+        return false;
+    }
 }

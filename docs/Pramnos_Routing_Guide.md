@@ -768,7 +768,8 @@ account and the dashboard.
     `site_url`, `forcessl`, `admin_mail` and the login lockout rules.
 
     Every screen inside the area needs its own `requiredUserType` and a
-    `requireMinUserType()` call in each action. Treat the area's floor — and the
+    `requireMinUserType()` call in each action — it is on `Application\Controller`, so
+    every controller has it. Treat the area's floor — and the
     `src/Admin/` layout — as defence in depth, never as the check.
 
 The two refusals differ on purpose. A guest is sent to sign in with a `return=`

@@ -214,4 +214,70 @@ class RecordingCleanupDatabase extends \Pramnos\Database\Database
     {
         return true;
     }
+
+    /**
+     * A new web-session token retires the one it replaces.
+     *
+     * One sign-in mints one token, and nothing used to end the previous one: a browser
+     * that signed in twice left two rows marked **Active**, from the same address, for the
+     * thirty days of their lifetime.
+     *
+     * Two problems in one row. A list of "active sessions" stops meaning anything — three
+     * rows could be three devices or one browser that re-authenticated three times, which
+     * is the question that list exists to answer. And a token no session cookie can reach
+     * is still a valid credential, because `loadByToken()` takes the raw value: a copy in
+     * a log or an old client keeps working for a month.
+     *
+     * Asserted on the source, because the alternative is a full login against a live
+     * `usertokens` table, and what has to hold is that the replacement happens **before**
+     * the insert — a token retired afterwards would take the new one with it when the
+     * device fingerprint matches, which is exactly the same-browser case.
+     */
+    public function testANewWebSessionTokenRetiresTheOneItReplaces(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/User/User.php'
+        );
+
+        // Act
+        $create  = strpos($source, 'public function createWebSessionToken');
+        $retire  = strpos($source, '$this->retireSupersededWebSessionTokens();', (int) $create);
+        $insert  = strpos($source, '$this->addToken(', (int) $create);
+
+        // Assert
+        $this->assertIsInt($retire, 'creating a token must retire what it supersedes');
+        $this->assertLessThan(
+            $insert,
+            $retire,
+            'the old token is retired before the new one is written, or the same '
+            . 'fingerprint match would retire the new one too'
+        );
+    }
+
+    /**
+     * It retires this session's token and this device's, and nothing else.
+     *
+     * Signing in on a laptop must not sign you out on a phone — that is the whole point of
+     * having more than one session. So the match is the session's own token id, and
+     * failing that the device fingerprint; never "every token this user has".
+     */
+    public function testItRetiresOnlyThisSessionAndThisDevice(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/User/User.php'
+        );
+        $start  = (int) strpos($source, 'private function retireSupersededWebSessionTokens');
+        $body   = substr($source, $start, 2600);
+
+        // Assert — scoped to the session's token and to this device
+        $this->assertStringContainsString("where('tokenid'", $body);
+        $this->assertStringContainsString("where('deviceinfo', $device)", $body);
+        // …and to web sessions only: an access token is not superseded by a login
+        $this->assertStringContainsString('Token::TYPE_WEB_SESSION', $body);
+        // …and it marks them inactive rather than deleting the history
+        $this->assertStringContainsString("'status' => 0", $body);
+        $this->assertStringNotContainsString('->delete()', $body);
+    }
 }

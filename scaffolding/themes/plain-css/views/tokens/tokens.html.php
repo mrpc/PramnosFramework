@@ -35,9 +35,11 @@ $this->activeNav = 'tokens';
                 </thead>
                 <tbody>
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
-                    <?php $actionsUrl = adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
-                    <tr class="pf-clickable" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
-                        <td><?php echo (int)$tok['tokenid']; ?></td>
+                    <?php // The row opens the token's own screen — everything about it, with its
+                    // actions on the same page. The actions list stays one click away.
+                    $tokenUrl = adminUrl('Tokens/view/') . (int) $tok['tokenid']; ?>
+                    <tr class="pf-clickable" data-href="<?php echo $tokenUrl; ?>" title="Open this token">
+                        <td><a class="link" href="<?php echo $tokenUrl; ?>"><?php echo (int)$tok['tokenid']; ?></a></td>
                         <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($tok['app_name'] ?? ('— ' . ($tok['tokentype'] ?? ''))); ?></td>
                         <td><?php

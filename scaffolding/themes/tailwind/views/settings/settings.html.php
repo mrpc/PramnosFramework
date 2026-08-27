@@ -158,6 +158,40 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                             value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
                         <p class="text-xs text-base-content/60 mt-1">Durations must increase with failed attempt count.</p>
                     </div>
+                    <div>
+                        <?php
+                        /**
+                         * New-sign-in alerts.
+                         *
+                         * The feature was per-user opt-in and nothing else: an operator
+                         * could not turn it on for everybody, and could not turn it off
+                         * during an incident generating thousands of sign-ins.
+                         */
+                        $policyKey   = \Pramnos\Auth\NewSignInAlert::POLICY_SETTING;
+                        $policyValue = (string) ($s[$policyKey] ?? '') ?: 'optin';
+                        ?>
+                        <label class="<?php echo $label; ?>" for="<?php echo $policyKey; ?>">
+                            New sign-in alerts
+                        </label>
+                        <select class="select select-sm w-full" id="<?php echo $policyKey; ?>"
+                                name="<?php echo $policyKey; ?>">
+                            <option value="optin" <?php echo $policyValue === 'optin' ? 'selected' : ''; ?>>
+                                Each user decides (default)
+                            </option>
+                            <option value="always" <?php echo $policyValue === 'always' ? 'selected' : ''; ?>>
+                                Always notify
+                            </option>
+                            <option value="off" <?php echo $policyValue === 'off' ? 'selected' : ''; ?>>
+                                Never notify
+                            </option>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            Whether an account is emailed when it is used from a device and
+                            browser it has not signed in from before. Compared against the
+                            activity log, so an account with history is not told its usual
+                            device is new.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>

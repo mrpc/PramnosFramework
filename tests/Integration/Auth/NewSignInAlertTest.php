@@ -311,4 +311,69 @@ class NewSignInAlertTest extends DatabaseTestCase
             'A failed attempt must not teach the account to trust that browser.'
         );
     }
+
+    /**
+     * The site can force the alert on for everybody.
+     *
+     * The feature was per-user opt-in and nothing else, so an operator could not turn it
+     * on for a service where the account *is* the product — an authentication server
+     * telling somebody their credentials were used from a new device is closer to an
+     * obligation than a setting.
+     */
+    public function testASitePolicyOfAlwaysOverridesThePreference(): void
+    {
+        // Arrange — the account has not opted in
+        NewSignInAlert::setEnabledFor(self::USER, false, $this->db);
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'always');
+
+        try {
+            // Act & Assert
+            $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+        } finally {
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+        }
+    }
+
+    /**
+     * And it can switch the whole feature off.
+     *
+     * The case this exists for: an incident generating thousands of sign-ins, where the
+     * alert stops being a security feature and becomes the outage's own mailing list.
+     */
+    public function testASitePolicyOfOffOverridesThePreference(): void
+    {
+        // Arrange — the account *has* opted in
+        NewSignInAlert::setEnabledFor(self::USER, true, $this->db);
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'off');
+
+        try {
+            // Act & Assert
+            $this->assertFalse(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+        } finally {
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+        }
+    }
+
+    /**
+     * With no policy set, the user's own preference decides.
+     *
+     * Which is the behaviour every installation had before the setting existed: upgrading
+     * must not start or stop sending anybody's mail.
+     */
+    public function testNoPolicyLeavesTheDecisionWithTheUser(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, '');
+        NewSignInAlert::setEnabledFor(self::USER, true, $this->db);
+
+        try {
+            // Act & Assert
+            $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+
+            NewSignInAlert::setEnabledFor(self::USER, false, $this->db);
+            $this->assertFalse(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+        } finally {
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+        }
+    }
 }

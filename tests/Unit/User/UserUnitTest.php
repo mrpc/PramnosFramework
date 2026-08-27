@@ -365,4 +365,78 @@ class UserUnitTest extends TestCase
         $this->assertStringContainsString('userfriends', $table);
         $this->assertStringStartsWith('#PREFIX#', $table);
     }
+
+    /**
+     * A per-user setting round-trips through JSON.
+     *
+     * The framework had two places to keep something about a user and neither fits an
+     * operator-visible switch: `users` columns are the shared schema, and `$otherinfo` is
+     * a blob with no list, no per-key delete and nothing an administrator can read.
+     *
+     * Asserted on the accessors' contract with no database behind them: without a table
+     * every read is the default and every write reports failure, which is the behaviour a
+     * project that has not migrated must get — not an exception on a page.
+     */
+    public function testSettingsAnswerTheDefaultWithoutATable(): void
+    {
+        // Arrange — the mock DB in setUp() has no usersettings table
+        $user = new User();
+        $user->userid = 5;
+
+        // Act & Assert
+        $this->assertSame('fallback', $user->getSetting('anything', 'fallback'));
+        $this->assertSame([], $user->listSettings());
+    }
+
+    /**
+     * The anonymous account has no settings, and cannot be given any.
+     *
+     * Ids 0 and 1 are the guest and the built-in system account. A setting on either is a
+     * setting on everybody, which is a global setting wearing a per-user name.
+     */
+    public function testTheAnonymousAccountHasNoSettings(): void
+    {
+        // Arrange
+        $user = new User();
+        $user->userid = 1;
+
+        // Act & Assert
+        $this->assertFalse($user->setSetting('flag', true));
+        $this->assertFalse($user->deleteSetting('flag'));
+        $this->assertSame([], $user->listSettings());
+        $this->assertNull($user->getSetting('flag'));
+    }
+
+    /**
+     * A setting with no name is refused.
+     *
+     * The form posts a free-text name, and an empty one would write a row nothing can
+     * ever look up again — findable only by listing every setting the user has.
+     */
+    public function testASettingNeedsAName(): void
+    {
+        // Arrange
+        $user = new User();
+        $user->userid = 5;
+
+        // Act & Assert
+        $this->assertFalse($user->setSetting('', 'x'));
+        $this->assertFalse($user->deleteSetting(''));
+    }
+
+    /**
+     * The settings table is reported among the tables this class uses.
+     *
+     * `getTableNames()` is what a GDPR export and a schema audit read; a store the class
+     * writes and does not declare is a store neither of them sees.
+     */
+    public function testTheSettingsTableIsDeclared(): void
+    {
+        // Act
+        $tables = (new User())->getTableNames();
+
+        // Assert
+        $this->assertArrayHasKey('usersettings', $tables);
+        $this->assertStringContainsString('usersettings', $tables['usersettings']);
+    }
 }

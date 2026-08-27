@@ -178,6 +178,38 @@ $email->setSubject('Important Document')
       ->send();
 ```
 
+## Message templates, and the screen that edits them
+
+The `messaging` feature ships `mailtemplates` — a table, a model, and a lookup by
+`(category, language, type)`. One notification is several rows: the same category and
+channel, one row per language.
+
+```php
+$template = (new \Pramnos\Messaging\MailTemplate($controller))
+    ->findByKey('auth.passwordreset', 'el', \Pramnos\Messaging\MailTemplate::TYPE_EMAIL);
+```
+
+**`/admin/MailTemplates` is where an operator edits them.** Until it existed the table was
+reachable only through a database client, which in practice meant the templates were not
+edited at all: a project that wanted to change the wording of a password-reset email
+changed the code that composes it and left the template unused.
+
+Three things the screen does, each because leaving it out makes the screen decorative:
+
+- **It lists the placeholders**, read from the template's own body and subject — a
+  documented list goes stale the first time an application adds one, and an editor that
+  shows none is a form where a typo produces a mail with a literal `{nmae}` in it. CSS
+  braces are not mistaken for placeholders.
+- **It groups the language variants**, so the list answers "is the reset email translated
+  into Greek" instead of showing eighty flat rows.
+- **It sends a test**, because the only way to know a template renders is to render it.
+  Placeholders arrive as `[name]` — visible where each one lands, without invented data
+  that would hide a missing one.
+
+The body is stored as written: an email template *is* markup, and a screen that sanitised
+it would make the feature useless. It is escaped where it is displayed — into a
+`<textarea>` and a `<pre>` — which is the correct half to do it in.
+
 ## Email Tracking
 
 The framework includes built-in email tracking functionality that can track when emails are opened.

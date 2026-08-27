@@ -34,9 +34,11 @@
                 </thead>
                 <tbody>
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
-                    <?php $actionsUrl = adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
-                    <tr class="cursor-pointer hover:bg-base-200" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
-                        <td><?php echo (int)$tok['tokenid']; ?></td>
+                    <?php // The row opens the token's own screen — everything about it, with its
+                    // actions on the same page. The actions list stays one click away.
+                    $tokenUrl = adminUrl('Tokens/view/') . (int) $tok['tokenid']; ?>
+                    <tr class="cursor-pointer hover:bg-base-200" data-href="<?php echo $tokenUrl; ?>" title="Open this token">
+                        <td><a class="link" href="<?php echo $tokenUrl; ?>"><?php echo (int)$tok['tokenid']; ?></a></td>
                         <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($tok['app_name'] ?? ('— ' . ($tok['tokentype'] ?? ''))); ?></td>
                         <td><?php
@@ -53,7 +55,22 @@
                                 : '<span class="pf-badge bg-base-200 text-base-content/80">Revoked</span>'; ?>
                         </td>
                         <td class="text-right">
-                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="btn btn-outline btn-error btn-xs" data-confirm="Revoke token?">Revoke</a>
+                            <?php
+                            echo \Pramnos\Html\Icon::link($tokenUrl, 'view', 'Open this token');
+                            echo \Pramnos\Html\Icon::link(
+                                adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=tokens',
+                                'log',
+                                'Actions on this token'
+                            );
+                            if ((int) ($tok['status'] ?? 1) === 1) {
+                                echo \Pramnos\Html\Icon::link(
+                                    adminUrl('Tokens/revoke/') . (int) $tok['tokenid'],
+                                    'deactivate',
+                                    'Revoke this token',
+                                    ['data-confirm' => 'Revoke this token?', 'class' => 'pf-action-danger']
+                                );
+                            }
+                            ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

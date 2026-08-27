@@ -1064,6 +1064,192 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     }
 
     /**
+     * The per-user settings table, honouring `DB_USERSETTINGSTABLE`.
+     */
+    private static function userSettingsTable(): string
+    {
+        return defined('DB_USERSETTINGSTABLE')
+            ? DB_USERSETTINGSTABLE
+            : '#PREFIX#usersettings';
+    }
+
+    /**
+     * One setting for this user, decoded.
+     *
+     * The framework had two places to keep something about a user and neither fits an
+     * operator-visible switch. `users` columns are the schema every application shares,
+     * so an application cannot add to them; `$otherinfo` is a blob, which has no list, no
+     * per-key delete and nothing an administrator can read. This is the third place, and
+     * it is the one with a screen.
+     *
+     * Values round-trip through JSON, so a list stays a list and a number stays a number.
+     * A value that is not valid JSON is returned as the raw string — a row written by
+     * hand in a database client is still worth reading.
+     *
+     * @param  string $setting
+     * @param  mixed  $default Returned when the user has no such setting
+     * @return mixed
+     */
+    public function getSetting(string $setting, $default = null)
+    {
+        if ((int) $this->userid < 2 || $setting === '') {
+            return $default;
+        }
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(self::userSettingsTable())
+                ->where('userid', (int) $this->userid)
+                ->where('setting', $setting)
+                ->first();
+        } catch (\Throwable) {
+            // No table yet: a project that has not migrated has no settings, which is
+            // the same answer as a user with none.
+            return $default;
+        }
+
+        if (!$result || $result->numRows === 0) {
+            return $default;
+        }
+
+        $raw = $result->fields['value'] ?? null;
+        if ($raw === null) {
+            return null;
+        }
+
+        $decoded = json_decode((string) $raw, true);
+
+        return json_last_error() === JSON_ERROR_NONE ? $decoded : $raw;
+    }
+
+    /**
+     * Write one setting, creating or replacing it.
+     *
+     * Upserted on `(userid, setting)` rather than checked-then-written: two requests
+     * saving the same switch would otherwise race into two rows, and "the value" would
+     * stop having an answer.
+     *
+     * @param  string $setting
+     * @param  mixed  $value Anything `json_encode()` accepts; `null` stores a null
+     * @param  int|null $by  Who is writing it — a userid, or null for the application
+     * @return bool Whether it was written
+     */
+    public function setSetting(string $setting, $value, ?int $by = null): bool
+    {
+        if ((int) $this->userid < 2 || $setting === '') {
+            return false;
+        }
+
+        $row = [
+            'userid'     => (int) $this->userid,
+            'setting'    => $setting,
+            'value'      => $value === null ? null : json_encode($value),
+            'updated_at' => time(),
+            'updated_by' => $by,
+        ];
+
+        try {
+            $qb = \Pramnos\Framework\Factory::getDatabase()->queryBuilder();
+            $existing = $qb->table(self::userSettingsTable())
+                ->where('userid', (int) $this->userid)
+                ->where('setting', $setting)
+                ->first();
+
+            if ($existing && $existing->numRows > 0) {
+                \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                    ->table(self::userSettingsTable())
+                    ->where('userid', (int) $this->userid)
+                    ->where('setting', $setting)
+                    ->update($row);
+
+                return true;
+            }
+
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(self::userSettingsTable())
+                ->insert($row);
+
+            return true;
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::log(
+                'User::setSetting failed for ' . $setting . ': ' . $ex->getMessage()
+            );
+
+            return false;
+        }
+    }
+
+    /**
+     * Remove one setting.
+     *
+     * Deleted rather than set to null, because the two mean different things: a null
+     * value is a switch somebody turned off, and no row is a switch nobody has touched —
+     * which is what makes the application's own default apply again.
+     */
+    public function deleteSetting(string $setting): bool
+    {
+        if ((int) $this->userid < 2 || $setting === '') {
+            return false;
+        }
+
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(self::userSettingsTable())
+                ->where('userid', (int) $this->userid)
+                ->where('setting', $setting)
+                ->delete();
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Every setting on this user, decoded, ordered by name.
+     *
+     * The list an administration screen shows. Ordered by name because the screen is
+     * read by a person looking for one switch, and insertion order tells them nothing.
+     *
+     * @return array<int, array{setting: string, value: mixed, updated_at: int|null, updated_by: int|null}>
+     */
+    public function listSettings(): array
+    {
+        if ((int) $this->userid < 2) {
+            return [];
+        }
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(self::userSettingsTable())
+                ->where('userid', (int) $this->userid)
+                ->orderBy('setting')
+                ->get();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (!$result) {
+            return [];
+        }
+
+        $settings = [];
+        foreach ((array) $result->fetchAll() as $row) {
+            $raw     = $row['value'] ?? null;
+            $decoded = $raw === null ? null : json_decode((string) $raw, true);
+
+            $settings[] = [
+                'setting'    => (string) ($row['setting'] ?? ''),
+                'value'      => $raw !== null && json_last_error() === JSON_ERROR_NONE ? $decoded : $raw,
+                'updated_at' => isset($row['updated_at']) ? (int) $row['updated_at'] : null,
+                'updated_by' => isset($row['updated_by']) ? (int) $row['updated_by'] : null,
+            ];
+        }
+
+        return $settings;
+    }
+
+    /**
      * Returns an array with the database tables this class uses
      * @return array
      */
@@ -1075,7 +1261,9 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             // so on that path the property was never assigned and this reported
             // `null` for the table every other method was using.
             'users' => $this->_userstable ?? self::usersTable(),
-            'userdetails' => $this->_userdetailstable ?? self::userDetailsTable()
+            'userdetails' => $this->_userdetailstable ?? self::userDetailsTable(),
+            'usersettings' => self::userSettingsTable(),
+            'userfriends' => self::userFriendsTable()
         );
     }
 
@@ -1971,6 +2159,81 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      * @return Token                   The newly created token object.
      */
     /**
+     * Retire the web-session tokens this login replaces.
+     *
+     * One sign-in mints one token, and nothing used to end the previous one: a browser
+     * that signed in twice left two rows marked **Active**, from the same address, for
+     * the thirty days of their lifetime. The screen showing them was right and the state
+     * was wrong.
+     *
+     * Two problems in one. The list of a user's active sessions stops meaning anything —
+     * an operator reading "three active sessions" cannot tell three devices from one
+     * browser that re-authenticated three times, which is exactly the question that list
+     * exists to answer. And a token nothing can reach through a session cookie is still a
+     * **valid credential**: `loadByToken()` accepts the raw value, so a copy in a log, an
+     * old client or a backup keeps working for a month after the session that created it
+     * ended.
+     *
+     * Two cases, and both are handled here rather than by a cleanup job, because a
+     * credential should stop being valid at the moment it is replaced and not at the next
+     * sweep:
+     *
+     *   - **The same session.** `$_SESSION['usertoken']` is the token this request came
+     *     in with; re-authenticating in place replaces it.
+     *   - **The same device.** A fresh session in the same browser has no
+     *     `$_SESSION['usertoken']` to compare, so the device fingerprint is matched
+     *     instead — `deviceinfo` carries it, and it is what distinguishes one browser
+     *     from another on the same address.
+     *
+     * Tokens from *other* devices are left alone: signing in on a laptop must not sign
+     * you out on a phone, which is the whole point of having more than one.
+     *
+     * Marked inactive rather than deleted, so the token history a screen shows keeps its
+     * rows — `status = 0` is what "this was superseded" looks like everywhere else.
+     */
+    private function retireSupersededWebSessionTokens(): void
+    {
+        if ((int) $this->userid < 2) {
+            return;
+        }
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $now      = time();
+
+        try {
+            // The token this request arrived with, if any.
+            if (isset($_SESSION['usertoken'])
+                && is_object($_SESSION['usertoken'])
+                && (int) ($_SESSION['usertoken']->tokenid ?? 0) > 0
+            ) {
+                $database->queryBuilder()
+                    ->table('#PREFIX#usertokens')
+                    ->where('tokenid', (int) $_SESSION['usertoken']->tokenid)
+                    ->where('userid', (int) $this->userid)
+                    ->update(['status' => 0, 'removedate' => $now]);
+            }
+
+            // Any other live web-session token from this same device.
+            $device = self::currentDeviceInfo();
+            if ($device !== '') {
+                $database->queryBuilder()
+                    ->table('#PREFIX#usertokens')
+                    ->where('userid', (int) $this->userid)
+                    ->where('tokentype', Token::TYPE_WEB_SESSION)
+                    ->where('status', 1)
+                    ->where('deviceinfo', $device)
+                    ->update(['status' => 0, 'removedate' => $now]);
+            }
+        } catch (\Throwable $ex) {
+            // A login must not fail because of housekeeping. Logged, because a
+            // superseded token that stays valid is worth knowing about.
+            \Pramnos\Logs\Logger::log(
+                'Retiring superseded web-session tokens failed: ' . $ex->getMessage()
+            );
+        }
+    }
+
+    /**
      * How long a web-session token stays valid, in seconds.
      *
      * One is created per login and, until this existed, none of them ever
@@ -1999,6 +2262,10 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
 
     public function createWebSessionToken(?string $ipAddress = null): Token
     {
+        // The one this browser was already using stops being valid — see
+        // retireSupersededWebSessionTokens() for why that is not optional.
+        $this->retireSupersededWebSessionTokens();
+
         $rawToken = bin2hex(random_bytes(32));
         $lifetime = static::webSessionLifetime();
         $this->addToken(

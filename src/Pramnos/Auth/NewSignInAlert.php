@@ -44,6 +44,14 @@ namespace Pramnos\Auth;
 class NewSignInAlert
 {
     /**
+     * The site-wide policy setting: `optin` (default), `always` or `off`.
+     *
+     * Read through `Settings`, so it is editable on the settings screen and overridable
+     * per environment like everything else there.
+     */
+    public const POLICY_SETTING = 'auth_newsignin_policy';
+
+    /**
      * The connection to use, or the framework's when none is given.
      *
      * Every method here takes one. That is not ceremony: a class that resolves its
@@ -90,6 +98,30 @@ class NewSignInAlert
     {
         if ($userId <= 0) {
             return false;
+        }
+
+        /**
+         * The site's own policy, which the per-user preference sits inside.
+         *
+         * The feature was per-user opt-in and nothing else: an operator could not turn it
+         * on for everybody, and could not turn it off during an incident that was
+         * generating thousands of sign-ins. Three values, and the default is the old
+         * behaviour, so no installation changes by upgrading:
+         *
+         *   - `optin`  — the user's own preference decides (default)
+         *   - `always` — every account is notified, whatever they chose
+         *   - `off`    — nobody is, whatever they chose
+         *
+         * `always` is not hypothetical politeness: for a service where the account *is*
+         * the product — an authentication server — telling somebody their credentials were
+         * used from a new device is closer to an obligation than a setting.
+         */
+        $policy = (string) (\Pramnos\Application\Settings::getSetting(self::POLICY_SETTING) ?: 'optin');
+        if ($policy === 'off') {
+            return false;
+        }
+        if ($policy === 'always') {
+            return true;
         }
 
         try {

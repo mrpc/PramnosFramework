@@ -201,6 +201,61 @@ unchecked path: the user's own `disable()` requires their password, and an opera
 be asked for somebody else's. `revokepasskey` matches on the user *and* the credential, so
 a request naming another account's key deletes nothing.
 
+### Editing a user: what the screen can change
+
+The edit form covers **every column the framework's own schema gives a user** — username,
+email, names, phone, mobile, language, timezone, usertype, active, validated, password —
+plus the two things that are *about* an account rather than *on* it:
+
+**Per-user settings.** `usersettings` is a key/value store per user, and the value is JSON:
+
+```php
+$user->setSetting('notifications.email', true, $operatorId);
+$user->getSetting('notifications.email', false);   // decoded — true, not "true"
+$user->listSettings();                              // what the admin screen lists
+$user->deleteSetting('notifications.email');        // the default applies again
+```
+
+There were two places to keep something about a user and neither fits an operator-visible
+switch: `users` columns are the schema every application shares, and `$otherinfo` is a blob
+with no list, no per-key delete and nothing an administrator can read. Deleting is not the
+same as setting `null`: no row means the application's default applies, a null value means
+somebody deliberately set it to nothing.
+
+**Per-user permissions.** The grants written directly to this account, with revoke, and a
+form to add one (`object_type`, `object_id`, `action`, allow/deny). Only the *direct*
+grants are listed: the resolver also answers from usertype and group membership, and a
+screen mixing them would offer a revoke button for a permission that has no row.
+
+Everything is three separate forms on one screen, because they are three separate
+decisions — saving a name should not resubmit a permission, and a rejected permission
+should not lose a typed name.
+
+### Telling an account it was used from somewhere new
+
+`NewSignInAlert` compares the current sign-in's device fingerprint against
+`user_activity_log` and emails the account when the combination is new. It reads history
+that already exists, which is why switching it on does not notify everybody at once.
+
+**The site's policy sits around the user's own preference** — `auth_newsignin_policy` on
+the settings screen:
+
+| Value | Meaning |
+| --- | --- |
+| `optin` (default) | the account's own preference decides |
+| `always` | every account is notified, whatever it chose |
+| `off` | nobody is, whatever they chose |
+
+`always` exists because for a service where the account *is* the product, telling somebody
+their credentials were used from a new device is closer to an obligation than a setting.
+`off` exists for the incident where the alert stops being a security feature and becomes
+the outage's own mailing list. The default is the behaviour every installation had before
+the setting existed, so upgrading starts and stops nobody's mail.
+
+The per-account state is on the user's admin screen, with a toggle when the policy leaves
+the decision to the user — and a sentence instead of a switch when it does not, because a
+control that decides nothing is worse than none.
+
 ### Fields the users table does not have
 
 `User` keeps anything outside its own columns in `$otherinfo`, reached with plain property

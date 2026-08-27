@@ -336,6 +336,37 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <?php endif; ?>
                     </div>
 
+                    <?php
+                    /**
+                     * New-sign-in alerts, and whose decision they are.
+                     *
+                     * The switch is only offered when the site leaves it to the user: with
+                     * a policy of `always` or `off` a per-account toggle decides nothing,
+                     * and a control that decides nothing is worse than a sentence saying
+                     * so.
+                     */
+                    $alerts = $r('signInAlerts', ['policy' => 'optin', 'enabled' => false]);
+                    ?>
+                    <div class="flex items-center gap-2">
+                        <?php if (($alerts['policy'] ?? 'optin') === 'optin'): ?>
+                            <?php if (!empty($alerts['enabled'])): ?>
+                            <span class="badge badge-success badge-sm">Sign-in alerts on</span>
+                            <a href="<?php echo adminUrl('users/signinalerts/' . $uid); ?>?enabled=0"
+                               class="btn btn-xs btn-outline ms-auto">Turn off</a>
+                            <?php else: ?>
+                            <span class="badge badge-ghost badge-sm">Sign-in alerts off</span>
+                            <a href="<?php echo adminUrl('users/signinalerts/' . $uid); ?>?enabled=1"
+                               class="btn btn-xs btn-outline ms-auto">Turn on</a>
+                            <?php endif; ?>
+                        <?php elseif (($alerts['policy'] ?? '') === 'always'): ?>
+                        <span class="badge badge-success badge-sm">Sign-in alerts on</span>
+                        <span class="text-xs text-base-content/60">site policy: always</span>
+                        <?php else: ?>
+                        <span class="badge badge-ghost badge-sm">Sign-in alerts off</span>
+                        <span class="text-xs text-base-content/60">site policy: never</span>
+                        <?php endif; ?>
+                    </div>
+
                     <?php $passkeys = $r('passkeys'); ?>
                     <?php if ($passkeys !== []): ?>
                     <table class="table table-xs">

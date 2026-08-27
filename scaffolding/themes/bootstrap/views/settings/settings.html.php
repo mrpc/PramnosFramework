@@ -193,6 +193,24 @@ ksort($initialSteps, SORT_NUMERIC);
                                 value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
                             <div class="form-text">Each rule: after N failed attempts within the window, lock out for D seconds. Durations must increase.</div>
                         </div>
+                        <div class="col-md-6">
+                    <?php
+                    // New-sign-in alerts: the site's policy, inside which the per-user
+                    // preference sits. See NewSignInAlert::POLICY_SETTING.
+                    $policyKey   = \Pramnos\Auth\NewSignInAlert::POLICY_SETTING;
+                    $policyValue = (string) ($s[$policyKey] ?? '') ?: 'optin';
+                    ?>
+                            <label class="form-label fw-semibold" for="<?php echo $policyKey; ?>">New sign-in alerts</label>
+                            <select class="form-select form-select-sm" id="<?php echo $policyKey; ?>" name="<?php echo $policyKey; ?>">
+                                <option value="optin" <?php echo $policyValue === 'optin' ? 'selected' : ''; ?>>Each user decides (default)</option>
+                                <option value="always" <?php echo $policyValue === 'always' ? 'selected' : ''; ?>>Always notify</option>
+                                <option value="off" <?php echo $policyValue === 'off' ? 'selected' : ''; ?>>Never notify</option>
+                            </select>
+                            <div class="form-text">
+                                Whether an account is emailed when it is used from a device and browser it has
+                                not signed in from before.
+                            </div>
+                        </div>
                     </div>
                 </div></div>
             </div>

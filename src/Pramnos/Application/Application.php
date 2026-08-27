@@ -1171,6 +1171,18 @@ class Application extends Base
             ));
         }
 
+        // Message templates — messaging feature. The tables and the model shipped with
+        // it from the start; the screen did not, so the wording of an application's own
+        // notifications was editable only in a database client. Grouped under System
+        // rather than People: a template is a thing the system says, not a person.
+        if (in_array('messaging', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.mailtemplates', 'Message templates', $admin('MailTemplates'),
+                NavSection::Admin, 28, requireAuth: true, minUserType: 80,
+                feature: 'messaging', icon: 'mail', group: 'System',
+            ));
+        }
+
         // Queue — queue feature
         if (in_array('queue', $features, true)) {
             NavRegistry::register(new NavItem(

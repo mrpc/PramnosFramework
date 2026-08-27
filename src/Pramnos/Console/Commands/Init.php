@@ -663,6 +663,10 @@ class Init extends Command
             $this->scaffoldQueueWiring($namespace);
         }
 
+        if (in_array('messaging', $enabledFeatures, true)) {
+            $this->scaffoldMailTemplatesWiring($namespace);
+        }
+
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
             $this->scaffoldLibraries($selectedLibraries, $uiSystem, $skipDownload, $output);
@@ -8244,5 +8248,40 @@ class Queue extends FrameworkQueueController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Queue.php', $queueController);
+    }
+
+    /**
+     * Creates src/Admin/Controllers/MailTemplates.php — the message-template editor.
+     *
+     * The `messaging` feature ships the table and the model; without this wrapper the
+     * screen has no route, so an application's own notification wording stays editable
+     * only in a database client.
+     */
+    private function scaffoldMailTemplatesWiring(string $namespace): void
+    {
+        $this->mkdir('src/Admin/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Messaging\\Controllers\\MailTemplatesController as FrameworkMailTemplatesController;
+
+/**
+ * Message template administration.
+ *
+ * Delegates to the framework controller. Override \$requiredUserType here if this
+ * application's admin hierarchy uses a different threshold for editing the words the
+ * system says.
+ */
+class MailTemplates extends FrameworkMailTemplatesController
+{
+}
+PHP;
+
+        $this->writeFile('src/Admin/Controllers/MailTemplates.php', $controller);
     }
 }

@@ -471,19 +471,4 @@ class ApplicationsController extends Controller
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    /**
-     * Redirects to sURL if the current user's usertype is below $minType.
-     * Returns true if the redirect was issued (caller should return early).
-     */
-    protected function requireMinUserType(int $minType): bool
-    {
-        $user = \Pramnos\User\User::getCurrentUser();
-
-        if (!$user || (int) $user->usertype < $minType) {
-            $this->redirect(sURL);
-            return true;
-        }
-
-        return false;
-    }
 }

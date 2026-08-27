@@ -43,7 +43,11 @@ class TokensController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'revoke', 'revokeall', 'userid', 'deactivate', 'delete']);
+        $this->addAuthAction([
+            'display', 'revoke', 'revokeall', 'userid', 'deactivate', 'delete',
+            // The one-token screen: everything about it, and what was done with it.
+            'view',
+        ]);
         parent::__construct($application);
     }
 
@@ -93,6 +97,75 @@ class TokensController extends Controller
         $view->page   = $page;
 
         return $view->display();
+    }
+
+    /**
+     * Everything about one token, and what was done with it.
+     *
+     * `Token` has been able to answer this for as long as it has existed —
+     * `getDetails()`, `getStatistics()`, `getActions()` — and nothing in the framework
+     * ever put it on a screen. An operator investigating a token had the list (which shows
+     * six columns of it) and the actions list (which shows what happened), with no page
+     * that joins them: whose token it is, which application issued it, when it was last
+     * used, from which address, how many calls it has made and what the last of them were.
+     *
+     * That is the page somebody opens when an integration misbehaves, and it was the one
+     * missing.
+     *
+     * @param string|int|null $id Token ID (resolved via Request::staticGetOption)
+     */
+    public function view(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $tokenId = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($tokenId < 1) {
+            // Also accept `?id=`, which is how the dashboard's own links are shaped.
+            $tokenId = (int) \Pramnos\Http\Request::staticGet('id', 0, 'get', 'int');
+        }
+
+        if ($tokenId < 1) {
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(adminUrl('Tokens'));
+
+            return null;
+        }
+
+        $token = new \Pramnos\User\Token($tokenId);
+        if ((int) $token->tokenid !== $tokenId) {
+            $this->addError('That token no longer exists.');
+            $this->redirect(adminUrl('Tokens'));
+
+            return null;
+        }
+
+        // Paged rather than "the last hundred": a token belonging to a busy integration
+        // has tens of thousands of actions, and the interesting ones are not always
+        // recent.
+        $page  = max(1, (int) \Pramnos\Http\Request::staticGet('page', 1, 'get', 'int'));
+        $limit = (int) \Pramnos\Http\Request::staticGet('limit', 50, 'get', 'int');
+        $limit = $limit > 0 && $limit <= 500 ? $limit : 50;
+
+        $actions = $token->getActions($limit, ($page - 1) * $limit);
+        $total   = (int) ($actions['total'] ?? 0);
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Token #' . $tokenId;
+
+        $view             = $this->getView('tokens');
+        $view->token      = $token->getDetails();
+        $view->stats      = $token->getStatistics();
+        $view->actions    = $actions['actions'] ?? ($actions['data'] ?? []);
+        $view->pagination = [
+            'page'  => $page,
+            'limit' => $limit,
+            'total' => $total,
+            'pages' => $limit > 0 ? (int) ceil($total / $limit) : 1,
+        ];
+
+        return $view->display('token');
     }
 
     /**
@@ -255,19 +328,4 @@ class TokensController extends Controller
         $this->redirect(adminUrl('Tokens/userid/') . $userId);
     }
 
-    /**
-     * Redirects to sURL if the current user's usertype is below $minType.
-     * Returns true if the redirect was issued (caller should return early).
-     */
-    protected function requireMinUserType(int $minType): bool
-    {
-        $user = \Pramnos\User\User::getCurrentUser();
-
-        if ($user === null || $user === false || (int) $user->usertype < $minType) {
-            $this->redirect(sURL);
-            return true;
-        }
-
-        return false;
-    }
 }

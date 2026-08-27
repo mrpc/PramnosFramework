@@ -9,6 +9,8 @@
  *
  * Attributes handled:
  *   data-confirm="message"      — show confirm() before following a link or submitting a button
+ *   data-pf-fill-setting        — copy this row's setting name/value into the edit form
+ *                                 below it (with data-pf-fill-value)
  *   data-copy-prev              — copy the value of the immediately preceding <input> to clipboard
  *   data-toggle-type="inputId"  — toggle password/text on the target <input>
  *   data-modal-show="elementId" — remove class "hidden" from target element
@@ -61,6 +63,24 @@
         if (confirmEl && !confirm(confirmEl.dataset.confirm)) {
             e.preventDefault();
             e.stopPropagation();
+            return;
+        }
+
+        // ── data-pf-fill-setting ──────────────────────────────────────────────
+        //
+        // Copy a row's values into the form below it. The alternative is a form per
+        // row, which is more markup and — worse — a second code path, so an edit and
+        // a new value could behave differently.
+        var fillEl = e.target.closest('[data-pf-fill-setting]');
+        if (fillEl) {
+            var nameField  = document.getElementById('pf-setting-name');
+            var valueField = document.getElementById('pf-setting-value');
+            if (nameField && valueField) {
+                nameField.value  = fillEl.getAttribute('data-pf-fill-setting') || '';
+                valueField.value = fillEl.getAttribute('data-pf-fill-value') || '';
+                valueField.focus();
+            }
+            e.preventDefault();
             return;
         }
 

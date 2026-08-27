@@ -291,19 +291,4 @@ class TokenActionsController extends Controller
         }
     }
 
-    /**
-     * Redirects to sURL if the current user's usertype is below $minType.
-     * Returns true if the redirect was issued (caller should return early).
-     */
-    protected function requireMinUserType(int $minType): bool
-    {
-        $user = \Pramnos\User\User::getCurrentUser();
-
-        if ($user === null || $user === false || (int) $user->usertype < $minType) {
-            $this->redirect(sURL);
-            return true;
-        }
-
-        return false;
-    }
 }

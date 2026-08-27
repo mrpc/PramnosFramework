@@ -3,74 +3,301 @@
  * User create/edit form (plain-CSS theme).
  *
  * Variables:
- *   $this->user   — user row array (null when creating)
- *   $this->isNew  — bool
- *   $this->error  — string error message
+ *   $this->user        — user row array (null when creating)
+ *   $this->isNew       — bool
+ *   $this->error       — string error message
+ *   $this->success     — string confirmation
+ *   $this->settings    — per-user settings, from User::listSettings()
+ *   $this->permissions — permission rows granted directly to this user
+ *   $this->usertypes   — the bands, from UserTypes::labels()
+ *
+ * Three forms, not one. The account's own fields post to `Users/save`; a setting posts to
+ * `users/savesetting/{id}`; a permission to `users/grantpermission/{id}`. They are separate
+ * because they are separate decisions: saving a name should not require re-submitting a
+ * permission, and a failed permission should not lose a typed name.
  */
 $u = $this->user ?? [];
-$this->activeNav = 'users_edit';
+$e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 ?>
-<div class="page-section" style="max-width:640px">
-    <?php $this->insert('../partials/admin_breadcrumb'); ?>
-    <h2 style="margin-bottom:16px"><?php echo $this->isNew ? 'New User' : 'Edit User'; ?></h2>
+<div class="page-section">
+    <?php $this->activeNav = 'users_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
+    <h2 class="mb-6"><?php echo $this->isNew ? 'New User' : 'Edit User'; ?></h2>
     <?php if (!empty($this->error)): ?>
-        <div class="alert" style="background:#fde8e8;border:1px solid #f5c6cb;padding:12px 16px;border-radius:4px;margin-bottom:12px"><?php echo htmlspecialchars($this->error); ?></div>
+        <div class="alert alert-error mb-4"><?php echo $e($this->error); ?></div>
     <?php endif; ?>
-    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
-        <div class="card-body" style="padding:16px">
+    <?php if (!empty($this->success)): ?>
+        <div class="alert alert-success mb-4"><?php echo $e($this->success); ?></div>
+    <?php endif; ?>
+    <div class="card" style="border:1px solid #ddd;border-radius:4px">
+        <div class="p-5">
             <form method="post" action="<?php echo adminUrl('Users/save'); ?>">
                 <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="userid" value="<?php echo (int)($u['userid'] ?? 0); ?>">
                 <?php endif; ?>
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px">Username</label>
-                    <input type="text" name="username" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" required value="<?php echo htmlspecialchars($u['username'] ?? ''); ?>">
+                <div style="margin-bottom:14px">
+                    <label class="block text-sm font-medium text-base-content mb-1">Username</label>
+                    <input type="text" name="username" style="width:100%;padding:6px 8px" required value="<?php echo htmlspecialchars($u['username'] ?? ''); ?>">
                 </div>
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px">Email</label>
-                    <input type="email" name="email" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" required value="<?php echo htmlspecialchars($u['email'] ?? ''); ?>">
+                <div style="margin-bottom:14px">
+                    <label class="block text-sm font-medium text-base-content mb-1">Email</label>
+                    <input type="email" name="email" style="width:100%;padding:6px 8px" required value="<?php echo htmlspecialchars($u['email'] ?? ''); ?>">
                 </div>
                 <?php if ($this->isNew): ?>
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px">Password</label>
-                    <input type="password" name="password" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" required>
+                <div style="margin-bottom:14px">
+                    <label class="block text-sm font-medium text-base-content mb-1">Password</label>
+                    <input type="password" name="password" style="width:100%;padding:6px 8px" required>
                 </div>
                 <?php endif; ?>
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px">First Name</label>
-                    <input type="text" name="firstname" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($u['firstname'] ?? ''); ?>">
+                <div style="margin-bottom:14px">
+                    <label class="block text-sm font-medium text-base-content mb-1">First Name</label>
+                    <input type="text" name="firstname" style="width:100%;padding:6px 8px" value="<?php echo htmlspecialchars($u['firstname'] ?? ''); ?>">
                 </div>
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px">Last Name</label>
-                    <input type="text" name="lastname" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($u['lastname'] ?? ''); ?>">
+                <div style="margin-bottom:14px">
+                    <label class="block text-sm font-medium text-base-content mb-1">Last Name</label>
+                    <input type="text" name="lastname" style="width:100%;padding:6px 8px" value="<?php echo htmlspecialchars($u['lastname'] ?? ''); ?>">
                 </div>
-                <div style="margin-bottom:12px">
-                    <label style="display:block;font-weight:600;margin-bottom:4px">User Type</label>
-                    <select name="usertype" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px">
+                <div class="grid gap-4 md:grid-cols-2 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Phone</label>
+                        <input type="text" name="phone" style="width:100%;padding:6px 8px" value="<?php echo $e($u['phone'] ?? ''); ?>">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Mobile</label>
+                        <input type="text" name="mobile" style="width:100%;padding:6px 8px" value="<?php echo $e($u['mobile'] ?? ''); ?>">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Language</label>
+                        <input type="text" name="language" style="width:100%;padding:6px 8px" placeholder="en"
+                               value="<?php echo $e($u['language'] ?? ''); ?>">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Timezone</label>
+                        <input type="text" name="timezone" style="width:100%;padding:6px 8px" placeholder="Europe/Athens"
+                               value="<?php echo $e($u['timezone'] ?? ''); ?>">
+                    </div>
+                </div>
+                <div style="margin-bottom:14px">
+                    <label class="block text-sm font-medium text-base-content mb-1">User Type</label>
+                    <select name="usertype" style="width:100%;padding:6px 8px">
                         <?php $maxType = $this->currentUserType ?? 100; $curType = $u['usertype'] ?? 1; ?>
-                        <option value="1" <?php echo $curType == 1 ? 'selected' : ''; ?>>User (1)</option>
-                        <?php if ($maxType >= 50): ?><option value="50" <?php echo $curType == 50 ? 'selected' : ''; ?>>Editor (50)</option><?php endif; ?>
-                        <?php if ($maxType >= 80): ?><option value="80" <?php echo $curType == 80 ? 'selected' : ''; ?>>Manager (80)</option><?php endif; ?>
-                        <?php if ($maxType >= 90): ?><option value="90" <?php echo $curType == 90 ? 'selected' : ''; ?>>Admin (90)</option><?php endif; ?>
-                        <?php if ($maxType >= 100): ?><option value="100" <?php echo $curType == 100 ? 'selected' : ''; ?>>Super Admin (100)</option><?php endif; ?>
+                        <?php
+                        /**
+                         * The bands this application declares, not a hardcoded five.
+                         *
+                         * `UserTypes::labels()` is where they live, so an application that
+                         * renamed them in `app.php` sees its own names here — and this
+                         * select cannot disagree with the badge on the user's own screen.
+                         *
+                         * Capped at the operator's own type: nobody may create an account
+                         * more privileged than their own, which `save()` enforces again.
+                         */
+                        $bands = is_array($this->usertypes ?? null) && $this->usertypes !== []
+                            ? $this->usertypes
+                            : \Pramnos\User\UserTypes::labels();
+                        foreach ($bands as $floor => $label) {
+                            if ((int) $floor > $maxType) {
+                                continue;
+                            }
+                            echo '<option value="' . (int) $floor . '"'
+                                . ((int) $curType === (int) $floor ? ' selected' : '') . '>'
+                                . $e($label) . ' (' . (int) $floor . ')</option>';
+                        }
+                        ?>
                     </select>
                 </div>
-                <div style="margin-bottom:12px;display:flex;gap:20px">
-                    <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+                <div class="mb-4 flex gap-6">
+                    <label class="flex items-center gap-2 text-sm text-base-content">
                         <input type="checkbox" name="active" value="1" <?php echo ($u['active'] ?? 1) ? 'checked' : ''; ?>>
                         Active
                     </label>
-                    <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+                    <label class="flex items-center gap-2 text-sm text-base-content">
                         <input type="checkbox" name="validated" value="1" <?php echo ($u['validated'] ?? 1) ? 'checked' : ''; ?>>
                         Validated
                     </label>
                 </div>
                 <div style="display:flex;gap:8px">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <a href="<?php echo adminUrl('Users'); ?>" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                    <a href="<?php echo adminUrl('Users'); ?>" class="btn btn-outline btn-sm">Cancel</a>
                 </div>
             </form>
         </div>
     </div>
+
+    <?php if (!$this->isNew): ?>
+    <?php
+    $uid      = (int) ($u['userid'] ?? 0);
+    $settings = is_array($this->settings ?? null) ? $this->settings : [];
+    $grants   = is_array($this->permissions ?? null) ? $this->permissions : [];
+    ?>
+
+    <!-- Per-user settings: the switches an application keeps about one account -->
+    <div class="card bg-base-100 border border-base-300 shadow-xs mt-4">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 flex items-center gap-2">
+            <span class="text-sm font-semibold">Settings</span>
+            <span class="badge badge-neutral badge-sm"><?php echo count($settings); ?></span>
+            <span class="ms-auto text-xs text-base-content/60">
+                Values are stored as JSON — a list stays a list
+            </span>
+        </div>
+
+        <?php if ($settings !== []): ?>
+        <table class="table table-sm text-sm">
+            <thead class="bg-base-100 text-xs uppercase text-base-content/60">
+                <tr><th>Setting</th><th>Value</th><th>Changed</th><th></th></tr>
+            </thead>
+            <tbody>
+            <?php foreach ($settings as $setting): ?>
+                <?php
+                $value = $setting['value'];
+                $shown = is_array($value) || is_object($value)
+                    ? json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    : (string) ($value ?? '');
+                ?>
+                <tr>
+                    <td class="font-mono text-xs"><?php echo $e($setting['setting']); ?></td>
+                    <td>
+                        <?php if ($value === null): ?>
+                        <span style="color:#666;font-size:0.85em">null</span>
+                        <?php else: ?>
+                        <code class="text-xs break-all"><?php echo $e($shown); ?></code>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-xs text-base-content/60">
+                        <?php echo $setting['updated_at'] ? $e(date('Y-m-d H:i', (int) $setting['updated_at'])) : '—'; ?>
+                    </td>
+                    <td class="text-end whitespace-nowrap">
+                        <?php
+                        /**
+                         * Edit is a copy into the form below rather than a second form per
+                         * row: one row's worth of inputs, reused, is less markup and — more
+                         * to the point — the same code path saves an edit and a new setting,
+                         * so they cannot behave differently.
+                         */
+                        ?>
+                        <button type="button" class="btn btn-ghost btn-xs"
+                                data-pf-fill-setting="<?php echo $e($setting['setting']); ?>"
+                                data-pf-fill-value="<?php echo $e($shown); ?>">Edit</button>
+                        <?php echo \Pramnos\Html\Icon::link(
+                            adminUrl('users/deletesetting/' . $uid) . '?setting=' . urlencode((string) $setting['setting']),
+                            'delete',
+                            'Remove this setting',
+                            [
+                                'data-confirm' => 'Remove the setting "' . $setting['setting'] . '"?',
+                                'class'        => 'pf-action-danger',
+                            ]
+                        ); ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php else: ?>
+        <div class="px-5 py-3 text-sm text-base-content/60">
+            Nothing set on this account — the application's own defaults apply.
+        </div>
+        <?php endif; ?>
+
+        <form method="post" action="<?php echo adminUrl('users/savesetting/' . $uid); ?>"
+              class="px-5 py-4 border-t border-base-300 grid gap-2 md:grid-cols-[1fr_2fr_auto] md:items-end">
+            <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
+            <div>
+                <label class="block text-xs font-medium mb-1" for="pf-setting-name">Name</label>
+                <input type="text" id="pf-setting-name" name="setting" style="width:100%;padding:6px 8px"
+                       placeholder="notifications.email" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" for="pf-setting-value">Value (text or JSON)</label>
+                <input type="text" id="pf-setting-value" name="value" style="width:100%;padding:6px 8px"
+                       placeholder="true, 42, &quot;text&quot; or [1,2,3]">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Save setting</button>
+        </form>
+    </div>
+
+    <!-- Direct permission grants: what this account may do, beyond its usertype -->
+    <div class="card bg-base-100 border border-base-300 shadow-xs mt-4">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 flex items-center gap-2">
+            <span class="text-sm font-semibold">Permissions</span>
+            <span class="badge badge-neutral badge-sm"><?php echo count($grants); ?></span>
+            <span class="ms-auto text-xs text-base-content/60">
+                Granted to this user directly — usertype and group grants are not listed
+            </span>
+        </div>
+
+        <?php if ($grants !== []): ?>
+        <table class="table table-sm text-sm">
+            <thead class="bg-base-100 text-xs uppercase text-base-content/60">
+                <tr><th>Object</th><th>Action</th><th>Grant</th><th>Priority</th><th></th></tr>
+            </thead>
+            <tbody>
+            <?php foreach ($grants as $grant): ?>
+                <tr>
+                    <td class="font-mono text-xs">
+                        <?php echo $e($grant['object_type'] ?? ''); ?>
+                        <?php if (($grant['object_id'] ?? null) !== null && $grant['object_id'] !== ''): ?>
+                        <span style="color:#666;font-size:0.85em">#<?php echo $e($grant['object_id']); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo $e($grant['action'] ?? ''); ?></td>
+                    <td>
+                        <span class="pf-state <?php echo ($grant['grant_type'] ?? 'allow') === 'deny' ? 'pf-state-off' : 'pf-state-on'; ?>">
+                            <?php echo $e($grant['grant_type'] ?? 'allow'); ?>
+                        </span>
+                    </td>
+                    <td class="text-xs"><?php echo (int) ($grant['priority'] ?? 0); ?></td>
+                    <td class="text-end">
+                        <?php echo \Pramnos\Html\Icon::link(
+                            adminUrl('users/revokepermission/' . $uid) . '?permission=' . (int) ($grant['permissionid'] ?? 0),
+                            'delete',
+                            'Revoke this permission',
+                            ['data-confirm' => 'Revoke this permission?', 'class' => 'pf-action-danger']
+                        ); ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php else: ?>
+        <div class="px-5 py-3 text-sm text-base-content/60">
+            No permission granted to this account directly. What it may do comes from its
+            usertype and any groups it belongs to.
+        </div>
+        <?php endif; ?>
+
+        <form method="post" action="<?php echo adminUrl('users/grantpermission/' . $uid); ?>"
+              class="px-5 py-4 border-t border-base-300 grid gap-2 md:grid-cols-5 md:items-end">
+            <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
+            <div>
+                <label class="block text-xs font-medium mb-1">Object type</label>
+                <input type="text" name="object_type" style="width:100%;padding:6px 8px" placeholder="report" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">Object id</label>
+                <input type="text" name="object_id" style="width:100%;padding:6px 8px" placeholder="optional">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">Action</label>
+                <input type="text" name="action" style="width:100%;padding:6px 8px" placeholder="read" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">Grant</label>
+                <select name="grant_type" style="width:100%;padding:6px 8px">
+                    <option value="allow">allow</option>
+                    <option value="deny">deny</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Add permission</button>
+        </form>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2">
+        <a href="<?php echo adminUrl('users/view/' . $uid); ?>" class="btn btn-outline btn-sm gap-2">
+            <?php echo \Pramnos\Html\Icon::svg('view'); ?> Back to the record
+        </a>
+        <a href="<?php echo adminUrl('users/notify/' . $uid); ?>" class="btn btn-outline btn-sm gap-2">
+            <?php echo \Pramnos\Html\Icon::svg('send'); ?> Send a message
+        </a>
+    </div>
+    <?php endif; ?>
 </div>
