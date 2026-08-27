@@ -4,22 +4,26 @@ use_cases:
   - Granting or denying a permission, and checking one
   - Restricting a controller action, an API endpoint, a route or a menu item
   - Working out why a permission check returned what it did
+  - Choosing between a usertype capability, a gate and a permission row
 ---
 
 # Authorization
 
-Authorization in Pramnos is **two halves that answer different questions**, and most
-applications want both.
+Authorization in Pramnos is **three layers that answer different questions**, and most
+applications use all three.
 
 | | Answers | Lives in | Changes by |
 | --- | --- | --- | --- |
+| **`Pramnos\User\UserTypes`** | what may this *kind of account* reach | configuration | a deploy |
 | **`Pramnos\Auth\Gate`** | what does this *rule* mean | code | a deploy |
 | **`Pramnos\Auth\Permissions`** | what has this *installation* granted | a table | an admin, at runtime |
 
 A rule like "the author, or a moderator" is not a row — written as rows it becomes one row
 per article per user. A grant like "this customer's support team may export reports" is not
-a rule — written in code it is the same for every installation. Neither layer replaces the
-other, and [the bridge between them](#bridging-the-two) is one line.
+a rule — written in code it is the same for every installation. And "administrators can open
+the administration area" is neither: it is what the account *is*, decided before any record
+is in sight. Nothing here replaces anything else, and [the bridge between the last
+two](#bridging-the-two) is one line.
 
 Four places ask:
 
@@ -253,6 +257,52 @@ if (method_exists($user, 'hasPermission') && $user->hasPermission('viewCustomer'
 is deliberate. An application that wants named permission checks implements it, usually over
 `Permissions::isAllowed()`. An application that does not is not broken; those call sites fall
 back to their own defaults.
+
+---
+
+## Usertypes: what a kind of account may reach
+
+`users.usertype` is an integer read as a **threshold**, and a *capability* is what a
+threshold grants: `admin.area`, `admin.users`, `devpanel`. It is the layer that answers
+before there is any record to reason about.
+
+```php
+\Pramnos\User\UserTypes::can(90, 'admin.settings');   // false — that is 98 and above
+\Pramnos\User\UserTypes::capabilities(98);            // the resolved list
+\Pramnos\User\UserTypes::label(95);                   // 'Administrator' — 95 is above the floor
+```
+
+The types, their capabilities, how an application declares its own, and why
+`usertype_capabilities` **replaces** the framework's map instead of merging with it are all
+in the [Authentication guide](Pramnos_Authentication_Guide.md#what-a-usertype-is-what-each-one-may-do-and-how-to-change-them),
+next to `users.usertype` itself. `/admin/Users/types` renders the running answer.
+
+### Which layer a question belongs to
+
+| The question | The layer |
+| --- | --- |
+| May this kind of account reach this kind of screen? | a usertype capability |
+| May *this* account touch *this* record? | a gate, or a permission row |
+| Is the administration area browsable at all? | `admin.min_usertype` |
+
+The third one is a separate thing again, and it is the one most often confused with the
+first: `admin.min_usertype` is a floor on the whole area, applied by `Pramnos\Http\AdminArea`
+before any screen's own check runs. It is not a substitute for a screen's check — **do not
+remove a screen's own guard because the area has a floor.** The area's floor stops browsing;
+the screen's guard is what decides whether that screen may act. A screen that is also
+reachable outside the area (a public monitor endpoint, say) has no floor at all.
+
+### Why capabilities are not permissions
+
+A capability is about a *class* of account and a *class* of screen. It has no idea what a
+record is, and giving it one would mean a capability per record — which is a permissions
+table, badly. Conversely, a permission row cannot express "administrators can open the
+administration area" without a row per administrator, rewritten every time somebody is
+promoted.
+
+The practical test: if the answer changes when a **row** in the database changes, it is a
+permission. If it changes when somebody's **usertype** changes, it is a capability. If it
+needs to look at the record — its author, its state, its owner — it is a gate.
 
 ---
 

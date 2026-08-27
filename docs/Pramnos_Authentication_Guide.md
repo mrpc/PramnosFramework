@@ -204,8 +204,9 @@ which is what it did before: three screens, three sets of thresholds, three answ
 
 - A **capability** answers *may this kind of account reach this kind of screen*.
 - A **permission** answers *may this account touch this record* — per user, in
-  `authserver.permissions`, editable on the user's own screen. See the
-  [Authorization guide](Pramnos_Authorization_Guide.md).
+  `authserver.permissions`, editable on the user's own screen. See
+  [Authorization](Pramnos_Authorization_Guide.md#which-layer-a-question-belongs-to), which
+  puts the three side by side and gives the test for telling them apart.
 - The **administration area's `min_usertype`** is a third thing: what stops the area being
   browsable at all, applied before any screen's own check. The scaffolded default is `80`,
   which is below the lowest *named* administrative type — an application that wants only
