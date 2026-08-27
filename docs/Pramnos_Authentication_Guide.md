@@ -1019,6 +1019,27 @@ Tracks failed login attempts per scope+identifier pair. Three scopes are support
 
 A **sliding window** of 900 seconds applies: if the gap between the previous failure and the current attempt exceeds the window, the counter resets to 1. This prevents indefinite accumulation from past brute-force campaigns.
 
+#### Configuring the ladder
+
+Two application settings, both editable from the settings screen:
+
+| Setting | Meaning |
+|---|---|
+| `loginlockoutsteps` | JSON map, `{"attempts": seconds}` — e.g. `{"3":60,"5":300}` |
+| `loginlockoutwindowseconds` | the sliding window, 60–86400 |
+
+Both are read on every attempt. Until 2026-08-27 they were read *nowhere*:
+`calculateDuration()` consulted `DEFAULT_STEPS` and the window arithmetic used
+`DEFAULT_WINDOW_SECONDS`, so the whole progressive-lockout section of the settings
+screen — the editor, its validation, and its "adjusted to safe defaults" warning —
+configured nothing. An operator tightened the ladder, the page confirmed the save,
+and every account kept locking on the shipped 3/5/7/10.
+
+An unusable `loginlockoutsteps` (not JSON, empty, or no usable pair) falls back to
+`DEFAULT_STEPS`, and a window outside 60–86400 falls back to 900 — never to no
+lockout. A malformed setting must not be a way to switch brute-force protection
+off, and a window of zero would reset the counter on every attempt.
+
 #### Lifting a lockout while developing
 
 The lockout is doing its job when it locks somebody out — and that is no help

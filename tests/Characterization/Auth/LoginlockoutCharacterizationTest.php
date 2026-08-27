@@ -148,4 +148,89 @@ class LoginlockoutCharacterizationTest extends TestCase
         $this->assertSame($expected, Loginlockout::DEFAULT_STEPS,
             'DEFAULT_STEPS must define the four documented lockout tiers');
     }
+
+    // -------------------------------------------------------------------------
+    // The configured ladder, which used to be read nowhere
+    // -------------------------------------------------------------------------
+
+    /**
+     * A configured ladder replaces the defaults.
+     *
+     * `calculateDuration()` read `self::DEFAULT_STEPS` and nothing else, so the
+     * settings screen's whole progressive-lockout section configured nothing: the
+     * editor, its validation and its "adjusted to safe defaults" warning all
+     * operated on a value no lockout ever consulted. An operator tightened the
+     * ladder, the page confirmed the save, and every account kept locking on the
+     * shipped 3/5/7/10.
+     */
+    public function testAConfiguredLadderIsWhatIsApplied(): void
+    {
+        // Arrange — one failure locks, for two minutes
+        \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '{"1":120}');
+
+        try {
+            $lockout = new Loginlockout();
+            $method  = new \ReflectionMethod($lockout, 'calculateDuration');
+
+            // Act & Assert
+            $this->assertSame(120, $method->invoke($lockout, 1),
+                'the configured ladder must be the one applied');
+            // …and the shipped thresholds no longer apply on their own
+            $this->assertSame(120, $method->invoke($lockout, 3));
+        } finally {
+            \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '');
+        }
+    }
+
+    /**
+     * An unusable setting falls back to the defaults, never to no lockout.
+     *
+     * A malformed value must not be a way to switch brute-force protection off —
+     * which is what returning an empty ladder would be.
+     */
+    public function testAnUnusableLadderFallsBackToTheDefaults(): void
+    {
+        foreach (['not json at all', '{}', '{"0":0}', '[]'] as $stored) {
+            // Arrange
+            \Pramnos\Application\Settings::setSetting('loginlockoutsteps', $stored);
+
+            try {
+                $lockout = new Loginlockout();
+                $method  = new \ReflectionMethod($lockout, 'calculateDuration');
+
+                // Act & Assert
+                $this->assertSame(60, $method->invoke($lockout, 3),
+                    "stored as [$stored], the defaults must still apply");
+            } finally {
+                \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '');
+            }
+        }
+    }
+
+    /**
+     * The sliding window is configurable, and cannot be set to nothing.
+     *
+     * The window decides when a failure count starts over, and it was read
+     * nowhere. Clamped to the range the settings screen validates, so a value
+     * stored before that validation existed cannot produce a window of zero —
+     * which would reset the count on every attempt and remove the lockout.
+     */
+    public function testTheWindowIsConfigurableWithinSafeBounds(): void
+    {
+        $lockout = new Loginlockout();
+        $method  = new \ReflectionMethod($lockout, 'windowSeconds');
+
+        foreach (['3600' => 3600, '0' => 900, '30' => 900, '999999' => 900, '' => 900] as $stored => $expected) {
+            // Arrange
+            \Pramnos\Application\Settings::setSetting('loginlockoutwindowseconds', (string) $stored);
+
+            try {
+                // Act & Assert
+                $this->assertSame($expected, $method->invoke($lockout),
+                    "stored as [$stored]");
+            } finally {
+                \Pramnos\Application\Settings::setSetting('loginlockoutwindowseconds', '');
+            }
+        }
+    }
 }

@@ -69,7 +69,7 @@ class Loginlockout
         $row      = $this->loadRow($scope, $identifier);
 
         // Determine attempt count within the current sliding window
-        $windowStart = $now - self::DEFAULT_WINDOW_SECONDS;
+        $windowStart = $now - $this->windowSeconds();
         if ($row && !empty($row['lastfailedat'])
             && strtotime((string) $row['lastfailedat']) >= $windowStart
         ) {
@@ -214,7 +214,7 @@ class Loginlockout
      */
     protected function calculateDuration(int $attempts): int
     {
-        $steps    = self::DEFAULT_STEPS;
+        $steps    = $this->steps();
         $duration = 0;
         ksort($steps, SORT_NUMERIC);
 
@@ -225,5 +225,64 @@ class Loginlockout
         }
 
         return $duration;
+    }
+
+    /**
+     * The configured lockout ladder, or the defaults.
+     *
+     * This read `self::DEFAULT_STEPS` and nothing else, so the settings screen's
+     * whole progressive-lockout section configured nothing: the editor, its
+     * validation, and the "adjusted to safe defaults" warning all operated on a
+     * value no lockout ever consulted. An operator tightened the ladder, the page
+     * confirmed the save, and every account kept locking on the shipped 3/5/7/10.
+     *
+     * Anything unusable falls back to the defaults rather than to no lockout at
+     * all — a malformed setting must not be a way to switch brute-force
+     * protection off.
+     *
+     * @return array<int, int> [minAttempts => lockDurationSeconds]
+     */
+    protected function steps(): array
+    {
+        $raw = trim((string) (\Pramnos\Application\Settings::getSetting('loginlockoutsteps') ?? ''));
+        if ($raw === '') {
+            return self::DEFAULT_STEPS;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return self::DEFAULT_STEPS;
+        }
+
+        $steps = [];
+        foreach ($decoded as $threshold => $duration) {
+            $threshold = (int) $threshold;
+            $duration  = (int) $duration;
+            if ($threshold > 0 && $duration > 0) {
+                $steps[$threshold] = $duration;
+            }
+        }
+
+        return $steps === [] ? self::DEFAULT_STEPS : $steps;
+    }
+
+    /**
+     * The configured sliding window, or the default.
+     *
+     * The window decides when a failure count starts over, so a setting that is
+     * read nowhere means an operator cannot make the counter forgiving *or*
+     * strict. Clamped to the same range the settings screen validates against,
+     * so a value stored before that validation existed cannot produce a window of
+     * zero — which would reset the count on every attempt and remove the lockout
+     * entirely.
+     */
+    protected function windowSeconds(): int
+    {
+        $configured = (int) (\Pramnos\Application\Settings::getSetting('loginlockoutwindowseconds') ?? 0);
+        if ($configured < 60 || $configured > 86400) {
+            return self::DEFAULT_WINDOW_SECONDS;
+        }
+
+        return $configured;
     }
 }
