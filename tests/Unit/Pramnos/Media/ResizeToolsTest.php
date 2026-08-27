@@ -71,6 +71,47 @@ class ResizeToolsTest extends TestCase
         $this->assertEquals(80, $h);
     }
     
+    /**
+     * A cropped PNG keeps its transparency instead of coming back with black corners.
+     *
+     * The cropping path puts the source on an intermediate canvas before it reaches the
+     * thumbnail, and a truecolor canvas starts opaque black. The thumbnail itself was
+     * prepared for transparency; the intermediate was not, so every transparent pixel had
+     * been composited onto black one step earlier. It only happened when cropping, which is
+     * why it was reported as a crop bug.
+     *
+     * Asserted on a corner pixel's alpha, because that is what somebody actually sees: a
+     * logo with square black shoulders on a coloured page.
+     */
+    public function testACroppedPngKeepsItsTransparency(): void
+    {
+        // Arrange — a wide image whose left edge is transparent, so cropping keeps it
+        $source = $this->tempDir . '/transparent.png';
+        $image  = imagecreatetruecolor(400, 200);
+        imagealphablending($image, false);
+        imagesavealpha($image, true);
+        imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+        imagefilledrectangle($image, 200, 0, 399, 199,
+            imagecolorallocatealpha($image, 255, 0, 0, 0));
+        imagepng($image, $source);
+
+        $tool = new ResizeTools();
+        $tool->exportpath = $this->tempDir . '/';
+        $tool->exportfile = 'cropped.png';
+        $tool->crop       = true;
+
+        // Act
+        $tool->resize($source, 100, 100);
+
+        // Assert
+        $this->assertFileExists($this->tempDir . '/cropped.png');
+        $result = imagecreatefrompng($this->tempDir . '/cropped.png');
+        $this->assertNotFalse($result);
+        $corner = imagecolorsforindex($result, imagecolorat($result, 0, 0));
+        $this->assertGreaterThan(0, $corner['alpha'],
+            'the transparent side must not arrive as opaque black');
+    }
+
     public function testResizeMaxSizeLimit(): void
     {
         $tool = new ResizeTools();

@@ -214,6 +214,23 @@ $media->rotateRight();  // 90 degrees right
 $media->rotate(45);     // Custom angle
 ```
 
+### Transparency, and the one place it used to be lost
+
+A PNG keeps its alpha through resizing **and** through cropping. Both paths prepare their
+canvases with `imagealphablending(false)` + `imagesavealpha(true)`, which is what stops GD
+compositing a transparent pixel onto the opaque black a truecolor canvas starts as.
+
+Two things to know when a thumbnail comes back with black where it should be see-through:
+
+- **`exporttype` decides.** The alpha handling is applied when the output is PNG. A JPEG has
+  no alpha to keep, so transparency flattens onto black there — which is GD's behaviour, not
+  a bug, and the fix is to export PNG (or WebP) for images that need it.
+- **The cropping path has an intermediate canvas.** The source is scaled onto it before it
+  reaches the thumbnail, and until this release only the thumbnail was prepared — so a
+  cropped PNG arrived with its transparent regions already black, while the same image
+  resized without cropping was fine. That asymmetry is what it looked like from outside: a
+  crop bug rather than an alpha one.
+
 ## Thumbnails
 
 ### Automatic Thumbnail Generation

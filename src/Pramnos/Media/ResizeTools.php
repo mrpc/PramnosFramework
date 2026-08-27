@@ -321,9 +321,25 @@ class ResizeTools extends \Pramnos\Framework\Base
             $process = imagecreatetruecolor(round($new_width),
                     round($new_height));
 
+            // A truecolor canvas starts opaque black, and this one is where the source
+            // lands *before* it reaches the thumbnail. The thumbnail is prepared for
+            // transparency a few lines up (`exporttype == 'png'`); this intermediate was
+            // not, so every transparent pixel had already been composited onto black by the
+            // time it got there. Reported as "cropped PNGs come back with black corners" —
+            // and only on the cropping path, which is why it looked like a crop bug rather
+            // than an alpha one.
+            //
+            // Only for PNG output, so the JPEG path composites exactly as it did: a JPEG has
+            // no alpha to keep, and flattening onto black there is the existing behaviour.
+            if ($this->exporttype == 'png') {
+                imagealphablending($process, false);
+                imagesavealpha($process, true);
+                imagefill($process, 0, 0,
+                    imagecolorallocatealpha($process, 0, 0, 0, 127));
+            }
+
                 ResizeTools::fastimagecopyresampled($process, $source, 0, 0,
                     0, 0, $new_width, $new_height, $this->width, $this->height);
-            $thumb = imagecreatetruecolor($this->thumbW, $this->thumbH);
             ResizeTools::fastimagecopyresampled($this->thumb, $process, 0,
                     0, ($x_mid - ($this->thumbW / 2)),
                     ($y_mid - ($this->thumbH / 2)), $this->thumbW,

@@ -116,13 +116,30 @@ class Helpers
 
     /**
      * Get time with time difference
-     * @param int  $time
-     * @param float $difference
+     *
+     * **`0` is a timestamp, not a missing one.** The check here was `$time == NULL`, and a
+     * loose comparison against null is true for `0` and for `'0'` — so a record whose date
+     * column held zero was rendered as *right now*. Which is the worst available answer: a
+     * row with no date looked like the most recent one on the page, and a listing sorted by
+     * a formatted date put it first. Reported as "items with no date show today's date".
+     *
+     * A non-numeric `$time` — `''` or `false` out of an empty column — still means now,
+     * because there is nothing else it could mean and the arithmetic below would raise a
+     * TypeError on it. A caller that needs to distinguish "no date" from the epoch has to do
+     * that before formatting; this function cannot, and pretending otherwise is what the bug
+     * was.
+     *
+     * `$difference` keeps its own loose check on purpose: `0` has always meant "use the
+     * site's `timedifference` setting" there, and every caller that passes it means that.
+     * Add the offset yourself if you need a timestamp with none.
+     *
+     * @param  ?int  $time       Unix timestamp; null (or a non-numeric value) means now.
+     * @param  float $difference Offset in hours; 0 means the site's setting.
      * @return integer
      */
     public static function getTime($time = NULL, $difference = 0)
     {
-        if ($time == NULL) {
+        if ($time === null || !is_numeric($time)) {
             $time = time();
         }
         if ($difference == 0) {

@@ -1292,6 +1292,46 @@ class HelpersExtendedTest extends TestCase
     }
 
     /**
+     * A timestamp of zero is the epoch, not "now".
+     *
+     * The check was `$time == NULL`, and loose comparison against null is true for `0` and
+     * for `'0'`. So a record whose date column held zero rendered as the current moment —
+     * the worst answer available, because a row with no date then looked like the newest one
+     * on the page, and a listing sorted by the formatted date put it first. Reported from an
+     * application as "items with no date show today's date".
+     */
+    public function testGetTimeTreatsZeroAsTheEpochRatherThanNow(): void
+    {
+        // Act
+        $fromInt    = (int) Helpers::getTime(0, 1);
+        $fromString = (int) Helpers::getTime('0', 1);
+
+        // Assert — the epoch plus the requested hour, nowhere near today
+        $this->assertSame(3600, $fromInt);
+        $this->assertSame(3600, $fromString, 'a numeric string is a timestamp too');
+        $this->assertLessThan(time() - 86400, $fromInt, 'and it is emphatically not now');
+    }
+
+    /**
+     * A value that is not a number at all still means now.
+     *
+     * `''` and `false` are what an empty column reads as, and there is nothing else they
+     * could mean. They also cannot be added to: `'' + 3600` is a TypeError on PHP 8, so this
+     * branch is the difference between a wrong date and a fatal one. A caller that needs to
+     * tell "no date" from the epoch has to do it before formatting.
+     */
+    public function testGetTimeFallsBackToNowForAValueThatIsNotANumber(): void
+    {
+        // Act
+        $fromEmpty = (int) Helpers::getTime('', 0);
+        $fromFalse = (int) Helpers::getTime(false, 0);
+
+        // Assert
+        $this->assertGreaterThan(time() - 5, $fromEmpty);
+        $this->assertGreaterThan(time() - 5, $fromFalse);
+    }
+
+    /**
      * getTime() with null time must use the current time.
      *
      * Covers the null-time branch at line 126 of Helpers.php.
