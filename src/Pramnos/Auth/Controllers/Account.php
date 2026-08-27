@@ -1425,6 +1425,14 @@ class Account extends Controller
                 (int) $currentUser->userid,
                 \Pramnos\Auth\EmailSecondFactor::PURPOSE_ENROL
             );
+        // 0 when another code may be asked for now. The card labels its button with this
+        // rather than refusing silently — see the note in emailfactor().
+        $view->emailFactorResendIn = $view->emailFactorOffered
+            ? $emailFactor->secondsUntilResend(
+                (int) $currentUser->userid,
+                \Pramnos\Auth\EmailSecondFactor::PURPOSE_ENROL
+            )
+            : 0;
 
         return $view->display('security');
     }
@@ -1535,9 +1543,24 @@ class Account extends Controller
         // ── Enrolling, step 1: prove the mailbox ──────────────────────────────
         if ($factor->send($userId, $enrol)) {
             $_SESSION['account_success'] = t('We have emailed you a code. Enter it below to finish.');
-        } else {
-            $_SESSION['account_error'] = t('We could not email you a code. Check the address on your profile.');
+            $this->redirect($back);
+
+            return;
         }
+
+        /**
+         * A refusal is usually the rate limit, and the two need different words.
+         *
+         * Reported as "the limit does not work": it does, but this branch said "we could
+         * not email you a code — check the address on your profile", which reads as a
+         * broken mailer. Somebody told that presses the button again, sees the same thing,
+         * and concludes nothing is being sent — while a code is already sitting in their
+         * inbox.
+         */
+        $wait = $factor->secondsUntilResend($userId, $enrol);
+        $_SESSION['account_error'] = $wait > 0
+            ? t('We have already sent you a code. You can ask for another one in %d seconds.', $wait)
+            : t('We could not email you a code. Check the address on your profile.');
 
         $this->redirect($back);
     }

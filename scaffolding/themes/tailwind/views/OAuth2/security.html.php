@@ -80,6 +80,7 @@ $this->activeNav = 'security';
             $emailOn      = !empty($this->emailFactorEnabled);
             $emailPending = !empty($this->emailFactorPending);
             $emailAction  = sURL . $routeBase . '/emailfactor';
+            $emailWait    = (int) ($this->emailFactorResendIn ?? 0);
             ?>
             <div class="card bg-base-100 shadow-sm">
                 <div class="flex items-center gap-2 px-4 py-3 border-b border-base-300">
@@ -152,7 +153,17 @@ $this->activeNav = 'security';
                     </form>
                     <form method="POST" action="<?php echo $emailAction; ?>">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                        <button type="submit" class="btn btn-ghost btn-xs">Send another code</button>
+                        <button type="submit" class="btn btn-ghost btn-xs"
+                                <?php if ($emailWait > 0): ?>
+                                disabled
+                                data-pf-countdown="<?php echo $emailWait; ?>"
+                                data-pf-countdown-label="Another code in %ss"
+                                data-pf-countdown-ready="Send another code"
+                                <?php endif; ?>>
+                            <?php echo $emailWait > 0
+                                ? 'Another code in ' . $emailWait . 's'
+                                : 'Send another code'; ?>
+                        </button>
                     </form>
 
                     <?php else: ?>
@@ -162,7 +173,17 @@ $this->activeNav = 'security';
                             We will email a code to the address on your profile to check it reaches
                             you, then turn this on.
                         </p>
-                        <button type="submit" class="btn btn-sm btn-primary">Email me a code</button>
+                        <button type="submit" class="btn btn-sm btn-primary"
+                                <?php if ($emailWait > 0): ?>
+                                disabled
+                                data-pf-countdown="<?php echo $emailWait; ?>"
+                                data-pf-countdown-label="Try again in %ss"
+                                data-pf-countdown-ready="Email me a code"
+                                <?php endif; ?>>
+                            <?php echo $emailWait > 0
+                                ? 'Try again in ' . $emailWait . 's'
+                                : 'Email me a code'; ?>
+                        </button>
                     </form>
                     <?php endif; ?>
                 </div>

@@ -616,4 +616,29 @@ class EmailSecondFactorTest extends BaseTestCase
         $this->assertTrue($factor->maySend($this->uid, EmailSecondFactor::PURPOSE_ENROL));
     }
 
+
+    /**
+     * The wait is reportable, which is what the screens needed.
+     *
+     * Reported as "the limit does not work": it did, but every refusal said "we could not
+     * email you a code — check the address on your profile". That reads as a broken mailer,
+     * so the person presses the button again, sees the same words, and concludes nothing is
+     * being sent — while the code sits in their inbox. A limit nobody can distinguish from
+     * a fault is a limit that looks like a fault.
+     */
+    public function testTheWaitIsReportableSoAScreenCanExplainItself(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->db);
+        $this->assertTrue($factor->send($this->uid));
+
+        // Act
+        $wait = $factor->secondsUntilResend($this->uid);
+
+        // Assert — a number a screen can put in a sentence, not merely "no"
+        $this->assertGreaterThan(0, $wait);
+        $this->assertLessThanOrEqual(EmailSecondFactor::RESEND_INTERVAL, $wait);
+        $this->assertFalse($factor->maySend($this->uid));
+    }
+
 }

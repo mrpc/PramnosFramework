@@ -424,4 +424,61 @@
         });
     })();
 
+    /* ── Countdown buttons (data-pf-countdown) ──────────────────────────────────
+     *
+     * A button that is disabled because of a rate limit, counting down and enabling
+     * itself. "Another code in 60s" that never changes is indistinguishable from a broken
+     * button: the reader has no way to know whether it is waiting or dead, and the usual
+     * response is to reload the page — which is the one action that tells them nothing.
+     *
+     *   <button disabled
+     *           data-pf-countdown="46"
+     *           data-pf-countdown-label="Another code in %s"
+     *           data-pf-countdown-ready="Send another code">…</button>
+     *
+     * `%s` is replaced with the remaining seconds. The label is passed in rather than built
+     * here so the wording stays in the view, where the translation is.
+     *
+     * The server remains the authority: this only counts the number the server sent, and
+     * enabling the button early would just produce a refusal with the same message. It is
+     * cosmetic on purpose — a page left open for an hour re-enables a button whose next
+     * click is allowed anyway.
+     */
+    (function () {
+        var buttons = document.querySelectorAll('[data-pf-countdown]');
+        if (!buttons.length) { return; }
+
+        Array.prototype.forEach.call(buttons, function (button) {
+            var remaining = parseInt(button.getAttribute('data-pf-countdown'), 10);
+            if (isNaN(remaining) || remaining <= 0) { return; }
+
+            var waiting = button.getAttribute('data-pf-countdown-label') || '%s';
+            var ready = button.getAttribute('data-pf-countdown-ready') || button.textContent.trim();
+
+            // The element whose text changes: an inner <span> when the button has one, so
+            // an icon beside the label survives the update.
+            var target = button.querySelector('[data-pf-countdown-text]') || button;
+
+            var render = function () {
+                target.textContent = waiting.replace('%s', String(remaining));
+            };
+
+            render();
+
+            var tick = window.setInterval(function () {
+                remaining -= 1;
+
+                if (remaining > 0) {
+                    render();
+                    return;
+                }
+
+                window.clearInterval(tick);
+                target.textContent = ready;
+                button.removeAttribute('disabled');
+                button.removeAttribute('data-pf-countdown');
+            }, 1000);
+        });
+    })();
+
 })();

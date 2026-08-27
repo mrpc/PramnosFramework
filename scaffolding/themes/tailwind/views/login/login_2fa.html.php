@@ -127,16 +127,26 @@ $intro = $authLink
                 <form method="POST" action="<?php echo $base; ?>/verify">
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <input type="hidden" name="send_email_code" value="1">
+                    <?php
+                    /*
+                     * Disabled rather than hidden while the limit applies, with the wait in
+                     * the label — and the label counts down (`data-pf-countdown`, handled
+                     * in pf-utils.js). A number that never changes is indistinguishable
+                     * from a broken button, and the usual response to one is to reload the
+                     * page, which tells the reader nothing.
+                     */
+                    $readyLabel = $codePending ? 'Send another code' : 'Email me a code instead';
+                    ?>
                     <button type="submit" class="btn btn-ghost btn-sm w-full"
-                            <?php echo $resendIn > 0 ? 'disabled' : ''; ?>>
-                        <?php
-                        // Disabled rather than hidden while the limit applies, with the wait
-                        // in the label: a control that disappears leaves somebody wondering
-                        // whether they imagined it.
-                        echo $resendIn > 0
+                            <?php if ($resendIn > 0): ?>
+                            disabled
+                            data-pf-countdown="<?php echo $resendIn; ?>"
+                            data-pf-countdown-label="Another code in %ss"
+                            data-pf-countdown-ready="<?php echo htmlspecialchars($readyLabel, ENT_QUOTES); ?>"
+                            <?php endif; ?>>
+                        <?php echo $resendIn > 0
                             ? 'Another code in ' . $resendIn . 's'
-                            : ($codePending ? 'Send another code' : 'Email me a code instead');
-                        ?>
+                            : $readyLabel; ?>
                     </button>
                 </form>
             </div>
