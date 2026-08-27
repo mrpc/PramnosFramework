@@ -25,7 +25,7 @@ class UsersControllerTest extends TestCase
      *
      * @var string[]
      */
-    private const TABLES = ['usertokens', 'sessions', 'users'];
+    private const TABLES = ['usertokens', 'sessions', 'users', 'mails'];
 
     /**
      * Builds the schema once for the whole class.
@@ -120,6 +120,26 @@ class UsersControllerTest extends TestCase
                 `scope` text DEFAULT NULL,
                 `removedate` bigint(20) NOT NULL DEFAULT 0,
                 PRIMARY KEY (`tokenid`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
+        // The mail log, which the user screen reads to show what this address was sent.
+        $db->query('
+            CREATE TABLE `mails` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `status` smallint NOT NULL DEFAULT 0,
+                `frommail` varchar(128) NOT NULL DEFAULT \'\',
+                `fromname` varchar(255) NOT NULL DEFAULT \'\',
+                `tomail` varchar(128) NOT NULL DEFAULT \'\',
+                `toname` varchar(255) NOT NULL DEFAULT \'\',
+                `subject` varchar(255) NOT NULL DEFAULT \'\',
+                `content` text NOT NULL,
+                `date` int(11) NOT NULL DEFAULT 0,
+                `module` varchar(128) NOT NULL DEFAULT \'\',
+                `moduleinfo` varchar(255) NOT NULL DEFAULT \'\',
+                `extrainfo` text NOT NULL,
+                `path` varchar(255) NOT NULL DEFAULT \'\',
+                `hash` char(32) NOT NULL DEFAULT \'\',
+                PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
         $db->query('SET FOREIGN_KEY_CHECKS = 1');
@@ -636,6 +656,7 @@ class UsersControllerTest extends TestCase
         foreach ([
             'activity', 'activityCount', 'gdpr', 'gdprCount', 'lockouts', 'twofactor',
             'passkeys', 'privacy', 'tokenActions', 'tokenActionCount', 'organizations',
+            'emails', 'emailCount',
         ] as $key) {
             $this->assertArrayHasKey($key, $records, $key . ' must be on the user screen');
         }
@@ -660,6 +681,49 @@ class UsersControllerTest extends TestCase
         $this->assertSame([], $records['activity']);
         $this->assertSame(0, $records['activityCount']);
         $this->assertNull($records['twofactor']);
+    }
+
+    /**
+     * The mail this account was sent is on its screen, newest first.
+     *
+     * The mail log is indexed by address, and the user screen is indexed by account, so
+     * "did this person ever get the code" was a question an operator could only answer by
+     * searching another screen for an address they had to copy by hand. Which is why it
+     * was answered with "it must have been sent" instead.
+     *
+     * The address is passed in rather than read here, because it is the only link there
+     * is: `mails` has no `userid`. Which also fixes the shape of the limit — mail sent to
+     * an address the account used before it was changed is not this account's mail as far
+     * as this table is concerned, and nothing pretends otherwise.
+     */
+    public function testTheMailSentToAnAccountIsOnItsScreen(): void
+    {
+        // Arrange
+        $address = 'records_' . bin2hex(random_bytes(4)) . '@example.com';
+        foreach ([['Older notice', 1000], ['Newest notice', 2000]] as [$subject, $sent]) {
+            $this->db->query(
+                "INSERT INTO `mails` (`status`, `frommail`, `fromname`, `tomail`, `toname`, "
+                . "`subject`, `content`, `date`, `module`, `moduleinfo`, `extrainfo`, "
+                . "`path`, `hash`) VALUES (1, 'from@example.com', 'From', "
+                . "'" . $address . "', 'To', '" . $subject . "', 'Body', " . $sent
+                . ", 'auth', '', '', '', '" . md5($subject) . "')"
+            );
+        }
+
+        // Act
+        $records = (new UsersProbe())->exposeUserRecords(1, $address);
+
+        // Assert
+        $this->assertSame(2, $records['emailCount']);
+        $this->assertCount(2, $records['emails']);
+        $this->assertSame('Newest notice', $records['emails'][0]['subject'],
+            'newest first: an operator is looking for the last one, not the first');
+
+        // …and an account whose address nothing was sent to gets an empty panel rather
+        // than every mail in the table.
+        $none = (new UsersProbe())->exposeUserRecords(1, 'nobody@example.com');
+        $this->assertSame([], $none['emails']);
+        $this->assertSame(0, $none['emailCount']);
     }
 
     // ── The per-user operator actions ───────────────────────────────────────────
@@ -1142,8 +1206,8 @@ class UsersProbe extends \Pramnos\Application\Controllers\UsersController
     }
 
     /** @return array<string, mixed> */
-    public function exposeUserRecords(int $userId): array
+    public function exposeUserRecords(int $userId, string $email = ''): array
     {
-        return $this->userRecords($userId);
+        return $this->userRecords($userId, $email);
     }
 }

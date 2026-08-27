@@ -280,7 +280,7 @@ class Email extends \Pramnos\Framework\Base
             $tomail  = $this->emailToString($this->to);
             $date    = time();
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('mails')
+                ->table('#PREFIX#mails')
                 ->insert([
                     // 1 = sent, 0 = failed (matches Pramnos\Messaging\Mail::STATUS_*).
                     'status'     => $success ? 1 : 0,

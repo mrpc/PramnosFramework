@@ -182,7 +182,7 @@ class EmailsController extends Controller
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('mails')
+            ->table('#PREFIX#mails')
             ->where('id', $mailId)
             ->first();
 
@@ -223,7 +223,7 @@ class EmailsController extends Controller
 
         // Only re-queue failed emails (status=0) — sent/queued emails are ignored
         $db->queryBuilder()
-            ->table('mails')
+            ->table('#PREFIX#mails')
             ->where('id', $mailId)
             ->where('status', 0)
             ->update(['status' => 2]);

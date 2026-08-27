@@ -484,6 +484,44 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <?php endif; ?>
             </div>
 
+            <!-- Mail: what this address was actually sent -->
+            <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+                <?php $panel('Emails received', (int) $r('emailCount', 0), adminUrl('emails')); ?>
+                <?php $emails = $r('emails'); ?>
+                <?php if ($emails === []): ?>
+                <div class="p-4 text-sm text-base-content/60">Nothing was sent to this address.</div>
+                <?php else: ?>
+                <table class="table table-sm text-sm">
+                    <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
+                        <tr><th>When</th><th>Subject</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($emails as $mail): ?>
+                        <?php $mailUrl = adminUrl('emails/show/') . (int) ($mail['id'] ?? 0); ?>
+                        <tr>
+                            <td class="text-xs whitespace-nowrap"><?php echo $esc($when($mail['date'] ?? null)); ?></td>
+                            <td>
+                                <a class="link" href="<?php echo $mailUrl; ?>">
+                                    <?php echo $esc((string) ($mail['subject'] ?? '(no subject)')); ?>
+                                </a>
+                            </td>
+                            <td class="text-xs">
+                                <?php $status = (int) ($mail['status'] ?? 0); ?>
+                                <?php if ($status === 1): ?>
+                                    <span class="pf-state pf-state-on">Sent</span>
+                                <?php elseif ($status === 2): ?>
+                                    <span class="pf-state">Queued</span>
+                                <?php else: ?>
+                                    <span class="pf-state pf-state-off">Pending</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+
             <!-- GDPR: requests an operator has to answer -->
             <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
                 <?php $panel('Data requests (GDPR)', (int) $r('gdprCount', 0)); ?>

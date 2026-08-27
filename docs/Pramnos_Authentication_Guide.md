@@ -213,7 +213,7 @@ which is what it did before: three screens, three sets of thresholds, three answ
 
 ### What the administration screen shows about a user
 
-The framework records a user's history in **nine** stores, and until they were joined on
+The framework records a user's history in **ten** stores, and until they were joined on
 one screen most of it was invisible outside the DevPanel:
 
 | Store | What it holds | Where it appears |
@@ -227,6 +227,14 @@ one screen most of it was invisible outside the DevPanel:
 | `usertokens` | issued tokens | *Recent tokens*, and the Tokens screen |
 | `tokenactions` | what was done with them | *Token actions* panel |
 | `authserver.user_organizations` | memberships | *Organizations* panel |
+| `mails` | the mail this address was sent | *Emails received* panel, each subject linking to the mail |
+
+**The mail panel matches on the address, because `mails` has no `userid`.** So it answers
+"was this person actually sent the code" — which was otherwise a question an operator could
+only take to a mail log indexed by address, with an address copied off this page by hand,
+and therefore usually answered with "it must have been sent". The limit is the other half of
+that: mail sent to an address the account used *before* it was changed does not appear, and
+nothing pretends otherwise.
 
 **Every read is guarded on its own.** These tables arrive with features — an application
 without `authserver` has none of the `authserver.*` ones — so a panel with nothing behind

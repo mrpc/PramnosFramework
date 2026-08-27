@@ -113,7 +113,7 @@ class UsersController extends Controller
         $view->sessionCount = $sessionCount;
         $view->recentTokens = $recentTokens;
         // Everything else the framework records about this account — see userRecords().
-        $view->records      = $this->userRecords($id);
+        $view->records      = $this->userRecords($id, (string) $user->email);
         return $view->display('view');
     }
 
@@ -173,7 +173,7 @@ class UsersController extends Controller
      * @param  int $userId
      * @return array<string, mixed>
      */
-    protected function userRecords(int $userId): array
+    protected function userRecords(int $userId, string $email = ''): array
     {
         $db = \Pramnos\Database\Database::getInstance();
 
@@ -235,6 +235,20 @@ class UsersController extends Controller
                 ) ?: 'optin'),
                 'enabled' => \Pramnos\Auth\NewSignInAlert::isEnabledFor($userId),
             ],
+
+            // The mail this account was actually sent. An operator answering "I never got
+            // the code" has otherwise no way to tell a mail that was never queued from one
+            // that was queued and refused, and the mail log is indexed by address rather
+            // than by account, so it is not a screen anybody thinks to cross-reference.
+            //
+            // Matched on the current address, which is the limit worth knowing: mail sent
+            // to an address this account used *before* it was changed does not appear here.
+            // Joining on history would need the old addresses to have been kept, and they
+            // are not.
+            'emails' => $email === '' ? [] : $rows(fn ($qb) => $qb->table('#PREFIX#mails')
+                ->where('tomail', $email)->orderBy('date', 'desc')->limit(10)->get()),
+            'emailCount' => $email === '' ? 0 : $count(fn ($qb) => $qb->table('#PREFIX#mails')
+                ->where('tomail', $email)->count()),
 
             // What was done with this account's tokens — issued, revoked, refreshed.
             'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions')
