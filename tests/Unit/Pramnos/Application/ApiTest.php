@@ -294,6 +294,65 @@ class ApiTest extends TestCase
             'the legacy envelope must NOT wrap a Response object');
     }
 
+    /**
+     * The status a Response answered with is readable after the dispatch.
+     *
+     * Under CLI the kernel does not emit it — `http_response_code()` has nowhere
+     * to put it — so before this a test could see the body and nothing else. The
+     * status is the half a client acts on: 400 "you sent no credentials", 401
+     * "they were wrong" and 405 "wrong verb" are three different instructions,
+     * and all three can carry a body of the same shape. So an endpoint whose
+     * status changed silently kept passing.
+     */
+    public function testTheStatusOfAResponseIsReadableAfterTheDispatch()
+    {
+        // Arrange
+        if (!is_dir(ROOT . '/src/Api')) {
+            mkdir(ROOT . '/src/Api', 0777, true);
+        }
+        file_put_contents(
+            ROOT . '/src/Api/routes.php',
+            '<?php return \Pramnos\Http\Response::json(["error" => "missing_credentials"], 400);'
+        );
+
+        $api = new class extends Api {
+            public $database;
+            public $applicationInfo = ['name' => 'test'];
+            public function __construct() { }
+        };
+        $api->database = $this->createMock(\Pramnos\Database\Database::class);
+        $this->assertNull($api->lastStatusCode, 'nothing has been dispatched yet');
+
+        // Act
+        $api->_executeCore(microtime(true));
+
+        // Assert
+        $this->assertSame(400, $api->lastStatusCode);
+    }
+
+    /**
+     * The legacy array envelope reports its status the same way.
+     *
+     * Both response kinds are in use — a `Response` object from a modern route,
+     * an array from everything older — and a test should not have to know which
+     * one an endpoint produces to assert on what it answered.
+     */
+    public function testTheStatusOfTheLegacyEnvelopeIsReadableToo()
+    {
+        // Arrange
+        $api = new class extends Api {
+            public function translateStatus($status) {
+                return $this->_translateStatus($status);
+            }
+        };
+
+        // Act
+        $api->translateStatus(['status' => 422, 'error' => 'ValidationError']);
+
+        // Assert
+        $this->assertSame(422, $api->lastStatusCode);
+    }
+
     public function testExecuteCoreWithRoutesPhpValidationException()
     {
         if (!is_dir(ROOT . '/src/Api')) {

@@ -472,6 +472,36 @@ $router->group([
 2. Session cookie + `X-CSRF-Token` header — if session has an active `web_session` token and CSRF matches
 3. No credentials → 401 JSON envelope
 
+### Testing an endpoint's status code
+
+Dispatch the request through the kernel the entry point uses, then read the status
+off the kernel:
+
+```php
+$api = new \Pramnos\Application\Api();
+$api->init();
+$api->exec();
+
+$body   = (string) $api->render();
+$status = $api->lastStatusCode;      // int|null — null before the first dispatch
+```
+
+**Why not `http_response_code()`.** Under CLI the kernel does not emit the status —
+there is nowhere to put it — so a test could not observe it at all. And the status
+is half of what an endpoint promises: 400 "you sent no credentials", 401 "they were
+wrong" and 405 "wrong verb" are three different instructions to a client, and all
+three can carry a body of the same shape. A test asserting only on the body cannot
+tell them apart, and an endpoint whose status silently changed kept passing.
+
+`lastStatusCode` is set for every dispatch, whatever the SAPI, for both response
+kinds — a `Response` object's own status, and the status inside the legacy
+array/string envelope.
+
+The one thing it does not cover is a middleware short-circuit (a missing or
+invalid API key): those never reach the dispatch, and put their status in the body
+instead. Read `$decoded['status']` as a fallback, and only when it is numeric —
+plenty of endpoints use the word for something else (`{"status":"ok"}`).
+
 ### Api::exec() middleware pipeline
 
 `Api::exec()` automatically runs:

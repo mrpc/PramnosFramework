@@ -37,6 +37,23 @@ class Api extends Application
     public $controller = '';
 
     /**
+     * The HTTP status the last dispatched request answered with.
+     *
+     * Under CLI the status is deliberately not emitted — `http_response_code()`
+     * has nowhere to put it — so a test had no way to observe it at all, and the
+     * status is half of what an API endpoint promises: 400 "you sent no
+     * credentials", 401 "they were wrong" and 405 "wrong verb" are three
+     * different instructions to a client, and all three can carry a body of the
+     * same shape. A test asserting only on the body cannot tell them apart, and
+     * an endpoint whose status silently changed would keep passing.
+     *
+     * Set for every dispatch, whatever the SAPI. Null before the first one.
+     *
+     * @var int|null
+     */
+    public ?int $lastStatusCode = null;
+
+    /**
      * Application class constructor
      * @param string $appName Application Name used for namespaces
      */
@@ -269,6 +286,7 @@ class Api extends Application
             // array/string envelope of _translateStatus(). Array/string returns
             // keep the classic envelope for backward compatibility.
             if ($response instanceof \Pramnos\Http\Response) {
+                $this->lastStatusCode = $response->getStatusCode();
                 // Skip real header emission under CLI (PHPUnit) — matches the
                 // guard used by _translateStatus() and avoids the harmless
                 // "http_response_code() has no effect" warning during tests.
@@ -491,6 +509,7 @@ class Api extends Application
         } else {
             $return = $defaultArray;
         }
+        $this->lastStatusCode = (int) $return['status'];
         if ($return['status'] != 200) {
             if ($return['statusmessage'] == 'OK') {
                 $return['statusmessage'] = $this->_httpStatusToText(
