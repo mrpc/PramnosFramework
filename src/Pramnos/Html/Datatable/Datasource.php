@@ -29,15 +29,44 @@ class Datasource extends Base
     public $maxlimit = '50';
     public $idrow = 0;
 
+    /**
+     * Declare a column, and how the global search should treat it.
+     *
+     * **Every parameter has to be declared, not just accepted.** `render()`
+     * passes a field's details to this method with `call_user_func_array()`, and
+     * an associative array becomes *named arguments* on PHP 8 — so a key this
+     * signature does not name is an `Unknown named parameter` error rather than
+     * a silent extra. A consuming application's suite failed on
+     * `$ignoreOnOthertypes` the moment it tried the modern class.
+     *
+     * @param string  $name          Column, optionally `table.column` or `expr as alias`
+     * @param string  $format        `text` (default), `email`, `phone`, `numeric`/`number`/`int`, `date`
+     * @param string  $formatdetails Format argument — for `date`, the output format
+     * @param bool    $startWildcard Put a `%` before the search term for this column
+     * @param bool    $endWildcard   Put a `%` after it
+     * @param bool    $ignoreOnOthertypes Leave this column out of the global search when
+     *                               the term is a number or an email address. For a wide
+     *                               list, searching a free-text column for `12345` costs a
+     *                               scan and returns noise; the numeric columns answer that
+     *                               query.
+     * @param int|null $min          Lower bound. For a numeric column, on the **value**;
+     *                               otherwise on the term's **length** — a one-character
+     *                               term against a large text column is a full scan.
+     * @param int|null $max          Upper bound, read the same way.
+     */
     public function addField($name, $format = 'text', $formatdetails = '',
-        $startWildcard = true, $endWildcard = true)
+        $startWildcard = true, $endWildcard = true,
+        $ignoreOnOthertypes = false, $min = null, $max = null)
     {
         $this->fields[] = $name;
         $this->fielddetails[$name] = array(
             'format' => $format,
             'formatdetails' => $formatdetails,
             'startWildcard' => $startWildcard,
-            'endWildcard' => $endWildcard
+            'endWildcard' => $endWildcard,
+            'ignoreOnOthertypes' => $ignoreOnOthertypes,
+            'min' => $min,
+            'max' => $max
         );
     }
 
@@ -80,12 +109,13 @@ class Datasource extends Base
     public static function getList($table, $fields = NULL, $encode = true,
         $where = '', $join = '', $cache = true, $cachetime = 5,
         $cachecategory = "datatables",  $debug = false, $iconv = NULL,
-        $distinctField='', $whereWord = 'where')
+        $distinctField='', $whereWord = 'where', $groupBy = '')
     {
         $data = new Datasource();
         return $data->render(
                 $table, $fields, $encode, $where, $join, $cache, $cachetime,
-                $cachecategory, $debug, $iconv, $distinctField, $whereWord
+                $cachecategory, $debug, $iconv, $distinctField, $whereWord,
+                $groupBy
         );
     }
 
@@ -104,12 +134,25 @@ class Datasource extends Base
      * @param string $iconv If webpage is not encoded in utf8, specify encoding
      * @param string $distinctField Select a field to be distinct
      * @param string $whereWord
+     * @param string $groupBy The `GROUP BY` part, without the keyword — e.g.
+     *                        `a.userid` or `a.userid, a.type`.
+     *
+     *                        Its own parameter because the alternative is putting
+     *                        it inside `$whereStatement` and hoping the string
+     *                        lands in the right place, which is how a consuming
+     *                        application ended up maintaining **two forks** of
+     *                        this class whose only difference was this argument.
+     *
+     *                        It applies to the counts as well as to the rows: a
+     *                        grouped query returns fewer rows than it counts, so
+     *                        a pager built on an ungrouped `COUNT(*)` promises
+     *                        pages that are not there.
      * @return mixed a Json string or an array of data
      */
     public function render($table = '', $queryFields = NULL, $encode = true,
         $whereStatement = '', $join = '', $cache = true, $cachetime = 5,
         $cachecategory = "datatables", $debug = false, $iconv = NULL,
-        $distinctField='', $whereWord = 'where')
+        $distinctField='', $whereWord = 'where', $groupBy = '')
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         if (is_array($queryFields)) {
@@ -275,19 +318,95 @@ class Datasource extends Base
                 }
             }
             if ($hasSearchable) {
-                $isFiltered = true;
-                $qb->where(function($query) use ($fields, $searchTerm, $database) {
-                    foreach ($fields as $i => $field) {
-                        if (isset($_POST['bSearchable_' . $i]) && $_POST['bSearchable_' . $i] == "true") {
-                            if (strpos($field, ' as ') !== false) {
-                                $field = explode(' as ', $field)[0];
-                            }
-
-                            $column = strpos($field, '.') === false ? "a.`$field`" : $field;
-                            $query->orWhere($column, 'LIKE', '%' . $searchTerm . '%');
-                        }
+                $details = $this->fielddetails;
+                /**
+                 * One term, and each column decides whether it applies.
+                 *
+                 * This used to be `LIKE '%term%'` on every searchable column,
+                 * which ignored everything `addField()` was told: a column's
+                 * wildcards, its format, its bounds. So a numeric id column was
+                 * searched as text, a free-text column was scanned for `12345`,
+                 * and the `%` prefix that makes an index unusable was applied
+                 * whether or not the caller asked for it.
+                 *
+                 * A column that declines contributes no clause. If every column
+                 * declines the term, the `where` group is empty — which is why
+                 * the clauses are collected first and the group is only added
+                 * when there is something in it: an empty closure would produce
+                 * `WHERE ()`.
+                 */
+                $clauses = [];
+                foreach ($fields as $i => $field) {
+                    if (!isset($_POST['bSearchable_' . $i])
+                        || $_POST['bSearchable_' . $i] != "true") {
+                        continue;
                     }
-                });
+
+                    $detail = $details[$field] ?? [];
+                    $format = strtolower((string) ($detail['format'] ?? 'text'));
+                    $start  = !empty($detail['startWildcard']) ? '%' : '';
+                    $end    = !empty($detail['endWildcard']) ? '%' : '';
+                    $min    = $detail['min'] ?? null;
+                    $max    = $detail['max'] ?? null;
+                    $ignoreOnOthertypes = !empty($detail['ignoreOnOthertypes']);
+
+                    $bare = strpos($field, ' as ') !== false
+                        ? explode(' as ', $field)[0]
+                        : $field;
+                    $column = strpos($bare, '.') === false ? "a.`$bare`" : $bare;
+
+                    switch ($format) {
+                        case 'email':
+                            // Only when the term is one. Searching an address
+                            // column for a fragment of a name matches nothing
+                            // and costs a scan.
+                            $email = \Pramnos\Validation\Validator::checkEmail($searchTerm);
+                            if ($email !== false) {
+                                $clauses[] = [$column, 'LIKE', $start . $email . $end];
+                            }
+                            break;
+
+                        case 'phone':
+                            // Digits, spaces, dashes, parentheses and an
+                            // optional +, at a length a phone number has.
+                            if (preg_match('/^\+?[0-9\s\-()]+$/', $searchTerm)
+                                && strlen($searchTerm) > 9 && strlen($searchTerm) < 15) {
+                                $clauses[] = [$column, 'LIKE', $start . $searchTerm . $end];
+                            }
+                            break;
+
+                        case 'numeric':
+                        case 'number':
+                        case 'int':
+                            // Equality, not LIKE: `LIKE '%5%'` on an integer
+                            // column matches 5, 15, 50 and 1523.
+                            if (is_numeric($searchTerm)
+                                && ($min === null || $searchTerm >= $min)
+                                && ($max === null || $searchTerm <= $max)) {
+                                $clauses[] = [$column, '=', $searchTerm];
+                            }
+                            break;
+
+                        default:
+                            if (($ignoreOnOthertypes === false
+                                    || (!is_numeric($searchTerm)
+                                        && \Pramnos\Validation\Validator::checkEmail($searchTerm) === false))
+                                && ($min === null || strlen($searchTerm) >= $min)
+                                && ($max === null || strlen($searchTerm) <= $max)) {
+                                $clauses[] = [$column, 'LIKE', $start . $searchTerm . $end];
+                            }
+                            break;
+                    }
+                }
+
+                if ($clauses !== []) {
+                    $isFiltered = true;
+                    $qb->where(function ($query) use ($clauses) {
+                        foreach ($clauses as [$column, $operator, $value]) {
+                            $query->orWhere($column, $operator, $value);
+                        }
+                    });
+                }
             }
         }
 
@@ -308,6 +427,33 @@ class Datasource extends Base
             }
         }
 
+        /**
+         * How many rows the query answers with — groups, when it groups.
+         *
+         * `QueryBuilder::count()` preserves the `GROUP BY`, which it documents:
+         * so on a grouped query `COUNT(*)` returns the size of the *first group*
+         * rather than the number of groups, and a pager built on it promises
+         * pages that are not there. Counting is therefore done before the group
+         * by is applied, as `COUNT(DISTINCT <the grouped columns>)`.
+         *
+         * $groupBy is interpolated, at the same trust level as $join and
+         * $whereStatement above it: a column list from the calling code, never
+         * from a request.
+         */
+        $countRows = static function ($builder) use (
+            $groupBy, $cache, $cachetime, $cachecategory
+        ) {
+            if ($groupBy === '') {
+                return $builder->count($cache, $cachetime, $cachecategory);
+            }
+            $counter = clone $builder;
+            $counter->select(['COUNT(DISTINCT ' . $groupBy . ') AS aggregate'])
+                    ->clearOrderingAndPaging();
+            $result = $counter->get($cache, $cachetime, $cachecategory);
+
+            return (int) ($result->fields['aggregate'] ?? 0);
+        };
+
         // First count: Total records without filtering.
         $totalQb = $database->queryBuilder()->from($table . ' a');
         if ($join != '') $totalQb->joinRaw($join);
@@ -317,7 +463,7 @@ class Datasource extends Base
             // asked for caching got its page of results from cache and then
             // paid for a full COUNT(*) anyway — which on a large table is the
             // expensive half of the request.
-            $total = $totalQb->count($cache, $cachetime, $cachecategory);
+            $total = $countRows($totalQb);
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error in Datasource total count: ' . $ex->getMessage());
             $total = 0;
@@ -333,11 +479,17 @@ class Datasource extends Base
             $totalDisplay = $total;
         } else {
             try {
-                $totalDisplay = $qb->count($cache, $cachetime, $cachecategory);
+                $totalDisplay = $countRows($qb);
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error in Datasource filtered count: ' . $ex->getMessage());
                 $totalDisplay = 0;
             }
+        }
+
+        // Applied after the counts, which need the ungrouped query — see
+        // $countRows above.
+        if ($groupBy !== '') {
+            $qb->groupByRaw($groupBy);
         }
 
         if ($debug) {

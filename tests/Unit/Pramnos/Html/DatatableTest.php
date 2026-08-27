@@ -1439,4 +1439,73 @@ class DatatableTest extends TestCase
         $this->assertNotNull($dt->aLengthMenu);
         $this->assertStringContainsString('[[10, 25, 50, 100, -1]', $dt->aLengthMenu);
     }
+
+    /**
+     * The search delay is configurable, and lands in both places that debounce.
+     *
+     * The table waits twice: its own `keyup` handler on the footer filters, and
+     * DataTables' `searchDelay` option for the global box. `var ms = 500` was
+     * hardcoded in the first and the second was never emitted at all — so a
+     * table with six `LEFT JOIN`s behind it could not be told to wait longer,
+     * and the query rate on exactly the heaviest lists was the one nobody could
+     * lower. A consuming application sets 1200 on its heaviest admin list.
+     */
+    public function testTheSearchDelayIsConfigurableAndEmittedInBothPlaces(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'heavyList';
+        $table->searchDelay = 1200;
+
+        // Act
+        $js = $table->renderJs();
+
+        // Assert — the debounce, and DataTables' own option
+        $this->assertStringContainsString('var ms = 1200;', $js,
+            "the footer filters' debounce must use the configured delay");
+        $this->assertStringContainsString('"searchDelay": 1200', $js,
+            "and DataTables' own searchDelay option must carry it too");
+    }
+
+    /**
+     * The default stays 500.
+     *
+     * Changing it would move every existing table's behaviour, which is not what
+     * making it configurable is for.
+     */
+    public function testTheSearchDelayDefaultsToFiveHundred(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'plainList';
+
+        // Act
+        $js = $table->renderJs();
+
+        // Assert
+        $this->assertSame(500, $table->searchDelay);
+        $this->assertStringContainsString('var ms = 500;', $js);
+    }
+
+    /**
+     * A non-numeric delay cannot become markup.
+     *
+     * The value is interpolated inside a `<script>`, so it is cast at the
+     * boundary rather than trusted — the property is public and an application
+     * may well set it from a setting.
+     */
+    public function testANonNumericDelayIsCastRatherThanEmitted(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'oddList';
+        $table->searchDelay = '900; alert(1)';
+
+        // Act
+        $js = $table->renderJs();
+
+        // Assert
+        $this->assertStringContainsString('var ms = 900;', $js);
+        $this->assertStringNotContainsString('alert(1)', $js);
+    }
 }

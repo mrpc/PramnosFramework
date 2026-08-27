@@ -147,6 +147,23 @@ class Datatable extends Base
     public $footerTextSearch = false;
 
     /**
+     * Milliseconds to wait after the last keystroke before searching.
+     *
+     * Emitted in two places, because the table debounces in two: the footer
+     * filters' own `keyup` handler, and DataTables' `searchDelay` option for the
+     * global search box.
+     *
+     * Not the same number for every table, which is why it is a property. A list
+     * with six `LEFT JOIN`s behind it wants a second or more — a consuming
+     * application sets `1200` on its heaviest admin list and `600` on two
+     * reports — and with a fixed 500 the query rate on exactly those tables
+     * doubles. The default stays 500.
+     *
+     * @var int
+     */
+    public $searchDelay = 500;
+
+    /**
      *
      * @var string
      */
@@ -675,11 +692,14 @@ table;
 
         $tableId   = $this->name;
         $tableVar  = $jsVar;
+        // Cast at the boundary: this lands inside a <script>, so a non-numeric
+        // value would be markup rather than a number.
+        $searchDelay = max(0, (int) $this->searchDelay);
         $return = <<<table
    <script>
 
             function DataTableDelay(fn) {
-                var ms = 500;
+                var ms = {$searchDelay};
                 let timer = 0;
                 return function(...args) {
                   clearTimeout(timer);
@@ -701,6 +721,7 @@ table;
             "aLengthMenu": $this->aLengthMenu,
             $ajaxsource
             "iDisplayLength": $this->iDisplayLength,
+            "searchDelay": {$searchDelay},
             "stateSave": $this->stateSave,
              $ss
             "sPaginationType": "$this->sPaginationType",

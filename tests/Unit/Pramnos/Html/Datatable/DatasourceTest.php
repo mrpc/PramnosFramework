@@ -166,6 +166,230 @@ class DatasourceTest extends TestCase
             'addField() must preserve insertion order in $fields');
     }
 
+    /**
+     * `addField()` accepts every key `render()` hands it back.
+     *
+     * `render()` passes a field's details through `call_user_func_array()`, and
+     * an associative array becomes **named arguments** on PHP 8 — so a key this
+     * signature does not declare is an `Unknown named parameter` error, not a
+     * silent extra. A consuming application's suite failed on
+     * `$ignoreOnOthertypes` the moment it tried this class, which is how the
+     * three were found missing.
+     *
+     * Asserted as a round trip, because that is the failure: whatever
+     * `addField()` stores has to be something `addField()` can be called with.
+     */
+    public function testEveryStoredDetailCanBePassedBackAsANamedArgument(): void
+    {
+        // Arrange
+        $ds = new Datasource();
+        $ds->addField('email', 'email', '', false, true, true, 3, 120);
+
+        // Act — the array render() would rebuild the call from
+        $details = $ds->fielddetails['email'];
+        $again = new Datasource();
+        $again->addField('email', ...$details);
+
+        // Assert
+        $this->assertSame($details, $again->fielddetails['email'],
+            'a detail render() stores must be one addField() accepts');
+    }
+
+    /**
+     * The three filtering parameters are stored under the names they arrive as.
+     */
+    public function testAddFieldStoresTheFilteringBounds(): void
+    {
+        // Arrange
+        $ds = new Datasource();
+
+        // Act
+        $ds->addField('notes', 'text', '', true, true, true, 4, 64);
+
+        // Assert
+        $details = $ds->fielddetails['notes'];
+        $this->assertTrue($details['ignoreOnOthertypes']);
+        $this->assertSame(4, $details['min']);
+        $this->assertSame(64, $details['max']);
+    }
+
+    /**
+     * `ignoreOnOthertypes` keeps a text column out of a numeric search.
+     *
+     * A wide admin list has a numeric id column and several free-text ones.
+     * Searching every text column for `1` costs a scan each and returns noise —
+     * the numeric column is the one that answers that query. The flag is what
+     * lets a caller say which columns are for text.
+     *
+     * Seeded so the two answers differ: `9` appears in a price and in no name.
+     */
+    public function testIgnoreOnOthertypesKeepsATextColumnOutOfANumericSearch(): void
+    {
+        // Arrange — search a number; `name` opts out, `price` does not
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '9.99'],
+            'columns' => [
+                ['searchable' => 'true'],
+                ['searchable' => 'true'],
+            ],
+        ]);
+        $ds = new Datasource();
+        $ds->addField('name', 'text', '', true, true, true);
+        $ds->addField('price', 'numeric');
+
+        // Act
+        $result = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — the one row whose price is 9.99, and no text matches
+        $this->assertSame(1, $result['recordsFiltered'],
+            'a numeric term must be answered by the numeric column alone');
+    }
+
+    /**
+     * A numeric column is compared for equality, not with LIKE.
+     *
+     * `LIKE '%5%'` on a number matches 5, 15, 50 and 1523 — so a search for an
+     * id returns a page of unrelated rows, which is the shape of "the search box
+     * does not work". The global search used to do exactly that on every column.
+     */
+    public function testANumericColumnIsMatchedExactly(): void
+    {
+        // Arrange
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '1'],
+            'columns' => [['searchable' => 'true']],
+        ]);
+        $ds = new Datasource();
+        $ds->addField('id', 'int');
+
+        // Act
+        $result = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — id 1, not every id containing a 1
+        $this->assertSame(1, $result['recordsFiltered'],
+            'a numeric column must compare equal, not LIKE');
+    }
+
+    /**
+     * `min` and `max` bound a numeric column's search by value.
+     *
+     * A term outside the column's range cannot match it, so the column should
+     * not be searched at all — on a large table that is a scan avoided per
+     * keystroke.
+     */
+    public function testMinAndMaxBoundANumericSearch(): void
+    {
+        // Arrange — 9999 is outside the declared range
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '9999'],
+            'columns' => [['searchable' => 'true']],
+        ]);
+        $ds = new Datasource();
+        $ds->addField('id', 'int', '', true, true, false, 1, 100);
+
+        // Act
+        $result = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — nothing was searched, so nothing was filtered out either:
+        // every row is returned, which is what "no clause applied" means
+        $this->assertSame(4, $result['recordsFiltered'],
+            'a term outside the declared range must not produce a clause');
+    }
+
+    /**
+     * An email column only takes part when the term is an address.
+     */
+    public function testAnEmailColumnIsSearchedOnlyForAnAddress(): void
+    {
+        // Arrange
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => 'Widget'],
+            'columns' => [['searchable' => 'true']],
+        ]);
+        $ds = new Datasource();
+        $ds->addField('name', 'email');
+
+        // Act
+        $result = $ds->render('ds_items', null, false, '', '', false);
+
+        // Assert — no clause, so no filtering
+        $this->assertSame(4, $result['recordsFiltered'],
+            'a non-address term must not be searched against an email column');
+    }
+
+    /**
+     * A column's wildcards are honoured by the global search.
+     *
+     * `startWildcard` and `endWildcard` were stored and then ignored: the global
+     * search hardcoded `LIKE '%term%'`. A leading `%` is what makes an index
+     * unusable, so a caller turning it off was asking for something real and
+     * getting the opposite.
+     */
+    public function testTheGlobalSearchHonoursAColumnsWildcards(): void
+    {
+        // Arrange — 'idget' matches "Widget A" only with a leading wildcard
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => 'idget'],
+            'columns' => [['searchable' => 'true']],
+        ]);
+        $anchored = new Datasource();
+        $anchored->addField('name', 'text', '', false, true);
+
+        // Act
+        $result = $anchored->render('ds_items', null, false, '', '', false);
+
+        // Assert — anchored at the start, so nothing matches
+        $this->assertSame(0, $result['recordsFiltered'],
+            'startWildcard=false must anchor the match at the beginning');
+    }
+
+    /**
+     * `$groupBy` groups the rows, and the count counts groups.
+     *
+     * Its own parameter because the alternative is smuggling it into the `where`
+     * string — which is what a consuming application escaped by maintaining two
+     * forks of this class whose only difference was this argument.
+     *
+     * The count is the half that is easy to get wrong: `QueryBuilder::count()`
+     * preserves the `GROUP BY`, so `COUNT(*)` returns the size of the first
+     * group rather than the number of groups, and the pager then promises pages
+     * that are not there. Four items across two categories is the smallest
+     * fixture where the two numbers differ.
+     */
+    public function testGroupByGroupsTheRowsAndCountsTheGroups(): void
+    {
+        // Arrange
+        $this->setPost(['draw' => '1', 'start' => '0', 'length' => '10']);
+        $ds = new Datasource();
+
+        // Act
+        $result = $ds->render(
+            'ds_items', ['category_id'], false, '', '', false, 5,
+            'datatables', false, null, '', 'where', 'a.`category_id`'
+        );
+
+        // Assert — two groups, counted as two and returned as two
+        $this->assertCount(2, $result['data'],
+            'the grouped query must return one row per group');
+        $this->assertSame(2, $result['recordsTotal'],
+            'and the count must be the number of groups, not the size of one');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // getList() — static factory
     // ─────────────────────────────────────────────────────────────────────────

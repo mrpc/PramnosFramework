@@ -20,8 +20,8 @@ each one constructed, configured with public properties, and turned into a strin
 | [`Input`](#input) | one input, textarea, checkbox or radio, with no form around it |
 | [`SearchBox`](#searchbox) | the cross-entity search box in an admin header |
 | [`Pagination`](#pagination) | page links from a count, a current page and a URL pattern |
-| `Datatable` | a DataTables-backed table, with server-side paging and filters |
-| `Breadcrumb` | a breadcrumb trail, plus its `BreadcrumbList` structured data |
+| [`Datatable`](#datatable-and-its-datasource) | a DataTables-backed table, with server-side paging and filters |
+| [`Breadcrumb`](#breadcrumb) | a breadcrumb trail, plus its `BreadcrumbList` structured data |
 | `Date` | date and time formatting helpers |
 | `Seo` | canonical URLs, meta tags and structured data |
 | [`Form\Field`](#formfield) | one field **inside a form**, with a label and a style preset |
@@ -252,6 +252,139 @@ you need two.
 The accessible name is a real visually-hidden `<label>`, not an `aria-label`: an
 `aria-label` is invisible to a translation tool that only reads element text, and the
 result is a translated interface whose search box announces itself in English.
+
+---
+
+## Breadcrumb
+
+```php
+$bc = new \Pramnos\Html\Breadcrumb();
+$bc->addItem('Home', sURL);
+$bc->addItem('Users', sURL . 'users');
+$bc->addItem('Alice');          // no url — the current page
+echo $bc->render();
+```
+
+It emits the trail twice: as an `<ol class="breadcrumb">` for the reader, and as
+`BreadcrumbList` JSON-LD for a search engine, from the same items.
+
+### Every label is wrapped in a heading, and your CSS has to know
+
+```html
+<li class="breadcrumb-item"><h5><a href="…"><span>Users</span></a></h5></li>
+<li class="breadcrumb-item active" aria-current="page"><h4><span>Alice</span></h4></li>
+```
+
+The descending heading levels are how the trail expresses depth to a crawler. A heading is
+a **block element**, and Tailwind's Preflight strips its size but not its `display` — so a
+stylesheet that styles `.breadcrumb` and forgets the headings gets a trail where each label
+fills its own line and the separators drop underneath:
+
+```
+Home Dashboard
+ /        /      Tokens
+```
+
+Which is what it looks like in a browser, and nothing in any log. Reset them:
+
+```css
+.breadcrumb-item h1, .breadcrumb-item h2, .breadcrumb-item h3,
+.breadcrumb-item h4, .breadcrumb-item h5, .breadcrumb-item h6 {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    font-size: inherit;
+    font-weight: 400;
+    line-height: inherit;
+}
+```
+
+All three bundled themes carry that rule in their `style.css`. A hand-written theme, or an
+application compiling its own Tailwind, needs it too.
+
+**`render()` does not escape labels.** It is documented that way because a caller sometimes
+wants markup in a crumb — so anything dynamic has to go through `htmlspecialchars()` before
+`addItem()`.
+
+---
+
+## Datatable, and its Datasource
+
+`Datatable` renders the table and its JavaScript; `Datatable\Datasource` answers the AJAX
+requests DataTables makes. This section covers what a caller configures, not a full tour.
+
+### Waiting before searching
+
+```php
+$table = new \Pramnos\Html\Datatable('users', sURL . 'users/data');
+$table->searchDelay = 1200;   // ms; default 500
+```
+
+The table debounces in two places — its footer filters' own `keyup` handler, and
+DataTables' `searchDelay` option for the global box — and this feeds both. It is a property
+because it is not one number for every table: a list with six `LEFT JOIN`s behind it wants a
+second or more, and a consuming application sets `1200` on its heaviest admin list against
+`600` on two reports. With a fixed value the query rate on exactly the heaviest lists is the
+one nobody can lower.
+
+### Telling the Datasource what a column is
+
+```php
+$ds = new \Pramnos\Html\Datatable\Datasource();
+//        name        format     details  start  end   ignoreOnOthertypes  min   max
+$ds->addField('id',    'int',     '',      true,  true, false,              1,    null);
+$ds->addField('email', 'email');
+$ds->addField('notes', 'text',    '',      true,  true, true,               3,    null);
+```
+
+The global search sends **one** term, and each column decides whether it applies to it:
+
+| `format` | Applies when | How |
+| --- | --- | --- |
+| `email` | the term is a valid address | `LIKE`, with the column's wildcards |
+| `phone` | it looks like a phone number (10–14 chars of digits, spaces, dashes, `+`) | `LIKE` |
+| `numeric` / `number` / `int` | it is numeric, and within `min`/`max` **by value** | `=` |
+| `date` | — | not searched; `formatdetails` is the output format |
+| anything else | unless `ignoreOnOthertypes` and the term is a number or an address; and within `min`/`max` **by length** | `LIKE`, with the column's wildcards |
+
+A column that declines contributes no clause, and if every column declines, nothing is
+filtered.
+
+Each of those is a real cost avoided rather than a nicety:
+
+- **`=` on a numeric column.** `LIKE '%5%'` on a number matches 5, 15, 50 and 1523 — a
+  search for an id returning a page of unrelated rows, which is what "the search box does
+  not work" looks like.
+- **`ignoreOnOthertypes`.** On a wide list, searching every free-text column for `12345`
+  costs a scan each and returns noise; the numeric columns answer that query.
+- **`min` / `max`.** A one-character term against a large text column is a full scan, and a
+  term outside a numeric column's range cannot match it at all.
+- **The wildcards.** A leading `%` is what makes an index unusable. They were stored and
+  ignored until 2026-08-27 — the global search hardcoded `LIKE '%term%'` — so a caller
+  turning one off was asking for something real and getting the opposite.
+
+### Grouping
+
+```php
+$ds->render(
+    'orders', $fields, false, $where, $join, true, 5, 'datatables',
+    false, null, '', 'where',
+    'a.`customer_id`'        // ← GROUP BY, without the keyword
+);
+```
+
+Its own parameter rather than something smuggled into the `where` string, which is fragile
+enough that a consuming application maintained **two forks** of this class whose only
+difference was this argument.
+
+It applies to the counts as well as the rows, and that is the half worth stating:
+`QueryBuilder::count()` preserves a `GROUP BY` (it documents that), so `COUNT(*)` on a
+grouped query returns the size of the *first group*. A pager built on that promises pages
+that are not there. The counts are therefore taken before the grouping is applied, as
+`COUNT(DISTINCT <the grouped columns>)`.
+
+`$groupBy`, `$join` and `$whereStatement` are interpolated: they are column lists and SQL
+fragments from the calling code, never from a request.
 
 ---
 
