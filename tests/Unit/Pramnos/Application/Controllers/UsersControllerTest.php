@@ -538,4 +538,71 @@ class UsersControllerTest extends TestCase
         $row = $this->db->query("SELECT * FROM `usertokens` WHERE `tokenid` = 9")->fetch();
         $this->assertEquals(2, $row['status']); // Status 2 means deleted
     }
+
+    /**
+     * Every store the framework writes about a user is collected for the screen.
+     *
+     * Nine of them, and no screen joined any: sign-in history, GDPR requests, lockouts,
+     * second factors, passkeys, privacy choices, token actions and organizations. Some
+     * were visible in the DevPanel — a development tool — and the rest nowhere.
+     *
+     * Asserted on the keys rather than on rows: the fixture user has no history, and what
+     * this pins is that the screen asks for all of it. A panel that is silently absent is
+     * indistinguishable from a panel that is empty.
+     */
+    public function testEveryPerUserStoreIsCollected(): void
+    {
+        // Arrange
+        $controller = new UsersProbe();
+
+        // Act
+        $records = $controller->exposeUserRecords(1);
+
+        // Assert
+        foreach ([
+            'activity', 'activityCount', 'gdpr', 'gdprCount', 'lockouts', 'twofactor',
+            'passkeys', 'privacy', 'tokenActions', 'tokenActionCount', 'organizations',
+        ] as $key) {
+            $this->assertArrayHasKey($key, $records, $key . ' must be on the user screen');
+        }
+    }
+
+    /**
+     * A missing table is an empty panel, not a broken page.
+     *
+     * These tables arrive with features: an application without `authserver` has none of
+     * the `authserver.*` ones, and one mid-migration has some. Every read is guarded on
+     * its own, so the page renders whatever exists.
+     */
+    public function testAMissingStoreLeavesTheRestOfThePageAlone(): void
+    {
+        // Arrange — a userid nothing has ever written about
+        $controller = new UsersProbe();
+
+        // Act
+        $records = $controller->exposeUserRecords(999999);
+
+        // Assert
+        $this->assertSame([], $records['activity']);
+        $this->assertSame(0, $records['activityCount']);
+        $this->assertNull($records['twofactor']);
+    }
+}
+
+/**
+ * Exposes the protected collector so it can be asserted without a rendered page.
+ */
+class UsersProbe extends \Pramnos\Application\Controllers\UsersController
+{
+    public function __construct()
+    {
+        // Deliberately not parent::__construct(): that registers actions against an
+        // application this test does not have.
+    }
+
+    /** @return array<string, mixed> */
+    public function exposeUserRecords(int $userId): array
+    {
+        return $this->userRecords($userId);
+    }
 }

@@ -34,7 +34,12 @@ class UsersController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'data', 'view', 'edit', 'save', 'delete', 'lock', 'unlock', 'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword']);
+        $this->addAuthAction([
+            'display', 'data', 'view', 'edit', 'save', 'delete', 'lock', 'unlock',
+            'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword',
+            // The per-user record screens and the operator actions they offer.
+            'activity', 'activitydata', 'unlocklogin', 'disabletwofactor', 'revokepasskey',
+        ]);
         parent::__construct($application);
     }
 
@@ -103,7 +108,100 @@ class UsersController extends Controller
         $view->usageStats   = $usageStats;
         $view->sessionCount = $sessionCount;
         $view->recentTokens = $recentTokens;
+        // Everything else the framework records about this account — see userRecords().
+        $view->records      = $this->userRecords($id);
         return $view->display('view');
+    }
+
+    /**
+     * Everything the framework records **about one user**, in one place.
+     *
+     * An administrator looking at an account needs to see what the system knows about it,
+     * and what the system knows was spread across nine stores that no screen joined:
+     * sign-in history in `user_activity_log`, GDPR requests in `gdpr_requests`, failed
+     * attempts in `loginlockouts`, second factors in `user_twofactor`, passkeys in
+     * `passkey_credentials`, consent in `user_privacy_settings`, tokens and what was done
+     * with them in `usertokens` / `tokenactions`, and notifications. Some of it was
+     * visible in the DevPanel — a development tool — and the rest nowhere at all.
+     *
+     * **Every read is guarded on its own.** These tables arrive with features: an
+     * application without `authserver` has none of the `authserver.*` ones, and one that
+     * has not migrated yet has some. A screen that fails because a feature is off is
+     * worse than a screen with an empty panel, so each store answers `[]` for itself and
+     * the page renders whatever exists.
+     *
+     * Counts come back beside the rows, because "the last ten of 4,312" and "all ten
+     * there are" are different facts and a list of ten cannot tell them apart.
+     *
+     * @param  int $userId
+     * @return array<string, mixed>
+     */
+    protected function userRecords(int $userId): array
+    {
+        $db = \Pramnos\Database\Database::getInstance();
+
+        /** One read, its failure absorbed: a missing table is a missing feature. */
+        $rows = static function (callable $query) use ($db): array {
+            try {
+                $result = $query($db->queryBuilder());
+
+                return $result ? (array) $result->fetchAll() : [];
+            } catch (\Throwable) {
+                return [];
+            }
+        };
+        $count = static function (callable $query) use ($db): int {
+            try {
+                return (int) $query($db->queryBuilder());
+            } catch (\Throwable) {
+                return 0;
+            }
+        };
+
+        return [
+            // Sign-ins, logouts and whatever else the application records.
+            'activity' => $rows(fn ($qb) => $qb->table('authserver.user_activity_log')
+                ->where('userid', $userId)->orderBy('created_at', 'desc')->limit(10)->get()),
+            'activityCount' => $count(fn ($qb) => $qb->table('authserver.user_activity_log')
+                ->where('userid', $userId)->count()),
+
+            // Export and erasure requests. Visible to an operator because answering one
+            // is an operator's job, and a request nobody can see is a request nobody
+            // answers.
+            'gdpr' => $rows(fn ($qb) => $qb->table('authserver.gdpr_requests')
+                ->where('userid', $userId)->orderBy('requested_at', 'desc')->limit(10)->get()),
+            'gdprCount' => $count(fn ($qb) => $qb->table('authserver.gdpr_requests')
+                ->where('userid', $userId)->count()),
+
+            // Failed attempts and any active lockout, which is what "I cannot sign in"
+            // resolves to nine times out of ten.
+            'lockouts' => $rows(fn ($qb) => $qb->table('authserver.loginlockouts')
+                ->where('userid', $userId)->orderBy('lastfailedat', 'desc')->limit(10)->get()),
+
+            // The second factor: whether it is on, and the codes left.
+            'twofactor' => $rows(fn ($qb) => $qb->table('authserver.user_twofactor')
+                ->where('userid', $userId)->limit(1)->get())[0] ?? null,
+
+            // Registered passkeys, which are credentials an operator may need to revoke.
+            'passkeys' => $rows(fn ($qb) => $qb->table('authserver.passkey_credentials')
+                ->where('userid', $userId)->orderBy('created_at', 'desc')->limit(10)->get()),
+
+            // What the user chose about their own data.
+            'privacy' => $rows(fn ($qb) => $qb->table('authserver.user_privacy_settings')
+                ->where('userid', $userId)->limit(1)->get())[0] ?? null,
+
+            // What was done with this account's tokens — issued, revoked, refreshed.
+            'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions')
+                ->where('userid', $userId)->orderBy('actiondate', 'desc')->limit(10)->get()),
+            'tokenActionCount' => $count(fn ($qb) => $qb->table('#PREFIX#tokenactions')
+                ->where('userid', $userId)->count()),
+
+            // Which organizations the account belongs to.
+            'organizations' => $rows(fn ($qb) => $qb->table('authserver.user_organizations uo')
+                ->join('organizations o', 'uo.organization_id', '=', 'o.organization_id')
+                ->select(['o.organization_id', 'o.name', 'uo.granted_at'])
+                ->where('uo.userid', $userId)->where('uo.is_active', 1)->getAll()),
+        ];
     }
 
     /**
@@ -417,6 +515,223 @@ class UsersController extends Controller
             $this->setActiveFlag($id, 1);
         }
         $this->redirect(adminUrl('users'));
+    }
+
+    /**
+     * Clear a login lockout, so the account can try again now.
+     *
+     * The single most common support request an authentication server gets is "I cannot
+     * sign in", and nine times out of ten the answer is a lockout with minutes left on
+     * it. Without this an operator's options were to wait it out or to edit a table.
+     *
+     * The rows are deleted rather than expired: a lockout row *is* the count of failed
+     * attempts, so zeroing it and removing it are the same state, and removing it does
+     * not leave a row that will lock the account again on the next mistake.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function unlocklogin(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 2) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            \Pramnos\Database\Database::getInstance()->queryBuilder()
+                ->table('authserver.loginlockouts')
+                ->where('userid', $id)
+                ->delete();
+            \Pramnos\Auth\ActivityLog::record($id, 'lockout_cleared', [
+                'by' => (int) (\Pramnos\User\User::getCurrentUser()->userid ?? 0),
+            ]);
+            $_SESSION['users_success'] = 'Login lockout cleared.';
+        } catch (\Throwable $ex) {
+            // The table ships with the `auth` feature; an application without it has
+            // nothing to clear, which is not an error worth a stack trace on screen.
+            $_SESSION['users_error'] = 'Could not clear the lockout: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * Turn off a user's second factor, as an operator.
+     *
+     * The service has two doors on purpose: the user's own requires their password, and
+     * this one does not — an operator resetting 2FA for somebody who lost their phone
+     * cannot be asked for that person's password. {@see
+     * \Pramnos\Auth\TwoFactorAuthService::disableForOperator()} is the named unchecked
+     * path, so the checked one cannot be reached by passing an empty string.
+     *
+     * Recorded in the activity log, because switching off somebody's second factor is
+     * exactly the action an audit needs to show.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function disabletwofactor(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 2) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            $service = new \Pramnos\Auth\TwoFactorAuthService();
+            $service->disableForOperator($id);
+            \Pramnos\Auth\ActivityLog::record($id, 'twofactor_disabled_by_operator', [
+                'by' => (int) (\Pramnos\User\User::getCurrentUser()->userid ?? 0),
+            ]);
+            $_SESSION['users_success'] = 'Two-factor authentication disabled for this user.';
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not disable two-factor: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * Revoke one passkey.
+     *
+     * A passkey is a credential bound to a device. When the device is gone the credential
+     * is not — it stays valid until somebody removes it, and the person who lost the
+     * device is often the one who cannot sign in to remove it.
+     *
+     * The credential id comes from the query string and the user from the path, and both
+     * are used in the `delete`: a request naming somebody else's credential deletes
+     * nothing rather than deleting theirs.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function revokepasskey(mixed $id = null): void
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id           = (int) \Pramnos\Http\Request::staticGetOption();
+        $credentialId = (int) \Pramnos\Http\Request::staticGet('credential', 0, 'get', 'int');
+
+        if ($id < 2 || $credentialId < 1) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            $affected = \Pramnos\Database\Database::getInstance()->queryBuilder()
+                ->table('authserver.passkey_credentials')
+                ->where('id', $credentialId)
+                ->where('userid', $id)
+                ->delete();
+
+            if ($affected) {
+                \Pramnos\Auth\ActivityLog::record($id, 'passkey_revoked_by_operator', [
+                    'credential' => $credentialId,
+                    'by'         => (int) (\Pramnos\User\User::getCurrentUser()->userid ?? 0),
+                ]);
+            }
+            $_SESSION['users_success'] = $affected
+                ? 'Passkey revoked.'
+                : 'That passkey does not belong to this user.';
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not revoke the passkey: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * The full activity log for one user, paged.
+     *
+     * The view shows the last ten, which answers "what happened recently" and not "what
+     * happened". This is the whole of it, through the same server-side pipeline every
+     * other list uses, with a filter under each column — an account with four thousand
+     * sign-ins is exactly the one somebody is investigating.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function activity(mixed $id = null): mixed
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 1) {
+            $this->redirect(adminUrl('users'));
+
+            return null;
+        }
+
+        $user = new User();
+        $user->load($id);
+
+        $doc        = Factory::getDocument();
+        $doc->title = 'Activity — ' . htmlspecialchars((string) $user->username, ENT_QUOTES, 'UTF-8');
+
+        $dt = new \Pramnos\Html\Datatable('dt-useractivity');
+        $dt->source          = adminUrl('users/activitydata/') . $id;
+        $dt->bootstrap       = false;
+        $dt->footerTextSearch = true;
+        $dt->addColumn('When',    true, true,  false)
+           ->addColumn('Action',  true, true,  true, '', '', true, 'left', true)
+           ->addColumn('IP',      true, true,  true, '', '', true, 'left', true)
+           ->addColumn('Details', true, false, true, 'html', '', true, 'left', true);
+
+        $view            = $this->getView('users');
+        $view->user      = ['userid' => $id, 'username' => (string) $user->username];
+        $view->datatable = $dt;
+
+        return $view->display('activity');
+    }
+
+    /**
+     * AJAX rows for {@see activity()}.
+     *
+     * The user id is in the path and goes into the `where`, so the endpoint cannot be
+     * asked for somebody else's history by changing a POST field.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function activitydata(mixed $id = null): mixed
+    {
+        $this->requireMinUserType($this->requiredUserType);
+        Factory::getDocument('json');
+
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 1) {
+            return \Pramnos\Http\Response::json(['data' => [], 'recordsTotal' => 0, 'recordsFiltered' => 0]);
+        }
+
+        try {
+            $result = \Pramnos\Html\Datatable\Datasource::getList(
+                'authserver.user_activity_log',
+                ['created_at', 'action', 'ip_address', 'details'],
+                false,
+                'userid = ' . $id
+            );
+        } catch (\Throwable) {
+            // No table: the `auth` feature is off, and an empty list says so better than
+            // a 500 does.
+            return \Pramnos\Http\Response::json(['data' => [], 'recordsTotal' => 0, 'recordsFiltered' => 0]);
+        }
+
+        $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
+        foreach ($result[$dataKey] as &$row) {
+            foreach ([1, 2] as $column) {
+                $row[$column] = htmlspecialchars((string) ($row[$column] ?? ''), ENT_QUOTES, 'UTF-8');
+            }
+            // The details are JSON as stored. Shown as text rather than parsed into a
+            // table: what is in there is whatever the action recorded, and a screen that
+            // assumes a shape hides the actions that do not have it.
+            $row[3] = '<code class="pf-muted">'
+                . htmlspecialchars((string) ($row[3] ?? ''), ENT_QUOTES, 'UTF-8') . '</code>';
+            unset($row['DT_RowId']);
+        }
+        unset($row);
+
+        return \Pramnos\Http\Response::json($result);
     }
 
     /**

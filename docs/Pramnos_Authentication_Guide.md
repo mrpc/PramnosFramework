@@ -164,6 +164,43 @@ number, in a column every application on the framework shares. When the question
 they do X*, that is a permission — see the
 [Authorization guide](Pramnos_Authorization_Guide.md).
 
+### What the administration screen shows about a user
+
+The framework records a user's history in **nine** stores, and until they were joined on
+one screen most of it was invisible outside the DevPanel:
+
+| Store | What it holds | Where it appears |
+| --- | --- | --- |
+| `authserver.user_activity_log` | sign-ins, logouts, whatever the application records | *Activity* panel, and `users/activity/{id}` for the whole of it |
+| `authserver.gdpr_requests` | export and erasure requests | *Data requests* panel |
+| `authserver.loginlockouts` | failed attempts and any active lockout | *Login security* panel, with **Clear lockout** |
+| `authserver.user_twofactor` | whether a second factor is on | *Second factor* panel, with **Disable** |
+| `authserver.passkey_credentials` | registered passkeys | same panel, with **Revoke** per key |
+| `authserver.user_privacy_settings` | what the user chose about their data | *Privacy choices* panel |
+| `usertokens` | issued tokens | *Recent tokens*, and the Tokens screen |
+| `tokenactions` | what was done with them | *Token actions* panel |
+| `authserver.user_organizations` | memberships | *Organizations* panel |
+
+**Every read is guarded on its own.** These tables arrive with features — an application
+without `authserver` has none of the `authserver.*` ones — so a panel with nothing behind
+it renders empty rather than taking the page down, and an empty panel is still rendered:
+"no GDPR requests" is an answer, and a section silently omitted is indistinguishable from
+one that never existed.
+
+Three operator actions come with them, and each is recorded in the activity log because
+each is exactly what an audit needs to show:
+
+```
+users/unlocklogin/{id}        clear a login lockout — the answer to most "I cannot sign in"
+users/disabletwofactor/{id}   turn off 2FA for somebody who lost their phone
+users/revokepasskey/{id}?credential={n}   remove a credential bound to a device that is gone
+```
+
+`disabletwofactor` goes through `TwoFactorAuthService::disableForOperator()`, the **named**
+unchecked path: the user's own `disable()` requires their password, and an operator cannot
+be asked for somebody else's. `revokepasskey` matches on the user *and* the credential, so
+a request naming another account's key deletes nothing.
+
 ### Fields the users table does not have
 
 `User` keeps anything outside its own columns in `$otherinfo`, reached with plain property
