@@ -353,4 +353,47 @@ class DatabaseInspectorTest extends TestCase
         $this->assertStringContainsString('information_schema.tables', $sql);
         $this->assertStringNotContainsString('pg_tables', $sql);
     }
+
+    /**
+     * The TimescaleDB job query reads the run columns from where they live.
+     *
+     * `timescaledb_information.jobs` describes a job's schedule. When it last ran
+     * and whether that run succeeded are in `timescaledb_information.job_stats`,
+     * one row per job — so selecting `last_run_started_at` from `jobs` is
+     * `column … does not exist`, and the catch around it turned that into an empty
+     * list. The database dashboard's scheduled-jobs panel was blank on every
+     * server, which reads as "no policies configured" rather than as a broken
+     * query: the same answer a healthy server with no policies gives.
+     *
+     * Asserted on the statement, because a mock that returns rows whatever the SQL
+     * says cannot catch a query that the server rejects.
+     */
+    public function testTheTimescaleJobQueryJoinsJobStats(): void
+    {
+        // Arrange
+        $captured = '';
+        $db = $this->createMock(Database::class);
+        $db->type = 'postgresql';
+        $db->method('query')->willReturnCallback(
+            function (string $sql) use (&$captured) {
+                if (str_contains($sql, 'timescaledb_information.jobs')) {
+                    $captured = $sql;
+                }
+
+                return $this->makeResult(0);
+            }
+        );
+
+        // Act — the method directly: getData() returns early when it cannot detect
+        // a TimescaleDB version, and a mock has none to detect
+        $inspector = new \Pramnos\Database\Inspector\TimescaleInspector($db);
+        (new \ReflectionMethod($inspector, 'getScheduledJobs'))->invoke($inspector);
+
+        // Assert
+        $this->assertNotSame('', $captured, 'the jobs query must be issued');
+        $this->assertStringContainsString('timescaledb_information.job_stats', $captured,
+            'the run columns are in job_stats');
+        $this->assertStringContainsString('LEFT JOIN', $captured,
+            'left, so a job that has never run is still listed');
+    }
 }

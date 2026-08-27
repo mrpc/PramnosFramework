@@ -163,13 +163,32 @@ class TimescaleInspector
     private function getScheduledJobs(): array
     {
         try {
+            /**
+             * The run columns come from `job_stats`, not from `jobs`.
+             *
+             * `timescaledb_information.jobs` describes a job's *schedule*:
+             * interval, retries, owner, next start. When it last ran and whether
+             * that run succeeded live in `timescaledb_information.job_stats`, one
+             * row per job. Selecting `last_run_started_at` from `jobs` is
+             * `column … does not exist`, the catch below turned that into an empty
+             * array, and the scheduled-jobs panel was blank on every server —
+             * which reads as "no policies configured" rather than as a broken
+             * query. An operator checking whether a retention policy is still
+             * running got the same answer either way.
+             *
+             * LEFT JOIN: a job that has never run has no `job_stats` row, and it is
+             * exactly the job worth seeing.
+             */
             $r = $this->db->query(
-                "SELECT job_id, proc_schema, proc_name, schedule_interval::text,
-                        last_run_started_at::text    AS last_run_started_at,
-                        last_successful_finish::text AS last_successful_finish,
-                        last_run_status, next_start::text AS next_start
-                 FROM timescaledb_information.jobs
-                 ORDER BY job_id"
+                "SELECT j.job_id, j.proc_schema, j.proc_name,
+                        j.schedule_interval::text AS schedule_interval,
+                        s.last_run_started_at::text    AS last_run_started_at,
+                        s.last_successful_finish::text AS last_successful_finish,
+                        s.last_run_status,
+                        COALESCE(s.next_start, j.next_start)::text AS next_start
+                 FROM timescaledb_information.jobs j
+                 LEFT JOIN timescaledb_information.job_stats s ON s.job_id = j.job_id
+                 ORDER BY j.job_id"
             );
             return ($r && $r->numRows > 0) ? $r->fetchAll() : [];
         } catch (\Exception) {

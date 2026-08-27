@@ -46,6 +46,23 @@ branch — and that branch has no rows, no links, and no keys to get wrong.
 It surfaced from a test that seeded one row into each list and re-rendered it. Four
 warnings, in four views, in one run.
 
+## And a third query that could not run
+
+Found the same way, a day later. `TimescaleInspector::getScheduledJobs()` selected
+`last_run_started_at`, `last_successful_finish` and `last_run_status` from
+`timescaledb_information.jobs`. Those columns are in
+`timescaledb_information.job_stats` — one row per job — and `jobs` describes only
+the schedule.
+
+So the statement was rejected, the catch turned it into an empty array, and the
+database dashboard's scheduled-jobs panel was blank on every server. Which reads as
+"no policies configured": the same answer a healthy server with no policies gives,
+to an operator who opened the page precisely to check whether the retention policy
+is still running.
+
+Now a `LEFT JOIN` — left, because a job that has never run has no `job_stats` row
+and is exactly the job worth seeing.
+
 ## Also fixed: the queue screen never said why a job failed
 
 `QueueController` selects `error` for every job. No column rendered it. So the
