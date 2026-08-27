@@ -90,14 +90,14 @@ $accessTypeLabel = function (int $t): string {
                 <div class="px-4 py-2 bg-base-200 text-xs font-semibold text-base-content/70 uppercase tracking-wide rounded-t-xl">Actions</div>
                 <div class="p-4 grid gap-2">
                     <a href="<?php echo adminUrl('applications' . '/edit/' . ($appId)); ?>"
-                       class="btn btn-primary btn-sm block text-center">Edit Application</a>
+                       class="btn btn-primary btn-sm btn-block">Edit Application</a>
                     <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>"
-                       class="btn btn-outline btn-sm block text-center">View Tokens</a>
+                       class="btn btn-outline btn-sm btn-block">View Tokens</a>
                     <a href="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>"
-                       class="btn btn-outline btn-warning btn-sm block text-center"
+                       class="btn btn-outline btn-warning btn-sm btn-block"
                        data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
                     <a href="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>"
-                       class="btn btn-outline btn-error btn-sm block text-center"
+                       class="btn btn-outline btn-error btn-sm btn-block"
                        data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
                 </div>
             </div>

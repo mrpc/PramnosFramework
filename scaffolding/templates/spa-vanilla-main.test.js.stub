@@ -4,9 +4,16 @@
  * boot() and render() are exported separately precisely so the API outcome can
  * be asserted without a DOM and the DOM work without a network. Both matter: a
  * failed API call must reach the user as visible text, never an empty page.
+ *
+ * `renderNav()` and `mountRoute()` are the half that makes a generated screen
+ * reachable: `create:crud` writes the screen and registers it, and this file is
+ * what turns the registry into a navigation and a mounted screen. Without a test
+ * on that seam, the generator can keep reporting success while the screen it
+ * wrote is unreachable — which is exactly what happened before it existed.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { boot, render } from '../main.js';
+import { boot, render, renderNav, mountRoute } from '../main.js';
+import { screens } from '../screens/registry.js';
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -79,5 +86,93 @@ describe('render', () => {
         expect(target.querySelector('.status-error')).not.toBeNull();
         expect(target.querySelector('pre')).toBeNull();
         expect(target.textContent).toContain('Could not reach the API.');
+    });
+});
+
+describe('the screen registry', () => {
+    /**
+     * A registered screen is mounted for its own route.
+     *
+     * This is the whole contract between `create:crud` and the shell: the
+     * generator appends `{ name, label, mount }` and never touches main.js.
+     */
+    it('mounts the screen whose name matches the route', async () => {
+        // Arrange
+        const mounted = [];
+        screens.push({ name: 'widgets', label: 'Widgets', mount: (el) => {
+            mounted.push(el);
+            el.textContent = 'WIDGETS';
+        } });
+        const target = document.createElement('div');
+
+        try {
+            // Act
+            await mountRoute(target, { name: 'widgets' });
+
+            // Assert
+            expect(mounted).toHaveLength(1);
+            expect(target.textContent).toContain('WIDGETS');
+        } finally {
+            screens.pop();
+        }
+    });
+
+    /**
+     * An unknown route is the home screen, not a blank page.
+     *
+     * A mistyped URL rendering nothing reads as an application that crashed.
+     */
+    it('falls back to the home screen for an unknown route', async () => {
+        // Arrange
+        stubFetch({ status: 'ok' });
+        const target = document.createElement('div');
+
+        // Act
+        await mountRoute(target, { name: 'no-such-screen' });
+
+        // Assert
+        expect(target.querySelector('h1')).not.toBeNull();
+    });
+
+    /**
+     * The navigation lists the registered screens, as links.
+     *
+     * Anchors with real `href`s, so the same element works in a new tab and as a
+     * client-side navigation. A button is neither.
+     */
+    it('renders a link per screen and marks the current one', () => {
+        // Arrange
+        screens.push({ name: 'widgets', label: 'Widgets', mount: () => {} });
+        const target = document.createElement('div');
+
+        try {
+            // Act
+            renderNav(target, { name: 'widgets' });
+
+            // Assert
+            const links = [...target.querySelectorAll('a')];
+            expect(links.length).toBeGreaterThan(1);
+            expect(links.some((a) => a.textContent === 'Widgets')).toBe(true);
+            expect(target.querySelector('[aria-current="page"]').textContent).toBe('Widgets');
+        } finally {
+            screens.pop();
+        }
+    });
+
+    /**
+     * With nothing registered there is no navigation at all.
+     *
+     * A lone "Home" link above an empty project is furniture.
+     */
+    it('renders no navigation when no screen is registered', () => {
+        // Arrange
+        const target = document.createElement('div');
+
+        // Act
+        const nav = renderNav(target, { name: '' });
+
+        // Assert
+        expect(nav).toBeNull();
+        expect(target.querySelector('nav')).toBeNull();
     });
 });

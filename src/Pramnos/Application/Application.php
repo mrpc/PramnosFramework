@@ -180,19 +180,40 @@ class Application extends Base
         // split into controller and action — and the prefix must be gone by then.
         $this->beginRequest();
 
-        if (!defined('URL')) {
-            define('URL', getUrl()); // @codeCoverageIgnore — URL is always defined before the first Application() in tests
-        }
+        /**
+         * Two bases, and each one names what it is:
+         *
+         *   - **`sURL`** — the site. `sURL . 'login'`, `sURL . 'assets/…'`.
+         *   - **`URL`**  — the administration area. `URL . 'Users'`.
+         *
+         * `URL` used to be a second name for the site URL, from before the
+         * framework had an administration area at all: `sURL` was defined *from*
+         * it and nothing else read it. Now it is the area's base — what a template
+         * inside `/admin` concatenates onto — so the two constants answer the two
+         * questions a link has.
+         *
+         * With no area configured `URL` is exactly `sURL`, so a template carrying
+         * it works in an application that mounted one and an application that did
+         * not. `adminUrl('Users')` is the same answer for code that runs with no
+         * constants defined — a controller under test, a CLI render.
+         *
+         * Both end in a slash, because a base is something a caller concatenates
+         * onto; the day `URL` did not, every breadcrumb in the area pointed at
+         * `/adminusers`.
+         *
+         * Defined after `beginRequest()`: that is what reads the `admin` config and
+         * hands `AdminArea` its prefix.
+         */
         if (!defined('sURL')) {
             // @codeCoverageIgnoreStart
             // sURL is defined by the first Application() construction; subsequent
             // constructions (in the same process) skip this entire block.
-            if ($appName == '') {
-                define('sURL', URL);
-            } else {
-                define('sURL', basename(URL));
-            }
+            $siteUrl = getUrl();
+            define('sURL', $appName == '' ? $siteUrl : basename($siteUrl));
             // @codeCoverageIgnoreEnd
+        }
+        if (!defined('URL')) {
+            define('URL', \Pramnos\Http\AdminArea::url());
         }
 
         parent::__construct();
@@ -1779,7 +1800,7 @@ class Application extends Base
             $_SESSION['_validation_errors'] = $exception->errors();
             $_SESSION['_old_input'] = $request->allCurrent();
 
-            $redirectTo = $_SERVER['HTTP_REFERER'] ?? URL;
+            $redirectTo = $_SERVER['HTTP_REFERER'] ?? sURL;
             $this->redirect($redirectTo);
         } catch (\Exception $exception) {
             \Pramnos\Debug\DebugBar::stopTimer('controller');

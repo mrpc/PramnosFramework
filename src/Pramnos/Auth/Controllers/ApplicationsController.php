@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Auth\Controllers;
 
 use Pramnos\Application\Controller;
+use Pramnos\Html\Icon;
 
 /**
  * Admin controller for managing registered OAuth2 applications (clients).
@@ -128,12 +129,32 @@ class ApplicationsController extends Controller
         $dt = new \Pramnos\Html\Datatable('dt-applications');
         $dt->source    = adminUrl('applications/data');
         $dt->bootstrap = false;
-        $dt->addColumn('ID',          true,  true,  true,  'num')
-           ->addColumn('Name',        true,  true,  true)
-           ->addColumn('API Key',     true,  true,  true)
-           ->addColumn('Status',      true,  true,  false, 'html')
-           ->addColumn('Added',       true,  true,  false)
-           ->addColumn('Actions',     true,  false, false, 'html');
+        // Per-column filters: one box over every column finds a name, and cannot
+        // answer "the inactive clients" or "the key starting pk_live". See
+        // Datatable::$minSearchLength for why they wait three characters.
+        $dt->footerTextSearch = true;
+
+        $statusFilter = new \Pramnos\Html\Select('status_filter');
+        $statusFilter->id = 'dt-applications-status';
+        $statusFilter->addOptions(['' => 'Any status', '1' => 'Active', '0' => 'Inactive']);
+
+        $dt->addColumn('ID',       true, true,  true,  'num', '', true, 'left', true)
+           ->addColumn('Name',     true, true,  true,  '',    '', true, 'left', true)
+           ->addColumn('API Key',  true, true,  true,  '',    '', true, 'left', true)
+           ->addColumn(
+               'Status',
+               true,
+               true,
+               true,
+               'html',
+               $statusFilter->render(),
+               true,
+               'left',
+               'dt-applications-status',
+               (string) \Pramnos\Http\Request::staticGet('status_filter', '', 'get')
+           )
+           ->addColumn('Added',    true, true,  false)
+           ->addColumn('Actions',  true, false, false, 'html');
 
         $view            = $this->getView('applications');
         $view->datatable = $dt;
@@ -159,16 +180,29 @@ class ApplicationsController extends Controller
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
         foreach ($result[$dataKey] as &$row) {
-            $id     = (int) $row[0];
-            $status = (int) $row[3];
-            $added  = (int) $row[4];
+            $id      = (int) $row[0];
+            $status  = (int) $row[3];
+            $added   = (int) $row[4];
+            $viewUrl = adminUrl('applications/view/') . $id;
+
+            // The id and the name open the record: a row whose only way in is the last
+            // cell makes the whole row a target people click with nothing happening.
+            $row[0] = '<a href="' . $viewUrl . '">' . $id . '</a>';
+            $row[1] = '<a href="' . $viewUrl . '">'
+                . htmlspecialchars((string) $row[1], ENT_QUOTES, 'UTF-8') . '</a>';
+            $row[2] = '<code>' . htmlspecialchars((string) $row[2], ENT_QUOTES, 'UTF-8') . '</code>';
             $row[3] = $status === 1
-                ? '<span style="color:green">Active</span>'
-                : '<span style="color:#888">Inactive</span>';
+                ? '<span class="pf-state pf-state-on">Active</span>'
+                : '<span class="pf-state pf-state-off">Inactive</span>';
             $row[4] = $added > 0 ? date('Y-m-d', $added) : '';
-            $row[]  = '<a href="' . adminUrl('applications/view/') . $id . '">View</a> '
-                    . '<a href="' . adminUrl('applications/edit/') . $id . '">Edit</a> '
-                    . '<a href="' . adminUrl('applications/delete/') . $id . '" data-confirm="Delete this application?">Delete</a>';
+            $row[]  = Icon::link($viewUrl, 'view', 'View this application')
+                    . Icon::link(adminUrl('applications/edit/') . $id, 'edit', 'Edit this application')
+                    . Icon::link(
+                        adminUrl('applications/delete/') . $id,
+                        'delete',
+                        'Delete this application',
+                        ['data-confirm' => 'Delete this application?', 'class' => 'pf-action-danger']
+                    );
             unset($row['DT_RowId']);
         }
         unset($row);

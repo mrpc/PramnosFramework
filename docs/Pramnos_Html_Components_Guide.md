@@ -334,6 +334,82 @@ column filter sends twelve, and the first of them is `LIKE '%p%'` across the who
 An **empty** box is always let through, whatever the minimum — clearing a filter has to clear
 the filter, or the column stays filtered on a term no longer on screen.
 
+### Filtering one column
+
+One box over every column answers *find this person*. It cannot answer *the administrators
+registered this month*, which is most of what an operator asks a list — so a column can carry
+its own filter:
+
+```php
+$table->footerTextSearch = true;          // a text box under every column that asks for one
+
+//                 label   visible  sortable  searchable  type   footer  showHide  align   filter        value
+$table->addColumn('Username', true,    true,     true,     '',     '',     true,   'left',  true);
+$table->addColumn('Type',     true,    true,     true,    'num', $select->render(), true, 'left', 'dt-users-type', '90');
+```
+
+The **9th argument** is the filter:
+
+| Value | What appears |
+| --- | --- |
+| `true` | a text box under the column, debounced and guarded by `minSearchLength` |
+| an **id** string | the control you rendered into the footer (8th argument) — the table wires `change` and a debounced `keyup` on that id |
+| `false` (default) | no filter for this column |
+
+The **10th** is the filter's current value, applied on load. Without it a bookmarked or
+returned-to filter shows its chosen value while the table shows every row, which reads as a
+filter that does not work.
+
+An id rather than `true` is how an enumerated column gets a dropdown: nobody guesses that
+"administrator" is stored as `90`, and a numeric column is matched **equal** rather than with
+`LIKE`, so a text box on it is a worse question as well as a harder one.
+
+```php
+$filter = new \Pramnos\Html\Select('usertype_filter');
+$filter->id = 'dt-users-type';
+$filter->addOption('Any type', '');
+$filter->addOptions(\Pramnos\User\UserTypes::options());   // Admin (90), Manager (80), …
+```
+
+The bundled Users, Applications and Organizations lists ship with these on, and
+`create:crud` generates them for every column of a new entity.
+
+The generated box carries `class="pf-footsearch"` and the column's label as its
+placeholder. **The class is not decoration**: a bare `<input>` under a modern CSS reset has
+no border, no padding and no background, so the filter row was there and invisible — every
+bundled theme styles it, and a theme of your own should too.
+
+### Row actions, as icons
+
+```php
+use Pramnos\Html\Icon;
+
+$row[] = Icon::link(adminUrl('users/view/') . $id, 'view', 'View this user')
+       . Icon::link(adminUrl('users/edit/') . $id, 'edit', 'Edit this user')
+       . Icon::link(adminUrl('users/delete/') . $id, 'deactivate', 'Deactivate', [
+             'data-confirm' => 'Deactivate this user?',
+             'class'        => 'pf-action-danger',
+         ]);
+```
+
+`View Edit Deactivate` repeated on every row spends more width on words than on data, and
+after the first row the words carry no information. `Icon::link()` is the same action in a
+28-pixel cell — **labelled twice**, as `aria-label` and `title`, because an icon-only
+control with neither is a control only its author can use.
+
+Inline SVG rather than an icon font or a CSS class: these are rendered by a *controller*
+into JSON a DataTable inserts, so the markup has to work in every theme. `currentColor` and
+a `1em` box mean an icon inherits whatever the cell around it already is. `Icon::names()`
+lists the set; an unknown name renders nothing rather than a broken glyph.
+
+`Icon::svg('edit')` is the glyph on its own, for a button: the framework's own admin uses
+it for the full-width actions beside a record, so "edit" looks the same in a table cell and
+in a button.
+
+**Make the first column a link too.** A row whose only way in is the last cell makes the
+whole row a target people click with nothing happening. The bundled lists link the id and
+the name; `create:crud` links the first visible column.
+
 ### Telling the Datasource what a column is
 
 ```php

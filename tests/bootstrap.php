@@ -20,11 +20,15 @@ if (!defined('PRAMNOS_TESTING')) {
 * Define Paths if paths are not defined.
 * It auto-defines based on where this file is placed.
 */
-if (!defined('URL')) {
-    define('URL', ''); //URL (in case of secondary applications)
-}
 if (!defined('sURL')) {
     define('sURL', ''); //URL (in case of secondary applications)
+}
+
+// URL is the administration area's base, what sURL is to the site. Defined by
+// Application's constructor in a real request, from the `admin` config; here so a
+// template that carries it renders under test without constructing an application.
+if (!defined('URL')) {
+    define('URL', sURL);
 }
 if (!defined('ROOT')) {
     define('ROOT', dirname(dirname(__FILE__)));

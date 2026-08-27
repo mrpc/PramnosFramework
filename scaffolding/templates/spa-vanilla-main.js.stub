@@ -1,16 +1,32 @@
 /**
  * Entry point of the {{ appName }} SPA (vanilla JavaScript).
  *
- * No framework, no component model — the API client plus the DOM. It proves the
- * two things a scaffold should prove on first load: the front end reaches the
- * JSON API, and (when the auth feature is enabled) signing in works end to end.
+ * No framework, no component model — the API client, the router and the DOM.
  *
- * boot() and render() are exported separately so the API outcome can be tested
- * without a DOM, and the DOM work without a network.
+ * It does three things: proves the front end reaches the JSON API, signs a user
+ * in when the auth feature is enabled, and **renders the screens
+ * `create:crud` generates**. That last one is the part that makes the generator
+ * useful here rather than only on the Svelte stack: a generated screen exports
+ * `mount(target)` and registers itself in `screens/registry.js`, and this file
+ * walks that registry — so a new CRUD is reachable and linkable without anybody
+ * editing main.js.
+ *
+ * Every screen has a real URL, through the same `lib/router.js` the Svelte shell
+ * uses. Without it the back button leaves the application, a view cannot be sent
+ * to a colleague, and a refresh loses the user's place.
+ *
+ * boot(), render(), renderNav() and mountRoute() are exported separately so each
+ * can be tested on its own: the API outcome without a DOM, the DOM work without
+ * a network.
  */
 {{ cssImport }}import { api, ApiError, login, logout, currentUser } from './lib/api.js';
+import { screens } from './screens/registry.js';
+import { start, href } from './lib/router.js';
 
 const hasAuth = Boolean(globalThis.window?.__PRAMNOS__?.features?.auth);
+
+/** Whoever is signed in, or null. Read once and reused by the navigation. */
+let currentUserCache = null;
 
 /**
  * Probe the API and describe the outcome.
@@ -28,7 +44,10 @@ export async function boot() {
 }
 
 /**
- * Render the boot result into the shell's #app element.
+ * Render the boot result into an element.
+ *
+ * This is the home screen: what the scaffold has to prove before anything is
+ * generated, and where the sign-in form lives.
  *
  * @param {HTMLElement} target
  * @param {{ok: boolean, text: string, data: *}} result
@@ -53,6 +72,74 @@ export function render(target, result) {
 }
 
 /**
+ * The navigation, from the registry.
+ *
+ * Anchors rather than buttons, and real `href`s: the router intercepts the click,
+ * so the same element is a working link when opened in a new tab and a
+ * client-side navigation when clicked. A button is neither.
+ *
+ * Rendered only when there is somewhere to go — a lone "Home" link above an empty
+ * project is furniture.
+ *
+ * @param {HTMLElement} target
+ * @param {{name: string}} route The current route, for marking the active item.
+ * @returns {HTMLElement|null}
+ */
+export function renderNav(target, route) {
+    const visible = screens.filter((screen) => !screen.admin || (hasAuth && currentUserCache));
+    if (visible.length === 0) {
+        return null;
+    }
+
+    const nav = document.createElement('nav');
+    const items = [{ name: 'home', label: '{{ appName }}' }, ...visible];
+
+    for (const item of items) {
+        const path = item.name === 'home' ? '/' : `/${item.name}`;
+        const link = document.createElement('a');
+        link.href        = href(path);
+        link.textContent = item.label ?? item.name;
+        if (item.name === route.name || (route.name === '' && item.name === 'home')) {
+            link.setAttribute('aria-current', 'page');
+        }
+        nav.append(link);
+    }
+
+    target.append(nav);
+
+    return nav;
+}
+
+/**
+ * Render whatever the current route points at.
+ *
+ * A route naming a registered screen mounts it; anything else is the home
+ * screen, which is also what an unknown path gets — a blank page for a mistyped
+ * URL reads as an application that crashed.
+ *
+ * @param {HTMLElement} target
+ * @param {{name: string}} route
+ */
+export async function mountRoute(target, route) {
+    target.textContent = '';
+    renderNav(target, route);
+
+    const screen = screens.find((item) => item.name === route.name);
+    const body   = document.createElement('main');
+    target.append(body);
+
+    if (screen && typeof screen.mount === 'function') {
+        screen.mount(body);
+        return;
+    }
+
+    render(body, await boot());
+    if (hasAuth) {
+        renderAuth(body);
+    }
+}
+
+/**
  * Build the sign-in form, and swap it for the user once signed in.
  *
  * Kept out of render() so a project without the auth feature carries no dead
@@ -66,6 +153,7 @@ export function renderAuth(target) {
 
     /** Show whoever is signed in, with a way out. */
     const showUser = (user) => {
+        currentUserCache = user;
         section.textContent = '';
         const who = document.createElement('p');
         who.className   = 'status status-ok';
@@ -75,6 +163,7 @@ export function renderAuth(target) {
         out.textContent = 'Sign out';
         out.addEventListener('click', async () => {
             await logout();
+            currentUserCache = null;
             showForm();
         });
 
@@ -83,6 +172,7 @@ export function renderAuth(target) {
 
     /** Show the credentials form. */
     const showForm = () => {
+        currentUserCache = null;
         section.textContent = '';
         const form = document.createElement('form');
         form.innerHTML = '<h2>Sign in</h2>'
@@ -120,10 +210,10 @@ export function renderAuth(target) {
 // Guarded so importing this module in a test does not touch the DOM.
 if (typeof document !== 'undefined' && document.getElementById('app')) {
     const target = document.getElementById('app');
-    boot().then((result) => {
-        render(target, result);
-        if (hasAuth) {
-            renderAuth(target);
-        }
+
+    // The router calls this on the first route and on every navigation, so a
+    // deep link renders the screen it names rather than the home page.
+    start((route) => {
+        mountRoute(target, route);
     });
 }

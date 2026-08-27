@@ -57,9 +57,18 @@ class LogViewerView
      */
     protected function getBody(string $currentFile, array $whitelist): string
     {
-        // Convert path variables for JavaScript
-        $baseUrl = defined('sURL') ? sURL : (defined('URL') ? URL : '/');
-        $logUrl = rtrim($baseUrl, '/') . '/logs';
+        /**
+         * Where the viewer's own endpoints live.
+         *
+         * `adminUrl()`, not `sURL`: the log controller is an administration screen, and
+         * since those are resolved only inside the area `sURL . '/logs'` is a 404. It
+         * was one, and it showed as the framework's own 404 page rendered *inside* the
+         * viewer's iframe — a panel that looked broken on a page that had loaded fine.
+         *
+         * `adminUrl()` falls back to `sURL` in an application with no area configured,
+         * which is where the old form was right.
+         */
+        $logUrl = rtrim(adminUrl('logs'), '/');
 
         ob_start();
 ?>

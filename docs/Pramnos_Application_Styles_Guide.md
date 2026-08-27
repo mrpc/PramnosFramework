@@ -493,11 +493,20 @@ a searchable picker for a foreign key, the `COLUMN COMMENT` as the label and
 `NOT NULL` as `required`. It comes from the same introspection the MVC generator
 reads, so the screen matches the migration that created the table.
 
-> **Before 2026-08-24 it was `<input type="text">` for every column**, because
-> the SPA path was handed column *names* while the MVC path was handed their
-> types. A text box over a boolean stores the string `"on"`; over a foreign key
-> it asks for a numeric id with nothing on screen that could supply one; over a
-> timestamp it is accepted and the insert fails at the database.
+**On the two vanilla stacks** it is a plain ES module exporting `mount(target)`
+plus `fetchPage()` / `saveRecord()` / `deleteRecord()`, which is the same shape
+without a component model: server-side paging and search, sortable headers, a
+pager with buttons, and a form whose input `type` follows the column's SQL type.
+It builds its DOM with `textContent` and `.value`, never `innerHTML` — a record's
+own text is untrusted, and a generated file is the worst place to leave that
+decision to whoever edits it next.
+
+`main.js` walks `screens/registry.js` and mounts the screen the route names, so a
+generated screen is reachable and linkable with nothing to edit in the shell. The
+only vanilla gap left is the scaffolded **admin** screen, which is Svelte-only:
+three tabs of hand-written DOM is not a starting point worth generating, and the
+endpoints behind it are framework-side, so a vanilla project can still reach
+them.
 
 Two more doors on the front end, the counterparts of `create:view` and
 `create:service`:

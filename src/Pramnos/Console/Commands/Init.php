@@ -1642,10 +1642,13 @@ class Init extends Command
     private function scaffoldSpaAdmin(string $spaStack, string $sourceDir, array $tokens): void
     {
         if ($spaStack !== 'svelte') {
-            // The vanilla stacks get the endpoints (they are framework-side) but
-            // no generated screen: hand-writing three tabs of DOM is not a
-            // starting point anybody wants, and `create:crud` covers the
-            // pattern for the screens people actually build.
+            // The **admin** screen is Svelte-only: three tabs of hand-written DOM
+            // is not a starting point anybody wants, and the endpoints behind it
+            // are framework-side, so a vanilla project can still reach them.
+            //
+            // This is not true of generated CRUD screens any more — `create:crud`
+            // writes a working screen for the vanilla stacks and `main.js` walks
+            // `screens/registry.js` to render it.
             return;
         }
 

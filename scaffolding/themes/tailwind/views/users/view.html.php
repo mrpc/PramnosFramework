@@ -100,21 +100,50 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 
             <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
                 <div class="px-4 py-2 bg-base-200 text-xs font-semibold text-base-content/70 uppercase tracking-wide">Actions</div>
+                <?php
+                /**
+                 * `btn-block`, not `block`.
+                 *
+                 * A daisyUI `btn` is an `inline-flex` box that centres its own content;
+                 * `block` overrode that display, so the label stopped being centred by
+                 * the button and the height came from the text instead of the component.
+                 * `btn-block` is the width modifier the component ships for this.
+                 *
+                 * Each one carries the same icon the row actions use, from
+                 * `Html\Icon` — one visual language for "edit", whether it is a 28px
+                 * cell in a table or a full-width button here.
+                 */
+                $action = static function (
+                    string $url,
+                    string $icon,
+                    string $label,
+                    string $classes = 'btn-outline',
+                    string $confirm = ''
+                ): void {
+                    echo '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '"'
+                        . ' class="btn btn-sm btn-block justify-start gap-2 ' . $classes . '"'
+                        . ($confirm !== ''
+                            ? ' data-confirm="' . htmlspecialchars($confirm, ENT_QUOTES, 'UTF-8') . '"'
+                            : '')
+                        . '>' . \Pramnos\Html\Icon::svg($icon)
+                        . '<span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span></a>';
+                };
+                ?>
                 <div class="p-4 grid gap-2">
-                    <a href="<?php echo adminUrl('users' . '/edit/' . ($uid)); ?>"
-                       class="btn btn-primary btn-sm block text-center">Edit User</a>
-                    <?php if ($isActive): ?>
-                        <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>"
-                           class="btn btn-outline btn-warning btn-sm block text-center"
-                           data-confirm="Lock this account?">Lock Account</a>
-                    <?php else: ?>
-                        <a href="<?php echo adminUrl('users' . '/unlock/' . ($uid)); ?>"
-                           class="btn btn-outline btn-success btn-sm block text-center">Unlock Account</a>
-                    <?php endif; ?>
-                    <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>"
-                       class="btn btn-outline btn-sm block text-center">All Tokens</a>
-                    <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>"
-                       class="btn btn-outline btn-sm block text-center">Sessions</a>
+                    <?php
+                    $action(adminUrl('users/edit/' . $uid), 'edit', 'Edit user', 'btn-primary');
+                    $action(adminUrl('users/resetpassword/' . $uid), 'password', 'Send password reset', 'btn-outline',
+                        'Send a password reset link to this user?');
+                    if ($isActive) {
+                        $action(adminUrl('users/lock/' . $uid), 'lock', 'Lock account', 'btn-outline btn-warning',
+                            'Lock this account?');
+                    } else {
+                        $action(adminUrl('users/unlock/' . $uid), 'unlock', 'Unlock account', 'btn-outline btn-success');
+                    }
+                    $action(adminUrl('Tokens/userid/' . $uid), 'tokens', 'All tokens');
+                    $action(adminUrl('users/sessions/' . $uid), 'sessions', 'Sessions');
+                    $action(adminUrl('Logs/search?q=' . urlencode((string) ($user['username'] ?? ''))), 'log', 'Find in logs');
+                    ?>
                 </div>
             </div>
 

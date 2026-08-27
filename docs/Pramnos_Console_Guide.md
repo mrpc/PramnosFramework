@@ -453,22 +453,22 @@ outright.
 After enabling a feature, run its migrations (`php bin/pramnos migrate`) and, if it ships
 views, publish them (`php bin/pramnos project:publish-views --list` then `--group=<name>`).
 
-**Republish after 2026-08-26 if you publish the queue, permissions or organizations
-views.** Four of them indexed a key their controller never returns — `$job['id']`
-where the column is `taskid`, `$p['id']` where it is `permissionid`,
-`$this->org['id']` where it is `organization_id`. `(int)` on a missing key is `0`,
-so the pages rendered and every action link on every row addressed record zero,
-silently. The `permissions/edit` form also posted `name="id"` while `save()` reads
-`permissionid`, so editing a permission inserted a new one. All four are fixed in
-the bundled themes; a project's published copies are its own:
+**A published view is yours, and stops receiving fixes.** That is the trade: publishing
+gives you a copy to edit, and the bundled copy keeps being corrected without you. When a
+changelog entry names a view group, `--force` takes the newer copy over yours:
 
 ```bash
 php bin/pramnos project:publish-views --group=queue,permissions,organizations --force
 ```
 
-The empty state is what made this survive: with no rows there are no links and no
-keys to get wrong, and an empty test database renders nothing else. A view is worth
-rendering once with a row in it.
+It also brings **new** screens in a group you have already published — an entity that
+gained a `view` screen has a view file your copy of the group does not.
+
+**Render a published view once with a row in it.** The bugs that survive longest in a view
+are the ones an empty table cannot show: with no rows there are no action links, so a link
+built from a key the controller never returns — `$job['id']` where the column is `taskid` —
+renders fine and addresses record zero on every row. An empty test database renders nothing
+else.
 
 #### `project:resync` — refresh framework-owned files
 

@@ -38,6 +38,14 @@ $userLabel   = $uname !== '' ? $uname : ('#' . $uid);
 $userViewUrl = $uid > 0 ? $base . 'users/view/' . $uid : $usersUrl;
 $actionId    = (int) ($this->action['actionid'] ?? 0);
 
+// The organization screens, whose label comes from the record the page is showing.
+$org         = is_array($this->org ?? null) ? $this->org : [];
+$orgId       = (int) ($org['organization_id'] ?? 0);
+$orgName     = htmlspecialchars((string) ($org['name'] ?? ''), ENT_QUOTES, 'UTF-8');
+$orgLabel    = $orgName !== '' ? $orgName : ($orgId > 0 ? '#' . $orgId : 'Organization');
+$orgsUrl     = $base . 'Organizations';
+$orgViewUrl  = $orgId > 0 ? $base . 'Organizations/view/' . $orgId : $orgsUrl;
+
 // Context-aware trail for the Token Actions list. When filtered by a token it
 // distinguishes the origin (Tokens list vs a specific user) via the `from` param.
 $tokenId  = (int) ($_GET['token_id'] ?? 0);
@@ -75,6 +83,10 @@ $trails = [
     'users_edit'        => [['Users', $usersUrl], [$uid > 0 ? $userLabel : 'New User', '']],
     'users_sessions'    => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Sessions', '']],
     'users_tokens'      => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Tokens', '']],
+    'organizations'          => [['Organizations', '']],
+    'organizations_view'     => [['Organizations', $orgsUrl], [$orgLabel, '']],
+    'organizations_edit'     => [['Organizations', $orgsUrl], [$orgId > 0 ? $orgLabel : 'New Organization', '']],
+    'organizations_members'  => [['Organizations', $orgsUrl], [$orgLabel, $orgViewUrl], ['Members', '']],
     'tokens'            => [['Tokens', '']],
     'tokenactions'      => $taTrail,
     'tokenactions_show' => [['Users', $usersUrl], ['Token Actions', $taUrl], ['#' . $actionId, '']],

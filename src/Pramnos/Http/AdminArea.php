@@ -126,11 +126,17 @@ final class AdminArea
      *
      * ```php
      * AdminArea::url('Users');       // https://example.com/admin/Users
-     * AdminArea::url();              // https://example.com/admin
+     * AdminArea::url();              // https://example.com/admin/
      * ```
      *
      * Falls back to a plain `sURL`-relative URL when no area is configured, so a
      * caller does not have to branch on whether one exists.
+     *
+     * **With no path it ends in a slash, exactly as `sURL` does.** That is not
+     * cosmetic: a base is something callers concatenate onto, and a breadcrumb doing
+     * `$base = adminUrl(); … $base . 'users'` produced `/adminusers` — a 404 on every
+     * trail in the area, and only in an application that had an area configured, since
+     * without one the same code got `sURL` and its trailing slash.
      */
     public static function url(string $path = ''): string
     {
@@ -141,7 +147,7 @@ final class AdminArea
             return $base . $path;
         }
 
-        return $base . self::$prefix . ($path !== '' ? '/' . $path : '');
+        return $base . self::$prefix . '/' . $path;
     }
 
     /**

@@ -219,7 +219,8 @@ class AdminAreaTest extends TestCase
 
         // Act / Assert
         $this->assertSame(\sURL . 'admin/Users', AdminArea::url('Users'));
-        $this->assertSame(\sURL . 'admin', AdminArea::url());
+        $this->assertSame(\sURL . 'admin/', AdminArea::url(),
+            'a base ends in a slash, like sURL — callers concatenate onto it');
         $this->assertSame(\sURL . 'admin/Users', AdminArea::url('/Users'));
     }
 

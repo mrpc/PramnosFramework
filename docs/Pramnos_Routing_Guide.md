@@ -795,6 +795,27 @@ looking for the bare form.
 With no area configured `adminUrl('Users')` is exactly `sURL . 'Users'`, so one
 view serves an application that has an area and one that does not.
 
+**With no path it is a base, and ends in a slash** — `adminUrl()` is to the area what
+`sURL` is to the site, so `adminUrl() . 'Users'` and `adminUrl('Users')` are the same
+string. The breadcrumb partials rely on that.
+
+**In a template, use the constant.** Two bases, each naming what it is:
+
+```php
+<a href="<?php echo sURL; ?>login">Sign in</a>     <!-- the site -->
+<a href="<?php echo URL; ?>Users">Users</a>        <!-- the administration area -->
+<a href="<?php echo adminUrl('Users'); ?>">Users</a>   <!-- identical to the second -->
+```
+
+`URL` was a second name for the site URL, from before the framework had an area at all —
+`sURL` was defined from it and nothing else read it. It is the area's base now, so the
+two constants answer the two questions a link has.
+
+`adminUrl()` is the same answer for code that runs where constants may not be defined — a
+controller under test, a CLI render — which is why the bundled views use it. Both are
+`AdminArea::url()` underneath, so they cannot disagree, and both equal `sURL` when no area
+is configured.
+
 **User-facing links stay bare on purpose.** An administrator clicking "My account"
 wants the public account page, not an admin-framed copy of it, so `account`,
 `login`, `register`, `Passkey` and `TwoFactorAuth` are addressed with `sURL`.

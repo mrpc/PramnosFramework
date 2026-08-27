@@ -220,7 +220,7 @@ class AdminUrlInViewsTest extends TestCase
 
         // Assert
         $this->assertSame(\sURL . 'admin/Users', adminUrl('Users'));
-        $this->assertSame(\sURL . 'admin', adminUrl());
+        $this->assertSame(\sURL . 'admin/', adminUrl());
     }
 
     /**
@@ -287,5 +287,62 @@ class AdminUrlInViewsTest extends TestCase
 
         // Act & Assert
         $this->assertStringContainsString('admin/Users', adminUrl('Users'));
+    }
+
+    /**
+     * A base URL can be concatenated onto.
+     *
+     * `adminUrl()` with no path is a **base**, and the bundled breadcrumb partials use
+     * it as one: `$base = adminUrl(); … $base . 'users'`. It returned `…/admin` with no
+     * trailing slash while `sURL` has one, so every trail in the area pointed at
+     * `/adminusers` — and only in an application that had an area configured, because
+     * without one the same code got `sURL` and its slash.
+     *
+     * Asserted on the concatenation rather than on the string, because that is what the
+     * views do and what broke.
+     */
+    public function testTheAreaBaseCanBeConcatenatedOnto(): void
+    {
+        // Arrange
+        $_GET['r'] = 'admin/Users';
+        AdminArea::detect('admin', 80);
+
+        // Act
+        $joined = adminUrl() . 'Tokens';
+
+        // Assert
+        $this->assertSame(adminUrl('Tokens'), $joined);
+        $this->assertStringContainsString('admin/Tokens', $joined);
+        $this->assertStringNotContainsString('adminTokens', $joined);
+    }
+
+    /**
+     * `URL` is the area's base as a constant, for a view to concatenate onto.
+     *
+     * The counterpart of `sURL`, so `URL . 'Users'` in a template reads like the
+     * `sURL . 'login'` beside it — and equal to `sURL` when no area is configured, so
+     * the same view serves both kinds of application.
+     *
+     * A constant rather than only the helper because a view is where most of these
+     * links are written, and `<?php echo URL; ?>Users` is what somebody editing a
+     * template will reach for. The helper stays the answer for code that runs without
+     * constants: a controller under test, a CLI render.
+     */
+    public function testTheAreaBaseIsAlsoAConstant(): void
+    {
+        // Assert — available to a template, like sURL
+        $this->assertTrue(defined('URL'), 'URL must exist for a template to use');
+
+        // …and derived from the area rather than hardcoded. Asserted on the source
+        // because a constant is decided once per process: the value this process holds
+        // came from the bootstrap, and what matters is where a real request gets it.
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Application/Application.php'
+        );
+        $this->assertStringContainsString(
+            "define('URL', \\Pramnos\\Http\\AdminArea::url());",
+            $source,
+            'URL must come from AdminArea::url(), or it disagrees with adminUrl()'
+        );
     }
 }

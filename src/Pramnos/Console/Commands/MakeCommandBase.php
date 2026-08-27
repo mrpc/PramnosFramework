@@ -1560,8 +1560,6 @@ abstract class MakeCommandBase extends Command
             // A generated table with thirty columns is unreadable, and the form
             // has all of them anyway. Six is where a table still scans.
             'listColumnCount' => (string) min(6, max(1, count($fields))),
-            // Kept for the vanilla stub, which still renders names only.
-            'columnsJson' => json_encode(array_column($fields, 'name')),
         ];
 
         $needsBuild = self::spaNeedsNodeStack($stack);
@@ -1582,6 +1580,8 @@ abstract class MakeCommandBase extends Command
         // several minutes after the command that caused it reported success.
         // Idempotent and skip-existing, so a project that has edited its own
         // DataTable keeps it.
+        // Svelte only: the vanilla screen builds its own DOM and imports nothing
+        // but the API client, which every stack already has.
         $componentReport = '';
         if ($stack === 'svelte') {
             $componentReport = $this->ensureSpaComponents($baseDir);
@@ -3268,7 +3268,12 @@ $routeTokens = [
                 $label = (isset($col['comment']) && $col['comment'] !== '')
                     ? $col['comment']
                     : ucwords(str_replace('_', ' ', $colName));
-                $columnCalls[] = "addColumn('" . addslashes($label) . "')";
+                // The 9th argument is a per-column filter — a text box under the
+                // column, debounced and guarded by `minSearchLength`. One box over
+                // every column finds a record; it cannot answer "the ones whose
+                // status is X", which is most of what an operator asks a list.
+                $columnCalls[] = "addColumn('" . addslashes($label)
+                    . "', true, true, true, '', '', true, 'left', true)";
                 $dataFields[]  = "'" . $colName . "'";
             }
             if (in_array($colType, ['integer', 'biginteger', 'tinyinteger', 'smallinteger'], true)) {

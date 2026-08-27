@@ -6,6 +6,7 @@ namespace Pramnos\Application\Controllers;
 
 use Pramnos\Application\Controller;
 use Pramnos\Framework\Factory;
+use Pramnos\Html\Icon;
 use Pramnos\User\User;
 
 /**
@@ -118,13 +119,64 @@ class UsersController extends Controller
         $dt = new \Pramnos\Html\Datatable('dt-users');
         $dt->source    = adminUrl('users/data');
         $dt->bootstrap = false;
-        $dt->addColumn('ID',           true,  true,  true,  'num-html')
-           ->addColumn('Username',     true,  true,  true)
-           ->addColumn('Email',        true,  true,  true)
-           ->addColumn('Type',         true,  true,  true,  'num')
-           ->addColumn('Status',       true,  true,  false, 'html')
-           ->addColumn('Registered',   true,  true,  false, 'num')
-           ->addColumn('Actions',      true,  false, false, 'html');
+
+        /**
+         * Per-column filters, which is what makes a list of thousands usable.
+         *
+         * One search box over every column answers "find this person"; it cannot
+         * answer "the administrators registered this month", and that is most of
+         * what an operator asks a user list. The 9th argument of `addColumn()` is
+         * the filter: `true` for a text box under the column, or the **id** of a
+         * control rendered into the footer — which is how an enumerated column gets
+         * a dropdown instead of a text box nobody can guess the values for.
+         *
+         * The text boxes wait for `minSearchLength` characters and debounce; without
+         * that, each keystroke is a query across the whole table.
+         */
+        $dt->footerTextSearch = true;
+
+        // The bands this application declares, or the framework's — see
+        // {@see \Pramnos\User\UserTypes}. A numeric column is matched **equal** rather
+        // than with `LIKE` (`LIKE '%5%'` on a number matches 5, 15 and 50), so the
+        // option's label carries the value it sends.
+        $typeFilter = new \Pramnos\Html\Select('usertype_filter');
+        $typeFilter->id = 'dt-users-type';
+        $typeFilter->addOption('Any type', '');
+        $typeFilter->addOptions(\Pramnos\User\UserTypes::options());
+
+        $statusFilter = new \Pramnos\Html\Select('status_filter');
+        $statusFilter->id = 'dt-users-status';
+        $statusFilter->addOptions(['' => 'Any status', '1' => 'Active', '0' => 'Inactive']);
+
+        $dt->addColumn('ID',         true, true,  true,  'num-html', '', true, 'left', true)
+           ->addColumn('Username',   true, true,  true,  '',         '', true, 'left', true)
+           ->addColumn('Email',      true, true,  true,  '',         '', true, 'left', true)
+           ->addColumn(
+               'Type',
+               true,
+               true,
+               true,
+               'html',
+               $typeFilter->render(),
+               true,
+               'left',
+               'dt-users-type',
+               (string) \Pramnos\Http\Request::staticGet('usertype_filter', '', 'get')
+           )
+           ->addColumn(
+               'Status',
+               true,
+               true,
+               true,
+               'html',
+               $statusFilter->render(),
+               true,
+               'left',
+               'dt-users-status',
+               (string) \Pramnos\Http\Request::staticGet('status_filter', '', 'get')
+           )
+           ->addColumn('Registered', true, true,  false, 'num')
+           ->addColumn('Actions',    true, false, false, 'html');
 
         $view          = $this->getView('users');
         $view->datatable = $dt;
@@ -157,13 +209,43 @@ class UsersController extends Controller
             $id      = (int) $row[0];
             $active  = (int) $row[4];
             $regdate = (int) $row[5];
-            $row[4]  = $active
-                ? '<span style="color:green">Active</span>'
-                : '<span style="color:#888">Inactive</span>';
-            $row[5]  = $regdate > 0 ? date('Y-m-d', $regdate) : '';
-            $row[]   = '<a href="' . adminUrl('users/view/')   . $id . '">View</a> '
-                     . '<a href="' . adminUrl('users/edit/')   . $id . '">Edit</a> '
-                     . '<a href="' . adminUrl('users/delete/') . $id . '" data-confirm="Deactivate this user?">Deactivate</a>';
+            $viewUrl = adminUrl('users/view/') . $id;
+
+            /**
+             * The id and the username open the record.
+             *
+             * A row whose only way in is the last cell makes the whole row a target
+             * people click and nothing happens. The two cells that identify the record
+             * are the ones a person aims at, so they are the link.
+             */
+            $row[0] = '<a href="' . $viewUrl . '">' . $id . '</a>';
+            $row[1] = '<a href="' . $viewUrl . '">'
+                . htmlspecialchars((string) $row[1], ENT_QUOTES, 'UTF-8') . '</a>';
+            $row[2] = htmlspecialchars((string) $row[2], ENT_QUOTES, 'UTF-8');
+
+            // The band, not the number. `usertype` is a threshold — 85 is a Manager —
+            // and a column of bare integers asks every reader to know the bands.
+            $row[3] = htmlspecialchars(
+                \Pramnos\User\UserTypes::label((int) $row[3]),
+                ENT_QUOTES,
+                'UTF-8'
+            ) . ' <span class="pf-muted">' . (int) $row[3] . '</span>';
+
+            $row[4] = $active
+                ? '<span class="pf-state pf-state-on">Active</span>'
+                : '<span class="pf-state pf-state-off">Inactive</span>';
+            $row[5] = $regdate > 0 ? date('Y-m-d', $regdate) : '';
+
+            $row[]  = Icon::link($viewUrl, 'view', 'View this user')
+                    . Icon::link(adminUrl('users/edit/') . $id, 'edit', 'Edit this user')
+                    . Icon::link(adminUrl('users/tokens/') . $id, 'tokens', 'Tokens')
+                    . Icon::link(adminUrl('users/sessions/') . $id, 'sessions', 'Sessions')
+                    . Icon::link(
+                        adminUrl('users/delete/') . $id,
+                        'deactivate',
+                        'Deactivate this user',
+                        ['data-confirm' => 'Deactivate this user?', 'class' => 'pf-action-danger']
+                    );
             unset($row['DT_RowId']);
         }
         unset($row);

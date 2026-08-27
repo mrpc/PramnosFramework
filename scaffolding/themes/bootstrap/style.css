@@ -130,3 +130,89 @@ main {
     font-size: 0.875rem;
     color: var(--text-muted, #64748b);
 }
+
+/*
+ * Datatable row actions, column filters and state pills.
+ *
+ * The markup comes from the framework — `Html\Icon` and `Html\Datatable` render it into
+ * the JSON a table inserts — so the classes have to be styled by the theme rather than
+ * carried as inline styles: a project whose CSP has no `'unsafe-inline'` for styles would
+ * strip those, and the actions would be unreadable in exactly the strictest deployments.
+ *
+ * Two of these exist because a CSS reset removed something. A modern CSS reset sets
+ * `svg { display: block }`, which made a row of icons stack one per line; and a bare
+ * `<input>` has no border, no padding and no background, which made a column filter a box
+ * that was there and invisible.
+ */
+.pf-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.375rem;
+    color: inherit;
+    opacity: 0.7;
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.pf-action:hover,
+.pf-action:focus-visible {
+    opacity: 1;
+    background-color: color-mix(in oklab, currentColor 12%, transparent);
+}
+
+.pf-action + .pf-action {
+    margin-inline-start: 0.125rem;
+}
+
+.pf-action-danger:hover,
+.pf-action-danger:focus-visible {
+    color: #dc2626;
+}
+
+.pf-icon {
+    display: inline-block;
+    width: 1.05em;
+    height: 1.05em;
+}
+
+.pf-footsearch {
+    width: 100%;
+    min-width: 6rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    border: 1px solid #d4d4d8;
+    border-radius: 0.375rem;
+    background-color: #fff;
+    color: inherit;
+}
+
+.pf-footsearch:focus {
+    outline: 2px solid #2563eb;
+    outline-offset: -1px;
+}
+
+.pf-state {
+    display: inline-block;
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.pf-state-on {
+    background-color: color-mix(in oklab, #16a34a 15%, transparent);
+    color: #16a34a;
+}
+
+.pf-state-off {
+    background-color: color-mix(in oklab, currentColor 10%, transparent);
+    opacity: 0.7;
+}
+
+.pf-muted {
+    opacity: 0.55;
+    font-size: 0.8125rem;
+}

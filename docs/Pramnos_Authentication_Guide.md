@@ -124,6 +124,46 @@ This method delegates to `Auth::getInstance()->verifyCredentials($username, $pas
 
 ## User Management
 
+### What a usertype is, and how to change the bands
+
+`users.usertype` is an **integer read as a threshold**, not an enum. `>= 90` is an
+administrator (`UserCreate::ADMIN_USERTYPE`), and the administration area's floor is
+whatever `admin.min_usertype` says — so a comparison, not an equality, is what the
+framework's own guards are written in.
+
+The bands have names, in one place:
+
+```php
+\Pramnos\User\UserTypes::label(85);     // 'Manager' — the band it falls in, not '85'
+\Pramnos\User\UserTypes::labels();      // [90 => 'Admin', 80 => 'Manager', …]
+\Pramnos\User\UserTypes::options();     // value => label, for Html\Select::addOptions()
+```
+
+An application renames or replaces them in `app/app.php`:
+
+```php
+'usertypes' => [
+    100 => 'Owner',
+    90  => 'Administrator',
+    50  => 'Staff',
+    10  => 'Customer',
+    0   => 'Guest',
+],
+```
+
+Keyed by the band's **floor** and read highest-first, so a value between two bands belongs
+to the lower one. Declare them in any order — they are sorted before use, because a config
+listing its bands lowest-first would otherwise label an administrator "Guest".
+
+The bundled admin screens use this for the badge on a user, the label in the list and the
+options in the list's type filter. Before it, each of those carried its own copy of the
+mapping, so "what is 85?" had three answers.
+
+**This is not a role system.** A usertype answers *how senior is this account*, in one
+number, in a column every application on the framework shares. When the question is *may
+they do X*, that is a permission — see the
+[Authorization guide](Pramnos_Authorization_Guide.md).
+
 ### Fields the users table does not have
 
 `User` keeps anything outside its own columns in `$otherinfo`, reached with plain property

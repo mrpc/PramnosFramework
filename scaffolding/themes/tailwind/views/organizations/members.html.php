@@ -8,6 +8,7 @@
  */
 ?>
 <div class="px-4 py-6">
+    <?php $this->activeNav = 'organizations_members'; $this->insert('../partials/admin_breadcrumb'); ?>
     <div class="flex items-center gap-3 mb-4">
         <a href="<?php echo adminUrl('Organizations'); ?>" class="btn btn-outline btn-xs">&larr; Back</a>
         <h2 >Members — <?php echo htmlspecialchars($this->org['name'] ?? ''); ?></h2>

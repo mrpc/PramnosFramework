@@ -133,6 +133,9 @@ class MakeCrudSpaTest extends TestCase
         }
         $this->rmdir($this->tmpDir);
         $this->rmdir(ROOT . '/frontend');
+        // A buildless project keeps its screens under the web root, so a test that
+        // generated one there leaves the framework's own www/ dirty otherwise.
+        $this->rmdir(ROOT . '/www/assets/js/screens');
     }
 
     /**
@@ -407,6 +410,92 @@ PHP);
         foreach (['created', 'updated', 'createdate', 'updatedate'] as $column) {
             $this->assertContains($column, $probe->exposeNonEditable());
         }
+    }
+
+    /**
+     * A vanilla project gets a working screen, and one that can be reached.
+     *
+     * The generator wrote a screen for the vanilla stacks all along and registered
+     * it — and nothing rendered it: `main.js` never read `screens/registry.js`, so
+     * the file existed, the endpoints answered, and the screen was unreachable. The
+     * generator reported success either way.
+     *
+     * So this asserts both halves: the screen is written and registered as a
+     * `mount` entry, **and** the shell that ships with the stack imports the
+     * registry. Either alone passes on the broken state.
+     */
+    public function testAVanillaProjectGetsAReachableScreen(): void
+    {
+        // Arrange
+        $this->app->internalApplication->applicationInfo['spa_stack'] = 'vanilla';
+
+        // Act
+        $result = $this->command->exposeCreateScreen('widget');
+
+        // Assert — a plain module, not a Svelte component. A buildless project
+        // keeps its sources under the web root, where the browser can load them.
+        $screen = ROOT . '/www/assets/js/screens/Widget.js';
+        $this->created[] = $screen;
+        $this->assertStringContainsString('OK', $result);
+        $this->assertFileExists($screen);
+
+        $module = (string) file_get_contents($screen);
+        $this->assertStringContainsString('export function mount(target)', $module);
+        $this->assertStringContainsString("const RESOURCE = '/widget'", $module);
+        // Paging on the server, and a pager the user can actually press
+        $this->assertStringContainsString('limit: String(perPage)', $module);
+        $this->assertStringContainsString('Next', $module);
+        // Column descriptors, not bare names: labels and per-type inputs
+        $this->assertStringContainsString('const FIELDS =', $module);
+        $this->assertStringContainsString('function inputType(field)', $module);
+
+        // …registered as a mount entry
+        $registry = ROOT . '/www/assets/js/screens/registry.js';
+        $this->created[] = $registry;
+        $contents = (string) file_get_contents($registry);
+        $this->assertStringContainsString("import * as Widget from './Widget.js';", $contents);
+        $this->assertStringContainsString('mount: Widget.mount', $contents);
+
+        // …and the shell renders whatever the registry holds
+        $shell = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/scaffolding/templates/spa-vanilla-main.js.stub'
+        );
+        $this->assertStringContainsString(
+            "import { screens } from './screens/registry.js';",
+            $shell,
+            'main.js must read the registry, or a generated screen is unreachable'
+        );
+        $this->assertStringContainsString('export async function mountRoute(', $shell);
+    }
+
+    /**
+     * Nothing a record contains is written as markup.
+     *
+     * The screen builds its DOM by hand, and the first version interpolated row
+     * values straight into `innerHTML` — in a **generated** file, which is the worst
+     * place to leave that decision to whoever edits it next. Every value now goes
+     * through `textContent` or `.value`.
+     */
+    public function testTheVanillaScreenNeverWritesDataAsMarkup(): void
+    {
+        // Arrange
+        $this->app->internalApplication->applicationInfo['spa_stack'] = 'vanilla-vite';
+
+        // Act
+        $this->command->exposeCreateScreen('widget');
+        $screen = ROOT . '/frontend/screens/Widget.js';
+        $this->created[] = $screen;
+        $this->created[] = ROOT . '/frontend/screens/registry.js';
+        $module = (string) file_get_contents($screen);
+
+        // Assert — values reach the DOM as text, never as HTML
+        $this->assertStringContainsString('td.textContent = row[field.name]', $module);
+        $this->assertStringContainsString('input.value = record[field.name]', $module);
+        $this->assertDoesNotMatchRegularExpression(
+            '/innerHTML\s*=\s*[^;]*\$\{(row|record)\[/',
+            $module,
+            'a record must never be interpolated into innerHTML'
+        );
     }
 }
 }

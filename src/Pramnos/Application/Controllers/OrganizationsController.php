@@ -6,6 +6,7 @@ namespace Pramnos\Application\Controllers;
 
 use Pramnos\Application\Controller;
 use Pramnos\Application\Settings;
+use Pramnos\Html\Icon;
 
 /**
  * Admin controller for managing organizations (generic organisation registry).
@@ -37,7 +38,7 @@ class OrganizationsController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction([
-            'display', 'data', 'edit', 'save', 'delete',
+            'display', 'data', 'view', 'edit', 'save', 'delete',
             'members', 'addmember', 'removemember',
         ]);
         parent::__construct($application);
@@ -60,12 +61,31 @@ class OrganizationsController extends Controller
         $dt = new \Pramnos\Html\Datatable('dt-organizations');
         $dt->source    = adminUrl('organizations/data');
         $dt->bootstrap = false;
-        $dt->addColumn('ID',          true,  true,  true,  'num')
-           ->addColumn('Name',        true,  true,  true)
-           ->addColumn('Type',        true,  true,  true)
-           ->addColumn('Active',      true,  true,  false, 'html')
-           ->addColumn('Created',     true,  true,  false)
-           ->addColumn('Actions',     true,  false, false, 'html');
+        // Per-column filters. A name box and a type box are what an operator uses on
+        // a list of hundreds of organizations; the search box over all columns is not.
+        $dt->footerTextSearch = true;
+
+        $activeFilter = new \Pramnos\Html\Select('active_filter');
+        $activeFilter->id = 'dt-organizations-active';
+        $activeFilter->addOptions(['' => 'Any', '1' => 'Active', '0' => 'Inactive']);
+
+        $dt->addColumn('ID',      true, true,  true,  'num', '', true, 'left', true)
+           ->addColumn('Name',    true, true,  true,  '',    '', true, 'left', true)
+           ->addColumn('Type',    true, true,  true,  '',    '', true, 'left', true)
+           ->addColumn(
+               'Active',
+               true,
+               true,
+               true,
+               'html',
+               $activeFilter->render(),
+               true,
+               'left',
+               'dt-organizations-active',
+               (string) \Pramnos\Http\Request::staticGet('active_filter', '', 'get')
+           )
+           ->addColumn('Created', true, true,  false)
+           ->addColumn('Actions', true, false, false, 'html');
 
         $view           = $this->getView('organizations');
         $view->datatable = $dt;
@@ -91,11 +111,26 @@ class OrganizationsController extends Controller
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
         foreach ($result[$dataKey] as &$row) {
-            $id     = (int) $row[0];
-            $row[3] = $row[3] ? '<span style="color:green">Yes</span>' : '<span style="color:#888">No</span>';
-            $row[]  = '<a href="' . adminUrl('organizations/edit/')   . $id . '">Edit</a> '
-                    . '<a href="' . adminUrl('organizations/members/') . $id . '">Members</a> '
-                    . '<a href="' . adminUrl('organizations/delete/')  . $id . '" data-confirm="Delete this organization?">Delete</a>';
+            $id      = (int) $row[0];
+            $viewUrl = adminUrl('organizations/view/') . $id;
+
+            // The id and the name open the record.
+            $row[0] = '<a href="' . $viewUrl . '">' . $id . '</a>';
+            $row[1] = '<a href="' . $viewUrl . '">'
+                . htmlspecialchars((string) $row[1], ENT_QUOTES, 'UTF-8') . '</a>';
+            $row[2] = htmlspecialchars((string) $row[2], ENT_QUOTES, 'UTF-8');
+            $row[3] = $row[3]
+                ? '<span class="pf-state pf-state-on">Yes</span>'
+                : '<span class="pf-state pf-state-off">No</span>';
+            $row[]  = Icon::link($viewUrl, 'view', 'View this organization')
+                    . Icon::link(adminUrl('organizations/edit/') . $id, 'edit', 'Edit this organization')
+                    . Icon::link(adminUrl('organizations/members/') . $id, 'members', 'Members')
+                    . Icon::link(
+                        adminUrl('organizations/delete/') . $id,
+                        'delete',
+                        'Delete this organization',
+                        ['data-confirm' => 'Delete this organization?', 'class' => 'pf-action-danger']
+                    );
             unset($row['DT_RowId']);
         }
         unset($row);
@@ -107,6 +142,75 @@ class OrganizationsController extends Controller
      * Create/edit form for an organization.
      * Passing no $id (or id=0) opens the create form.
      */
+    /**
+     * The read-only screen for one organization.
+     *
+     * Every other entity in the area has one — a user, an application, a token —
+     * and this was the exception: the list linked straight to `edit`, so looking at
+     * an organization meant opening the form that changes it. That is the wrong
+     * default for the common case (somebody checking what a record says) and the
+     * wrong default for safety.
+     *
+     * It answers the three questions the list cannot: what the record holds, who is
+     * in it, and what it can reach.
+     */
+    public function view(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $orgId = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($orgId <= 0) {
+            $this->addError('The id in that link is not valid.');
+            $this->redirect(adminUrl('organizations'));
+            return null;
+        }
+
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()
+            ->table('organizations')
+            ->where('organization_id', $orgId)
+            ->first();
+
+        if (!$result || $result->numRows === 0) {
+            $this->addError('That record no longer exists.');
+            $this->redirect(adminUrl('organizations'));
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = (string) ($result->fields['name'] ?? 'Organization');
+
+        $orgTable = $this->resolveOrgMembershipTable();
+        $orgCol   = $this->resolveOrgColumn();
+
+        // Active members only, and a few of them: this is a summary, and the
+        // members screen is one click away for the whole list.
+        $members = $db->queryBuilder()
+            ->table($orgTable . ' uo')
+            ->join('#PREFIX#users u', 'uo.userid', '=', 'u.userid')
+            ->select(['u.userid', 'u.username', 'u.email', 'uo.granted_at'])
+            ->where('uo.' . $orgCol, $orgId)
+            ->where('uo.is_active', 1)
+            ->orderBy('uo.granted_at', 'desc')
+            ->limit(10)
+            ->getAll();
+
+        $memberCount = (int) $db->queryBuilder()
+            ->table($orgTable)
+            ->where($orgCol, $orgId)
+            ->where('is_active', 1)
+            ->count();
+
+        $view              = $this->getView('organizations');
+        $view->org         = $result->fields;
+        $view->members     = $members;
+        $view->memberCount = $memberCount;
+
+        return $view->display('view');
+    }
+
     public function edit(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {

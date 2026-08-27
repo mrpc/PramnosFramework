@@ -391,24 +391,61 @@ class Datatable extends Base
     /**
      * Fixes the footer
      */
+    /**
+     * The table's name as a JavaScript identifier.
+     *
+     * `renderJs()` declares the table into a variable named after it, and an id like
+     * `dt-users` is not a legal identifier — `dt-users.fnFilter(…)` parses as
+     * `dt - users.fnFilter(…)`, which is a `ReferenceError` for `dt` at the first
+     * keystroke in a column filter and nothing at all in the console until then.
+     *
+     * One definition, used by every emitter: this method existed inline in
+     * `renderJs()` while `fixColumnSearch()` interpolated the raw name, so the two
+     * halves of the same script disagreed about what the table was called.
+     */
+    private function jsVar(): string
+    {
+        return (string) preg_replace('/[^a-zA-Z0-9_$]/', '_', $this->name);
+    }
+
     private function fixColumnSearch()
     {
         // Cast at the boundary, like $searchDelay: this lands inside a <script>, so a
         // non-numeric value would be markup rather than a number.
         $minSearchLength = max(0, (int) $this->minSearchLength);
+        // The JS identifier, not the table id: see jsVar().
+        $jsVar = $this->jsVar();
         $c = 0;
         foreach ($this->aoColumns as $key => $column) {
             if ($column->footsearch === true) {
 
+                /**
+                 * The column's own search box.
+                 *
+                 * `class="pf-footsearch"` rather than an inline width: a bare `<input>`
+                 * in a modern CSS reset has no border, no padding and no background, so
+                 * the box was **there and invisible** — a filter row that looked empty.
+                 * Every bundled theme styles the class; a theme that does not still gets
+                 * the browser's own control, because nothing here removes it.
+                 */
                 $this->aoColumns[$key]->footer .= '<input id="autofootsearch_'
-                    . $c . '" value="' . $this->aoColumns[$key]->searchvalue
+                    . $c . '" value="' . htmlspecialchars(
+                        (string) $this->aoColumns[$key]->searchvalue,
+                        ENT_QUOTES,
+                        'UTF-8'
+                    )
                     . '" name="' . $c
-                    . '" style="width:120px;" type="text" />';
+                    . '" class="pf-footsearch" type="search"'
+                    . ' placeholder="' . htmlspecialchars(
+                        (string) $this->aoColumns[$key]->label,
+                        ENT_QUOTES,
+                        'UTF-8'
+                    ) . '…" />';
                 $this->footerTextSearch = true;
                 if ($column->searchvalue != "") {
                     $s = $column->searchvalue;
                     $this->codeEmbed .=<<<embed
-            $this->name.fnFilter( '$s', $c );
+            {$jsVar}.fnFilter( '$s', $c );
 embed;
                 }
             } elseif ($column->footsearch !== false) {
@@ -416,25 +453,25 @@ embed;
                 if ($column->searchvalue != "") {
                     $s = $column->searchvalue;
                     $this->codeEmbed .=<<<embed
-            $this->name.fnFilter( '$s', $c );
+            {$jsVar}.fnFilter( '$s', $c );
 embed;
                 }
 
                 if ($this->stateSave == true) {
                     $this->codeEmbed.=<<<embed
-    if($this->name.fnSettings().aoPreSearchCols[$c].sSearch.length>0){
-        jQuery('#$id').val($this->name.fnSettings().aoPreSearchCols[$c].sSearch);
+    if({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch.length>0){
+        jQuery('#$id').val({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch);
     }
 embed;
                 }
-#$this->name.fnFilter( $('#$id').val(),$c ); inside next code embed
+#{$jsVar}.fnFilter( $('#$id').val(),$c ); inside next code embed
                 $this->codeEmbed.=<<<embed
 
         jQuery('#$id').change( function () {
-            $this->name.fnFilter( jQuery(this).val(),$c );
+            {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } );
         jQuery('#$id').keyup(DataTableDelay(function(){
-            $this->name.fnFilter( jQuery(this).val(),$c );
+            {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } ));
 
 embed;
@@ -457,7 +494,7 @@ embed;
             return;
         }
 
-        $this->name.fnFilter( this.value, $(this).attr('name') );
+        {$jsVar}.fnFilter( this.value, $(this).attr('name') );
     } ) );
     /*
      * Support functions to provide a little bit of
@@ -528,8 +565,8 @@ embed;
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
         $document = \Pramnos\Framework\Factory::getDocument();
-        // JS variable name: replace non-identifier chars (e.g. hyphens in "dt-users") with _
-        $jsVar = preg_replace('/[^a-zA-Z0-9_$]/', '_', $this->name);
+        // JS variable name — see jsVar(); a hyphen in the id is not an identifier.
+        $jsVar = $this->jsVar();
         if ($this->aLengthMenu === NULL) {
             $this->aLengthMenu = '[[10, 25, 50, 100, -1], [10, 25, 50, 100, "'
                 . $lang->_('All') . '"]]';

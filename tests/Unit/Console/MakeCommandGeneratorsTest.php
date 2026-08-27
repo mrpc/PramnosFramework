@@ -664,8 +664,13 @@ class MakeCommandGeneratorsTest extends TestCase
                 'the DataTable source must be the controller data() action');
             $this->assertStringContainsString('$view->datatable = $dt;', $content,
                 'the built DataTable must be passed to the view');
-            $this->assertStringContainsString("->addColumn('Title')", $content,
-                'each non-PK column must become a DataTable column labelled from the schema');
+            $this->assertStringContainsString("->addColumn('Title', true, true, true, '', '', true, 'left', true)", $content,
+                'each non-PK column becomes a DataTable column labelled from the schema, '
+                . 'with its own search box under it');
+            $this->assertStringContainsString('$dt->footerTextSearch = true;', $content,
+                'a generated list gets per-column filters, like the framework\'s own admin lists');
+            $this->assertStringContainsString('\Pramnos\Html\Icon::link(', $content,
+                'row actions are labelled icons rather than three words repeated per row');
             $this->assertStringContainsString("->addColumn('Actions', true, false, false, 'html')", $content,
                 'the chain must finish with a non-sortable HTML Actions column');
             $this->assertStringContainsString('$dt->bootstrap = false;', $content,

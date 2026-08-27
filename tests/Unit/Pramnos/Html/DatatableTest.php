@@ -1586,4 +1586,56 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('this.value.length < 3', $js);
         $this->assertStringNotContainsString('alert(1)', $js);
     }
+
+    /**
+     * A column can carry a rendered control as its filter, not only a text box.
+     *
+     * An enumerated column — a usertype, a status — is the one people filter most and
+     * the one a text box serves worst: nobody guesses that "administrator" is stored as
+     * `90`. The 9th argument of `addColumn()` takes the **id** of a control rendered
+     * into the footer, and the table wires `change` and a debounced `keyup` on it.
+     */
+    public function testAColumnFilterCanBeARenderedControl(): void
+    {
+        // Arrange
+        $select = new \Pramnos\Html\Select('usertype_filter');
+        $select->id = 'dt-users-type';
+        $select->addOption('Any type', '');
+        $select->addOption('Admin (90)', '90');
+
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'userList';
+        $table->addColumn('Type', true, true, true, 'num', $select->render(), true, 'left', 'dt-users-type');
+
+        // Act
+        $html = $table->renderTable();
+        $js   = $table->renderJs() . $table->codeEmbed;
+
+        // Assert — the control is in the footer, and it filters its own column
+        $this->assertStringContainsString('id="dt-users-type"', $html);
+        $this->assertStringContainsString("jQuery('#dt-users-type').change", $js);
+        $this->assertStringContainsString("jQuery('#dt-users-type').keyup(DataTableDelay", $js);
+    }
+
+    /**
+     * A filter's current value is applied on load, so a bookmarked filter still filters.
+     *
+     * The 10th argument carries it. Without this the control shows the chosen value and
+     * the table shows every row — which reads as a filter that does not work.
+     */
+    public function testAColumnFilterAppliesItsCurrentValueOnLoad(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable();
+        $table->name = 'userList';
+        $table->addColumn('ID',   true, true, true, 'num');
+        $table->addColumn('Type', true, true, true, 'num', '<select id="f"></select>', true, 'left', 'f', '90');
+
+        // Act
+        $table->renderTable();
+        $js = $table->codeEmbed;
+
+        // Assert — column 1, the value chosen
+        $this->assertStringContainsString("fnFilter( '90', 1 )", $js);
+    }
 }
