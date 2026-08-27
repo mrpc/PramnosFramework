@@ -9,6 +9,7 @@ use Pramnos\Auth\Auth;
 use Pramnos\Auth\EmailSecondFactor;
 use Pramnos\Auth\LoginFlow;
 use Pramnos\Auth\NewDeviceAuthLink;
+use Pramnos\Auth\SecondFactorRegistry;
 use Pramnos\Auth\LoginFlowResult;
 use Pramnos\Auth\Loginlockout;
 use Pramnos\Auth\TwoFactorAuthService;
@@ -41,12 +42,63 @@ class LoginFlowTest extends TestCase
     {
         // Each test starts with an empty session (pending-step-up state lives here).
         $_SESSION = [];
+
+        // …and with an empty factor registry. The flow asks the registry what an account
+        // is enrolled in, so a test that did not clear it would inherit whichever doubles
+        // the previous one registered — and the real built-ins, which want a database.
+        SecondFactorRegistry::reset();
+
+        /*
+         * An application that allows both factors.
+         *
+         * Declared rather than relied upon: the registry honours
+         * `auth.twofactor_methods` whenever an application exists, and one left in the
+         * registry by another test class made the email cases here fail with nothing in
+         * this file changed — the factor was being filtered out by somebody else's
+         * configuration. Saying what this test needs makes it independent of run order and
+         * matches what production does.
+         */
+        $this->savedInstances = $this->installApplication(['totp', 'email']);
         $this->flow = new TestableLoginFlow();
     }
 
     protected function tearDown(): void
     {
         $_SESSION = [];
+        SecondFactorRegistry::reset();
+
+        if ($this->savedInstances !== null) {
+            (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))
+                ->setValue(null, $this->savedInstances);
+            $this->savedInstances = null;
+        }
+    }
+
+    /** @var array<string,mixed>|null */
+    private ?array $savedInstances = null;
+
+    /**
+     * Install an application declaring the given second-factor methods.
+     *
+     * @param  list<string> $methods
+     * @return array<string,mixed> The registry as it was, for tearDown
+     */
+    private function installApplication(array $methods): array
+    {
+        $stub = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['auth' => ['twofactor_methods' => $methods]];
+
+        $reflection = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $saved = $reflection->getValue() ?? [];
+        $instances = $saved;
+        $instances['default'] = $stub;
+        $reflection->setValue(null, $instances);
+
+        return $saved;
     }
 
     // ── attempt(): lockout gate ────────────────────────────────────────────────
@@ -926,6 +978,15 @@ class TestableLoginFlow extends LoginFlow
         $this->fakePasskeys    = new FakePasskeys();
         $this->fakeEmailFactor = new FakeEmailFactor();
         $this->fakeAuthLink    = new FakeAuthLink();
+
+        // The doubles, behind the real adaptors, in the real registry — so the flow runs
+        // its production path and the test still controls the answers.
+        SecondFactorRegistry::register(
+            new \Pramnos\Auth\Factors\TotpSecondFactor($this->fakeTwoFactor)
+        );
+        SecondFactorRegistry::register(
+            new \Pramnos\Auth\Factors\EmailCodeSecondFactor($this->fakeEmailFactor)
+        );
 
         // Inject through the real constructor so the default verifyCredentials()
         // and establishSession() bodies run against the fakes (real coverage).

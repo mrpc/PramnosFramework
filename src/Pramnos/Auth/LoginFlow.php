@@ -316,12 +316,53 @@ class LoginFlow
      */
     public function completeEmailCode(string $code): LoginFlowResult
     {
+        return $this->completeFactor(EmailSecondFactor::METHOD, $code);
+    }
+
+    /**
+     * Finish a pending login with any registered factor, by name.
+     *
+     * The generic form of {@see completeTwoFactor()} and {@see completeEmailCode()}, which
+     * remain because they are the names in use. An adaptor an application registers needs
+     * no method of its own here and no branch in the controller: the factor name arrives
+     * from the step-up form and the registry resolves it.
+     *
+     * A name that is not registered — or is registered but withdrawn by the application's
+     * own list — fails like a wrong code. It arrives from a form field, so an unknown one
+     * is a stale page or somebody probing, and neither should learn which factors exist.
+     *
+     * The login is tagged with the factor's own name, so an audit can tell which factor
+     * carried it. They are not equally strong and a log that calls them all `twofactor`
+     * cannot answer that afterwards.
+     */
+    public function completeFactor(string $factorName, string $code): LoginFlowResult
+    {
         $pending = $this->pending();
         if ($pending === null) {
             return LoginFlowResult::failed();
         }
 
-        if (!$this->emailFactor()->verify($pending['userId'], trim($code))) {
+        $factor = SecondFactorRegistry::get($factorName);
+        if ($factor === null) {
+            return LoginFlowResult::failed();
+        }
+
+        try {
+            $verified = $factor->verify($pending['userId'], trim($code));
+        } catch (\Throwable $exception) {
+            // An adaptor whose gateway is down refuses rather than throwing into the
+            // login. Recorded, because a factor that can never verify is an outage for
+            // whoever depends on it.
+            \Pramnos\Logs\Logger::log(
+                'Second factor ' . $factorName . ' failed to verify for '
+                . $pending['userId'] . ': ' . $exception->getMessage(),
+                'auth'
+            );
+
+            return LoginFlowResult::failed();
+        }
+
+        if (!$verified) {
             return LoginFlowResult::failed();
         }
 
@@ -331,8 +372,59 @@ class LoginFlow
             $pending['userId'],
             $pending['remember'],
             $pending['identifier'],
-            EmailSecondFactor::METHOD
+            $factor->name()
         );
+    }
+
+    /**
+     * Deliver the challenge for a registered factor that has one, by name.
+     *
+     * The generic form of {@see sendEmailCode()}. Refuses without a pending login — with
+     * that refusal, the endpoint cannot be used to make the site text or mail an arbitrary
+     * account on request.
+     */
+    public function sendFactorChallenge(string $factorName): bool
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return false;
+        }
+
+        $factor = SecondFactorRegistry::get($factorName);
+        if ($factor === null || !$factor->needsSending()) {
+            return false;
+        }
+
+        if (!$factor->isEnrolledFor($pending['userId'])) {
+            return false;
+        }
+
+        try {
+            return $factor->send($pending['userId']);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'Second factor ' . $factorName . ' failed to send for '
+                . $pending['userId'] . ': ' . $exception->getMessage(),
+                'auth'
+            );
+
+            return false;
+        }
+    }
+
+    /**
+     * The factors the pending login could be completed with, strongest first.
+     *
+     * For a step-up screen that renders whatever is registered rather than the two the
+     * framework happens to ship.
+     *
+     * @return list<SecondFactorInterface>
+     */
+    public function pendingFactors(): array
+    {
+        $pending = $this->pending();
+
+        return $pending === null ? [] : SecondFactorRegistry::enrolledFor($pending['userId']);
     }
 
     /**
@@ -391,19 +483,33 @@ class LoginFlow
      */
     protected function stepUpMethods(int $userId): array
     {
-        $hasTotp = $this->twoFactor()->isEnabled($userId);
+        /**
+         * Every factor this account can complete, strongest first, from the registry.
+         *
+         * This used to name the two the framework ships. An application that needed a
+         * third — an SMS, a push to its own app, a corporate gateway — had to fork the
+         * login, which is the wrong place for a decision about somebody else's SMS
+         * account. {@see SecondFactorRegistry} holds them and orders them by their own
+         * `strength()`, so an adaptor can slot between the built-ins without either being
+         * edited.
+         *
+         * `twofactor` is still the name the authenticator app answers to in a step-up
+         * list, because it is in in-flight sessions, in forms and in the audit log; the
+         * registry knows it as `totp`.
+         */
+        $enrolled = SecondFactorRegistry::enrolledFor($userId);
+        $hasTotp  = false;
+        $methods  = [];
 
-        $methods = [];
+        foreach ($enrolled as $factor) {
+            if ($factor->name() === 'totp') {
+                $hasTotp   = true;
+                $methods[] = 'twofactor';
 
-        if ($hasTotp) {
-            $methods[] = 'twofactor';
-        }
+                continue;
+            }
 
-        // Ranked below the authenticator app, always. An account that has both is asked
-        // for the app and *offered* mail; putting email first would silently downgrade
-        // every account that had done the stronger thing.
-        if ($this->emailFactor()->isEnabledFor($userId)) {
-            $methods[] = EmailSecondFactor::METHOD;
+            $methods[] = $factor->name();
         }
 
         // The site's new-device policy, read before anything expensive: it is a setting,

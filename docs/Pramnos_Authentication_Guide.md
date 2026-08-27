@@ -299,6 +299,53 @@ It is never ranked above TOTP. An account with both is asked for the app and *of
 mail as the fallback; reversing that would quietly downgrade every account that had done
 the stronger thing.
 
+#### Adding a factor of your own — SMS, a push, anything
+
+The two the framework ships are adaptors like any other, held in
+`Pramnos\Auth\SecondFactorRegistry`. An application adds a third from a service
+provider's `boot()`:
+
+```php
+\Pramnos\Auth\SecondFactorRegistry::register(new \MyApp\Auth\SmsSecondFactor());
+```
+
+`Pramnos\Auth\SecondFactorInterface` is five questions:
+
+```php
+public function name(): string;                 // 'sms' — travels in forms and the audit log
+public function label(): string;                // 'Text message' — what a person is shown
+public function strength(): int;                // ordering: app 60, SMS ~40, mailed code 20
+public function isEnrolledFor(int $userId): bool;
+public function needsSending(): bool;           // true for SMS, false for an authenticator app
+public function send(int $userId): bool;
+public function verify(int $userId, string $code): bool;
+```
+
+Nothing else changes. The login offers it, the step-up screen renders it, the audit log
+records which factor carried the sign-in, and `auth_newsignin_action` can demand it —
+without the framework knowing your gateway exists.
+
+**Three obligations, because the flow cannot check them for you.**
+
+- **`isEnrolledFor()` must be a promise.** True means `verify()` can succeed. An SMS
+  adaptor with no phone number on file must answer false, or the login offers a step-up
+  nobody can complete — a lockout wearing the clothes of a security feature.
+- **`isEnrolledFor()` must not send.** It is called while deciding what to offer,
+  including on pages that are never submitted. Sending there texts somebody on every
+  failed password attempt, at your expense.
+- **What you send must expire, be single-use and be attempt-capped.** Only the adaptor
+  knows what it issued, so the flow cannot enforce it. `EmailSecondFactor` is the worked
+  example: ten minutes, five attempts and then the code is *destroyed*, single use.
+
+Registering is not enabling: `auth.twofactor_methods` still decides. A shared codebase can
+register an SMS adaptor everywhere and a deployment that does not pay for the gateway
+leaves it out of the list — no code change, and accounts stay enrolled for the day it comes
+back.
+
+Registering under an existing name replaces it, which is how an application routes the
+mailed code through its own transactional provider: register your own `email` and it is
+used instead.
+
 #### Turning the email factor on
 
 Two switches, answering different questions. **The application decides the method

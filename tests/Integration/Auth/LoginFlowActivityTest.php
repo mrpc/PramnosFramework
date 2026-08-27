@@ -185,6 +185,11 @@ class LoginFlowActivityTest extends BaseTestCase
 
     protected function setUp(): void
     {
+        // The flow asks SecondFactorRegistry what an account is enrolled in, so a stub
+        // handed to the constructor is no longer what decides. Cleared here and registered
+        // per test, or the real built-ins answer — against this test's own database.
+        \Pramnos\Auth\SecondFactorRegistry::reset();
+
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
@@ -308,7 +313,12 @@ class LoginFlowActivityTest extends BaseTestCase
     public function testTwoFactorLoginRecordsMethodTwofactor(): void
     {
         // Arrange — 2FA enabled forces a step-up; the code verifies.
-        $flow = new SucceedingLoginFlow(null, new OpenLockout(), new StubTwoFactor(true, true), new StubPasskeys(false));
+        $twoFactor = new StubTwoFactor(true, true);
+        \Pramnos\Auth\SecondFactorRegistry::register(
+            new \Pramnos\Auth\Factors\TotpSecondFactor($twoFactor)
+        );
+
+        $flow = new SucceedingLoginFlow(null, new OpenLockout(), $twoFactor, new StubPasskeys(false));
         $flow->uid      = $this->uid;
         $flow->username = $this->username;
 
@@ -330,7 +340,12 @@ class LoginFlowActivityTest extends BaseTestCase
     public function testPasskeyLoginRecordsMethodPasskey(): void
     {
         // Arrange — 2FA enabled + a registered passkey offers the passkey step-up.
-        $flow = new SucceedingLoginFlow(null, new OpenLockout(), new StubTwoFactor(true, true), new StubPasskeys(true));
+        $twoFactor = new StubTwoFactor(true, true);
+        \Pramnos\Auth\SecondFactorRegistry::register(
+            new \Pramnos\Auth\Factors\TotpSecondFactor($twoFactor)
+        );
+
+        $flow = new SucceedingLoginFlow(null, new OpenLockout(), $twoFactor, new StubPasskeys(true));
         $flow->uid      = $this->uid;
         $flow->username = $this->username;
 

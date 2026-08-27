@@ -155,12 +155,21 @@ class Account extends Controller
             );
         }
 
-        // "Send me a code by email" is a POST to the same action rather than a link:
-        // a GET that sends mail is one a crawler, a link preview or a back button can
+        // "Send me a code" is a POST to the same action rather than a link: a GET that
+        // sends mail (or an SMS) is one a crawler, a link preview or a back button can
         // fire, and each firing invalidates the code the person is holding.
-        if ($this->post('send_email_code') !== '') {
+        //
+        // The factor to send is named by the form, so an adaptor an application registers
+        // needs no branch here. `send_email_code` is still accepted because it is what
+        // in-flight pages carry.
+        $sendFactor = $this->post('send_factor');
+        if ($sendFactor === '' && $this->post('send_email_code') !== '') {
+            $sendFactor = \Pramnos\Auth\EmailSecondFactor::METHOD;
+        }
+
+        if ($sendFactor !== '') {
             return $this->renderStepUp(
-                $this->flow()->sendEmailCode()
+                $this->flow()->sendFactorChallenge($sendFactor)
                     ? ['notice' => 'email_code_sent']
                     : ['error' => 'email_code_failed']
             );
@@ -171,12 +180,19 @@ class Account extends Controller
             return $this->renderStepUp(['error' => 'missing_code']);
         }
 
-        // Which factor the code belongs to comes from the form, not from guessing: both
-        // are six digits, and trying one then the other would consume an email attempt
-        // every time somebody typed a TOTP code.
-        $result = $this->post('method') === \Pramnos\Auth\EmailSecondFactor::METHOD
-            ? $this->flow()->completeEmailCode($code)
-            : $this->flow()->completeTwoFactor($code);
+        // Which factor the code belongs to comes from the form, not from guessing: they
+        // are all six digits, and trying each in turn would consume one attempt of every
+        // *other* factor every time somebody typed a code.
+        //
+        // `twofactor` is the name the authenticator app answers to in a step-up list, and
+        // the registry knows it as `totp`; anything else is looked up as given, so an
+        // application's own factor arrives here with no change to this controller.
+        $method = $this->post('method');
+        $result = match (true) {
+            $method === '' || $method === 'twofactor' || $method === 'totp'
+                => $this->flow()->completeTwoFactor($code),
+            default => $this->flow()->completeFactor($method, $code),
+        };
 
         if ($result->isSuccess()) {
             $this->redirect($this->postLoginTarget($this->returnUrl()));
@@ -709,6 +725,10 @@ class Account extends Controller
         $hasEmail    = in_array(\Pramnos\Auth\EmailSecondFactor::METHOD, $methods, true);
 
         $view->methods          = $methods;
+        // Every factor this account could use, as objects — name, label and whether it
+        // has to send something. A screen that iterates this renders an application's own
+        // adaptor without knowing it exists.
+        $view->factors          = $this->flow()->pendingFactors();
         $view->totpFactor       = in_array('twofactor', $methods, true);
         $view->emailFactor      = $hasEmail;
         $view->emailCodePending = $hasEmail && $this->flow()->hasLiveEmailCode();
