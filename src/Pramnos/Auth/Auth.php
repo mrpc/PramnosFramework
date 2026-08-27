@@ -442,6 +442,27 @@ class Auth extends \Pramnos\Framework\Base
      */
     private function triggerLogin(array $response): void
     {
+        /**
+         * A new session id for the authenticated session, when the application asks.
+         *
+         * Before the addon and before the built-in path, because both of them write to
+         * `$_SESSION` and to the sessions table: regenerating afterwards would move the
+         * id out from under rows that had just been written against it.
+         *
+         * Session fixation is the attack this closes. An id that was valid before
+         * authentication is still valid after, so somebody who can plant a cookie —
+         * a shared machine, an XSS on a sibling subdomain, a link carrying a session id
+         * where an application accepts one — holds an authenticated session as soon as
+         * the victim signs in. Nothing about the password check notices.
+         *
+         * Opt-in because the id is not only PHP's here: `sessions.sid` records
+         * `md5(session_id())`, and an application may key its own state on it.
+         * {@see SecurityPolicy::regeneratesSessionOnLogin()}.
+         */
+        if (SecurityPolicy::regeneratesSessionOnLogin()) {
+            \Pramnos\Http\Session::getInstance()->regenerateId();
+        }
+
         $userAddons = \Pramnos\Addon\Addon::getaddons('user');
         if (!empty($userAddons)) {
             \Pramnos\Addon\Addon::triger('Login', 'user', $response);

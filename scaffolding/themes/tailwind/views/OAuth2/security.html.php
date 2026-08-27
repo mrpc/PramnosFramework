@@ -5,6 +5,8 @@
  * Variables:
  *   $this->recentActivity   — array[] {action, created_at, ip_address, user_agent}
  *   $this->twoFactorEnabled — bool
+ *   $this->emailFactorOffered — bool: the application allows a code by email
+ *   $this->emailFactorEnabled — bool: this account has asked for one
  *   $this->activeSessions   — array[] {sid, host_addr, agent, time, url}
  *   $this->currentSid       — sid of the session viewing this page
  *   $this->routeBase        — Account controller route base
@@ -59,6 +61,114 @@ $this->activeNav = 'security';
                 </div>
             </div>
 
+            <?php /*
+             * A code by email — shown only where the application allows the method.
+             *
+             * The first version of this card said "Off — weaker than an authenticator app"
+             * over a bare password box, and a reader could not tell what the switch *did*:
+             * a badge, a comparison to a thing they may not have, and a password field with
+             * no stated reason. So it now says what happens (a code arrives by email at
+             * sign-in), what it costs (one extra step), and why the password is being asked
+             * for (it changes how the account authenticates, so a borrowed session must not
+             * be able to do it — in either direction).
+             *
+             * Still below the authenticator card and still described as the weaker option,
+             * because it is one: mail is a channel somebody else may already be reading.
+             */ ?>
+            <?php if (!empty($this->emailFactorOffered)): ?>
+            <?php
+            $emailOn      = !empty($this->emailFactorEnabled);
+            $emailPending = !empty($this->emailFactorPending);
+            $emailAction  = sURL . $routeBase . '/emailfactor';
+            ?>
+            <div class="card bg-base-100 shadow-sm">
+                <div class="flex items-center gap-2 px-4 py-3 border-b border-base-300">
+                    <span class="font-semibold text-base-content">Sign-in code by email</span>
+                    <span class="badge badge-sm <?php echo $emailOn ? 'badge-success' : ($emailPending ? 'badge-warning' : 'badge-ghost'); ?>">
+                        <?php echo $emailOn ? 'On' : ($emailPending ? 'Waiting for the code' : 'Off'); ?>
+                    </span>
+                </div>
+                <div class="px-4 py-4 space-y-3">
+                    <p class="text-sm text-base-content/80">
+                        <?php if ($emailOn): ?>
+                            When you sign in, we email you a six-digit code and ask for it before
+                            letting you in. Somebody who learns your password still cannot sign in
+                            without your mailbox.
+                        <?php else: ?>
+                            Turn this on and we will email you a six-digit code when you sign in,
+                            and ask for it before letting you in — so a password on its own is not
+                            enough to reach your account.
+                        <?php endif; ?>
+                    </p>
+                    <p class="text-xs text-base-content/60">
+                        An authenticator app is stronger, because email is a channel somebody else
+                        may be able to read. This needs nothing installed.
+                    </p>
+
+                    <?php /*
+                     * Three states, and the middle one is why this is not one button.
+                     *
+                     * Turning it *on* is verified by email rather than by password: a password
+                     * proves who is asking, not that the address on the account is one they can
+                     * still read. Attaching the factor to a stale address would build a lockout
+                     * on purpose — every later sign-in from a new device would wait for a code
+                     * arriving somewhere nobody reads. So the card mails a code and asks for it
+                     * back, exactly as enrolling an authenticator app asks for a code from the
+                     * app.
+                     *
+                     * Turning it *off* asks for the password instead: removing a factor is the
+                     * direction an attacker wants, and demanding a mailed code to switch it off
+                     * would strand the one person who most needs to — somebody whose mailbox has
+                     * become unreachable.
+                     */ ?>
+                    <?php if ($emailOn): ?>
+                    <form method="POST" action="<?php echo $emailAction; ?>" class="pt-1 border-t border-base-300">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <input type="hidden" name="enable" value="0">
+                        <label for="emailfactor-password" class="block text-sm mt-3 mb-1">
+                            Confirm with your password to turn this off
+                        </label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <input type="password" id="emailfactor-password" name="password" required
+                                   autocomplete="current-password" class="input input-sm flex-1"
+                                   placeholder="Your account password">
+                            <button type="submit" class="btn btn-sm btn-neutral">Turn off</button>
+                        </div>
+                    </form>
+
+                    <?php elseif ($emailPending): ?>
+                    <form method="POST" action="<?php echo $emailAction; ?>" class="pt-1 border-t border-base-300">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <label for="emailfactor-code" class="block text-sm mt-3 mb-1">
+                            Enter the code we emailed you
+                        </label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <input type="text" id="emailfactor-code" name="code" required
+                                   inputmode="numeric" maxlength="6" pattern="[0-9]{6}"
+                                   autocomplete="one-time-code" class="input input-sm flex-1 font-mono tracking-widest"
+                                   placeholder="000000">
+                            <button type="submit" class="btn btn-sm btn-primary">Finish</button>
+                        </div>
+                    </form>
+                    <form method="POST" action="<?php echo $emailAction; ?>">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <button type="submit" class="btn btn-ghost btn-xs">Send another code</button>
+                    </form>
+
+                    <?php else: ?>
+                    <form method="POST" action="<?php echo $emailAction; ?>" class="pt-1 border-t border-base-300">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <p class="text-sm mt-3 mb-2">
+                            We will email a code to the address on your profile to check it reaches
+                            you, then turn this on.
+                        </p>
+                        <button type="submit" class="btn btn-sm btn-primary">Email me a code</button>
+                    </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Passkeys -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="flex items-center justify-between px-4 py-4">
@@ -73,7 +183,11 @@ $this->activeNav = 'security';
             <!-- Change password -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="flex items-center justify-between px-4 py-4">
-                    <span class="text-sm text-base-content/80">Change your account password regularly to stay secure.</span>
+                    <?php /* Not "change it regularly": routine rotation is advice that has been
+                     withdrawn by the people who used to give it (NIST SP 800-63B), because
+                     forced changes produce predictable variations of one password and get
+                     written down. Change it when there is a reason to. */ ?>
+                    <span class="text-sm text-base-content/80">Change it if you think somebody else knows it, or if you have used it anywhere else.</span>
                     <a href="<?php echo sURL . $routeBase; ?>/changepassword"
                        class="text-sm text-primary hover:underline whitespace-nowrap">
                         Change Password

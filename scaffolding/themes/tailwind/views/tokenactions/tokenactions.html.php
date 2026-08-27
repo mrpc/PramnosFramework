@@ -41,17 +41,22 @@
             </form>
         </div>
     </div>
-    <style>
-    .pf-tw-table{width:100%;border-collapse:collapse}
-    .pf-tw-table th,.pf-tw-table td{text-align:left;padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
-    .pf-tw-table thead th{background:#f9fafb;border-bottom:1px solid #e5e7eb;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.03em;color:#6b7280}
-    .pf-tw-table tbody tr:hover{background:#f9fafb}
-    .pf-tw-table td:last-child,.pf-tw-table th:last-child{text-align:right}
-    .pf-badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:.72rem;font-weight:600}
-    </style>
+    <?php /*
+     * No inline <style> here any more, and that is the fix rather than tidying.
+     *
+     * This view carried its own table and badge rules in hardcoded greys — #f9fafb
+     * headers, #f1f5f9 borders, #6b7280 text — on top of daisyUI's `table`, which it also
+     * asked for. Two consequences: the two fought over the same cells, and the hardcoded
+     * half wins in *both* themes, so the dark theme rendered pale grey text on pale grey
+     * headers. That is the failure this project's styling rules exist to prevent, and it
+     * is invisible to whoever wrote it in a light browser.
+     *
+     * daisyUI's `table` and `badge` carry the active theme's tokens instead, in both
+     * directions, and there is nothing left to keep in step.
+     */ ?>
     <div class="card bg-base-100 border border-base-300 shadow-xs overflow-x-auto">
         <div >
-            <table class="table table-sm pf-tw-table text-sm">
+            <table class="table table-sm text-sm">
                 <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
                     <tr><th>ID</th><th>User</th><th>Endpoint</th><th>Method</th><th>Status</th><th>Time (ms)</th><th>When</th><th></th></tr>
                 </thead>
@@ -67,7 +72,7 @@
                             <?php if ($sc <= 0): ?>
                                 <span class="text-base-content/60">—</span>
                             <?php else: ?>
-                                <span class="pf-badge <?php echo $sc >= 500 ? 'bg-error/10 text-error' : ($sc >= 400 ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'); ?>"><?php echo $sc; ?></span>
+                                <span class="badge badge-sm <?php echo $sc >= 500 ? 'badge-error' : ($sc >= 400 ? 'badge-warning' : 'badge-success'); ?>"><?php echo $sc; ?></span>
                             <?php endif; ?>
                         </td>
                         <td><?php echo $a['execution_time_ms'] !== null ? number_format((float)$a['execution_time_ms'], 0) : '—'; ?></td>

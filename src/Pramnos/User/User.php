@@ -2189,6 +2189,77 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      * Marked inactive rather than deleted, so the token history a screen shows keeps its
      * rows — `status = 0` is what "this was superseded" looks like everywhere else.
      */
+    /**
+     * End every session for this account except, optionally, one to keep.
+     *
+     * Both halves of what a session is here, because ending one without the other leaves
+     * the account reachable: the `sessions` row a browser is tracked by, and the
+     * `web_session` token that authenticates its requests. Revoking only the row leaves a
+     * live bearer token; revoking only the token leaves a session the tracker still
+     * believes in.
+     *
+     * The `$keepSid` is the caller's own session — `md5(session_id())`, the form the
+     * `sessions` table stores. Passing it is what makes this usable from a password change:
+     * the person doing it must not be signed out by their own action, or the feature reads
+     * as a bug and they stop using it.
+     *
+     * @param  string|null $keepSid  `md5(session_id())` to spare, or null to end all
+     * @return int How many session rows were ended (tokens are not counted separately)
+     */
+    public function revokeOtherSessions(?string $keepSid = null): int
+    {
+        if ((int) $this->userid < 2) {
+            return 0;
+        }
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $ended    = 0;
+
+        try {
+            $sessions = $database->queryBuilder()
+                ->table('#PREFIX#sessions')
+                ->where('userid', (int) $this->userid)
+                ->where('logout', 0);
+
+            if ($keepSid !== null && $keepSid !== '') {
+                $sessions->where('sid', '!=', $keepSid);
+            }
+
+            $ended = (int) $sessions->update(['logout' => 1]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'revokeOtherSessions could not end sessions for ' . (int) $this->userid
+                . ': ' . $exception->getMessage()
+            );
+        }
+
+        try {
+            $tokens = $database->queryBuilder()
+                ->table('#PREFIX#usertokens')
+                ->where('userid', (int) $this->userid)
+                ->where('tokentype', Token::TYPE_WEB_SESSION)
+                ->where('status', 1);
+
+            // The token this request is holding is the one to keep, when anything is.
+            if ($keepSid !== null && $keepSid !== ''
+                && isset($_SESSION['usertoken'])
+                && is_object($_SESSION['usertoken'])
+                && (int) ($_SESSION['usertoken']->tokenid ?? 0) > 0
+            ) {
+                $tokens->where('tokenid', '!=', (int) $_SESSION['usertoken']->tokenid);
+            }
+
+            $tokens->update(['status' => 0, 'removedate' => time()]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'revokeOtherSessions could not revoke tokens for ' . (int) $this->userid
+                . ': ' . $exception->getMessage()
+            );
+        }
+
+        return $ended;
+    }
+
     private function retireSupersededWebSessionTokens(): void
     {
         if ((int) $this->userid < 2) {

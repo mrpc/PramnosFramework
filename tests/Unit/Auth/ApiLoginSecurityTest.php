@@ -85,12 +85,22 @@ class ProbeApiLoginFlow extends ApiLoginFlow
         };
     }
 
-    protected function beginStepUp(int $userId, bool $remember, string $identifier): void
-    {
+    /**
+     * @param string[] $methods The step-up methods on offer. Recorded rather than acted
+     *                          on: the base class mails a sign-in link when `authlink` is
+     *                          among them, which a probe with no mailer must not do.
+     */
+    protected function beginStepUp(
+        int $userId,
+        bool $remember,
+        string $identifier,
+        array $methods = []
+    ): void {
         $this->pendingState = [
             'userId'     => $userId,
             'remember'   => $remember,
             'identifier' => $identifier,
+            'methods'    => $methods,
         ];
     }
 

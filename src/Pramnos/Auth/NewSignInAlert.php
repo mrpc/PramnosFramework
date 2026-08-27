@@ -52,6 +52,59 @@ class NewSignInAlert
     public const POLICY_SETTING = 'auth_newsignin_policy';
 
     /**
+     * What a sign-in from an unrecognised device has to *do*, beyond being reported.
+     *
+     * Telling somebody after the fact is the weakest useful response: by the time the mail
+     * arrives, whoever had the password is already inside. This setting is the other half
+     * — what the login must satisfy before it completes:
+     *
+     *   - `notify`         — mail the account and let the login through (default; what
+     *                        every installation had before this existed)
+     *   - `require_2fa`    — demand a second factor for this sign-in, even from an account
+     *                        that would not otherwise be asked
+     *   - `require_passkey`— demand a passkey, which is the only factor that cannot be
+     *                        phished or read out of a mailbox
+     *   - `authlink`       — do not complete the login at all until a single-use link
+     *                        mailed to the account is opened
+     *
+     * **Every one of them has to be satisfiable, or it is a lockout.** A demand the
+     * account cannot meet — "use a passkey" to somebody who has none — would turn the
+     * setting into a way to lose every user on deploy, so each falls back to the
+     * strongest factor the account actually has, and to a mailed code last, because a
+     * mailbox is the one thing every account has. What is never a fallback is *nothing*:
+     * see {@see requiredFor()}.
+     */
+    public const ACTION_SETTING = 'auth_newsignin_action';
+
+    /** The actions this setting accepts, strongest demand last. */
+    public const ACTIONS = ['notify', 'authlink', 'require_2fa', 'require_passkey'];
+
+    /**
+     * *When* the action applies — which is a different question from what it is.
+     *
+     *   - `new_device`  — any browser this account has not been used from (default)
+     *   - `suspicious`  — only when something harder to explain fires: a country the
+     *                     account has never used, two places at once, a different country
+     *                     too soon to have travelled, or a success straight after a run of
+     *                     failed attempts
+     *
+     * The distinction matters more than it looks. "A device this account has not used"
+     * fires constantly on a real user base — people buy phones, clear cookies, borrow a
+     * laptop — so a demand attached to it is a step everybody pays on a regular basis, and
+     * the usual result is that it gets switched off. `suspicious` spends the friction where
+     * there is something to be suspicious about.
+     *
+     * The default is `new_device` because that is what this feature did before the signals
+     * existed, and because it is the conservative reading: it asks more often, not less.
+     *
+     * @see SignInRisk for what each signal can and cannot see.
+     */
+    public const TRIGGER_SETTING = 'auth_newsignin_trigger';
+
+    /** The triggers this setting accepts. */
+    public const TRIGGERS = ['new_device', 'suspicious'];
+
+    /**
      * The connection to use, or the framework's when none is given.
      *
      * Every method here takes one. That is not ceremony: a class that resolves its
@@ -286,5 +339,94 @@ class NewSignInAlert
         }
 
         return !isset($known[$fingerprint]);
+    }
+
+    /**
+     * The configured action, or `notify` when nothing (or nonsense) is configured.
+     *
+     * Unrecognised values fall back to `notify` rather than to the strictest reading. A
+     * typo in a settings row must not start demanding passkeys from a user base that has
+     * none — failing open on a *typo* is right here, because the strict readings are the
+     * ones that can lock everybody out, and the setting is visible on a screen where a
+     * value that does nothing gets noticed.
+     */
+    public static function trigger(): string
+    {
+        $configured = (string) (\Pramnos\Application\Settings::getSetting(self::TRIGGER_SETTING) ?: 'new_device');
+
+        return in_array($configured, self::TRIGGERS, true) ? $configured : 'new_device';
+    }
+
+    public static function action(): string
+    {
+        $configured = (string) (\Pramnos\Application\Settings::getSetting(self::ACTION_SETTING) ?: 'notify');
+
+        return in_array($configured, self::ACTIONS, true) ? $configured : 'notify';
+    }
+
+    /**
+     * What this account must satisfy for a sign-in from an unrecognised device.
+     *
+     * Returns the step-up methods to demand — `[]` when nothing is demanded, which is the
+     * answer for a recognised device, for the `notify` action, and for an account whose
+     * history is empty (a first-ever sign-in is new by definition; demanding a second
+     * factor from somebody who has just registered is a wall, not a defence).
+     *
+     * The resolution, in order, is the whole reason this is one method rather than a
+     * condition at each call site:
+     *
+     *   - `authlink` asks for the link and nothing else. It is satisfiable by every
+     *     account, so it never needs a fallback.
+     *   - `require_passkey` asks for a passkey when the account has one. When it does not,
+     *     asking would be a lockout, so it drops to `require_2fa`'s answer.
+     *   - `require_2fa` asks for the authenticator app when the account has one, and for a
+     *     mailed code when it does not — **imposed for this sign-in regardless of the
+     *     account's own email-factor switch**, because the demand is the site's, not the
+     *     account's, and a mailbox is the one factor every account has.
+     *
+     * The imposed code is why `email` can appear here for an account that never asked for
+     * it. That is deliberate and it is the only way `require_2fa` means anything for the
+     * accounts that have set nothing up — which are the accounts a stolen password
+     * threatens most.
+     *
+     * **Whether the device is new is the caller's answer, not this method's.** That
+     * question costs a query against the activity log, and this is otherwise pure policy —
+     * a resolver that read the database could not be tested without one, and the caller
+     * already has to decide whether the query is worth making at all (it is not, when the
+     * action is `notify`).
+     *
+     * @param  int  $userId       Who is signing in
+     * @param  bool $isNewDevice  Has this account been used from this device before?
+     * @param  bool $hasTotp      Does the account have an authenticator app?
+     * @param  bool $hasPasskey   Does the account have a passkey?
+     * @return string[] Step-up methods to demand, in the order to offer them
+     */
+    public static function requiredFor(
+        int $userId,
+        bool $isNewDevice,
+        bool $hasTotp,
+        bool $hasPasskey
+    ): array {
+        $action = self::action();
+        if ($action === 'notify' || $userId < 2 || !$isNewDevice) {
+            return array();
+        }
+
+        if ($action === 'authlink') {
+            return array('authlink');
+        }
+
+        if ($action === 'require_passkey' && $hasPasskey) {
+            // The app is offered beside it when the account has one: a passkey the person
+            // left at home must not strand them when they are carrying a second factor
+            // the site already trusts.
+            return $hasTotp ? array('passkey', 'twofactor') : array('passkey');
+        }
+
+        if ($hasTotp) {
+            return $hasPasskey ? array('twofactor', 'passkey') : array('twofactor');
+        }
+
+        return array(EmailSecondFactor::METHOD);
     }
 }

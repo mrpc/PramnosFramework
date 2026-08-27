@@ -350,6 +350,30 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     </div>
 
                     <?php
+                    /*
+                     * The email factor, read from the same row.
+                     *
+                     * Shown only where the application offers the method — elsewhere the row
+                     * may still say the account once asked for it, and reporting a factor
+                     * that cannot be used would send an operator looking for a setting that
+                     * is not there. Read-only here on purpose: attaching or removing a
+                     * factor is the account's own decision, behind its own password, and an
+                     * operator turning one *on* would be adding a credential to somebody
+                     * else's mailbox.
+                     */
+                    ?>
+                    <?php if (\Pramnos\Auth\EmailSecondFactor::isAvailable()): ?>
+                    <div class="flex items-center gap-2">
+                        <?php if (is_array($twofactor) && (int) ($twofactor['email_enabled'] ?? 0) === 1): ?>
+                        <span class="badge badge-success badge-sm">Email codes on</span>
+                        <span class="text-xs text-base-content/60">a code is mailed on sign-in</span>
+                        <?php else: ?>
+                        <span class="badge badge-ghost badge-sm">Email codes off</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php
                     /**
                      * New-sign-in alerts, and whose decision they are.
                      *

@@ -93,8 +93,10 @@ class SettingsController extends Controller
             'default_language', 'timezone', 'debug', 'forcessl',
             'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_tls',
             'loginlockoutwindowseconds', 'loginlockoutsteps',
-            // Whether an account is told about a sign-in from a device it has not used.
+            // Whether an account is told about a sign-in from a device it has not used,
+            // and what such a sign-in has to satisfy before it is allowed to continue.
             \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
+            \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
         ];
         if ($devpanelEnabled) {
             $keys[] = 'devpanel.min_usertype';
@@ -108,6 +110,27 @@ class SettingsController extends Controller
 
         $view                   = $this->getView('settings');
         $view->settings         = $settings;
+
+        /**
+         * What this *application* has enabled, as opposed to what this screen can change.
+         *
+         * Two different kinds of decision, and the screen was only ever showing one of
+         * them. Which second factors exist, and which features are compiled in, are
+         * declared in `app/app.php` — a deployment decision, versioned with the code,
+         * deliberately not editable by whoever can reach this page. But an operator
+         * looking at a sign-in policy has no way to know whether the factors it refers to
+         * are even available here, and "why does nobody get asked for a code" has no
+         * answer on this screen without it.
+         *
+         * So they are shown, read-only, beside the settings that *are* editable, with
+         * where to change them named. Reported rather than inferred: this is the same
+         * registry the login itself asks.
+         */
+        $view->twofactorMethods = \Pramnos\Auth\EmailSecondFactor::allowedMethods();
+        $view->enabledFeatures  = array_values(array_filter(
+            ['auth', 'authserver', 'queue', 'messaging', 'cache', 'devpanel', 'broadcasting'],
+            static fn (string $feature): bool => \Pramnos\Application\FeatureRegistry::isEnabled($feature)
+        ));
         $view->devpanelEnabled  = $devpanelEnabled;
         $view->timezones        = \DateTimeZone::listIdentifiers();
         $view->success          = $_SESSION['settings_success'] ?? '';
@@ -163,6 +186,24 @@ class SettingsController extends Controller
         Settings::setSetting(
             \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
             in_array($policy, ['optin', 'always', 'off'], true) ? $policy : 'optin'
+        );
+
+        /**
+         * And what such a sign-in must *do*: `notify` (the default and the old behaviour),
+         * `authlink`, `require_2fa` or `require_passkey`.
+         *
+         * An unknown value falls back to `notify` rather than to the strictest reading. The
+         * strict readings are the ones that can lock out a whole user base, so a typo in
+         * this field must not be the thing that does it.
+         */
+        $action = (string) $request->get(
+            \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
+            'notify',
+            'post'
+        );
+        Settings::setSetting(
+            \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
+            in_array($action, \Pramnos\Auth\NewSignInAlert::ACTIONS, true) ? $action : 'notify'
         );
 
         // Security

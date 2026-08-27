@@ -9,6 +9,7 @@ use_cases:
   - Identifying a caller who is present and has no account, such as a chat guest
   - Showing a user which devices and sessions their account has
   - Migrating an old password table, or sharing one with another writer
+  - Offering a second factor by email, or choosing which factors exist
 ---
 
 # Pramnos Authentication & User Management Guide
@@ -277,6 +278,88 @@ Everything is three separate forms on one screen, because they are three separat
 decisions — saving a name should not resubmit a permission, and a rejected permission
 should not lose a typed name.
 
+### Second factors: which ones exist, and who decides
+
+Three, and they are not equally strong. The order is the policy, and it is the order a
+step-up offers them in:
+
+| Method | What it is | Strength |
+|--------|-----------|----------|
+| `passkey` | WebAuthn — a device holding a key | strongest; also a *primary* method |
+| `totp` | an authenticator app | strong; needs enrolling in advance |
+| `email` | a six-digit code, mailed | weakest; needs nothing set up in advance |
+
+**Email is offered precisely because it needs nothing set up in advance.** An
+authenticator app protects an account only if the person installed one before the day
+they needed it, and most have not. Mail is a channel every account already has, so it is
+the only second factor that can be turned on for everybody — and a weak second factor
+is a large improvement on a password alone.
+
+It is never ranked above TOTP. An account with both is asked for the app and *offered*
+mail as the fallback; reversing that would quietly downgrade every account that had done
+the stronger thing.
+
+#### Turning the email factor on
+
+Two switches, answering different questions. **The application decides the method
+exists:**
+
+```php
+// app/app.php
+'auth' => [
+    'twofactor_methods' => ['totp', 'email'],
+],
+```
+
+The default is `['totp']`, so an installation that does not ask for this gets exactly
+what it had. `totp` is always in the list whether or not you write it — an application
+cannot switch off the method its existing accounts are enrolled in by adding a config
+key, which is what omitting it would otherwise mean.
+
+**The account decides it wants it**, from its own security screen, behind its own
+password (`user_twofactor.email_enabled`). Attaching a second factor is a change to how
+an account authenticates, so a borrowed session must not be able to make it — in either
+direction. An operator cannot turn it on for somebody: that would be adding a credential
+to another person's mailbox. The administration screen shows the state and nothing more.
+
+Because the two switches are independent, an application can withdraw the method without
+touching a single account row, and turning it back on restores each account's own answer.
+
+#### What makes a six-digit code safe enough
+
+Not the hashing. A million possibilities is nothing to a KDF, so the code is stored as an
+HMAC keyed by the installation secret *and* the user id — enough that a leaked table
+hands out no live codes and a row copied between accounts is worthless, and no more than
+that. What makes it safe is three limits, all enforced inside
+`Pramnos\Auth\EmailSecondFactor`:
+
+- **ten minutes**, after which it is refused;
+- **five attempts**, after which the code is *destroyed* rather than merely refused — a
+  code left alive after the cap can be guessed at while its owner is still holding it;
+- **single use** — a correct verification deletes the row, so an intercepted code is
+  spent.
+
+Asking again replaces the code rather than adding one, so "send it again" never leaves
+two live codes.
+
+#### Sending, and when not to
+
+A code is **not** mailed when the password is accepted. It is mailed when the screen asks:
+
+```php
+$flow->sendEmailCode();          // false when nothing is pending, or no address
+$flow->hasLiveEmailCode();       // so the screen can ask without sending
+$flow->completeEmailCode($code); // tagged `email`, not `twofactor`
+```
+
+Sending on password success would mail an account that has an app and email as a fallback
+on every sign-in it never reads — and would mail one for each of somebody else's failed
+password attempts, which is a way to use your login form as somebody else's mail flood.
+
+The completion is recorded as its own method so an audit can tell which factor actually
+carried a login. They are not equally strong, and a log that calls them the same thing
+cannot answer that afterwards.
+
 ### Telling an account it was used from somewhere new
 
 `NewSignInAlert` compares the current sign-in's device fingerprint against
@@ -301,6 +384,47 @@ the setting existed, so upgrading starts and stops nobody's mail.
 The per-account state is on the user's admin screen, with a toggle when the policy leaves
 the decision to the user — and a sentence instead of a switch when it does not, because a
 control that decides nothing is worse than none.
+
+#### …and making it do something about it
+
+Notifying is the weakest useful response: by the time the mail arrives, whoever had the
+password is already inside. `auth_newsignin_action`, beside the policy on the same screen,
+is what such a sign-in must **satisfy** before it continues:
+
+| Value | What a sign-in from an unrecognised device must do |
+| --- | --- |
+| `notify` (default) | nothing — the alert is sent and the login proceeds |
+| `authlink` | wait for a single-use link mailed to the account |
+| `require_2fa` | pass a second factor, even if the account would not normally be asked |
+| `require_passkey` | pass a passkey — the one factor that cannot be phished or read out of a mailbox |
+
+**None of them can lock a user base out, and that is the design constraint rather than a
+side note.** A demand the account cannot meet — "use a passkey" to somebody who has none —
+would turn this setting into an outage with a checkbox, so each strict reading falls back
+to the strongest factor the account actually has, and to a mailed code last, because a
+mailbox is the one thing every account has. `require_2fa` therefore imposes a mailed code
+on an account with no factor at all, regardless of that account's own email-factor
+switch: the demand is the site's, not the account's, and an account with nothing set up is
+exactly the one a stolen password threatens most.
+
+A device the account has used before is never questioned by any of them, so this costs a
+step on unrecognised browsers and nothing on the rest.
+
+**The link is a link in an authentication email, which the alert deliberately refuses to
+be.** The difference is that this one is *expected*: the person submitted a password
+seconds ago and is looking at a page telling them it is coming. It is useless to somebody
+who has the password but not the mailbox — which is the entire point — it expires in
+fifteen minutes, and it works once. `LoginFlow::sendAuthLink()` refuses when no login is
+pending, so the endpoint cannot be used to mail an arbitrary account a way in.
+
+It completes in a browser that never saw the password leg, because people read mail on a
+phone: the token is the authorisation, and it is spent before a session is established.
+
+```php
+// What the flow exposes
+$flow->sendAuthLink($returnUrl);   // false with nothing pending
+$flow->completeAuthLink($token);   // tagged `authlink`
+```
 
 ### Fields the users table does not have
 

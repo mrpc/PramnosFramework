@@ -58,6 +58,8 @@ class LoginFlow
     private ?Loginlockout $lockout;
     private ?TwoFactorAuthService $twoFactor;
     private ?PasskeyServiceInterface $passkeys;
+    private ?EmailSecondFactor $emailFactor;
+    private ?NewDeviceAuthLink $authLink;
 
     /**
      * All collaborators are optional — production code lets the seams lazily
@@ -67,12 +69,16 @@ class LoginFlow
         ?Auth $auth = null,
         ?Loginlockout $lockout = null,
         ?TwoFactorAuthService $twoFactor = null,
-        ?PasskeyServiceInterface $passkeys = null
+        ?PasskeyServiceInterface $passkeys = null,
+        ?EmailSecondFactor $emailFactor = null,
+        ?NewDeviceAuthLink $authLink = null
     ) {
-        $this->auth      = $auth;
-        $this->lockout   = $lockout;
-        $this->twoFactor = $twoFactor;
-        $this->passkeys  = $passkeys;
+        $this->auth        = $auth;
+        $this->lockout     = $lockout;
+        $this->twoFactor   = $twoFactor;
+        $this->passkeys    = $passkeys;
+        $this->emailFactor = $emailFactor;
+        $this->authLink    = $authLink;
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -99,9 +105,40 @@ class LoginFlow
             return LoginFlowResult::locked((int) $status['remaining']);
         }
 
+        /**
+         * The per-address limit, when the application asked for one.
+         *
+         * Checked beside the per-account lockout because it answers the other half of the
+         * question. The per-account counter protects one account from being guessed at;
+         * it is no defence at all against the attack that actually happens — a list of
+         * leaked username/password pairs, one attempt each, from one address. Every
+         * counter stays at 1 and nothing ever locks.
+         *
+         * Refused before the password is checked, like the account lockout, so a limited
+         * address cannot even learn whether a password was right.
+         */
+        $ipLimit = SecurityPolicy::ipRateLimit();
+        $clientIp = $ipLimit === null ? '' : (string) (\Pramnos\Http\Request::clientIp() ?: '');
+
+        if ($ipLimit !== null && $clientIp !== '') {
+            $ipStatus = $this->lockout()->getLockoutStatus('ip', $clientIp);
+            if (!empty($ipStatus['locked'])) {
+                return LoginFlowResult::locked((int) $ipStatus['remaining']);
+            }
+        }
+
         $response = $this->verifyCredentials(trim($username), $password, $remember);
         if ($response === false || empty($response['status']) || empty($response['uid'])) {
             $this->lockout()->recordFailedAttempt('identifier', $identifier);
+
+            if ($ipLimit !== null && $clientIp !== '') {
+                $this->lockout()->recordFailedAttemptWithin(
+                    'ip',
+                    $clientIp,
+                    $ipLimit['window'],
+                    $ipLimit['attempts']
+                );
+            }
             // Attribute the failure (and any lockout it triggers) to a real
             // account when the identifier resolves to one; unknown identifiers
             // leave no trail. ActivityLog is self-guarding, so this is a no-op
@@ -121,7 +158,7 @@ class LoginFlow
         $methods = $this->stepUpMethods($userId);
 
         if ($methods !== []) {
-            $this->beginStepUp($userId, $remember, $identifier);
+            $this->beginStepUp($userId, $remember, $identifier, $methods);
             return LoginFlowResult::stepUpRequired($userId, $methods);
         }
 
@@ -150,6 +187,152 @@ class LoginFlow
 
         $this->clearPending();
         return $this->finishLogin($pending['userId'], $pending['remember'], $pending['identifier'], 'twofactor');
+    }
+
+    /**
+     * Send the pending login an email code, and say whether it went.
+     *
+     * Separate from `attempt()` on purpose: a step-up does **not** mail a code the moment
+     * the password is accepted. An account that has an authenticator app and email as a
+     * fallback would get a mail on every single sign-in it never reads, and a person who
+     * mistypes their password three times would get three. The screen asks for it — which
+     * is also the only reading of "resend" that cannot be triggered by somebody else's
+     * failed password attempt.
+     *
+     * Rate limiting is the code store's own: a second request replaces the first code
+     * rather than adding one, so asking repeatedly gains an attacker nothing.
+     *
+     * @return bool False when there is no pending login, the method is not available to
+     *              this account, or there was no address to send to.
+     */
+    public function sendEmailCode(): bool
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return false;
+        }
+
+        if (!$this->emailFactor()->isEnabledFor($pending['userId'])) {
+            return false;
+        }
+
+        return $this->emailFactor()->send($pending['userId']);
+    }
+
+    /**
+     * Which factors the pending login may be completed with.
+     *
+     * The same decision `attempt()` made, asked again on a later request — a step-up
+     * screen rendered by a fresh GET has no result object to read it from.
+     *
+     * It belongs here rather than in the controller because answering it means asking the
+     * factor services, and those are this class's collaborators: a controller that
+     * constructed them itself would query the database from its own view layer, which is
+     * both the wrong place and untestable without one.
+     *
+     * @return string[] Empty when nothing is pending.
+     */
+    public function pendingStepUpMethods(): array
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return [];
+        }
+
+        return $this->stepUpMethods($pending['userId']);
+    }
+
+    /**
+     * Is a code already outstanding for the pending login?
+     *
+     * So the step-up screen can say "enter the code we sent" instead of offering to send
+     * one that is already in the person's inbox.
+     */
+    public function hasLiveEmailCode(): bool
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return false;
+        }
+
+        return $this->emailFactor()->hasLiveCode($pending['userId']);
+    }
+
+    /**
+     * Mail the pending login a single-use sign-in link.
+     *
+     * Refuses without a pending login, and that refusal is the security property: with it,
+     * the endpoint cannot be used to mail an arbitrary account a link to sign in. Somebody
+     * has to have got the password right first.
+     */
+    public function sendAuthLink(string $returnUrl = ''): bool
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return false;
+        }
+
+        return $this->authLink()->send($pending['userId'], $returnUrl);
+    }
+
+    /**
+     * Finish a login from a link, with no pending state required.
+     *
+     * The link deliberately works in a browser that has never seen this session: people
+     * read mail on a phone and click there, and a flow that only worked in the original
+     * browser would send them back to the password form with no way to explain why.
+     *
+     * The token *is* the authorisation, which is why {@see NewDeviceAuthLink::consume()}
+     * spends it before this method is allowed to establish anything.
+     */
+    public function completeAuthLink(string $token): LoginFlowResult
+    {
+        $userId = $this->authLink()->consume($token);
+        if ($userId === null) {
+            return LoginFlowResult::failed();
+        }
+
+        // Any pending step-up for this browser is now settled — the link outranks it, and
+        // leaving it behind would strand a half-login in the session.
+        $pending = $this->pending();
+        $remember = $pending !== null && $pending['userId'] === $userId
+            ? (bool) $pending['remember']
+            : false;
+        $identifier = $pending !== null && $pending['userId'] === $userId
+            ? (string) $pending['identifier']
+            : '';
+        $this->clearPending();
+
+        return $this->finishLogin($userId, $remember, $identifier, NewDeviceAuthLink::METHOD);
+    }
+
+    /**
+     * Second leg (email path): finish a pending login with a mailed code.
+     *
+     * Mirrors {@see completeTwoFactor()} — a wrong code leaves the pending state intact
+     * so the person can retry, and the attempt cap inside the factor decides when
+     * retrying stops being possible. The method is recorded as `email` rather than
+     * `twofactor` so an audit can tell which factor actually carried a login.
+     */
+    public function completeEmailCode(string $code): LoginFlowResult
+    {
+        $pending = $this->pending();
+        if ($pending === null) {
+            return LoginFlowResult::failed();
+        }
+
+        if (!$this->emailFactor()->verify($pending['userId'], trim($code))) {
+            return LoginFlowResult::failed();
+        }
+
+        $this->clearPending();
+
+        return $this->finishLogin(
+            $pending['userId'],
+            $pending['remember'],
+            $pending['identifier'],
+            EmailSecondFactor::METHOD
+        );
     }
 
     /**
@@ -208,14 +391,69 @@ class LoginFlow
      */
     protected function stepUpMethods(int $userId): array
     {
-        if (!$this->twoFactor()->isEnabled($userId)) {
+        $hasTotp = $this->twoFactor()->isEnabled($userId);
+
+        $methods = [];
+
+        if ($hasTotp) {
+            $methods[] = 'twofactor';
+        }
+
+        // Ranked below the authenticator app, always. An account that has both is asked
+        // for the app and *offered* mail; putting email first would silently downgrade
+        // every account that had done the stronger thing.
+        if ($this->emailFactor()->isEnabledFor($userId)) {
+            $methods[] = EmailSecondFactor::METHOD;
+        }
+
+        // The site's new-device policy, read before anything expensive: it is a setting,
+        // and when it is `notify` — the default — an account with no second factor needs
+        // no further questions asked about it.
+        $action = NewSignInAlert::action();
+
+        if ($methods === [] && $action === 'notify') {
             return [];
         }
 
-        $methods = ['twofactor'];
-        if ($this->passkeys()->hasCredentials($userId)) {
+        // Asked only now. Every login used to reach this, which put a passkey lookup on
+        // the critical path of accounts that have none — an extra query per sign-in for an
+        // answer nothing was going to use.
+        $hasPasskey = $this->passkeys()->hasCredentials($userId);
+
+        if ($methods !== [] && $hasPasskey) {
             $methods[] = 'passkey';
         }
+
+        /**
+         * What the *site* demands of a device it has not seen before.
+         *
+         * Merged in rather than replacing what the account has chosen, and merged in even
+         * when the account has chosen nothing — that is the case it exists for. An account
+         * with no second factor at all previously went straight through on a stolen
+         * password, and the only response available was a mail telling its owner
+         * afterwards.
+         *
+         * The demand can therefore add `email` to an account that never asked for it: see
+         * {@see NewSignInAlert::requiredFor()}, which is where the "must be satisfiable"
+         * rule lives.
+         */
+        $demanded = $action === 'notify' ? [] : NewSignInAlert::requiredFor(
+            $userId,
+            // Whether this sign-in qualifies at all, which is the site's other setting:
+            // every unfamiliar browser, or only one there is something to be suspicious
+            // about. Asked only once the action is something other than `notify`, so the
+            // default path reads neither the activity log nor the session table.
+            $this->qualifiesForDemand($userId),
+            $hasTotp,
+            $hasPasskey
+        );
+
+        foreach ($demanded as $method) {
+            if (!in_array($method, $methods, true)) {
+                $methods[] = $method;
+            }
+        }
+
         return $methods;
     }
 
@@ -304,6 +542,42 @@ class LoginFlow
         return $this->twoFactor ??= new TwoFactorAuthService();
     }
 
+    /**
+     * The email second factor (seam so tests can inject a double).
+     */
+    protected function emailFactor(): EmailSecondFactor
+    {
+        return $this->emailFactor ??= new EmailSecondFactor();
+    }
+
+    /**
+     * Does this sign-in meet the site's trigger for demanding something?
+     *
+     * `new_device` asks the fingerprint question alone. `suspicious` asks
+     * {@see SignInRisk} and accepts only the signals that are hard to explain innocently
+     * — a country the account has never used, two places at once, a country change too
+     * soon to have travelled, a success straight after a run of failures.
+     *
+     * A seam because the alternative is a login flow that cannot be unit-tested: both
+     * readings query the activity log, and one of them queries the session table too.
+     */
+    protected function qualifiesForDemand(int $userId): bool
+    {
+        if (NewSignInAlert::trigger() === 'suspicious') {
+            return SignInRisk::isSuspicious($userId);
+        }
+
+        return NewSignInAlert::isNew($userId, SignInFingerprint::current());
+    }
+
+    /**
+     * The new-device auth link (seam so tests can inject a double).
+     */
+    protected function authLink(): NewDeviceAuthLink
+    {
+        return $this->authLink ??= new NewDeviceAuthLink();
+    }
+
     protected function passkeys(): PasskeyServiceInterface
     {
         return $this->passkeys ??= new PasskeyService();
@@ -323,7 +597,8 @@ class LoginFlow
      * loginById()'s public signature (CLAUDE.md §6). The trailing default keeps
      * the signature compatible with any subclass overriding finishLogin().
      *
-     * @param string $method 'password' | 'twofactor' | 'passkey'.
+     * @param string $method 'password' | 'twofactor' | 'email' | 'passkey' — recorded as the
+     *                       factor that carried the login, so an audit can tell them apart.
      */
     protected function finishLogin(int $userId, bool $remember, string $identifier, string $method = 'password'): LoginFlowResult
     {
@@ -341,8 +616,12 @@ class LoginFlow
     }
 
     /** Stash the pending step-up so a completion call can pick it up. */
-    protected function beginStepUp(int $userId, bool $remember, string $identifier): void
-    {
+    protected function beginStepUp(
+        int $userId,
+        bool $remember,
+        string $identifier,
+        array $methods = []
+    ): void {
         // The completion call is a second request; without a session there is nothing
         // for it to pick this up from, and the step-up would restart for ever.
         \Pramnos\Http\Session::getInstance()->ensureStarted();
@@ -351,6 +630,25 @@ class LoginFlow
         $_SESSION[static::S_PENDING_REMEMBER]   = $remember;
         $_SESSION[static::S_PENDING_IDENTIFIER] = $identifier;
         $_SESSION[static::S_PENDING_TIME]       = time();
+
+        /**
+         * The auth link is sent here, once, and nowhere else.
+         *
+         * It is the one step-up method the person cannot start themselves: a screen saying
+         * "we have emailed you a link" with no mail sent is a dead end, and it is the
+         * shape this would take if sending were left to the view.
+         *
+         * Not sent from the renderer, deliberately — a renderer runs again on every
+         * refresh and on every failed retry, so the link would be reissued (invalidating
+         * the one the person is holding) each time they reloaded the page.
+         *
+         * The emailed *code* is not sent here, and that asymmetry is intentional: a code
+         * is an alternative the person may never use, whereas the link is the only way
+         * through. See {@see sendEmailCode()}.
+         */
+        if (in_array(NewDeviceAuthLink::METHOD, $methods, true)) {
+            $this->sendAuthLink();
+        }
     }
 
     /**

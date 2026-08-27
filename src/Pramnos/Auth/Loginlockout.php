@@ -113,6 +113,89 @@ class Loginlockout
     }
 
     /**
+     * Record a failure against a window and threshold given by the caller.
+     *
+     * The sibling of {@see recordFailedAttempt()}, which reads its window and its lockout
+     * ladder from the installation's settings. That is right for the per-account counter an
+     * operator tunes; it is wrong for a per-address limit, which answers a different
+     * question and needs its own numbers — an address making one attempt against each of a
+     * thousand usernames is not "a user who forgot their password", and a ladder designed
+     * for that person is far too gentle for it.
+     *
+     * Once the threshold is reached inside the window, the address is refused for the
+     * remainder of that window. No ladder: the point is to make a large sweep slow, and a
+     * fixed cost per window does that without ever locking an address out for a day
+     * because it also carries a shared office NAT.
+     *
+     * @param string $scope      The lockout scope, e.g. `ip`
+     * @param string $identifier The value being counted
+     * @param int    $window     Sliding window in seconds
+     * @param int    $threshold  Failures within the window before refusing
+     */
+    public function recordFailedAttemptWithin(
+        string $scope,
+        string $identifier,
+        int $window,
+        int $threshold
+    ): void {
+        if ($identifier === '' || $window < 1 || $threshold < 1) {
+            return;
+        }
+
+        $db     = \Pramnos\Database\Database::getInstance();
+        $now    = time();
+        $nowStr = $this->formatTimestamp($now);
+        $row    = $this->loadRow($scope, $identifier);
+
+        $windowStart = $now - $window;
+        if ($row && !empty($row['lastfailedat'])
+            && strtotime((string) $row['lastfailedat']) >= $windowStart
+        ) {
+            $attempts    = (int) $row['failedattempts'] + 1;
+            $firstFailed = (string) $row['firstfailedat'];
+        } else {
+            $attempts    = 1;
+            $firstFailed = $nowStr;
+        }
+
+        // Locked for what is left of the window that the *first* failure opened, so a
+        // steady drip of attempts cannot keep extending its own deadline.
+        $lockoutUntil = null;
+        if ($attempts >= $threshold) {
+            $until        = max($now + 1, (int) strtotime($firstFailed) + $window);
+            $lockoutUntil = $this->formatTimestamp($until);
+        }
+
+        if ($row) {
+            $db->queryBuilder()
+                ->table('authserver.loginlockouts')
+                ->where('lockoutid', (int) $row['lockoutid'])
+                ->update([
+                    'failedattempts' => $attempts,
+                    'firstfailedat'  => $firstFailed,
+                    'lastfailedat'   => $nowStr,
+                    'lockoutuntil'   => $lockoutUntil,
+                    'updatedat'      => $nowStr,
+                ]);
+
+            return;
+        }
+
+        $db->queryBuilder()
+            ->table('authserver.loginlockouts')
+            ->insert([
+                'locktype'       => $scope,
+                'lookupvalue'    => $identifier,
+                'failedattempts' => $attempts,
+                'firstfailedat'  => $firstFailed,
+                'lastfailedat'   => $nowStr,
+                'lockoutuntil'   => $lockoutUntil,
+                'createdat'      => $nowStr,
+                'updatedat'      => $nowStr,
+            ]);
+    }
+
+    /**
      * Return the lockout state for the given scope and identifier.
      *
      * @param string $scope

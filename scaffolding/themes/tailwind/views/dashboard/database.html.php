@@ -252,11 +252,11 @@ $fmtBytes = function (int $bytes): string {
     </div>
 
     <div id="viewDefOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000">
-        <div style="position:relative;margin:3% auto;background:#fff;border-radius:8px;width:820px;max-width:96%;padding:24px;max-height:90vh;overflow-y:auto">
+        <div style="position:relative;margin:3% auto;background:var(--color-base-100);border-radius:8px;width:820px;max-width:96%;padding:24px;max-height:90vh;overflow-y:auto">
             <h6 id="viewDefTitle" style="margin:0 0 12px;font-size:1rem;font-weight:600"></h6>
             <pre id="viewDefBody" style="white-space:pre-wrap;font-size:.8rem;max-height:400px;overflow-y:auto;background:#f8f8f8;padding:12px;border-radius:6px"></pre>
             <div style="text-align:right;margin-top:12px">
-                <button id="closeViewDefBtn" style="font-size:.8rem;padding:4px 16px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Close</button>
+                <button id="closeViewDefBtn" style="font-size:.8rem;padding:4px 16px;border:1px solid var(--color-base-300);border-radius:4px;background:var(--color-base-100);color:var(--color-base-content);cursor:pointer">Close</button>
             </div>
         </div>
     </div>
@@ -387,7 +387,7 @@ $fmtBytes = function (int $bytes): string {
     </div>
 
     <div id="jobHistOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000">
-        <div style="position:relative;margin:3% auto;background:#fff;border-radius:8px;width:820px;max-width:96%;padding:24px;max-height:90vh;overflow-y:auto">
+        <div style="position:relative;margin:3% auto;background:var(--color-base-100);border-radius:8px;width:820px;max-width:96%;padding:24px;max-height:90vh;overflow-y:auto">
             <h6 id="jobHistTitle" style="margin:0 0 12px;font-size:1rem;font-weight:600"></h6>
             <div style="overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:.8rem">
@@ -397,7 +397,7 @@ $fmtBytes = function (int $bytes): string {
             </div>
             <p id="jobHistEmpty" style="display:none;text-align:center;color:#888">No history found for this job.</p>
             <div style="text-align:right;margin-top:12px">
-                <button id="closeJobHistBtn" style="font-size:.8rem;padding:4px 16px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Close</button>
+                <button id="closeJobHistBtn" style="font-size:.8rem;padding:4px 16px;border:1px solid var(--color-base-300);border-radius:4px;background:var(--color-base-100);color:var(--color-base-content);cursor:pointer">Close</button>
             </div>
         </div>
     </div>

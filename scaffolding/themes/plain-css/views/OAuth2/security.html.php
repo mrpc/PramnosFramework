@@ -5,6 +5,8 @@
  * Variables:
  *   $this->recentActivity   — array[] {action, created_at, ip_address, user_agent}
  *   $this->twoFactorEnabled — bool
+ *   $this->emailFactorOffered — bool: the application allows a code by email
+ *   $this->emailFactorEnabled — bool: this account has asked for one
  *   $this->activeSessions   — array[] {sid, host_addr, agent, time, url}
  *   $this->currentSid       — sid of the session viewing this page
  *   $this->routeBase        — Account controller route base
@@ -48,6 +50,46 @@ $this->activeNav = 'security';
                 </div>
             </div>
 
+            <?php /*
+             * A code by email — shown only where the application allows the method.
+             *
+             * Deliberately below the authenticator card and worded as the weaker option,
+             * because it is one: mail is a channel somebody else may already be reading.
+             * It is offered at all because it is the only second factor that can be turned
+             * on by an account that has set nothing up in advance, which is most accounts.
+             *
+             * The password is asked for in the same form. Attaching a second factor is a
+             * change to how the account authenticates, so a borrowed session must not be
+             * able to make it — in either direction.
+             */ ?>
+            <?php if (!empty($this->emailFactorOffered)): ?>
+            <div class="card" style="margin-bottom:20px">
+                <div class="card-header"><strong>Sign-in codes by email</strong></div>
+                <div class="card-body" style="padding:16px">
+                    <p style="margin:0 0 12px">
+                        <?php if (!empty($this->emailFactorEnabled)): ?>
+                            <span class="badge badge-success">On</span>
+                            We email you a code when you sign in.
+                        <?php else: ?>
+                            <span class="badge">Off</span>
+                            Weaker than an authenticator app, and better than a password alone.
+                        <?php endif; ?>
+                    </p>
+                    <form method="POST" action="<?php echo sURL . $routeBase; ?>/emailfactor"
+                          style="display:flex;gap:8px;flex-wrap:wrap">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <input type="hidden" name="enable" value="<?php echo empty($this->emailFactorEnabled) ? '1' : '0'; ?>">
+                        <input type="password" name="password" required autocomplete="current-password"
+                               style="flex:1;min-width:180px;padding:8px;border:1px solid #ccc;border-radius:4px"
+                               placeholder="Your password">
+                        <button type="submit" class="btn btn-sm">
+                            <?php echo empty($this->emailFactorEnabled) ? 'Turn on' : 'Turn off'; ?>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Passkeys -->
             <div class="card" style="margin-bottom:16px">
                 <div class="card-header"><strong>Passkeys</strong></div>
@@ -63,7 +105,11 @@ $this->activeNav = 'security';
             <div class="card" style="margin-bottom:16px">
                 <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
                     <p style="margin:0;font-size:.9em;color:#666">
-                        Change your account password regularly to stay secure.
+                        <?php /* Not "change it regularly": routine rotation is advice that has been
+                     withdrawn by the people who used to give it (NIST SP 800-63B), because
+                     forced changes produce predictable variations of one password and get
+                     written down. Change it when there is a reason to. */ ?>
+                        Change it if you think somebody else knows it, or if you have used it anywhere else.
                     </p>
                     <a href="<?php echo sURL . $routeBase; ?>/changepassword" class="btn">Change Password</a>
                 </div>

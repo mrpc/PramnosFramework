@@ -67,12 +67,15 @@ class Account extends Controller
         $this->addaction([
             'login', 'verify', 'passkeyOptions', 'passkeyVerify', 'logout',
             'forgotpassword', 'resetpassword', 'register', 'sso',
+            // Public because the link is opened from a mail client, in a browser that may
+            // never have seen this session — the token is the credential.
+            'authlink',
         ]);
         // Authenticated account-management actions.
         $this->addAuthAction([
             'applications', 'revokeapplication',
             'exportdata', 'deleteaccount',
-            'privacy', 'security', 'changepassword',
+            'privacy', 'security', 'changepassword', 'emailfactor',
             'sessions', 'revokesession',
             'profile',
         ]);
@@ -143,12 +146,38 @@ class Account extends Controller
             return $this->renderStepUp(['error' => 'invalid_token']);
         }
 
+        // Asking for the sign-in link again, when that is what is being demanded.
+        if ($this->post('send_auth_link') !== '') {
+            return $this->renderStepUp(
+                $this->flow()->sendAuthLink($this->returnUrl())
+                    ? ['notice' => 'auth_link_sent']
+                    : ['error' => 'auth_link_failed']
+            );
+        }
+
+        // "Send me a code by email" is a POST to the same action rather than a link:
+        // a GET that sends mail is one a crawler, a link preview or a back button can
+        // fire, and each firing invalidates the code the person is holding.
+        if ($this->post('send_email_code') !== '') {
+            return $this->renderStepUp(
+                $this->flow()->sendEmailCode()
+                    ? ['notice' => 'email_code_sent']
+                    : ['error' => 'email_code_failed']
+            );
+        }
+
         $code = $this->post('code');
         if ($code === '') {
             return $this->renderStepUp(['error' => 'missing_code']);
         }
 
-        $result = $this->flow()->completeTwoFactor($code);
+        // Which factor the code belongs to comes from the form, not from guessing: both
+        // are six digits, and trying one then the other would consume an email attempt
+        // every time somebody typed a TOTP code.
+        $result = $this->post('method') === \Pramnos\Auth\EmailSecondFactor::METHOD
+            ? $this->flow()->completeEmailCode($code)
+            : $this->flow()->completeTwoFactor($code);
+
         if ($result->isSuccess()) {
             $this->redirect($this->postLoginTarget($this->returnUrl()));
             return null;
@@ -629,6 +658,30 @@ class Account extends Controller
      * The pending user id is exposed for the view; the password is NOT — it never
      * leaves the server (unlike a hidden-field password round-trip).
      */
+    /**
+     * Finish a sign-in from the emailed link.
+     *
+     * Public, and it has to be: the link is opened from a mail client, often on another
+     * device, in a browser with no pending step-up. The token carries the authorisation and
+     * is spent by the flow before a session is established.
+     *
+     * A bad or expired token renders the login form with a message rather than a 403 — the
+     * common cause is a link that has been sitting in an inbox, and the useful next step is
+     * to sign in again, which is the form.
+     */
+    public function authlink(): mixed
+    {
+        $result = $this->flow()->completeAuthLink($this->query('token'));
+
+        if ($result->isSuccess()) {
+            $this->redirect($this->postLoginTarget($this->returnUrl()));
+
+            return null;
+        }
+
+        return $this->renderLogin(['error' => 'authlink_invalid']);
+    }
+
     protected function renderStepUp(array $ctx): mixed
     {
         $doc        = $this->document();
@@ -640,6 +693,30 @@ class Account extends Controller
         $view->returnUrl     = $this->returnUrl();
         $view->brand         = $this->brand();
         $view->pendingUserId = $this->flow()->pendingUserId();
+
+        // What the screen may offer. Without this the view can only ever draw the
+        // authenticator-app form, so an account whose only second factor is email would
+        // be shown a box it has no way to fill.
+        //
+        // Asked of the flow rather than of the services: the flow owns those
+        // collaborators and a test can replace it, which a `new EmailSecondFactor()` here
+        // could not — this renderer would then open a database connection to draw a page.
+        // Held in locals and assigned once. Reading `$view->emailFactor` back to compute
+        // the next line assumes the view keeps what it is given, which a view is not
+        // obliged to do — and a stub that does not raises "undefined property" on a page
+        // that otherwise renders.
+        $methods     = $this->flow()->pendingStepUpMethods();
+        $hasEmail    = in_array(\Pramnos\Auth\EmailSecondFactor::METHOD, $methods, true);
+
+        $view->methods          = $methods;
+        $view->totpFactor       = in_array('twofactor', $methods, true);
+        $view->emailFactor      = $hasEmail;
+        $view->emailCodePending = $hasEmail && $this->flow()->hasLiveEmailCode();
+        // The link case takes over the screen: there is nothing to type, so a code box
+        // would be a field with no source. The link was already sent when the step-up
+        // began — see LoginFlow::beginStepUp().
+        $view->authLink         = in_array(\Pramnos\Auth\NewDeviceAuthLink::METHOD, $methods, true);
+
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
         }
@@ -1282,13 +1359,127 @@ class Account extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = t('Security Overview');
 
+        $emailFactor = new \Pramnos\Auth\EmailSecondFactor();
+
         $view->routeBase        = $this->routeBase;
         $view->recentActivity   = $this->getActivityLog((int) $currentUser->userid, 20);
         $view->twoFactorEnabled = $this->isTwoFactorEnabled((int) $currentUser->userid);
         $view->activeSessions   = $this->getActiveSessions((int) $currentUser->userid);
         $view->currentSid       = md5(session_id());
+        // Offered only where the application allows the method: a switch for something
+        // that cannot happen is worse than no switch.
+        $view->emailFactorOffered = \Pramnos\Auth\EmailSecondFactor::isAvailable();
+        $view->emailFactorEnabled = $emailFactor->isEnabledFor((int) $currentUser->userid);
+        // Mid-enrolment: a code has been mailed and is still live, so the card asks for it
+        // instead of offering to send another. Without this the screen would look
+        // identical before and after the mail went out.
+        $view->emailFactorPending = $view->emailFactorOffered
+            && !$view->emailFactorEnabled
+            && $emailFactor->hasLiveCode(
+                (int) $currentUser->userid,
+                \Pramnos\Auth\EmailSecondFactor::PURPOSE_ENROL
+            );
 
         return $view->display('security');
+    }
+
+    /**
+     * Take or drop the email second factor, for the signed-in account.
+     *
+     * **Enrolling is verified by email, not by password**, and the difference matters. A
+     * password proves who is asking; it does not prove that the address on the account is
+     * one the person can still read. Attaching a factor to a stale or mistyped address
+     * would build a lockout on purpose — the account would then be asked, at every sign-in
+     * from a new device, for a code arriving somewhere nobody reads. So the flow is the one
+     * the authenticator app already uses: prove you hold the channel, *then* it becomes a
+     * factor.
+     *
+     * Two steps, both POSTs to here:
+     *
+     *   1. no code yet → mail one (purpose `enrol`, so it cannot complete a login) and
+     *      come back to the screen, which now asks for it;
+     *   2. a code → verify it and switch the factor on.
+     *
+     * **Dropping it asks for the password instead**, and that asymmetry is not an
+     * oversight. Removing a factor is the direction an attacker wants, so it needs proof of
+     * *identity*; and requiring a mailed code to switch it off would strand exactly the
+     * person whose mailbox has become unreachable — the one case where turning it off is
+     * urgent.
+     */
+    public function emailfactor(): void
+    {
+        $currentUser = \Pramnos\User\User::getCurrentUser();
+        if ($currentUser === null || (int) $currentUser->userid < 2) {
+            $this->redirect(sURL . 'login');
+
+            return;
+        }
+
+        $back = sURL . $this->routeBase . '/security';
+
+        if ($this->requestMethod() !== 'POST' || !$this->checkCsrf()) {
+            $this->redirect($back);
+
+            return;
+        }
+
+        if (!\Pramnos\Auth\EmailSecondFactor::isAvailable()) {
+            $_SESSION['account_error'] = t('That sign-in method is not available here.');
+            $this->redirect($back);
+
+            return;
+        }
+
+        $userId = (int) $currentUser->userid;
+        $factor = new \Pramnos\Auth\EmailSecondFactor();
+        $enrol  = \Pramnos\Auth\EmailSecondFactor::PURPOSE_ENROL;
+
+        // ── Dropping it: identity, not channel ────────────────────────────────
+        if ($this->post('enable') === '0') {
+            if (!$currentUser->verifyPassword((string) $this->post('password'))) {
+                $_SESSION['account_error'] = t('That password is not correct.');
+                $this->redirect($back);
+
+                return;
+            }
+
+            // Called once and remembered: reading the result twice would write twice.
+            $done = $factor->setEnabledFor($userId, false);
+            $_SESSION[$done ? 'account_success' : 'account_error'] = $done
+                ? t('Sign-in codes by email are turned off.')
+                : t('That could not be changed.');
+            $this->redirect($back);
+
+            return;
+        }
+
+        // ── Enrolling, step 2: the code came back ─────────────────────────────
+        $code = $this->post('code');
+        if ($code !== '') {
+            if (!$factor->verify($userId, $code, $enrol)) {
+                $_SESSION['account_error'] = t('That code is wrong or has expired. Ask for another one.');
+                $this->redirect($back);
+
+                return;
+            }
+
+            $done = $factor->setEnabledFor($userId, true);
+            $_SESSION[$done ? 'account_success' : 'account_error'] = $done
+                ? t('You will be asked for a code by email when you sign in.')
+                : t('That could not be changed.');
+            $this->redirect($back);
+
+            return;
+        }
+
+        // ── Enrolling, step 1: prove the mailbox ──────────────────────────────
+        if ($factor->send($userId, $enrol)) {
+            $_SESSION['account_success'] = t('We have emailed you a code. Enter it below to finish.');
+        } else {
+            $_SESSION['account_error'] = t('We could not email you a code. Check the address on your profile.');
+        }
+
+        $this->redirect($back);
     }
 
     /**
@@ -1366,7 +1557,39 @@ class Account extends Controller
                 (int) $currentUser->userid,
                 'password_changed'
             );
-            $this->addMessage('Your password has been updated successfully.');
+
+            /**
+             * End the other sessions, when the application asked for it.
+             *
+             * People change a password *because* they think somebody else has it. Leaving
+             * the other sessions alive means the other person keeps the account while the
+             * owner believes they have just taken it back — which is worse than not
+             * offering the change, because it manufactures false confidence.
+             *
+             * The current session is spared: being signed out by your own password change
+             * reads as a failure, and the person then cannot tell whether it worked.
+             *
+             * Opt-in, like the rest of `auth.security`: for an application that treats a
+             * password change as routine hygiene rather than as a response to compromise,
+             * signing every device out is a support call.
+             */
+            $endedOthers = 0;
+            if (\Pramnos\Auth\SecurityPolicy::revokesSessionsOnPasswordChange()) {
+                $endedOthers = (new \Pramnos\User\User((int) $currentUser->userid))
+                    ->revokeOtherSessions(md5(session_id()));
+
+                if ($endedOthers > 0) {
+                    \Pramnos\Auth\ActivityLog::record(
+                        (int) $currentUser->userid,
+                        'sessions_revoked_on_password_change',
+                        ['count' => $endedOthers]
+                    );
+                }
+            }
+
+            $this->addMessage($endedOthers > 0
+                ? 'Your password has been updated, and your other sessions have been signed out.'
+                : 'Your password has been updated successfully.');
             $this->redirect(sURL . $this->routeBase . '/security');
             return;
         }

@@ -6,7 +6,9 @@ namespace Pramnos\Tests\Unit\Auth;
 
 use PHPUnit\Framework\TestCase;
 use Pramnos\Auth\Auth;
+use Pramnos\Auth\EmailSecondFactor;
 use Pramnos\Auth\LoginFlow;
+use Pramnos\Auth\NewDeviceAuthLink;
 use Pramnos\Auth\LoginFlowResult;
 use Pramnos\Auth\Loginlockout;
 use Pramnos\Auth\TwoFactorAuthService;
@@ -473,6 +475,292 @@ class LoginFlowTest extends TestCase
         $_SESSION['loginflow_pending_identifier'] = $identifier;
         $_SESSION['loginflow_pending_time']       = time();
     }
+
+    // ── The email second factor ────────────────────────────────────────────────
+
+    /**
+     * An account whose only second factor is email still gets a step-up.
+     *
+     * The case the feature exists for: no authenticator app, no passkey, nothing set up
+     * in advance. The step-up decision asked only about TOTP, so such an account went
+     * straight through on a password alone.
+     */
+    public function testEmailOnlyAccountStopsForStepUp(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled   = false;
+        $this->flow->fakeEmailFactor->enabled = true;
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret', true);
+
+        // Assert
+        $this->assertTrue($result->needsStepUp());
+        $this->assertSame(['email'], $result->stepUpMethods);
+        $this->assertSame([], $this->flow->fakeAuth->loginArgs, 'no session before the code');
+    }
+
+    /**
+     * With both, the authenticator app is offered first and email second.
+     *
+     * The order is the policy: a screen renders them in the order it is given, and an
+     * account that went to the trouble of enrolling an app must not be nudged towards
+     * the weaker channel.
+     */
+    public function testTheAppRanksAboveEmail(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled   = true;
+        $this->flow->fakeEmailFactor->enabled = true;
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret');
+
+        // Assert
+        $this->assertSame(['twofactor', 'email'], $result->stepUpMethods);
+    }
+
+    /**
+     * No factor at all is still no step-up, whatever the email flag says.
+     */
+    public function testEmailFactorOffMeansNoStepUp(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled   = false;
+        $this->flow->fakeEmailFactor->enabled = false;
+
+        // Act & Assert
+        $this->assertTrue($this->flow->attempt('alice', 'secret')->isSuccess());
+    }
+
+    /**
+     * A code is **not** sent when the password is accepted — only when asked for.
+     *
+     * Otherwise an account with an app and email as a fallback receives mail on every
+     * sign-in it never reads, and each of somebody else's failed password attempts sends
+     * one too.
+     */
+    public function testNoCodeIsSentUntilItIsAskedFor(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeEmailFactor->enabled = true;
+
+        // Act
+        $this->flow->attempt('alice', 'secret');
+
+        // Assert
+        $this->assertSame(0, $this->flow->fakeEmailFactor->sent);
+
+        // …and it is sent when the screen asks
+        $this->assertTrue($this->flow->sendEmailCode());
+        $this->assertSame(1, $this->flow->fakeEmailFactor->sent);
+        $this->assertSame([7], $this->flow->fakeEmailFactor->sentTo);
+    }
+
+    /**
+     * Nothing is sent without a pending login, or for an account without the factor.
+     *
+     * The first is an endpoint reachable before authentication that would otherwise mail
+     * anybody's account on request; the second would tell a caller which accounts have
+     * the factor.
+     */
+    public function testSendingRefusesWithoutAPendingLogin(): void
+    {
+        // Act & Assert — no pending login at all
+        $this->assertFalse($this->flow->sendEmailCode());
+        $this->assertSame(0, $this->flow->fakeEmailFactor->sent);
+
+        // …and pending, but the account does not have the factor
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled   = true;
+        $this->flow->fakeEmailFactor->enabled = false;
+        $this->flow->attempt('alice', 'secret');
+
+        $this->assertFalse($this->flow->sendEmailCode());
+        $this->assertSame(0, $this->flow->fakeEmailFactor->sent);
+    }
+
+    /**
+     * A correct emailed code finishes the login and is tagged as its own method.
+     *
+     * Tagged `email` rather than `twofactor` so an audit can tell which factor actually
+     * carried a login — they are not equally strong, and a log that calls them the same
+     * thing cannot answer that afterwards.
+     */
+    public function testACorrectEmailCodeFinishesTheLogin(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeEmailFactor->enabled = true;
+        $this->flow->fakeEmailFactor->accepts = true;
+        $this->flow->attempt('alice', 'secret', true);
+
+        // Act
+        $result = $this->flow->completeEmailCode(' 123456 ');
+
+        // Assert
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame(7, $result->userId);
+        $this->assertSame(['123456'], $this->flow->fakeEmailFactor->verified, 'trimmed');
+        $this->assertSame(['email'], $this->flow->fakeAuth->methodCalls);
+        $this->assertArrayNotHasKey('loginflow_pending_userid', $_SESSION);
+    }
+
+    /**
+     * A wrong code leaves the pending login alone so the person can retry.
+     *
+     * The attempt cap lives in the factor, not here: this flow must not decide that a
+     * mistyped code ends the login, or a fat finger would mean starting again.
+     */
+    public function testAWrongEmailCodeKeepsThePendingLogin(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeEmailFactor->enabled = true;
+        $this->flow->fakeEmailFactor->accepts = false;
+        $this->flow->attempt('alice', 'secret', true);
+
+        // Act
+        $result = $this->flow->completeEmailCode('000000');
+
+        // Assert
+        $this->assertFalse($result->isSuccess());
+        $this->assertSame(7, $_SESSION['loginflow_pending_userid']);
+        $this->assertSame([], $this->flow->fakeAuth->loginArgs);
+    }
+
+    /**
+     * And an emailed code cannot start a login that was never begun.
+     */
+    public function testAnEmailCodeWithoutAPendingLoginFails(): void
+    {
+        // Arrange
+        $this->flow->fakeEmailFactor->accepts = true;
+
+        // Act & Assert
+        $this->assertFalse($this->flow->completeEmailCode('123456')->isSuccess());
+        $this->assertSame([], $this->flow->fakeEmailFactor->verified, 'nothing is even checked');
+    }
+
+    /**
+     * The screen can ask whether a code is already outstanding without sending one.
+     */
+    public function testTheFlowReportsAnOutstandingCode(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeEmailFactor->enabled = true;
+        $this->flow->attempt('alice', 'secret');
+
+        // Act & Assert
+        $this->assertFalse($this->flow->hasLiveEmailCode());
+        $this->flow->fakeEmailFactor->live = true;
+        $this->assertTrue($this->flow->hasLiveEmailCode());
+        $this->assertSame(0, $this->flow->fakeEmailFactor->sent, 'asking must not send');
+    }
+
+
+    // ── The new-device auth link ───────────────────────────────────────────────
+
+    /**
+     * A link is mailed the moment a step-up that demands one begins.
+     *
+     * The one method the person cannot start themselves: a screen saying "we have emailed
+     * you a link" with no mail sent is a dead end. Sent from `beginStepUp()` rather than
+     * from the renderer, so a refresh does not reissue it and invalidate the link the
+     * person is holding.
+     */
+    public function testTheLinkIsSentWhenTheStepUpBegins(): void
+    {
+        // Arrange — the site demands a link, so the flow's own step-up list carries it
+        $this->flow->fakeAuth->response = $this->successResponse(7);
+        $this->flow->demand             = ['authlink'];
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret', true);
+
+        // Assert
+        $this->assertTrue($result->needsStepUp());
+        $this->assertSame(['authlink'], $result->stepUpMethods);
+        $this->assertSame(1, $this->flow->fakeAuthLink->sent);
+        $this->assertSame([7], $this->flow->fakeAuthLink->sentTo);
+        $this->assertSame([], $this->flow->fakeAuth->loginArgs, 'no session until the link is opened');
+    }
+
+    /**
+     * Opening a valid link finishes the login, and is tagged as the link.
+     */
+    public function testOpeningTheLinkFinishesTheLogin(): void
+    {
+        // Arrange
+        $this->flow->fakeAuth->response      = $this->successResponse(7);
+        $this->flow->demand                  = ['authlink'];
+        $this->flow->attempt('alice', 'secret', true);
+        $this->flow->fakeAuthLink->resolves  = 7;
+
+        // Act
+        $result = $this->flow->completeAuthLink('a-token');
+
+        // Assert
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame(['authlink'], $this->flow->fakeAuth->methodCalls);
+        $this->assertArrayNotHasKey('loginflow_pending_userid', $_SESSION);
+    }
+
+    /**
+     * The link works in a browser that never saw the password leg.
+     *
+     * People read mail on a phone and click there. A flow that only completed in the
+     * original browser would drop them back on the password form with no way to explain
+     * why, and the token is the authorisation — the pending session is a convenience.
+     */
+    public function testTheLinkWorksWithNoPendingSession(): void
+    {
+        // Arrange — nothing pending at all
+        $this->flow->fakeAuthLink->resolves = 7;
+
+        // Act
+        $result = $this->flow->completeAuthLink('a-token');
+
+        // Assert
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame(7, $result->userId);
+    }
+
+    /**
+     * A spent or unknown token establishes nothing.
+     */
+    public function testAnUnknownLinkTokenFails(): void
+    {
+        // Arrange
+        $this->flow->fakeAuthLink->resolves = null;
+
+        // Act
+        $result = $this->flow->completeAuthLink('nonsense');
+
+        // Assert
+        $this->assertFalse($result->isSuccess());
+        $this->assertSame([], $this->flow->fakeAuth->loginArgs);
+        $this->assertSame(['nonsense'], $this->flow->fakeAuthLink->consumed);
+    }
+
+    /**
+     * Resending refuses without a pending login.
+     *
+     * Otherwise the endpoint mails a sign-in link to any account on request, which is
+     * worse than the password it is meant to protect.
+     */
+    public function testResendingTheLinkNeedsAPendingLogin(): void
+    {
+        // Act & Assert
+        $this->assertFalse($this->flow->sendAuthLink());
+        $this->assertSame(0, $this->flow->fakeAuthLink->sent);
+    }
+
 }
 
 /** In-memory Auth double: verifyCredentials/loginById record args and return canned values. */
@@ -610,20 +898,34 @@ class FakePasskeys implements PasskeyServiceInterface
     }
 }
 
-/** LoginFlow with all four collaborators replaced by in-memory doubles. */
+/** LoginFlow with every collaborator replaced by in-memory doubles. */
 class TestableLoginFlow extends LoginFlow
 {
     public FakeAuth $fakeAuth;
     public FakeLockout $fakeLockout;
     public FakeTwoFactor $fakeTwoFactor;
     public FakePasskeys $fakePasskeys;
+    public FakeEmailFactor $fakeEmailFactor;
+    public FakeAuthLink $fakeAuthLink;
+
+    /**
+     * What the site demands of a new device, stubbed.
+     *
+     * The real answer comes from a setting plus a query against the activity log; this
+     * flow's job is what it *does* with the answer, so the answer is injected.
+     *
+     * @var string[]
+     */
+    public array $demand = [];
 
     public function __construct()
     {
-        $this->fakeAuth      = new FakeAuth();
-        $this->fakeLockout   = new FakeLockout();
-        $this->fakeTwoFactor = new FakeTwoFactor();
-        $this->fakePasskeys  = new FakePasskeys();
+        $this->fakeAuth        = new FakeAuth();
+        $this->fakeLockout     = new FakeLockout();
+        $this->fakeTwoFactor   = new FakeTwoFactor();
+        $this->fakePasskeys    = new FakePasskeys();
+        $this->fakeEmailFactor = new FakeEmailFactor();
+        $this->fakeAuthLink    = new FakeAuthLink();
 
         // Inject through the real constructor so the default verifyCredentials()
         // and establishSession() bodies run against the fakes (real coverage).
@@ -631,8 +933,22 @@ class TestableLoginFlow extends LoginFlow
             $this->fakeAuth,
             $this->fakeLockout,
             $this->fakeTwoFactor,
-            $this->fakePasskeys
+            $this->fakePasskeys,
+            $this->fakeEmailFactor,
+            $this->fakeAuthLink
         );
+    }
+
+    protected function stepUpMethods(int $userId): array
+    {
+        $methods = parent::stepUpMethods($userId);
+        foreach ($this->demand as $method) {
+            if (!in_array($method, $methods, true)) {
+                $methods[] = $method;
+            }
+        }
+
+        return $methods;
     }
 }
 
@@ -662,5 +978,86 @@ class ExposedLoginFlow extends LoginFlow
     public function stepUpTtlPublic(): int
     {
         return $this->stepUpTtl();
+    }
+}
+
+/**
+ * The email second factor, without a database or a mail server.
+ *
+ * Extends the real class so the flow is exercised through its real type, with the
+ * constructor skipped — the production one resolves the database singleton, which is
+ * exactly what a unit test must not touch.
+ */
+class FakeEmailFactor extends EmailSecondFactor
+{
+    public bool $enabled = false;
+    public bool $accepts = false;
+    public bool $live    = false;
+    public int  $sent    = 0;
+    /** @var list<int> */
+    public array $sentTo = [];
+    /** @var list<string> */
+    public array $verified = [];
+
+    public function __construct()
+    {
+    }
+
+    public function isEnabledFor(int $userId): bool
+    {
+        return $this->enabled;
+    }
+
+    public function send(int $userId, string $purpose = self::PURPOSE_LOGIN): bool
+    {
+        $this->sent++;
+        $this->sentTo[] = $userId;
+
+        return true;
+    }
+
+    public function hasLiveCode(int $userId, string $purpose = self::PURPOSE_LOGIN): bool
+    {
+        return $this->live;
+    }
+
+    public function verify(int $userId, string $code, string $purpose = self::PURPOSE_LOGIN): bool
+    {
+        $this->verified[] = $code;
+
+        return $this->accepts;
+    }
+}
+
+/**
+ * The new-device auth link, without a mailer or a token store.
+ */
+class FakeAuthLink extends NewDeviceAuthLink
+{
+    public int $sent = 0;
+    /** @var list<int> */
+    public array $sentTo = [];
+    /** The user id a token resolves to, or null for "not a valid token". */
+    public ?int $resolves = null;
+    /** @var list<string> */
+    public array $consumed = [];
+
+    public function __construct()
+    {
+    }
+
+    public function send(int $userId, string $returnUrl = ''): bool
+    {
+        $this->sent++;
+        $this->sentTo[] = $userId;
+
+        return true;
+    }
+
+    public function consume(string $token): ?int
+    {
+        $this->consumed[] = $token;
+
+        return $this->resolves;
     }
 }

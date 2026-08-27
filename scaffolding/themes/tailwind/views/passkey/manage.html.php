@@ -17,8 +17,9 @@ $this->activeNav   = 'passkey';
 ?>
 <style>
 .pf-pk-item{list-style:none;padding:1rem;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #f3f4f6}
-.pf-pk-meta small{display:block;color:#6b7280}
-.pf-pk-empty,.pf-pk-error{list-style:none;padding:1rem;color:#6b7280}
+/* Theme tokens, not literals — see the note in tokens.html.php. */
+.pf-pk-meta small{display:block;color:var(--color-base-content);opacity:.65}
+.pf-pk-empty,.pf-pk-error{list-style:none;padding:1rem;color:var(--color-base-content);opacity:.65}
 .pf-pk-error{color:#dc2626}
 .pf-pk-actions button{font-size:.875rem;margin-left:1rem}
 .pf-pk-actions .pf-pk-rename{color:#2563eb}

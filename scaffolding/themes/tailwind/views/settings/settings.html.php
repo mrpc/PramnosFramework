@@ -192,6 +192,93 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                             device is new.
                         </p>
                     </div>
+                    <div>
+                        <?php
+                        /**
+                         * And what such a sign-in has to *satisfy*.
+                         *
+                         * Telling somebody afterwards is the weakest useful response —
+                         * by the time the mail arrives, whoever had the password is
+                         * already inside. These are the options that stop it instead.
+                         *
+                         * Each one falls back to something the account can actually do,
+                         * so none of them is a way to lock a user base out: the details
+                         * are in NewSignInAlert::requiredFor().
+                         */
+                        $actionKey   = \Pramnos\Auth\NewSignInAlert::ACTION_SETTING;
+                        $actionValue = (string) ($s[$actionKey] ?? '') ?: 'notify';
+                        /*
+                         * The labels name the fallback, because the strict readings are
+                         * meaningless without it — and worse, they read as a promise the
+                         * deployment cannot keep. "Require a passkey" on a user base that
+                         * has none is not a policy; what actually happens is that the
+                         * account is asked for whatever it does have, and for a mailed code
+                         * if it has nothing. A dropdown that hides that is a dropdown an
+                         * operator chooses wrongly.
+                         */
+                        $actionLabels = [
+                            'notify'          => 'Only notify (default)',
+                            'authlink'        => 'Require a link sent by email — works for every account',
+                            'require_2fa'     => 'Require a second factor — a mailed code if the account has none',
+                            'require_passkey' => 'Require a passkey — falls back to a factor, then a mailed code',
+                        ];
+                        ?>
+                        <label class="<?php echo $label; ?>" for="<?php echo $actionKey; ?>">
+                            On a sign-in from a new device
+                        </label>
+                        <select class="select select-sm w-full" id="<?php echo $actionKey; ?>"
+                                name="<?php echo $actionKey; ?>">
+                            <?php foreach ($actionLabels as $value => $text): ?>
+                            <option value="<?php echo $value; ?>" <?php echo $actionValue === $value ? 'selected' : ''; ?>>
+                                <?php echo $text; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            Beyond the alert. Nothing here can lock an account out: a demand
+                            it cannot satisfy becomes the strongest factor it does have, and
+                            a code emailed to it as a last resort — every account has a
+                            mailbox. Accounts with no second factor set up are therefore
+                            covered too, which is the point, since those are the ones a
+                            stolen password reaches.
+                        </p>
+                    </div>
+                </div>
+
+                <?php
+                /**
+                 * What this application has enabled — read-only, and next to the settings
+                 * that refer to it.
+                 *
+                 * An operator choosing "require a second factor" cannot otherwise tell
+                 * whether the factors it refers to exist in this deployment, and "why is
+                 * nobody asked for a code" has no answer on this screen. These are
+                 * declared in `app/app.php`, versioned with the code, which is why they
+                 * are shown rather than edited here.
+                 */
+                ?>
+                <div class="mt-6 pt-4 border-t border-base-300">
+                    <h4 class="font-semibold text-sm mb-2">What this application offers</h4>
+                    <div class="flex flex-wrap gap-4 text-sm">
+                        <div>
+                            <span class="text-base-content/60">Second factors:</span>
+                            <?php foreach ((array) ($this->twofactorMethods ?? []) as $method): ?>
+                                <span class="badge badge-sm badge-outline ml-1"><?php echo htmlspecialchars((string) $method); ?></span>
+                            <?php endforeach; ?>
+                        </div>
+                        <div>
+                            <span class="text-base-content/60">Features:</span>
+                            <?php foreach ((array) ($this->enabledFeatures ?? []) as $feature): ?>
+                                <span class="badge badge-sm badge-ghost ml-1"><?php echo htmlspecialchars((string) $feature); ?></span>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <p class="text-xs text-base-content/60 mt-2">
+                        Set in <code>app/app.php</code> —
+                        <code>'auth' =&gt; ['twofactor_methods' =&gt; [...]]</code> and
+                        <code>'features' =&gt; [...]</code>. Not editable here: they are part of
+                        the deployment, not of the runtime configuration.
+                    </p>
                 </div>
             </div>
         </div>
@@ -227,8 +314,10 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
 </div>
 
 <style>
-.lockout-rule-card { display:flex; align-items:center; gap:12px; background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:10px 12px; margin-bottom:6px; }
-.lockout-rule-card label { font-size:12px; color:#6b7280; white-space:nowrap; }
+/* Theme tokens, not literals: `background:#fff` renders a white card in the dark theme
+   with the theme's own light text on it, which is a card nobody can read. */
+.lockout-rule-card { display:flex; align-items:center; gap:12px; background:var(--color-base-100); border:1px solid var(--color-base-300); border-radius:6px; padding:10px 12px; margin-bottom:6px; }
+.lockout-rule-card label { font-size:12px; color:var(--color-base-content); opacity:.65; white-space:nowrap; }
 .lockout-rule-card input { width:90px; border:1px solid #d1d5db; border-radius:4px; padding:4px 8px; font-size:13px; }
 </style>
 
