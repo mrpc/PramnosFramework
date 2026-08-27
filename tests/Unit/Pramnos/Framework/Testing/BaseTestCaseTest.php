@@ -157,6 +157,34 @@ class BaseTestCaseTest extends BaseTestCase
     }
 
     /**
+     * The human-check helper returns fields a real verification accepts.
+     *
+     * The helper exists so that an application whose forms have
+     * `auth.security.human_check` switched on can test them with the check *on* — the
+     * alternative is switching it off for the test run, which leaves the shipped
+     * configuration untested, and a check that refuses every visitor then reaches
+     * production with a green suite.
+     *
+     * So what it has to get right is exactly this: the pair it returns must satisfy
+     * `HumanCheck::verify()`, including the detail that the hashed payload is the challenge
+     * without its signature.
+     */
+    public function test_solved_human_check_fields_verify()
+    {
+        // Act
+        $fields = $this->solvedHumanCheckFields();
+
+        // Assert
+        $this->assertTrue(
+            (new \Pramnos\Security\HumanCheck(1))->verify(
+                $fields['human_challenge'],
+                $fields['human_solution']
+            ),
+            'a solution this helper produced must be one the class accepts'
+        );
+    }
+
+    /**
      * Test the real isDocker implementation to increase coverage.
      */
     public function test_real_is_docker()

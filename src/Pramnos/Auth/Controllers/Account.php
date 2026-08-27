@@ -113,6 +113,13 @@ class Account extends Controller
             return $this->renderLogin(['error' => 'invalid_token', 'username' => $username]);
         }
 
+        // Beside the CSRF check, and before the password is looked at: the point is to make
+        // an automated attempt cost something, and a check applied after the credential
+        // work has already paid for the expensive part.
+        if (!$this->humanCheckPasses('login')) {
+            return $this->renderLogin(['error' => 'human_check', 'username' => $username]);
+        }
+
         if ($username === '' || $password === '') {
             return $this->renderLogin(['error' => 'missing_credentials', 'username' => $username]);
         }
@@ -303,6 +310,12 @@ class Account extends Controller
         if (!$this->checkCsrf()) {
             return $this->renderForgot(['error' => 'invalid_token', 'email' => $email]);
         }
+
+        // This form sends mail to an address somebody else typed, which is the cheapest
+        // way to use a site to deliver unwanted mail.
+        if (!$this->humanCheckPasses('forgot')) {
+            return $this->renderForgot(['error' => 'human_check', 'email' => $email]);
+        }
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             return $this->renderForgot(['error' => 'invalid_email', 'email' => $email]);
         }
@@ -420,6 +433,11 @@ class Account extends Controller
 
         if (!$this->checkCsrf()) {
             return $this->renderRegister(['error' => 'invalid_token', 'formData' => $formData]);
+        }
+
+        // A public write that creates a row and sends a mail — the form most worth pricing.
+        if (!$this->humanCheckPasses('register')) {
+            return $this->renderRegister(['error' => 'human_check', 'formData' => $formData]);
         }
 
         $fieldError = $this->validateRegistration($username, $email);
@@ -660,6 +678,79 @@ class Account extends Controller
      * Render the login form. $ctx carries optional 'error' / 'lockoutSeconds'.
      * Overridable so a scaffolded app can rebrand without touching the flow.
      */
+    /**
+     * A proof-of-work challenge for a public form, or null when this form has none.
+     *
+     * `\Pramnos\Security\HumanCheck` prices automated submissions — it does not block
+     * them, and nothing reading a passed check may conclude that a human was involved.
+     * What it buys is that a thousand registrations, password-reset mails or
+     * credential-stuffing attempts cost real compute instead of nothing.
+     *
+     * Minted on every render, including a re-render after an error: a challenge is
+     * single-use once solved, so reusing the one that just failed would refuse the
+     * visitor's second attempt for a reason they cannot see.
+     *
+     * @param string $form `login`, `register` or `forgot`
+     * @return array<string,mixed>|null
+     */
+    protected function humanCheckChallenge(string $form): ?array
+    {
+        if (!\Pramnos\Auth\SecurityPolicy::humanChecks($form)) {
+            return null;
+        }
+
+        try {
+            return (new \Pramnos\Security\HumanCheck())->challenge();
+        } catch (\Throwable $exception) {
+            // A check that cannot be minted must not take the form down with it: the page
+            // renders without one, and the verification below treats an absent challenge
+            // the same way — see humanCheckPasses().
+            \Pramnos\Logs\Logger::log(
+                'HumanCheck challenge failed for ' . $form . ': ' . $exception->getMessage(),
+                'auth'
+            );
+
+            return null;
+        }
+    }
+
+    /**
+     * Did this submission carry a solved challenge, when the form requires one?
+     *
+     * True when the form does not require one, so call sites read as a single condition.
+     *
+     * **Fails closed.** A form that requires a check and submits nothing is refused,
+     * including from a browser with no Web Worker: letting that through would make the
+     * check bypassable by advertising an old user agent, which is the first thing anybody
+     * automating a form does.
+     *
+     * @param string $form `login`, `register` or `forgot`
+     */
+    protected function humanCheckPasses(string $form): bool
+    {
+        if (!\Pramnos\Auth\SecurityPolicy::humanChecks($form)) {
+            return true;
+        }
+
+        $challenge = $this->post('human_challenge');
+        $solution  = $this->post('human_solution');
+
+        if ($challenge === '' || $solution === '') {
+            return false;
+        }
+
+        try {
+            return (new \Pramnos\Security\HumanCheck())->verify($challenge, $solution);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'HumanCheck verification failed for ' . $form . ': ' . $exception->getMessage(),
+                'auth'
+            );
+
+            return false;
+        }
+    }
+
     protected function renderLogin(array $ctx): mixed
     {
         $doc        = $this->document();
@@ -670,6 +761,7 @@ class Account extends Controller
         $view->routeBase = $this->routeBase;
         $view->returnUrl = $this->returnUrl();
         $view->brand     = $this->brand();
+        $view->humanCheck = $this->humanCheckChallenge('login');
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
         }
@@ -902,6 +994,7 @@ class Account extends Controller
         $view            = $this->getView('login');
         $view->routeBase = $this->routeBase;
         $view->brand     = $this->brand();
+        $view->humanCheck = $this->humanCheckChallenge('forgot');
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
         }
@@ -1008,6 +1101,7 @@ class Account extends Controller
         $view->header         = 'Create Account';
         $view->formData       = [];
         $view->registrationOpen = $this->registrationIsOpen();
+        $view->humanCheck       = $this->humanCheckChallenge('register');
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
         }

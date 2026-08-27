@@ -485,37 +485,54 @@ class HumanCheckTest extends TestCase
     }
 
     /**
-     * With no security salt configured the check fails closed.
+     * With no security salt the check generates and stores a key of its own.
      *
-     * The fallback is a per-process random key, so challenges do not verify
-     * across processes and submissions are refused. An unconfigured
-     * installation rejecting everything is recoverable; one accepting forged
-     * challenges is not.
+     * This test used to assert the opposite — that two instances disagreed, on the
+     * reasoning that an unconfigured installation refusing everything was the safe
+     * failure. It is safe and it is also useless: a per-process random key means the
+     * request that mints a challenge and the request that verifies it never share a key,
+     * so *every* visitor is told their answer was wrong, for ever, and the operator sees a
+     * feature that does not work rather than one that needs configuring.
+     *
+     * So the key is now generated once and kept in `humancheck_secret`. Not written into
+     * `securitySalt`, which salts stored passwords: filling that in would change how every
+     * existing password verifies.
      */
-    public function testWithoutASaltTheKeyIsNotPredictable(): void
+    public function testWithoutASaltAKeyIsGeneratedAndKept(): void
     {
         // Arrange
-        $original = \Pramnos\Application\Settings::getSetting('securitySalt');
+        $originalSalt   = \Pramnos\Application\Settings::getSetting('securitySalt');
+        $originalSecret = \Pramnos\Application\Settings::getSetting(HumanCheck::SECRET_SETTING);
         \Pramnos\Application\Settings::setSetting('securitySalt', '', false);
+        \Pramnos\Application\Settings::setSetting(HumanCheck::SECRET_SETTING, '', false);
 
         try {
-            // Act — two instances, each falling back to its own random key
+            // Act — two instances, the first of which has to invent the key
             $first  = new HumanCheck(1, 600, null, new CountingHumanCheckCache());
             $second = new HumanCheck(1, 600, null, new CountingHumanCheckCache());
 
             $challenge = $first->challenge();
             $solution  = $this->solve($first, $challenge['challenge']);
+            $stored    = \Pramnos\Application\Settings::getSetting(HumanCheck::SECRET_SETTING);
 
-            // Assert
-            $this->assertTrue($first->verify($challenge['challenge'], $solution));
-            $this->assertFalse(
-                $second->verify($challenge['challenge'], $solution),
-                'an unconfigured installation must not share a guessable key'
-            );
+            // Assert — the second instance can verify what the first minted, which is the
+            // whole point: those are two requests in production.
+            $this->assertTrue($second->verify($challenge['challenge'], $solution));
+
+            // The key was kept, and it is 32 random bytes rather than anything derivable.
+            $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string) $stored);
+
+            // And it is not the password salt, even an empty one.
+            $this->assertNotSame('', (string) $stored);
         } finally {
             \Pramnos\Application\Settings::setSetting(
                 'securitySalt',
-                is_string($original) ? $original : '',
+                is_string($originalSalt) ? $originalSalt : '',
+                false
+            );
+            \Pramnos\Application\Settings::setSetting(
+                HumanCheck::SECRET_SETTING,
+                is_string($originalSecret) ? $originalSecret : '',
                 false
             );
         }

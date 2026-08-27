@@ -166,6 +166,54 @@ class SecurityPolicy
     }
 
     /**
+     * Which public auth forms carry a proof-of-work human check.
+     *
+     * `auth.security.human_check`: `false` (default), `true` for all of them, or a list of
+     * the ones you want — `['login' => true, 'register' => true, 'forgot' => false]`.
+     *
+     * `\Pramnos\Security\HumanCheck` prices automated submissions rather than blocking
+     * them, which is the honest defence against volume and no defence against a targeted
+     * attack. It is worth having on `register` and `forgotpassword` — both are public
+     * writes that cost the site money in mail — and it is worth having on `login`, where
+     * the cost falls on credential stuffing.
+     *
+     * Off by default because it burns a little battery on every visitor's device, and an
+     * application with no spam problem should not be spending that. It also needs
+     * `pf-humancheck.js` on the page, which a project that has not run `project:resync`
+     * may not have.
+     *
+     * @return array{login: bool, register: bool, forgot: bool}
+     */
+    public static function humanCheckForms(): array
+    {
+        $configured = self::value('human_check', false);
+
+        if ($configured === true) {
+            return array('login' => true, 'register' => true, 'forgot' => true);
+        }
+
+        if (!is_array($configured)) {
+            return array('login' => false, 'register' => false, 'forgot' => false);
+        }
+
+        return array(
+            'login'    => (bool) ($configured['login'] ?? false),
+            'register' => (bool) ($configured['register'] ?? false),
+            'forgot'   => (bool) ($configured['forgot'] ?? false),
+        );
+    }
+
+    /**
+     * Does this form carry a human check?
+     *
+     * @param string $form `login`, `register` or `forgot`
+     */
+    public static function humanChecks(string $form): bool
+    {
+        return (bool) (self::humanCheckForms()[$form] ?? false);
+    }
+
+    /**
      * The usertype at and above which an account must hold a second factor, or 0 for none.
      *
      * An administrator with a password and nothing else is the single most valuable account

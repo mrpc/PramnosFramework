@@ -398,6 +398,59 @@ abstract class BaseTestCase extends TestCase
     }
 
     /**
+     * A minted-and-solved human check, as the two form fields a submission carries.
+     *
+     * For tests of a form that has `auth.security.human_check` switched on. Without this
+     * they have to either scrape the challenge out of the rendered page and reimplement
+     * the worker's search, or switch the check off for the test run — and the second one
+     * leaves the shipped configuration untested, which is how a check that locks every
+     * visitor out reaches production with a green suite.
+     *
+     * Pass the challenge a test scraped out of a rendered form to solve that one — which is
+     * what a helper posting a real form should do. With nothing passed, one is minted here
+     * instead: it is signed with the same key the request will verify it against, because
+     * this is the same process, and its difficulty is the minimum, because the point is to
+     * prove the flow accepts a correct answer rather than to spend the suite's time on
+     * hashes.
+     *
+     * @param  ?string $challenge The token from the form's `human_challenge` field.
+     * @return array{human_challenge: string, human_solution: string}
+     */
+    protected function solvedHumanCheckFields(?string $challenge = null): array
+    {
+        $check = new \Pramnos\Security\HumanCheck(1);
+
+        if ($challenge === null || $challenge === '') {
+            $challenge = $check->challenge()['challenge'];
+        }
+
+        // The signed payload is the token without its signature — the last of its four
+        // dot-separated fields — and the difficulty is the second. Hashing the whole token
+        // instead produces a solution `verify()` refuses.
+        $parts      = explode('.', $challenge);
+        $payload    = implode('.', array_slice($parts, 0, 3));
+        $difficulty = (int) ($parts[1] ?? 0);
+
+        for ($nonce = 0; $nonce < 50000000; $nonce++) {
+            $candidate = base_convert((string) $nonce, 10, 36);
+
+            if ($check->meetsDifficulty($payload, $candidate, $difficulty)) {
+                return [
+                    'human_challenge' => $challenge,
+                    'human_solution'  => $candidate,
+                ];
+            }
+        }
+
+        // Unreachable in practice — a solution exists for any difficulty this class mints.
+        // Failing loudly beats returning fields that will be refused for a reason the test
+        // then reports as something else.
+        throw new \RuntimeException(
+            'No solution found for a ' . $difficulty . '-bit human check'
+        );
+    }
+
+    /**
      * Assert that a record exists in the database.
      * 
      * @param string $table Table name

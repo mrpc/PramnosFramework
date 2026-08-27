@@ -310,9 +310,15 @@ class PageCacheConfigAndCspTest extends TestCase
         $this->assertStringContainsString("worker-src 'self'", Application::buildCspPolicy([]));
         $this->assertStringNotContainsString("worker-src 'none'", Application::buildCspPolicy([]));
 
+        // `blob:` too: `pf-humancheck.js` builds its solver worker from a Blob so that
+        // adopting the check costs one script tag, and `'self'` alone refuses a `blob:`
+        // URL. Third directive in that list to have forbidden something the framework
+        // itself ships.
+        $this->assertStringContainsString("worker-src 'self' blob:", Application::buildCspPolicy([]));
+
         // …and an application can widen it, like every directive around it.
         $this->assertStringContainsString(
-            "worker-src 'self' https://cdn.example",
+            "worker-src 'self' blob: https://cdn.example",
             Application::buildCspPolicy(['worker-src' => ['https://cdn.example']])
         );
     }

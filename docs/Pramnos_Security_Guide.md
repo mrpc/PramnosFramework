@@ -211,6 +211,7 @@ off by default**:
         'require_second_factor_from_usertype'  => 90,
         'password_history'                     => 5,
         'totp_replay_cache'                    => true,
+        'human_check'                          => ['login' => true, 'register' => true],
     ],
 ],
 ```
@@ -232,6 +233,7 @@ control.
 | `require_second_factor_from_usertype` | an administrator with a password and nothing else | a step-up the person did not choose; it resolves to a mailed code, so it cannot lock them out |
 | `password_history` | "change it" meaning "type the same one again" | somebody who wants their old password back cannot have it, and support cannot give it to them |
 | `totp_replay_cache` | one TOTP code completing two logins inside the same 30-second window | needs a cache that can count atomically (Redis, memcached); without one the older guard applies and nothing is refused |
+| `human_check` | a script submitting the sign-in, registration or reset form thousands of times for free | the visitor's battery, and a browser with no Web Worker or no `crypto.subtle` cannot submit the form at all |
 
 Three of them are worth expanding, because their shape matters more than their name.
 
@@ -545,6 +547,49 @@ It is single-use (enforced through an atomic counter — a replayed solve is the
 obvious bypass), HMAC-signed with its own expiry, and costs the visitor battery,
 which is why difficulty is set in milliseconds of work on a mid-range phone and
 per call site.
+
+### On the bundled auth forms
+
+`Account`'s sign-in, registration and password-reset actions carry the check already —
+switched off, like every other account-security switch:
+
+```php
+'auth' => ['security' => ['human_check' => true]],                  // all three forms
+'auth' => ['security' => ['human_check' => ['register' => true]]],  // or name them
+```
+
+The form names are `login`, `register` and `forgot`. `true` means all three; an array names
+them one at a time and anything absent stays off.
+
+Three details decide whether this is safe to switch on:
+
+- **The check runs immediately after the CSRF check** and before the credentials are read,
+  so a refused submission costs no password verification and no mail.
+- **It fails closed.** A submission with no challenge, or with one that does not verify, is
+  refused — a missing solution is the normal shape of an automated post. Minting, on the
+  other hand, fails *open*: if a challenge cannot be created the page still renders, and
+  the verification then refuses the submission, which is the same answer arrived at from
+  the other end.
+- **A browser that cannot solve it cannot submit the form.** No Web Worker, no
+  `crypto.subtle`, or a page served over plain HTTP where `crypto.subtle` is absent — the
+  client sends an empty solution and the server refuses it. That is the cost in the table,
+  and it is the reason the switch is per form rather than global: pricing registration is
+  usually worth it, pricing sign-in locks out whoever is on the wrong browser.
+
+**The signing key needs no setting up.** `securitySalt` is used when the installation has
+one; otherwise the class generates 32 random bytes on first use and keeps them in the
+`humancheck_secret` setting. It does not write `securitySalt` itself — that value salts
+stored passwords, and filling it in would change how every existing password verifies.
+
+**The worker needs `blob:` in `worker-src`**, which the framework's default policy now
+allows. `pf-humancheck.js` builds its solver from a Blob rather than a published file, so
+adopting the check is one script tag; under `worker-src 'self'` alone the browser refuses
+the worker and the form cannot be submitted at all. A project that writes its own policy
+instead of the framework's has to allow it there.
+
+The view side is `partials/human_check.html.php` in the tailwind theme: it renders nothing
+when there is no challenge, and otherwise emits the two hidden fields and marks the
+enclosing form for `pf-humancheck.js` to solve while the visitor types.
 
 ## Dependency Security
 

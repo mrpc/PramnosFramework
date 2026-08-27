@@ -13,6 +13,7 @@ $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 
 $errorMessages = [
+    'human_check'       => 'The security check did not complete. Reload the page and try again — it needs a modern browser with JavaScript enabled.',
     'invalid_token'       => 'Your session expired. Please try again.',
     'missing_credentials' => 'Please enter your username and password.',
     'invalid_credentials' => 'Invalid username or password.',
@@ -61,6 +62,9 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
 
         <form method="POST" action="<?php echo $base; ?>/login" class="space-y-4">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+            <?php /* The human check's fields, when the application asks for one. Renders
+                     nothing otherwise, so the insert is unconditional. */ ?>
+            <?php $this->insert('../partials/human_check'); ?>
             <?php if (!empty($this->returnUrl)): ?>
                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
             <?php endif; ?>

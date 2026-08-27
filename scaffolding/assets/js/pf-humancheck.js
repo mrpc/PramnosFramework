@@ -141,4 +141,71 @@
     };
 
     global.PfHumanCheck = PfHumanCheck;
+
+    /* ── Auto-wiring (data-pf-humancheck) ───────────────────────────────────────
+     *
+     * The class above solved a challenge and left every form to wire itself up, which
+     * meant each one repeated the same twelve lines — and any form that got them subtly
+     * wrong failed *open*, submitting with an empty solution and being refused by the
+     * server with no way for the visitor to know why.
+     *
+     *   <form data-pf-humancheck='{"challenge":"…","difficulty":12,"expires":…}'>
+     *       <input type="hidden" name="human_challenge" value="…">
+     *       <input type="hidden" name="human_solution" value="">
+     *
+     * Work starts as soon as the page loads — while the visitor is still typing — so by
+     * the time they submit it is normally already done. If it is not, submission waits
+     * for it rather than being blocked: the button is left alone and the form is held for
+     * the moment or two the worker still needs.
+     *
+     * A browser with no Web Worker or no crypto.subtle submits with an empty solution and
+     * is refused by the server. That is deliberate: silently letting it through would make
+     * the check bypassable by advertising an old user agent.
+     */
+    if (typeof document !== 'undefined') {
+        document.addEventListener('DOMContentLoaded', function () {
+            var forms = document.querySelectorAll('[data-pf-humancheck]');
+
+            Array.prototype.forEach.call(forms, function (form) {
+                var raw = form.getAttribute('data-pf-humancheck');
+                var challenge;
+
+                try {
+                    challenge = JSON.parse(raw);
+                } catch (error) {
+                    return;
+                }
+
+                var field = form.querySelector('[name="human_solution"]');
+                if (!field || !challenge || !challenge.challenge) { return; }
+
+                var solved = false;
+                var pending = null;
+
+                try {
+                    pending = new PfHumanCheck(challenge).solve().then(function (solution) {
+                        field.value = solution;
+                        solved = true;
+                    });
+                } catch (error) {
+                    // No worker, no crypto: the server refuses, which is the safe end.
+                    return;
+                }
+
+                form.addEventListener('submit', function (event) {
+                    if (solved || !pending) { return; }
+
+                    // Held, not blocked: the work is nearly always finished by now, and a
+                    // disabled button would leave somebody staring at a form that looks
+                    // broken while it finishes.
+                    event.preventDefault();
+                    pending.then(function () {
+                        form.submit();
+                    }).catch(function () {
+                        form.submit();
+                    });
+                });
+            });
+        });
+    }
 }(typeof self !== 'undefined' ? self : this));

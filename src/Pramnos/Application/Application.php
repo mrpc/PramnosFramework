@@ -2216,7 +2216,16 @@ class Application extends Base
             // this is the second time a hard-coded value in this list has forbidden
             // something an application could not then permit from configuration — see
             // `media-src` above, and the audio element it silently blocked.
-            "worker-src 'self'" . self::cspDomains($csp, 'worker-src'),
+            // `blob:` for the same reason, one step further along: `pf-humancheck.js`
+            // builds its solver worker from a Blob rather than a published file, so that
+            // adopting the check is one script tag and not two, and `'self'` alone refuses
+            // it — a `blob:` URL is not this origin. Third time this list has forbidden
+            // something the framework itself ships.
+            //
+            // It gives up nothing that matters here: creating a Blob URL requires running
+            // script on the page, which `script-src 'self'` plus the nonce already
+            // governs. An attacker who can do that does not need a worker.
+            "worker-src 'self' blob:" . self::cspDomains($csp, 'worker-src'),
             "base-uri 'self'",
             "form-action 'self'",
             "upgrade-insecure-requests"

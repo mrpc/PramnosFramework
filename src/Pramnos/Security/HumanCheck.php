@@ -76,6 +76,9 @@ class HumanCheck
     private const MAX_BITS = 26;
 
     /** How long a challenge remains solvable. */
+    /** The setting holding this class's own signing key, when there is no securitySalt. */
+    public const SECRET_SETTING = 'humancheck_secret';
+
     private const DEFAULT_TTL = 600;
 
     /**
@@ -263,12 +266,26 @@ class HumanCheck
     }
 
     /**
-     * The application's HMAC key.
+     * The HMAC key.
      *
-     * Falls back to a per-process random value when the application has no
-     * security salt. That makes challenges unverifiable across processes, which
-     * fails closed — an unconfigured installation rejects submissions rather
-     * than accepting forged ones.
+     * `securitySalt` when the installation has one, and otherwise a key of its own,
+     * generated once and stored as the `humancheck_secret` setting.
+     *
+     * The stored key exists because the alternative was a per-process random value, and
+     * that is a silent, total failure: a challenge minted by one request is signed with a
+     * key the next request does not have, so every solution is refused and the visitor is
+     * told their answer was wrong — for ever, with nothing in the logs of the request that
+     * failed. Nobody switches on a check that behaves like that; they conclude the feature
+     * is broken. An installation with no salt is not misconfigured for this purpose, it
+     * just has not been asked for a key before.
+     *
+     * Not `securitySalt` itself when one is missing: that value salts stored passwords, so
+     * writing it would change how every existing password verifies. This key signs a public
+     * token and nothing else, which is also why it is the better key of the two — they are
+     * only conflated here for compatibility with installations already using it.
+     *
+     * Still falls back to a random value if storing the key throws (no settings table
+     * yet, a read-only replica). That fails closed, and it is logged.
      */
     private function applicationSecret(): string
     {
@@ -278,6 +295,26 @@ class HumanCheck
             return $salt;
         }
 
-        return bin2hex(random_bytes(32));
+        $stored = Settings::getSetting(self::SECRET_SETTING);
+
+        if (is_string($stored) && $stored !== '') {
+            return $stored;
+        }
+
+        $generated = bin2hex(random_bytes(32));
+
+        try {
+            Settings::setSetting(self::SECRET_SETTING, $generated);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'HumanCheck could not store a signing key (' . $exception->getMessage()
+                . '): challenges cannot be verified across requests until this '
+                . 'installation has a securitySalt or a ' . self::SECRET_SETTING
+                . ' setting.',
+                'auth'
+            );
+        }
+
+        return $generated;
     }
 }

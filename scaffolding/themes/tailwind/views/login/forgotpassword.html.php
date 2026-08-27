@@ -10,6 +10,7 @@ $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 
 $errorMessages = [
+    'human_check' => 'The security check did not complete. Reload the page and try again — it needs a modern browser with JavaScript enabled.',
     'invalid_token' => 'Your session expired. Please try again.',
     'invalid_email' => 'Please enter a valid email address.',
 ];
@@ -30,6 +31,9 @@ $sent      = (($this->message ?? '') === 'sent');
             <?php endif; ?>
             <form method="POST" action="<?php echo $base; ?>/forgotpassword" class="space-y-4">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+            <?php /* The human check's fields, when the application asks for one. Renders
+                     nothing otherwise, so the insert is unconditional. */ ?>
+            <?php $this->insert('../partials/human_check'); ?>
                 <div>
                     <label for="email" class="block text-sm font-medium text-base-content mb-1">Email</label>
                     <input type="email" name="email" id="email" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email">

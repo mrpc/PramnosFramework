@@ -28,6 +28,7 @@ $messages = [
     'password_needs_symbol'  => 'Your password must contain at least one symbol.',
     'passwords_do_not_match' => 'The two passwords do not match.',
     'registration_failed'    => 'The account could not be created. Please try again later.',
+    'human_check'            => 'The security check did not complete. Reload the page and try again — it needs a modern browser with JavaScript enabled.',
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $messages[$errorKey] ?? $errorKey;
@@ -47,6 +48,9 @@ $closed    = ($this->registrationOpen ?? true) === false;
         <?php if (!$closed): ?>
         <form method="POST" action="<?php echo sURL; ?>register" class="space-y-4">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+            <?php /* The human check's fields, when the application asks for one. Renders
+                     nothing otherwise, so the insert is unconditional. */ ?>
+            <?php $this->insert('../partials/human_check'); ?>
             <div>
                 <label for="username" class="block text-sm font-medium text-base-content mb-1">Username</label>
                 <input type="text" name="username" id="username" class="input w-full"
