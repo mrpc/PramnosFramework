@@ -3360,4 +3360,176 @@ class InitCommandUnitTest extends TestCase
         }
         rmdir($dir);
     }
+
+    /**
+     * The image can talk to the cache container that was just added beside it.
+     *
+     * `init` asks "Cache System [redis]" — redis is the **default** — then writes
+     * a `cache:` service into docker-compose and `'method' => 'redis'` into the
+     * settings. It installed no extension, so PHP could not reach the container
+     * and `Cache` fell back to files: settings say redis, service is running,
+     * every test passes, and the cache is on disk.
+     *
+     * The framework does report it — the DevPanel reads "file fell back from
+     * redis" — and that line was the only evidence anywhere. Found in a project
+     * whose Redis-only bugs could not appear because Redis was never reached.
+     */
+    public function testTheGeneratedImageInstallsTheChosenCacheExtension(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'     => 'MyApp',
+            '--no-install'   => true,
+            '--no-download'  => true,
+            '--namespace'    => 'MyApp',
+            '--features'     => '',
+            '--ui-system'    => 'plain-css',
+            '--docker'       => 'y',
+            '--libraries'    => '',
+            '--cache-system' => 'redis',
+            '--db-type'      => 'mysql',
+            '--db-host'      => 'localhost',
+            '--db-name'      => 'myapp_db',
+            '--db-user'      => 'myapp',
+            '--db-pass'      => 'pass',
+            '--db-prefix'    => '',
+        ], ['interactive' => false]);
+
+        // Assert — the service, the setting and the extension all agree
+        $compose = (string) file_get_contents($this->tmpDir . '/docker-compose.yml');
+        $this->assertStringContainsString('image: redis:latest', $compose,
+            'a redis project must get the container');
+
+        $settings = (string) file_get_contents($this->tmpDir . '/app/config/settings.php');
+        $this->assertStringContainsString("'redis'", $settings,
+            'and be configured to use it');
+
+        $dockerfile = (string) file_get_contents($this->tmpDir . '/Dockerfile');
+        $this->assertStringContainsString('pecl install redis', $dockerfile,
+            'and be able to reach it — without the extension the cache runs on files');
+        $this->assertStringContainsString('docker-php-ext-enable redis', $dockerfile);
+    }
+
+    /**
+     * A project with no cache backend gets no extension.
+     *
+     * The other half: installing a client for a container that is not there costs
+     * build time and adds a moving part for nothing.
+     */
+    public function testAProjectWithoutACacheGetsNoCacheExtension(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'     => 'MyApp',
+            '--no-install'   => true,
+            '--no-download'  => true,
+            '--namespace'    => 'MyApp',
+            '--features'     => '',
+            '--ui-system'    => 'plain-css',
+            '--docker'       => 'y',
+            '--libraries'    => '',
+            '--cache-system' => 'none',
+            '--db-type'      => 'mysql',
+            '--db-host'      => 'localhost',
+            '--db-name'      => 'myapp_db',
+            '--db-user'      => 'myapp',
+            '--db-pass'      => 'pass',
+            '--db-prefix'    => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $dockerfile = (string) file_get_contents($this->tmpDir . '/Dockerfile');
+        $this->assertStringNotContainsString('pecl install redis', $dockerfile);
+        $this->assertStringNotContainsString('pecl install memcached', $dockerfile);
+    }
+
+    /**
+     * The plain-css theme's typeface is self-hosted, not fetched from Google.
+     *
+     * The header used to carry three `fonts.googleapis.com` tags while the same
+     * command generated a CSP restricting `style-src` to `'self'`. The browser
+     * refuses that stylesheet outright, so every scaffolded plain-css project
+     * rendered in the fallback font stack, with two console errors and no other
+     * sign. The two halves were written by one command and disagreed.
+     *
+     * Asserted on the theme rather than on the download: with `--no-download` the
+     * files are not fetched, and what has to hold either way is that the page does
+     * not reach out to a third party for them.
+     */
+    public function testPlainCssThemeSelfHostsItsTypeface(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'MyApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MyApp',
+            '--features'    => '',
+            '--ui-system'   => 'plain-css',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'myapp_db',
+            '--db-user'     => 'myapp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — the head links the vendored copy…
+        $head = (string) file_get_contents($this->tmpDir . '/app/themes/default/head.php');
+        $this->assertStringContainsString('assets/vendor/inter', $head);
+        $this->assertStringContainsString('inter.css', $head);
+
+        // …and nothing in the theme reaches out to Google for it
+        foreach (['head.php', 'header.php', 'style.css'] as $file) {
+            $path = $this->tmpDir . '/app/themes/default/' . $file;
+            $contents = is_file($path) ? (string) file_get_contents($path) : '';
+            $this->assertStringNotContainsString('fonts.googleapis.com', $contents, $file);
+            $this->assertStringNotContainsString('fonts.gstatic.com', $contents, $file);
+        }
+    }
+
+    /**
+     * The typeface is in the asset catalog, fetched as a browser.
+     *
+     * Google serves woff2 to a browser and ttf to anything else, so a download with
+     * the default agent vendors the wrong format — three times the bytes, and no
+     * variable-font support. The catalog carries the agent because the downloader
+     * cannot guess which hosts care.
+     */
+    public function testTheTypefaceCatalogEntryAsksForBrowserFormats(): void
+    {
+        // Arrange
+        $catalog = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/assets.json'),
+            true
+        );
+
+        // Act
+        $inter = $catalog['libraries']['inter'] ?? null;
+
+        // Assert
+        $this->assertIsArray($inter, 'the catalog must carry the plain-css theme\'s typeface');
+        $this->assertStringContainsString('Mozilla/5.0', (string) ($inter['user_agent'] ?? ''));
+        $this->assertSame('assets/vendor/inter/latest', $inter['local_path'] ?? null);
+    }
 }

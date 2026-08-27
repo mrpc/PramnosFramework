@@ -161,6 +161,17 @@
                 "pramnos-gridjs.js"
             ],
             "local_path": "assets/vendor/pramnos/1.2.0"
+        },
+        "inter": {
+            "version": "latest",
+            "requires_ui": ["plain-css"],
+            "description": "The plain-css theme's typeface, self-hosted. Fetched as a browser because Google serves woff2 to one and ttf to anything else; the woff2 files come down with the stylesheet, whose url() references are followed.",
+            "css": [
+                "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+            ],
+            "js": [],
+            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            "local_path": "assets/vendor/inter/latest"
         }
     }
 }

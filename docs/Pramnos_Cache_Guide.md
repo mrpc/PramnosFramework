@@ -475,6 +475,15 @@ if ($cache->method !== $cache->requestedMethod) {
 }
 ```
 
+You do not have to write that comparison: `Pramnos\Health\Checks\CacheBackendCheck`
+is registered by default and reports it as `degraded` on `/health/check`. See
+[Health checks](Pramnos_Health_Guide.md#what-you-get-without-writing-anything).
+
+**The usual cause is the PHP extension, not the server.** `pramnos init` now installs
+`redis` or `memcached` into the generated `Dockerfile` when you pick that backend — it
+used to write the compose service and the setting and leave the image without the
+client, so a brand-new project ran on files from its first request.
+
 ### Cache Key Management
 
 ```php

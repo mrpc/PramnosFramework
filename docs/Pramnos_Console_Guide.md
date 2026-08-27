@@ -413,6 +413,32 @@ get Chart.js is simply `php bin/pramnos project:install`.
 `libraries` key in its `FeatureRegistry` definition; enabling it with
 `project:reconfigure --enable-feature=` installs them automatically.
 
+**A vendored stylesheet brings what it points at.** A CSS file is rarely the whole
+library: FontAwesome's `all.min.css` is nothing but `@font-face` rules naming
+`../webfonts/*.woff2`, and a Google Fonts stylesheet is a list of absolute
+`fonts.gstatic.com` URLs. Every `url()` in a downloaded stylesheet is now fetched into a
+`files/` directory beside it and the reference rewritten, so "install locally" means
+locally. A failed download leaves the original URL in place — a stylesheet that
+half-works beats one pointing at a file that is not there.
+
+Two keys exist for hosts that care who is asking:
+
+```json
+"inter": {
+    "css": ["https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700"],
+    "user_agent": "Mozilla/5.0 (…) Chrome/126.0 Safari/537.36",
+    "local_path": "assets/vendor/inter/latest"
+}
+```
+
+`user_agent` is sent for that entry — Google serves `woff2` to a browser and `ttf` to
+anything else. And a stylesheet URL that is not a filename (`css2?family=…`) is saved as
+`<key>.css` rather than as a file with no extension that no server sends as CSS.
+
+The `plain-css` theme uses this for its typeface: `init` vendors Inter instead of linking
+Google's copy, which the project's own generated CSP (`style-src 'self'`) refused
+outright.
+
 After enabling a feature, run its migrations (`php bin/pramnos migrate`) and, if it ships
 views, publish them (`php bin/pramnos project:publish-views --list` then `--group=<name>`).
 

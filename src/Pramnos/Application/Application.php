@@ -2901,6 +2901,14 @@ class Application extends Base
 
         $registry::register(new \Pramnos\Health\Checks\DiskSpaceCheck());
         $registry::register(new \Pramnos\Health\Checks\MemoryLimitCheck());
+
+        // Whether the cache is on the backend it was configured for. The
+        // fallback is deliberate and silent, and silent is the problem: an
+        // application whose image lacks the `redis` extension runs on local disk
+        // with redis in its settings, its compose file and its bill. Constructs
+        // nothing here — the check resolves the cache when it runs, so a request
+        // that never touches the cache still never connects to one.
+        $registry::register(new \Pramnos\Health\Checks\CacheBackendCheck());
     }
 
 

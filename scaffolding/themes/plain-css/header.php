@@ -1,6 +1,8 @@
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <?php /* Inter, self-hosted — `pramnos init` vendors it into
+             assets/vendor/inter/. Linked from Google it was refused outright by the
+             project's own CSP (`style-src 'self'`), so the page rendered in the
+             fallback stack with nothing but two console errors to say so. */ ?>
+    <link rel="stylesheet" href="<?php echo sURL; ?>assets/vendor/inter/latest/inter.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="<?php echo sURL; ?>assets/css/style.css">
     <?php $this->document->renderCss(); ?>

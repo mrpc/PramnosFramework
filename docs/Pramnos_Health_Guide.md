@@ -27,6 +27,7 @@ Every application registers these during `init()`:
 | `database` | Reachable, with latency, driver and server version. Skipped entirely when the connection failed at boot, so you get one error rather than two. |
 | `disk_space` | Free space and percentage used on the application root. |
 | `memory_limit` | Peak usage against `memory_limit`. |
+| `cache` | Whether the cache is on the store it was **configured** for. `degraded` when it fell back — the application works, on the wrong store. |
 
 With the `authserver` feature enabled, one more is registered by
 `AuthServerServiceProvider`:
@@ -38,6 +39,21 @@ With the `authserver` feature enabled, one more is registered by
 Redis has a check too — `Pramnos\Health\Checks\RedisConnectivityCheck` — which is
 not registered by default because not every application uses Redis. Register it
 yourself if yours does.
+
+!!! note "Why `cache` is degraded rather than down"
+
+    `Cache` walks down to the next adapter when the configured one cannot be reached,
+    which is correct: a cache that cannot connect must not take the site down. What
+    was missing was anybody being told. An application whose PHP image lacks the
+    `redis` extension runs on local disk with `redis` in its settings, `redis` in its
+    compose file and Redis on its bill — and passes every test. Invalidation is then
+    per-server, so a two-node deployment serves whatever the node that was not asked
+    still holds.
+
+    The check names both stores (`Running on file, configured for redis`) and hints at
+    the missing extension, because the container is almost always up and the extension
+    is almost always the answer. It reports `degraded`: the site is working, and a
+    check that pages somebody for a working site is a check that gets muted.
 
 ---
 

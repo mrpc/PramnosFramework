@@ -3279,7 +3279,38 @@ PHP;
             $this->ensureBootstrapAssets();
         } elseif ($uiSystem === 'tailwind') {
             $this->ensureTailwindAssets();
+        } else {
+            $this->ensureWebFontAssets();
         }
+    }
+
+    /**
+     * Vendor the plain-css theme's typeface instead of linking Google's.
+     *
+     * The theme wants Inter, and it used to get it with three tags pointing at
+     * `fonts.googleapis.com`. In a project whose generated CSP restricts `style-src`
+     * to `'self'` — which is every project this command writes — the browser refuses
+     * that stylesheet outright, so the theme rendered in the fallback stack with two
+     * console errors and no other sign of what happened.
+     *
+     * Widening the policy for two hosts is the wrong end of it. We already download
+     * assets at scaffold time; a typeface is an asset. Self-hosted it is also one
+     * fewer third-party request per page, one fewer dependency on somebody else's
+     * uptime, and one fewer visitor IP address handed to Google — which for an
+     * application under the GDPR is not a stylistic preference.
+     *
+     * Best-effort, like every other download here: with no network the link 404s and
+     * the theme falls back to its font stack, which is what it did before anyway.
+     */
+    private function ensureWebFontAssets(): void
+    {
+        $catalog = $this->loadAssetCatalog();
+        $lib     = $catalog['libraries']['inter'] ?? null;
+        if ($lib === null) {
+            return; // @codeCoverageIgnore — assets.json has an 'inter' entry
+        }
+
+        $this->downloadLibraryAssets('inter', $lib, false);
     }
 
     private function buildThemeHeader(string $uiSystem, string $appName, array $catalog, array $features = []): string
@@ -3587,6 +3618,25 @@ HTML,
                 . "        } catch (e) { /* private mode: keep the OS preference */ }\n"
                 . "    })();\n"
                 . "    </script>\n";
+        } else {
+            /**
+             * The typeface, from this project rather than from Google.
+             *
+             * The plain-css theme is designed on Inter, and the bundled theme used to
+             * reach for it with three `fonts.googleapis.com` tags — which this same
+             * command's generated CSP (`style-src 'self'`) refuses outright. The page
+             * then rendered in the fallback stack, with two console errors and nothing
+             * else to say so.
+             *
+             * `ensureWebFontAssets()` vendors it, `url()` references and all. With
+             * `--no-download` the link 404s and the font stack in `style.css` stands,
+             * which is what the theme did anyway.
+             */
+            $interDef = $catalog['libraries']['inter'] ?? null;
+            if ($interDef) {
+                $themeCss .= "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>"
+                    . $interDef['local_path'] . "/inter.css\">\n";
+            }
         }
 
         return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
@@ -3974,23 +4024,176 @@ HTML,
 
         $downloadedCss = [];
         $downloadedJs  = [];
+        // A catalog entry may name the agent to fetch as — see downloadFile().
+        $userAgent = isset($lib['user_agent']) ? (string) $lib['user_agent'] : null;
 
         foreach ($lib['css'] as $url) {
-            $filename = basename(parse_url($url, PHP_URL_PATH));
-            $dest     = $localBase . '/' . $filename;
-            if ($this->downloadFile($url, $dest)) {
+            // A stylesheet URL is not always a filename: Google Fonts' is
+            // `css2?family=…`, whose basename is `css2`. Named from the catalog
+            // key in that case, so the project gets `<key>.css` rather than a
+            // file with no extension that no server sends as CSS.
+            $filename = basename((string) parse_url($url, PHP_URL_PATH));
+            if ($filename === '' || !str_contains($filename, '.')) {
+                $filename = $key . '.css';
+            }
+            $dest = $localBase . '/' . $filename;
+            if ($this->downloadFile($url, $dest, $userAgent)) {
                 $downloadedCss[] = $lib['local_path'] . '/' . $filename;
+                $this->vendorCssReferences($dest, $url, $localBase, $userAgent);
             }
         }
         foreach ($lib['js'] as $url) {
             $filename = basename(parse_url($url, PHP_URL_PATH));
             $dest     = $localBase . '/' . $filename;
-            if ($this->downloadFile($url, $dest)) {
+            if ($this->downloadFile($url, $dest, $userAgent)) {
                 $downloadedJs[] = $lib['local_path'] . '/' . $filename;
             }
         }
 
         return [$downloadedCss, $downloadedJs];
+    }
+
+    /**
+     * Fetch what a downloaded stylesheet points at, and repoint it locally.
+     *
+     * Vendoring a stylesheet and stopping there vendors half a library. FontAwesome's
+     * `all.min.css` is nothing but `@font-face` rules naming `../webfonts/*.woff2`;
+     * Bootstrap Icons is the same shape; a Google Fonts stylesheet is a list of
+     * absolute `fonts.gstatic.com` URLs. Downloading the CSS alone leaves a
+     * project whose icons are empty boxes and whose fonts silently fall back —
+     * and, for anything hosted remotely, a third-party request on every page that
+     * a Content Security Policy then has to be widened for. An application that
+     * asked for local assets got a local file pointing at somebody else's server.
+     *
+     * Only `url()` targets are followed, and only the ones this can place: a
+     * `data:` URI is already local, and a fragment-only reference (`url(#id)`)
+     * points inside the document. Everything else is downloaded next to the
+     * stylesheet, under a `files/` directory so two libraries in one folder cannot
+     * collide, and the reference is rewritten to that copy.
+     *
+     * A failed download leaves the original reference alone. A stylesheet that
+     * half-works is better than one rewritten to a file that is not there, and the
+     * remote URL is at least a working fallback.
+     *
+     * @param string $cssPath  The stylesheet on disk, already downloaded
+     * @param string $sourceUrl Where it came from, for resolving relative refs
+     * @param string $localBase Directory the stylesheet lives in
+     * @return int Number of referenced files vendored
+     */
+    private function vendorCssReferences(
+        string $cssPath,
+        string $sourceUrl,
+        string $localBase,
+        ?string $userAgent = null
+    ): int
+    {
+        $css = @file_get_contents($cssPath);
+        if ($css === false || $css === '') {
+            return 0;
+        }
+
+        if (!preg_match_all('/url\(\s*([\'"]?)([^\'")]+)\1\s*\)/i', $css, $matches, PREG_SET_ORDER)) {
+            return 0;
+        }
+
+        $filesDir = $localBase . '/files';
+        $vendored = 0;
+        $rewrites = [];
+
+        foreach ($matches as $match) {
+            $reference = trim($match[2]);
+            if ($reference === ''
+                || str_starts_with($reference, 'data:')
+                || str_starts_with($reference, '#')) {
+                continue;
+            }
+
+            // Strip a fragment or query — `?#iefix` and `#fontawesome` are how
+            // font stacks disambiguate formats, and neither belongs in a filename.
+            $clean = preg_replace('/[?#].*$/', '', $reference) ?? $reference;
+            if ($clean === '') {
+                continue;
+            }
+
+            $absolute = $this->resolveAssetUrl($clean, $sourceUrl);
+            if ($absolute === null) {
+                continue;
+            }
+
+            $filename = basename((string) parse_url($absolute, PHP_URL_PATH));
+            if ($filename === '' || $filename === '/') {
+                continue;
+            }
+
+            if (!isset($rewrites[$reference])) {
+                if (!is_dir($filesDir) && !@mkdir($filesDir, 0777, true) && !is_dir($filesDir)) {
+                    return $vendored;
+                }
+                if (!$this->downloadFile($absolute, $filesDir . '/' . $filename, $userAgent)) {
+                    continue;
+                }
+                $rewrites[$reference] = 'files/' . $filename;
+                $vendored++;
+            }
+        }
+
+        if ($rewrites !== []) {
+            foreach ($rewrites as $from => $to) {
+                $css = str_replace($from, $to, $css);
+            }
+            @file_put_contents($cssPath, $css);
+        }
+
+        return $vendored;
+    }
+
+    /**
+     * An absolute URL for something a stylesheet referenced.
+     *
+     * Handles the three shapes a CSS reference takes: already absolute,
+     * protocol-relative (`//host/path`), and relative to the stylesheet — which
+     * includes `../webfonts/x.woff2`, the one that matters, so the parent segments
+     * have to be resolved rather than pasted.
+     *
+     * @return string|null null when the reference cannot be placed
+     */
+    private function resolveAssetUrl(string $reference, string $sourceUrl): ?string
+    {
+        if (preg_match('#^https?://#i', $reference)) {
+            return $reference;
+        }
+        if (str_starts_with($reference, '//')) {
+            return 'https:' . $reference;
+        }
+
+        $parts = parse_url($sourceUrl);
+        if (!isset($parts['scheme'], $parts['host'])) {
+            return null;
+        }
+        $origin = $parts['scheme'] . '://' . $parts['host']
+            . (isset($parts['port']) ? ':' . $parts['port'] : '');
+
+        if (str_starts_with($reference, '/')) {
+            return $origin . $reference;
+        }
+
+        // Relative: resolve against the stylesheet's directory, collapsing `..`
+        // so `../webfonts/x.woff2` under `/npm/pkg/css/` becomes
+        // `/npm/pkg/webfonts/x.woff2` rather than a path no server answers.
+        $base = rtrim(dirname((string) ($parts['path'] ?? '/')), '/');
+        $segments = [];
+        foreach (explode('/', $base . '/' . $reference) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = $segment;
+        }
+
+        return $origin . '/' . implode('/', $segments);
     }
 
     /**
@@ -4036,7 +4239,19 @@ HTML,
         // @codeCoverageIgnoreEnd
     }
 
-    private function downloadFile(string $url, string $dest): bool
+    /**
+     * @param string|null $userAgent Sent instead of the framework's own.
+     *
+     *                    Some hosts serve different bytes per user agent, and the
+     *                    one that matters is Google Fonts: it answers a stylesheet
+     *                    naming `woff2` files to a browser and one naming `ttf` to
+     *                    anything else. Vendoring fonts with the framework's own
+     *                    agent therefore downloads the legacy format — several
+     *                    times the size, and no variable-font axes — while looking
+     *                    like it worked. A catalog entry can name a browser agent
+     *                    for exactly this.
+     */
+    private function downloadFile(string $url, string $dest, ?string $userAgent = null): bool
     {
         // A dry run must not reach the network. Recorded by the caller, which knows
         // the project-relative path; here only the write is refused.
@@ -4054,7 +4269,8 @@ HTML,
         $ctx = stream_context_create([
             'http' => [
                 'timeout'    => 15,
-                'user_agent' => 'PramnosFramework/1.2 (+https://github.com/mrpc/PramnosFramework)',
+                'user_agent' => $userAgent
+                    ?? 'PramnosFramework/1.2 (+https://github.com/mrpc/PramnosFramework)',
             ],
         ]);
         $data = @file_get_contents($url, false, $ctx);
@@ -5009,6 +5225,32 @@ PHP;
         $dockerfile .= "RUN docker-php-ext-configure intl\n";
         $dockerfile .= "RUN docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype\n";
         $dockerfile .= "RUN docker-php-ext-install pdo $phpExts intl mbstring zip bcmath gd\n";
+
+        /**
+         * The extension for the cache backend this project chose.
+         *
+         * Without it the image cannot talk to the container that was just added
+         * to docker-compose, and `Cache` falls back to files — **silently as far
+         * as the application is concerned.** It does report the fallback (the
+         * DevPanel reads "file fell back from redis"), and nothing else does: the
+         * settings say redis, the service is running, every test passes, and the
+         * cache is on disk.
+         *
+         * `redis` is the default answer to the init prompt, so this affected the
+         * common path. It was found in a project whose Redis-only bugs could not
+         * appear because Redis was never reached.
+         */
+        if ($cacheSystem === 'redis') {
+            $dockerfile .= "RUN pecl install redis && docker-php-ext-enable redis\n";
+        } elseif ($cacheSystem === 'memcached') {
+            // libmemcached-dev is a build dependency of the extension, not a
+            // runtime one for anything else, so it is installed here rather than
+            // in the package list above.
+            $dockerfile .= "RUN apt-get update && apt-get install -y libmemcached-dev zlib1g-dev"
+                . " && pecl install memcached && docker-php-ext-enable memcached"
+                . " && rm -rf /var/lib/apt/lists/*\n";
+        }
+
         $dockerfile .= "RUN pecl install xdebug && docker-php-ext-enable xdebug\n";
         $dockerfile .= "RUN echo \"xdebug.mode=coverage\" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini\n";
         // Node/npm, only when something in the project needs it: the OpenAPI /
