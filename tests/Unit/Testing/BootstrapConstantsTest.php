@@ -81,4 +81,71 @@ class BootstrapConstantsTest extends TestCase
         // Act
         $app->close('stopped');
     }
+
+    /**
+     * `setup()` also lowers the bcrypt cost, so a project's fixtures are cheap.
+     *
+     * The production cost is deliberately slow — that is its whole purpose — and a
+     * suite pays it on every fixture that has a password. Measured here: **143 ms
+     * per hash**, and two-factor enrolment hashes ten backup codes, so one
+     * `startSetup()` + `completeSetup()` costs 1.4 s before the test does
+     * anything.
+     *
+     * This framework's bootstrap has set it since the suite was first profiled;
+     * the bootstrap it *scaffolds* did not. One project's 188 integration tests
+     * took 69 s, of which 62 s belonged to the 23 that enrol two-factor
+     * authentication. With the cost at 4 the same suite is 3.5 s.
+     *
+     * Nothing about the algorithm changes: a hash made at cost 4 is verified by
+     * the same `password_verify()` the application calls.
+     */
+    public function testSetupLowersTheBcryptCostForProjects(): void
+    {
+        // Act
+        $source = $this->source();
+
+        // Assert
+        $this->assertStringContainsString('PasswordHash::COST_ENV', $source);
+        $this->assertStringContainsString("COST_ENV . '=4'", $source);
+    }
+
+    /**
+     * It defers to a cost the environment already states.
+     *
+     * A test that is genuinely about the cost sets the variable itself, and
+     * overwriting it would make that test assert against 4 rather than against
+     * what it chose.
+     */
+    public function testAnExplicitCostIsNotOverwritten(): void
+    {
+        // Act
+        $source = $this->source();
+
+        // Assert
+        $this->assertStringContainsString(
+            'if (getenv(\\Pramnos\\Auth\\PasswordHash::COST_ENV) === false)',
+            $source
+        );
+    }
+
+    /**
+     * And the cost is in force in this very run.
+     *
+     * The assertions above read the source; this one proves the effect, and it is
+     * the one that fails if the mechanism changes shape.
+     */
+    public function testHashingIsCheapInTheSuite(): void
+    {
+        // Act
+        $start = microtime(true);
+        \Pramnos\Auth\PasswordHash::make('a-password-to-hash');
+        $elapsed = (microtime(true) - $start) * 1000;
+
+        // Assert — cost 4 is well under a millisecond; the production cost is ~143
+        $this->assertLessThan(
+            50.0,
+            $elapsed,
+            sprintf('hashing took %.1f ms — the suite is running at the production cost', $elapsed)
+        );
+    }
 }

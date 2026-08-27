@@ -55,6 +55,28 @@ class TestEnvironment
             define('PRAMNOS_TESTING', true); // @codeCoverageIgnore — pre-defined by this framework's own bootstrap
         }
 
+        /**
+         * Hash passwords at the cheapest cost bcrypt accepts.
+         *
+         * The production cost is deliberately slow — that is its entire job — and a
+         * suite pays it on every fixture. Measured in this framework: **143 ms per
+         * hash**, and two-factor enrolment hashes ten backup codes, so a single
+         * `startSetup()` + `completeSetup()` costs 1.4 s before the test does
+         * anything. At cost 4 the same hash is 0.71 ms.
+         *
+         * This framework's own bootstrap has set it since the suite was profiled.
+         * The bootstrap it *scaffolds* did not, so every project paid the full cost
+         * — one project's 188 integration tests took 69 s, of which 62 s was 23
+         * tests that enrol two-factor authentication.
+         *
+         * Nothing about the algorithm changes: a hash made at cost 4 is verified by
+         * the same `password_verify()` the application calls. Set the variable
+         * yourself if a test is genuinely about the cost.
+         */
+        if (getenv(\Pramnos\Auth\PasswordHash::COST_ENV) === false) {
+            putenv(\Pramnos\Auth\PasswordHash::COST_ENV . '=4');
+        }
+
         if (!defined('ROOT')) {
             // @codeCoverageIgnoreStart
             // ROOT is always defined before tests run; this guard exists only for
