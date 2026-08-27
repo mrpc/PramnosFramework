@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Protecting a form or endpoint (CSRF, XSS, SQL injection, uploads)
+  - Hardening accounts: session fixation, rate limits, session lifetimes, notices
   - Hardening sessions, passwords or security headers
   - Configuring a Content Security Policy or trusted proxies
   - Adding a human check to a public write endpoint
@@ -191,6 +192,68 @@ if (password_needs_rehash($storedHash, PASSWORD_DEFAULT)) {
     // Update database with new hash
 }
 ```
+
+## Account security: the switches, and what each one costs
+
+`Pramnos\Auth\SecurityPolicy` is one place, declared in one block, and **every switch is
+off by default**:
+
+```php
+// app/app.php
+'auth' => [
+    'security' => [
+        'regenerate_session_on_login'          => true,
+        'ip_rate_limit'                        => ['attempts' => 30, 'window' => 900],
+        'notify_security_changes'              => true,
+        'session_idle_timeout'                 => 3600,
+        'session_absolute_timeout'             => 2592000,
+        'revoke_sessions_on_password_change'   => true,
+        'require_second_factor_from_usertype'  => 90,
+    ],
+],
+```
+
+Off by default is the contract, not caution. This framework is shared by applications that
+did not ask for any of this, and several of these end sessions, refuse logins or send mail
+— changing that silently on an upgrade is an incident. It also means each one can be
+described as a decision with a price, which is the honest way to present a security
+control.
+
+| Switch | What it stops | What it costs |
+| --- | --- | --- |
+| `regenerate_session_on_login` | session fixation — an id valid before authentication stays valid after it | `sessions.sid` is stale for the rest of that one request; an application keying its own state on the session id must know |
+| `ip_rate_limit` | one address trying one password against ten thousand usernames, which no per-account counter ever sees | a shared office or campus NAT shares the counter |
+| `notify_security_changes` | a stolen session changing the address and then the password with the owner never hearing | mail, per change, including the routine ones |
+| `session_idle_timeout` | a session left open on a shared screen | somebody is signed out while reading |
+| `session_absolute_timeout` | a session that stays valid for a year because it is used daily | everybody re-authenticates on a schedule |
+| `revoke_sessions_on_password_change` | the attacker keeping the account after the owner "fixes" it | other devices are signed out, which reads as a fault if it was routine hygiene |
+| `require_second_factor_from_usertype` | an administrator with a password and nothing else | a step-up the person did not choose; it resolves to a mailed code, so it cannot lock them out |
+
+Three of them are worth expanding, because their shape matters more than their name.
+
+**The rate limit is per address and the lockout is per account, and they are not
+alternatives.** `loginlockoutsteps` protects one account from being guessed at. It is no
+defence at all against the attack that actually happens — a list of leaked
+username/password pairs, one attempt each — because every per-account counter stays at 1.
+The address limit answers that half: N failures from one address in a window, then that
+address is refused for the rest of the window. Fixed, not a ladder, so a shared NAT is
+slowed rather than banned for a day.
+
+**Notices go to the previous address too.** That is the whole reason
+`SecurityChangeNotifier` exists rather than a line at each call site: a stolen session's
+first two moves are to change the address and then the password, and every notice after the
+first goes to the attacker. The mail to the old address is the only signal the owner gets.
+
+**Timeouts are enforced in `Session::staticIsLogged()`**, not in a middleware, because that
+function is what every "is somebody signed in" path goes through — the current user, the
+controllers' guard, the API's session exchange. A timeout in a middleware is a timeout the
+paths that skip the middleware do not have. A session with no recorded start is treated as
+starting now, so switching either limit on does not sign out every existing session at
+once — which is how a security setting gets switched straight back off.
+
+**What is deliberately not here**: checking passwords against breach corpora. It needs an
+outbound call per password change to a third party, and that is a decision an application
+makes with its own privacy notice, not one a framework makes for it.
 
 ## XSS Prevention
 

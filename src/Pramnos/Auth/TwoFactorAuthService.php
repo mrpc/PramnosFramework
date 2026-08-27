@@ -262,6 +262,15 @@ class TwoFactorAuthService
 
         $this->logAttempt($userId, true, 'SETUP', \Pramnos\Http\Request::clientIp() ?: null);
 
+        // Told to the account, when the application asks for such notices. Adding a second
+        // factor is the change an attacker with a session makes to keep it — so the owner
+        // hearing about one they did not add is the point.
+        SecurityChangeNotifier::notify(
+            $userId,
+            SecurityChangeNotifier::FACTOR_ADDED,
+            'authenticator app'
+        );
+
         return true;
     }
 
@@ -396,6 +405,16 @@ class TwoFactorAuthService
             ->delete();
 
         $this->logAttempt($userId, true, 'DISABLE', \Pramnos\Http\Request::clientIp() ?: null);
+
+        // Every removal path arrives here — the owner's own, and the operator's — so the
+        // notice is sent once, from the place that actually clears the factor rather than
+        // from each caller that meant to.
+        SecurityChangeNotifier::notify(
+            $userId,
+            SecurityChangeNotifier::FACTOR_REMOVED,
+            'authenticator app'
+        );
+
         return true;
     }
 

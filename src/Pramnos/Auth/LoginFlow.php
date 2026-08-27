@@ -512,6 +512,24 @@ class LoginFlow
             $methods[] = $factor->name();
         }
 
+        /**
+         * A privileged account must hold a second factor, when the application says so.
+         *
+         * `auth.security.require_second_factor_from_usertype`. An administrator with a
+         * password and nothing else is the most valuable account in an installation, and
+         * leaving that to the preference of the person holding it means the answer is
+         * usually "no". This makes the factor a condition of the privilege.
+         *
+         * It cannot lock anybody out, by the same rule the new-device demands follow: an
+         * account above the floor with nothing enrolled is asked for a mailed code, which
+         * every account can satisfy. What it *does* do is make the step-up unavoidable, so
+         * the person is pushed towards enrolling something better.
+         */
+        $factorFloor = SecurityPolicy::secondFactorFromUsertype();
+        if ($factorFloor > 0 && $methods === [] && $this->usertypeOf($userId) >= $factorFloor) {
+            $methods[] = EmailSecondFactor::METHOD;
+        }
+
         // The site's new-device policy, read before anything expensive: it is a setting,
         // and when it is `notify` — the default — an account with no second factor needs
         // no further questions asked about it.
@@ -654,6 +672,22 @@ class LoginFlow
     protected function emailFactor(): EmailSecondFactor
     {
         return $this->emailFactor ??= new EmailSecondFactor();
+    }
+
+    /**
+     * The account's usertype, or 0 when it cannot be read.
+     *
+     * A seam, and 0 on failure: an unreadable usertype must not be treated as privileged
+     * — that would demand a factor of an account nobody can confirm is an administrator,
+     * on every login, because the read keeps failing.
+     */
+    protected function usertypeOf(int $userId): int
+    {
+        try {
+            return (int) ((new \Pramnos\User\User($userId))->usertype ?? 0);
+        } catch (\Throwable $exception) {
+            return 0;
+        }
     }
 
     /**

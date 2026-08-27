@@ -268,12 +268,76 @@ class Session extends Base
                 return true;
             }
         }
-        if (isset($_SESSION['logged'])
-            && isset($_SESSION['uid']) && $_SESSION['uid'] > 1) {
-            return true;
-        } else {
+        if (!isset($_SESSION['logged'])
+            || !isset($_SESSION['uid']) || $_SESSION['uid'] <= 1) {
             return false;
         }
+
+        /**
+         * Has this session been valid too long, or been left alone too long?
+         *
+         * Checked here rather than in a middleware because this is the one function every
+         * "is somebody signed in" path goes through — `getCurrentUser()`, the controllers'
+         * auth guard, the API's session exchange. A timeout enforced in a middleware is a
+         * timeout the paths that skip the middleware do not have.
+         *
+         * Both limits are off unless an application asks for them
+         * ({@see \Pramnos\Auth\SecurityPolicy}), because a session that ends while
+         * somebody is working is a support call, and only the application knows whether
+         * that trade is worth making.
+         */
+        if (!self::withinLifetime()) {
+            return false;
+        }
+
+        // Touched only after the checks, so idleness is measured from the previous request
+        // rather than from this one.
+        $_SESSION['last_activity'] = time();
+
+        return true;
+    }
+
+    /**
+     * Is the current session still inside the configured lifetimes?
+     *
+     * Two questions, and they are not the same one. *Idle* is "nobody is there": a session
+     * left on a shared screen. *Absolute* is "this has been valid long enough": a session
+     * used every day for a year, which no amount of activity should keep alive for ever.
+     *
+     * A session with no recorded start or activity is treated as starting now rather than
+     * as infinitely old — otherwise switching either limit on would sign out every
+     * existing session at once, which is how a security setting gets switched back off.
+     */
+    protected static function withinLifetime(): bool
+    {
+        $idle     = \Pramnos\Auth\SecurityPolicy::sessionIdleTimeout();
+        $absolute = \Pramnos\Auth\SecurityPolicy::sessionAbsoluteTimeout();
+
+        if ($idle === 0 && $absolute === 0) {
+            return true;
+        }
+
+        $now = time();
+
+        if ($idle > 0) {
+            $last = (int) ($_SESSION['last_activity'] ?? 0);
+            if ($last === 0) {
+                $_SESSION['last_activity'] = $now;
+            } elseif ($now - $last > $idle) {
+                return false;
+            }
+        }
+
+        if ($absolute > 0) {
+            $started = (int) ($_SESSION['login_time'] ?? 0);
+            if ($started === 0) {
+                $_SESSION['login_time'] = $now;
+            } elseif ($now - $started > $absolute) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

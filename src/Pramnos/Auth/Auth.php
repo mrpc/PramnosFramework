@@ -521,7 +521,13 @@ class Auth extends \Pramnos\Framework\Base
         \Pramnos\Http\Session::getInstance()->ensureStarted();
         \Pramnos\Http\Session::getInstance()->regenerateId();
 
-        $_SESSION['logged']   = true;
+        // Anchors the absolute session lifetime, when one is configured. Written on every
+        // login path so the two cannot disagree about when this session began — a session
+        // with no start is treated as starting now, which would quietly make an absolute
+        // limit unenforceable on whichever path forgot.
+        $_SESSION['logged']        = true;
+        $_SESSION['login_time']    = time();
+        $_SESSION['last_activity'] = time();
         $_SESSION['uid']      = $info['uid'];
         $_SESSION['username'] = $info['username'];
         $_SESSION['auth']     = $info['auth'];

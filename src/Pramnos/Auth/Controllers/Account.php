@@ -1081,11 +1081,26 @@ class Account extends Controller
                 return;
             }
 
+            // Kept before the assignment: after `save()` the account no longer knows what
+            // its address used to be, and that address is the only place a warning can
+            // reach the real owner when this change was not theirs.
+            $previousEmail = (string) ($currentUser->email ?? '');
+
             $currentUser->firstname = $firstname;
             $currentUser->lastname  = $lastname;
             $currentUser->email     = $email;
             $currentUser->phone     = $phone;
             $currentUser->save();
+
+            if (strcasecmp($previousEmail, $email) !== 0) {
+                \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'email_changed');
+                \Pramnos\Auth\SecurityChangeNotifier::notify(
+                    (int) $currentUser->userid,
+                    \Pramnos\Auth\SecurityChangeNotifier::EMAIL,
+                    '',
+                    $previousEmail
+                );
+            }
 
             $this->addMessage('Your profile has been updated.');
             $this->redirect(sURL . $this->routeBase . '/profile');
@@ -1465,6 +1480,13 @@ class Account extends Controller
 
             // Called once and remembered: reading the result twice would write twice.
             $done = $factor->setEnabledFor($userId, false);
+            if ($done) {
+                \Pramnos\Auth\SecurityChangeNotifier::notify(
+                    $userId,
+                    \Pramnos\Auth\SecurityChangeNotifier::FACTOR_REMOVED,
+                    'code by email'
+                );
+            }
             $_SESSION[$done ? 'account_success' : 'account_error'] = $done
                 ? t('Sign-in codes by email are turned off.')
                 : t('That could not be changed.');
@@ -1484,6 +1506,13 @@ class Account extends Controller
             }
 
             $done = $factor->setEnabledFor($userId, true);
+            if ($done) {
+                \Pramnos\Auth\SecurityChangeNotifier::notify(
+                    $userId,
+                    \Pramnos\Auth\SecurityChangeNotifier::FACTOR_ADDED,
+                    'code by email'
+                );
+            }
             $_SESSION[$done ? 'account_success' : 'account_error'] = $done
                 ? t('You will be asked for a code by email when you sign in.')
                 : t('That could not be changed.');
@@ -1606,6 +1635,11 @@ class Account extends Controller
                     );
                 }
             }
+
+            \Pramnos\Auth\SecurityChangeNotifier::notify(
+                (int) $currentUser->userid,
+                \Pramnos\Auth\SecurityChangeNotifier::PASSWORD
+            );
 
             $this->addMessage($endedOthers > 0
                 ? 'Your password has been updated, and your other sessions have been signed out.'

@@ -80,17 +80,21 @@ class LoginFlowTest extends TestCase
     /**
      * Install an application declaring the given second-factor methods.
      *
-     * @param  list<string> $methods
+     * @param  list<string>        $methods
+     * @param  array<string,mixed> $security The `auth.security` switches to declare
      * @return array<string,mixed> The registry as it was, for tearDown
      */
-    private function installApplication(array $methods): array
+    private function installApplication(array $methods, array $security = []): array
     {
         $stub = new class extends \Pramnos\Application\Application {
             public function __construct()
             {
             }
         };
-        $stub->applicationInfo = ['auth' => ['twofactor_methods' => $methods]];
+        $stub->applicationInfo = ['auth' => [
+            'twofactor_methods' => $methods,
+            'security'          => $security,
+        ]];
 
         $reflection = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
         $saved = $reflection->getValue() ?? [];
@@ -813,6 +817,67 @@ class LoginFlowTest extends TestCase
         $this->assertSame(0, $this->flow->fakeAuthLink->sent);
     }
 
+
+    // ── The privileged-account floor ───────────────────────────────────────────
+
+    /**
+     * An administrator with no second factor is asked for a mailed code.
+     *
+     * `require_second_factor_from_usertype` makes the factor a condition of the privilege
+     * rather than a preference of the person holding it — the account with the most to
+     * lose is the one least likely to have volunteered. It cannot lock them out: the
+     * demand resolves to the one factor every account can satisfy.
+     */
+    public function testAPrivilegedAccountIsAskedForAFactor(): void
+    {
+        // Arrange — the floor is 90, and this account is 90 with nothing enrolled
+        $this->installApplication(['totp', 'email'], ['require_second_factor_from_usertype' => 90]);
+        $this->flow->fakeAuth->response = $this->successResponse(7);
+        $this->flow->usertype           = 90;
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret');
+
+        // Assert
+        $this->assertTrue($result->needsStepUp());
+        $this->assertSame(['email'], $result->stepUpMethods);
+    }
+
+    /**
+     * An account below the floor is unaffected.
+     */
+    public function testAnOrdinaryAccountIsNotAskedByTheFloor(): void
+    {
+        // Arrange
+        $this->installApplication(['totp', 'email'], ['require_second_factor_from_usertype' => 90]);
+        $this->flow->fakeAuth->response = $this->successResponse(7);
+        $this->flow->usertype           = 50;
+
+        // Act & Assert
+        $this->assertTrue($this->flow->attempt('alice', 'secret')->isSuccess());
+    }
+
+    /**
+     * With a factor already enrolled, the floor adds nothing.
+     *
+     * The floor exists to cover accounts with *nothing*; an administrator who has enrolled
+     * an authenticator app must be asked for the app, not handed a weaker channel as well.
+     */
+    public function testTheFloorDoesNotWeakenAnEnrolledAccount(): void
+    {
+        // Arrange
+        $this->installApplication(['totp', 'email'], ['require_second_factor_from_usertype' => 90]);
+        $this->flow->fakeAuth->response     = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled = true;
+        $this->flow->usertype               = 99;
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret');
+
+        // Assert
+        $this->assertSame(['twofactor'], $result->stepUpMethods);
+    }
+
 }
 
 /** In-memory Auth double: verifyCredentials/loginById record args and return canned values. */
@@ -998,6 +1063,14 @@ class TestableLoginFlow extends LoginFlow
             $this->fakeEmailFactor,
             $this->fakeAuthLink
         );
+    }
+
+    /** The account's usertype, without a database. */
+    public int $usertype = 0;
+
+    protected function usertypeOf(int $userId): int
+    {
+        return $this->usertype;
     }
 
     protected function stepUpMethods(int $userId): array
