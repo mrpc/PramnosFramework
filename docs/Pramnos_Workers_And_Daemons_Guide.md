@@ -490,6 +490,37 @@ $status = (new MyDaemons())->status();   // does NOT run a reconcile cycle
 // [ 'running' => bool, 'pid' => int, 'heartbeat_age_seconds' => int, 'daemons' => [...] ]
 ```
 
+`heartbeat_age_seconds` is the age of the state file, which the reconcile loop rewrites every
+cycle — so a fresh mtime means the supervisor is not merely alive but actively cycling. **A
+live pid with a stale heartbeat is the third state**, and it looks identical to healthy if you
+only read the pid: the process is there and stuck.
+
+For code with no instance to call — a web request cannot construct the application's
+orchestrator subclass — the two paths are static:
+
+```php
+DaemonOrchestrator::stateFilePath();          // ROOT/var/daemon_orchestrator_state.json
+DaemonOrchestrator::orchestratorLockPath();   // ROOT/var/DAEMON_ORCHESTRATOR.lock
+```
+
+### The services screen needs the supervisor to be running
+
+`/admin/Services` lists what the orchestrator manages, and its Stop, Start and Restart
+buttons **do not spawn or kill anything**: they write and remove a sentinel file, and the
+orchestrator acts on it on its next cycle.
+
+So with no orchestrator running:
+
+- **Stop** still works — a daemon polls its own stop file.
+- **Start** and **Restart** do nothing whatsoever. No error, no message: the operator clicks,
+  the page reloads, the service stays down.
+
+The screen therefore reports the supervisor's own state above the list — running with its pid
+and last cycle, stale if it has not cycled for two minutes, and a warning naming the
+consequence if it is not running at all. `GET /admin/Services/status` carries the same reading
+as `orchestrator`, which is what a monitor should look at first: with the supervisor gone,
+"0 running" is the expected number rather than an incident.
+
 ---
 
 ## 4. Standalone script worker (no `CommandBase`)

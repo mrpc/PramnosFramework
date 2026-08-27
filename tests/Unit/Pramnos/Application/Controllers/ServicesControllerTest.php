@@ -28,6 +28,10 @@ class TestableServicesController extends ServicesController
             public mixed $services;
             public mixed $service;
             public mixed $lines;
+            /** The supervisor's own state — declared, because a dynamic property is a
+             *  deprecation on PHP 8.2+ and the deprecation is the only warning a stub
+             *  gives before it stops accepting what the controller publishes. */
+            public mixed $orchestrator;
             
             public function display($view = '') {
                 return 'mock html view for ' . $view;

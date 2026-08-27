@@ -368,6 +368,23 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function getOrchestratorLockFile(): string
     {
+        return self::orchestratorLockPath();
+    }
+
+    /**
+     * The same path, for code that has no orchestrator instance.
+     *
+     * The administration screen is the case: it is a web request, it cannot construct the
+     * application's orchestrator subclass, and it needs to know whether the supervisor is
+     * running — without that, its Start and Restart buttons write a sentinel file that
+     * nothing is watching, and an operator clicks them and is told nothing.
+     *
+     * A subclass that overrides `getOrchestratorLockFile()` moves the file for itself and
+     * not for this; the paths are conventional (`ROOT/var/...`) and nothing in the
+     * framework overrides them.
+     */
+    public static function orchestratorLockPath(): string
+    {
         $base = defined('ROOT') ? ROOT : sys_get_temp_dir();
         return $base . '/var/DAEMON_ORCHESTRATOR.lock';
     }
@@ -376,6 +393,12 @@ abstract class DaemonOrchestrator extends CommandBase
      * Absolute path to the JSON state file that tracks running PIDs.
      */
     protected function getStateFile(): string
+    {
+        return self::stateFilePath();
+    }
+
+    /** The same path, for code that has no instance — see {@see orchestratorLockPath()}. */
+    public static function stateFilePath(): string
     {
         $base = defined('ROOT') ? ROOT : sys_get_temp_dir();
         return $base . '/var/daemon_orchestrator_state.json';

@@ -57,6 +57,9 @@ class ServicesController extends Controller
 
         $view          = $this->getView('services');
         $view->services = $this->loadServiceList();
+        // Whether the supervisor is up, because that is what decides if the buttons on
+        // this page do anything at all — see orchestratorStatus().
+        $view->orchestrator = $this->orchestratorStatus();
 
         return $view->display();
     }
@@ -197,11 +200,16 @@ class ServicesController extends Controller
         \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
         echo json_encode([
-            'total'    => count($services),
-            'running'  => $counts['running'],
-            'stopped'  => $counts['stopped'],
-            'error'    => $counts['error'],
-            'services' => $services,
+            'total'        => count($services),
+            'running'      => $counts['running'],
+            'stopped'      => $counts['stopped'],
+            'error'        => $counts['error'],
+            'services'     => $services,
+            // A monitor polling this endpoint wants to know about the supervisor before
+            // it cares how many workers are down: with the supervisor gone, "0 running"
+            // is the expected reading rather than an incident, and nothing this page can
+            // do will change it.
+            'orchestrator' => $this->orchestratorStatus(),
         ]);
     }
 
@@ -214,10 +222,83 @@ class ServicesController extends Controller
      *
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Whether the supervisor itself is running.
+     *
+     * The screen's Stop, Start and Restart do not spawn or kill anything: they write and
+     * remove a sentinel file next to the worker's lock, and the **orchestrator** is what
+     * notices on its next cycle. With no orchestrator running, Stop still works — a daemon
+     * checks its own stop file — and Start and Restart do nothing whatsoever. No error, no
+     * message: the operator clicks, the page reloads, the service stays down.
+     *
+     * So the page says which of the two situations it is in. `DaemonOrchestrator::status()`
+     * has existed for exactly this ("so an admin/API endpoint can report 'is the supervisor
+     * up'") and nothing called it; this is the same reading, taken without an instance,
+     * because a web request cannot construct the application's orchestrator subclass.
+     *
+     * `heartbeat_age_seconds` is the age of the state file, which the reconcile loop
+     * rewrites every cycle — so a fresh mtime means the supervisor is not merely alive but
+     * actively cycling. A live pid with a stale heartbeat is the third case worth naming:
+     * the process is there and stuck, which looks identical to healthy from the pid alone.
+     *
+     * @return array{running:bool,pid:?int,heartbeat_age_seconds:?int}
+     */
+    protected function orchestratorStatus(): array
+    {
+        $lockFile = \Pramnos\Console\DaemonOrchestrator::orchestratorLockPath();
+        $pid      = 0;
+
+        if (is_file($lockFile)) {
+            $content = @file_get_contents($lockFile);
+            $pid     = $content === false ? 0 : max(0, (int) trim((string) $content));
+        }
+
+        $running = $pid > 0 && $this->processIsAlive($pid);
+
+        $stateFile = \Pramnos\Console\DaemonOrchestrator::stateFilePath();
+        $age       = is_file($stateFile)
+            ? max(0, time() - (int) @filemtime($stateFile))
+            : null;
+
+        return [
+            'running'               => $running,
+            'pid'                   => $running ? $pid : null,
+            'heartbeat_age_seconds' => $age,
+        ];
+    }
+
+    /**
+     * Whether a pid is a process this host is running.
+     *
+     * `posix_kill($pid, 0)` where the extension is there, `/proc` where it is not. Not
+     * `ps`: this runs on a web request, and shelling out per page load to answer a
+     * question the kernel answers for free is how a status page becomes the slowest one on
+     * the site.
+     */
+    protected function processIsAlive(int $pid): bool
+    {
+        if ($pid <= 0) {
+            return false;
+        }
+
+        if (function_exists('posix_kill')) {
+            if (@posix_kill($pid, 0)) {
+                return true;
+            }
+
+            // EPERM (1) means the process exists and belongs to somebody else — which is
+            // the normal case here: the orchestrator is usually started as a different
+            // user than the web server runs as. Reading that as "not running" would put a
+            // permanent warning on the page of every correctly configured installation.
+            return posix_get_last_error() === 1;
+        }
+
+        return is_dir('/proc/' . $pid);
+    }
+
     private function loadServiceList(): array
     {
-        $base      = defined('ROOT') ? ROOT : sys_get_temp_dir();
-        $stateFile = $base . '/var/daemon_orchestrator_state.json';
+        $stateFile = \Pramnos\Console\DaemonOrchestrator::stateFilePath();
 
         if (!file_exists($stateFile)) {
             return [];

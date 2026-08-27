@@ -12,6 +12,37 @@
     <?php if (!empty($_GET['msg'])): ?>
         <div class="alert" style="background:#e8f4fd;border:1px solid #bee5eb;padding:12px 16px;border-radius:4px;margin-bottom:12px"><?php echo htmlspecialchars($_GET['msg']); ?></div>
     <?php endif; ?>
+    <?php
+    /**
+     * The supervisor's own state. Stop, Start and Restart write a sentinel file the
+     * orchestrator acts on: with none running, Start and Restart do nothing at all.
+     */
+    $orchestrator = $this->orchestrator ?? null;
+    $supervising  = is_array($orchestrator) && !empty($orchestrator['running']);
+    $heartbeat    = is_array($orchestrator) ? $orchestrator['heartbeat_age_seconds'] : null;
+    ?>
+    <?php if (!$supervising): ?>
+        <div style="background:#fff8e1;border:1px solid #ffe082;padding:12px 16px;border-radius:4px;margin-bottom:12px">
+            <strong>The orchestrator is not running.</strong>
+            Start and Restart below have nothing to act on them. Run
+            <code>pramnos orchestrate</code> and they work again; Stop still takes effect,
+            because a daemon checks its own stop file.
+        </div>
+    <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
+        <div style="background:#fff8e1;border:1px solid #ffe082;padding:12px 16px;border-radius:4px;margin-bottom:12px">
+            <strong>The orchestrator has not cycled for <?php echo (int) $heartbeat; ?>s</strong>
+            (pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?>). A live process with a
+            stale heartbeat is stuck rather than healthy.
+        </div>
+    <?php else: ?>
+        <p style="color:#666;font-size:13px">
+            Supervisor running, pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?><?php
+            if ($heartbeat !== null) {
+                echo ', last cycle ' . (int) $heartbeat . 's ago';
+            }
+            ?>.
+        </p>
+    <?php endif; ?>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px" style="padding:0">
             <table style="width:100%;border-collapse:collapse">

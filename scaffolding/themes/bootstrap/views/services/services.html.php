@@ -12,6 +12,38 @@
     <?php if (!empty($_GET['msg'])): ?>
         <div class="alert alert-info"><?php echo htmlspecialchars($_GET['msg']); ?></div>
     <?php endif; ?>
+    <?php
+    /**
+     * The supervisor's own state, before the list of what it supervises. Stop, Start and
+     * Restart write a sentinel file that the orchestrator acts on: with no orchestrator
+     * running, Start and Restart do nothing at all, with no error and no message.
+     */
+    $orchestrator = $this->orchestrator ?? null;
+    $supervising  = is_array($orchestrator) && !empty($orchestrator['running']);
+    $heartbeat    = is_array($orchestrator) ? $orchestrator['heartbeat_age_seconds'] : null;
+    ?>
+    <?php if (!$supervising): ?>
+        <div class="alert alert-warning">
+            <strong>The orchestrator is not running.</strong>
+            Start and Restart below have nothing to act on them. Run
+            <code>pramnos orchestrate</code> and they work again; Stop still takes effect,
+            because a daemon checks its own stop file.
+        </div>
+    <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
+        <div class="alert alert-warning">
+            <strong>The orchestrator has not cycled for <?php echo (int) $heartbeat; ?>s</strong>
+            (pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?>). A live process with a
+            stale heartbeat is stuck rather than healthy.
+        </div>
+    <?php else: ?>
+        <p class="text-muted small">
+            Supervisor running, pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?><?php
+            if ($heartbeat !== null) {
+                echo ', last cycle ' . (int) $heartbeat . 's ago';
+            }
+            ?>.
+        </p>
+    <?php endif; ?>
     <div class="card">
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
