@@ -587,9 +587,22 @@ adopting the check is one script tag; under `worker-src 'self'` alone the browse
 the worker and the form cannot be submitted at all. A project that writes its own policy
 instead of the framework's has to allow it there.
 
-The view side is `partials/human_check.html.php` in the tailwind theme: it renders nothing
-when there is no challenge, and otherwise emits the two hidden fields and marks the
-enclosing form for `pf-humancheck.js` to solve while the visitor types.
+The view side is one line, `humanCheckField()`:
+
+```php
+<form method="post" action="…">
+    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+    <?php echo humanCheckField($this->humanCheck ?? null); ?>
+```
+
+It returns an empty string when the check is off for that form, so the line is safe on
+every one of them, and otherwise emits the two hidden fields, marks the enclosing form for
+`pf-humancheck.js`, and carries the CSP nonce on the script it needs.
+
+A function rather than a partial, which is what it was first. A partial lives in a view
+directory and a view directory is per-application: the sign-in page is the one screen no
+project inherits, so every project had to copy the partial in to use the feature and then
+owned a copy of the framework's markup for ever.
 
 ## Dependency Security
 

@@ -50,7 +50,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <?php /* The human check's fields, when the application asks for one. Renders
                      nothing otherwise, so the insert is unconditional. */ ?>
-            <?php $this->insert('../partials/human_check'); ?>
+            <?php echo humanCheckField($this->humanCheck ?? null); ?>
             <div>
                 <label for="username" class="block text-sm font-medium text-base-content mb-1">Username</label>
                 <input type="text" name="username" id="username" class="input w-full"

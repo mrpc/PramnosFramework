@@ -443,4 +443,43 @@ class GlobalHelpersTest extends TestCase
         $this->assertSame('Tokens: alice', t('Tokens: %s', 'alice'));
         $this->assertSame('Tokens: %s', t('Tokens: %s'), 'and no arguments means no formatting');
     }
+
+    /**
+     * `humanCheckField()` renders nothing when there is no challenge.
+     *
+     * That is what makes the line safe to put on every form: a view cannot know whether
+     * the application switched the check on for it, and `auth.security.human_check` is off
+     * by default, so "no challenge" is the common case rather than an error.
+     */
+    public function testHumanCheckFieldRendersNothingWithoutAChallenge(): void
+    {
+        // Act & Assert
+        $this->assertSame('', humanCheckField(null));
+        $this->assertSame('', humanCheckField(['challenge' => '']), 'nor for an empty token');
+    }
+
+    /**
+     * With one, it emits both fields and the attribute the client looks for.
+     *
+     * All three matter and each has a failure that looks like something else:
+     * `human_challenge` missing means the server refuses every submission,
+     * `human_solution` missing means the worker has nowhere to put its answer, and
+     * `data-pf-humancheck` missing means no worker starts and the form submits empty. The
+     * visitor is told their answer was wrong in all three cases.
+     */
+    public function testHumanCheckFieldEmitsTheFieldsAndTheHook(): void
+    {
+        // Arrange
+        $challenge = (new \Pramnos\Security\HumanCheck(1))->challenge();
+
+        // Act
+        $html = humanCheckField($challenge);
+
+        // Assert
+        $this->assertStringContainsString('name="human_challenge"', $html);
+        $this->assertStringContainsString($challenge['challenge'], $html);
+        $this->assertStringContainsString('name="human_solution"', $html);
+        $this->assertStringContainsString('data-pf-humancheck', $html);
+        $this->assertStringContainsString('pf-humancheck.js', $html);
+    }
 }

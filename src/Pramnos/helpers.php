@@ -273,3 +273,58 @@ if (!function_exists('t')) {
         return (string) call_user_func_array([$lang, '_'], func_get_args());
     }
 }
+
+if (!function_exists('humanCheckField')) {
+    /**
+     * The human check's form fields, as markup to echo inside a `<form>`.
+     *
+     * ```php
+     * <form method="post" action="…">
+     *     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+     *     <?php echo humanCheckField($this->humanCheck ?? null); ?>
+     * ```
+     *
+     * Returns an empty string when the application has not switched the check on for
+     * that form, so the same line is safe on every one of them.
+     *
+     * A function rather than the partial this started as. A partial has to live in a
+     * view directory, and a view directory is per-application: a project whose public
+     * screens are its own — which is every project, since the sign-in page is the one
+     * screen nobody inherits — had to copy the partial in to use the feature, and then
+     * owned a copy of the framework's markup for ever. The copy is what this exists to
+     * remove.
+     *
+     * The `data-pf-humancheck` attribute belongs on the `<form>`, which markup inserted
+     * *inside* the form cannot reach, so it is set from a one-line script. That script
+     * carries the CSP nonce: without it a project with a strict policy drops it
+     * silently, no solution is ever computed, and the check then refuses every
+     * submission — a failure that looks like the check working.
+     *
+     * @param ?array{challenge: string, difficulty: int, expires: int} $challenge
+     *        From `HumanCheck::challenge()`, or null when there is no check.
+     */
+    function humanCheckField(?array $challenge): string
+    {
+        if ($challenge === null || empty($challenge['challenge'])) {
+            return '';
+        }
+
+        $token = (string) $challenge['challenge'];
+        $nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
+        $attr  = $nonce !== ''
+            ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '"'
+            : '';
+        $id    = 'pf-hc-' . substr(hash('sha256', $token), 0, 8);
+        $json  = json_encode($challenge, JSON_UNESCAPED_SLASHES);
+        $src   = (defined('sURL') ? sURL : '') . 'assets/js/pf-humancheck.js';
+
+        return '<input type="hidden" name="human_challenge" value="'
+            . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">'
+            . '<input type="hidden" name="human_solution" value="" id="' . $id . '">'
+            . '<script' . $attr . '>(function(){var f=document.getElementById("' . $id . '");'
+            . 'if(f&&f.form){f.form.setAttribute("data-pf-humancheck",'
+            . json_encode($json, JSON_UNESCAPED_SLASHES) . ');}})();</script>'
+            . '<script' . $attr . ' src="' . htmlspecialchars($src, ENT_QUOTES, 'UTF-8')
+            . '"></script>';
+    }
+}
