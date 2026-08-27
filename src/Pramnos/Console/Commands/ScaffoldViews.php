@@ -31,6 +31,21 @@ use Pramnos\Application\ScaffoldingHelper;
  */
 class ScaffoldViews extends Command
 {
+    /** Where a view goes unless it belongs to the administration area. */
+    private const DEFAULT_DEST = 'src/Views';
+
+    /**
+     * The view groups that belong to the administration area.
+     *
+     * Not a guess about names: these are the screens the framework's own admin
+     * controllers render, and `Health` is deliberately absent — `/health/check` is a
+     * public JSON endpoint an uptime monitor calls, so its views are not admin-only.
+     */
+    private const ADMIN_GROUPS = [
+        'users', 'tokens', 'tokenactions', 'logs', 'settings', 'permissions',
+        'organizations', 'applications', 'emails', 'services', 'queue', 'dashboard',
+    ];
+
     /** Target project root. Overridable for testing. */
     public string $targetBaseDir = '';
 
@@ -61,8 +76,8 @@ class ScaffoldViews extends Command
                 'dest',
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Destination directory relative to the project root (default: src/Views)',
-                'src/Views'
+                'Destination directory relative to the project root (default: src/Views, or src/Admin/Views for an administration group)',
+                self::DEFAULT_DEST
             )
             ->addOption(
                 'force',
@@ -135,16 +150,32 @@ class ScaffoldViews extends Command
             return Command::FAILURE;
         }
 
-        $force   = (bool) $input->getOption('force');
-        $destRel = rtrim((string) $input->getOption('dest'), '/\\');
-        $destDir = $baseDir . DIRECTORY_SEPARATOR . $destRel;
-
-        $srcBase  = $themeDir . DIRECTORY_SEPARATOR . 'views';
-        $copied   = 0;
-        $skipped  = 0;
-        $created  = 0;
+        $force = (bool) $input->getOption('force');
+        // Whether the destination was asked for, or is the default. An explicit
+        // --dest is obeyed for every group; the default splits by area.
+        $destGiven = $input->getOption('dest') !== self::DEFAULT_DEST;
+        $srcBase   = $themeDir . DIRECTORY_SEPARATOR . 'views';
+        $copied    = 0;
+        $skipped   = 0;
+        $created   = 0;
 
         foreach ($selected as $group) {
+            /**
+             * An administration view goes to the administration area's own directory.
+             *
+             * `src/Admin/Views/`, the counterpart of `src/Admin/Controllers/`, which is
+             * where the framework looks first for a request inside the area. Published
+             * to `src/Views/` an admin screen is also reachable at its bare path, in
+             * the public theme, with no sidebar and outside the area's usertype floor —
+             * a second front door to the same page.
+             *
+             * `--dest` still wins, for a project that keeps a different layout.
+             */
+            $destRel = $destGiven
+                ? rtrim((string) $input->getOption('dest'), '/\\')
+                : (in_array($group, self::ADMIN_GROUPS, true) ? 'src/Admin/Views' : self::DEFAULT_DEST);
+            $destDir = $baseDir . DIRECTORY_SEPARATOR . $destRel;
+
             $files = $allGroups[$group] ?? [];
             foreach ($files as $relPath) {
                 $src  = $srcBase . DIRECTORY_SEPARATOR . $relPath;

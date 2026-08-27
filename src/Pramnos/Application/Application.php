@@ -41,6 +41,27 @@ class Application extends Base
      * @var string
      */
     public $appName = '';
+
+    /**
+     * The sub-application this request belongs to, or '' for the site itself.
+     *
+     * `'Admin'` inside the administration area, which makes the framework look for
+     * `<Namespace>\Admin\Controllers\X` and `src/Admin/Views/x` before the site's
+     * own — the same separation the JSON API has in `src/Api/`.
+     *
+     * The point is not tidiness. An administration screen that also answers on its
+     * bare path is a second front door to the same code with the public theme, no
+     * sidebar and none of the area's usertype floor. Once a project's admin
+     * controllers live under `src/Admin/`, `/Users` finds nothing and `/admin/Users`
+     * is the only way in.
+     *
+     * Empty for every project that has not moved anything, and the site's own paths
+     * are still searched after the area's — so a shared view, a shared controller and
+     * an application with no `src/Admin` at all keep working exactly as before.
+     *
+     * @var string
+     */
+    public string $area = '';
     /**
      * Settings Object
      * @var Settings
@@ -857,6 +878,11 @@ class Application extends Base
             $this->defaultController = $this->requestDefaults['defaultController'];
         }
 
+        // Per-request like the theme, and for the same reason: a first request to
+        // `/admin` must not leave the area's controllers in scope for the public
+        // page after it.
+        $this->area = '';
+
         \Pramnos\Http\AdminArea::reset();
         $this->enterAdminAreaIfRequested();
     }
@@ -889,6 +915,15 @@ class Application extends Base
         if (!$active) {
             return;
         }
+
+        /**
+         * Everything under `src/Admin/` is now in scope, and only now.
+         *
+         * Configurable, because a project may name the directory after the area it
+         * mounted — but `Admin` is what `pramnos init` writes and what the guides
+         * describe.
+         */
+        $this->area = trim((string) ($config['area'] ?? 'Admin'));
 
         $theme = trim((string) ($config['theme'] ?? ''));
         if ($theme !== '') {
@@ -1505,6 +1540,20 @@ class Application extends Base
         if (isset($this->applicationInfo['namespace'])) {
             $namespace = $this->applicationInfo['namespace'];
         }
+        /**
+         * The area's own controllers first — `<Ns>\Admin\Controllers\Users`.
+         *
+         * Tried before the site's, and falling through to them, so an area can hold
+         * only the screens that belong to it: an application whose `Home` is shared
+         * still reaches `<Ns>\Controllers\Home` from inside `/admin`.
+         */
+        if ($this->area !== '') {
+            $areaClass = '\\' . $namespace . '\\' . $this->area . '\\Controllers\\' . $className;
+            if (class_exists($areaClass)) {
+                return new $areaClass($this, $userPermissions);
+            }
+        }
+
         $nameSpacedClass = '\\' . $namespace . '\\Controllers\\' . $className;
         if (class_exists($nameSpacedClass)) {
             return new $nameSpacedClass($this, $userPermissions);

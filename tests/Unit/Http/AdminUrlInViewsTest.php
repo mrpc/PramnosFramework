@@ -222,4 +222,70 @@ class AdminUrlInViewsTest extends TestCase
         $this->assertSame(\sURL . 'admin/Users', adminUrl('Users'));
         $this->assertSame(\sURL . 'admin', adminUrl());
     }
+
+    /**
+     * No administration *controller* builds a link with a bare `sURL` either.
+     *
+     * The view sweep above catches `<?php echo sURL; ?>Users`. It does not catch
+     * `sURL . 'Users'`, which is the shape a controller uses — and controllers are
+     * where most of these live: every breadcrumb, every redirect after a save, every
+     * row-action link and every datatable's ajax source.
+     *
+     * The report that found it was one link: `/Logs/viewer` opened the public site.
+     * The cause was 114 of them. A redirect is the worst of the set, because the
+     * visitor is not clicking anything — they save a user inside the area and arrive
+     * on the public copy of the list, which reads as having been signed out.
+     */
+    public function testAdminControllersBuildLinksThroughAdminUrl(): void
+    {
+        // Arrange — the framework's own administration controllers
+        $files = array_merge(
+            (array) glob(dirname(__DIR__, 3) . '/src/Pramnos/Application/Controllers/*Controller.php'),
+            (array) glob(dirname(__DIR__, 3) . '/src/Pramnos/Auth/Controllers/*Controller.php')
+        );
+        $this->assertNotEmpty($files);
+
+        $names = implode('|', self::ADMIN_CONTROLLERS);
+        $offenders = [];
+
+        foreach ($files as $file) {
+            foreach (file($file) ?: [] as $number => $line) {
+                // A doc-block may legitimately name the old shape while explaining it.
+                $trimmed = ltrim($line);
+                if (str_starts_with($trimmed, '*') || str_starts_with($trimmed, '//')) {
+                    continue;
+                }
+
+                if (preg_match('/sURL \. \x27(' . $names . ')(?![A-Za-z])/i', $line)) {
+                    $offenders[] = basename($file) . ':' . ($number + 1) . ' ' . trim($line);
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $offenders,
+            'these links leave the administration area — use adminUrl(): ' . "\n"
+            . implode("\n", $offenders)
+        );
+    }
+
+    /**
+     * A link built for the area carries the prefix even from outside it.
+     *
+     * `adminUrl()` is not "stay where you are": an administration screen belongs in
+     * the area, so a visitor who reached one at its bare path is moved into the area by
+     * their first click rather than kept on a screen with the public site's layout.
+     */
+    public function testAdminUrlAlwaysCarriesThePrefix(): void
+    {
+        // Arrange — a configured area, and a request that is *not* inside it
+        $_GET['r'] = 'Home';
+        AdminArea::detect('admin', 80);
+        $this->assertFalse(AdminArea::isActive());
+
+        // Act & Assert
+        $this->assertStringContainsString('admin/Users', adminUrl('Users'));
+    }
 }

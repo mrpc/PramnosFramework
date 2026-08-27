@@ -85,20 +85,20 @@ class ServicesController extends Controller
 
         if ($service === null) {
             $this->addError('That record no longer exists.');
-            $this->redirect(sURL . 'services');
+            $this->redirect(adminUrl('services'));
             return;
         }
 
         $lockFile = (string) ($service['lockFile'] ?? '');
         if ($lockFile === '') {
             $this->addError('That service has no lock file, so it does not appear to be running.');
-            $this->redirect(sURL . 'services');
+            $this->redirect(adminUrl('services'));
             return;
         }
 
         file_put_contents($lockFile . '.stop', '1');
         $this->addMessage('Stopped.');
-        $this->redirect(sURL . 'services');
+        $this->redirect(adminUrl('services'));
     }
 
     /**
@@ -117,7 +117,7 @@ class ServicesController extends Controller
         $name = (string) \Pramnos\Http\Request::staticGetOption();
         $this->clearStopFile($name);
         $this->addMessage('Started.');
-        $this->redirect(sURL . 'services');
+        $this->redirect(adminUrl('services'));
     }
 
     /**
@@ -135,7 +135,7 @@ class ServicesController extends Controller
         $name = (string) \Pramnos\Http\Request::staticGetOption();
         $this->clearStopFile($name);
         $this->addMessage('Restarted.');
-        $this->redirect(sURL . 'services');
+        $this->redirect(adminUrl('services'));
     }
 
     /**
@@ -154,7 +154,7 @@ class ServicesController extends Controller
 
         if ($service === null) {
             $this->addError('That record no longer exists.');
-            $this->redirect(sURL . 'services');
+            $this->redirect(adminUrl('services'));
             return null;
         }
 

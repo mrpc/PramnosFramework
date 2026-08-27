@@ -184,7 +184,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         $sMap = [0 => ['bg-base-200 text-base-content/80','Inactive'], 1 => ['bg-success/10 text-success','Active'], 2 => ['bg-neutral text-white','Deleted'], 3 => ['bg-error/10 text-error','Revoked']];
                         [$sCls, $sLabel] = $sMap[$s] ?? ['bg-base-200 text-base-content/80','Unknown'];
                         $exp = (int) ($tok['expires'] ?? 0);
-                        $tokActionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
+                        $tokActionsUrl = adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
                     ?>
                         <tr class="hover:bg-base-200 cursor-pointer" data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">
                             <td class="px-4 py-2 font-mono text-xs text-base-content/70"><?php echo (int) $tok['tokenid']; ?></td>

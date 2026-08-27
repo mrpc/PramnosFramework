@@ -102,7 +102,7 @@ class PermissionsController extends Controller
 
             if (!$result || $result->numRows === 0) {
                 $this->addError('That record no longer exists.');
-                $this->redirect(sURL . 'permissions');
+                $this->redirect(adminUrl('permissions'));
                 return null;
             }
 
@@ -133,7 +133,7 @@ class PermissionsController extends Controller
 
         if ($subjectType === '' || $objectType === '' || $action === '') {
             $this->addError('Please fill in the required fields.');
-            $this->redirect(sURL . 'permissions/edit/' . $id);
+            $this->redirect(adminUrl('permissions/edit/') . $id);
             return;
         }
 
@@ -172,7 +172,7 @@ class PermissionsController extends Controller
         ]);
 
         $this->addMessage('Saved.');
-        $this->redirect(sURL . 'permissions');
+        $this->redirect(adminUrl('permissions'));
     }
 
     /**
@@ -187,7 +187,7 @@ class PermissionsController extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'permissions');
+            $this->redirect(adminUrl('permissions'));
             return;
         }
 
@@ -213,7 +213,7 @@ class PermissionsController extends Controller
         }
 
         $this->addMessage('Deleted.');
-        $this->redirect(sURL . 'permissions');
+        $this->redirect(adminUrl('permissions'));
     }
 
     /**
@@ -261,7 +261,7 @@ class PermissionsController extends Controller
 
         if ($userId <= 0 || $objectType === '' || $action === '') {
             $this->addError('Please fill in the required fields.');
-            $this->redirect(sURL . 'permissions');
+            $this->redirect(adminUrl('permissions'));
             return;
         }
 
@@ -282,7 +282,7 @@ class PermissionsController extends Controller
             ]);
 
         $this->addMessage('Assigned.');
-        $this->redirect(sURL . 'permissions');
+        $this->redirect(adminUrl('permissions'));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

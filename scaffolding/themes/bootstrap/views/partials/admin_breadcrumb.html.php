@@ -21,7 +21,11 @@
  * Breadcrumb::render() does not escape labels, so every dynamic label is passed
  * through htmlspecialchars here.
  */
-$base        = sURL;
+// Inside the administration area, and the trail has to stay there: a bare
+// `sURL` link drops the visitor onto the public copy of the same screen, with
+// a different layout and no sidebar. `adminUrl()` is `sURL` for an application
+// with no area configured.
+$base        = adminUrl();
 $usersUrl    = $base . 'users';
 $tokensUrl   = $base . 'Tokens';
 $taUrl       = $base . 'TokenActions';
@@ -77,8 +81,8 @@ $trails = [
 ];
 
 $bc = new \Pramnos\Html\Breadcrumb();
-$bc->addItem('Home', sURL);
-$bc->addItem('Dashboard', sURL . 'Dashboard');
+$bc->addItem('Home', adminUrl());
+$bc->addItem('Dashboard', adminUrl('Dashboard'));
 foreach ($trails[$active] ?? [] as $crumb) {
     $bc->addItem($crumb[0], $crumb[1]);
 }

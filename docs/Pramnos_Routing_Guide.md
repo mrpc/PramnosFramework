@@ -699,11 +699,46 @@ site's own default — which is usually the public home page, and which for a
 signed-in visitor usually redirects to their account. An administrator clicking the
 area's logo would leave the area.
 
-That is the whole setup. **No second set of controllers, and no per-controller
-prefix handling** — `/admin/Users` and `/Users` are served by the same
-`UsersController`, because the prefix is removed before routing splits the path
-into controller and action. Actions, `_option` and the key/value tail behave
-exactly as they do without the prefix, so there is no second code path.
+That is the whole setup: **no per-controller prefix handling**. The prefix is removed
+before routing splits the path into controller and action, so actions, `_option` and
+the key/value tail behave exactly as they do without it.
+
+### Where the area's code lives
+
+The area has its own directory, the counterpart of `src/Api/`:
+
+```
+src/Admin/Controllers/Users.php     namespace <Ns>\Admin\Controllers;
+src/Admin/Views/users/…
+src/Controllers/Home.php            the site's own
+src/Views/home/…
+```
+
+Inside the area the framework looks there **first** and falls through to the site's
+own — so an area holds the screens that belong to it, not a copy of the application. A
+shared `Home`, a shared partial and an application with no `src/Admin` at all keep
+working exactly as before.
+
+Outside the area, `src/Admin/` is not in scope. That is the part that matters:
+
+```
+/admin/Users   → <Ns>\Admin\Controllers\Users
+/Users         → 404
+```
+
+**A controller left in `src/Controllers/` still answers on both paths**, which is what
+keeps every existing project working — and is also a second front door to the same
+page, in the public theme, with no sidebar and outside the area's floor. `pramnos init`
+puts every admin screen under `src/Admin/`; `pramnos project:publish-views` publishes an
+admin view group to `src/Admin/Views/` for the same reason. To move an existing
+project's screens, move the file and change its namespace — nothing else refers to it.
+
+`Health` is deliberately *not* an admin controller: `/health/check` is the JSON endpoint
+an uptime monitor calls, and putting a usertype floor in front of a monitoring URL is
+how a project finds out its monitor has been reporting "down" for a week.
+
+The directory is named `Admin` by convention; `'area' => 'Ops'` in the `admin` config
+block makes it `src/Ops/`.
 
 ### What changes inside the area
 
@@ -719,9 +754,11 @@ screen that forgot its own check is not the only thing between an ordinary
 account and the dashboard.
 
 !!! danger "The floor does not protect a controller that has no check of its own"
-    `/admin/Settings` and `/Settings` are the same controller, and only the first
-    goes through the prefix. So a controller relying on the area's floor is
-    protected on exactly the paths an attacker has no reason to use.
+    A controller in `src/Controllers/` answers on both `/admin/Settings` and
+    `/Settings`, and only the first goes through the prefix. So a controller relying on
+    the area's floor is protected on exactly the paths an attacker has no reason to
+    use. Moving it under `src/Admin/` closes the bare path — but the check is still
+    the thing that protects the screen.
 
     `SettingsController` was in that state until 2026-08-27: it declared its
     actions with `addAuthAction()`, which requires only *being signed in*, and had
@@ -731,8 +768,8 @@ account and the dashboard.
     `site_url`, `forcessl`, `admin_mail` and the login lockout rules.
 
     Every screen inside the area needs its own `requiredUserType` and a
-    `requireMinUserType()` call in each action. Treat the area's floor as defence
-    in depth, never as the check.
+    `requireMinUserType()` call in each action. Treat the area's floor — and the
+    `src/Admin/` layout — as defence in depth, never as the check.
 
 The two refusals differ on purpose. A guest is sent to sign in with a `return=`
 carrying the address they asked for, so signing in lands them where they were

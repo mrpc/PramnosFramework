@@ -17,7 +17,8 @@
  *   $this->topErrors    — array[] {message, count, file, last_seen}
  *   $this->systemStatus — array file => {last_entry, error_rate, success_rate, total_entries}
  */
-$sURL = defined('sURL') ? sURL : '';
+// The area's own base — every link on this screen is another admin screen.
+$sURL = adminUrl();
 $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '7 Days', '30d' => '30 Days'];
 ?>
 <div class="px-4 py-6">

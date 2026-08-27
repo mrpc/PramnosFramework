@@ -7791,6 +7791,7 @@ PHP;
     private function scaffoldAuthServerWiring(string $namespace): void
     {
         $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $oauthController = <<<PHP
 <?php
@@ -7849,7 +7850,7 @@ PHP;
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Auth\\Controllers\\ApplicationsController as FrameworkApplicationsController;
 
@@ -7864,14 +7865,14 @@ class Applications extends FrameworkApplicationsController
 {
 }
 PHP;
-        $this->writeFile('src/Controllers/Applications.php', $applicationsController);
+        $this->writeFile('src/Admin/Controllers/Applications.php', $applicationsController);
 
         $tokensController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Auth\\Controllers\\TokensController as FrameworkTokensController;
 
@@ -7886,7 +7887,7 @@ class Tokens extends FrameworkTokensController
 {
 }
 PHP;
-        $this->writeFile('src/Controllers/Tokens.php', $tokensController);
+        $this->writeFile('src/Admin/Controllers/Tokens.php', $tokensController);
     }
 
     /**
@@ -7898,14 +7899,14 @@ PHP;
      */
     private function scaffoldLogsWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $logsController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\LogController;
 
@@ -7925,7 +7926,7 @@ class Logs extends LogController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Logs.php', $logsController);
+        $this->writeFile('src/Admin/Controllers/Logs.php', $logsController);
     }
 
     /**
@@ -7970,14 +7971,14 @@ PHP;
 
     private function scaffoldUsersWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $usersController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\UsersController as FrameworkUsersController;
 
@@ -7993,19 +7994,19 @@ class Users extends FrameworkUsersController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Users.php', $usersController);
+        $this->writeFile('src/Admin/Controllers/Users.php', $usersController);
     }
 
     private function scaffoldSettingsWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $settingsController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\SettingsController as FrameworkSettingsController;
 
@@ -8021,19 +8022,19 @@ class Settings extends FrameworkSettingsController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Settings.php', $settingsController);
+        $this->writeFile('src/Admin/Controllers/Settings.php', $settingsController);
     }
 
     private function scaffoldDashboardWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $dashboardController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\DashboardController as FrameworkDashboardController;
 
@@ -8049,19 +8050,19 @@ class Dashboard extends FrameworkDashboardController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Dashboard.php', $dashboardController);
+        $this->writeFile('src/Admin/Controllers/Dashboard.php', $dashboardController);
     }
 
     private function scaffoldServicesWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $servicesController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\ServicesController as FrameworkServicesController;
 
@@ -8077,19 +8078,19 @@ class Services extends FrameworkServicesController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Services.php', $servicesController);
+        $this->writeFile('src/Admin/Controllers/Services.php', $servicesController);
     }
 
     private function scaffoldOrganizationsWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $organizationsController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\OrganizationsController as FrameworkOrganizationsController;
 
@@ -8105,19 +8106,19 @@ class Organizations extends FrameworkOrganizationsController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Organizations.php', $organizationsController);
+        $this->writeFile('src/Admin/Controllers/Organizations.php', $organizationsController);
     }
 
     private function scaffoldEmailsWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $emailsController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Application\\Controllers\\EmailsController as FrameworkEmailsController;
 
@@ -8131,19 +8132,19 @@ class Emails extends FrameworkEmailsController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Emails.php', $emailsController);
+        $this->writeFile('src/Admin/Controllers/Emails.php', $emailsController);
     }
 
     private function scaffoldTokenActionsWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $tokenActionsController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Auth\\Controllers\\TokenActionsController as FrameworkTokenActionsController;
 
@@ -8159,19 +8160,19 @@ class TokenActions extends FrameworkTokenActionsController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/TokenActions.php', $tokenActionsController);
+        $this->writeFile('src/Admin/Controllers/TokenActions.php', $tokenActionsController);
     }
 
     private function scaffoldPermissionsWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $permissionsController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Auth\\Controllers\\PermissionsController as FrameworkPermissionsController;
 
@@ -8187,7 +8188,7 @@ class Permissions extends FrameworkPermissionsController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Permissions.php', $permissionsController);
+        $this->writeFile('src/Admin/Controllers/Permissions.php', $permissionsController);
 
         // ── Discovery / Device / GDPR + internal (client-credentials) endpoints ─
         $this->writeAuthControllerWrapper(
@@ -8216,14 +8217,14 @@ PHP;
 
     private function scaffoldQueueWiring(string $namespace): void
     {
-        $this->mkdir('src/Controllers');
+        $this->mkdir('src/Admin/Controllers');
 
         $queueController = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$namespace}\\Controllers;
+namespace {$namespace}\\Admin\\Controllers;
 
 use Pramnos\\Queue\\Controllers\\QueueController as FrameworkQueueController;
 
@@ -8239,6 +8240,6 @@ class Queue extends FrameworkQueueController
 }
 PHP;
 
-        $this->writeFile('src/Controllers/Queue.php', $queueController);
+        $this->writeFile('src/Admin/Controllers/Queue.php', $queueController);
     }
 }

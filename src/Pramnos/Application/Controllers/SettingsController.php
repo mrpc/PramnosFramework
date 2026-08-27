@@ -187,10 +187,10 @@ class SettingsController extends Controller
             $allowedTabs[] = 'settings-tab-devpanel';
         }
         if (in_array($activeTab, $allowedTabs, true)) {
-            $this->redirect(sURL . 'settings#' . $activeTab);
+            $this->redirect(adminUrl('settings#') . $activeTab);
             return;
         }
-        $this->redirect(sURL . 'settings');
+        $this->redirect(adminUrl('settings'));
     }
 
     /**
@@ -246,7 +246,7 @@ class SettingsController extends Controller
         if (!$isNew) {
             if (in_array($key, $this->readonlyKeys, true)) {
                 $_SESSION['settings_error'] = 'This setting is read-only and cannot be modified.';
-                $this->redirect(sURL . 'settings/list');
+                $this->redirect(adminUrl('settings/list'));
                 return null;
             }
             $value      = (string) Settings::getSetting($key, '');
@@ -280,13 +280,13 @@ class SettingsController extends Controller
 
         if ($key === '') {
             $_SESSION['settings_error'] = 'Setting key must not be empty.';
-            $this->redirect(sURL . 'settings/edit');
+            $this->redirect(adminUrl('settings/edit'));
             return;
         }
 
         if (in_array($key, $this->readonlyKeys, true)) {
             $_SESSION['settings_error'] = 'This setting is read-only and cannot be modified.';
-            $this->redirect(sURL . 'settings/list');
+            $this->redirect(adminUrl('settings/list'));
             return;
         }
 
@@ -295,7 +295,7 @@ class SettingsController extends Controller
         }
 
         Settings::setSetting($key, $value);
-        $this->redirect(sURL . 'settings/list');
+        $this->redirect(adminUrl('settings/list'));
     }
 
     /**
@@ -310,12 +310,12 @@ class SettingsController extends Controller
         $key = trim((string) (\Pramnos\Http\Request::staticGetOption() ?? $_GET['key'] ?? ''));
 
         if ($key === '' || in_array($key, $this->readonlyKeys, true)) {
-            $this->redirect(sURL . 'settings/list');
+            $this->redirect(adminUrl('settings/list'));
             return;
         }
 
         $this->deleteSetting($key);
-        $this->redirect(sURL . 'settings/list');
+        $this->redirect(adminUrl('settings/list'));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

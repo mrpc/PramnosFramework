@@ -53,7 +53,7 @@ class ApplicationsController extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'applications');
+            $this->redirect(adminUrl('applications'));
             return null;
         }
 
@@ -65,7 +65,7 @@ class ApplicationsController extends Controller
 
         if (!$app || $app->numRows === 0) {
             $this->addError('That record no longer exists.');
-            $this->redirect(sURL . 'applications');
+            $this->redirect(adminUrl('applications'));
             return null;
         }
 
@@ -126,7 +126,7 @@ class ApplicationsController extends Controller
         $doc->title = 'OAuth2 Applications';
 
         $dt = new \Pramnos\Html\Datatable('dt-applications');
-        $dt->source    = sURL . 'applications/data';
+        $dt->source    = adminUrl('applications/data');
         $dt->bootstrap = false;
         $dt->addColumn('ID',          true,  true,  true,  'num')
            ->addColumn('Name',        true,  true,  true)
@@ -166,9 +166,9 @@ class ApplicationsController extends Controller
                 ? '<span style="color:green">Active</span>'
                 : '<span style="color:#888">Inactive</span>';
             $row[4] = $added > 0 ? date('Y-m-d', $added) : '';
-            $row[]  = '<a href="' . sURL . 'applications/view/' . $id . '">View</a> '
-                    . '<a href="' . sURL . 'applications/edit/' . $id . '">Edit</a> '
-                    . '<a href="' . sURL . 'applications/delete/' . $id . '" data-confirm="Delete this application?">Delete</a>';
+            $row[]  = '<a href="' . adminUrl('applications/view/') . $id . '">View</a> '
+                    . '<a href="' . adminUrl('applications/edit/') . $id . '">Edit</a> '
+                    . '<a href="' . adminUrl('applications/delete/') . $id . '" data-confirm="Delete this application?">Delete</a>';
             unset($row['DT_RowId']);
         }
         unset($row);
@@ -228,7 +228,7 @@ class ApplicationsController extends Controller
 
             if (!$result || $result->numRows === 0) {
                 $this->addError('That record no longer exists.');
-                $this->redirect(sURL . 'applications');
+                $this->redirect(adminUrl('applications'));
                 return null;
             }
 
@@ -271,7 +271,7 @@ class ApplicationsController extends Controller
 
         if ($name === '') {
             $this->addError('A name is required.');
-            $this->redirect(sURL . 'applications/edit/' . $id);
+            $this->redirect(adminUrl('applications/edit/') . $id);
             return;
         }
 
@@ -318,7 +318,7 @@ class ApplicationsController extends Controller
         }
 
         $this->addMessage('Saved.');
-        $this->redirect(sURL . 'applications');
+        $this->redirect(adminUrl('applications'));
     }
 
     /**
@@ -334,7 +334,7 @@ class ApplicationsController extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'applications');
+            $this->redirect(adminUrl('applications'));
             return;
         }
 
@@ -354,7 +354,7 @@ class ApplicationsController extends Controller
             ->update(['status' => 0]);
 
         $this->addMessage('Deleted.');
-        $this->redirect(sURL . 'applications');
+        $this->redirect(adminUrl('applications'));
     }
 
     /**
@@ -369,7 +369,7 @@ class ApplicationsController extends Controller
         $appId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($appId <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'applications');
+            $this->redirect(adminUrl('applications'));
             return null;
         }
 
@@ -382,7 +382,7 @@ class ApplicationsController extends Controller
 
         if (!$app || $app->numRows === 0) {
             $this->addError('That record no longer exists.');
-            $this->redirect(sURL . 'applications');
+            $this->redirect(adminUrl('applications'));
             return null;
         }
 
@@ -419,7 +419,7 @@ class ApplicationsController extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'applications');
+            $this->redirect(adminUrl('applications'));
             return;
         }
 
@@ -432,7 +432,7 @@ class ApplicationsController extends Controller
             ->update(['apisecret' => $newSecret]);
 
         $this->addMessage('A new secret has been generated.');
-        $this->redirect(sURL . 'applications/edit/' . $id);
+        $this->redirect(adminUrl('applications/edit/') . $id);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

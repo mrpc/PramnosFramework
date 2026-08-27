@@ -44,7 +44,7 @@ $statusBadge = function (int $s): string {
                 $exp       = (int) ($tok['expires']  ?? 0);
                 $isExpired = $exp > 0 && $exp < time();
                 $rowBg     = $isExpired ? 'bg-warning/10' : '';
-                $tokActionsUrl = sURL . 'TokenActions?token_id=' . $tokenId . '&from=user&uid=' . $uid;
+                $tokActionsUrl = adminUrl('TokenActions') . '?token_id=' . $tokenId . '&from=user&uid=' . $uid;
                 ?>
                 <tr class="hover:bg-base-200 cursor-pointer <?php echo $rowBg; ?>"
                     data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">

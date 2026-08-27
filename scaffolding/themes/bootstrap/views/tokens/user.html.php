@@ -44,7 +44,7 @@ $statusLabel = function (int $s): string {
                     $status  = (int) ($tok['status']  ?? 0);
                     $exp     = (int) ($tok['expires']  ?? 0);
                     $isExpired = $exp > 0 && $exp < time();
-                    $tokActionsUrl = sURL . 'TokenActions?token_id=' . $tokenId . '&from=user&uid=' . $uid;
+                    $tokActionsUrl = adminUrl('TokenActions') . '?token_id=' . $tokenId . '&from=user&uid=' . $uid;
                     ?>
                     <tr class="<?php echo $isExpired ? 'table-warning' : ''; ?>" style="cursor:pointer"
                         data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">

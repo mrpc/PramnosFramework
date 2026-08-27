@@ -193,7 +193,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                             $sMap = [0 => ['secondary','Inactive'], 1 => ['success','Active'], 2 => ['dark','Deleted'], 3 => ['danger','Revoked']];
                             [$sBadge, $sLabel] = $sMap[$s] ?? ['secondary','Unknown'];
                             $exp = (int) ($tok['expires'] ?? 0);
-                            $tokActionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
+                            $tokActionsUrl = adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
                         ?>
                             <tr style="cursor:pointer" data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">
                                 <td><code class="small"><?php echo (int) $tok['tokenid']; ?></code></td>

@@ -53,14 +53,14 @@ class UsersController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 1) {
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return null;
         }
 
         $user = new User();
         $user->load($id);
         if ((int) $user->userid !== $id) {
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return null;
         }
 
@@ -116,7 +116,7 @@ class UsersController extends Controller
         $this->requireMinUserType($this->requiredUserType);
 
         $dt = new \Pramnos\Html\Datatable('dt-users');
-        $dt->source    = sURL . 'users/data';
+        $dt->source    = adminUrl('users/data');
         $dt->bootstrap = false;
         $dt->addColumn('ID',           true,  true,  true,  'num-html')
            ->addColumn('Username',     true,  true,  true)
@@ -161,9 +161,9 @@ class UsersController extends Controller
                 ? '<span style="color:green">Active</span>'
                 : '<span style="color:#888">Inactive</span>';
             $row[5]  = $regdate > 0 ? date('Y-m-d', $regdate) : '';
-            $row[]   = '<a href="' . sURL . 'users/view/'   . $id . '">View</a> '
-                     . '<a href="' . sURL . 'users/edit/'   . $id . '">Edit</a> '
-                     . '<a href="' . sURL . 'users/delete/' . $id . '" data-confirm="Deactivate this user?">Deactivate</a>';
+            $row[]   = '<a href="' . adminUrl('users/view/')   . $id . '">View</a> '
+                     . '<a href="' . adminUrl('users/edit/')   . $id . '">Edit</a> '
+                     . '<a href="' . adminUrl('users/delete/') . $id . '" data-confirm="Deactivate this user?">Deactivate</a>';
             unset($row['DT_RowId']);
         }
         unset($row);
@@ -226,7 +226,7 @@ class UsersController extends Controller
         $session = \Pramnos\Http\Session::getInstance();
         if (!$session->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
             $_SESSION['users_error'] = 'Invalid security token. Please try again.';
-            $this->redirect(sURL . 'users/edit/');
+            $this->redirect(adminUrl('users/edit/'));
             return;
         }
 
@@ -249,7 +249,7 @@ class UsersController extends Controller
 
         if ($username === '') {
             $_SESSION['users_error'] = 'Username must not be empty.';
-            $this->redirect(sURL . 'users/edit/' . ($id ?: ''));
+            $this->redirect(adminUrl('users/edit/') . ($id ?: ''));
             return;
         }
 
@@ -260,7 +260,7 @@ class UsersController extends Controller
             // Prevent editing a user whose privilege is higher than the current user.
             if ((int) $user->usertype > $currentType) {
                 $_SESSION['users_error'] = 'You cannot edit users with a higher privilege level.';
-                $this->redirect(sURL . 'users');
+                $this->redirect(adminUrl('users'));
                 return;
             }
         }
@@ -284,7 +284,7 @@ class UsersController extends Controller
         }
 
         $user->save();
-        $this->redirect(sURL . 'users');
+        $this->redirect(adminUrl('users'));
     }
 
     /**
@@ -299,12 +299,12 @@ class UsersController extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
             // Protect userid=1 (Guest/Admin) and invalid ids
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return;
         }
 
         $this->setActiveFlag($id, 0);
-        $this->redirect(sURL . 'users');
+        $this->redirect(adminUrl('users'));
     }
 
     /**
@@ -319,7 +319,7 @@ class UsersController extends Controller
         if ($id > 1) {
             $this->setActiveFlag($id, 0);
         }
-        $this->redirect(sURL . 'users');
+        $this->redirect(adminUrl('users'));
     }
 
     /**
@@ -334,7 +334,7 @@ class UsersController extends Controller
         if ($id > 1) {
             $this->setActiveFlag($id, 1);
         }
-        $this->redirect(sURL . 'users');
+        $this->redirect(adminUrl('users'));
     }
 
     /**
@@ -353,7 +353,7 @@ class UsersController extends Controller
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return;
         }
 
@@ -362,14 +362,14 @@ class UsersController extends Controller
 
         if ((int) ($user->userid ?? 0) !== $id) {
             $_SESSION['users_error'] = 'User not found.';
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return;
         }
 
         $email = (string) ($user->email ?? '');
         if ($email === '') {
             $_SESSION['users_error'] = 'User has no email address — cannot send reset link.';
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return;
         }
 
@@ -396,7 +396,7 @@ class UsersController extends Controller
             $_SESSION['users_error'] = 'Failed to send password reset email.';
         }
 
-        $this->redirect(sURL . 'users');
+        $this->redirect(adminUrl('users'));
     }
 
     /**
@@ -475,7 +475,7 @@ class UsersController extends Controller
     {
         $this->requireMinUserType($this->requiredUserType);
         $id = (int) \Pramnos\Http\Request::staticGetOption();
-        $this->redirect(sURL . 'Tokens/userid/' . $id);
+        $this->redirect(adminUrl('Tokens/userid/') . $id);
     }
 
     /**
@@ -498,7 +498,7 @@ class UsersController extends Controller
             }
         }
 
-        $this->redirect(sURL . 'Tokens/userid/' . $userId);
+        $this->redirect(adminUrl('Tokens/userid/') . $userId);
     }
 
     /**
@@ -521,7 +521,7 @@ class UsersController extends Controller
             }
         }
 
-        $this->redirect(sURL . 'Tokens/userid/' . $userId);
+        $this->redirect(adminUrl('Tokens/userid/') . $userId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

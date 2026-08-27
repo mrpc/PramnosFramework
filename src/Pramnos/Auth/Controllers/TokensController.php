@@ -111,7 +111,7 @@ class TokensController extends Controller
         $tokenId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($tokenId <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'tokens');
+            $this->redirect(adminUrl('tokens'));
             return;
         }
 
@@ -123,7 +123,7 @@ class TokensController extends Controller
             ->update(['status' => 3, 'removedate' => time()]);
 
         $this->addMessage('Token revoked.');
-        $this->redirect(sURL . 'tokens');
+        $this->redirect(adminUrl('tokens'));
     }
 
     /**
@@ -149,7 +149,7 @@ class TokensController extends Controller
         // Require at least one filter to prevent full-table revocation
         if ($userId <= 0 && $appId <= 0) {
             $this->addError('Choose which tokens to revoke first.');
-            $this->redirect(sURL . 'tokens');
+            $this->redirect(adminUrl('tokens'));
             return;
         }
 
@@ -168,7 +168,7 @@ class TokensController extends Controller
         $qb->update(['status' => 3, 'removedate' => time()]);
 
         $this->addMessage('Every matching token has been revoked.');
-        $this->redirect(sURL . 'tokens');
+        $this->redirect(adminUrl('tokens'));
     }
 
     // ── Per-user token management (base auth tier, usertype >= 80) ──────────────
@@ -188,14 +188,14 @@ class TokensController extends Controller
         // The …/userid/<id> segment is exposed by the request as the "option".
         $userId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($userId <= 0) {
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return null;
         }
 
         $user = new \Pramnos\User\User();
         $user->load($userId);
         if ((int) $user->userid !== $userId) {
-            $this->redirect(sURL . 'users');
+            $this->redirect(adminUrl('users'));
             return null;
         }
 
@@ -252,7 +252,7 @@ class TokensController extends Controller
             }
         }
 
-        $this->redirect(sURL . 'Tokens/userid/' . $userId);
+        $this->redirect(adminUrl('Tokens/userid/') . $userId);
     }
 
     /**

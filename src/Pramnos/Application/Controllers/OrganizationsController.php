@@ -58,7 +58,7 @@ class OrganizationsController extends Controller
         $doc->title = 'Organizations';
 
         $dt = new \Pramnos\Html\Datatable('dt-organizations');
-        $dt->source    = sURL . 'organizations/data';
+        $dt->source    = adminUrl('organizations/data');
         $dt->bootstrap = false;
         $dt->addColumn('ID',          true,  true,  true,  'num')
            ->addColumn('Name',        true,  true,  true)
@@ -93,9 +93,9 @@ class OrganizationsController extends Controller
         foreach ($result[$dataKey] as &$row) {
             $id     = (int) $row[0];
             $row[3] = $row[3] ? '<span style="color:green">Yes</span>' : '<span style="color:#888">No</span>';
-            $row[]  = '<a href="' . sURL . 'organizations/edit/'   . $id . '">Edit</a> '
-                    . '<a href="' . sURL . 'organizations/members/' . $id . '">Members</a> '
-                    . '<a href="' . sURL . 'organizations/delete/'  . $id . '" data-confirm="Delete this organization?">Delete</a>';
+            $row[]  = '<a href="' . adminUrl('organizations/edit/')   . $id . '">Edit</a> '
+                    . '<a href="' . adminUrl('organizations/members/') . $id . '">Members</a> '
+                    . '<a href="' . adminUrl('organizations/delete/')  . $id . '" data-confirm="Delete this organization?">Delete</a>';
             unset($row['DT_RowId']);
         }
         unset($row);
@@ -129,7 +129,7 @@ class OrganizationsController extends Controller
 
             if (!$result || $result->numRows === 0) {
                 $this->addError('That record no longer exists.');
-                $this->redirect(sURL . 'organizations');
+                $this->redirect(adminUrl('organizations'));
                 return null;
             }
 
@@ -159,13 +159,13 @@ class OrganizationsController extends Controller
         $session = \Pramnos\Http\Session::getInstance();
         if (!$session->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
             $this->addError('That form had expired. Please try again.');
-            $this->redirect(sURL . 'organizations/edit/' . $id);
+            $this->redirect(adminUrl('organizations/edit/') . $id);
             return;
         }
 
         if ($name === '') {
             $this->addError('A name is required.');
-            $this->redirect(sURL . 'organizations/edit/' . $id);
+            $this->redirect(adminUrl('organizations/edit/') . $id);
             return;
         }
 
@@ -193,7 +193,7 @@ class OrganizationsController extends Controller
         }
 
         $this->addMessage('Saved.');
-        $this->redirect(sURL . 'organizations');
+        $this->redirect(adminUrl('organizations'));
     }
 
     /**
@@ -209,7 +209,7 @@ class OrganizationsController extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'organizations');
+            $this->redirect(adminUrl('organizations'));
             return;
         }
 
@@ -220,7 +220,7 @@ class OrganizationsController extends Controller
             ->update(['is_active' => 0]);
 
         $this->addMessage('Deleted.');
-        $this->redirect(sURL . 'organizations');
+        $this->redirect(adminUrl('organizations'));
     }
 
     /**
@@ -236,7 +236,7 @@ class OrganizationsController extends Controller
         $orgId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($orgId <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'organizations');
+            $this->redirect(adminUrl('organizations'));
             return null;
         }
 
@@ -251,7 +251,7 @@ class OrganizationsController extends Controller
 
         if (!$org || $org->numRows === 0) {
             $this->addError('That record no longer exists.');
-            $this->redirect(sURL . 'organizations');
+            $this->redirect(adminUrl('organizations'));
             return null;
         }
 
@@ -298,7 +298,7 @@ class OrganizationsController extends Controller
 
         if ($orgId <= 0 || $userId <= 0) {
             $this->addError('No valid entries were selected.');
-            $this->redirect(sURL . 'organizations/' . $orgId . '/members');
+            $this->redirect(adminUrl('organizations/') . $orgId . '/members');
             return;
         }
 
@@ -322,7 +322,7 @@ class OrganizationsController extends Controller
             );
 
         $this->addMessage('Added.');
-        $this->redirect(sURL . 'organizations/' . $orgId . '/members');
+        $this->redirect(adminUrl('organizations/') . $orgId . '/members');
     }
 
     /**
@@ -353,7 +353,7 @@ class OrganizationsController extends Controller
 
         if ($orgId <= 0 || $userId <= 0) {
             $this->addError('No valid entries were selected.');
-            $this->redirect(sURL . 'organizations/' . $orgId . '/members');
+            $this->redirect(adminUrl('organizations/') . $orgId . '/members');
             return;
         }
 
@@ -374,7 +374,7 @@ class OrganizationsController extends Controller
 
         if (!$membership || $membership->numRows === 0) {
             $this->addError('That person is not a member of this organization.');
-            $this->redirect(sURL . 'organizations/' . $orgId . '/members');
+            $this->redirect(adminUrl('organizations/') . $orgId . '/members');
             return;
         }
 
@@ -385,7 +385,7 @@ class OrganizationsController extends Controller
             ->update(['is_active' => 0]);
 
         $this->addMessage('Removed.');
-        $this->redirect(sURL . 'organizations/' . $orgId . '/members');
+        $this->redirect(adminUrl('organizations/') . $orgId . '/members');
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

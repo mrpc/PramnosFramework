@@ -184,7 +184,7 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs/viewer' : ''
+                adminUrl('Logs/viewer')
             );
 
             $doc = Factory::getDocument();
@@ -224,8 +224,8 @@ class LogController extends Controller
      */
     protected function getToolbarLinks(): array
     {
-        $base = defined('sURL') ? sURL . 'Logs/' : '#';
-        $root = defined('sURL') ? sURL . 'Logs' : '#';
+        $base = adminUrl('Logs/');
+        $root = adminUrl('Logs');
 
         return [
             ['url' => $root,            'label' => 'Dashboard',          'variant' => 'info',      'icon' => 'gauge'],
@@ -253,7 +253,7 @@ class LogController extends Controller
     public function clear()
     {
         LogManager::clearAllLogs($this->clearList);
-        $this->redirect(defined('sURL') ? sURL . 'logs' : '');
+        $this->redirect(adminUrl('logs'));
     }
 
     /**
@@ -304,11 +304,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Statistics',
-                defined('sURL') ? sURL . 'Logs/stats' : ''
+                adminUrl('Logs/stats')
             );
             
             $doc = Factory::getDocument();
@@ -368,11 +368,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Archive',
-                defined('sURL') ? sURL . 'Logs/archive' : ''
+                adminUrl('Logs/archive')
             );
             
             $doc = Factory::getDocument();
@@ -408,11 +408,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Search',
-                defined('sURL') ? sURL . 'Logs/search' : ''
+                adminUrl('Logs/search')
             );
             
             $doc = Factory::getDocument();
@@ -452,11 +452,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Rotate',
-                defined('sURL') ? sURL . 'Logs/rotate' : ''
+                adminUrl('Logs/rotate')
             );
             
             $doc = Factory::getDocument();
@@ -537,7 +537,7 @@ class LogController extends Controller
     {
         $file = (string) \Pramnos\Http\Request::staticGetOption();
         if ($file === '' || !in_array($file, $this->whitelist)) {
-            $this->redirect(defined('sURL') ? sURL . 'logs' : '');
+            $this->redirect(adminUrl('logs'));
             return;
         }
 
@@ -552,9 +552,9 @@ class LogController extends Controller
         // Redirect back to stats or logs
         $referer = $_SERVER['HTTP_REFERER'] ?? '';
         if (strpos($referer, 'stats') !== false) {
-            $this->redirect(defined('sURL') ? sURL . 'logs/stats' : '');
+            $this->redirect(adminUrl('logs/stats'));
         } else {
-            $this->redirect(defined('sURL') ? sURL . 'logs' : '');
+            $this->redirect(adminUrl('logs'));
         }
     }
 
@@ -600,11 +600,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Export',
-                defined('sURL') ? sURL . 'Logs/export' : ''
+                adminUrl('Logs/export')
             );
             
             $doc = Factory::getDocument();
@@ -651,7 +651,7 @@ class LogController extends Controller
         if (!$startTimestamp || !$endTimestamp) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">Invalid date format.</div>';
-            echo '<p><a href="' . (defined('sURL') ? sURL . 'logs/export' : '#') . '" class="btn btn-secondary">Go Back</a></p>';
+            echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
             return;
         }
         
@@ -974,7 +974,7 @@ class LogController extends Controller
             if (empty($filenames)) {
                 Factory::getDocument();
                 echo '<div class="alert alert-danger">No log files selected for export.</div>';
-                echo '<p><a href="' . (defined('sURL') ? sURL . 'logs/export' : '#') . '" class="btn btn-secondary">Go Back</a></p>';
+                echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
                 return;
             }
         }
@@ -990,7 +990,7 @@ class LogController extends Controller
         if (empty($validFiles)) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">No valid log files selected for export.</div>';
-            echo '<p><a href="' . (defined('sURL') ? sURL . 'logs/export' : '#') . '" class="btn btn-secondary">Go Back</a></p>';
+            echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
             return;
         }
         
@@ -1002,7 +1002,7 @@ class LogController extends Controller
         if ($zip->open($zipFile, \ZipArchive::CREATE) !== true) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">Failed to create ZIP archive.</div>';
-            echo '<p><a href="' . (defined('sURL') ? sURL . 'logs/export' : '#') . '" class="btn btn-secondary">Go Back</a></p>';
+            echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
             return;
         }
         
@@ -1046,11 +1046,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Dashboard',
-                defined('sURL') ? sURL . 'Logs/dashboard' : ''
+                adminUrl('Logs/dashboard')
             );
             
             $doc = Factory::getDocument();
@@ -1233,11 +1233,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                defined('sURL') ? sURL . 'Logs' : ''
+                adminUrl('Logs')
             );
             $this->application->addBreadcrumb(
                 'Filter',
-                defined('sURL') ? sURL . 'Logs/filter' : ''
+                adminUrl('Logs/filter')
             );
             
             $doc = Factory::getDocument();

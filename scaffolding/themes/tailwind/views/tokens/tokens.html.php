@@ -34,7 +34,7 @@
                 </thead>
                 <tbody>
                 <?php foreach (($this->tokens ?? []) as $tok): ?>
-                    <?php $actionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
+                    <?php $actionsUrl = adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=tokens'; ?>
                     <tr class="cursor-pointer hover:bg-base-200" data-href="<?php echo $actionsUrl; ?>" title="View token actions">
                         <td><?php echo (int)$tok['tokenid']; ?></td>
                         <td><?php echo htmlspecialchars($tok['username'] ?? ''); ?></td>

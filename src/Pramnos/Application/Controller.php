@@ -569,6 +569,28 @@ class Controller extends \Pramnos\Framework\Base
          * Search for the right view class
          */
 
+        /**
+         * A view class in the area's own namespace, when this request is in an area.
+         *
+         * `<Ns>\Admin\Views\Users` before `<Ns>\Views\Users`, so an area can hold
+         * a view class of its own without renaming the site's. Most views have no
+         * class at all — the directory below is what usually answers — so this is the
+         * uncommon path, and it falls through.
+         */
+        if ($this->application !== null
+            && ($this->application->area ?? '') !== ''
+            && isset($this->application->applicationInfo['namespace'])
+        ) {
+            $areaClass = '\\'
+                . $this->application->applicationInfo['namespace']
+                . '\\' . $this->application->area
+                . '\\Views\\'
+                . $name;
+            if (class_exists($areaClass)) {
+                return new $areaClass($this);
+            }
+        }
+
         if ($this->application !== null && isset($this->application->applicationInfo['namespace'])) {
             if ($this->application->appName != '') {
                 $className = '\\'
@@ -664,6 +686,26 @@ class Controller extends \Pramnos\Framework\Base
         // Check for app extra paths
         if ($this->application !== null) {
             $base = static::applicationsBasePath();
+
+            /**
+             * `src/Admin/Views/<name>` before `src/Views/<name>`.
+             *
+             * First, not instead: an area holds the screens that belong to it, and
+             * everything it shares with the site — a partial, a form, an error page —
+             * is still found where it already lives. An area that overrides one view
+             * therefore does not have to copy the other thirty.
+             */
+            if (($this->application->area ?? '') !== '') {
+                $view = $this->_getView(
+                    $base . DS . $this->application->area,
+                    $name,
+                    $type,
+                    $args
+                );
+                if ($view) {
+                    return $view;
+                }
+            }
 
             if ($this->application->appName == '') {
                 $appPaths = array_merge(

@@ -287,10 +287,16 @@ class ScaffoldViewsTest extends TestCase
         // Assert — success
         $this->assertSame(0, $exitCode, $this->tester->getDisplay());
 
-        // Assert — both requested group directories were created
-        $viewsDir = $this->projectDir . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Views';
-        $this->assertDirectoryExists($viewsDir . DIRECTORY_SEPARATOR . $group1);
-        $this->assertDirectoryExists($viewsDir . DIRECTORY_SEPARATOR . $group2);
+        // Assert — both requested group directories were created, each in the
+        // directory its area owns: an administration group goes to
+        // `src/Admin/Views`, everything else to `src/Views`.
+        foreach ([$group1, $group2] as $group) {
+            $this->assertTrue(
+                is_dir($this->projectDir . '/src/Views/' . $group)
+                    || is_dir($this->projectDir . '/src/Admin/Views/' . $group),
+                "Group '$group' was not published anywhere"
+            );
+        }
     }
 
     // =========================================================================
@@ -469,5 +475,69 @@ class ScaffoldViewsTest extends TestCase
                 $list[] = $path;
             }
         }
+    }
+
+    /**
+     * An administration view is published into the area's own directory.
+     *
+     * `src/Admin/Views/`, beside `src/Admin/Controllers/`, which is where the framework
+     * looks first for a request inside the area. Published to `src/Views/` an admin
+     * screen is also reachable at its bare path — the same page in the public theme,
+     * with no sidebar and outside the area's usertype floor.
+     */
+    public function testAdminGroupsArePublishedIntoTheAreasDirectory(): void
+    {
+        // Arrange
+        $theme  = $this->firstAvailableTheme();
+        $groups = ScaffoldingHelper::listViewGroups($theme);
+        if (!isset($groups['users'], $groups['login'])) {
+            $this->markTestSkipped("Theme '$theme' has no 'users' and 'login' groups");
+        }
+
+        // Act — one admin group and one public group in the same run
+        $exitCode = $this->tester->execute([
+            '--theme' => $theme,
+            '--group' => 'users,login',
+        ]);
+
+        // Assert
+        $this->assertSame(0, $exitCode, $this->tester->getDisplay());
+        $this->assertDirectoryExists(
+            $this->projectDir . '/src/Admin/Views/users',
+            'an administration view belongs to the area'
+        );
+        $this->assertDirectoryDoesNotExist(
+            $this->projectDir . '/src/Views/users',
+            'and must not also be published where the public side would find it'
+        );
+        $this->assertDirectoryExists(
+            $this->projectDir . '/src/Views/login',
+            'a public view is unaffected'
+        );
+    }
+
+    /**
+     * An explicit `--dest` still decides, for a project with its own layout.
+     */
+    public function testAnExplicitDestOverridesTheAreaSplit(): void
+    {
+        // Arrange
+        $theme  = $this->firstAvailableTheme();
+        $groups = ScaffoldingHelper::listViewGroups($theme);
+        if (!isset($groups['users'])) {
+            $this->markTestSkipped("Theme '$theme' has no 'users' group");
+        }
+
+        // Act
+        $exitCode = $this->tester->execute([
+            '--theme' => $theme,
+            '--group' => 'users',
+            '--dest'  => 'app/views',
+        ]);
+
+        // Assert
+        $this->assertSame(0, $exitCode, $this->tester->getDisplay());
+        $this->assertDirectoryExists($this->projectDir . '/app/views/users');
+        $this->assertDirectoryDoesNotExist($this->projectDir . '/src/Admin/Views/users');
     }
 }

@@ -11,7 +11,8 @@
  *   $this->totalFiles     — int
  *   $this->jsonPercent     — float   average JSON percentage
  */
-$sURL = defined('sURL') ? sURL : '';
+// The area's own base — every link on this screen is another admin screen.
+$sURL = adminUrl();
 ?>
 <div class="px-4 py-6">
     <h2 class="text-2xl font-bold text-base-content mb-4">Log Statistics</h2>

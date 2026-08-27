@@ -47,7 +47,7 @@ $this->activeNav = 'users_tokens';
                     $exp       = (int) ($tok['expires']  ?? 0);
                     $isExpired = $exp > 0 && $exp < time();
                     $rowBg     = $isExpired ? 'background:#fffbea' : '';
-                    $tokActionsUrl = sURL . 'TokenActions?token_id=' . $tokenId . '&from=user&uid=' . $uid;
+                    $tokActionsUrl = adminUrl('TokenActions') . '?token_id=' . $tokenId . '&from=user&uid=' . $uid;
                     ?>
                     <tr style="border-top:1px solid #f0f0f0;cursor:pointer;<?php echo $rowBg; ?>"
                         data-href="<?php echo $tokActionsUrl; ?>" title="View token actions">

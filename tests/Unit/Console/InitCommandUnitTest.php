@@ -2579,7 +2579,7 @@ class InitCommandUnitTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Every new application must receive src/Controllers/Logs.php extending
+     * Every new application must receive src/Admin/Controllers/Logs.php extending
      * the framework LogController. This makes /logs available in every app and
      * follows the reference application pattern (thin wrapper, customize whitelist/blacklist).
      * Authentication is enforced by the framework controller via addAuthAction().
@@ -2615,13 +2615,13 @@ class InitCommandUnitTest extends TestCase
         ], ['interactive' => false]);
 
         // Assert — Logs controller must always exist
-        $logsPath = $this->tmpDir . '/src/Controllers/Logs.php';
-        $this->assertFileExists($logsPath, 'src/Controllers/Logs.php must be scaffolded in every new application');
+        $logsPath = $this->tmpDir . '/src/Admin/Controllers/Logs.php';
+        $this->assertFileExists($logsPath, 'src/Admin/Controllers/Logs.php must be scaffolded in every new application');
 
         $logs = file_get_contents($logsPath);
 
         // Must declare the correct namespace
-        $this->assertStringContainsString('namespace MinimalApp\\Controllers;', $logs);
+        $this->assertStringContainsString('namespace MinimalApp\\Admin\\Controllers;', $logs);
 
         // Must extend the framework LogController
         $this->assertStringContainsString('extends LogController', $logs);
@@ -2831,7 +2831,7 @@ class InitCommandUnitTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Every new application receives src/Controllers/Users.php extending
+     * Every new application receives src/Admin/Controllers/Users.php extending
      * the framework UsersController. This makes /users available in every app.
      * Authentication and permission gates are handled by the framework controller.
      */
@@ -2866,17 +2866,17 @@ class InitCommandUnitTest extends TestCase
         ], ['interactive' => false]);
 
         // Assert — Users controller must exist and extend framework class
-        $usersPath = $this->tmpDir . '/src/Controllers/Users.php';
-        $this->assertFileExists($usersPath, 'src/Controllers/Users.php must be scaffolded in every new application');
+        $usersPath = $this->tmpDir . '/src/Admin/Controllers/Users.php';
+        $this->assertFileExists($usersPath, 'src/Admin/Controllers/Users.php must be scaffolded in every new application');
 
         $users = file_get_contents($usersPath);
-        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $users);
+        $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $users);
         $this->assertStringContainsString('UsersController', $users,
             'Users wrapper must extend the framework UsersController');
     }
 
     /**
-     * Every new application receives src/Controllers/Settings.php extending
+     * Every new application receives src/Admin/Controllers/Settings.php extending
      * the framework SettingsController. This makes /settings available in every app.
      */
     public function testSettingsControllerIsAlwaysScaffolded(): void
@@ -2909,11 +2909,11 @@ class InitCommandUnitTest extends TestCase
             '--rest-api'  => 'n',
         ], ['interactive' => false]);
 
-        $settingsPath = $this->tmpDir . '/src/Controllers/Settings.php';
-        $this->assertFileExists($settingsPath, 'src/Controllers/Settings.php must be scaffolded in every new application');
+        $settingsPath = $this->tmpDir . '/src/Admin/Controllers/Settings.php';
+        $this->assertFileExists($settingsPath, 'src/Admin/Controllers/Settings.php must be scaffolded in every new application');
 
         $settings = file_get_contents($settingsPath);
-        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $settings);
+        $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $settings);
         $this->assertStringContainsString('SettingsController', $settings,
             'Settings wrapper must extend the framework SettingsController');
     }
@@ -3067,11 +3067,11 @@ class InitCommandUnitTest extends TestCase
             '--rest-api'  => 'n',
         ], ['interactive' => false]);
 
-        $path = $this->tmpDir . '/src/Controllers/Services.php';
-        $this->assertFileExists($path, 'src/Controllers/Services.php must be scaffolded in every new application');
+        $path = $this->tmpDir . '/src/Admin/Controllers/Services.php';
+        $this->assertFileExists($path, 'src/Admin/Controllers/Services.php must be scaffolded in every new application');
 
         $content = file_get_contents($path);
-        $this->assertStringContainsString('namespace SvcApp\\Controllers;', $content);
+        $this->assertStringContainsString('namespace SvcApp\\Admin\\Controllers;', $content);
         $this->assertStringContainsString('ServicesController', $content,
             'Services wrapper must extend the framework ServicesController');
     }
@@ -3112,11 +3112,11 @@ class InitCommandUnitTest extends TestCase
             '--rest-api'  => 'n',
         ], ['interactive' => false]);
 
-        $dashboardPath = $this->tmpDir . '/src/Controllers/Dashboard.php';
-        $this->assertFileExists($dashboardPath, 'src/Controllers/Dashboard.php must be scaffolded in every new application');
+        $dashboardPath = $this->tmpDir . '/src/Admin/Controllers/Dashboard.php';
+        $this->assertFileExists($dashboardPath, 'src/Admin/Controllers/Dashboard.php must be scaffolded in every new application');
 
         $dashboard = file_get_contents($dashboardPath);
-        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $dashboard);
+        $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $dashboard);
         $this->assertStringContainsString('DashboardController', $dashboard,
             'Dashboard wrapper must extend the framework DashboardController');
     }
@@ -3635,4 +3635,65 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringNotContainsString('{{THEME_', $header, 'every placeholder must be substituted');
     }
 
+    /**
+     * The administration area is scaffolded as its own directory.
+     *
+     * `src/Admin/Controllers/`, the counterpart of `src/Api/`, and the framework looks
+     * there first for a request inside the area. What it buys is not tidiness: while
+     * every admin screen lived in `src/Controllers/`, each one answered on two
+     * addresses — `/admin/Users` inside the area and `/Users` outside it, the same page
+     * in the public theme, with no sidebar and outside the area's usertype floor.
+     *
+     * `Health` stays with the public controllers on purpose: `/health/check` is the
+     * JSON endpoint an uptime monitor calls, and moving it into the area would put a
+     * usertype floor in front of a monitoring URL.
+     */
+    public function testAdminControllersAreScaffoldedIntoTheirOwnDirectory(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'MyApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MyApp',
+            '--features'    => 'auth,authserver,queue',
+            '--ui-system'   => 'tailwind',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'myapp_db',
+            '--db-user'     => 'myapp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — the admin screens, in the area's namespace
+        foreach (['Users', 'Settings', 'Logs', 'Dashboard', 'Applications', 'Tokens'] as $name) {
+            $path = $this->tmpDir . '/src/Admin/Controllers/' . $name . '.php';
+            $this->assertFileExists($path, $name . ' belongs to the administration area');
+            $this->assertStringContainsString(
+                'namespace MyApp\\Admin\\Controllers;',
+                (string) file_get_contents($path)
+            );
+            $this->assertFileDoesNotExist(
+                $this->tmpDir . '/src/Controllers/' . $name . '.php',
+                $name . ' must not also be reachable at its bare path'
+            );
+        }
+
+        // …and the public ones where they were
+        foreach (['Home', 'Login', 'Account', 'Health'] as $name) {
+            $this->assertFileExists(
+                $this->tmpDir . '/src/Controllers/' . $name . '.php',
+                $name . ' is not an administration screen'
+            );
+        }
+    }
 }

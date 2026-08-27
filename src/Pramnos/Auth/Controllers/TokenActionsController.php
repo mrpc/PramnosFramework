@@ -94,7 +94,7 @@ class TokenActionsController extends Controller
         $actionId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);
         if ($actionId <= 0) {
             $this->addError('The id in that link is not valid.');
-            $this->redirect(sURL . 'tokenactions');
+            $this->redirect(adminUrl('tokenactions'));
             return null;
         }
 
@@ -113,7 +113,7 @@ class TokenActionsController extends Controller
 
         if (!$result || $result->numRows === 0) {
             $this->addError('That record no longer exists.');
-            $this->redirect(sURL . 'tokenactions');
+            $this->redirect(adminUrl('tokenactions'));
             return null;
         }
 

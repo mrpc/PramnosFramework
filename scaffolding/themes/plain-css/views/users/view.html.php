@@ -75,9 +75,9 @@ $this->activeNav = 'users_view';
                         <span><?php echo $val; ?></span>
                     </div>
                 <?php }; ?>
-                <?php $row('Tokens', '<a href="' . sURL . 'Tokens/userid/' . $uid . '" style="font-weight:600">' . (int)($usageStats['total_tokens'] ?? 0) . '</a>'); ?>
+                <?php $row('Tokens', '<a href="' . adminUrl('Tokens/userid/') . $uid . '" style="font-weight:600">' . (int)($usageStats['total_tokens'] ?? 0) . '</a>'); ?>
                 <?php $row('Unique Apps', '<strong>' . (int)($usageStats['unique_apps'] ?? 0) . '</strong>'); ?>
-                <?php $row('Sessions', '<a href="' . sURL . 'users/sessions/' . $uid . '" style="font-weight:600">' . $sessionCount . '</a>'); ?>
+                <?php $row('Sessions', '<a href="' . adminUrl('users/sessions/') . $uid . '" style="font-weight:600">' . $sessionCount . '</a>'); ?>
                 <?php $row('Registered', ($user['regdate'] ?? 0) > 0 ? date('Y-m-d', (int)$user['regdate']) : '—'); ?>
                 <?php $row('Last Login', ($user['lastlogin'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$user['lastlogin']) : '—'); ?>
             </div>
@@ -164,7 +164,7 @@ $this->activeNav = 'users_view';
                             $sColors = [0 => '#6c757d', 1 => '#198754', 2 => '#343a40', 3 => '#dc3545'];
                             $sLabels = [0 => 'Inactive', 1 => 'Active', 2 => 'Deleted', 3 => 'Revoked'];
                             $exp = (int) ($tok['expires'] ?? 0);
-                            $tokActionsUrl = sURL . 'TokenActions?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
+                            $tokActionsUrl = adminUrl('TokenActions') . '?token_id=' . (int) $tok['tokenid'] . '&from=user&uid=' . $uid;
                         ?>
                             <tr class="pf-token-row" style="border-top:1px solid #f0f0f0"
                                 data-href="<?php echo $tokActionsUrl; ?>"
