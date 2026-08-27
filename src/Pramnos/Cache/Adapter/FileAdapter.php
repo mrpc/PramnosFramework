@@ -490,23 +490,64 @@ class FileAdapter extends AbstractAdapter
 
     private function checkIfFileIsExpired($file)
     {
+        $remaining = $this->remainingTtl((string) $file);
+
+        // Unreadable (null) is not expired: a file this adapter cannot parse is
+        // not one it may delete. Never-expiring (-1) is not expired either — see
+        // remainingTtl().
+        return $remaining !== null && $remaining !== -1 && $remaining <= 0;
+    }
+
+    /**
+     * Seconds left on a cached file: -1 when it never expires, null when the
+     * file cannot be read as a cache entry.
+     *
+     * Two things came out of collapsing this into a boolean.
+     *
+     * **An entry saved to never expire was deleted by the next sweep.** `save()`
+     * treats `timeout <= 0` as "no expiry" — `load()` checks `$timeout > 0`
+     * before comparing — but the expiry test did not, and
+     * `filemtime < time() - 0` is true of every file written more than a moment
+     * ago. So `cleanup()`, the sampled garbage collection, deleted exactly the
+     * entries a caller asked to keep. It presents as a cache that "does not
+     * work" for the values that were meant to be permanent, intermittently,
+     * because the sweep is sampled.
+     *
+     * **And the cache browser said nothing expires.** `getAllItems()` reported
+     * `-1` for every live entry, so the TTL column read "Never" for all of them
+     * — the one thing that column exists to say, said wrongly, on the screen an
+     * operator opens to find out when something will be dropped. The expiry was
+     * always computable: it is `filemtime + timeout`.
+     */
+    private function remainingTtl(string $file): ?int
+    {
         if (!is_file($file)) {
-            return false;
+            return null;
         }
 
         $contents = file_get_contents($file);
-        if (!\Pramnos\General\Helpers::checkUnserialize($contents)) {
-            return false;
+        if ($contents === false
+            || !\Pramnos\General\Helpers::checkUnserialize($contents)) {
+            return null;
         }
 
         try {
             $details = unserialize($contents);
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
-            return false;
+            return null;
         } // @codeCoverageIgnoreEnd
 
-        return filemtime($file) < (time() - $details['timeout']);
+        if (!is_array($details) || !isset($details['timeout'])) {
+            return null;
+        }
+
+        $timeout = (int) $details['timeout'];
+        if ($timeout <= 0) {
+            return -1;
+        }
+
+        return filemtime($file) + $timeout - time();
     }
 
     private function listDirectoryFiles($path)
@@ -616,14 +657,18 @@ class FileAdapter extends AbstractAdapter
                         $relativePath = str_replace($this->cacheDir . DIRECTORY_SEPARATOR, '', $file);
                         $key = basename($file);
                         
-                        // Check if file is expired
-                        $isExpired = $this->checkIfFileIsExpired($file);
-                        
+                        // The real remaining seconds, not a boolean widened
+                        // back out: -1 means never, null means the file is not
+                        // a readable cache entry, and anything <= 0 is expired.
+                        $remaining = $this->remainingTtl($file);
+                        $isExpired = $remaining !== null
+                            && $remaining !== -1 && $remaining <= 0;
+
                         $items[] = [
                             'key' => $key,
                             'size' => filesize($file),
                             'created_time' => date('Y-m-d H:i:s', filemtime($file)),
-                            'ttl' => $isExpired ? 0 : -1,
+                            'ttl' => $remaining,
                             'type' => 'file',
                             'path' => $relativePath,
                             'expired' => $isExpired

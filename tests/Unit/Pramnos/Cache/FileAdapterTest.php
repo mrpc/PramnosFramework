@@ -496,6 +496,141 @@ class FileAdapterTest extends TestCase
     }
 
     /**
+     * The listed TTL is the seconds actually left, not a flag widened back out.
+     *
+     * This used to report `-1` — "never expires" — for every live entry, so the
+     * cache browser's TTL column said nothing expires: the one thing that column
+     * exists to say, said wrongly, on the screen an operator opens to find out
+     * when a value will be dropped. The expiry was always computable from
+     * `filemtime + timeout`.
+     */
+    public function testTheListedTtlIsTheTimeActuallyLeft(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->save('ttl_key', 'some data', 3600);
+
+        // Act
+        $items = $adapter->getAllItems();
+
+        // Assert — a couple of seconds of slack for a slow filesystem
+        $this->assertNotEmpty($items);
+        $this->assertGreaterThan(3590, $items[0]['ttl']);
+        $this->assertLessThanOrEqual(3600, $items[0]['ttl']);
+        $this->assertFalse($items[0]['expired']);
+    }
+
+    /**
+     * An entry saved to never expire is listed as never expiring, not as expired.
+     *
+     * `save()` treats `timeout <= 0` as "no expiry" — `load()` checks
+     * `$timeout > 0` before comparing — but the expiry test did not, and
+     * `filemtime < time() - 0` is true of every file written more than a moment
+     * ago. So a permanent entry listed as expired, in red.
+     */
+    public function testAnEntryThatNeverExpiresIsNotListedAsExpired(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->save('forever', 'some data', 0);
+
+        // Act
+        $items = $adapter->getAllItems();
+
+        // Assert
+        $this->assertNotEmpty($items);
+        $this->assertSame(-1, $items[0]['ttl'], '-1 is how "never" is reported');
+        $this->assertFalse($items[0]['expired']);
+    }
+
+    /**
+     * An entry past its timeout is listed as expired, with the TTL gone negative.
+     */
+    public function testAnEntryPastItsTimeoutIsListedAsExpired(): void
+    {
+        // Arrange — written an hour ago with a one-minute timeout
+        $adapter = $this->makeAdapter();
+        $adapter->save('stale', 'some data', 60);
+        $file = $this->onlyCacheFile();
+        touch($file, time() - 3600);
+        clearstatcache(true, $file);
+
+        // Act
+        $items = $adapter->getAllItems();
+
+        // Assert
+        $this->assertNotEmpty($items);
+        $this->assertTrue($items[0]['expired']);
+        $this->assertLessThan(0, $items[0]['ttl']);
+    }
+
+    /**
+     * The garbage collector does not delete an entry that never expires.
+     *
+     * The same off-by-a-guard, on the destructive side: `cleanup()` deleted
+     * exactly the entries a caller asked to keep. Sampled, so it presents as a
+     * cache that intermittently "does not work" for permanent values.
+     */
+    public function testTheSweepKeepsAnEntryThatNeverExpires(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->save('forever', 'keep me', 0);
+        $file = $this->onlyCacheFile();
+        touch($file, time() - 86400);
+        clearstatcache(true, $file);
+
+        // Act
+        $method = new \ReflectionMethod(FileAdapter::class, 'cleanup');
+        $method->invoke($adapter);
+
+        // Assert
+        $this->assertFileExists($file, 'a permanent entry must survive the sweep');
+    }
+
+    /**
+     * And it does delete one that has expired.
+     *
+     * The other half: a guard that kept everything would be the same bug with
+     * the opposite symptom — a cache directory that only ever grows.
+     */
+    public function testTheSweepDeletesAnExpiredEntry(): void
+    {
+        // Arrange
+        $adapter = $this->makeAdapter();
+        $adapter->save('stale', 'drop me', 60);
+        $file = $this->onlyCacheFile();
+        touch($file, time() - 86400);
+        clearstatcache(true, $file);
+
+        // Act
+        $method = new \ReflectionMethod(FileAdapter::class, 'cleanup');
+        $method->invoke($adapter);
+
+        // Assert
+        $this->assertFileDoesNotExist($file);
+    }
+
+    /**
+     * The single cache file under the adapter's directory.
+     */
+    private function onlyCacheFile(): string
+    {
+        $found = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->cacheDir, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $entry) {
+            if ($entry->isFile()) {
+                $found[] = $entry->getPathname();
+            }
+        }
+        $this->assertCount(1, $found, 'the fixture writes exactly one entry');
+
+        return $found[0];
+    }
+
+    /**
      * getAllItems() respects the limit parameter.
      */
     public function testGetAllItemsRespectsLimit(): void

@@ -286,6 +286,31 @@ $cache->timeout = 0;
 $cache->save($permanentData, 'permanent_data');
 ```
 
+!!! note "`timeout = 0` means never, on every adapter"
+    Including the file adapter's garbage collector, which until 2026-08-27 read
+    `timeout = 0` as "expired one second after being written" — so the sampled sweep
+    deleted exactly the entries a caller had asked to keep. It presented as a cache
+    that intermittently did not work for permanent values, which is the hardest kind
+    to attribute.
+
+### What `getAllItems()` reports
+
+```php
+$items = $cache->getAllItems('sessions', 50);
+
+// [
+//   ['key' => 'user_7', 'ttl' => 3417, 'expired' => false, …],   // seconds left
+//   ['key' => 'motd',   'ttl' => -1,   'expired' => false, …],   // never expires
+//   ['key' => 'stale',  'ttl' => -84,  'expired' => true,  …],   // past its timeout
+// ]
+```
+
+`ttl` is the seconds actually remaining — `-1` for an entry that never expires, and
+absent (null) for a file the adapter cannot read as a cache entry. It used to be `-1`
+for every live entry, which made the cache browser's TTL column read "Never" for all
+of them: the one thing that column exists to say, said wrongly, on the screen an
+operator opens to find out when a value will be dropped.
+
 ### Conditional Caching
 
 ```php
