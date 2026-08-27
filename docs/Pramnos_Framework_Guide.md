@@ -735,6 +735,11 @@ Outside a view, read them from the request: `$request->messages()` and
   without one silently eating the other's.
 - **It needs a session.** With none, `addMessage()` keeps the value on the object for the
   current request only, which is what a CLI or API context wants anyway.
+- **A second request in the same process needs `Request::resetInstance()`.** The capture is
+  per request, so serving two without resetting hands the second the first one's — already
+  consumed — bag. One process, one request never sees this; a worker, a daemon or a test
+  making two requests does, and what it sees is a flash mechanism that worked once and then
+  went silent. `resetInstance()` clears the capture along with the rest of the derived state.
 
 ### Checking for errors in the same request
 

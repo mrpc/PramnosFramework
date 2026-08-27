@@ -168,6 +168,20 @@ class Request extends Base
         self::$putData = array();
         self::$deleteData = array();
         self::$patchData = array();
+        // The flash bag is captured once per request and the session keys are
+        // unset as it is read, so leaving the captured copy behind hands the next
+        // request the previous one's — already consumed — flash. Nulled rather
+        // than emptied, so the next reader loads what is in the session now.
+        //
+        // One process, one request hides this. Anything serving more than one —
+        // a worker, a daemon, a test making two requests — got a flash mechanism
+        // that worked once and was silently dead afterwards: `addMessage()` wrote
+        // to the session, the redirect landed, and the page rendered without the
+        // message.
+        self::$validationErrors = null;
+        self::$oldInput = null;
+        self::$flashMessages = null;
+        self::$flashErrors = null;
     }
 
     /**

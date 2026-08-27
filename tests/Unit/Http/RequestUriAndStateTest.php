@@ -251,4 +251,41 @@ class RequestUriAndStateTest extends TestCase
         $this->assertSame('GET', Request::$requestMethod);
         $this->assertSame([], Request::$putData);
     }
+
+    /**
+     * The reset lets the next request read its own flash.
+     *
+     * The flash bag is captured once per request and the session keys are unset
+     * as they are read, so the captured copy left behind answered for the next
+     * request too — with the previous request's already-consumed contents.
+     *
+     * One process, one request hides it entirely. Anything serving more than one
+     * — a worker, a daemon, a test making two requests — got a flash mechanism
+     * that worked once and was silently dead afterwards: `addMessage()` wrote to
+     * the session, the redirect landed, and the page rendered without the
+     * message. Which is the shape of "the save worked and said nothing".
+     */
+    public function testTheNextRequestReadsItsOwnFlash(): void
+    {
+        // Arrange — one request reads an empty bag, which is what caches it
+        $_SESSION = [];
+        $this->requestFor('/applications/edit/7', '/index.php');
+        $this->assertSame([], Request::getInstance()->messages());
+
+        // Act — the next request arrives with a flash waiting for it
+        Request::resetInstance();
+        $_SESSION['_messages'] = ['A new secret has been generated.'];
+        $_SESSION['_errors'] = ['A name is required.'];
+        $this->requestFor('/applications/edit/7', '/index.php');
+
+        // Assert
+        $this->assertSame(['A new secret has been generated.'],
+            Request::getInstance()->messages());
+        $this->assertSame(['A name is required.'],
+            Request::getInstance()->flashErrors());
+
+        // Cleanup
+        Request::resetInstance();
+        $_SESSION = [];
+    }
 }
