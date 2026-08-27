@@ -261,6 +261,33 @@ class Theme extends \Pramnos\Framework\Base
      * @param \Pramnos\Application\Application $application Application instance
      * @return \classname|Theme
      */
+    /**
+     * Forget the cached theme instances.
+     *
+     * A theme is cached per name and handed to every request in the process —
+     * and it carries **per-request state**. `setContentType()` is the one that
+     * matters: the auth controllers call it to select the chromeless `login.php`
+     * layout, and nothing put it back. So in any process serving more than one
+     * request, every page after a sign-in page rendered with **no header and no
+     * footer**, and with the login layout's asset list.
+     *
+     * One process, one request hides it completely, which is why it lasted. A
+     * worker, a daemon and every test that visits `/login` and then anything
+     * else see it — and what they see is a page that renders, 200, with the
+     * navigation simply absent.
+     *
+     * Called from {@see \Pramnos\Document\Document::reset()}: a document carries
+     * a theme, so resetting documents without resetting themes leaves half the
+     * state behind.
+     *
+     * @return void
+     */
+    public static function reset(): void
+    {
+        self::$instances   = null;
+        self::$activeTheme = 'default';
+    }
+
     public static function getTheme($theme = null, $path = '',
         $load = true, $application = null)
     {

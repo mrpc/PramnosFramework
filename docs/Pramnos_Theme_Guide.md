@@ -421,6 +421,20 @@ Three things about that file are deliberate:
 that predates this keeps rendering exactly as it did — `Account` asks every theme and
 takes the answer it gets.
 
+!!! warning "The content type is per-request state on a cached object"
+    `Theme::getTheme()` caches by name, so one theme object serves every request in the
+    process — and `setContentType()` writes to it. Nothing put it back, so in any process
+    serving more than one request, **every page after a sign-in page rendered with no
+    header and no footer**: the navigation simply absent, status 200, nothing in any log.
+
+    One process, one request hides it completely. A worker, a daemon and every test that
+    visits `/login` and then anything else see it. `Document::reset()` now calls
+    `Theme::reset()` — a document carries a theme, so resetting documents without
+    resetting themes left half the state behind — and `TestClient` calls that per request.
+
+    If you serve several requests in one PHP lifetime by other means, call
+    `Document::reset()` between them.
+
 ### Theme Functions File
 
 Create a `functions.php` file for theme customization:

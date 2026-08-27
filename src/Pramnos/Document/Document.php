@@ -544,6 +544,18 @@ class Document extends \Pramnos\Framework\Base
         self::$type      = 'html';
 
         /**
+         * The theme too, because a document carries one and the theme carries
+         * per-request state of its own.
+         *
+         * `Theme::getTheme()` caches by name, so the same object serves every
+         * request in the process — including its content type, which the auth
+         * controllers set to `login` to select the chromeless layout. Nothing put
+         * it back, so every page after a sign-in page rendered with no header and
+         * no footer. Dropping the documents was not enough.
+         */
+        \Pramnos\Theme\Theme::reset();
+
+        /**
          * The content buffer is static, so discarding the documents was not enough.
          *
          * `addContent()` writes to `self::$buffer` — every concrete document type

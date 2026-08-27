@@ -231,4 +231,61 @@ class StandaloneLoginLayoutTest extends TestCase
         // Assert
         $this->assertStringContainsString('SITE-HEADER', $theme->gethead());
     }
+
+    /**
+     * The next request does not inherit the chromeless layout.
+     *
+     * `Theme::getTheme()` caches by name, so the same object serves every request
+     * in the process — and the content type is on that object. Nothing put it
+     * back, so **every page after a sign-in page rendered with no header and no
+     * footer**: the navigation simply absent, status 200, nothing in any log.
+     *
+     * One process, one request hides it completely, which is why it lasted. A
+     * worker, a daemon, and every test that visits `/login` and then anything
+     * else see it — which is how it was found: a test asserting the public
+     * header's contents failed only when a login page had been rendered earlier
+     * in the same class.
+     */
+    public function testTheChromelessLayoutDoesNotOutliveItsRequest(): void
+    {
+        // Arrange — a request that selects the standalone layout
+        $this->writeStandaloneLayout();
+        $first = $this->theme();
+        $first->setContentType('login');
+        $first->loadtheme();
+        $this->assertStringNotContainsString('SITE-HEADER', $first->gethead(),
+            'the sign-in page itself must be chromeless');
+
+        // Act — the next request begins
+        \Pramnos\Document\Document::reset();
+        $second = $this->theme();
+        $second->loadtheme();
+
+        // Assert
+        $this->assertStringContainsString('SITE-HEADER', $second->gethead(),
+            'the page after a sign-in page must have its header back');
+    }
+
+    /**
+     * Resetting hands out a different object, not the same one re-read.
+     *
+     * Stated separately because it is the mechanism: clearing only the content
+     * type would leave whatever else a theme accumulated during a request, and
+     * the reason this class is reset at all is that per-request state on a cached
+     * object is the whole bug.
+     */
+    public function testResettingDropsTheCachedInstance(): void
+    {
+        // Arrange
+        $this->writeStandaloneLayout();
+        $first = $this->theme();
+
+        // Act
+        Theme::reset();
+        $second = $this->theme();
+
+        // Assert
+        $this->assertNotSame($first, $second,
+            'a cached theme must not survive a reset');
+    }
 }
