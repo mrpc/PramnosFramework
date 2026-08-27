@@ -40,6 +40,7 @@ class UsersController extends Controller
             // The per-user record screens and the operator actions they offer.
             'activity', 'activitydata', 'unlocklogin', 'disabletwofactor', 'revokepasskey',
             // Per-user settings and per-user permissions, edited where the user is.
+            'types',
             'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
             'notify', 'sendnotification', 'signinalerts',
         ]);
@@ -247,6 +248,40 @@ class UsersController extends Controller
                 ->select(['o.organization_id', 'o.name', 'uo.granted_at'])
                 ->where('uo.userid', $userId)->where('uo.is_active', 1)->getAll()),
         ];
+    }
+
+    /**
+     * What each user type is, and what it may do by default.
+     *
+     * A reference screen, because the answer was previously spread across twelve
+     * controllers' `requiredUserType` declarations, the administration area's own floor in
+     * `app.php`, and nothing that named any of it. An operator deciding which type to give
+     * somebody had no document to read.
+     *
+     * It renders the registry, so an application that declared its own types, tones or
+     * capabilities sees its own answer — this screen cannot fall out of step with the
+     * behaviour, because it is reading what the behaviour reads.
+     */
+    public function types(): mixed
+    {
+        $this->requireMinUserType($this->requiredUserType);
+
+        $doc        = Factory::getDocument();
+        $doc->title = 'User types';
+
+        $view               = $this->getView('users');
+        $view->types        = \Pramnos\User\UserTypes::labels();
+        $view->tones        = \Pramnos\User\UserTypes::tones();
+        $view->capabilities = \Pramnos\User\UserTypes::capabilityMap();
+        $view->resolved     = [];
+        foreach ($view->types as $floor => $label) {
+            $view->resolved[$floor] = \Pramnos\User\UserTypes::capabilities((int) $floor);
+        }
+        // The floor the administration area itself applies, which is a different decision
+        // from any type's capabilities and the one people conflate with them.
+        $view->areaFloor = \Pramnos\Http\AdminArea::minUserType();
+
+        return $view->display('types');
     }
 
     /**

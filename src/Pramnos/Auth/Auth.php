@@ -397,7 +397,7 @@ class Auth extends \Pramnos\Framework\Base
 
         $database = \Pramnos\Framework\Factory::getDatabase();
         $sql = $database->prepareQuery(
-            "SELECT `userid`, `username`, `email`, `password`, `active` "
+            "SELECT `userid`, `username`, `email`, `password`, `active`, `language` "
             . "FROM `#PREFIX#users` WHERE `userid` = %d LIMIT 1",
             $userId
         );
@@ -420,6 +420,10 @@ class Auth extends \Pramnos\Framework\Base
             'username' => (string) $row['username'],
             'email'    => (string) ($row['email'] ?? ''),
             'auth'     => (string) ($row['password'] ?? ''),
+            // The account's own interface language, so the session that is about to
+            // be established can be served in it. Selected here because this row is
+            // read anyway — the alternative was a second query per login.
+            'language' => (string) ($row['language'] ?? ''),
             'remember' => $remember,
             // Carry the caller-tagged method (set via setLoginMethod() just
             // before establishSession) into the response so executeDefaultLogin
@@ -443,6 +447,15 @@ class Auth extends \Pramnos\Framework\Base
             \Pramnos\Addon\Addon::triger('Login', 'user', $response);
         } else {
             $this->executeDefaultLogin($response);
+        }
+
+        // Whichever branch established the session, serve the rest of this request
+        // in the account's own language. Both branches wrote it to a cookie and
+        // neither told the translator, so a Greek account read an English page until
+        // it happened to pass `?lang=`.
+        $preferred = (string) ($response['language'] ?? '');
+        if ($preferred !== '') {
+            \Pramnos\Application\Application::currentInstance()?->setLanguage($preferred);
         }
 
         foreach ($this->afterLoginCallbacks as $fn) {

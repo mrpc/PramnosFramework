@@ -246,3 +246,30 @@ if (!function_exists('adminUrl')) {
         return \Pramnos\Http\AdminArea::url($path);
     }
 }
+
+if (!function_exists('t')) {
+    /**
+     * A translation, returned rather than echoed — `l()`'s missing partner.
+     *
+     * `l()` echoes, which makes it right inside a template and useless everywhere a
+     * string is a value: a document title, a flash message, an exception, an array of
+     * labels. The workaround was `\Pramnos\Framework\Factory::getLanguage()->_(…)` at
+     * every one of those call sites, which is long enough that most of them simply
+     * kept the English literal instead — the whole account area's page titles among
+     * them.
+     *
+     * Same arguments and same formatting rules as `_()`: with no arguments the
+     * translation is returned verbatim, placeholders included.
+     *
+     * ```php
+     * $doc->title = t('Account Dashboard');
+     * $doc->title = t('%s messages', $count);
+     * ```
+     */
+    function t(): string
+    {
+        $lang = \Pramnos\Framework\Factory::getLanguage();
+
+        return (string) call_user_func_array([$lang, '_'], func_get_args());
+    }
+}

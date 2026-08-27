@@ -413,7 +413,7 @@ class Account extends Controller
     public function sso(): mixed
     {
         $doc        = $this->document();
-        $doc->title = 'Single sign-on';
+        $doc->title = t('Single sign-on');
 
         $userId = $this->currentUserId();
 
@@ -611,7 +611,7 @@ class Account extends Controller
     protected function renderLogin(array $ctx): mixed
     {
         $doc        = $this->document();
-        $doc->title = 'Login';
+        $doc->title = t('Login');
         $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
@@ -632,7 +632,7 @@ class Account extends Controller
     protected function renderStepUp(array $ctx): mixed
     {
         $doc        = $this->document();
-        $doc->title = 'Two-step verification';
+        $doc->title = t('Two-step verification');
         $this->useStandaloneLayout();
 
         $view                = $this->getView('login');
@@ -788,7 +788,7 @@ class Account extends Controller
     protected function renderForgot(array $ctx): mixed
     {
         $doc        = $this->document();
-        $doc->title = 'Forgot password';
+        $doc->title = t('Forgot password');
         $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
@@ -891,7 +891,7 @@ class Account extends Controller
     protected function renderRegister(array $ctx): mixed
     {
         $doc        = $this->document();
-        $doc->title = 'Create account';
+        $doc->title = t('Create account');
         $this->useStandaloneLayout();
 
         $view                 = $this->getView('register');
@@ -912,7 +912,7 @@ class Account extends Controller
     protected function renderReset(array $ctx): mixed
     {
         $doc        = $this->document();
-        $doc->title = 'Reset password';
+        $doc->title = t('Reset password');
         $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
@@ -938,7 +938,7 @@ class Account extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Account Dashboard';
+        $doc->title = t('Account Dashboard');
 
         $view = $this->getView('dashboard');
 
@@ -996,7 +996,7 @@ class Account extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'My Profile';
+        $doc->title = t('My Profile');
 
         $view            = $this->getView('profile');
         $view->routeBase = $this->routeBase;
@@ -1016,7 +1016,7 @@ class Account extends Controller
         $view        = $this->getView('OAuth2');
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Authorized Applications';
+        $doc->title = t('Authorized Applications');
 
         $view->routeBase      = $this->routeBase;
         $view->authorizedApps = $this->getAuthorizedApplications((int) $currentUser->userid);
@@ -1140,7 +1140,7 @@ class Account extends Controller
 
         // GET — confirmation page.
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Export My Data';
+        $doc->title = t('Export My Data');
 
         $view                 = $this->getView('OAuth2');
         $view->routeBase       = $this->routeBase;
@@ -1210,7 +1210,7 @@ class Account extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Delete Account';
+        $doc->title = t('Delete Account');
 
         $view = $this->getView('OAuth2');
         $view->routeBase = $this->routeBase;
@@ -1260,7 +1260,7 @@ class Account extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Privacy Settings';
+        $doc->title = t('Privacy Settings');
 
         $view                   = $this->getView('OAuth2');
         $view->routeBase        = $this->routeBase;
@@ -1280,7 +1280,7 @@ class Account extends Controller
         $view        = $this->getView('OAuth2');
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Security Overview';
+        $doc->title = t('Security Overview');
 
         $view->routeBase        = $this->routeBase;
         $view->recentActivity   = $this->getActivityLog((int) $currentUser->userid, 20);
@@ -1372,7 +1372,7 @@ class Account extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Change Password';
+        $doc->title = t('Change Password');
 
         $view = $this->getView('OAuth2');
         $view->routeBase = $this->routeBase;

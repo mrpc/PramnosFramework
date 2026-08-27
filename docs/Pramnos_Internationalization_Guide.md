@@ -1,6 +1,8 @@
 ---
 use_cases:
   - Translating strings or adding a language
+  - Working out why a page renders in English whatever the settings say
+  - Choosing which language a request is served in, per site or per area
   - Choosing between the translation helper functions
   - Discovering untranslated strings in the codebase
   - Translating a SPA or Svelte front end from the same catalogue
@@ -16,14 +18,15 @@ The Pramnos Framework includes a comprehensive internationalization system that 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Basic Usage](#basic-usage)
-3. [Language Files](#language-files)
-4. [Translation Functions](#translation-functions)
-5. [Language Management](#language-management)
-6. [String Discovery](#string-discovery)
-7. [Localization Features](#localization-features)
-8. [Best Practices](#best-practices)
-9. [API Reference](#api-reference)
+2. [Which language a request is served in](#which-language-a-request-is-served-in)
+3. [Basic Usage](#basic-usage)
+4. [Language Files](#language-files)
+5. [Translation Functions](#translation-functions)
+6. [Language Management](#language-management)
+7. [String Discovery](#string-discovery)
+8. [Localization Features](#localization-features)
+9. [Best Practices](#best-practices)
+10. [API Reference](#api-reference)
 
 ## Overview
 
@@ -44,6 +47,95 @@ The Internationalization system consists of:
 - **Fallback System**: Graceful fallback to default language
 - **Greeklish Support**: Built-in Greek to Latin character conversion
 - **Parameter Substitution**: Dynamic content in translations
+
+
+## Which language a request is served in
+
+Nothing has to be called for this to work. `Application::init()` resolves the language
+once per request and loads the catalogue, and every candidate it consults is one you can
+set:
+
+| Rank | Where it comes from | Set it by |
+|------|--------------------|-----------|
+| 1 | `?lang=` on the URL | a language picker linking to `?lang=el` |
+| 2 | the administration area's own `language` | `'admin' => ['language' => 'en']` in `app.php` |
+| 3 | the session | automatic — `?lang=` is remembered |
+| 4 | the `language` cookie | a login, from the account's `users.language` |
+| 5 | the `language` setting, then `default_language` | `app/config/settings.php` |
+| 6 | the first installed language, then `english` | nothing — the fallback |
+
+Three of those are worth a sentence each.
+
+**The administration area may be in a different language from the site.** A panel whose
+operators work in English, in front of a site whose visitors read Greek, is the normal
+case rather than an exotic one:
+
+```php
+// app/app.php
+'admin' => [
+    'prefix'       => 'admin',
+    'theme'        => 'admin',
+    'min_usertype' => 80,
+    'language'     => 'en',   // the site itself is 'el'
+],
+```
+
+It outranks the session deliberately. An area language a stale cookie can override is a
+suggestion, not a configuration — the panel would follow whatever the front decided.
+
+**An account's own language is honoured from the moment it signs in.** `users.language`
+is a column the framework does not write; it is yours to set on a profile screen. A login
+carries it into the session, so the page *after* the login form is already in it:
+
+```php
+$user->language = 'el';
+$user->save();
+```
+
+**A language that is not installed is refused.** Every candidate is checked against
+`Language::getLanguages()`, which is the filenames in `app/language/`. That is a security
+property as much as a correctness one — `load()` interpolates the name into an `include`
+path, and `?lang=` used to reach it unfiltered.
+
+### Changing it mid-request
+
+For a language picker that applies its choice immediately, or a controller serving one
+screen in another language:
+
+```php
+$application = \Pramnos\Application\Application::currentInstance();
+
+if (!$application->setLanguage($chosen)) {
+    // Not installed. Refused rather than silently loading nothing, because
+    // load() falling through to English looks exactly like success.
+}
+```
+
+It validates, remembers the choice in the session, and reloads the catalogue.
+
+### When a page comes back in English and nothing you change helps
+
+This is worth knowing as a shape, because it does not look like a bug in the language
+system — it looks like a site that was written in English.
+
+A missing key renders as **itself**, and the framework's keys *are* the English wording:
+`t('Account Dashboard')` returns `Account Dashboard` with no catalogue loaded at all. So
+"no language was ever selected" and "this string is not translated" produce identical
+pages. There is no error, no empty string and nothing to grep for.
+
+Two things produce it:
+
+- **The catalogue is not named what is being asked for.** `english` is the framework's
+  fallback name. A project whose files are `en.php` and `el.php` has no `english.php`, so
+  a request for `english` loads *nothing*. `en` is tried after `english` for exactly this
+  reason, and the resolver's own last resort is the first installed language rather than a
+  name that may not exist.
+- **The string is not in the catalogue.** Check with the key, not with the page:
+  `var_dump(isset(\Pramnos\Translator\Language::getInstance()->getlang()['Account Dashboard']))`.
+
+`$lang->currentlang()` tells you which language was resolved, which separates the two in
+one line.
+
 
 ## Basic Usage
 
@@ -193,6 +285,23 @@ $lang = array(
 ```
 
 ## Translation Functions
+
+### `l()` echoes, `t()` returns
+
+Two helpers, and the difference is the whole reason both exist:
+
+```php
+l('Hello, World!');            // echoes  — for a template
+$title = t('Hello, World!');   // returns — for a value
+```
+
+`l()` is right inside a view and useless anywhere a translation is a *value*: a document
+title, a flash message, an array of labels, an exception. Those call sites had only
+`\Pramnos\Framework\Factory::getLanguage()->_(…)`, which is long enough that most of them
+kept an English literal instead — the framework's own account screens among them, whose
+page titles were hardcoded until `t()` existed.
+
+Both take the same arguments and format by the same rules as `_()`.
 
 ### Using the `l()` Function
 

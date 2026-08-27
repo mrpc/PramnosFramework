@@ -16,12 +16,25 @@ $sessionCount = (int) ($this->sessionCount ?? 0);
 $recentTokens = $this->recentTokens ?? [];
 $uid          = (int) ($user['userid'] ?? 0);
 
-$typeInfo = function (int $t): array {
-    if ($t >= 90) return ['bg-error/10 text-error',     'Admin'];
-    if ($t >= 80) return ['bg-warning/10 text-warning', 'Manager'];
-    if ($t >= 50) return ['bg-primary/10 text-primary',   'Editor'];
-    if ($t >= 10) return ['bg-primary/10 text-primary','Member'];
-    return ['bg-base-200 text-base-content/80', 'Guest'];
+/**
+ * Both halves of the badge come from the registry: the name and the tone.
+ *
+ * This view carried its own copy of the bands — five of them, named differently from the
+ * list's column and the filter's options, so "what is 85?" had three answers on three
+ * screens, each with its own idea of which number was alarming. `UserTypes` answers both
+ * now, and all this theme decides is which classes a tone wears — which is the part a
+ * theme legitimately owns.
+ */
+$typeTones = [
+    'danger'  => 'bg-error/10 text-error',
+    'warning' => 'bg-warning/10 text-warning',
+    'neutral' => 'bg-base-200 text-base-content/80',
+    'primary' => 'bg-primary/10 text-primary',
+];
+$typeInfo = function (int $t) use ($typeTones): array {
+    $tone = \Pramnos\User\UserTypes::tone($t);
+
+    return [$typeTones[$tone] ?? $typeTones['primary'], \Pramnos\User\UserTypes::label($t)];
 };
 
 [$typeCls, $typeLabel] = $typeInfo((int) ($user['usertype'] ?? 0));
@@ -142,7 +155,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     }
                     $action(adminUrl('Tokens/userid/' . $uid), 'tokens', 'All tokens');
                     $action(adminUrl('users/sessions/' . $uid), 'sessions', 'Sessions');
-                    $action(adminUrl('Logs/search?q=' . urlencode((string) ($user['username'] ?? ''))), 'log', 'Find in logs');
+                    $action(adminUrl('Logs/search') . '?query=' . urlencode((string) ($user['username'] ?? '')), 'log', 'Find in logs');
                     ?>
                 </div>
             </div>

@@ -85,6 +85,7 @@ $trails = [
     'users_tokens'      => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Tokens', '']],
     'users_activity'    => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Activity', '']],
     'users_notify'      => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Message', '']],
+    'users_types'       => [['Users', $usersUrl], ['User types', '']],
     'organizations'          => [['Organizations', '']],
     'organizations_view'     => [['Organizations', $orgsUrl], [$orgLabel, '']],
     'organizations_edit'     => [['Organizations', $orgsUrl], [$orgId > 0 ? $orgLabel : 'New Organization', '']],

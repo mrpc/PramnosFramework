@@ -83,29 +83,54 @@ class DatabaseAuthDriver implements AuthDriverInterface
         }
 
         $uid = (int) $row['userid'];
-        $salt = Settings::getSetting('securitySalt');
-        $pwd  = $password . md5($salt . $uid);
 
-        // Path 1: bcrypt verification (normal path)
-        if (!$encryptedPassword && password_verify($pwd, $row['password'])) {
-            return AuthResult::success(
-                $row['username'], $uid, $row['email'], $row['password'],
-                (int) $row['active']
-            );
-        }
+        /**
+         * Paths 1 and 2: every scheme a stored hash might be in, in one call.
+         *
+         * This method used to compose the peppered input itself and compare only that,
+         * with a separate MD5 branch beside it — the same logic
+         * {@see \Pramnos\User\User::verifyPassword()} also carried, in its own copy. Two
+         * copies of "is this the right password" is one too many, and they had already
+         * drifted: neither recognised the plain `password_hash($password)` an application
+         * writes for its own accounts, so a shared `users` table meant the front door
+         * refused correct passwords on half its rows.
+         *
+         * A successful match reports **which** scheme matched, which is what makes the
+         * upgrade below possible for more than MD5.
+         */
+        $scheme = $encryptedPassword
+            ? null
+            : \Pramnos\Auth\PasswordHash::verify($password, (string) $row['password'], $uid, $legacyMd5);
 
-        // Path 2: legacy MD5 comparison + optional auto-upgrade
-        if ($legacyMd5 && !$encryptedPassword && md5($password) === $row['password']) {
-            if ($autoUpgrade) {
-                $newHash = \Pramnos\Auth\PasswordHash::make($pwd);
-                $updateSql = $database->prepareQuery(
-                    "UPDATE `#PREFIX#users` SET `password` = %s WHERE `userid` = %d",
-                    $newHash,
-                    $uid
-                );
-                $database->query($updateSql);
-                $row['password'] = $newHash;
+        if ($scheme !== null) {
+            // Auto-upgrade, when the application allows it and the hash is not already in
+            // the preferred scheme. Writing the *preferred* scheme rather than the one
+            // this driver used to write is the point: an upgrade to a scheme that is
+            // itself outdated has to be done twice.
+            // Everything except a plain `password_hash()` row, which may belong to another
+            // writer sharing this table — rewriting it would leave that writer unable to
+            // read what it wrote. `all` is how an application says the table is its own.
+            // See {@see \Pramnos\User\User::upgradePasswordHash()}.
+            $upgradable = $this->rehashPolicy === 'all'
+                || $scheme !== \Pramnos\Auth\PasswordHash::SCHEME_PLAIN;
+            if ($autoUpgrade && $upgradable
+                && \Pramnos\Auth\PasswordHash::needsUpgrade($scheme, (string) $row['password'])) {
+                try {
+                    $newHash = \Pramnos\Auth\PasswordHash::make($password, $uid);
+                    $database->query($database->prepareQuery(
+                        "UPDATE `#PREFIX#users` SET `password` = %s WHERE `userid` = %d",
+                        $newHash,
+                        $uid
+                    ));
+                    $row['password'] = $newHash;
+                } catch (\Throwable $ex) {
+                    // A login must not fail because the upgrade could not be written.
+                    \Pramnos\Logs\Logger::log(
+                        'Password hash upgrade failed for user ' . $uid . ': ' . $ex->getMessage()
+                    );
+                }
             }
+
             return AuthResult::success(
                 $row['username'], $uid, $row['email'], $row['password'],
                 (int) $row['active']
@@ -129,6 +154,9 @@ class DatabaseAuthDriver implements AuthDriverInterface
      *
      * @return array{bool, bool} [legacyMd5, autoUpgrade]
      */
+    /** The resolved rehash policy: `off`, `modern` or `all`. Set by {@see resolveConfig()}. */
+    private string $rehashPolicy = 'modern';
+
     private function resolveConfig(): array
     {
         $appConfig = [];
@@ -143,8 +171,27 @@ class DatabaseAuthDriver implements AuthDriverInterface
             $appConfig = $app->applicationInfo['auth'] ?? [];
         }
 
-        $legacyMd5   = (bool) ($this->config['legacy_md5']   ?? $appConfig['legacy_md5']   ?? false);
-        $autoUpgrade = (bool) ($this->config['auto_upgrade']  ?? $appConfig['auto_upgrade']  ?? true);
+        $legacyMd5 = (bool) ($this->config['legacy_md5'] ?? $appConfig['legacy_md5'] ?? false);
+
+        // One decision, and it used to have two names: this driver's own boolean
+        // `auto_upgrade`, and `rehash_on_login` — which `User::verifyPassword()` reads and
+        // which the guide documents. So a project that turned rehashing off got a login
+        // that upgraded the row anyway, which is worse than either behaviour: whichever
+        // one you thought you had configured, the other one happened somewhere.
+        //
+        // `rehash_on_login` decides, `auto_upgrade` is honoured as the older name for the
+        // same thing, and both defaults are the same as before.
+        $policy = (string) ($this->config['rehash_on_login'] ?? $appConfig['rehash_on_login'] ?? '');
+        if (!in_array($policy, ['off', 'modern', 'all'], true)) {
+            $policy = 'modern';
+        }
+
+        $autoUpgrade = (bool) ($this->config['auto_upgrade'] ?? $appConfig['auto_upgrade'] ?? true)
+            && $policy !== 'off';
+
+        // md5 is only rewritten when the application asked for `all`, as in
+        // {@see \Pramnos\User\User::upgradePasswordHash()}.
+        $this->rehashPolicy = $policy;
 
         return [$legacyMd5, $autoUpgrade];
     }

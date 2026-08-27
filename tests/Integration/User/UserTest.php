@@ -200,6 +200,64 @@ class UserTest extends TestCase
     }
 
     /**
+     * A row in the retired scheme is migrated by the sign-in that reads it.
+     *
+     * The scheme that was preferred until now appended a 32-character pepper to the
+     * plaintext, and bcrypt stops at 72 bytes — so anything a user typed past the 40th
+     * character was discarded, and two long passwords sharing a 40-character prefix
+     * verified against each other. Nothing reported it: both passwords worked.
+     *
+     * A successful verification is the only moment the plaintext exists, so it is the only
+     * moment the row can be rewritten. Asserted through `verifyPassword()` rather than
+     * through the login, because a step-up in the middle of an account screen has to
+     * migrate the row too — the two used to disagree about what a stored hash even was.
+     */
+    #[Test]
+    public function testVerifyingARetiredSchemeMigratesTheStoredHash()
+    {
+        // Arrange — a persisted account, then its hash forced back into the old scheme
+        $user = new User();
+        $user->username = 'rehash_' . bin2hex(random_bytes(4));
+        $user->email = $user->username . '@example.com';
+        $user->save();
+        $userId = (int) $user->userid;
+        $this->assertGreaterThan(1, $userId);
+
+        $legacy = password_hash(
+            'mysecret123' . \Pramnos\Auth\PasswordHash::pepper($userId),
+            PASSWORD_DEFAULT,
+            ['cost' => 4]
+        );
+        $userTable = defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users';
+        $this->db->query($this->db->prepareQuery(
+            'UPDATE ' . $userTable . ' SET password = %s WHERE userid = %d',
+            $legacy,
+            $userId
+        ));
+
+        // Act
+        $loaded = new User($userId);
+        $verified = $loaded->verifyPassword('mysecret123');
+
+        // Assert — it verifies, and the stored hash is no longer the old one
+        $this->assertTrue($verified, 'the retired scheme must still verify');
+
+        $stored = new User($userId);
+        $this->assertNotSame($legacy, $stored->password, 'the row must have been migrated');
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify('mysecret123', (string) $stored->password, $userId),
+            'and migrated into the preferred scheme'
+        );
+
+        // …and the password still works afterwards, which is the only part a user sees
+        $this->assertTrue($stored->verifyPassword('mysecret123'));
+
+        // Cleanup
+        $stored->deleteuser();
+    }
+
+    /**
      * Tests hasaccess() and setaccess() ACL calls on the User instance.
      *
      * Mocks the Pramnos Auth service, registers it inside Factory, and asserts

@@ -16,12 +16,14 @@ $sessionCount = (int) ($this->sessionCount ?? 0);
 $recentTokens = $this->recentTokens ?? [];
 $uid          = (int) ($user['userid'] ?? 0);
 
-$typeInfo = function (int $t): array {
-    if ($t >= 90) return ['danger',  'Admin'];
-    if ($t >= 80) return ['warning', 'Manager'];
-    if ($t >= 50) return ['info',    'Editor'];
-    if ($t >= 10) return ['primary', 'Member'];
-    return ['secondary', 'Guest'];
+// Name and tone both come from UserTypes — one definition, so the badge, the list column
+// and the filter's options cannot disagree about what 85 is or how loudly to say it. This
+// theme only maps a tone to a Bootstrap contextual class.
+$typeTones = ['danger' => 'danger', 'warning' => 'warning', 'neutral' => 'secondary', 'primary' => 'info'];
+$typeInfo = function (int $t) use ($typeTones): array {
+    $tone = \Pramnos\User\UserTypes::tone($t);
+
+    return [$typeTones[$tone] ?? 'info', \Pramnos\User\UserTypes::label($t)];
 };
 
 [$typeBadge, $typeLabel] = $typeInfo((int) ($user['usertype'] ?? 0));

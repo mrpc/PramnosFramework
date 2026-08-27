@@ -26,6 +26,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversFunction('loadDotenv')]
 #[CoversFunction('getUrl')]
 #[CoversFunction('l')]
+#[CoversFunction('t')]
 class GlobalHelpersTest extends TestCase
 {
     // ── env() ─────────────────────────────────────────────────────────────────
@@ -403,5 +404,43 @@ class GlobalHelpersTest extends TestCase
         $output = ob_get_clean();
         
         $this->assertNotEmpty($output);
+    }
+
+    // ── t() ───────────────────────────────────────────────────────────────────
+
+    /**
+     * `t()` returns the translation; `l()` echoes it.
+     *
+     * That is the whole difference and the whole reason both exist: `l()` is right in a
+     * template and unusable where a translation is a *value* — a document title, a flash
+     * message, an array of labels. Those call sites had only the long
+     * `Factory::getLanguage()->_(…)`, and most of them kept an English literal instead.
+     *
+     * Asserted as "returns and prints nothing", because a `t()` that echoed as well would
+     * pass an equality check and put the string on the page twice.
+     */
+    public function testTReturnsTheTranslationAndPrintsNothing(): void
+    {
+        // Act
+        ob_start();
+        $returned = t('test_string');
+        $printed = ob_get_clean();
+
+        // Assert
+        $this->assertSame('test_string', $returned, 'an untranslated key is its own translation');
+        $this->assertSame('', $printed, 't() must not echo — that is what l() is for');
+    }
+
+    /**
+     * Arguments are formatted, as they are for `_()`.
+     *
+     * A title like `t('Tokens: %s', $username)` is the reason the helper takes them at
+     * all; forwarding only the key would have made it a worse `_()`.
+     */
+    public function testTFormatsItsArguments(): void
+    {
+        // Act & Assert
+        $this->assertSame('Tokens: alice', t('Tokens: %s', 'alice'));
+        $this->assertSame('Tokens: %s', t('Tokens: %s'), 'and no arguments means no formatting');
     }
 }

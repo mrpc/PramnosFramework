@@ -423,9 +423,22 @@ class LogController extends Controller
             $doc->title = 'Search Log Files';
         }
 
-        $searchText = Request::staticGet('query', '', 'post');
-        $caseSensitive = (bool)Request::staticGet('case_sensitive', 0, 'post');
-        $contextLines = (int)Request::staticGet('context', 2, 'post');
+        /**
+         * The term comes from the form **or** from the URL.
+         *
+         * It was POST-only, so every link into this screen arrived with an empty form —
+         * including the *Find in logs* action beside a user, which is the one place
+         * somebody has a term in mind and a page that should already be searching for it.
+         * A search is a read: a GET carrying it is correct, linkable and bookmarkable.
+         */
+        $searchText = (string) Request::staticGet('query', '', 'post');
+        if ($searchText === '') {
+            $searchText = (string) Request::staticGet('query', '', 'get');
+        }
+        $caseSensitive = (bool) (Request::staticGet('case_sensitive', 0, 'post')
+            ?: Request::staticGet('case_sensitive', 0, 'get'));
+        $contextLines = (int) (Request::staticGet('context', 0, 'post')
+            ?: Request::staticGet('context', 2, 'get'));
         $results = null;
 
         if (!empty($searchText)) {

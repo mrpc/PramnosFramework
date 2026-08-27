@@ -121,6 +121,25 @@ class DatabaseAuthDriverPostgreSQLTest extends DatabaseAuthDriverMySQLTest
         return (int) $this->db->getInsertId();
     }
 
+    /**
+     * A user whose password is a bare `password_hash()` — no pepper.
+     *
+     * What an application that creates its own accounts against a shared user table
+     * writes. See {@see testAPlainForeignHashAuthenticatesAndIsLeftAlone()}.
+     */
+    protected function insertPlainHashUser(string $username, string $plainPassword): int
+    {
+        $this->db->query($this->db->prepareQuery(
+            "INSERT INTO \"testdad_users\" (\"username\", \"password\", \"email\", \"active\", \"validated\")
+             VALUES (%s, %s, %s, 1, 1)",
+            $username,
+            password_hash($plainPassword, PASSWORD_DEFAULT, ['cost' => 4]),
+            $username . '@example.com'
+        ));
+
+        return (int) $this->db->getInsertId();
+    }
+
     protected function readStoredPassword(int $userid): string
     {
         $result = $this->db->query(

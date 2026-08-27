@@ -330,9 +330,33 @@ class UserDatabaseMySQLTest extends TestCase
         // Act
         $response = $addon->onAuth('eve', $plain);
 
-        // Assert — bcrypt path succeeds without any hash replacement
+        // Assert — the bcrypt path authenticates, and the row is migrated as it does
         $this->assertTrue($response['status'], 'Bcrypt users must authenticate normally.');
         $stored = $this->readStoredPassword($userid);
-        $this->assertSame($bcrypt, $stored, 'Bcrypt hash must not be replaced during normal authentication.');
+
+        // This assertion used to be `assertSame($bcrypt, $stored)` — "a bcrypt hash is
+        // current, so there is nothing to upgrade". That stopped being true when the
+        // pepper-suffix scheme this hash is in was retired: appending a 32-character
+        // pepper to the plaintext runs into bcrypt's 72-byte limit, so everything past
+        // the 40th character a user typed was discarded and two long passwords sharing a
+        // 40-character prefix verified against each other.
+        //
+        // A successful sign-in is the only moment the plaintext exists, so it is the only
+        // moment the row can be rewritten — which is what `rehash_on_login` (default
+        // `modern`) now does for the framework's own schemes. A plain `password_hash()`
+        // row is still left alone: it may belong to another writer sharing the table.
+        $this->assertNotSame(
+            $bcrypt,
+            $stored,
+            'the retired pepper scheme must be migrated on a successful sign-in'
+        );
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify($plain, $stored, $userid),
+            'and what replaces it must be the preferred scheme, readable for this account'
+        );
+
+        // …and the password still works, which is the only part a user would notice
+        $this->assertTrue($addon->onAuth('eve', $plain)['status']);
     }
 }

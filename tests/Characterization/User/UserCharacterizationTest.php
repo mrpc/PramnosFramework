@@ -127,9 +127,20 @@ class UserCharacterizationTest extends TestCase
 
         // Assert
         $this->assertNotSame(md5('plain'), $persistedLike->password);
-        $expectedInput = 'plain' . md5($salt . '55');
-        // This proves the modern branch still hashes password+salted-userid payload.
-        $this->assertTrue(password_verify($expectedInput, $persistedLike->password));
+        // The modern branch hashes a per-account payload, which is what distinguishes it
+        // from the userid <= 1 branch above. *Which* payload is `PasswordHash`'s business
+        // and is asserted there — it was `$plain . md5($salt . $userid)` appended to the
+        // plaintext, and bcrypt's 72-byte limit silently truncated anything past the 40th
+        // character a user typed. Reading it back through the framework's own verifier is
+        // the characterisation; reconstructing the payload here would pin the scheme.
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify('plain', $persistedLike->password, 55)
+        );
+        $this->assertNull(
+            \Pramnos\Auth\PasswordHash::verify('plain', $persistedLike->password, 56),
+            'and the payload is per-account: the same password on another id is another hash'
+        );
     }
 
     /**
@@ -416,11 +427,12 @@ class UserCharacterizationTest extends TestCase
         $this->assertNotSame(md5($plainPassword), $storedHash,
             'Password must be rehashed to bcrypt after INSERT, not left as MD5 placeholder');
 
-        // Verifying with the salted+userid format proves bcrypt rehash worked.
-        $expectedPayload = $plainPassword . md5($salt . $userId);
-        $this->assertTrue(
-            password_verify($expectedPayload, $storedHash),
-            'Stored bcrypt hash must verify against password+salt+userid payload'
+        // Read back through the framework's own verifier rather than by reconstructing
+        // the payload: the payload changed (see PasswordHashTest), the contract did not.
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify($plainPassword, $storedHash, $userId),
+            'Stored hash must be readable as the preferred scheme for this account'
         );
 
         // Cleanup

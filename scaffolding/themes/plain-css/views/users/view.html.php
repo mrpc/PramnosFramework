@@ -16,12 +16,13 @@ $sessionCount = (int) ($this->sessionCount ?? 0);
 $recentTokens = $this->recentTokens ?? [];
 $uid          = (int) ($user['userid'] ?? 0);
 
-$typeInfo = function (int $t): array {
-    if ($t >= 90) return ['#dc3545', 'Admin'];
-    if ($t >= 80) return ['#856404', 'Manager'];
-    if ($t >= 50) return ['#0d6efd', 'Editor'];
-    if ($t >= 10) return ['#6610f2', 'Member'];
-    return ['#6c757d', 'Guest'];
+// Name and tone both come from UserTypes — one definition for every screen. This theme
+// only decides which colour a tone is.
+$typeTones = ['danger' => '#b02a37', 'warning' => '#856404', 'neutral' => '#666', 'primary' => '#0d6efd'];
+$typeInfo = function (int $t) use ($typeTones): array {
+    $tone = \Pramnos\User\UserTypes::tone($t);
+
+    return [$typeTones[$tone] ?? '#0d6efd', \Pramnos\User\UserTypes::label($t)];
 };
 
 [$typeColor, $typeLabel] = $typeInfo((int) ($user['usertype'] ?? 0));

@@ -199,6 +199,25 @@ class DatabaseAuthDriverMySQLTest extends TestCase
      * This is the primary happy-path contract: new users created with proper
      * bcrypt hashing must be authenticatable via DatabaseAuthDriver.
      */
+    /**
+     * A user whose password is a bare `password_hash()` — no pepper.
+     *
+     * What an application that creates its own accounts against a shared user table
+     * writes. See {@see testAPlainForeignHashAuthenticatesAndIsLeftAlone()}.
+     */
+    protected function insertPlainHashUser(string $username, string $plainPassword): int
+    {
+        $this->db->query($this->db->prepareQuery(
+            "INSERT INTO `testdad_users` (`username`, `password`, `email`, `active`, `validated`)
+             VALUES (%s, %s, %s, 1, 1)",
+            $username,
+            password_hash($plainPassword, PASSWORD_DEFAULT, ['cost' => 4]),
+            $username . '@example.com'
+        ));
+
+        return (int) $this->db->getInsertId();
+    }
+
     public function testVerifyReturnsTrueForCorrectBcryptPassword(): void
     {
         // Arrange
@@ -397,6 +416,84 @@ class DatabaseAuthDriverMySQLTest extends TestCase
         // Assert — stored hash is still the original MD5
         $storedHash = $this->readStoredPassword($uid);
         $this->assertSame(md5('secret4'), $storedHash, 'Hash must remain MD5 when auto_upgrade=false');
+    }
+
+
+    /**
+     * A plain `password_hash()` row is not rewritten by default.
+     *
+     * The one scheme the framework must not take ownership of. Such a row may have been
+     * written by **another application sharing this user table** — one that creates its own
+     * accounts and reads them back with `password_verify($plain, $hash)`. Rewriting it into
+     * the digest-based preferred scheme would leave that application unable to verify a
+     * password it wrote itself, and the failure would appear on its side, later, as "the
+     * right password is refused".
+     *
+     * It still authenticates. Reading a foreign row is the fix; rewriting it is not.
+     */
+    public function testAPlainForeignHashAuthenticatesAndIsLeftAlone(): void
+    {
+        // Arrange — exactly what another writer's createUser() produces
+        $uid   = $this->insertPlainHashUser('plainuser1', 'secret9');
+        $before = $this->readStoredPassword($uid);
+        $driver = new DatabaseAuthDriver(['rehash_on_login' => 'modern']);
+
+        // Act
+        $result = $driver->verify('plainuser1', 'secret9');
+
+        // Assert
+        $this->assertTrue($result->success, 'a foreign plain hash must still authenticate');
+        $this->assertSame(
+            $before,
+            $this->readStoredPassword($uid),
+            'and must not be rewritten under the default policy'
+        );
+    }
+
+    /**
+     * `all` is how an application says the table is its own.
+     *
+     * The opt-in exists because the alternative for a single-application deployment is
+     * leaving every old row in an old scheme for ever — a sign-in is the only moment the
+     * plaintext exists to rewrite it with.
+     */
+    public function testTheAllPolicyMigratesAPlainHash(): void
+    {
+        // Arrange
+        $uid   = $this->insertPlainHashUser('plainuser2', 'secret10');
+        $driver = new DatabaseAuthDriver(['rehash_on_login' => 'all']);
+
+        // Act
+        $result = $driver->verify('plainuser2', 'secret10');
+
+        // Assert
+        $this->assertTrue($result->success);
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify('secret10', $this->readStoredPassword($uid), $uid),
+            'the row must be migrated into the preferred scheme'
+        );
+    }
+
+    /**
+     * `off` rewrites nothing, whatever the scheme.
+     *
+     * For a shared table where another writer must go on reading the rows in the scheme it
+     * wrote them in — including the ones this framework wrote.
+     */
+    public function testTheOffPolicyRewritesNothing(): void
+    {
+        // Arrange — a row in the framework's own retired scheme, which `modern` would migrate
+        $uid    = $this->insertBcryptUser('offpolicy1', 'secret11');
+        $before = $this->readStoredPassword($uid);
+        $driver = new DatabaseAuthDriver(['rehash_on_login' => 'off']);
+
+        // Act
+        $result = $driver->verify('offpolicy1', 'secret11');
+
+        // Assert
+        $this->assertTrue($result->success);
+        $this->assertSame($before, $this->readStoredPassword($uid));
     }
 
     // -------------------------------------------------------------------------

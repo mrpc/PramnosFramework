@@ -729,15 +729,7 @@ class Application extends Base
         $this->action = $request->getAction();
 
         //End of set session defaults
-        if (isset($_GET['lang']) == true) {
-            // Remembering the choice is the point, so this is a write and needs somewhere
-            // to write to. Under lazy mode a first-time visitor has no session yet, and
-            // without this `?lang=` would appear to work for one page and then forget —
-            // the kind of half-broken that gets the whole mode switched back off.
-            $this->session->ensureStarted();
-            $_SESSION['language'] = $_GET['lang'];
-            $this->language = $_GET['lang'];
-        }
+        $this->language = $this->resolveLanguage();
 
         if (
             isset($this->applicationInfo['addons'])
@@ -763,6 +755,128 @@ class Application extends Base
         $this->database->setTrackingInfo();
         $this->registerDefaultNavItems($this->applicationInfo['features'] ?? []);
         // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Which language this request is served in.
+     *
+     * Every candidate in the chain existed before this method did; nothing read them.
+     * `?lang=` was written into the session and the session was never consulted again,
+     * so the choice held for exactly one page. Login writes a `language` cookie and a
+     * `default_language` setting has been in `Settings` all along — neither reached the
+     * translator either. So `Language` used its own hardcoded `'english'` on every
+     * request, and an application whose catalogue was named anything else rendered its
+     * keys: the symptom is a page in English with no way to influence it, which reads
+     * as "translations do not work" rather than as "no language was selected".
+     *
+     * The order is most specific first:
+     *
+     *   1. `?lang=` — an explicit choice, and remembered in the session
+     *   2. the administration area's own `language`, when the request is inside it —
+     *      the site an operator administers is often not in the operator's language,
+     *      and without this the panel picks up whatever the front decided
+     *   3. the session — the last explicit choice
+     *   4. the `language` cookie — the choice from a previous session, which is also
+     *      where a login puts the account's own `users.language`
+     *   5. the `language` setting, then `default_language` — the installation's default.
+     *      Two names because both are already in use: `language` is in the settings file
+     *      of every project scaffolded here, and `default_language` is what the login
+     *      addon has always written its cookie from
+     *   6. the first installed language, then `english`
+     *
+     * Every candidate is checked against the languages actually installed, which is
+     * also a fix worth having on its own: `Language::load()` interpolates the name into
+     * an `include` path, and `?lang=` reached it unfiltered.
+     */
+    protected function resolveLanguage(): string
+    {
+        $installed = $this->installedLanguages();
+
+        $explicit = isset($_GET['lang']) ? (string) $_GET['lang'] : '';
+        if ($explicit !== '' && ($installed === [] || in_array($explicit, $installed, true))) {
+            // Remembering the choice is the point, so this is a write and needs somewhere
+            // to write to. Under lazy mode a first-time visitor has no session yet, and
+            // without this `?lang=` would appear to work for one page and then forget —
+            // the kind of half-broken that gets the whole mode switched back off.
+            $this->session?->ensureStarted();
+            $_SESSION['language'] = $explicit;
+
+            return $explicit;
+        }
+
+        $candidates = [
+            \Pramnos\Http\AdminArea::isActive()
+                ? (string) ($this->applicationInfo['admin']['language'] ?? '')
+                : '',
+            $_SESSION['language'] ?? '',
+            $_COOKIE['language'] ?? '',
+            \Pramnos\Application\Settings::getSetting('language'),
+            \Pramnos\Application\Settings::getSetting('default_language'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate) || $candidate === '') {
+                continue;
+            }
+            if ($installed === [] || in_array($candidate, $installed, true)) {
+                return $candidate;
+            }
+        }
+
+        // `english` is the framework's default and is not necessarily a file that
+        // exists: a project whose catalogues are `en.php` and `el.php` has no
+        // `english.php`, so asking for it loads *nothing* — `load()` tries the name,
+        // then tries `english`, and returns false. Every key then renders as itself,
+        // which is a page in English that no setting can change and no error reports.
+        if ($installed !== [] && !in_array('english', $installed, true)) {
+            return $installed[0];
+        }
+
+        return 'english';
+    }
+
+    /**
+     * The languages this installation ships, or `[]` when the question cannot be answered.
+     *
+     * An empty list means *unknown*, not *none*: `getLanguages()` throws when there is no
+     * language directory at all, which is the normal state of a console application. The
+     * caller treats unknown as "accept the candidate", so a project without the directory
+     * behaves as it did before any of this existed.
+     *
+     * @return list<string>
+     */
+    protected function installedLanguages(): array
+    {
+        try {
+            return \Pramnos\Translator\Language::getLanguages();
+        } catch (\Throwable $exception) {
+            return [];
+        }
+    }
+
+    /**
+     * Serve the rest of this request — and this visitor's next ones — in another language.
+     *
+     * For the screen where a language is chosen, and for a login that knows the account's
+     * own `users.language`. Refuses a language that is not installed rather than loading
+     * nothing, because `load()` falling through to English looks identical to success.
+     */
+    public function setLanguage(string $language): bool
+    {
+        $installed = $this->installedLanguages();
+        if ($language === '' || ($installed !== [] && !in_array($language, $installed, true))) {
+            return false;
+        }
+
+        $this->language = $language;
+        if ($this->session !== null) {
+            $this->session->ensureStarted();
+            $_SESSION['language'] = $language;
+        }
+
+        $lang = \Pramnos\Translator\Language::getInstance();
+
+        return $lang->load($language);
     }
 
     /**

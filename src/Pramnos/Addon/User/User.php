@@ -78,9 +78,16 @@ class User extends \Pramnos\Addon\Addon
             $request->cookieset('uid', $info['uid']);
             $request->cookieset('username', $info['username']);
             $request->cookieset('auth', $info['auth']);
+            // The signed-in account's own language when it has one, and the
+            // installation's default when it does not. It wrote the default
+            // unconditionally before, which made `users.language` a column nothing
+            // ever read: an account could have Greek stored and be served English
+            // for as long as it existed.
             $request->cookieset(
                 'language',
-                \Pramnos\Application\Settings::getSetting('default_language')
+                ($info['language'] ?? '') !== ''
+                    ? $info['language']
+                    : \Pramnos\Application\Settings::getSetting('default_language')
             );
         }
 

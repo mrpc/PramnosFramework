@@ -20,6 +20,7 @@ $this->activeNav = 'users';
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2>Users</h2>
         <a href="<?php echo adminUrl('Users/edit'); ?>" class="btn btn-primary">+ New User</a>
+        <a href="<?php echo adminUrl('Users/types'); ?>" class="btn btn-sm btn-outline-secondary" title="What each user type may do">User types</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

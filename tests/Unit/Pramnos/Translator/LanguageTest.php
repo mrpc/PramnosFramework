@@ -332,6 +332,46 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * The English fallback also finds `en.php`.
+     *
+     * `load()` tries the language asked for, then falls back — and the fallback was the
+     * single filename `english`. A project that names its catalogues by ISO code has
+     * `en.php` and no `english.php`, so the fallback found nothing, `load()` returned
+     * false and **no catalogue was loaded at all**. Every key then rendered as itself,
+     * which looks like a site written in English rather than like a language that never
+     * loaded: no error, no empty string, nothing to grep for.
+     */
+    public function testTheEnglishFallbackAlsoFindsAnIsoNamedCatalogue(): void
+    {
+        // Arrange — an `en.php` and no `english.php`, as init would leave it for a
+        // project that named its catalogues by code
+        $appLang = ROOT . DS . 'app' . DS . 'language';
+        $created = [];
+        if (!is_dir($appLang)) {
+            @mkdir($appLang, 0777, true);
+            $created[] = $appLang;
+        }
+        $file = $appLang . DS . 'en.php';
+        file_put_contents($file, "<?php\n\$lang = ['zzOnlyInEn' => 'found it'];\nreturn \$lang;\n");
+
+        try {
+            $language = new Language();
+
+            // Act — a language nobody has a catalogue for
+            $loaded = $language->load('zzklingon');
+
+            // Assert
+            $this->assertTrue($loaded, 'the fallback must load a catalogue that exists');
+            $this->assertSame('found it', $language->_('zzOnlyInEn'));
+        } finally {
+            @unlink($file);
+            foreach ($created as $directory) {
+                @rmdir($directory);
+            }
+        }
+    }
+
+    /**
      * getLanguages() looks where load() looks.
      *
      * It used to scan `ROOT/language` and nothing else, while `load()` reads

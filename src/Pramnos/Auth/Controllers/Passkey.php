@@ -71,7 +71,7 @@ class Passkey extends Controller
     protected function renderManage(): mixed
     {
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Passkeys';
+        $doc->title = t('Passkeys');
 
         $view            = $this->getView('passkey');
         $view->routeBase = 'Passkey';

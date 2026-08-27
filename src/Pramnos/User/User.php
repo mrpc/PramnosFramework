@@ -381,12 +381,10 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     public function setPassword($password = '')
     {
         if ($this->userid > 1) {
-            $pwd = $password
-                . md5(
-                \Pramnos\Application\Settings::getSetting('securitySalt')
-                . $this->userid
-            );
-            $this->password = \Pramnos\Auth\PasswordHash::make($pwd);
+            // The scheme lives in PasswordHash, not here: this method used to compose the
+            // peppered input itself, which is why the pepper's 72-byte problem could not
+            // be fixed in one place. See PasswordHash::make().
+            $this->password = \Pramnos\Auth\PasswordHash::make($password, (int) $this->userid);
             $this->_pendingPlainPassword = null;
         } else {
             // userid not yet assigned — store MD5 as placeholder and keep the
@@ -2351,27 +2349,37 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             return false;
         }
 
-        $pwd = $password
-            . md5(
-            \Pramnos\Application\Settings::getSetting('securitySalt')
-            . $this->userid
+        /**
+         * Every scheme the row might have been written in — see
+         * {@see \Pramnos\Auth\PasswordHash::verify()}.
+         *
+         * Including the plain `password_hash($password)` an **application** writes when it
+         * creates its own accounts. The `users` table is shared and either side may have
+         * written a row; a check that understood only the framework's own pepper refused
+         * every correct password on the other side's rows, and the symptom was "the right
+         * password is refused" with nothing pointing at hashing. It was reported from an
+         * application whose 2FA could not be switched off by anybody, because the step-up
+         * in front of it could not read that application's hashes.
+         *
+         * Trying several schemes cannot admit a wrong password: each is a comparison
+         * against the same stored hash.
+         */
+        $scheme = \Pramnos\Auth\PasswordHash::verify(
+            $password,
+            (string) $this->password,
+            (int) $this->userid,
+            $this->legacyMd5Allowed()
         );
-        if (password_verify($pwd, $this->password)) {
-            return true;
-        }
 
-        // Legacy MD5, behind the same switch the login driver uses.
-        //
-        // This used to be unconditional, which meant an installation that had
-        // deliberately turned legacy MD5 *off* still accepted an MD5 password
-        // here — and "here" is the step-up check in front of sensitive actions
-        // (Account::confirmPassword). One place accepting what the front door
-        // rejects is not a fallback, it is a second front door.
-        if (!$this->legacyMd5Allowed()) {
+        if ($scheme === null) {
             return false;
         }
 
-        return hash_equals((string) $this->password, md5($password));
+        // The password was right; the hash may be old. This is the only moment the
+        // plaintext is available, so it is the only moment an upgrade is possible.
+        $this->upgradePasswordHash($password, $scheme);
+
+        return true;
     }
 
     /**
@@ -2417,6 +2425,111 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         foreach ($data as $name => $value) {
             $this->$name = $value;
         }
+    }
+
+    /**
+     * Rewrite a correct-but-old password hash, if the application asked for it.
+     *
+     * A login is the only moment the plaintext exists, so it is the only moment an old
+     * hash can be replaced. Without this, an installation that raises its bcrypt cost
+     * raises it for accounts created afterwards and for nobody else — and one that
+     * migrated from a legacy system keeps MD5 for every account whose owner never changes
+     * their password, which is most of them.
+     *
+     * **Opt-in, per application**, because it writes to the users table on a read path and
+     * because upgrading changes the stored format:
+     *
+     * ```php
+     * // app/app.php
+     * 'auth' => ['rehash_on_login' => 'modern'],   // off | modern | all
+     * ```
+     *
+     *   - `off` — never rewrite. For a replica, or a table another application also reads
+     *     with its own expectations.
+     *   - `modern` (default) — rewrite when the *preferred scheme's parameters* changed, so
+     *     a raised cost reaches existing accounts. Nothing changes about which scheme the
+     *     row uses.
+     *   - `all` — also upgrade a legacy MD5, a plain application-written bcrypt, or the
+     *     older peppered scheme to the current one. This is the migration, and it is
+     *     deliberately not the default: a legacy application still reading the same table
+     *     would stop recognising the row.
+     *
+     * Failure is silent by design. A login must not fail because housekeeping could not
+     * write, and the user is already authenticated by the time this runs.
+     *
+     * @param string $plain  The password that just verified
+     * @param string $scheme The scheme that matched it
+     */
+    protected function upgradePasswordHash(string $plain, string $scheme): void
+    {
+        $policy = $this->rehashPolicy();
+        if ($policy === 'off') {
+            return;
+        }
+
+        if (!\Pramnos\Auth\PasswordHash::needsUpgrade($scheme, (string) $this->password)) {
+            return;
+        }
+
+        /**
+         * What `modern` will and will not take over.
+         *
+         * It upgrades the schemes **the framework itself wrote** — the pepper-suffix one,
+         * which is the scheme with the 72-byte truncation, and its own preferred scheme
+         * when the cost has moved. A sign-in is the only moment the plaintext exists, so
+         * it is the only moment this can happen at all.
+         *
+         * It also upgrades md5, which needs no second opt-in: a row can only *be* read as
+         * md5 when the application set `auth.legacy_md5`, and that is already the statement
+         * "my table has md5 rows in it". Refusing to rewrite them would leave the weakest
+         * hashes in the table as the only ones never improved.
+         *
+         * The one scheme it leaves alone is a plain `password_hash()`, and that is the
+         * important half. Such a row may belong to **another writer sharing this table**:
+         * an application that creates its own accounts and reads them back with
+         * `password_verify($plain, $hash)`. Rewriting it into a digest-based scheme would
+         * leave that application unable to verify a password it wrote — the framework
+         * would have silently taken ownership of somebody else's rows. `all` is how an
+         * application says the table is its own.
+         */
+        if ($policy !== 'all' && $scheme === \Pramnos\Auth\PasswordHash::SCHEME_PLAIN) {
+            return;
+        }
+
+        try {
+            $hash = \Pramnos\Auth\PasswordHash::make($plain, (int) $this->userid);
+
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(self::usersTable())
+                ->where('userid', (int) $this->userid)
+                ->update(['password' => $hash]);
+
+            $this->password = $hash;
+
+            // Recorded: a password hash changing without the password changing is the kind
+            // of thing an audit should be able to explain later.
+            \Pramnos\Auth\ActivityLog::record((int) $this->userid, 'password_hash_upgraded', [
+                'from' => $scheme,
+                'to'   => \Pramnos\Auth\PasswordHash::PREFERRED,
+            ]);
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::log(
+                'Password hash upgrade failed for user ' . (int) $this->userid . ': ' . $ex->getMessage()
+            );
+        }
+    }
+
+    /**
+     * The application's rehash-on-login policy: `off`, `modern` (default) or `all`.
+     */
+    protected function rehashPolicy(): string
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        $configured = is_object($app)
+            ? (string) ($app->applicationInfo['auth']['rehash_on_login'] ?? '')
+            : '';
+
+        return in_array($configured, ['off', 'modern', 'all'], true) ? $configured : 'modern';
     }
 
     /**

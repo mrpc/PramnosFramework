@@ -19,6 +19,7 @@
     <div class="flex justify-between items-center mb-4">
         <h2>Users</h2>
         <a href="<?php echo adminUrl('Users/edit'); ?>" class="btn btn-primary btn-sm">+ New User</a>
+        <a href="<?php echo adminUrl('Users/types'); ?>" class="btn btn-ghost btn-sm" title="What each user type may do">User types</a>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

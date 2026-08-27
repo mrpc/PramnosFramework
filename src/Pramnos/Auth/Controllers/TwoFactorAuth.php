@@ -52,7 +52,7 @@ class TwoFactorAuth extends Controller
         $view->status = $this->twoFactorService->getStatus($currentUser->userid);
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Two-Factor Authentication';
+        $doc->title = t('Two-Factor Authentication');
 
         return $view->display();
     }
@@ -99,7 +99,7 @@ class TwoFactorAuth extends Controller
         $view->user      = $currentUser;
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = '2FA Setup';
+        $doc->title = t('2FA Setup');
 
         return $view->display('setup');
     }
@@ -218,7 +218,7 @@ class TwoFactorAuth extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = '2FA Backup Codes';
+        $doc->title = t('2FA Backup Codes');
 
         return $view->display('backup');
     }

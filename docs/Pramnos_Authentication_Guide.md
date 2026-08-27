@@ -8,6 +8,7 @@ use_cases:
   - Giving a signed-in browser an API token for a SPA on the same origin
   - Identifying a caller who is present and has no account, such as a chat guest
   - Showing a user which devices and sessions their account has
+  - Migrating an old password table, or sharing one with another writer
 ---
 
 # Pramnos Authentication & User Management Guide
@@ -124,45 +125,90 @@ This method delegates to `Auth::getInstance()->verifyCredentials($username, $pas
 
 ## User Management
 
-### What a usertype is, and how to change the bands
+### What a usertype is, what each one may do, and how to change them
 
 `users.usertype` is an **integer read as a threshold**, not an enum. `>= 90` is an
 administrator (`UserCreate::ADMIN_USERTYPE`), and the administration area's floor is
 whatever `admin.min_usertype` says — so a comparison, not an equality, is what the
 framework's own guards are written in.
 
-The bands have names, in one place:
+#### The framework's own types, and what each may do
+
+| Value | Type | Tone | Gains, on top of everything below it |
+| --- | --- | --- | --- |
+| `99` | Root | danger | `*` — every capability, including ones added later |
+| `98` | Super Administrator | danger | `admin.settings`, `admin.permissions`, `devpanel` |
+| `90` | Administrator | warning | `admin.area`, `admin.users`, `admin.users.write`, `admin.logs`, `admin.applications`, `admin.organizations`, `admin.queue`, `admin.messages`, `admin.tokens` |
+| `1` | System User (Client Credentials Grant) | neutral | `api.client_credentials` — **and nothing else**, see below |
+| `0` | Simple User | primary | `account.self` |
+
+**`/admin/Users/types` renders this table from the registry**, so it is always the running
+answer rather than a copy of it, and an application that declared its own sees its own.
+
+Three rules make the numbers behave:
+
+- **A value is a threshold.** `95` is an Administrator and has an administrator's
+  capabilities; `label(95)` says so. Everything between `2` and `89` is a Simple User,
+  because a framework has no basis for inventing roles — those are an application's, and it
+  declares them.
+- **Capabilities accumulate downwards.** An Administrator has `account.self` too.
+- **`1` is matched exactly and inherits nothing.** It is the machine account a Client
+  Credentials grant authenticates as, not a very senior person: giving it `account.self`
+  would invent a human for a token.
 
 ```php
-\Pramnos\User\UserTypes::label(85);     // 'Manager' — the band it falls in, not '85'
-\Pramnos\User\UserTypes::labels();      // [90 => 'Admin', 80 => 'Manager', …]
-\Pramnos\User\UserTypes::options();     // value => label, for Html\Select::addOptions()
+\Pramnos\User\UserTypes::label(95);            // 'Administrator'
+\Pramnos\User\UserTypes::can(90, 'admin.settings');   // false — that is 98 and above
+\Pramnos\User\UserTypes::capabilities(98);     // the resolved list
+\Pramnos\User\UserTypes::tone(99);             // 'danger' — a meaning, for a theme to colour
+\Pramnos\User\UserTypes::options();            // value => label, for Html\Select::addOptions()
 ```
 
-An application renames or replaces them in `app/app.php`:
+#### Declaring your own
 
 ```php
+// app/app.php
 'usertypes' => [
-    100 => 'Owner',
-    90  => 'Administrator',
-    50  => 'Staff',
-    10  => 'Customer',
-    0   => 'Guest',
+    99 => 'Root',
+    98 => 'Super Administrator',
+    90 => 'Administrator',
+    50 => 'Management User',     // scoped to an organization in this application
+    20 => 'Installer',
+    1  => 'System User (Client Credentials Grant)',
+    0  => 'Simple User',
+],
+'usertype_tones' => [50 => 'warning'],          // this application treats 50 as privileged
+'usertype_capabilities' => [                    // replaces the map — see the note
+    99 => ['*'],
+    90 => ['admin.area', 'admin.users', 'admin.logs'],
+    50 => ['admin.area', 'admin.organizations'],
+    0  => ['account.self'],
 ],
 ```
 
-Keyed by the band's **floor** and read highest-first, so a value between two bands belongs
-to the lower one. Declare them in any order — they are sorted before use, because a config
-listing its bands lowest-first would otherwise label an administrator "Guest".
+Keyed by the type's **floor** and read highest-first; declare them in any order, because
+they are sorted before use — a config listing them lowest-first would otherwise label an
+administrator "Simple User".
 
-The bundled admin screens use this for the badge on a user, the label in the list and the
-options in the list's type filter. Before it, each of those carried its own copy of the
-mapping, so "what is 85?" had three answers.
+`usertype_capabilities` **replaces** the framework's map rather than merging with it. A
+capability list is a security decision: quietly adding defaults underneath would grant
+things the application did not ask for.
 
-**This is not a role system.** A usertype answers *how senior is this account*, in one
-number, in a column every application on the framework shares. When the question is *may
-they do X*, that is a permission — see the
-[Authorization guide](Pramnos_Authorization_Guide.md).
+Every bundled screen — the badge on a user, the label and filter in the list, the select on
+the edit form, the reference screen — reads this registry. **No view carries its own copy**,
+which is what it did before: three screens, three sets of thresholds, three answers to
+"what is 85?" and three opinions about which number was alarming.
+
+#### Capabilities are not permissions, and neither is the area's floor
+
+- A **capability** answers *may this kind of account reach this kind of screen*.
+- A **permission** answers *may this account touch this record* — per user, in
+  `authserver.permissions`, editable on the user's own screen. See the
+  [Authorization guide](Pramnos_Authorization_Guide.md).
+- The **administration area's `min_usertype`** is a third thing: what stops the area being
+  browsable at all, applied before any screen's own check. The scaffolded default is `80`,
+  which is below the lowest *named* administrative type — an application that wants only
+  administrators sets it to `90`.
 
 ### What the administration screen shows about a user
 
@@ -397,11 +443,104 @@ rest are free.
 > language preference in a column of its own, `users.language` is now safe to
 > use again.
 
+### How a stored password is hashed, and read
+
+Everything that hashes or checks a password goes through `Pramnos\Auth\PasswordHash`.
+`User::setPassword()`, `User::verifyPassword()` and `DatabaseAuthDriver` all call it, so
+the front door and a step-up in the middle of an account screen agree about what a stored
+hash is.
+
+```php
+$user->setPassword($plain);            // writes the preferred scheme
+$user->verifyPassword($plain);         // true for any scheme it can read
+```
+
+**The preferred scheme is bcrypt over an HMAC-SHA-256 digest of the password**, keyed by a
+per-account pepper (`md5(securitySalt . userid)`). The digest is what solves a defect worth
+naming, because it is silent: bcrypt stops at 72 bytes, and the scheme this replaced
+appended a 32-character pepper to the plaintext. Everything a user typed past the 40th
+character was discarded, and two long passwords sharing a 40-character prefix verified
+against each other — both passwords worked, which reads as success. A fixed-length digest
+has no such ceiling.
+
+The per-account pepper means the same password held by two accounts is two different
+hashes, so one leaked hash cannot be tested against every row.
+
+#### `verify()` reads more than one scheme, and says which
+
+```php
+$scheme = \Pramnos\Auth\PasswordHash::verify($plain, $storedHash, $userId);
+// 'hmac' | 'pepper' | 'plain' | 'md5' | null
+```
+
+| Scheme | What it is | Accepted |
+|--------|-----------|----------|
+| `hmac` | the preferred scheme above | always |
+| `pepper` | the previous scheme — pepper appended to the plaintext | always |
+| `plain` | `password_hash($plain, PASSWORD_DEFAULT)`, no pepper | always |
+| `md5` | a raw md5 from a very old table | only with `$allowMd5 = true` |
+
+`plain` is there for a reason worth spelling out: **an application sharing this user table
+may have written the row itself.** One did, with a bare `password_hash()`, and its accounts
+could not pass the framework's own password step-up — the correct password was refused,
+with nothing in the refusal to suggest that hashing was the reason. Verification reads
+both, so either side may have created a row.
+
+It returns the scheme's *name* rather than a boolean because a caller cannot know whether
+to rewrite the row without knowing what it is holding.
+
+#### Upgrading on the next sign-in
+
+A successful sign-in is the only moment the plaintext exists, so it is the only moment a
+row can be rewritten in a stronger scheme. That happens automatically, and how far it goes
+is yours to choose:
+
+```php
+// app/app.php
+'auth' => [
+    'rehash_on_login' => 'modern',   // 'off' | 'modern' | 'all'
+],
+```
+
+- **`off`** — never rewrite. For a table whose rows another writer must keep reading in
+  the scheme it wrote them in.
+- **`modern`** (the default) — rewrite the pepper-suffix scheme, the preferred scheme when
+  its cost has moved past the stored hash, and md5. md5 needs no second opt-in: a row can
+  only be *read* as md5 when `auth.legacy_md5` is on, which already says the table has md5
+  rows in it. **Leaves a plain `password_hash()` row alone**, because such a row may belong
+  to another application sharing this table, and rewriting it would leave that application
+  unable to verify a password it wrote itself.
+- **`all`** — that row too. This is how an application says the table is its own; for
+  migrating one, where the alternative is asking every user to reset a password that is
+  correct.
+
+The same key governs the login driver and `User::verifyPassword()`, which is worth saying
+because it did not: `DatabaseAuthDriver` had its own boolean `auth.auto_upgrade`. A project
+that set `rehash_on_login => 'off'` still had its rows rewritten by the login, and a project
+that set `auto_upgrade => false` still had them rewritten by a step-up. `auto_upgrade` is
+still read, as the older name for the same decision.
+
+Each rewrite is recorded as a `password_hash_upgraded` activity entry, so a migration is
+something you can watch finish rather than assume.
+
+#### Ordering a step-up: cheap checks first
+
+Where a screen asks for more than one thing — a password *and* a 2FA code, as disabling
+two-factor does — check the password first and the single-use code last. Reversed, a
+mistyped password consumes the code: the user is told their password was wrong, and then
+has to wait for a new code before they can retype it. The cost only appears in somebody's
+hands, and the wrong order is the natural one to write.
+
 ### `users.language` is the user's preference
 
 Nothing in the framework writes `users.language`. It holds whatever your
 application put there, and it is yours to interpret — typically as the language
 the account prefers the interface in.
+
+**It is read at sign-in.** A login carries the stored language into the session, so the
+page after the login form is already in it — see
+[Which language a request is served in](Pramnos_Internationalization_Guide.md#which-language-a-request-is-served-in)
+for the whole order of precedence. Setting the column is all an application has to do.
 
 The framework does not keep it in step with the interface language, and that is
 deliberate: the two answer different questions. `$lang->currentlang()` is the

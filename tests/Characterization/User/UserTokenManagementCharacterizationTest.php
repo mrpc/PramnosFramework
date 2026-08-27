@@ -161,8 +161,22 @@ class UserTokenManagementCharacterizationTest extends TestCase
     }
 
     /**
-     * setPassword() for an existing user (userid > 1) uses password_hash.
-     * The resulting hash verifies correctly against the salted input.
+     * setPassword() for an existing user (userid > 1) writes a hash `verify()` reads.
+     *
+     * The characterised behaviour is that the stored hash is per-user — two accounts
+     * with the same password do not share a hash — and that the framework's own
+     * verification accepts it. Both still hold.
+     *
+     * What changed underneath is the pre-hash. It used to be `$password . md5(salt . uid)`
+     * appended to the plaintext, and bcrypt truncates at 72 bytes: with a 32-character
+     * suffix, everything a user typed past the 40th character was silently ignored, and
+     * two long passwords sharing a 40-character prefix verified against each other.
+     * `PasswordHash` pre-hashes with HMAC-SHA-256 instead, so the whole password reaches
+     * the KDF as a fixed-length digest.
+     *
+     * So this test no longer reconstructs the pre-hash by hand. That is deliberate: a
+     * test that spells out the scheme pins the scheme, and this one is about the
+     * contract. `PasswordHashTest` is where the scheme itself is asserted.
      */
     public function testSetPasswordForExistingUserUsesPasswordHash(): void
     {
@@ -175,9 +189,26 @@ class UserTokenManagementCharacterizationTest extends TestCase
 
         // Assert – password_hash produces a bcrypt/argon string, not plain md5
         $this->assertStringStartsWith('$', $user->password);
-        // And it verifies with the salted input
-        $salt = md5(Settings::getSetting('securitySalt', '') . $user->userid);
-        $this->assertTrue(password_verify('securepass' . $salt, $user->password));
+        $this->assertNotSame(md5('securepass'), $user->password);
+
+        // …the framework reads it back, and says which scheme matched
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify('securepass', $user->password, 99999)
+        );
+        $this->assertNull(
+            \Pramnos\Auth\PasswordHash::verify('wrong', $user->password, 99999)
+        );
+
+        // …and it is bound to the account: the same password on another userid is a
+        // different hash, so one leaked hash does not test against every account.
+        $other = new User();
+        $other->userid = 88888;
+        $other->setPassword('securepass');
+        $this->assertNotSame($user->password, $other->password);
+        $this->assertNull(
+            \Pramnos\Auth\PasswordHash::verify('securepass', $other->password, 99999)
+        );
     }
 
     // -----------------------------------------------------------------------

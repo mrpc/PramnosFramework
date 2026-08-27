@@ -76,7 +76,7 @@ class Oauth extends Controller
     public function display()
     {
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'OAuth Applications';
+        $doc->title = t('OAuth Applications');
 
         $db = \Pramnos\Framework\Factory::getDatabase();
 
@@ -830,7 +830,7 @@ class Oauth extends Controller
     private function showConsentForm(object $user, array $client, array $params): void
     {
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Authorize Application';
+        $doc->title = t('Authorize Application');
 
         $view = $this->getView('OAuth2');
 
@@ -865,7 +865,7 @@ class Oauth extends Controller
     {
         http_response_code(400);
         $doc        = \Pramnos\Framework\Factory::getDocument('html');
-        $doc->title = 'Authorization Error';
+        $doc->title = t('Authorization Error');
 
         // Added to the document rather than echoed. An echo goes out before the
         // page the framework is about to render, so the error appeared above a

@@ -147,12 +147,14 @@ class UserPostgreSQLCharacterizationTest extends TestCase
         // Act
         $persistedLike->setPassword('plain');
 
-        // Assert
+        // Assert — a per-account payload, read back through the framework's own verifier.
+        // The payload itself is `PasswordHash`'s business and is asserted there; what is
+        // backend-agnostic is the branching, which is what this test is for.
         $this->assertNotSame(md5('plain'), $persistedLike->password);
-        $expectedInput = 'plain' . md5($salt . '55');
-        $this->assertTrue(
-            password_verify($expectedInput, $persistedLike->password),
-            'userid > 1 must use password_hash() with salted-userid payload'
+        $this->assertSame(
+            \Pramnos\Auth\PasswordHash::PREFERRED,
+            \Pramnos\Auth\PasswordHash::verify('plain', $persistedLike->password, 55),
+            'userid > 1 must use password_hash() with a per-account payload'
         );
     }
 

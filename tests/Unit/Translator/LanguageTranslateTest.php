@@ -123,17 +123,28 @@ class LanguageTranslateTest extends TestCase
     }
 
     /**
-     * An untranslated key is returned unchanged even when arguments are given —
-     * there is nothing to format, and inventing a format step here would make
-     * the missing-translation path fail differently from the present one.
+     * An untranslated key **is** formatted with the caller's arguments.
+     *
+     * This assertion used to be the opposite, on the reasoning that "there is nothing to
+     * format" and that formatting a miss would make the missing-translation path behave
+     * differently from the present one. Both halves are backwards. The key *is* a
+     * translation — the framework's own keys are the English wording — so there is
+     * something to format; and formatting it is what makes the two paths behave the
+     * **same**, which was the stated goal.
+     *
+     * What the old behaviour actually produced: every installation that had not translated
+     * a particular string got a literal `%s` on the page where a value belonged.
+     * `l('You have %d items', $count)` printed `You have %d items`, which reads as a broken
+     * template rather than as a missing translation — and every string in the framework's
+     * bundled screens is in exactly that state until a project translates it.
      */
-    public function testUntranslatedKeyWithArgumentsIsStillReturnedUnchanged(): void
+    public function testUntranslatedKeyIsFormattedWithTheCallersArguments(): void
     {
         // Act
         $result = $this->lang->_('%s has no translation', 'Aroma');
 
         // Assert
-        $this->assertSame('%s has no translation', $result);
+        $this->assertSame('Aroma has no translation', $result);
     }
 
     /**

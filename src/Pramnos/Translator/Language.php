@@ -121,8 +121,15 @@ class Language extends Base
             // project with `app/language/` and no `ROOT/language/` used to reach the
             // English fallback only under the latter — so a missing language file
             // returned false and the page rendered untranslated instead of in English.
+            //
+            // `en` is tried after `english` for the same reason one step further out:
+            // the fallback was a single hardcoded filename, and a project that names its
+            // catalogues by ISO code — `en.php`, `el.php` — has no `english.php`, so the
+            // fallback found nothing and *no* catalogue was loaded at all. Every key
+            // rendered as itself, which looks like a site written in English rather than
+            // like a language that was never loaded.
             $loaded = false;
-            foreach ([$language, 'english'] as $candidateLanguage) {
+            foreach ([$language, 'english', 'en'] as $candidateLanguage) {
                 foreach ($this->languageDirectories() as $directory) {
                     $file = $directory . DS . $candidateLanguage . ".php";
                     if (file_exists($file)) {
@@ -151,7 +158,7 @@ class Language extends Base
                 // An explicit $path that holds neither file falls back to the same
                 // candidate list, rather than to ROOT/language alone.
                 $loaded = false;
-                foreach ([$language, 'english'] as $candidateLanguage) {
+                foreach ([$language, 'english', 'en'] as $candidateLanguage) {
                     foreach ($this->languageDirectories() as $directory) {
                         $file = $directory . DS . $candidateLanguage . ".php";
                         if (file_exists($file)) {
@@ -215,20 +222,18 @@ class Language extends Base
     public function _($string = '', $args = '')
     {
         if (!isset($this->_strings[$string])) {
-            $supplied = $this->onMissingString($string);
-
-            // Nothing supplied one: the key is the answer, and there is nothing to
-            // format. Identity is the test rather than emptiness, because a hook is
-            // entitled to return an empty translation on purpose.
-            if ($supplied === $string) {
-                return $string;
-            }
-
-            // A hook that *did* supply one gets the same formatting a hit would, which
-            // the legacy filter this replaces did not: it returned the filtered string
-            // raw, so a supplied translation containing %s lost the caller's arguments.
-            // Harmless there only because none of its languages used a placeholder.
-            $translation = $supplied;
+            // A miss is formatted like a hit. The key *is* a translation — the framework's
+            // own keys are the English wording — so `_('Tokens: %s', $username)` with no
+            // catalogue entry has to come back as `Tokens: alice` and not as the literal
+            // `Tokens: %s`. It returned the key unformatted, which put a raw `%s` on the
+            // page of every installation that had not translated that one string, and read
+            // as a broken template rather than as a missing translation.
+            //
+            // The hook's answer is formatted for the same reason, and that half was
+            // already true: the legacy filter this replaces returned its string raw, so a
+            // supplied translation containing `%s` lost the caller's arguments — harmless
+            // there only because none of its languages used a placeholder.
+            $translation = $this->onMissingString($string);
         } else {
             $translation = $this->_strings[$string];
         }

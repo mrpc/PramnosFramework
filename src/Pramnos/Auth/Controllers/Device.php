@@ -69,7 +69,7 @@ class Device extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Device Authorization';
+        $doc->title = t('Device Authorization');
 
         $view           = $this->getView('device');
         $view->userCode = $userCode;
@@ -220,7 +220,7 @@ class Device extends Controller
     private function showSuccessPage(array $deviceAuth): void
     {
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Device Authorized';
+        $doc->title = t('Device Authorized');
 
         $view = $this->getView('device');
         /**
@@ -239,7 +239,7 @@ class Device extends Controller
     private function showDeniedPage(): void
     {
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Device Authorization Denied';
+        $doc->title = t('Device Authorization Denied');
 
         $view = $this->getView('device');
         \Pramnos\Framework\Factory::getDocument()->addContent((string) $view->display('deny'));
@@ -248,7 +248,7 @@ class Device extends Controller
     private function showErrorPage(string $error, string $userCode = ''): void
     {
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Authorization Error';
+        $doc->title = t('Authorization Error');
 
         $view           = $this->getView('device');
         $view->error    = $error;
@@ -267,7 +267,7 @@ class Device extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Authorize Device';
+        $doc->title = t('Authorize Device');
 
         $view                    = $this->getView('device');
         $view->userCode          = $userCode;
