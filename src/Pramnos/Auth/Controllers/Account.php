@@ -324,7 +324,7 @@ class Account extends Controller
         if ($userId !== null) {
             $token = $this->generateResetToken();
             $this->storeResetToken($userId, hash('sha256', $token), time() + 3600);
-            $this->sendResetEmail($email, $token);
+            $this->sendResetEmail($email, $token, $userId);
             \Pramnos\Auth\ActivityLog::record($userId, 'password_reset_requested');
         }
 
@@ -956,20 +956,49 @@ class Account extends Controller
         return sURL . $this->routeBase . '/resetpassword?token=' . urlencode($token);
     }
 
-    /** Email a password-reset link (seam so tests do not send mail). */
-    protected function sendResetEmail(string $email, string $token): void
+    /**
+     * Email a password-reset link (seam so tests do not send mail).
+     *
+     * In the recipient's language when their account has one. The notifications go through
+     * `Notifier`, which does this for every one of them; this mail is composed here, so it
+     * asks for the same thing itself. The language of the *request* is the wrong answer:
+     * this form can be submitted by anybody, from any page, and the person who reads the
+     * mail is the account holder.
+     */
+    protected function sendResetEmail(string $email, string $token, int $userId = 0): void
+    {
+        if ($userId > 0) {
+            $language = trim((string) (new \Pramnos\User\User($userId))->language);
+
+            if ($language !== '') {
+                \Pramnos\Translator\Language::using(
+                    $language,
+                    fn () => $this->composeAndSendResetEmail($email, $token)
+                );
+
+                return;
+            }
+        }
+
+        $this->composeAndSendResetEmail($email, $token);
+    }
+
+    /** The mail itself, in whatever language is current. */
+    private function composeAndSendResetEmail(string $email, string $token): void
     {
         $brand = $this->brand();
         $link  = $this->resetLink($token);
         $name  = htmlspecialchars((string) ($brand['name'] ?? 'Account'), ENT_QUOTES);
-        $body  = '<p>We received a request to reset your ' . $name . ' password.</p>'
-            . '<p>To choose a new password, follow this link (valid for one hour):</p>'
+        $body  = '<p>' . t('We received a request to reset your %s password.', $name) . '</p>'
+            . '<p>' . t('To choose a new password, follow this link (valid for one hour):')
+            . '</p>'
             . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES) . '">'
             . htmlspecialchars($link, ENT_QUOTES) . '</a></p>'
-            . '<p>If you did not request this, you can safely ignore this email.</p>';
+            . '<p>' . t('If you did not request this, you can safely ignore this email.')
+            . '</p>';
         try {
             $mailer = new \Pramnos\Email\Email();
-            $mailer->subject = 'Password reset';
+            $mailer->subject = t('Password reset');
             $mailer->body    = $body;
             $mailer->to      = $email;
             $mailer->module  = 'auth'; // tag it in the mails audit log

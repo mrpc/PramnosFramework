@@ -210,6 +210,23 @@ The body is stored as written: an email template *is* markup, and a screen that 
 it would make the feature useless. It is escaped where it is displayed — into a
 `<textarea>` and a `<pre>` — which is the correct half to do it in.
 
+## Which language a message is written in
+
+`Notifier::sendNow()` renders every notification in the **recipient's** language — the
+`language` property of the notifiable, which on a `User` is `users.language`. A notifiable
+without one (a `PlainAddress`, an account that never chose) is sent in whatever language the
+installation is currently using.
+
+That is the only correct answer and it was not the old one: the language of a request belongs
+to whoever made it, so an operator resetting a password from an English administration screen
+sent an English mail to an account whose every screen is Greek, and a queue worker sent
+whatever the default was.
+
+Mail composed outside the notification system asks for the same thing itself — see
+`Language::using()` in the Internationalization guide. The framework's own auth mail
+(codes, sign-in alerts, security changes, the reset link) is all translatable: the keys are
+the English sentences, so an application supplies its language file and nothing else.
+
 ## The wrapper a message is sent in
 
 Bodies are fragments — a paragraph, a code, a link — and every application wants the same

@@ -71,21 +71,26 @@ class SecurityChangeNotification implements NotificationInterface
 
         $body = '<p>' . htmlspecialchars($headline, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
             . $detail . '</p>'
-            . '<p>Time: ' . htmlspecialchars($when, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
+            . '<p>' . t('Time: %s', htmlspecialchars($when, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))
+            . '</p>';
 
         if ($this->toFormerAddress) {
-            $body .= '<p>This account no longer uses this email address. You are being told '
-                . 'because the change was made <strong>from</strong> this address, and if it '
-                . 'was not you, it means somebody else has access to the account.</p>';
+            $body .= '<p>' . t(
+                'This account no longer uses this email address. You are being told because '
+                . 'the change was made <strong>from</strong> this address, and if it was not '
+                . 'you, it means somebody else has access to the account.'
+            ) . '</p>';
         }
 
-        $body .= '<p>If you made this change, there is nothing to do.</p>'
-            . '<p><strong>If you did not</strong>, somebody else is using your account. '
-            . 'Open the site yourself — not a link in an email, including this one — and '
-            . 'change your password. If you cannot sign in, contact us.</p>';
+        $body .= '<p>' . t('If you made this change, there is nothing to do.') . '</p>'
+            . '<p>' . t(
+                '<strong>If you did not</strong>, somebody else is using your account. Open '
+                . 'the site yourself — not a link in an email, including this one — and change '
+                . 'your password. If you cannot sign in, contact us.'
+            ) . '</p>';
 
         return array(
-            'subject' => $headline . ' — ' . $this->siteName,
+            'subject' => t('%s — %s', $headline, $this->siteName),
             'body'    => $body,
         );
     }
@@ -100,18 +105,18 @@ class SecurityChangeNotification implements NotificationInterface
     {
         return match ($this->what) {
             \Pramnos\Auth\SecurityChangeNotifier::PASSWORD
-                => 'Your password was changed',
+                => t('Your password was changed'),
             \Pramnos\Auth\SecurityChangeNotifier::EMAIL
-                => 'The email address on your account was changed',
+                => t('The email address on your account was changed'),
             \Pramnos\Auth\SecurityChangeNotifier::FACTOR_ADDED
-                => 'A second sign-in step was added to your account',
+                => t('A second sign-in step was added to your account'),
             \Pramnos\Auth\SecurityChangeNotifier::FACTOR_REMOVED
-                => 'A second sign-in step was removed from your account',
+                => t('A second sign-in step was removed from your account'),
             \Pramnos\Auth\SecurityChangeNotifier::PASSKEY_ADDED
-                => 'A passkey was added to your account',
+                => t('A passkey was added to your account'),
             \Pramnos\Auth\SecurityChangeNotifier::PASSKEY_REMOVED
-                => 'A passkey was removed from your account',
-            default => 'Your account security settings were changed',
+                => t('A passkey was removed from your account'),
+            default => t('Your account security settings were changed'),
         };
     }
 }

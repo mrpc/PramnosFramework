@@ -130,11 +130,19 @@ class Factory
      */
     public static function &getLanguage($lang = '')
     {
-        static $instance=null;
+        // Straight through, with no cache of its own. There was one — a `static $instance`
+        // filled on the first call and never looked at again — and it made this the second
+        // place that answered "which Language object is *the* Language object".
+        //
+        // `Language::setInstance()` then could not do what it promises: an application that
+        // installs its own Language, or switches the active one, changed the object
+        // `Language::getInstance()` returns while `t()` and `l()` kept translating through
+        // the one this method had cached. Which is not a crash — it is a page, or an email,
+        // rendered in the language nobody asked for.
+        //
+        // `Language::getInstance()` is itself a singleton, so nothing is constructed twice.
+        $instance = \Pramnos\Translator\Language::getInstance($lang);
 
-        if (!is_object($instance)) {
-            $instance = \Pramnos\Translator\Language::getInstance($lang);
-        }
         return $instance;
     }
 

@@ -67,18 +67,27 @@ class NewDeviceAuthLinkNotification implements NotificationInterface
         $url     = htmlspecialchars($this->url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $device  = htmlspecialchars($this->device, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-        $body = '<p>Somebody just entered your password on <strong>' . $device
-            . '</strong>, which this account has not been used from before.</p>'
-            . '<p><strong>If that was you</strong>, open this link to finish signing in:</p>'
+        $expiry = $minutes === 1
+            ? t('It works once and expires in one minute.')
+            : t('It works once and expires in %s minutes.', $minutes);
+
+        $body = '<p>' . t(
+                'Somebody just entered your password on <strong>%s</strong>, which this '
+                . 'account has not been used from before.',
+                $device
+            ) . '</p>'
+            . '<p>' . t('<strong>If that was you</strong>, open this link to finish signing in:')
+            . '</p>'
             . '<p><a href="' . $url . '">' . $url . '</a></p>'
-            . '<p>It works once and expires in ' . $minutes . ' '
-            . ($minutes === 1 ? 'minute' : 'minutes') . '.</p>'
-            . '<p><strong>If it was not you</strong>, do nothing — without this link the '
-            . 'sign-in cannot continue. But somebody has your password, so change it: open '
-            . 'the site yourself rather than following a link in an email.</p>';
+            . '<p>' . $expiry . '</p>'
+            . '<p>' . t(
+                '<strong>If it was not you</strong>, do nothing — without this link the '
+                . 'sign-in cannot continue. But somebody has your password, so change it: '
+                . 'open the site yourself rather than following a link in an email.'
+            ) . '</p>';
 
         return array(
-            'subject' => 'Finish signing in to ' . $this->siteName . ' — ' . $device,
+            'subject' => t('Finish signing in to %s — %s', $this->siteName, $device),
             'body'    => $body,
         );
     }

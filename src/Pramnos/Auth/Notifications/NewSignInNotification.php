@@ -99,20 +99,26 @@ class NewSignInNotification implements NotificationInterface
         $device = SignInFingerprint::describe($this->fingerprint);
         $time   = date('j M Y, H:i T', $this->when);
 
-        $body = '<p>Your account was just signed in to from <strong>'
-            . htmlspecialchars($device, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            . '</strong>, which this account has not been used from before.</p>'
-            . '<p>Time: ' . htmlspecialchars($time, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            . '</p>'
-            . '<p>If this was you, there is nothing to do — you will not be told again '
-            . 'about this browser.</p>'
-            . '<p><strong>If it was not you, change your password now.</strong> '
-            . 'Open the site yourself rather than following a link in an email, '
-            . 'including this one.</p>';
+        $safeDevice = htmlspecialchars($device, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $safeTime   = htmlspecialchars($time, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        $body = '<p>' . t(
+                'Your account was just signed in to from <strong>%s</strong>, which this '
+                . 'account has not been used from before.',
+                $safeDevice
+            ) . '</p>'
+            . '<p>' . t('Time: %s', $safeTime) . '</p>'
+            . '<p>' . t(
+                'If this was you, there is nothing to do — you will not be told again about '
+                . 'this browser.'
+            ) . '</p>'
+            . '<p>' . t(
+                '<strong>If it was not you, change your password now.</strong> Open the site '
+                . 'yourself rather than following a link in an email, including this one.'
+            ) . '</p>';
 
         return array(
-            'subject' => 'New sign-in to your account on '
-                . $this->siteName . ' — ' . $device,
+            'subject' => t('New sign-in to your account on %s — %s', $this->siteName, $device),
             'body'    => $body,
         );
     }

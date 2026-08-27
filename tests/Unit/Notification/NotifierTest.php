@@ -27,6 +27,101 @@ class NotifierTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * A notification renders in the recipient's language, not the sender's.
+     *
+     * This is the only text in an application that is not for whoever made the request. A
+     * Greek account was told about its own new sign-in in English whenever the request that
+     * triggered the mail came from somewhere else — an operator on an English administration
+     * screen, a queue worker with no language at all — and there is nothing in the mail to
+     * suggest a bug: it is simply in the wrong language.
+     *
+     * Asserted through the language the channel *sees*, because that is when `toMail()` runs.
+     */
+    public function testSendNowRendersInTheRecipientsLanguage(): void
+    {
+        // Arrange — a catalogue with one language installed, and an account that uses it
+        $directory = sys_get_temp_dir() . '/pf-notifier-lang-' . bin2hex(random_bytes(4));
+        mkdir($directory);
+        file_put_contents(
+            $directory . '/english.php',
+            '<?php $lang = ["Hello" => "Hello"]; return $lang;'
+        );
+        file_put_contents(
+            $directory . '/greek.php',
+            '<?php $lang = ["Hello" => "Γεια"]; return $lang;'
+        );
+
+        \Pramnos\Translator\Language::resetInstance();
+        $language = new class ($directory) extends \Pramnos\Translator\Language {
+            private string $directory;
+
+            public function __construct(string $directory)
+            {
+                $this->directory = $directory;
+                parent::__construct('english');
+            }
+
+            protected function languageDirectories(): array
+            {
+                return [$this->directory];
+            }
+
+            public static function getLanguages()
+            {
+                return ['english', 'greek'];
+            }
+        };
+        $language->load('english');
+        \Pramnos\Translator\Language::setInstance($language);
+
+        LanguageSpyChannel::$seen = '';
+        $notifier = new Notifier();
+        $notifier->registerChannel('langspy', LanguageSpyChannel::class);
+
+        $notifiable = new StubNotifiable();
+        $notifiable->language = 'greek';
+
+        try {
+            // Act
+            $notifier->sendNow($notifiable, new LanguageSpyNotification());
+
+            // Assert
+            $this->assertSame('Γεια', LanguageSpyChannel::$seen,
+                'the channel renders while the recipient language is loaded');
+            $this->assertSame('english', $language->currentlang(),
+                'and the request language is back afterwards');
+            $this->assertSame('Hello', $language->_('Hello'),
+                'with its own catalogue, which a merge-based switch would have replaced');
+        } finally {
+            foreach ((array) glob($directory . '/*') as $file) {
+                @unlink((string) $file);
+            }
+            @rmdir($directory);
+            \Pramnos\Translator\Language::resetInstance();
+        }
+    }
+
+    /**
+     * A recipient with no language of its own changes nothing.
+     *
+     * `PlainAddress` is the case: an address and nothing else. Guessing would be worse than
+     * the installation's own language.
+     */
+    public function testARecipientWithNoLanguageIsSentInTheCurrentOne(): void
+    {
+        // Arrange
+        LanguageSpyChannel::$seen = '';
+        $notifier = new Notifier();
+        $notifier->registerChannel('langspy', LanguageSpyChannel::class);
+
+        // Act — no `language` property set on the notifiable
+        $notifier->sendNow(new StubNotifiable(), new LanguageSpyNotification());
+
+        // Assert — the key itself, since no catalogue is loaded in this test
+        $this->assertSame('Hello', LanguageSpyChannel::$seen);
+    }
+
+    /**
      * sendNow() must invoke the send() method on every channel returned by
      * $notification->via(). Verified via a spy channel that counts calls.
      */
@@ -286,6 +381,9 @@ class StubNotifiable implements NotifiableInterface
     public string $email  = '';
     public int    $userid = 0;
     public int    $id     = 0;
+
+    /** Set only where a test is about the recipient's own language. */
+    public string $language = '';
 }
 
 /**
@@ -341,4 +439,28 @@ class UnknownChannelNotification implements NotificationInterface
 class LogChannelNotification implements NotificationInterface
 {
     public function via(mixed $notifiable): array { return ['log']; }
+}
+
+/**
+ * Records what a translation resolves to at the moment the channel runs.
+ */
+class LanguageSpyChannel implements ChannelInterface
+{
+    public static string $seen = '';
+
+    public function send(mixed $notifiable, NotificationInterface $notification): void
+    {
+        self::$seen = (string) \Pramnos\Framework\Factory::getLanguage()->_('Hello');
+    }
+}
+
+/**
+ * One channel, the language spy.
+ */
+class LanguageSpyNotification implements NotificationInterface
+{
+    public function via(mixed $notifiable): array
+    {
+        return ['langspy'];
+    }
 }

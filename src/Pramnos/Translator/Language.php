@@ -325,6 +325,70 @@ class Language extends Base
     }
 
     /**
+     * Render something in another language, then put the old one back.
+     *
+     * For text that is not for whoever is looking at the screen. An email is the case that
+     * forced it: the person reading it is the recipient, and the language of the request
+     * that sent it is the *sender's* — so a password reset issued from an English
+     * administration area arrived in English at somebody whose account, and every screen
+     * they have ever seen, is Greek.
+     *
+     * ```php
+     * $mail = Language::using($user->language, fn () => [
+     *     'subject' => t('Password reset'),
+     *     'body'    => t('We received a request to reset your password.'),
+     * ]);
+     * ```
+     *
+     * **The catalogue is restored, not reloaded.** `load()` *merges* — `addlang()` is an
+     * `array_merge` — so loading Greek and then loading English again leaves every Greek
+     * translation in place, and the next English mail goes out in Greek. Anything that
+     * switched languages by calling `load()` twice had that bug; this snapshots the strings
+     * and puts them back.
+     *
+     * A language that is not installed is ignored rather than attempted: the name usually
+     * comes from `users.language`, which is data, and `load()` builds a path from it.
+     *
+     * @param  string   $language The language to render in; empty or unknown means "no change".
+     * @param  callable $render   Called once, with no arguments.
+     * @return mixed              Whatever `$render` returned.
+     */
+    public static function using(string $language, callable $render): mixed
+    {
+        $instance = self::getInstance();
+        $previous = (string) $instance->currentlang();
+
+        if ($language === '' || $language === $previous) {
+            return $render();
+        }
+
+        // Through the instance's own class, so an application that subclasses this one
+        // answers "which languages exist" for its own catalogues. And absorbing the throw:
+        // `getLanguages()` raises when there is no languages directory at all, which is not
+        // a reason to fail sending a message — it just means there is nothing to switch to.
+        try {
+            $installed = ($instance::class)::getLanguages();
+        } catch (\Throwable) {
+            return $render();
+        }
+
+        if (!in_array($language, (array) $installed, true)) {
+            return $render();
+        }
+
+        $strings = $instance->_strings;
+
+        $instance->load($language);
+
+        try {
+            return $render();
+        } finally {
+            $instance->_strings = $strings;
+            $instance->setLang($previous);
+        }
+    }
+
+    /**
      * Forget the current instance, so the next `getInstance()` builds a fresh one.
      *
      * A test that changes the configured class or the active language needs this; without

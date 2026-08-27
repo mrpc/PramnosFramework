@@ -136,6 +136,34 @@ Two things produce it:
 `$lang->currentlang()` tells you which language was resolved, which separates the two in
 one line.
 
+### Text that is not for whoever made the request
+
+An email is the case. The language of a request belongs to the person who made it; the
+language of a notification belongs to the person who *receives* it — and those are different
+people whenever an operator resets somebody's password from an English administration
+screen, or a queue worker with no language at all sends a code.
+
+```php
+$mail = \Pramnos\Translator\Language::using($user->language, fn () => [
+    'subject' => t('Password reset'),
+    'body'    => t('We received a request to reset your password.'),
+]);
+```
+
+`Notifier::sendNow()` already does this for every notification: if the notifiable has a
+`language`, the channels render inside it. So a notification needs no special handling, and
+only mail composed outside the notification system — like the password-reset link — asks for
+it directly.
+
+Two things it does that a hand-rolled switch does not:
+
+- **It restores the catalogue, not just the name.** `load()` *merges* — `addlang()` is an
+  `array_merge` — so switching by calling `load()` twice leaves the second language's
+  translations in place, and the next message in the first language comes out in the second.
+  Nothing raises; it is noticed by a recipient.
+- **It ignores a language that is not installed.** The name usually comes from
+  `users.language`, which is data, and `load()` builds a path out of it.
+
 
 ## Basic Usage
 

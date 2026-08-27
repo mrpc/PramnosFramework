@@ -71,12 +71,50 @@ class Notifier
      */
     public function sendNow(mixed $notifiable, NotificationInterface $notification): void
     {
-        $channels = $notification->via($notifiable);
+        // In the recipient's language, not the sender's.
+        //
+        // A notification is the one piece of text in an application that is not for whoever
+        // made the request: the language of the request belongs to the person who triggered
+        // it — an operator resetting somebody's password from an English administration
+        // area, a queue worker with no language at all — and the person who reads it is the
+        // notifiable. So a Greek account was told about its own new sign-in in English.
+        //
+        // Here rather than in each notification, because every one of them has the same
+        // answer and each would have got it right separately or not at all. `using()`
+        // restores the previous catalogue afterwards, which matters more than it sounds:
+        // `Language::load()` merges, so switching by loading twice leaves the second
+        // language's strings in place for everything that follows.
+        \Pramnos\Translator\Language::using(
+            $this->languageOf($notifiable),
+            function () use ($notifiable, $notification): void {
+                $channels = $notification->via($notifiable);
 
-        foreach ($channels as $channelName) {
-            $channel = $this->resolveChannel($channelName);
-            $channel->send($notifiable, $notification);
+                foreach ($channels as $channelName) {
+                    $channel = $this->resolveChannel($channelName);
+                    $channel->send($notifiable, $notification);
+                }
+            }
+        );
+    }
+
+    /**
+     * The notifiable's own language, or an empty string when it has none.
+     *
+     * Empty is the common case and it means "do not change anything": a `PlainAddress` is
+     * an address and nothing else, and an account that never chose a language should be
+     * told in whatever the installation's language is rather than in a guess.
+     */
+    protected function languageOf(mixed $notifiable): string
+    {
+        if (is_object($notifiable) && isset($notifiable->language)) {
+            return trim((string) $notifiable->language);
         }
+
+        if (is_array($notifiable) && isset($notifiable['language'])) {
+            return trim((string) $notifiable['language']);
+        }
+
+        return '';
     }
 
     /**

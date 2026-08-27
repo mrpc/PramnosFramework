@@ -79,19 +79,27 @@ class SecondFactorCodeNotification implements NotificationInterface
         $minutes = (int) max(1, round($this->ttl / 60));
         $code    = htmlspecialchars($this->code, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-        $body = '<p>Your sign-in code is:</p>'
+        // Through the translator, because this is the one mail every account receives and
+        // the person reading it is not the person whose request sent it — see
+        // `Language::using()`, which is how the recipient's own language gets picked.
+        $expiry = $minutes === 1
+            ? t('It expires in one minute, and can be used once.')
+            : t('It expires in %s minutes, and can be used once.', $minutes);
+
+        $body = '<p>' . t('Your sign-in code is:') . '</p>'
             . '<p style="font-size:28px;font-weight:bold;letter-spacing:4px;">'
             . $code . '</p>'
-            . '<p>It expires in ' . $minutes . ' '
-            . ($minutes === 1 ? 'minute' : 'minutes') . ', and can be used once.</p>'
-            . '<p>If you were not signing in, somebody else has your password. '
-            . 'Ignore this code and change it — open the site yourself rather than '
-            . 'following a link in an email.</p>';
+            . '<p>' . $expiry . '</p>'
+            . '<p>' . t(
+                'If you were not signing in, somebody else has your password. Ignore this '
+                . 'code and change it — open the site yourself rather than following a link '
+                . 'in an email.'
+            ) . '</p>';
 
         return array(
             // The code is in the subject as well: it is what the person is looking for,
             // and on a phone the subject line is often all they have to read.
-            'subject' => $code . ' is your sign-in code for ' . $this->siteName,
+            'subject' => t('%s is your sign-in code for %s', $code, $this->siteName),
             'body'    => $body,
         );
     }
