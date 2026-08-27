@@ -1167,11 +1167,12 @@ $remaining = $svc->getRemainingBackupCodes($userId); // int
 $status    = $svc->getStatus($userId);
 // ['enabled' => bool, 'setup' => bool, 'backup_codes_remaining' => int]
 
-// Management — pass the password whenever you collected one
-$svc->disable($userId, $password);                   // verified, refused when wrong
-$newCodes = $svc->regenerateBackupCodes($userId, $password); // string[]|false
-$svc->disable($userId);                              // administrative: no password to check
-$svc->cleanupExpiredSessions();                      // removes used/expired setup rows
+// Management — the password is required; the unchecked path has its own name
+$svc->disable($userId, $password);                            // refused when wrong or empty
+$newCodes = $svc->regenerateBackupCodes($userId, $password);  // string[]|false
+$svc->disableForOperator($userId);                            // administrative
+$svc->regenerateBackupCodesForOperator($userId);              // administrative, destructive
+$svc->cleanupExpiredSessions();                               // removes used/expired setup rows
 ```
 
 **Backup codes come from enrolment, not from setup.** `startSetup()` deliberately
@@ -1185,21 +1186,29 @@ time they lost their phone. `takeNewBackupCodes()` returns what enrolment stored
 It is also the right moment to show them: somebody who abandons setup halfway should not
 walk away holding recovery codes for an account with no second factor.
 
-**Pass the password to `disable()` and `regenerateBackupCodes()`.** Both take an optional
-second argument and verify it. Both used to take one parameter while the controller in
-front of them collected a password and passed it — and PHP discards an extra argument to a
-userland function, so nothing was checked. Any signed-in session could strip the second
-factor, or rotate the backup codes (which invalidates every code the owner wrote down and
-prints ten new ones to whoever asked). A stolen session is the case a second factor exists
-for, so a step-up check that does not check is worth stating plainly:
+**The password is required, and the unchecked path has a name.** `disable()` and
+`regenerateBackupCodes()` both take the account password and verify it. Both used to take
+one parameter while the controller in front of them collected a password and passed it —
+and PHP discards an extra argument to a userland function, so nothing was checked. Any
+signed-in session could strip the second factor, or rotate the backup codes (which
+invalidates every code the owner wrote down and prints ten new ones to whoever asked).
 
 | Call | Meaning |
 | --- | --- |
-| `disable($userId, $password)` | the user's own action — verified, refused on a wrong **or empty** password |
-| `disable($userId)` | administrative — an operator clearing 2FA off an account whose owner cannot |
+| `disable($userId, $password)` | the user's own action — refused on a wrong **or empty** password |
+| `disableForOperator($userId)` | administrative — an operator clearing 2FA off an account whose owner cannot reach it |
+| `regenerateBackupCodes($userId, $password)` | the user's own action |
+| `regenerateBackupCodesForOperator($userId)` | administrative, and destructive: it invalidates every code the owner holds |
 
-An empty string counts as wrong, not as absent; `null` is absent. Collapsing the two would
-let a form that submitted nothing through the check.
+The password is **not optional**, deliberately. An optional parameter fixes the call site
+that had the bug and leaves the hole open for the next one — omit the argument and the check
+silently does not happen. A step-up check in front of *removing* the second factor is not
+something to skip by accident, so skipping it has to be spelled. An empty string counts as
+wrong rather than absent, so a form that submitted nothing does not pass.
+
+Whoever exposes the `…ForOperator` methods decides who may call them; they are not the
+user's own action, and the codes the second one returns have to reach the account's owner
+rather than the operator.
 
 **Replay protection:** `verifyCode()` compares the current 30-second window against `last_used`. If the same window was already used, the code is rejected even if cryptographically valid.
 

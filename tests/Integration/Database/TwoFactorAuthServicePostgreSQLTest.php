@@ -415,11 +415,43 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
     }
 
     /**
+     * The check cannot be skipped by leaving the password out.
+     *
+     * The first fix made the password optional, which closed the call site that
+     * had the bug and left the hole open for the next one: omit the argument and
+     * nothing is checked, silently. A step-up check in front of *removing* the
+     * second factor is not something to skip by accident — so skipping it now
+     * has a name, and `disable()` has no one-argument form at all.
+     *
+     * Asserted on the signature, because that is where the guarantee lives: a
+     * call with no password is a TypeError before any code runs, which is the
+     * strongest form this can take.
+     */
+    public function testThePasswordCannotBeOmitted(): void
+    {
+        // Act
+        $disable = new \ReflectionMethod($this->service, 'disable');
+        $regenerate = new \ReflectionMethod($this->service, 'regenerateBackupCodes');
+
+        // Assert
+        foreach ([$disable, $regenerate] as $method) {
+            $this->assertSame(2, $method->getNumberOfRequiredParameters(),
+                $method->getName() . '() must require the password, not default it away');
+            $password = $method->getParameters()[1];
+            $this->assertFalse($password->isOptional(),
+                $method->getName() . '(): an optional password is a check somebody will omit');
+            $this->assertSame('string', (string) $password->getType(),
+                $method->getName() . '(): nullable would be the same hole by another spelling');
+        }
+    }
+
+    /**
      * The administrative path still works: no password given, none checked.
      *
      * An operator clearing 2FA off an account whose owner cannot reach it has no
      * password to supply, and that has to stay possible — a fix that made every
-     * call require one would lock out the recovery path it was protecting.
+     * call require one would lock out the recovery path it was protecting. It is
+     * a separate method so the call site says which one it is.
      */
     public function testTheAdministrativePathNeedsNoPassword(): void
     {
@@ -427,7 +459,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $this->setupUser(73);
 
         // Act
-        $result = $this->service->disable(73);
+        $result = $this->service->disableForOperator(73);
 
         // Assert
         $this->assertTrue($result);
@@ -474,7 +506,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $this->setupUser(50);
 
         // Act
-        $result = $this->service->disable(50);
+        $result = $this->service->disableForOperator(50);
 
         // Assert
         $this->assertTrue($result);
@@ -491,7 +523,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
      */
     public function testDisableReturnsFalseForUnknownUser(): void
     {
-        $this->assertFalse($this->service->disable(9997));
+        $this->assertFalse($this->service->disableForOperator(9997));
     }
 
     // -------------------------------------------------------------------------
@@ -504,7 +536,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
     public function testRegenerateBackupCodesReplacesExistingSet(): void
     {
         $this->setupUser(60);
-        $newCodes = $this->service->regenerateBackupCodes(60);
+        $newCodes = $this->service->regenerateBackupCodesForOperator(60);
 
         $this->assertIsArray($newCodes);
         $this->assertCount(10, $newCodes);
@@ -516,7 +548,7 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
      */
     public function testRegenerateBackupCodesReturnsFalseWhenNotEnabled(): void
     {
-        $this->assertFalse($this->service->regenerateBackupCodes(9996));
+        $this->assertFalse($this->service->regenerateBackupCodesForOperator(9996));
     }
 
     // -------------------------------------------------------------------------

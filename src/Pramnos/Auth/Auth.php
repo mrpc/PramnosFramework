@@ -607,15 +607,31 @@ class Auth extends \Pramnos\Framework\Base
      * @param string $what (what action to check for)
      * @param int $elementid Mostly unused
      * @param string $check User/Group
+     * @param string $extraflag DEPRECATED — accepted and ignored, as in
+     *                          {@see setaccess()}. Declared because
+     *                          `User::hasaccess()` passes it: an argument a
+     *                          method does not declare is dropped silently, and
+     *                          on an authorisation path that is not something to
+     *                          leave to inspection. Two password checks in
+     *                          `TwoFactorAuthService` were skipped entirely for
+     *                          exactly this reason.
+     * @param bool $nonExistEqualsFalse When true (the default), a resource with
+     *                          no rule at all is denied. `false` distinguishes
+     *                          "denied" from "nothing was said", which is what a
+     *                          caller wanting to fall back to its own policy
+     *                          needs — and it used to be discarded, so it could
+     *                          not be asked for.
      * @return bool True if user has access
      * @todo Some caching to avoid multiple database queries
      */
     function useraccess($userid, $moduletype, $moduleid,
-        $what = 'read', $elementid = '', $check = 'user')
+        $what = 'read', $elementid = '', $check = 'user',
+        $extraflag = '', $nonExistEqualsFalse = true)
     {
         $permissions = Permissions::getInstance();
         return $permissions->isAllowed(
-            $userid, $moduleid, $what, $elementid, $moduletype, $check
+            $userid, $moduleid, $what, $elementid, $moduletype, $check,
+            $nonExistEqualsFalse
         );
     }
 

@@ -598,11 +598,15 @@ class FileAdapter extends AbstractAdapter
                 return $stats;
             }
 
-            $categories = $this->listDirectoryFiles($path, true);
-            $stats['categories'] = count($categories);
-
-            $files = $this->listDirectoryFiles($path);
-            $stats['items'] = count($files);
+            // Categories are directories, and there is already a method that
+            // lists them. This called `listDirectoryFiles($path, true)` — and
+            // that method takes **one** parameter, so PHP dropped the `true` and
+            // returned the same recursive file list as the line below it. The
+            // cache dashboard's "Categories" tile therefore showed the number of
+            // cached *items*, identical to the tile beside it, in all three
+            // bundled themes and in the DevPanel.
+            $stats['categories'] = count($this->getCategories());
+            $stats['items'] = count($this->listDirectoryFiles($path));
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         } // @codeCoverageIgnoreEnd

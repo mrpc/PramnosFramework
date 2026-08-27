@@ -320,7 +320,24 @@ class Controller extends \Pramnos\Framework\Base
     }
 
     /**
-     * Default action
+     * Default action.
+     *
+     * **Declares no parameter, and must not.** `exec()` calls
+     * `$this->display($args)`, so a controller that wants the request's
+     * arguments declares `display(array $args = [])` and gets them — which is
+     * what every scaffolded controller does, and what the guides show.
+     *
+     * Declaring the parameter here looks like the honest fix and is a breaking
+     * one: PHP requires a child to accept at least what its parent accepts, so
+     * every existing `function display()` with no argument — including
+     * `LogController` in this framework — becomes a fatal
+     * "must be compatible with" on upgrade. The extra argument PHP discards is
+     * the mechanism that makes the parameter opt-in.
+     *
+     * That is the difference from the discarded *password* arguments fixed on
+     * 2026-08-27: those were a caller believing a check happened. This one is a
+     * documented dispatch convention, and the arguments reach anybody who asks
+     * for them.
      */
     function display()
     {
@@ -521,7 +538,16 @@ class Controller extends \Pramnos\Framework\Base
      * @return \pramnos_application_view|\classname|boolean
      * @throws \Exception
      */
-    private function _getView($path, $name, $type)
+    /**
+     * @param array $args Accepted and unused, and declared so that saying so is
+     *                    possible: `getView()` has always advertised it and
+     *                    passed it here, this method declared three parameters,
+     *                    and PHP dropped the fourth silently. Nothing downstream
+     *                    consumes it — `View::__construct()` takes no arguments
+     *                    array — so it is retained for the callers that pass it
+     *                    rather than quietly discarded.
+     */
+    private function _getView($path, $name, $type, $args = array())
     {
         if ($type === '') {
             $doc = \Pramnos\Framework\Factory::getDocument();
@@ -617,7 +643,9 @@ class Controller extends \Pramnos\Framework\Base
      * Gets a pramnos_application_view object
      * @param string $name
      * @param string $type
-     * @param array $args
+     * @param array $args Accepted for compatibility and not used — see
+     *                    {@see _getView()}. It was passed on to a method that
+     *                    did not declare it, so it has never reached anything.
      * @return \Pramnos\Application\View
      */
     function &getView($name = '', $type = '', $args = array())

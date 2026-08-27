@@ -375,18 +375,9 @@ $field->label = 'Email address';      // what the reader sees
 $field->title = 'name@example.com';   // the tooltip, and what a failed pattern says
 ```
 
-`Field::$title` used to mean *label*, which collided with the HTML `title` attribute and
-left this class unable to offer one under its own name. Since **2026-08-27** the two are
-separate and `title` means what it means in `Input`, `Select` and HTML itself.
-
-!!! warning "Migrating from before 2026-08-27"
-    Positional construction — `new Field('email', 'Email')`, and every `addField()` call —
-    is **unaffected**. Two things do need changing, and one of them is silent:
-
-    - `$field->title = 'Email';` now sets a tooltip and leaves the label auto-generated
-      from the name. **Nothing errors.** Change it to `$field->label`.
-    - `addField(name: 'x', title: 'Y')` — a named argument — now throws
-      `Unknown named parameter $title`. Change it to `label:`.
+The two are separate because the HTML attribute has a job of its own: `title` is the
+tooltip, and it is what the browser shows when a `pattern` fails. A class that spent its
+`title` on the label could not offer either.
 
 ### One more difference from `Input`: the checkbox companion
 

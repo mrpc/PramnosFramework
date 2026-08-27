@@ -460,7 +460,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->assertTrue($this->service->isEnabled(50), 'must be enabled before disabling');
 
         // Act
-        $result = $this->service->disable(50);
+        $result = $this->service->disableForOperator(50);
 
         // Assert
         $this->assertTrue($result, 'disable() must return true for an enabled user');
@@ -478,7 +478,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
      */
     public function testDisableReturnsFalseForUnknownUser(): void
     {
-        $this->assertFalse($this->service->disable(9997));
+        $this->assertFalse($this->service->disableForOperator(9997));
     }
 
     // -------------------------------------------------------------------------
@@ -497,7 +497,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
         $this->setupUser(60);
 
         // Act
-        $newCodes = $this->service->regenerateBackupCodes(60);
+        $newCodes = $this->service->regenerateBackupCodesForOperator(60);
 
         // Assert
         $this->assertIsArray($newCodes);
@@ -510,7 +510,7 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
      */
     public function testRegenerateBackupCodesReturnsFalseWhenNotEnabled(): void
     {
-        $this->assertFalse($this->service->regenerateBackupCodes(9996));
+        $this->assertFalse($this->service->regenerateBackupCodesForOperator(9996));
     }
 
     // -------------------------------------------------------------------------

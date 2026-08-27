@@ -319,7 +319,7 @@ class TwoFactorAuthServiceTest extends TestCase
         $service = new TwoFactorAuthService($db);
 
         // Act
-        $result = $service->disable(999);
+        $result = $service->disableForOperator(999);
 
         // Assert
         $this->assertFalse($result,
@@ -345,7 +345,7 @@ class TwoFactorAuthServiceTest extends TestCase
         };
 
         // Act
-        $result = $service->regenerateBackupCodes(1);
+        $result = $service->regenerateBackupCodesForOperator(1);
 
         // Assert
         $this->assertFalse($result,
@@ -624,7 +624,7 @@ class TwoFactorAuthServiceTest extends TestCase
         $service = new TwoFactorAuthService($db);
 
         // Act
-        $result = $service->disable(1);
+        $result = $service->disableForOperator(1);
 
         // Assert
         $this->assertTrue($result, 'disable() must return true when the user has a record');
@@ -652,7 +652,7 @@ class TwoFactorAuthServiceTest extends TestCase
         };
 
         // Act
-        $result = $service->regenerateBackupCodes(1);
+        $result = $service->regenerateBackupCodesForOperator(1);
 
         // Assert
         $this->assertIsArray($result, 'regenerateBackupCodes() must return an array of codes on success');

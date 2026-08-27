@@ -428,6 +428,38 @@ class FileAdapterTest extends TestCase
     }
 
     /**
+     * The category count counts categories, not items.
+     *
+     * `getStats()` called `listDirectoryFiles($path, true)` — and that method
+     * takes **one** parameter, so PHP dropped the `true` and returned the same
+     * recursive file list as the line below it. So the two numbers were always
+     * equal, and the cache dashboard's "Categories" tile showed the number of
+     * cached items: in all three bundled themes, and in the DevPanel.
+     *
+     * Asserted with the two deliberately different — three entries across two
+     * categories — because equal counts are exactly what the bug produced.
+     */
+    public function testTheCategoryCountCountsCategoriesNotItems(): void
+    {
+        // Arrange — two categories, three entries
+        $adapter = $this->makeAdapter();
+        $adapter->setCategory('sessions');
+        $adapter->save('sessions_one', 'v');
+        $adapter->save('sessions_two', 'v');
+        $adapter->setCategory('views');
+        $adapter->save('views_one', 'v');
+
+        // Act
+        $stats = $adapter->getStats();
+
+        // Assert
+        $this->assertSame(2, $stats['categories'], 'two directories were written');
+        $this->assertSame(3, $stats['items'], 'and three entries into them');
+        $this->assertNotSame($stats['categories'], $stats['items'],
+            'the two tiles must not be the same number by construction');
+    }
+
+    /**
      * getStats() returns zero counts when caching is disabled.
      */
     public function testGetStatsReturnedWhenCachingDisabled(): void

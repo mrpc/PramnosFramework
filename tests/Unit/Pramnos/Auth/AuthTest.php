@@ -147,18 +147,60 @@ class AuthTest extends TestCase
      */
     public function testLegacyAccessMethodsKeepTheirContract(): void
     {
-        // Arrange
-        $expected = ['setaccess' => 8, 'useraccess' => 6, 'groupaccess' => 5];
+        /**
+         * The parameters every caller was written against, in order, and how many
+         * of them are required.
+         *
+         * Pinned by **name and position**, not by a total count. A count forbids
+         * adding an optional trailing parameter, which breaks no caller — and
+         * `useraccess()` needed two: `User::hasaccess()` was passing eight
+         * arguments to six, so `$extraflag` and the `$nonExistEqualsFalse` flag
+         * were dropped silently. On an authorisation path that is not something
+         * to leave to inspection.
+         *
+         * What must not change is the meaning of a position, or how many
+         * arguments a call has to supply.
+         */
+        $expected = [
+            'setaccess' => [
+                'required' => 8,
+                'names' => ['id', 'moduletype', 'moduleid', 'what', 'elementid',
+                            'onwhat', 'extraflag', 'value'],
+            ],
+            'useraccess' => [
+                'required' => 3,
+                'names' => ['userid', 'moduletype', 'moduleid', 'what',
+                            'elementid', 'check'],
+            ],
+            'groupaccess' => [
+                'required' => 3,
+                'names' => ['groupid', 'moduletype', 'moduleid', 'what', 'elementid'],
+            ],
+        ];
 
-        // Act + Assert — signatures are backwards-compatible
-        foreach ($expected as $method => $parameters) {
+        // Act + Assert
+        foreach ($expected as $method => $contract) {
             $reflection = new \ReflectionMethod(Auth::class, $method);
             $this->assertTrue($reflection->isPublic(), $method . ' must stay public');
             $this->assertSame(
-                $parameters,
-                $reflection->getNumberOfParameters(),
-                $method . '() must keep its parameter list'
+                $contract['required'],
+                $reflection->getNumberOfRequiredParameters(),
+                $method . '() must not start demanding more of its callers'
             );
+
+            $parameters = $reflection->getParameters();
+            foreach ($contract['names'] as $position => $name) {
+                $this->assertArrayHasKey($position, $parameters,
+                    $method . '() lost parameter ' . $position . ' (' . $name . ')');
+                $this->assertSame($name, $parameters[$position]->getName(),
+                    $method . '(): parameter ' . $position . ' must still mean the same thing');
+            }
+
+            // Anything added beyond the original list has to be optional.
+            for ($i = count($contract['names']); $i < count($parameters); $i++) {
+                $this->assertTrue($parameters[$i]->isOptional(),
+                    $method . '(): a required parameter added at the end breaks every caller');
+            }
         }
 
         // ...and none of them names the class that does not exist

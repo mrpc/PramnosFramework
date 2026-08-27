@@ -313,39 +313,62 @@ class TwoFactorAuthService
     // ── Management operations ─────────────────────────────────────────────────
 
     /**
-     * Disable 2FA for a user.
+     * Disable 2FA for a user, after checking their password.
      *
      * Clears the secret and backup codes and marks the account as disabled.
      *
-     * **Pass the password when one was collected.** The controller in front of
-     * this has always collected it and passed it — and this method used to take
-     * one parameter, so PHP dropped the extra argument on the floor and the
-     * check never happened. Any signed-in session could turn 2FA off with an
+     * **The password is required, and that is the point.** The controller in
+     * front of this has always collected it and passed it — and this method used
+     * to take one parameter, so PHP dropped the extra argument on the floor and
+     * the check never happened. Any signed-in session could turn 2FA off with an
      * arbitrary password, and the controller's "That password is not correct"
-     * branch was unreachable: `disable()` only ever returned false when the
-     * account had no 2FA row at all.
+     * branch was unreachable: it only ever returned false when the account had
+     * no 2FA row at all.
      *
-     * That is the whole value of a step-up check, so it is worth stating what
-     * each call means:
+     * An optional parameter would have fixed that call site and left the hole
+     * open for the next one: omit the argument and the check silently does not
+     * happen. A step-up check in front of *removing* the second factor is not
+     * something to skip by accident, so skipping it now has a name —
+     * {@see disableForOperator()}.
      *
-     *   - `disable($userId, $password)` — the user's own action. Verified, and
-     *     refused when the password is wrong or empty.
-     *   - `disable($userId)` — the administrative path, for an operator clearing
-     *     2FA off an account whose owner cannot. There is no password to check;
-     *     the authority is the caller's own.
+     * An empty password is wrong, not absent: a form that submitted nothing must
+     * not pass.
      *
-     * @param int         $userId
-     * @param string|null $password The account password, when the caller
-     *                              collected one. Null is the administrative
-     *                              path — deliberate, not a default to reach for.
+     * @param int    $userId
+     * @param string $password The account's own password.
      */
-    public function disable(int $userId, ?string $password = null): bool
+    public function disable(int $userId, string $password): bool
     {
-        if ($password !== null && !$this->passwordMatches($userId, $password)) {
+        if (!$this->passwordMatches($userId, $password)) {
             $this->logAttempt($userId, false, 'DISABLE', \Pramnos\Http\Request::clientIp() ?: null);
             return false;
         }
 
+        return $this->clearTwoFactor($userId);
+    }
+
+    /**
+     * Disable 2FA without a password — the administrative path.
+     *
+     * For an operator clearing 2FA off an account whose owner cannot reach it: a
+     * lost phone with no backup codes left, a departing employee. There is no
+     * password to check, and the authority is the caller's own — so the caller
+     * has to say that, in the name of the method it calls.
+     *
+     * Whoever exposes this is responsible for deciding who may. It is not the
+     * user's own action.
+     */
+    public function disableForOperator(int $userId): bool
+    {
+        return $this->clearTwoFactor($userId);
+    }
+
+    /**
+     * Clear the second factor. Shared by both entry points above; the difference
+     * between them is the authorisation, not the work.
+     */
+    private function clearTwoFactor(int $userId): bool
+    {
         $result = $this->database->queryBuilder()
             ->table('authserver.user_twofactor')
             ->select('userid')
@@ -377,34 +400,64 @@ class TwoFactorAuthService
     }
 
     /**
-     * Generate and store a fresh set of backup codes for the user.
+     * Generate and store a fresh set of backup codes, after checking the password.
      *
      * Returns the plain-text codes for display to the user (show once).
      *
-     * **Pass the password when one was collected**, for the same reason as
-     * {@see disable()} — and with the same history: the controller collected one
-     * and passed it, this method took a single parameter, and the argument was
-     * discarded. So any signed-in session could rotate the codes, which both
-     * invalidates every code the account's owner had written down and prints ten
-     * new ones to whoever asked for them.
+     * Required for the same reason as {@see disable()}, and with the same
+     * history: the controller collected a password and passed it, this method
+     * took a single parameter, and the argument was discarded. So any signed-in
+     * session could rotate the codes — which both invalidates every code the
+     * account's owner had written down and prints ten new ones to whoever asked.
      *
-     * @param int         $userId
-     * @param string|null $password The account password, when the caller
-     *                              collected one. Null is the administrative path.
+     * The unchecked path has a name: {@see regenerateBackupCodesForOperator()}.
+     *
+     * @param int    $userId
+     * @param string $password The account's own password.
      * @return string[]|false New plain-text backup codes, false when 2FA is not
      *                        enabled or the password does not match
      */
-    public function regenerateBackupCodes(int $userId, ?string $password = null)
+    public function regenerateBackupCodes(int $userId, string $password)
     {
         if (!$this->isEnabled($userId)) {
             return false;
         }
 
-        if ($password !== null && !$this->passwordMatches($userId, $password)) {
+        if (!$this->passwordMatches($userId, $password)) {
             $this->logAttempt($userId, false, 'REGEN_BACKUP', \Pramnos\Http\Request::clientIp() ?: null);
             return false;
         }
 
+        return $this->issueBackupCodes($userId);
+    }
+
+    /**
+     * Reissue backup codes without a password — the administrative path.
+     *
+     * Destructive: it invalidates every code the account's owner holds. Whoever
+     * exposes it decides who may, and the codes it returns have to reach the
+     * account's owner rather than the operator.
+     *
+     * @return string[]|false New plain-text backup codes, false when 2FA is off
+     */
+    public function regenerateBackupCodesForOperator(int $userId)
+    {
+        if (!$this->isEnabled($userId)) {
+            return false;
+        }
+
+        return $this->issueBackupCodes($userId);
+    }
+
+    /**
+     * Replace the stored backup codes and return the new plain ones.
+     *
+     * Shared by both entry points above; the difference is the authorisation.
+     *
+     * @return string[]
+     */
+    private function issueBackupCodes(int $userId): array
+    {
         $plainCodes  = TOTPHelper::generateBackupCodes();
         $hashedCodes = array_map([TOTPHelper::class, 'hashBackupCode'], $plainCodes);
 
