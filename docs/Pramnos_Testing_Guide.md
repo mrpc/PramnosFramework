@@ -50,6 +50,25 @@ class UserApiTest extends BaseTestCase
 > If you have HTTP tests written before that date, re-read them. Some were asserting things
 > the home page happens to satisfy.
 
+### What a request writes
+
+Anything the code under test `echo`es during a request is part of the response, and
+`TestClient` captures it — placed in front of the body, which is the order a browser
+receives it in.
+
+```php
+// A controller that writes straight to the output stream
+$body = (string) $client->get('/Legacy')->getResponse()->getBody();
+$this->assertStringContainsString('what it echoed', $body);
+```
+
+Before 2026-08-27 it went to the terminal instead, straight through PHPUnit's own
+output: `Application::redirect()` writes a `<script>window.location=…</script>`
+fallback before ending a request, so a suite exercising an administration area
+printed a block of HTML per redirect between the progress dots. That was the visible
+half. The invisible half was that a controller echoing its body — several bundled
+ones did — could not be asserted on at all.
+
 ### One client, many requests
 
 A web request builds an `Application`, serves one URL and ends, so a good deal of

@@ -62,6 +62,120 @@ class TestClientTest extends TestCase
             'TestClient constructor must succeed with a pre-initialised Application');
     }
 
+    // ── Output ────────────────────────────────────────────────────────────────
+
+    /**
+     * What the request writes to the output stream is part of the response.
+     *
+     * A real request's `echo` reaches the browser. Here it reached the terminal,
+     * straight through PHPUnit's own output: `Application::redirect()` writes a
+     * `<script>window.location=…</script>` fallback before ending the request, so
+     * a suite exercising an admin area printed a block of HTML per redirect
+     * between the progress dots and a failure had to be found among them.
+     *
+     * Capturing it is not tidiness. It puts the bytes where a test can assert on
+     * them — a controller that echoes its body, as several used to, is otherwise
+     * invisible to every assertion.
+     */
+    public function testWhatTheRequestEchoesEndsUpInTheResponse(): void
+    {
+        // Arrange — a controller that writes straight to the output stream
+        $stub = new class extends Application {
+            public $initialized = true;
+
+            public function getController($controller, $userPermissions = [])
+            {
+                return new class {
+                    public function exec($action)
+                    {
+                        echo 'ECHOED-BY-THE-CONTROLLER';
+
+                        return '';
+                    }
+                };
+            }
+        };
+        $client = new TestClient($stub);
+
+        // Act
+        $body = (string) $client->get('/Anything')->getResponse()->getBody();
+
+        // Assert
+        $this->assertStringContainsString('ECHOED-BY-THE-CONTROLLER', $body);
+    }
+
+    /**
+     * And nothing escapes to the terminal.
+     *
+     * The assertion above would also pass if the output were both captured and
+     * printed.
+     */
+    public function testNothingEscapesToTheTerminal(): void
+    {
+        // Arrange
+        $stub = new class extends Application {
+            public $initialized = true;
+
+            public function getController($controller, $userPermissions = [])
+            {
+                return new class {
+                    public function exec($action)
+                    {
+                        echo 'SHOULD-NOT-REACH-THE-TERMINAL';
+
+                        return '';
+                    }
+                };
+            }
+        };
+        $client = new TestClient($stub);
+
+        // Act
+        ob_start();
+        $client->get('/Anything');
+        $leaked = (string) ob_get_clean();
+
+        // Assert
+        $this->assertSame('', $leaked);
+    }
+
+    /**
+     * Capturing the output must not cost the response its headers.
+     *
+     * A redirect *is* its Location header, and it also echoes a `<script>`
+     * fallback — so it is exactly the case where a response gets rebuilt. Rebuilt
+     * with `Response::make()` it came back with an empty Location, and the test
+     * that caught it was asserting on where a signed-out visitor is sent.
+     */
+    public function testCapturingOutputKeepsTheHeaders(): void
+    {
+        // Arrange
+        $stub = new class extends Application {
+            public $initialized = true;
+
+            public function getController($controller, $userPermissions = [])
+            {
+                return new class {
+                    public function exec($action)
+                    {
+                        echo 'a redirect fallback body';
+
+                        throw new \Pramnos\Http\RedirectException('https://example.com/login', 302);
+                    }
+                };
+            }
+        };
+        $client = new TestClient($stub);
+
+        // Act
+        $response = $client->get('/Anything')->getResponse();
+
+        // Assert
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('https://example.com/login', $response->getHeaders()['Location'] ?? '');
+        $this->assertStringContainsString('a redirect fallback body', (string) $response->getBody());
+    }
+
     // ── Routing ───────────────────────────────────────────────────────────────
 
     /**

@@ -187,6 +187,23 @@ class TestClient
         $controllerName = $request->getController() ?: $this->app->defaultController;
         $action = $request->getAction() ?: 'display';
 
+        /**
+         * Whatever the request writes to the output stream belongs to the response.
+         *
+         * A real request's `echo` reaches the browser; here it reached the
+         * terminal, straight through PHPUnit's own output. `Application::redirect()`
+         * writes a `<script>window.location=…</script>` fallback before ending the
+         * request, so a suite exercising an admin area printed a block of HTML per
+         * redirect between the progress dots, and a failure had to be found among
+         * them.
+         *
+         * Capturing it is not tidiness: it puts the bytes where a test can assert
+         * on them. Output written before the document renders comes first in the
+         * response, which is the order a browser receives it in.
+         */
+        $bufferLevel = ob_get_level();
+        ob_start();
+
         try {
             /**
              * The administration area's usertype floor, where the application
@@ -210,7 +227,7 @@ class TestClient
                 // named nowhere is a 403 rather than a silent empty 200.
                 $destination = $this->app->getRedirect();
 
-                return new TestResponse(
+                return $this->respond(
                     $destination === null
                         ? Response::make('', 403)
                         : Response::redirect($destination, 302)
@@ -249,7 +266,7 @@ class TestClient
             
             // If the controller returned a Response object, use it directly
             if ($content instanceof Response) {
-                return new TestResponse($content);
+                return $this->respond($content);
             }
             
             // Otherwise, we get string output. We need to render the document if the app expects it
@@ -258,10 +275,10 @@ class TestClient
             if (is_string($content)) {
                 $doc->addContent($content);
             }
-            return new TestResponse(Response::make($doc->render()));
+            return $this->respond(Response::make($doc->render()));
 
         } catch (\Pramnos\Http\RedirectException $exception) {
-            return new TestResponse(Response::redirect($exception->getUrl(), $exception->getStatusCode()));
+            return $this->respond(Response::redirect($exception->getUrl(), $exception->getStatusCode()));
 
         } catch (\Pramnos\Application\ApplicationClosedException $exception) {
             /**
@@ -280,10 +297,10 @@ class TestClient
             $status = $exception->getStatusCode();
             $destination = $this->app->getRedirect();
             if ($status >= 300 && $status < 400 && $destination !== null) {
-                return new TestResponse(Response::redirect($destination, $status));
+                return $this->respond(Response::redirect($destination, $status));
             }
 
-            return new TestResponse(Response::make(
+            return $this->respond(Response::make(
                 $exception->getBody(),
                 $status
             ));
@@ -293,14 +310,43 @@ class TestClient
             $_SESSION['_old_input'] = $request->allCurrent();
 
             $redirectTo = $_SERVER['HTTP_REFERER'] ?? '/';
-            return new TestResponse(Response::redirect($redirectTo, 302));
+            return $this->respond(Response::redirect($redirectTo, 302));
 
         } catch (\Exception $exception) {
             $format = 'html'; // default
             $debug = true; // show traces in tests
             $response = \Pramnos\Http\ExceptionHandler::render($exception, $format, $debug);
+            return $this->respond($response);
+        } finally {
+            // Every return above closes the buffer itself. This is for the path
+            // where something escapes the catches: leaving a buffer open would
+            // swallow the rest of the suite's output.
+            if (ob_get_level() > $bufferLevel) {
+                ob_end_clean();
+            }
+        }
+    }
+
+    /**
+     * Close the capture buffer and put what the request echoed in front of the
+     * body it built.
+     *
+     * That is the order a browser sees: anything written to the output stream
+     * leaves before the document is rendered.
+     */
+    private function respond(Response $response): TestResponse
+    {
+        $echoed = ob_get_level() > 0 ? (string) ob_get_clean() : '';
+
+        if ($echoed === '') {
             return new TestResponse($response);
         }
+
+        // `withBody()`, not a fresh `Response::make()`: rebuilding drops the
+        // headers, and the header is the whole of a redirect. Caught by a test
+        // asserting on Location, which came back empty the moment a redirect also
+        // echoed its `<script>` fallback.
+        return new TestResponse($response->withBody($echoed . $response->getBody()));
     }
     /**
      * The Router this application published, if it has one.
