@@ -247,6 +247,30 @@ walk, which is what let the two drift in the first place.
     The `false` argument matters too — do not invoke the autoloader. The question is "is
     this class already in memory", and an autoloader would answer a different one.
 
+### Inheriting a bundled view, one template at a time
+
+An application does not have to own every screen. When it has no template of its
+own, the lookup falls through to the bundled scaffolding for the configured
+`scaffold_theme` — so a project can keep the three screens it rewrote and inherit
+the other thirty-six, and pick up their fixes with the next framework update
+instead of copying them again.
+
+```
+app/themes/<theme>/views/<view>/<tpl>.html.php   ← a theme override, if any
+src/Views/<view>/<tpl>.html.php                  ← the application's own
+scaffolding/themes/<scaffold_theme>/views/…      ← the bundled fallback
+```
+
+**Per template, not per directory.** Until 2026-08-27 only `Controller::getView()`
+had a fallback, and it applied when the view *directory* could not be found — so
+an application with `src/Views/services/logs.html.php` and no `services.html.php`
+matched at the directory, failed at the template, and the services list came back
+as a page shell: 200, no panel, one line in a log nobody reads. Now each template
+resolves on its own.
+
+`project:publish-views` copies a bundled view into the application when you do
+want to own one.
+
 ### The bundled scaffold themes
 
 `init` installs one of three, and `project:switch-ui` swaps between them in an existing

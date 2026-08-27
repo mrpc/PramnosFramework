@@ -628,6 +628,46 @@ class View extends \Pramnos\Framework\Base
             : $this->path . DS . $this->tplSubdirectory;
     }
 
+    /**
+     * The bundled scaffolding's version of a template, when the application has
+     * none of its own.
+     *
+     * `Controller::getView()` already falls back to the bundled theme — but it
+     * does so when it cannot find the **view directory**, and the template lookup
+     * had no fallback at all. So the unit of inheritance was the whole directory:
+     * an application with `src/Views/services/logs.html.php` and no
+     * `services.html.php` matched at the directory, failed at the template, and
+     * the services list came back as a page shell. 200, no panel, one line in a
+     * log nobody reads.
+     *
+     * That is the shape a project actually wants inverted: keep the three screens
+     * you rewrote, inherit the other thirty-six — and get their fixes with the
+     * next framework update rather than copying them again.
+     *
+     * Silent when there is nothing to find, so the caller's existing
+     * "cannot find view template" path is unchanged.
+     */
+    private function scaffoldedTemplate(string $tpl, string $type): ?string
+    {
+        $app  = \Pramnos\Application\Application::currentInstance();
+        $info = is_array($app?->applicationInfo) ? $app->applicationInfo : [];
+
+        $theme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme($info);
+        $dirs  = $theme !== null
+            ? [\Pramnos\Application\ScaffoldingHelper::getThemeDir($theme)]
+            : \Pramnos\Application\ScaffoldingHelper::getAvailableThemeDirs();
+
+        foreach ($dirs as $dir) {
+            $candidate = $dir . DS . 'views' . DS . $this->name . DS
+                . $tpl . '.' . $type . '.php';
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
     public function getTpl($tpl='', $type='', $render=false)
     {
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -685,6 +725,13 @@ class View extends \Pramnos\Framework\Base
                 . '.' . $type . '.php';
             if (file_exists($viewTplFile)) {
                 $tplfile = $viewTplFile;
+            }
+        }
+
+        if (!file_exists($tplfile)) {
+            $scaffolded = $this->scaffoldedTemplate($tpl, $type);
+            if ($scaffolded !== null) {
+                $tplfile = $scaffolded;
             }
         }
 
