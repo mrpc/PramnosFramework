@@ -331,7 +331,7 @@ class FileAdapter extends AbstractAdapter
 
         if (is_dir($path)) {
             foreach ($this->listDirectoryFiles($path) as $file) {
-                unlink($file);
+                $this->deleteIfStillThere($file);
             }
             $this->cleanEmptyDirectories($path);
         }
@@ -425,7 +425,7 @@ class FileAdapter extends AbstractAdapter
 
         foreach ($this->listDirectoryFiles($legacy) as $file) {
             if (str_starts_with(basename($file), $sanitised . '_')) {
-                unlink($file);
+                $this->deleteIfStillThere($file);
             }
         }
         $this->cleanEmptyDirectories($legacy);
@@ -439,7 +439,7 @@ class FileAdapter extends AbstractAdapter
         $files = $this->listDirectoryFiles($this->cacheDir);
         foreach ($files as $file) {
             if ($this->checkIfFileIsExpired($file)) {
-                unlink($file);
+                $this->deleteIfStillThere($file);
             }
         }
 
@@ -548,6 +548,26 @@ class FileAdapter extends AbstractAdapter
         }
 
         return filemtime($file) + $timeout - time();
+    }
+
+    /**
+     * Delete a file the sweep listed, tolerating its having gone already.
+     *
+     * A sweep is inherently a listing followed by deletes, and between the two
+     * another process — a second worker, a concurrent request, the sampled
+     * garbage collection — may have removed the same entry. `unlink()` then emits
+     * a warning about a file nobody needed any more, which is noise in a log and,
+     * in a test run, an intermittent failure with no cause to find.
+     *
+     * The `is_file()` check does not close the window; nothing can. It narrows it,
+     * and the `@` states that losing this particular race is the expected outcome
+     * rather than something to report.
+     */
+    private function deleteIfStillThere(string $file): void
+    {
+        if (is_file($file)) {
+            @unlink($file);
+        }
     }
 
     private function listDirectoryFiles($path)

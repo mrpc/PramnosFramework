@@ -3476,7 +3476,8 @@ class Database extends \Pramnos\Framework\Base
         // The cache store is shared (files, redis), so the staleness outlives
         // the process and re-running the command does not clear it either.
         return $this->query(
-            $sql, !$fresh, 3600, self::columnCacheCategory($tableName),
+            $sql, !$fresh, 3600,
+            self::columnCacheCategory($tableName, (string) $this->prefix),
             false, $skipDataFix
         );
     }
@@ -3486,10 +3487,26 @@ class Database extends \Pramnos\Framework\Base
      *
      * One place, because a flush that computes the key differently from the read
      * is a flush that does nothing — silently.
+     *
+     * **The prefix is resolved into the key.** Callers name tables the way the
+     * rest of the framework does, with `#PREFIX#`, and the marker used to reach
+     * the cache untouched: the adapter's name sanitiser strips `#`, so the
+     * category became `schema_columns_PREFIXusers`. Two things followed. The
+     * marker showed up in the DevPanel's namespace list, which is how this was
+     * noticed — and, the part that matters, **two installations with different
+     * prefixes shared one entry**. `#PREFIX#users` is `alpha_users` on one and
+     * `beta_users` on another, and both wrote their column list to the same key.
+     * On a shared Redis that is one installation's schema answering the other's
+     * `getColumns()`, and those columns decide model fields and generated forms.
+     *
+     * @param string $tableName Table name, `#PREFIX#` and all
+     * @param string $prefix    The installation's table prefix. Defaults to none,
+     *                          which is correct for a caller that has already
+     *                          resolved the name.
      */
-    public static function columnCacheCategory(string $tableName): string
+    public static function columnCacheCategory(string $tableName, string $prefix = ''): string
     {
-        return 'schema_columns_' . $tableName;
+        return 'schema_columns_' . str_replace('#PREFIX#', $prefix, $tableName);
     }
 
     /**
@@ -3511,7 +3528,9 @@ class Database extends \Pramnos\Framework\Base
     public function forgetColumns(string $tableName): void
     {
         try {
-            $this->cacheflush(self::columnCacheCategory($tableName));
+            $this->cacheflush(
+                self::columnCacheCategory($tableName, (string) $this->prefix)
+            );
         } catch (\Throwable) {
             // See above.
         }

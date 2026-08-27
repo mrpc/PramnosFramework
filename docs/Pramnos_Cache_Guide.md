@@ -293,6 +293,42 @@ $cache->save($permanentData, 'permanent_data');
     that intermittently did not work for permanent values, which is the hardest kind
     to attribute.
 
+### What a listing can and cannot see, per adapter
+
+The cache dashboard asks three things — the categories, the entries, and the counts
+— and the answer is adapter-shaped:
+
+| | file | redis | memcached / memcache |
+| --- | --- | --- | --- |
+| `getCategories()` | directories under the cache root | the adapter's own category index | **`[]`** — no index exists to read |
+| `getAllItems()` | the files | the keys under its prefix | `[]` — the protocol cannot enumerate |
+| `ttl` | seconds left, `-1` for never | seconds left, `-1` for never | — |
+| an **expired** entry | listed, marked expired, until a sweep removes it | never listed: Redis evicts it | — |
+
+Two of those were wrong until 2026-08-27, and both looked like an empty cache rather
+than a listing that could not see one:
+
+- **Redis reported no categories at all.** `getCategories()` and `getStats()` read a
+  `memcachedtags` JSON blob, and **nothing has ever written that key** — three adapters
+  read it, no code sets it. Meanwhile the adapter maintains a real per-category index
+  (`catindex:<category>` plus a `catindexed:<category>` marker) that `clear()` already
+  trusts. The listing now reads that, which is the same source of truth invalidation
+  uses.
+- **The Redis item count was about Redis, not about the cache.** It was `dbSize()`,
+  which counts the whole database: sessions, queue payloads, another application's keys,
+  and this adapter's own bookkeeping. It now counts the entries under the cache's own
+  prefix.
+
+The memcached family genuinely cannot enumerate, and the dashboard says so rather than
+rendering an empty table — see `memcachedLimitation` in the bundled cache view.
+
+!!! note "A silent fallback hides all of this"
+    `Cache` falls back to files when the configured backend cannot be reached, and reports
+    the fallback: the DevPanel shows *"file fell back from redis"*. That line is worth
+    reading. An application configured for Redis whose PHP image has no `redis` extension
+    runs on files, passes every test, and behaves differently in production — which is
+    exactly how the two bugs above stayed invisible.
+
 ### What `getAllItems()` reports
 
 ```php

@@ -707,4 +707,88 @@ class NavRegistryTest extends TestCase
         };
     }
 
+
+    /**
+     * Every default administration item declares an icon and a group.
+     *
+     * Both are for the reader, and both are the framework's to declare because
+     * the framework owns the screens: a theme cannot know that "Health" is a
+     * system screen or which glyph means it. Fifteen entries in one flat,
+     * unlabelled list is a list nobody scans.
+     *
+     * A theme that renders neither is unaffected — the items still come back in
+     * position order — so this pins the data, not a layout.
+     */
+    public function testEveryDefaultAdminItemIsLabelledAndGrouped(): void
+    {
+        // Arrange — the framework's own items, and an administrator so nothing
+        // is filtered out. The constructor needs a full bootstrap, so the
+        // registration method is called in isolation; NavRegistry is static.
+        $features = ['auth', 'authserver', 'queue', 'messaging'];
+        $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->onlyMethods([])->getMock()
+            ->registerDefaultNavItems($features);
+        $admin = $this->makeUser(100);
+
+        // Act
+        $nav = NavRegistry::getForUser($admin, $features);
+        $items = $nav[NavSection::Admin->value] ?? [];
+
+        // Assert
+        $this->assertNotSame([], $items, 'an administrator must see admin items');
+
+        $missing = [];
+        foreach ($items as $item) {
+            if ($item->icon === null || $item->icon === '') {
+                $missing[] = $item->id . ' (icon)';
+            }
+            // The dashboard is the one item above the groups: it is where the
+            // area opens, not a member of a block.
+            if ($item->id !== 'admin.dashboard'
+                && ($item->group === null || $item->group === '')) {
+                $missing[] = $item->id . ' (group)';
+            }
+        }
+
+        $this->assertSame([], $missing,
+            'these would render as an unlabelled row in a sidebar: '
+            . implode(', ', $missing));
+    }
+
+    /**
+     * A group is not a parent, and the difference is what a reader sees.
+     *
+     * A parent is an item you click, with its children folded under it; a group
+     * is a label over a block, always visible. Logs, Health and Emails used to be
+     * folded under "Dashboard" — none of them is a dashboard, and folding them
+     * there hid three screens behind a name that does not describe them.
+     */
+    public function testOperationalScreensAreGroupedRatherThanFoldedUnderTheDashboard(): void
+    {
+        // Arrange
+        $features = ['auth', 'authserver', 'queue'];
+        $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->onlyMethods([])->getMock()
+            ->registerDefaultNavItems($features);
+        $admin = $this->makeUser(100);
+
+        // Act
+        $nav = NavRegistry::getForUser($admin, $features);
+        $byId = [];
+        foreach ($nav[NavSection::Admin->value] ?? [] as $item) {
+            $byId[$item->id] = $item;
+        }
+
+        // Assert
+        foreach (['admin.logs', 'admin.health', 'admin.emails'] as $id) {
+            $this->assertArrayHasKey($id, $byId);
+            $this->assertNull($byId[$id]->parent,
+                $id . ' must be its own screen, not folded under another');
+            $this->assertSame('System', $byId[$id]->group);
+        }
+
+        // …and the one that genuinely belongs inside another still does
+        $this->assertSame('admin.users', $byId['admin.tokenactions']->parent ?? null,
+            "a user's activity log belongs under Users");
+    }
 }

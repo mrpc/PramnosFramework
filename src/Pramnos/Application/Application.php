@@ -1024,77 +1024,94 @@ class Application extends Base
             NavSection::User, 99, requireAuth: true,
         ));
 
-        // Admin section — these are always registered; visibility filtered by minUserType at runtime
+        /**
+         * Admin section — always registered; visibility is filtered by
+         * minUserType at runtime.
+         *
+         * Each item carries an `icon` name and a `group`. Both are for the
+         * reader: fifteen screens in one flat, unlabelled list is a list nobody
+         * scans, and a name alone does not say what kind of screen it is. The
+         * icon is a **name**, not markup, so a theme maps it to whatever its
+         * icon set is — an SVG sprite, a font class, an emoji — and a theme that
+         * ignores both still renders every item in position order.
+         *
+         * `parent` is used only where a screen genuinely belongs *inside*
+         * another: Token Actions is a view of a user's activity. Logs, Health and
+         * Emails used to be folded under Dashboard, which is not what any of them
+         * is — they are their own screens under a `System` heading.
+         */
+        NavRegistry::register(new NavItem(
+            'admin.dashboard', 'Dashboard', $admin('Dashboard'),
+            NavSection::Admin, 1, requireAuth: true, minUserType: 80,
+            icon: 'gauge',
+        ));
+
+        // ── People ───────────────────────────────────────────────────────────
         NavRegistry::register(new NavItem(
             'admin.users', 'Users', $admin('users'),
             NavSection::Admin, 5, requireAuth: true, minUserType: 80,
+            icon: 'users', group: 'People',
         ));
+        NavRegistry::register(new NavItem(
+            'admin.organizations', 'Organizations', $admin('Organizations'),
+            NavSection::Admin, 14, requireAuth: true, minUserType: 80,
+            icon: 'building', group: 'People',
+        ));
+
+        // ── System ───────────────────────────────────────────────────────────
         NavRegistry::register(new NavItem(
             'admin.settings', 'Settings', $admin('settings'),
             NavSection::Admin, 8, requireAuth: true, minUserType: 80,
+            icon: 'settings', group: 'System',
         ));
         NavRegistry::register(new NavItem(
             'admin.logs', 'Logs', $admin('logs'),
             NavSection::Admin, 10, requireAuth: true, minUserType: 80,
-            parent: 'admin.dashboard',
+            icon: 'document', group: 'System',
         ));
         NavRegistry::register(new NavItem(
             'admin.health', 'Health', $admin('health'),
             NavSection::Admin, 11, requireAuth: true, minUserType: 80,
-            parent: 'admin.dashboard',
+            icon: 'heartbeat', group: 'System',
         ));
-
-        // Admin ops dashboard — always
-        NavRegistry::register(new NavItem(
-            'admin.dashboard', 'Dashboard', $admin('Dashboard'),
-            NavSection::Admin, 1, requireAuth: true, minUserType: 80,
-        ));
-
-        // Services / Workers — always
         NavRegistry::register(new NavItem(
             'admin.services', 'Services', $admin('Services'),
             NavSection::Admin, 12, requireAuth: true, minUserType: 80,
+            icon: 'server', group: 'System',
         ));
-
-        // Organizations — always
-        NavRegistry::register(new NavItem(
-            'admin.organizations', 'Organizations', $admin('Organizations'),
-            NavSection::Admin, 14, requireAuth: true, minUserType: 80,
-        ));
-
-        // Emails — always, grouped under Dashboard
         NavRegistry::register(new NavItem(
             'admin.emails', 'Emails', $admin('Emails'),
             NavSection::Admin, 16, requireAuth: true, minUserType: 80,
-            parent: 'admin.dashboard',
+            icon: 'mail', group: 'System',
         ));
 
-        // OAuth Apps — authserver feature
+        // ── Access — authserver feature ───────────────────────────────────────
         if (in_array('authserver', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.applications', 'Applications', $admin('Applications'),
                 NavSection::Admin, 20, requireAuth: true, minUserType: 90,
-                feature: 'authserver',
+                feature: 'authserver', icon: 'apps', group: 'Access',
             ));
             NavRegistry::register(new NavItem(
                 'admin.tokens', 'Tokens', $admin('Tokens'),
                 NavSection::Admin, 22, requireAuth: true, minUserType: 90,
-                feature: 'authserver',
+                feature: 'authserver', icon: 'key', group: 'Access',
             ));
             NavRegistry::register(new NavItem(
                 'admin.permissions', 'Permissions', $admin('Permissions'),
                 NavSection::Admin, 24, requireAuth: true, minUserType: 90,
-                feature: 'authserver',
+                feature: 'authserver', icon: 'shield', group: 'Access',
             ));
         }
 
-        // Token Actions audit log — auth feature, grouped under Users
+        // Token Actions audit log — auth feature, nested under Users because
+        // that is what it is: a view of one account's activity.
         if (in_array('auth', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.tokenactions', 'Token Actions', $admin('TokenActions'),
                 NavSection::Admin, 26, requireAuth: true, minUserType: 80,
-                feature: 'auth',
-                parent: 'admin.users',
+                feature: 'auth', icon: 'history',
+                parent: 'admin.users', group: 'People',
             ));
         }
 
@@ -1103,7 +1120,7 @@ class Application extends Base
             NavRegistry::register(new NavItem(
                 'admin.queue', 'Queue', $admin('Queue'),
                 NavSection::Admin, 30, requireAuth: true, minUserType: 80,
-                feature: 'queue',
+                feature: 'queue', icon: 'queue', group: 'System',
             ));
         }
     }

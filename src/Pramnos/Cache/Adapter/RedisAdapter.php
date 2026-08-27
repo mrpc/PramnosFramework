@@ -787,13 +787,42 @@ class RedisAdapter extends AbstractAdapter
         if (!$this->caching || !$this->connected) {
             return [];
         }
-        
+
+        /**
+         * Read from the category index this adapter actually maintains.
+         *
+         * This used to read a `memcachedtags` JSON blob — and **nothing has ever
+         * written that key**. Three adapters read it and no code anywhere sets
+         * it, so `getCategories()` always answered `[]` and `getStats()` always
+         * reported zero categories. On the cache dashboard that is a namespace
+         * list with nothing in it and a "Categories" tile reading 0 next to an
+         * item count of thirteen: not an empty cache, a listing that could not
+         * see one.
+         *
+         * The real index is right here: {@see categoryMarkerKey()} writes a
+         * `catindexed:<category>` marker for every category the adapter touches,
+         * and {@see clear()} already trusts it. Enumerating the markers is
+         * therefore the same source of truth invalidation uses, rather than a
+         * second one that could disagree.
+         */
         try {
-            $tagsData = $this->redis->get($this->prefix . $this->tagsKey);
-            if ($tagsData) {
-                $tagsArray = json_decode($tagsData, true);
-                return is_array($tagsArray) ? array_keys($tagsArray) : [];
+            $base = ($prefix !== '' ? $prefix : $this->prefix);
+            $markerPrefix = $base . 'catindexed:';
+            $keys = $this->redis->keys($markerPrefix . '*');
+            if (!is_array($keys)) {
+                return [];
             }
+
+            $categories = [];
+            foreach ($keys as $key) {
+                $name = substr((string) $key, strlen($markerPrefix));
+                if ($name !== '' && $name !== false) {
+                    $categories[] = $name;
+                }
+            }
+            sort($categories);
+
+            return $categories;
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
@@ -817,17 +846,38 @@ class RedisAdapter extends AbstractAdapter
         }
         
         try {
-            $tagsData = $this->redis->get($this->prefix . $this->tagsKey);
-            if ($tagsData) {
-                $tagsArray = json_decode($tagsData, true);
-                $stats['categories'] = is_array($tagsArray) ? count($tagsArray) : 0;
-            }
-            
-            // Get number of items
-            $stats['items'] = $this->redis->dbSize();
-            // Remove one for the tags key
-            if ($stats['items'] > 0 && $tagsData) {
-                $stats['items']--;
+            // Counted from the same index the listing reads — see
+            // getCategories(). It used to count a key nothing writes, so this
+            // tile read 0 beside an item count in the dozens.
+            $stats['categories'] = count($this->getCategories());
+
+            /**
+             * The entries this cache wrote — not every key in the database.
+             *
+             * This was `dbSize()`, which answers a different question: it counts
+             * the whole Redis database, so the number included sessions, queue
+             * payloads, whatever another application keeps in the same instance,
+             * and this adapter's own bookkeeping (a `catindex:<category>` set and
+             * a `catindexed:<category>` marker each). On a shared instance the
+             * "Total items" tile was a number about Redis rather than about the
+             * cache, and on a dedicated one it was still inflated by twice the
+             * category count. It also subtracted one for the `memcachedtags` key,
+             * which nothing writes.
+             *
+             * The cost is a `keys()` scan, which `dbSize()` avoided. Two things
+             * make that the right trade here: the screen this feeds already
+             * scans — `getAllItems()` cannot list without one — and it is an
+             * authenticated dashboard somebody opens occasionally, not a request
+             * path.
+             */
+            $keys = $this->redis->keys($this->prefix . '*');
+            $stats['items'] = 0;
+            if (is_array($keys)) {
+                foreach ($keys as $key) {
+                    if (!str_starts_with((string) $key, $this->prefix . 'catindex')) {
+                        $stats['items']++;
+                    }
+                }
             }
         } catch (\Exception $ex) {
             \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);

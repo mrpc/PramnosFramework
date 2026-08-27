@@ -38,6 +38,19 @@ readonly class NavItem
      * @param string|null     $icon         Optional CSS icon class (e.g. Bootstrap Icons 'bi-journal').
      * @param bool            $guestOnly    If true, hidden when a user IS logged in (e.g. Login link).
      * @param string|null     $parent       Parent item id for nested dropdown rendering, or null for top-level.
+     * @param string|null     $group        Heading this item sits under in a sidebar, e.g. `System`.
+     *
+     *                                      Distinct from `$parent`, and the difference is what a
+     *                                      reader sees: a parent is an item you can click, with its
+     *                                      children folded under it; a group is a **label** over a
+     *                                      block of items, always visible. A list of fifteen
+     *                                      administration screens with neither is a list nobody
+     *                                      reads, and folding operational screens under an
+     *                                      unrelated item — Logs under "Dashboard" — hides them
+     *                                      behind a name that does not describe them.
+     *
+     *                                      A theme that does not render groups is unaffected: the
+     *                                      items are still returned in position order.
      */
     public function __construct(
         public string      $id,
@@ -52,5 +65,6 @@ readonly class NavItem
         public ?string     $icon         = null,
         public bool        $guestOnly    = false,
         public ?string     $parent       = null,
+        public ?string     $group        = null,
     ) {}
 }

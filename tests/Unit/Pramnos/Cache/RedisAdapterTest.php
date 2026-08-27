@@ -728,71 +728,99 @@ class RedisAdapterTest extends TestCase
     }
 
     /**
-     * getCategories() returns an array of category names when tags data exists.
-     * This covers lines 252-258 of RedisAdapter::getCategories().
+     * The categories a listing reports are the ones the adapter actually wrote.
      *
-     * Since the adapter does not write the tags key itself (that is a Cache
-     * layer concern), we inject it directly via the Redis connection.
+     * This test used to write the `memcachedtags` key by hand and assert that
+     * `getCategories()` read it back — and **nothing has ever written that key**.
+     * Three adapters read it; no code anywhere sets it. So the test proved the
+     * reader worked against a fixture production never produces, while
+     * `getCategories()` answered `[]` on every real installation: a cache
+     * dashboard with an empty namespace list and a "Categories" tile reading 0
+     * next to an item count in the dozens.
+     *
+     * Driven through `save()` now, which is the only way the question means
+     * anything.
      */
     #[Group('redis')]
-    public function testGetCategoriesReturnsCategoryNamesWhenTagsExist(): void
+    public function testGetCategoriesListsTheCategoriesThatWereWrittenTo(): void
     {
-        // Arrange — write tags JSON directly into Redis under the prefix+tagsKey
-        $adapter = $this->makeConnectedAdapter('tagstest_');
-        $redis   = $adapter->getConnection();
+        // Arrange — two categories, written the way an application writes them
+        $adapter = $this->makeConnectedAdapter('cattest_');
+        $adapter->clear();
+        $adapter->setCategory('products');
+        $adapter->save('cattest_products_one', 'v', 0);
+        $adapter->setCategory('people');
+        $adapter->save('cattest_people_one', 'v', 0);
 
-        // Reflect to read the tagsKey value from the abstract parent
-        $ref     = new \ReflectionProperty($adapter, 'tagsKey');
-        $tagsKey = 'tagstest_' . $ref->getValue($adapter);
+        try {
+            // Act
+            $categories = $adapter->getCategories();
 
-        $tagsData = json_encode(['products' => 1, 'users' => 1]);
-        $redis->set($tagsKey, $tagsData);
-
-        // Act
-        $categories = $adapter->getCategories();
-
-        // Cleanup
-        $redis->del($tagsKey);
-
-        // Assert — both category names are present
-        $this->assertContains('products', $categories,
-            'getCategories() must include all keys from the stored tags JSON');
-        $this->assertContains('users', $categories);
+            // Assert
+            $this->assertContains('products', $categories,
+                'a category that was written to must be listed');
+            $this->assertContains('people', $categories);
+        } finally {
+            $adapter->clear();
+        }
     }
 
     /**
-     * getStats() counts categories from the tags key and items from dbSize().
-     * This covers lines 280-293 of RedisAdapter::getStats().
+     * With nothing written, the list is empty — and that is a real answer.
+     *
+     * The distinction the old fixture could not make: "no categories" and "the
+     * listing cannot see them" looked identical, and the second was the truth.
+     */
+    #[Group('redis')]
+    public function testGetCategoriesIsEmptyWhenNothingHasBeenWritten(): void
+    {
+        // Arrange
+        $adapter = $this->makeConnectedAdapter('emptycat_');
+        $adapter->clear();
+
+        // Act & Assert
+        $this->assertSame([], $adapter->getCategories());
+    }
+
+    /**
+     * getStats() counts the categories it can list, and the items it stored.
+     *
+     * The category count came from the key nothing writes, so it read 0 always.
+     * The item count came from `dbSize()`, which counts the adapter's own
+     * bookkeeping too — a `catindex:` set and a `catindexed:` marker per
+     * category — so it was inflated by twice the number of categories.
      */
     #[Group('redis')]
     public function testGetStatsCountsCategoriesAndItems(): void
     {
-        // Arrange — isolated prefix to avoid interference from parallel tests
+        // Arrange — isolated prefix to avoid interference from parallel tests.
+        //
+        // The keys carry the prefix because that is what reaches the adapter in
+        // production: `Cache::_generateCacheName()` builds the full name,
+        // prefix included, and hands it to `save()`. The adapter's own `$prefix`
+        // is what it scans with. A test calling `save('stats_key_1')` directly
+        // writes a key the adapter's own scans cannot see — which is a test
+        // bypassing a layer, not a defect.
         $adapter = $this->makeConnectedAdapter('statstest_');
-        $adapter->clear(); // start empty
-
-        // Write the tags key with two known categories
-        $redis   = $adapter->getConnection();
-        $ref     = new \ReflectionProperty($adapter, 'tagsKey');
-        $tagsKey = 'statstest_' . $ref->getValue($adapter);
-        $redis->set($tagsKey, json_encode(['catA' => 1, 'catB' => 1]));
-
-        // Write a couple of data keys
-        $adapter->save('stats_key_1', 'val1', 0);
-        $adapter->save('stats_key_2', 'val2', 0);
-
-        // Act
-        $stats = $adapter->getStats();
-
-        // Cleanup
         $adapter->clear();
+        $adapter->setCategory('catA');
+        $adapter->save('statstest_catA_one', 'val1', 0);
+        $adapter->setCategory('catB');
+        $adapter->save('statstest_catB_one', 'val2', 0);
 
-        // Assert
-        $this->assertSame('redis', $stats['method']);
-        $this->assertSame(2, $stats['categories'],
-            'getStats() must count categories from the tags JSON');
-        $this->assertGreaterThanOrEqual(2, $stats['items'],
-            'getStats() must count at least the two stored items');
+        try {
+            // Act
+            $stats = $adapter->getStats();
+
+            // Assert
+            $this->assertSame('redis', $stats['method']);
+            $this->assertSame(2, $stats['categories'],
+                'getStats() must count the categories that were written to');
+            $this->assertSame(2, $stats['items'],
+                'two entries were stored; the index keys are not entries');
+        } finally {
+            $adapter->clear();
+        }
     }
 
     /**
