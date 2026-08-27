@@ -28,6 +28,46 @@ class UsersControllerTest extends TestCase
     private const TABLES = ['usertokens', 'sessions', 'users', 'mails'];
 
     /**
+     * The `authserver.*` tables, under the names MySQL actually sees.
+     *
+     * `authserver_user_activity_log`, not `authserver`.`user_activity_log` — see
+     * {@see createAuthServerTables()} for why that distinction cost this class its
+     * assertions.
+     */
+    private const AUTHSERVER_TABLES = [
+        'authserver_user_activity_log' => '
+            `id` bigint NOT NULL AUTO_INCREMENT,
+            `userid` bigint NOT NULL,
+            `action` varchar(100) NOT NULL,
+            `details` text,
+            `ip_address` varchar(45) DEFAULT NULL,
+            `user_agent` text,
+            `created_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`)',
+        'authserver_loginlockouts' => '
+            `id` bigint NOT NULL AUTO_INCREMENT,
+            `userid` bigint NOT NULL,
+            `attempts` int NOT NULL DEFAULT 0,
+            PRIMARY KEY (`id`)',
+        'authserver_passkey_credentials' => '
+            `id` bigint NOT NULL AUTO_INCREMENT,
+            `userid` bigint NOT NULL,
+            `name` varchar(190) DEFAULT NULL,
+            PRIMARY KEY (`id`)',
+        'authserver_permissions' => '
+            `permissionid` bigint NOT NULL AUTO_INCREMENT,
+            `subject_type` varchar(50) NOT NULL,
+            `subject_id` bigint NOT NULL,
+            `object_type` varchar(100) NOT NULL,
+            `object_id` varchar(190) DEFAULT NULL,
+            `action` varchar(100) NOT NULL,
+            `grant_type` varchar(10) NOT NULL DEFAULT \'allow\',
+            `priority` int NOT NULL DEFAULT 100,
+            `granted_by` bigint DEFAULT NULL,
+            PRIMARY KEY (`permissionid`)',
+    ];
+
+    /**
      * Builds the schema once for the whole class.
      *
      * `users` needs every column `User::_save()` inserts — a minimal schema causes silent
@@ -167,9 +207,17 @@ class UsersControllerTest extends TestCase
      * The `authserver.*` tables these actions write to.
      *
      * They ship with the `authserver` feature's migrations, and without them the operator
-     * actions below can only be tested through the branch that reports "the feature is
-     * off" — which leaves the half that actually changes something untested. On MySQL the
-     * qualified name is a database, so the fixture makes one.
+     * actions below can only be tested through the branch that reports "the feature is off"
+     * — which leaves the half that actually changes something untested.
+     *
+     * **On MySQL `authserver.foo` is not a database.** `QueryBuilder::from()` resolves a
+     * qualified name to `{prefix}authserver_foo` in the *current* database, because on
+     * MySQL `schema.table` means a cross-database reference and the framework wants a
+     * namespace. This fixture used to create a database called `authserver` and put the
+     * tables in it, so nothing the controller read ever existed: every one of those reads is
+     * guarded and returns an empty result on failure, so the panels came back empty, the
+     * assertions were about which *keys* the array had, and they passed. A fixture in the
+     * wrong place is worse than no fixture — no fixture fails.
      *
      * Dropped again in `tearDownAfterClass()`, and `ActivityLog`'s memoized table probe is
      * reset on both sides: it is a per-process cache, so a later test class in the same
@@ -177,59 +225,22 @@ class UsersControllerTest extends TestCase
      */
     private static function createAuthServerTables(\Pramnos\Database\Database $db): void
     {
-        $db->query('CREATE DATABASE IF NOT EXISTS `authserver`');
-        $db->query('DROP TABLE IF EXISTS `authserver`.`user_activity_log`');
-        $db->query('
-            CREATE TABLE `authserver`.`user_activity_log` (
-                `id` bigint NOT NULL AUTO_INCREMENT,
-                `userid` bigint NOT NULL,
-                `action` varchar(100) NOT NULL,
-                `details` text,
-                `ip_address` varchar(45) DEFAULT NULL,
-                `user_agent` text,
-                `created_at` datetime DEFAULT NULL,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-        $db->query('DROP TABLE IF EXISTS `authserver`.`loginlockouts`');
-        $db->query('
-            CREATE TABLE `authserver`.`loginlockouts` (
-                `id` bigint NOT NULL AUTO_INCREMENT,
-                `userid` bigint NOT NULL,
-                `attempts` int NOT NULL DEFAULT 0,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-        $db->query('DROP TABLE IF EXISTS `authserver`.`passkey_credentials`');
-        $db->query('
-            CREATE TABLE `authserver`.`passkey_credentials` (
-                `id` bigint NOT NULL AUTO_INCREMENT,
-                `userid` bigint NOT NULL,
-                `name` varchar(190) DEFAULT NULL,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-        $db->query('DROP TABLE IF EXISTS `authserver`.`permissions`');
-        $db->query('
-            CREATE TABLE `authserver`.`permissions` (
-                `permissionid` bigint NOT NULL AUTO_INCREMENT,
-                `subject_type` varchar(50) NOT NULL,
-                `subject_id` bigint NOT NULL,
-                `object_type` varchar(100) NOT NULL,
-                `object_id` varchar(190) DEFAULT NULL,
-                `action` varchar(100) NOT NULL,
-                `grant_type` varchar(10) NOT NULL DEFAULT \'allow\',
-                `priority` int NOT NULL DEFAULT 100,
-                `granted_by` bigint DEFAULT NULL,
-                PRIMARY KEY (`permissionid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+        foreach (self::AUTHSERVER_TABLES as $table => $columns) {
+            $db->query('DROP TABLE IF EXISTS `' . $table . '`');
+            $db->query(
+                'CREATE TABLE `' . $table . '` (' . $columns
+                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+            );
+        }
 
         \Pramnos\Auth\ActivityLog::resetTableCache();
     }
 
     private static function dropAuthServerTables(\Pramnos\Database\Database $db): void
     {
-        foreach (['user_activity_log', 'loginlockouts', 'passkey_credentials', 'permissions'] as $table) {
-            $db->query('DROP TABLE IF EXISTS `authserver`.`' . $table . '`');
+        foreach (array_keys(self::AUTHSERVER_TABLES) as $table) {
+            $db->query('DROP TABLE IF EXISTS `' . $table . '`');
         }
-        $db->query('DROP DATABASE IF EXISTS `authserver`');
 
         \Pramnos\Auth\ActivityLog::resetTableCache();
     }
@@ -949,7 +960,7 @@ class UsersControllerTest extends TestCase
     {
         // Arrange — one entry, with something that must not reach the page as markup
         $this->db->query(
-            "INSERT INTO `authserver`.`user_activity_log`"
+            "INSERT INTO `authserver_user_activity_log`"
             . " (`userid`, `action`, `details`, `ip_address`, `created_at`)"
             . " VALUES (3, '<b>login</b>', '{\"by\":2}', '10.0.0.1', NOW())"
         );
@@ -984,7 +995,7 @@ class UsersControllerTest extends TestCase
     {
         // Arrange — and flush the SQL cache, or the listing from the test above is
         // served from it and the missing table is never reached
-        $this->db->query('DROP TABLE IF EXISTS `authserver`.`user_activity_log`');
+        $this->db->query('DROP TABLE IF EXISTS `authserver_user_activity_log`');
         $this->db->cacheflush();
         $_GET['_option'] = 3;
 

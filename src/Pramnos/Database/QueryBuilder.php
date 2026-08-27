@@ -254,14 +254,35 @@ class QueryBuilder
         // becomes prefix_authserver_foo within the current database.
         // Guards:
         //  - PostgreSQL/TimescaleDB support schema.table natively — no transformation.
-        //  - Aliased expressions contain a space (e.g. "tbl a") — skip to preserve alias.
         //  - Subquery fragments from fromSub() bypass from() entirely — not a concern.
+        //
+        // **An alias used to skip the resolution entirely**, on the reasoning that anything
+        // with a space in it is an expression this should not touch. `Datasource::render()`
+        // builds `from($table . ' a')`, so every datatable over an `authserver.*` table
+        // asked MySQL for a database named `authserver` — and each of those call sites
+        // catches the failure and answers an empty list, which is indistinguishable from
+        // "this account has no history". The whole activity panel read as empty on every
+        // MySQL installation.
+        //
+        // So the table is resolved and the alias kept. Only for the two shapes that are
+        // certainly "name alias" and "name AS alias" with a plain name in front; anything
+        // else is left exactly as it was.
         if (is_string($table)
             && strpos($table, '.') !== false
-            && strpos($table, ' ') === false
             && $this->db->type !== 'postgresql'
         ) {
-            $table = $this->db->schema()->resolveTableName($table);
+            $parts = preg_split('/\s+/', trim($table)) ?: [];
+            $plain = isset($parts[0]) && preg_match('/^[A-Za-z0-9_.#]+$/', $parts[0]) === 1;
+
+            if ($plain && count($parts) === 1) {
+                $table = $this->db->schema()->resolveTableName($parts[0]);
+            } elseif ($plain
+                && (count($parts) === 2
+                    || (count($parts) === 3 && strcasecmp($parts[1], 'AS') === 0))
+            ) {
+                $parts[0] = $this->db->schema()->resolveTableName($parts[0]);
+                $table    = implode(' ', $parts);
+            }
         }
         $this->from = $table;
         return $this;
