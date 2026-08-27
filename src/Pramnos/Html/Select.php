@@ -75,6 +75,14 @@ class Select extends \Pramnos\Framework\Base
     /** Whether the browser should refuse an empty submission. */
     public bool $required = false;
 
+    /**
+     * The HTML `title` attribute — a tooltip.
+     *
+     * The counterpart of {@see Input::$title}, so a control in a form can explain itself
+     * whichever kind it is. Escaped: it is text written for a person.
+     */
+    public string $title = '';
+
     /** Rendered verbatim inside the opening tag, for anything not modelled here. */
     public string $extraAttributes = '';
 
@@ -165,6 +173,9 @@ class Select extends \Pramnos\Framework\Base
         }
         if ($this->required) {
             $out .= ' required';
+        }
+        if ($this->title !== '') {
+            $out .= ' title="' . $this->attr($this->title) . '"';
         }
         if ($this->extraAttributes !== '') {
             $out .= ' ' . $this->extraAttributes;

@@ -24,7 +24,7 @@ each one constructed, configured with public properties, and turned into a strin
 | `Breadcrumb` | a breadcrumb trail, plus its `BreadcrumbList` structured data |
 | `Date` | date and time formatting helpers |
 | `Seo` | canonical URLs, meta tags and structured data |
-| `Form\Field` | one field **inside a form**, with a label and a style preset |
+| [`Form\Field`](#formfield) | one field **inside a form**, with a label and a style preset |
 
 Every one of them also renders when cast to a string, so `echo $component` works.
 
@@ -344,6 +344,57 @@ The ellipses stay honest either way — they appear only where a page is actuall
 and the threshold moves with the setting. With `1` on screen a gap exists from page 3, so
 `1 … 2` would be a lie; with `1` off screen a gap exists from page 2, and omitting the
 dots there would hide the fact that page 1 exists at all.
+
+---
+
+## Form\Field
+
+The one that belongs to a form. It is not an alternative to `Input` and `Select` — it is
+**built on them**.
+
+```php
+$field = new \Pramnos\Html\Form\Field('email', 'Email', 'email', required: true);
+$field->description  = 'We never share it.';
+$field->pattern      = '[^@]+@[^@]+';
+$field->tooltip      = 'name@example.com';
+echo $field->render(\Pramnos\Html\Form\FieldStyles::for('bootstrap'));
+```
+
+`Field` keeps what is actually about being in a form — the label, the description, the
+required marker, the style preset, `effectiveValue()`, `readSubmitted()`, and an `id`
+defaulted to the name. The tag itself is built by `Input` or `Select`, so the rules about
+which attributes a type may carry live in one place.
+
+That mattered: while the two were separate, `Field` emitted `min`/`max`/`step` on **every**
+type including `text` — invalid markup that browsers accept and validators reject.
+
+### Two differences from `Input` worth knowing
+
+**`$title` is the label, `$tooltip` is the HTML attribute.** `Field::$title` has meant
+*label* since the legacy form class named it that, so the `title` attribute takes the
+other name here. Assuming the obvious mapping puts a tooltip in your label.
+
+**A checkbox gets a hidden companion.**
+
+```html
+<input type="hidden" name="active" value="0" />
+<label for="active"><input type="checkbox" id="active" name="active" value="1" /> Active</label>
+```
+
+Without it an unchecked box submits nothing at all, which is indistinguishable from the
+field not being on the form — so a setting could be switched on and never off. `Input`
+does not do this, because a filter checkbox outside a form has no such problem.
+
+`Field` also treats anything that is not `'0'` or `''` as checked, which is broader than
+`Input`'s equality test: a setting stored as `1`, `yes` or `true` all mean the same thing
+to a settings form.
+
+### Its own type vocabulary
+
+`textfield`, `datetime` and `image` are `Field`'s names, resolved before the control is
+built: `datetime` → `datetime-local`, `image` → `text` (it always carried a path, and
+nothing ever rendered a picker for it). Passing them to `Input` directly would get you a
+plain text box.
 
 ---
 

@@ -84,6 +84,40 @@ class Field
     public $step = null;
 
     /**
+     * A `pattern` for native validation.
+     *
+     * Pair it with {@see $tooltip}: without one the browser reports "Please match the
+     * requested format", which tells the reader they are wrong and not what right looks
+     * like.
+     */
+    public string $pattern = '';
+
+    /**
+     * The HTML `title` attribute — a tooltip, and the message a failed constraint shows.
+     *
+     * **Not** {@see $title}, which is this class's *label* and has been since the legacy
+     * form class named it that. Renaming it would break every caller, so the HTML
+     * attribute takes the different name. It is also how `min`/`max` on a number explains
+     * itself, which nothing else does.
+     */
+    public string $tooltip = '';
+
+    /** Lower bound on the length. Textual types only, like {@see $maxlength}. */
+    public ?int $minlength = null;
+
+    /** Upper bound on the length. */
+    public ?int $maxlength = null;
+
+    /** Placeholder text. Not a label — a field still needs {@see $title}. */
+    public string $placeholder = '';
+
+    /** An `autocomplete` token, e.g. `email`, `new-password`, `off`. */
+    public string $autocomplete = '';
+
+    /** The on-screen keyboard to offer — `numeric`, `tel`, `decimal`, … */
+    public string $inputmode = '';
+
+    /**
      * @param string                        $name        Submitted name
      * @param string|null                   $title       Label; defaults to a humanised name
      * @param string                        $type        One of the supported types
@@ -159,8 +193,12 @@ class Field
     public function render(array $styles): string
     {
         if ($this->type === 'hidden') {
-            return '<input type="hidden" name="' . $this->attr($this->name)
-                . '" value="' . $this->attr((string) $this->effectiveValue()) . '" />';
+            // No wrapper, no label, no id: a hidden field has nothing to show and nothing
+            // to point a label at.
+            $hidden = new \Pramnos\Html\Input($this->name, (string) $this->effectiveValue());
+            $hidden->type = 'hidden';
+
+            return $hidden->render();
         }
 
         $control = match ($this->type) {
@@ -198,20 +236,61 @@ class Field
      */
     private function renderInput(array $styles): string
     {
-        $type = self::INPUT_TYPES[$this->type] ?? 'text';
+        return $this->control(
+            self::INPUT_TYPES[$this->type] ?? 'text',
+            $styles['input']
+        )->render();
+    }
 
-        $out = '<input type="' . $type . '" id="' . $this->attr($this->name)
-            . '" name="' . $this->attr($this->name)
-            . '" value="' . $this->attr((string) $this->effectiveValue()) . '"'
-            . $styles['input'];
+    /**
+     * An {@see \Pramnos\Html\Input} configured from this field.
+     *
+     * The tag itself is built there rather than here, so the rules about *which*
+     * attributes a type may carry live in one place. They were duplicated, and the copies
+     * had already diverged: this class emitted `min`/`max`/`step` on every type, including
+     * `text`, which is invalid markup that every browser accepts and every validator
+     * rejects — the kind of wrong nobody notices.
+     *
+     * What stays here is everything that is about being *in a form*: the label, the
+     * description, {@see effectiveValue()}, the style preset, and an `id` defaulted to the
+     * name. `Input` refuses to invent an id, correctly — two controls for one field on a
+     * page is ordinary — but a form field is the case where one is required, because
+     * `<label for>` is an association by id.
+     *
+     * The **type is resolved before it is handed over**. This class's vocabulary is its
+     * own (`textfield`, `datetime`, `image`), and `Input` would read `datetime` as
+     * unrecognised and fall back to `text` — silently turning a date-time picker into a
+     * text box.
+     *
+     * @param string $type       An HTML input type, already resolved
+     * @param string $styleAttrs The preset's attribute string, leading space included
+     */
+    private function control(string $type, string $styleAttrs): \Pramnos\Html\Input
+    {
+        $input = new \Pramnos\Html\Input($this->name, (string) $this->effectiveValue());
 
-        foreach (['min' => $this->min, 'max' => $this->max, 'step' => $this->step] as $k => $v) {
-            if ($v !== null) {
-                $out .= ' ' . $k . '="' . $this->attr((string) $v) . '"';
-            }
-        }
+        $input->type = $type;
+        // The id a form field needs, and the reason this is set rather than left alone.
+        $input->id       = $this->name;
+        $input->required = $this->required;
 
-        return $out . ($this->required ? ' required' : '') . ' />';
+        $input->min  = $this->min;
+        $input->max  = $this->max;
+        $input->step = $this->step;
+
+        $input->pattern      = $this->pattern;
+        $input->title        = $this->tooltip;
+        $input->minlength    = $this->minlength;
+        $input->maxlength    = $this->maxlength;
+        $input->placeholder  = $this->placeholder;
+        $input->autocomplete = $this->autocomplete;
+        $input->inputmode    = $this->inputmode;
+
+        // The preset is framework-authored markup, not caller input, which is why it goes
+        // through the one property that is not escaped.
+        $input->extraAttributes = trim($styleAttrs);
+
+        return $input;
     }
 
     /**
@@ -222,10 +301,10 @@ class Field
      */
     private function renderTextarea(array $styles): string
     {
-        return '<textarea id="' . $this->attr($this->name) . '" name="'
-            . $this->attr($this->name) . '" rows="5"' . $styles['area']
-            . ($this->required ? ' required' : '') . '>'
-            . $this->text((string) $this->effectiveValue()) . '</textarea>';
+        $input = $this->control('textarea', $styles['area']);
+        $input->rows = 5;
+
+        return $input->render();
     }
 
     /**
@@ -241,13 +320,19 @@ class Field
      */
     private function renderCheckbox(array $styles): string
     {
-        $checked = ((string) $this->effectiveValue() !== '0'
-            && (string) $this->effectiveValue() !== '') ? ' checked' : '';
+        $current = (string) $this->effectiveValue();
+        $checked = $current !== '0' && $current !== '';
+
+        $box = $this->control('checkbox', $styles['check']);
+        // `Input` checks a box when its value equals `checkedValue`. This class's rule is
+        // broader — anything that is not '0' or '' counts as on, because a setting stored
+        // as 'yes', '1' or 'true' all mean the same thing here. So the comparison is made
+        // here and the answer, not the raw value, is handed over.
+        $box->value = $checked ? '1' : '0';
 
         return '<input type="hidden" name="' . $this->attr($this->name) . '" value="0" />'
             . '<label for="' . $this->attr($this->name) . '"' . $styles['label'] . '>'
-            . '<input type="checkbox" id="' . $this->attr($this->name) . '" name="'
-            . $this->attr($this->name) . '" value="1"' . $styles['check'] . $checked . ' /> '
+            . $box->render() . ' '
             . $this->text($this->title) . '</label>';
     }
 
@@ -268,19 +353,21 @@ class Field
      */
     private function renderSelect(array $styles): string
     {
-        $out = '<select id="' . $this->attr($this->name) . '" name="'
-            . $this->attr($this->name) . '"' . $styles['select']
-            . ($this->required ? ' required' : '') . '>';
+        $select = new \Pramnos\Html\Select($this->name, (string) $this->effectiveValue());
 
-        $current = (string) $this->effectiveValue();
+        $select->id              = $this->name;
+        $select->required        = $this->required;
+        $select->title           = $this->tooltip;
+        $select->extraAttributes = trim($styles['select']);
 
+        // `addOption($label, $value)` — the label is the first argument. Reversed, this
+        // would render every dropdown with labels and values swapped and no error
+        // anywhere, which is why the order is stated rather than assumed.
         foreach ($this->optionPairs() as $value => $label) {
-            $out .= '<option value="' . $this->attr((string) $value) . '"'
-                . ((string) $value === $current ? ' selected' : '') . '>'
-                . $this->text((string) $label) . '</option>';
+            $select->addOption((string) $label, (string) $value);
         }
 
-        return $out . '</select>';
+        return $select->render();
     }
 
     /**
