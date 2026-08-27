@@ -141,6 +141,15 @@ class AdminUrlInViewsTest extends TestCase
             'form-control' => ['form-control'],
             'form-label'   => ['form-label'],
             'grid column'  => ['col-md-'],
+            // Bootstrap's colour names. daisyUI has no `danger`, `light` or
+            // `dark`, so `badge bg-danger` renders as a plain uncoloured badge —
+            // a failed queue job that looks exactly like a completed one. These
+            // survived the first sweep, which only looked for the five above.
+            'bg-danger'    => ['bg-danger'],
+            'bg-light'     => ['bg-light'],
+            'text-dark'    => ['text-dark'],
+            'text-muted'   => ['text-muted'],
+            'badge-pill'   => ['badge-pill'],
         ];
     }
 

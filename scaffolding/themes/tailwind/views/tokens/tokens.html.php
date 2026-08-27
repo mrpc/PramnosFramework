@@ -49,7 +49,7 @@
                         ?></td>
                         <td>
                             <?php echo (int)($tok['status'] ?? 1) === 1
-                                ? '<span class="pf-badge bg-success/10 text-success">Active</span>'
+                                ? '<span class="pf-badge badge-success/10 text-success">Active</span>'
                                 : '<span class="pf-badge bg-base-200 text-base-content/80">Revoked</span>'; ?>
                         </td>
                         <td class="text-right">

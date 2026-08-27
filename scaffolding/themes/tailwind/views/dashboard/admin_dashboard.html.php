@@ -103,11 +103,11 @@
                 <li class="flex justify-between items-center px-5 py-3">
                     <span><?php echo htmlspecialchars($name); ?></span>
                     <?php if ($result['status'] === 'ok'): ?>
-                        <span class="badge bg-success">OK</span>
+                        <span class="badge badge-success">OK</span>
                     <?php elseif ($result['status'] === 'warn'): ?>
-                        <span class="badge bg-warning text-dark"><?php echo htmlspecialchars($result['message'] ?? 'Warning'); ?></span>
+                        <span class="badge badge-warning"><?php echo htmlspecialchars($result['message'] ?? 'Warning'); ?></span>
                     <?php else: ?>
-                        <span class="badge bg-danger"><?php echo htmlspecialchars($result['message'] ?? 'Error'); ?></span>
+                        <span class="badge badge-error"><?php echo htmlspecialchars($result['message'] ?? 'Error'); ?></span>
                     <?php endif; ?>
                 </li>
                 <?php endforeach; ?>

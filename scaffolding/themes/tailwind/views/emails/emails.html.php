@@ -8,9 +8,9 @@
  *   $this->total — total count
  */
 $statusLabel = fn($s) => match((int)$s) {
-    1 => '<span class="badge bg-success">Sent</span>',
-    2 => '<span class="badge bg-warning text-dark">Queued</span>',
-    default => '<span class="badge bg-secondary">Pending</span>',
+    1 => '<span class="badge badge-success">Sent</span>',
+    2 => '<span class="badge badge-warning">Queued</span>',
+    default => '<span class="badge badge-neutral">Pending</span>',
 };
 ?>
 <div class="px-4 py-6">

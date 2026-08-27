@@ -30,11 +30,11 @@
                         <td><?php echo !empty($svc['pid']) ? (int)$svc['pid'] : '—'; ?></td>
                         <td>
                             <?php if ($svc['status'] === 'running'): ?>
-                                <span class="badge bg-success">Running</span>
+                                <span class="badge badge-success">Running</span>
                             <?php elseif ($svc['status'] === 'error'): ?>
-                                <span class="badge bg-warning text-dark">Stop Pending</span>
+                                <span class="badge badge-warning">Stop Pending</span>
                             <?php else: ?>
-                                <span class="badge bg-secondary">Stopped</span>
+                                <span class="badge badge-neutral">Stopped</span>
                             <?php endif; ?>
                         </td>
                         <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($svc['updatedAt'] ?? ''); ?></td>

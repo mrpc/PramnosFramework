@@ -22,7 +22,7 @@ $mail = $this->mail ?? [];
                 <dt class="font-semibold text-base-content/80 text-sm w-32 inline-block">Date</dt>
                 <dd ><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></dd>
                 <dt class="font-semibold text-base-content/80 text-sm w-32 inline-block">Status</dt>
-                <dd ><?php echo (int)($mail['status'] ?? 0) === 1 ? '<span class="badge bg-success">Sent</span>' : '<span class="badge bg-secondary">Pending</span>'; ?></dd>
+                <dd ><?php echo (int)($mail['status'] ?? 0) === 1 ? '<span class="badge badge-success">Sent</span>' : '<span class="badge badge-neutral">Pending</span>'; ?></dd>
             </dl>
         </div>
     </div>

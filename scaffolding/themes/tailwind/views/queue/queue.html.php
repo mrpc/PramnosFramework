@@ -8,12 +8,12 @@
  *   $this->total — total count
  */
 $statusBadge = fn($s) => match($s) {
-    'pending'    => '<span class="badge bg-secondary">Pending</span>',
-    'processing' => '<span class="badge bg-primary">Processing</span>',
-    'completed'  => '<span class="badge bg-success">Completed</span>',
-    'failed'     => '<span class="badge bg-danger">Failed</span>',
-    'deleted'    => '<span class="badge bg-light text-dark">Deleted</span>',
-    default      => '<span class="badge bg-light text-dark">' . htmlspecialchars($s) . '</span>',
+    'pending'    => '<span class="badge badge-neutral">Pending</span>',
+    'processing' => '<span class="badge badge-primary">Processing</span>',
+    'completed'  => '<span class="badge badge-success">Completed</span>',
+    'failed'     => '<span class="badge badge-error">Failed</span>',
+    'deleted'    => '<span class="badge badge-ghost">Deleted</span>',
+    default      => '<span class="badge badge-ghost">' . htmlspecialchars($s) . '</span>',
 };
 $filterStatus = htmlspecialchars($_GET['status'] ?? '');
 ?>
