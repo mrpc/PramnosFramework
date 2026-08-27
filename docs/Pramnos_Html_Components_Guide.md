@@ -354,9 +354,9 @@ The one that belongs to a form. It is not an alternative to `Input` and `Select`
 
 ```php
 $field = new \Pramnos\Html\Form\Field('email', 'Email', 'email', required: true);
-$field->description  = 'We never share it.';
-$field->pattern      = '[^@]+@[^@]+';
-$field->tooltip      = 'name@example.com';
+$field->description = 'We never share it.';
+$field->pattern     = '[^@]+@[^@]+';
+$field->title       = 'name@example.com';
 echo $field->render(\Pramnos\Html\Form\FieldStyles::for('bootstrap'));
 ```
 
@@ -368,13 +368,27 @@ which attributes a type may carry live in one place.
 That mattered: while the two were separate, `Field` emitted `min`/`max`/`step` on **every**
 type including `text` — invalid markup that browsers accept and validators reject.
 
-### Two differences from `Input` worth knowing
+### `$label` is the label, `$title` is the HTML attribute
 
-**`$title` is the label, `$tooltip` is the HTML attribute.** `Field::$title` has meant
-*label* since the legacy form class named it that, so the `title` attribute takes the
-other name here. Assuming the obvious mapping puts a tooltip in your label.
+```php
+$field->label = 'Email address';      // what the reader sees
+$field->title = 'name@example.com';   // the tooltip, and what a failed pattern says
+```
 
-**A checkbox gets a hidden companion.**
+`Field::$title` used to mean *label*, which collided with the HTML `title` attribute and
+left this class unable to offer one under its own name. Since **2026-08-27** the two are
+separate and `title` means what it means in `Input`, `Select` and HTML itself.
+
+!!! warning "Migrating from before 2026-08-27"
+    Positional construction — `new Field('email', 'Email')`, and every `addField()` call —
+    is **unaffected**. Two things do need changing, and one of them is silent:
+
+    - `$field->title = 'Email';` now sets a tooltip and leaves the label auto-generated
+      from the name. **Nothing errors.** Change it to `$field->label`.
+    - `addField(name: 'x', title: 'Y')` — a named argument — now throws
+      `Unknown named parameter $title`. Change it to `label:`.
+
+### One more difference from `Input`: the checkbox companion
 
 ```html
 <input type="hidden" name="active" value="0" />

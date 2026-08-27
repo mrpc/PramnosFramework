@@ -249,7 +249,7 @@ class FieldTest extends TestCase
         // Arrange
         $field = new Field('code', 'Code', 'textfield', required: true);
         $field->pattern      = '[0-9]{4}';
-        $field->tooltip      = 'Four digits';
+        $field->title        = 'Four digits';
         $field->minlength    = 4;
         $field->maxlength    = 4;
         $field->placeholder  = '1234';
@@ -271,19 +271,21 @@ class FieldTest extends TestCase
     }
 
     /**
-     * `$title` is the label and `$tooltip` is the attribute.
+     * `$label` is the label and `$title` is the HTML attribute.
      *
-     * The collision worth a test of its own. `Field::$title` has meant *label* since the
-     * legacy form class named it that, and renaming it would break every caller — so the
-     * HTML `title` attribute had to take a different name here. A reader who assumes the
-     * obvious mapping gets a tooltip in their label, which is the sort of thing that
-     * survives review.
+     * `$title` meant *label* here until the collision was resolved, which left this class
+     * unable to offer an HTML `title` under its own name. Now the two are separate and
+     * `$title` means what it means in `Input`, `Select` and HTML itself.
+     *
+     * Worth its own test because the two are both strings and both plausible in the same
+     * position: a mix-up renders the tooltip as the visible label and no tooltip at all,
+     * which reads as a content mistake rather than a wrong property.
      */
-    public function testTheLabelAndTheTooltipAreDifferentThings(): void
+    public function testTheLabelAndTheTitleAttributeAreDifferentThings(): void
     {
         // Arrange
         $field = new Field('f', 'Visible label', 'textfield');
-        $field->tooltip = 'Hover text';
+        $field->title = 'Hover text';
 
         // Act
         $html = $this->render($field);
@@ -292,6 +294,44 @@ class FieldTest extends TestCase
         $this->assertStringContainsString('>Visible label', $html);
         $this->assertStringContainsString('title="Hover text"', $html);
         $this->assertStringNotContainsString('title="Visible label"', $html);
+    }
+
+    /**
+     * The old spelling fails loudly rather than quietly doing the wrong thing.
+     *
+     * `$title` used to be the label. Positional construction — which is how `SettingsForm`
+     * and every documented example build a field — is unaffected by the rename, so the
+     * common case simply keeps working.
+     *
+     * The case that could have gone wrong silently is a **named argument**: `title:
+     * 'Email'` would now be assigning a label to the HTML `title` attribute, rendering an
+     * empty label and a tooltip nobody asked for. PHP refuses an unknown named parameter
+     * instead, which turns a rendering mystery into a stack trace naming the property.
+     */
+    public function testTheOldLabelSpellingIsRefusedRatherThanMisread(): void
+    {
+        // Assert — the rename is visible to the caller, not swallowed.
+        $this->expectException(\Error::class);
+
+        // Act
+        new Field(name: 'email', title: 'Email');
+    }
+
+    /**
+     * Positional construction is unaffected by the rename.
+     *
+     * The other half of the statement above, and the reason this was a safe change to
+     * make: every caller in the framework, and every documented example, passes the label
+     * as the second argument.
+     */
+    public function testPositionalConstructionStillSetsTheLabel(): void
+    {
+        // Act
+        $html = $this->render(new Field('email', 'Email address', 'email'));
+
+        // Assert
+        $this->assertStringContainsString('>Email address', $html);
+        $this->assertStringNotContainsString('title=', $html, 'the label must not become a tooltip');
     }
 
     /**
@@ -304,7 +344,7 @@ class FieldTest extends TestCase
     {
         // Arrange
         $field = new Field('role', 'Role', 'select', ['a' => 'A']);
-        $field->tooltip = 'Who this account is';
+        $field->title = 'Who this account is';
 
         // Act & Assert
         $this->assertStringContainsString('title="Who this account is"', $this->render($field));

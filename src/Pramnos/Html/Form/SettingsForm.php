@@ -113,7 +113,11 @@ class SettingsForm
      * knowledge lands on the right object rather than the wrong one.
      *
      * @param  string                               $name          Setting name
-     * @param  string|null                          $title         Label
+     * @param  string|null                          $label         Visible label. Named
+     *         `$title` until 2026-08-27 — see {@see Field::$label} for why it changed.
+     *         Positional callers are unaffected; a named argument `title:` now errors,
+     *         which is the intended outcome: the alternative was assigning a label to
+     *         what is now the HTML `title` attribute and rendering an empty one.
      * @param  string                               $type          Field type
      * @param  array<int|string, mixed>|string|null $options       Select options
      * @param  string|null                          $description   Help text
@@ -125,7 +129,7 @@ class SettingsForm
      */
     public function addField(
         string $name,
-        ?string $title = null,
+        ?string $label = null,
         string $type = 'textfield',
         $options = null,
         ?string $description = null,
@@ -136,7 +140,7 @@ class SettingsForm
     ): self {
         $field = new Field(
             $this->fieldName($name),
-            $title,
+            $label,
             $type,
             $options,
             $description,
@@ -154,7 +158,7 @@ class SettingsForm
             foreach ($this->languages() as $language) {
                 $copy = new Field(
                     $this->fieldName($name) . '_' . $language,
-                    $title,
+                    $label,
                     $type,
                     $options,
                     $description,

@@ -59,18 +59,35 @@ stating for anything asserting on exact output.
 
 ### `Form\Field` gains the native-validation attributes
 
-`pattern`, `tooltip`, `minlength`, `maxlength`, `placeholder`, `autocomplete`,
-`inputmode` — the properties `Input` already had and this class could not express at all.
+`pattern`, `title`, `minlength`, `maxlength`, `placeholder`, `autocomplete`, `inputmode` —
+the properties `Input` already had and this class could not express at all.
 
-`tooltip`, not `title`: `Field::$title` has meant *label* since the legacy form class
-named it that, and renaming it would break every caller. Assuming the obvious mapping puts
-a tooltip in your label, so it has a test.
+## Changed — a rename, and one silent break
 
-### `Html\Select::$title`
+**`Field::$title` is now the HTML `title` attribute. The label is `$label`.**
 
-Its counterpart, so a control in a form can explain itself whichever kind it is.
+`$title` meant *label* here, inherited from the legacy form class. Rather than work around
+that — an intermediate commit today offered the attribute as `$tooltip`, which preserved
+the collision instead of resolving it — the label was renamed and `title` now means what
+it means in `Input`, `Select` and HTML itself.
+
+What this costs, stated precisely:
+
+- **Positional construction is unaffected.** `new Field('email', 'Email')` and every
+  `addField('email', 'Email', …)` keep working — which is every caller in the framework
+  and every documented example.
+- **`$field->title = 'Email';` breaks silently.** It now sets a tooltip and leaves the
+  label auto-generated from the field name. Nothing errors. Change it to `$field->label`.
+  This is the one case worth grepping for.
+- **`addField(name: 'x', title: 'Y')` breaks loudly** — PHP refuses an unknown named
+  parameter. That is the intended outcome and it has a test: a stack trace naming the
+  property beats a page rendering the wrong label.
+
+`Html\Select` gained `$title` in the same change, so a control in a form explains itself
+the same way whichever kind it is.
 
 ### `FieldTest`
 
-`Field` had no direct tests — it was covered only through `SettingsForm`. 23 now, over the
-delegation boundary: what must survive it, and what must not come back.
+`Field` had no direct tests — it was covered only through `SettingsForm`. 25 now, over the
+delegation boundary: what must survive it, what must not come back, and that the rename
+above is refused rather than misread.

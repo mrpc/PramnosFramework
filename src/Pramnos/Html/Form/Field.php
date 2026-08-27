@@ -53,8 +53,14 @@ class Field
     /** @var string The field's name, as submitted */
     public string $name = '';
 
-    /** @var string The label */
-    public string $title = '';
+    /**
+     * The visible label.
+     *
+     * Named `$title` until 2026-08-27, which collided with the HTML `title` attribute and
+     * meant this class could not offer one under its own name. `$title` now means what it
+     * means everywhere else; this is the label.
+     */
+    public string $label = '';
 
     /** @var string One of the supported types */
     public string $type = 'textfield';
@@ -86,7 +92,7 @@ class Field
     /**
      * A `pattern` for native validation.
      *
-     * Pair it with {@see $tooltip}: without one the browser reports "Please match the
+     * Pair it with {@see $title}: without one the browser reports "Please match the
      * requested format", which tells the reader they are wrong and not what right looks
      * like.
      */
@@ -95,12 +101,12 @@ class Field
     /**
      * The HTML `title` attribute — a tooltip, and the message a failed constraint shows.
      *
-     * **Not** {@see $title}, which is this class's *label* and has been since the legacy
-     * form class named it that. Renaming it would break every caller, so the HTML
-     * attribute takes the different name. It is also how `min`/`max` on a number explains
-     * itself, which nothing else does.
+     * The same property name as {@see \Pramnos\Html\Input::$title} and
+     * {@see \Pramnos\Html\Select::$title}, which is the point: a form field explains
+     * itself the same way a standalone control does. It is also how `min`/`max` on a
+     * number explains itself, which nothing else does.
      */
-    public string $tooltip = '';
+    public string $title = '';
 
     /** Lower bound on the length. Textual types only, like {@see $maxlength}. */
     public ?int $minlength = null;
@@ -128,7 +134,7 @@ class Field
      */
     public function __construct(
         string $name,
-        ?string $title = null,
+        ?string $label = null,
         string $type = 'textfield',
         $options = null,
         ?string $description = null,
@@ -137,9 +143,9 @@ class Field
     ) {
         $this->name        = $name;
         $this->type        = strtolower($type);
-        $this->title       = ($title === null || $title === '')
+        $this->label       = ($label === null || $label === '')
             ? ucwords(str_replace(['_', '-'], ' ', $name))
-            : $title;
+            : $label;
         $this->options     = $options ?? '';
         $this->description = $description;
         $this->required    = $required;
@@ -213,7 +219,7 @@ class Field
         // A checkbox labels itself, so it does not get a second label above it.
         if ($this->type !== 'checkbox') {
             $out .= '<label for="' . $this->attr($this->name) . '"' . $styles['label'] . '>'
-                . $this->text($this->title)
+                . $this->text($this->label)
                 . ($this->required ? ' <span aria-hidden="true">*</span>' : '')
                 . '</label>';
         }
@@ -279,7 +285,7 @@ class Field
         $input->step = $this->step;
 
         $input->pattern      = $this->pattern;
-        $input->title        = $this->tooltip;
+        $input->title        = $this->title;
         $input->minlength    = $this->minlength;
         $input->maxlength    = $this->maxlength;
         $input->placeholder  = $this->placeholder;
@@ -333,7 +339,7 @@ class Field
         return '<input type="hidden" name="' . $this->attr($this->name) . '" value="0" />'
             . '<label for="' . $this->attr($this->name) . '"' . $styles['label'] . '>'
             . $box->render() . ' '
-            . $this->text($this->title) . '</label>';
+            . $this->text($this->label) . '</label>';
     }
 
     /**
@@ -357,7 +363,7 @@ class Field
 
         $select->id              = $this->name;
         $select->required        = $this->required;
-        $select->title           = $this->tooltip;
+        $select->title           = $this->title;
         $select->extraAttributes = trim($styles['select']);
 
         // `addOption($label, $value)` — the label is the first argument. Reversed, this
