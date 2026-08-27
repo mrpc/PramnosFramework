@@ -113,10 +113,41 @@ class Input extends \Pramnos\Framework\Base
     public $step = null;
 
     public ?int $maxlength = null;
+
+    /**
+     * A lower bound on the length, the sibling of {@see $maxlength}.
+     *
+     * Both halves of the same HTML constraint, so a field that can declare a ceiling can
+     * declare a floor. `minlength` is not enforced on a field the user never touched —
+     * the browser applies it on input, not on an untouched empty field — so pair it with
+     * {@see $required} when the field must be filled at all.
+     */
+    public ?int $minlength = null;
+
     public ?int $size = null;
 
     /** A `pattern` for client-side validation. */
     public string $pattern = '';
+
+    /**
+     * The tooltip, and the message a failed `pattern` shows.
+     *
+     * Worth setting whenever {@see $pattern} is: without it the browser reports "Please
+     * match the requested format", which tells the user that they are wrong and not what
+     * right would look like. It is text written for a person, so it is escaped — which is
+     * the reason it is a property here rather than something to push through
+     * {@see $extraAttributes}.
+     */
+    public string $title = '';
+
+    /**
+     * The on-screen keyboard to offer — `numeric`, `tel`, `email`, `decimal`, `search`.
+     *
+     * Not validation. It is the mobile counterpart of {@see $pattern}: a field that only
+     * accepts digits should not open a QWERTY keyboard, and `type="text"` with a numeric
+     * pattern is exactly the combination that does.
+     */
+    public string $inputmode = '';
 
     public string $autocomplete = '';
 
@@ -259,11 +290,22 @@ class Input extends \Pramnos\Framework\Base
         if ($this->maxlength !== null && $textual) {
             $out .= ' maxlength="' . (int) $this->maxlength . '"';
         }
+        if ($this->minlength !== null && $textual) {
+            $out .= ' minlength="' . (int) $this->minlength . '"';
+        }
         if ($this->size !== null && $type !== 'textarea' && $textual) {
             $out .= ' size="' . (int) $this->size . '"';
         }
         if ($this->pattern !== '' && $textual) {
             $out .= ' pattern="' . $this->attr($this->pattern) . '"';
+        }
+        // Not restricted to textual types: `title` is a tooltip on any element, and it is
+        // the only way a failed constraint of any kind explains itself.
+        if ($this->title !== '') {
+            $out .= ' title="' . $this->attr($this->title) . '"';
+        }
+        if ($this->inputmode !== '') {
+            $out .= ' inputmode="' . $this->attr($this->inputmode) . '"';
         }
         if ($this->autocomplete !== '') {
             $out .= ' autocomplete="' . $this->attr($this->autocomplete) . '"';

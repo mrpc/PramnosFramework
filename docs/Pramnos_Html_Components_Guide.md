@@ -167,7 +167,9 @@ somebody unticks it and the old value is saved back.
 | `required` / `readonly` / `disabled` | all |
 | `placeholder` | everything except checkbox, radio, file, color |
 | `min` / `max` / `step` | `number`, `range` and the date/time types |
-| `maxlength` / `size` / `pattern` | the textual types |
+| `maxlength` / `minlength` / `size` / `pattern` | the textual types |
+| `title` | all — the tooltip, and the message a failed `pattern` shows |
+| `inputmode` | all — the on-screen keyboard (`numeric`, `tel`, `decimal`, …) |
 | `rows` | `textarea` (and `size` becomes `cols`) |
 | `autocomplete` | all |
 | `multiple` | `file` — appends `[]` to the name |
@@ -182,6 +184,26 @@ browser ignores it, validators reject it, and it is the one type whose value cou
 have come from the server; and **no `id` is invented from the name**, for the same reason
 as `Select` — two controls for one field on a page is ordinary, and duplicate ids break
 `<label for>` and `getElementById` with no visible error.
+
+### Native validation, without a JavaScript library
+
+```php
+$code = new \Pramnos\Html\Input('code');
+$code->pattern   = '[0-9]{4}';
+$code->title     = 'Four digits, e.g. 1234';   // what the browser says when it fails
+$code->minlength = 4;
+$code->maxlength = 4;
+$code->inputmode = 'numeric';                  // the right keyboard on a phone
+$code->required  = true;
+```
+
+**Always set `title` alongside `pattern`.** Without it the browser reports "Please match
+the requested format", which tells the user they are wrong and not what right looks like.
+It is text written for a person, so it is escaped — which is why it is a property rather
+than something to pass through `extraAttributes`.
+
+Error messages themselves are the browser's, in the browser's language. That is more
+correct than a framework's own translated strings and needs nothing here.
 
 ### What it does not do
 
@@ -277,8 +299,9 @@ whole reason these are paths rather than a query parameter.
 | `pageContainerElement` | `''` | element wrapping each link — `'li'` for a list |
 | `currentPageClass` | `'current'` | class on the current page's link |
 | `adjacents` | `2` | pages shown either side of the current one |
-| `displayNextPrevious` | `true` | |
-| `displayFirstLast` | `true` | |
+| `displayNextPrevious` | `true` | the ‹ › buttons |
+| `displayFirstLast` | `true` | the « » buttons |
+| `displayEdgePages` | `true` | the pinned `1` and last-page **numbers** beside the ellipses |
 | `previousButtonText` / `nextButtonText` | `'&laquo;'` / `'&raquo;'` | **markup, not escaped** |
 | `firstButtonText` / `lastButtonText` | `'&laquo;&laquo;'` / `'&raquo;&raquo;'` | **markup** |
 | `dotsText` | `'&hellip;'` | shown where pages are elided. **markup** |
@@ -294,7 +317,8 @@ whole reason these are paths rather than a query parameter.
 - **A single page renders nothing at all.** One page is not a paginated result, and an
   empty container is something a stylesheet still puts margins around.
 - **Both ends are always reachable**, even in a long list — one click to page 1 or to the
-  last page is the point of a numbered pager over previous/next alone.
+  last page is the point of a numbered pager over previous/next alone. Set
+  `displayEdgePages = false` for a window that is purely relative to the current page.
 - **Dots only where something is hidden.** `1 … 2` would be a lie about a page that is
   right there.
 - **Previous and next disappear at the ends.** A "previous" on page 1 either links to page
@@ -304,6 +328,22 @@ whole reason these are paths rather than a query parameter.
 - **Links are labelled for a screen reader** with `aria-label` and `aria-current`. A link
   whose content is an image or an ellipsis has no accessible name otherwise — a screen
   reader reads the URL.
+
+### A window with no pinned ends
+
+```php
+$pagination->displayEdgePages = false;   // … 8 9 [10] 11 12 …   — no 1, no 20
+$pagination->displayFirstLast = true;    // « and » still reach both ends
+```
+
+The two are independent, and that combination is the common one: the ends stay one click
+away through the buttons, while the number row keeps a constant width as the reader moves
+through it.
+
+The ellipses stay honest either way — they appear only where a page is actually hidden,
+and the threshold moves with the setting. With `1` on screen a gap exists from page 3, so
+`1 … 2` would be a lie; with `1` off screen a gap exists from page 2, and omitting the
+dots there would hide the fact that page 1 exists at all.
 
 ---
 

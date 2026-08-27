@@ -232,6 +232,114 @@ class InputTest extends TestCase
     }
 
     /**
+     * `minlength` is emitted, and only where `maxlength` is.
+     *
+     * Requested as FW-027, replacing a JavaScript validation library with native
+     * constraints. The asymmetry was the whole finding: a field could declare a ceiling
+     * and not a floor, though both are halves of the same HTML constraint.
+     */
+    public function testMinlengthIsEmittedBesideMaxlength(): void
+    {
+        // Arrange
+        $text = new Input('code', '');
+        $text->minlength = 4;
+        $text->maxlength = 8;
+
+        // A number is not a textual type: `minlength` counts characters, and on
+        // `type="number"` it is invalid markup that browsers ignore.
+        $number = new Input('qty', '1');
+        $number->type = 'number';
+        $number->minlength = 4;
+
+        // Act & Assert
+        $html = $text->render();
+        $this->assertStringContainsString('minlength="4"', $html);
+        $this->assertStringContainsString('maxlength="8"', $html);
+
+        $this->assertStringNotContainsString('minlength', $number->render());
+    }
+
+    /**
+     * A textarea gets both too.
+     */
+    public function testATextareaCarriesTheLengthConstraints(): void
+    {
+        // Arrange
+        $input = new Input('bio', '');
+        $input->type = 'textarea';
+        $input->minlength = 10;
+        $input->maxlength = 500;
+
+        // Act & Assert
+        $html = $input->render();
+        $this->assertStringContainsString('minlength="10"', $html);
+        $this->assertStringContainsString('maxlength="500"', $html);
+    }
+
+    /**
+     * `title` explains a failed `pattern`, and is escaped.
+     *
+     * Without it the browser reports "Please match the requested format", which tells the
+     * user they are wrong and not what right looks like. It is text written for a person,
+     * which is why it is a property rather than something to push through
+     * `extraAttributes` — that escapes nothing.
+     */
+    public function testTitleIsEmittedAndEscaped(): void
+    {
+        // Arrange
+        $input = new Input('code', '');
+        $input->pattern = '[0-9]{4}';
+        $input->title   = 'Τέσσερα ψηφία — π.χ. "1234"';
+
+        // Act
+        $html = $input->render();
+
+        // Assert
+        $this->assertStringContainsString('pattern="[0-9]{4}"', $html);
+        $this->assertStringContainsString('Τέσσερα ψηφία', $html);
+        // The quotes in the message cannot close the attribute.
+        $this->assertStringContainsString('&quot;1234&quot;', $html);
+        $this->assertStringNotContainsString('"1234"', $html);
+    }
+
+    /**
+     * `title` is not restricted to the textual types.
+     *
+     * Unlike `pattern` and `maxlength`: a tooltip is valid on any element, and it is the
+     * only way a failed constraint of any kind explains itself — including `min`/`max` on
+     * a number.
+     */
+    public function testTitleAppliesToEveryType(): void
+    {
+        // Arrange
+        $input = new Input('qty', '1');
+        $input->type  = 'number';
+        $input->min   = 1;
+        $input->max   = 10;
+        $input->title = 'Between 1 and 10';
+
+        // Act & Assert
+        $this->assertStringContainsString('title="Between 1 and 10"', $input->render());
+    }
+
+    /**
+     * `inputmode` reaches the tag.
+     *
+     * Not validation — the mobile counterpart of `pattern`. A field that accepts only
+     * digits should not open a QWERTY keyboard, and `type="text"` with a numeric pattern
+     * is exactly the combination that does.
+     */
+    public function testInputmodeIsEmitted(): void
+    {
+        // Arrange
+        $input = new Input('phone', '');
+        $input->inputmode = 'tel';
+
+        // Act & Assert
+        $this->assertStringContainsString('inputmode="tel"', $input->render());
+    }
+
+    /**
      * A file input carries no value.
      *
      * Every browser ignores it and validators reject it — and it is the one type whose

@@ -88,6 +88,19 @@ class Pagination extends \Pramnos\Framework\Base
     /** Whether to show first/last. */
     public bool $displayFirstLast = true;
 
+    /**
+     * Whether the first and last page **numbers** are pinned beside the ellipses.
+     *
+     * On by default, because one click to either end is the point of a numbered pager
+     * over previous/next alone. Off gives a window that is purely relative to the current
+     * page — `… 8 9 [10] 11 12 …` with no `1` and no `20`.
+     *
+     * Distinct from {@see $displayFirstLast}, which controls the « and » **buttons**.
+     * Turning these off while leaving those on is the common combination: the ends stay
+     * reachable, but the number row does not change width as you move through it.
+     */
+    public bool $displayEdgePages = true;
+
     /** Markup — not escaped. See the class docblock. */
     public string $previousButtonText = '&laquo;';
 
@@ -172,8 +185,15 @@ class Pagination extends \Pramnos\Framework\Base
     /**
      * The numbered links, with runs elided around the current page.
      *
-     * The first and last page are always shown, so the reader can always reach both ends
-     * in one click — which is the point of a numbered pager over previous/next alone.
+     * The first and last page are shown by default, so the reader can always reach both
+     * ends in one click — which is the point of a numbered pager over previous/next
+     * alone. {@see $displayEdgePages} turns that off for a design that wants a window
+     * relative to the current page and nothing else.
+     *
+     * The ellipses stay honest either way: they appear only where a page is actually
+     * hidden. Which pages *are* hidden depends on whether the edges are pinned, so the
+     * threshold moves with the setting rather than being a fixed number — with `1` on
+     * screen a gap exists from page 3, without it from page 2.
      */
     protected function numbers(): string
     {
@@ -183,10 +203,11 @@ class Pagination extends \Pramnos\Framework\Base
         $out = '';
 
         if ($from > 1) {
-            $out .= $this->link(1);
-            // Only when something is actually hidden. `1 … 2` would be a lie about a
-            // page that is right there.
-            if ($from > 2) {
+            if ($this->displayEdgePages) {
+                $out .= $this->link(1);
+            }
+            // `1 … 2` would be a lie about a page that is right there.
+            if ($from > ($this->displayEdgePages ? 2 : 1)) {
                 $out .= $this->dots();
             }
         }
@@ -196,10 +217,12 @@ class Pagination extends \Pramnos\Framework\Base
         }
 
         if ($to < $this->pages) {
-            if ($to < $this->pages - 1) {
+            if ($to < $this->pages - ($this->displayEdgePages ? 1 : 0)) {
                 $out .= $this->dots();
             }
-            $out .= $this->link($this->pages);
+            if ($this->displayEdgePages) {
+                $out .= $this->link($this->pages);
+            }
         }
 
         return $out;

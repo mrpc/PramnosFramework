@@ -219,6 +219,109 @@ class PaginationTest extends TestCase
     }
 
     /**
+     * The pinned first/last page numbers can be turned off.
+     *
+     * Requested as FW-026, with a count: a consuming application sets the equivalent flag
+     * off in 12 of 13 places, while leaving the first/last **buttons** on in 9 of them.
+     * The default does not change — one click to either end is the point of a numbered
+     * pager — but always-on made an upgrade a silent product decision on twelve pages,
+     * and the alternative was keeping 367 lines of the class this replaces for two links.
+     */
+    public function testTheEdgePageNumbersCanBeTurnedOff(): void
+    {
+        // Arrange — a middle page, far from both ends, and only the numbers rendered.
+        $pagination = new Pagination(20, 10, '/p/:page');
+        $pagination->displayEdgePages    = false;
+        $pagination->displayNextPrevious = false;
+        $pagination->displayFirstLast    = false;
+
+        // Act
+        $html = $pagination->render();
+
+        // Assert — the window is there and the ends are not.
+        $this->assertStringContainsString('href="/p/8"', $html);
+        $this->assertStringContainsString('href="/p/12"', $html);
+        $this->assertStringNotContainsString('href="/p/1"', $html);
+        $this->assertStringNotContainsString('href="/p/20"', $html);
+        // Still elided on both sides: pages *are* hidden, so the dots are true.
+        $this->assertSame(2, substr_count($html, '&hellip;'));
+    }
+
+    /**
+     * With the edges off, the ellipsis threshold moves by one.
+     *
+     * The subtle half of FW-026, and the reason this is not simply two `if`s. With `1` on
+     * screen a gap exists from page 3, so `1 … 2` would be a lie. With `1` *not* on
+     * screen a gap exists from page 2, and omitting the dots there would hide the fact
+     * that page 1 exists at all.
+     */
+    public function testTheEllipsisThresholdFollowsTheSetting(): void
+    {
+        // Arrange — page 3 with two adjacents: the window starts at page 1, so nothing
+        // is hidden on the left in either mode.
+        $nothingHidden = new Pagination(20, 3, '/p/:page');
+        $nothingHidden->displayEdgePages    = false;
+        $nothingHidden->displayNextPrevious = false;
+        $nothingHidden->displayFirstLast    = false;
+
+        // Page 4: the window starts at 2, so page 1 is hidden — and with the edges off
+        // there is nothing else on screen to say so.
+        $oneHidden = new Pagination(20, 4, '/p/:page');
+        $oneHidden->displayEdgePages    = false;
+        $oneHidden->displayNextPrevious = false;
+        $oneHidden->displayFirstLast    = false;
+
+        // Act
+        $withoutGap = $nothingHidden->render();
+        $withGap    = $oneHidden->render();
+
+        // Assert — one set of dots (the right-hand side) versus two.
+        $this->assertSame(1, substr_count($withoutGap, '&hellip;'), 'nothing is hidden on the left');
+        $this->assertSame(2, substr_count($withGap, '&hellip;'), 'page 1 is hidden and nothing else says so');
+    }
+
+    /**
+     * The first/last buttons are independent of the edge numbers.
+     *
+     * The combination the request is actually for: no `1 … … 20` in the number row, but
+     * « and » still present, so both ends stay one click away while the row keeps a
+     * constant width as the reader moves through it.
+     */
+    public function testTheEdgeNumbersAndTheFirstLastButtonsAreIndependent(): void
+    {
+        // Arrange
+        $pagination = new Pagination(20, 10, '/p/:page');
+        $pagination->displayEdgePages = false;
+        $pagination->displayFirstLast = true;
+
+        // Act
+        $html = $pagination->render();
+
+        // Assert — the buttons reach the ends even though no number does.
+        $this->assertStringContainsString('&laquo;&laquo;', $html);
+        $this->assertStringContainsString('&raquo;&raquo;', $html);
+        $this->assertStringContainsString('href="/p/1"', $html, 'the first button still links to page 1');
+        $this->assertStringContainsString('aria-label="Page 1"', $html);
+    }
+
+    /**
+     * The default is unchanged.
+     *
+     * Stated as a test because the request explicitly did not ask for the default to
+     * change, and a new flag is exactly where a default quietly flips.
+     */
+    public function testTheEdgePagesAreShownByDefault(): void
+    {
+        // Act
+        $html = (new Pagination(20, 10, '/p/:page'))->render();
+
+        // Assert
+        $this->assertTrue((new Pagination(20, 10, '/p/:page'))->displayEdgePages);
+        $this->assertStringContainsString('href="/p/1"', $html);
+        $this->assertStringContainsString('href="/p/20"', $html);
+    }
+
+    /**
      * Previous and next disappear at the ends.
      *
      * A "previous" on page 1 either links to page 1 or to page 0. Both are worse than
