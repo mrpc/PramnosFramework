@@ -73,6 +73,27 @@ class TestableSettingsController extends SettingsController
     }
 }
 
+/**
+ * The same controller with the guard intact.
+ *
+ * `TestableSettingsController` bypasses `requireMinUserType()` so the action
+ * bodies can be exercised — it has always had that override, which is telling:
+ * somebody expected the floor to be there, and it was not.
+ */
+class GuardedSettingsController extends SettingsController
+{
+    public array $redirectedTo = [];
+
+    protected function terminate(): void
+    {
+    }
+
+    public function redirect($url = null, $quit = true, $code = '302')
+    {
+        $this->redirectedTo[] = $url;
+    }
+}
+
 class SettingsControllerIntegrationTest extends TestCase
 {
     private TestableSettingsController $controller;
@@ -457,5 +478,128 @@ class SettingsControllerIntegrationTest extends TestCase
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
         // It shouldn't attempt to delete.
+    }
+
+    /**
+     * An ordinary account cannot read the settings screen.
+     *
+     * There was no usertype floor on this controller at all: `addAuthAction()`
+     * requires only *being signed in*, so any authenticated account — somebody
+     * who registered a minute ago — could open the form. It renders the SMTP
+     * host, user and **password** into fields.
+     *
+     * The administration area's floor did not cover it. `AdminArea` strips the
+     * prefix before routing, so `/admin/Settings` and `/Settings` reach the same
+     * controller: the area's `min_usertype` applies to requests that arrive
+     * through the prefix, and nothing makes a request use it. Every peer
+     * controller carries its own floor; this one was the exception.
+     */
+    public function testAnOrdinaryAccountCannotReadTheSettingsScreen(): void
+    {
+        // Arrange
+        $controller = new GuardedSettingsController(null);
+        $this->signInWithUsertype(10);
+
+        // Act
+        ob_start();
+        $result = $controller->display();
+        $echoed = ob_get_clean();
+
+        // Assert
+        $this->assertNull($result);
+        $this->assertNotSame([], $controller->redirectedTo, 'the request must be sent away');
+        $this->assertStringNotContainsString('smtp', strtolower($echoed),
+            'and nothing of the form may be rendered on the way out');
+    }
+
+    /**
+     * And it cannot write them.
+     *
+     * The read is a credential disclosure; this is the hijack. `saveSystem()`
+     * rewrites `site_url`, `forcessl`, `admin_mail`, every SMTP field and the
+     * login lockout rules. Verified against the setting *not moving*, because a
+     * guard that redirects after writing is not a guard.
+     */
+    public function testAnOrdinaryAccountCannotWriteTheSettings(): void
+    {
+        // Arrange
+        $controller = new GuardedSettingsController(null);
+        $this->signInWithUsertype(10);
+        Settings::setSetting('sitename', 'Before');
+        $_POST['sitename'] = 'After';
+
+        // Act
+        ob_start();
+        $controller->saveSystem();
+        ob_get_clean();
+
+        // Assert
+        $this->assertSame('Before', Settings::getSetting('sitename'),
+            'a request that is refused must not have written anything first');
+    }
+
+    /**
+     * Every settings action is behind the floor, not just the two above.
+     *
+     * `list`, `edit`, `save` and `delete` reach the same settings through a
+     * different screen — the raw editor. A floor on the form and not on the
+     * editor behind it is no floor.
+     */
+    public function testEverySettingsActionIsBehindTheFloor(): void
+    {
+        // Arrange
+        $this->signInWithUsertype(10);
+
+        // Act & Assert
+        foreach (['display', 'saveSystem', 'list', 'edit', 'save', 'delete'] as $action) {
+            $controller = new GuardedSettingsController(null);
+            ob_start();
+            $controller->$action();
+            ob_get_clean();
+
+            $this->assertNotSame([], $controller->redirectedTo,
+                $action . '() must refuse an account below the floor');
+        }
+    }
+
+    /**
+     * An administrator is not refused.
+     *
+     * The other half of the three tests above, and not padding: they would all
+     * pass just as well if the controller refused *everybody* — or if the refusal
+     * were coming from the sign-in check rather than from the usertype floor.
+     * This is what pins the floor as the thing doing the work.
+     */
+    public function testAnAdministratorIsNotRefused(): void
+    {
+        // Arrange
+        $controller = new GuardedSettingsController(null);
+        $this->signInWithUsertype(90);
+
+        // Act
+        ob_start();
+        $controller->display();
+        ob_get_clean();
+
+        // Assert
+        $this->assertSame([], $controller->redirectedTo,
+            'an administrator must reach the settings screen');
+    }
+
+    /**
+     * Put a signed-in account of a given usertype on the request.
+     */
+    private function signInWithUsertype(int $usertype): void
+    {
+        $_SESSION['logged'] = true;
+        $_SESSION['uid'] = 2;
+        $user = new \Pramnos\User\User();
+        $user->userid = 2;
+        $user->usertype = $usertype;
+
+        $app = \Pramnos\Application\Application::getInstance();
+        if ($app) {
+            $app->currentUser = $user;
+        }
     }
 }

@@ -718,6 +718,22 @@ run, and several are stricter. It is what stops the *area* being browsable, so a
 screen that forgot its own check is not the only thing between an ordinary
 account and the dashboard.
 
+!!! danger "The floor does not protect a controller that has no check of its own"
+    `/admin/Settings` and `/Settings` are the same controller, and only the first
+    goes through the prefix. So a controller relying on the area's floor is
+    protected on exactly the paths an attacker has no reason to use.
+
+    `SettingsController` was in that state until 2026-08-27: it declared its
+    actions with `addAuthAction()`, which requires only *being signed in*, and had
+    no usertype floor. `/admin/settings` correctly refused an ordinary account;
+    `/settings` served it the whole form — including the SMTP host, user and
+    password rendered into fields — and `POST /Settings/saveSystem` rewrote
+    `site_url`, `forcessl`, `admin_mail` and the login lockout rules.
+
+    Every screen inside the area needs its own `requiredUserType` and a
+    `requireMinUserType()` call in each action. Treat the area's floor as defence
+    in depth, never as the check.
+
 The two refusals differ on purpose. A guest is sent to sign in with a `return=`
 carrying the address they asked for, so signing in lands them where they were
 going. A signed-in user below the floor is sent to the site root instead —

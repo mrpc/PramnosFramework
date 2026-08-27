@@ -50,6 +50,24 @@ class SettingsController extends Controller
         'securitySalt',
     ];
 
+    /**
+     * Minimum usertype for any settings action.
+     *
+     * This class had none, and `addAuthAction()` only requires *being signed in*.
+     * So any authenticated account — a user who registered a minute ago — could
+     * open the settings form and post it: read the SMTP host, user and password
+     * (the form renders the password into a field), and rewrite `site_url`,
+     * `forcessl`, `admin_mail` and the login lockout rules.
+     *
+     * The administration area's own floor did not cover it. `AdminArea` strips
+     * the prefix before routing, so `/admin/Settings` and `/Settings` reach the
+     * same controller — the area's `min_usertype` applies to requests that came
+     * in through the prefix, and `/Settings/saveSystem` does not have to. Every
+     * peer controller (Dashboard, Users, Organizations, Logs, Services) carries
+     * its own floor; this one was the exception.
+     */
+    protected int $requiredUserType = 80;
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'saveSystem', 'list', 'edit', 'save', 'delete']);
@@ -61,6 +79,10 @@ class SettingsController extends Controller
      */
     public function display(): mixed
     {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
         $doc        = Factory::getDocument();
         $doc->title = 'System Settings';
 
@@ -98,6 +120,10 @@ class SettingsController extends Controller
      */
     public function saveSystem(): void
     {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
         $request = new \Pramnos\Http\Request();
 
         // General
@@ -172,6 +198,10 @@ class SettingsController extends Controller
      */
     public function list(): mixed
     {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
         $doc        = Factory::getDocument();
         $doc->title = 'Raw Settings';
 
@@ -203,6 +233,10 @@ class SettingsController extends Controller
      */
     public function edit(mixed $key = null): mixed
     {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
         $doc = Factory::getDocument();
 
         $key   = trim((string) (\Pramnos\Http\Request::staticGetOption() ?? ''));
@@ -236,6 +270,10 @@ class SettingsController extends Controller
      */
     public function save(): void
     {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
         $key      = trim((string) ($_POST['key']          ?? ''));
         $value    = (string)       ($_POST['value']        ?? '');
         $original = trim((string) ($_POST['original_key'] ?? ''));
@@ -265,6 +303,10 @@ class SettingsController extends Controller
      */
     public function delete(mixed $key = null): void
     {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
         $key = trim((string) (\Pramnos\Http\Request::staticGetOption() ?? $_GET['key'] ?? ''));
 
         if ($key === '' || in_array($key, $this->readonlyKeys, true)) {
@@ -281,6 +323,24 @@ class SettingsController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Normalize a checkbox/toggle value to 'yes' or 'no'. */
+    /**
+     * Redirect away when the current user is below $minType.
+     *
+     * Returns true when the redirect was issued, so the caller returns early —
+     * the same shape as the other administration controllers.
+     */
+    protected function requireMinUserType(int $minType): bool
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        if ($user === null || $user === false || (int) $user->usertype < $minType) {
+            $this->redirect(sURL);
+            return true;
+        }
+
+        return false;
+    }
+
     protected function normalizeYesNo(string $value): string
     {
         return strtolower(trim($value)) === 'yes' ? 'yes' : 'no';
