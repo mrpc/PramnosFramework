@@ -5,7 +5,7 @@
 - **Branch:** active development happens on **`main`**; all new fixes/features land there.
 - **Stack:** PHP 8.5, MySQL 8.0, PostgreSQL 14, TimescaleDB (Docker)
 - **Test suites:** `vendor/bin/phpunit` (framework unit/characterization/integration) and the reference application integration suite (`the application integration test suite`)
-- **Docs:** every change ships **two** things — the guide page that owns the topic, updated to current state, and a dated changelog post under `docs/version-history/posts/` (see rules 1 and 10). `docs/1.2-new-features.md` is a frozen v1.2 reference — never edit it.
+- **Docs:** every change ships **two** things — the guide page that owns the topic, updated to current state, and an entry in **today's** changelog post, `docs/version-history/posts/YYYY-MM-DD.md`, appended to if it already exists (one post per day, never one per push — see rules 1 and 10). `docs/1.2-new-features.md` is a frozen v1.2 reference — never edit it.
 
 ## Behaviour rules
 
@@ -14,11 +14,11 @@
 Every user-visible change or new public class/method ships with its documentation in the **same commit**. That means **both** of:
 
 1. **The guide page that owns the topic**, brought to current state (`docs/Pramnos_*_Guide.md`). This is the answer to "how do I use this".
-2. **A dated changelog post** under `docs/version-history/posts/` (see rule 10). This is the answer to "what changed, when, and why".
+2. **An entry in today's changelog post** — `docs/version-history/posts/YYYY-MM-DD.md`, appended to if the day already has one (see rule 10). This is the answer to "what changed, when, and why".
 
 Do not defer either to a later step, and do not let the post substitute for the guide.
 
-**Why both.** The posts are a chronological stream of *deltas* — 57 of them and counting. A reader (or an assistant) asking how a feature works must land on one page describing the feature as it is now, not reconstruct it from three dated entries. This has already failed once in practice: the SPA debug panel was documented only in two changelog posts, so an assistant working in a project concluded the framework did not ship one and wrote a second panel beside the working one.
+**Why both.** The posts are a chronological stream of *deltas*, one per day. A reader (or an assistant) asking how a feature works must land on one page describing the feature as it is now, not reconstruct it from three dated entries. This has already failed once in practice: the SPA debug panel was documented only in two changelog posts, so an assistant working in a project concluded the framework did not ship one and wrote a second panel beside the working one.
 
 If no guide owns the topic yet, add a section to the closest one, or create a page — and then rule 13 applies.
 
@@ -127,14 +127,27 @@ The published docs site lives under `docs/` and is built with **MkDocs Material*
 (`mkdocs.yml`, deployed by `.github/workflows/docs.yml`). Whenever you change documentation
 or ship a user-visible change that warrants a changelog entry:
 
-- **Changelog (date-based, version-independent):** add a dated post under
-  `docs/version-history/posts/YYYY-MM-DD-<slug>.md` with `categories: [Changelog]`. This is
-  the running, per-change log — **not** `docs/1.2-new-features.md` (which is the frozen v1.2
-  technical reference) and **not** tied to a version. Group entries under `Added` / `Fixed` /
-  `Documentation` etc. The MkDocs blog plugin paginates and archives posts by date, so no
-  single page grows unbounded.
+- **Changelog: one post per day, not one per push.** The file is
+  `docs/version-history/posts/YYYY-MM-DD.md` with `categories: [Changelog]` — the date is the
+  whole file name, so there is exactly one place today's entry can go.
+    - **If the file exists, append to it**: add your entry as a new `## <title>` section at
+      the end, and add its title to the index list above `<!-- more -->`. Do not create a
+      second file for the same day.
+    - **If it does not exist**, create it: frontmatter, `# <D Month YYYY>` as the title, a
+      one-line count and a bulleted index of the day's entries, `<!-- more -->`, then the
+      sections.
+    - Inside a section use `###` for `Added` / `Fixed` / `Documentation`, because `##` is the
+      entry title.
+    - This is the running, version-independent log — **not** `docs/1.2-new-features.md` (the
+      frozen v1.2 reference) and **not** tied to a version.
+
+  **Why one per day.** Per-push posts reached 247 files in five weeks, which is a blog index
+  of thirty-odd entries for a single afternoon and no way to read what a day did. They were
+  consolidated on 2026-08-27; a new per-push file re-creates the problem one commit at a
+  time.
 - **Releases:** version releases also get a curated row in `docs/releases.md`
-  and a `categories: [Releases]` post.
+  and a `categories: [Releases]` post. Those keep their own `YYYY-MM-DD-<slug>.md` name and
+  are exempt from the one-per-day rule — a release is not a day's work.
 - **Guides:** when you edit or add a guide page under `docs/`, wire it into the `nav:` in
   `mkdocs.yml`, give it `use_cases:` frontmatter (rule 13) and keep cross-links valid.
 - **Verify the build** with `./dockerdocs build` before committing site changes; treat broken
@@ -186,6 +199,17 @@ release index is history, not guidance).
 state. Changelog posts answer *what changed and why* and stay deltas. Do not turn a guide into
 a chronology, and do not leave a feature documented only in posts — see rule 1 for what that
 already cost.
+
+**A guide is not a diary.** Two pages had to be rewritten on 2026-08-27 because they had
+accumulated their own history: *what a previous version of this page said*, *what a legacy
+class did*, *which project reported what and when*, *estimates for work already finished*.
+One was 1,090 lines and became 75. A reader arriving to do a task then has to separate the
+present from the archaeology, and the present is what they came for.
+
+So: no dates in a guide's prose (`since 2026-08-17`, `until 2026-08-16`, `corrected on…`), no
+`used to`, no `was reported by`, no comparison with a legacy class. State the behaviour and
+the reasoning — *why* a design is what it is, is guidance and belongs there; *when* it
+changed belongs in the day's changelog post, which is exactly what it is for.
 
 ---
 

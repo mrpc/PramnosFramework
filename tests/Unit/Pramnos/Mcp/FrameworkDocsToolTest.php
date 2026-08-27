@@ -381,12 +381,14 @@ MD);
     /**
      * The guides and the changelog are separate corpora.
      *
-     * There are around sixty more posts than guides, and each post repeats the vocabulary
-     * of the change it describes. Merged, "how does this work" would be answered by three
-     * dated fragments of a feature's history — the failure the guide/changelog split
-     * exists to prevent, arriving as a ranking accident rather than as a decision.
+     * Each post repeats the vocabulary of the changes it describes, and a day's post
+     * describes many. Merged, "how does this work" would be answered by dated fragments of
+     * a feature's history — the failure the guide/changelog split exists to prevent,
+     * arriving as a ranking accident rather than as a decision.
      *
-     * Asserted against the real corpora, because the counts are the point.
+     * Asserted against the real corpora, on both being populated and disjoint rather than
+     * on which is larger: the changelog is one post per day now, so the two counts are the
+     * same order of magnitude and their ratio says nothing.
      *
      * @return void
      */
@@ -401,7 +403,7 @@ MD);
 
         // Assert — both real, and not the same set
         $this->assertGreaterThan(20, $guides['count']);
-        $this->assertGreaterThan(50, $changelog['count'], 'The posts are the larger corpus.');
+        $this->assertGreaterThan(10, $changelog['count'], 'The posts are a real corpus.');
         $this->assertSame('guides', $guides['corpus']);
         $this->assertSame('changelog', $changelog['corpus']);
 

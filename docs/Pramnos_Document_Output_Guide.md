@@ -3,7 +3,6 @@ use_cases:
   - Adding CSS/JS assets or meta tags to a page
   - Serving the same controller output as HTML, JSON or another format
   - Working with the Document object or SEO metadata
-  - Migrating a theme from the legacy document to the modern one
 ---
 
 # Pramnos Framework - Document & Output System Guide
@@ -285,10 +284,8 @@ Registered by default: `jquery`, `jquery-ui`, the `datatables` family, `jquery-t
 `slimbox2`, `thickbox`, `spectrum`, `mediamanager`, and the `Spry*` family.
 
 The last group is registered for compatibility, not on merit: Adobe Spry has been unmaintained
-since 2012 and the lightboxes are jQuery-era. They are here because templates written when they
-were current still enqueue them by handle, and a fatal in an admin panel is a worse answer than
-an old library. There is **no `jquery-inputmask-jui`** — it has never existed in this framework
-or the legacy one, and appears on migration checklists by mistake.
+since 2012 and the lightboxes are jQuery-era. They are here because templates that still enqueue
+them by handle should not fatal in an admin panel. There is **no `jquery-inputmask-jui`**.
 
 The framework does not ship the files for any local registration, exactly as it does not ship
 `jquery-ui.min.js`. A registration is a handle-to-URL mapping; the application provides the file.
@@ -298,24 +295,22 @@ The framework does not ship the files for any local registration, exactly as it 
 `jquery`, `bootstrap-datepicker` and `jquery-inputmask` are registered against
 `cdnjs.cloudflare.com`. Everything else is local, under `sURL`.
 
-**This is a breaking change that already happened**, in April 2020, and was never written down
-until now: an application that upgraded across it silently began loading three third-party
-scripts from a third-party host. That is not only a style question —
+Two consequences worth knowing before you leave the default in place:
 
 - **GDPR**, for a site with EU visitors: an IP address reaches Cloudflare before any consent is
   collected;
 - **CSP**: a policy written for a self-hosted application does not list that origin, so the
   scripts are blocked rather than merely remote.
 
-The default stays the CDN, because changing it would break every application that stopped
-vendoring these files on the strength of that change. To serve them yourself:
+The default stays the CDN, because changing it would break applications that no longer vendor
+these files. To serve them yourself:
 
 ```php
 // application settings
 'documentAssetSource' => 'local',
 ```
 
-which registers all three at the paths the legacy framework used:
+which registers all three at these paths:
 
 | Handle | `local` path |
 | --- | --- |
@@ -339,14 +334,12 @@ others:
 'documentAssetSource' => ['jquery'],   // jquery local; the other two stay on the CDN
 ```
 
-That form exists because a consumer reported the all-or-nothing version within a day of it
-shipping: they had `jquery.min.js` vendored and **no `plugins/` directory at all**, so `'local'`
-would have 404'd two of the three. Their choice was between a GDPR problem they wanted to fix and
-two broken scripts, when what they needed was to fix the one they could.
+All-or-nothing would not serve the common case: an application with `jquery.min.js` vendored and
+no `plugins/` directory would 404 two of the three, and its only choices would be a GDPR problem
+or two broken scripts.
 
 A comma-separated string and a JSON array are accepted too, because settings round-trip a list
-differently depending on how it was stored and three of the four spellings producing silence would
-be worse than not taking a list at all.
+differently depending on how it was stored.
 
 ### CSS Management
 
@@ -395,10 +388,7 @@ that replaces `class="no-js"` on `<html>` with `js`, so a stylesheet can style
 the no-JavaScript case. It is inline because a round trip to decide whether
 JavaScript exists would arrive after the page had already been painted.
 
-**It does not inject modernizr, and that is deliberate.** The legacy
-`pramnos_document_html` carried `public $modernizr = true;` and emitted
-`<script src="…media/js/modernizr.min.js">` into every page. The modern document
-does not, for two reasons:
+**It does not inject modernizr, and that is deliberate**, for two reasons:
 
 - **The framework does not ship that file.** A project scaffolded by `init` has
   no `media/js/modernizr.min.js`, so an unconditional injection would be a 404
@@ -407,24 +397,18 @@ does not, for two reasons:
   above is for — a default that cannot be seen in the calling code is a default
   nobody knows to turn off.
 
-If you are migrating from the legacy document and your CSS depends on
-modernizr's feature classes (`touch`/`no-touch` and the rest — the narrow
-`no-js`/`js` flip is already covered), add it explicitly:
+If your CSS depends on modernizr's feature classes (`touch`/`no-touch` and the
+rest — the narrow `no-js`/`js` flip is already covered), add it explicitly:
 
 ```php
-// Anywhere the theme's header is composed. Works identically on the legacy
-// document and the modern one, so it is safe to add before you migrate.
+// Anywhere the theme's header is composed.
 $document->addHeadContent(
     '<script async src="' . sURL . 'media/js/modernizr.min.js"></script>'
 );
 ```
 
-The same applies to the legacy `$reset` / reset.css injection.
-
-> Raised as a filing by a project migrating off the legacy document, which asked
-> for either the feature back or a written statement that it went on purpose.
-> This is the statement — and the snippet above is that project's own
-> workaround, which is the right shape and needs no framework change.
+The same applies to a reset stylesheet: enqueue it, and it is visible in the
+calling code.
 
 ### Asset Dependencies
 
@@ -602,10 +586,9 @@ echo $doc->render();
 
 ## Meta Tags and SEO
 
-> **Corrected 2026-08-15.** This section previously documented `addMetaName()`,
-> `addMeta()` and `addScriptDeclaration()`. **None of the three exists**, and none ever
-> did — code copied from here failed with `Call to undefined method`. The API below is
-> the real one, checked against `src/Pramnos/Document/Document.php`.
+!!! warning "There is no `addMetaName()`, `addMeta()` or `addScriptDeclaration()`"
+    None of the three exists on any document type. Code that calls them fails with
+    `Call to undefined method`. The API below is the real one.
 
 ### Titles and descriptions
 
@@ -755,9 +738,6 @@ elements on a page is undefined behaviour to a crawler, which is worse than none
 `Pramnos\Html\Seo::canonicalLink($url)` returns the element for a page built without a
 `Document`.
 
-Until 2026-08-16 the HTML document type had no canonical at all and the only route was
-`addHeadContent()` with a hand-built `<link>` — which meant every application escaped
-the URL itself, or did not.
 
 ### Escaping: what the document escapes for you, and what it does not
 
@@ -766,8 +746,9 @@ Every value the document types put in the `<head>` — `title`, `description`, a
 when the page renders. You pass raw text; the renderer makes it safe.
 
 That matters because of *what* those values usually are: a record's name, operator-written
-copy, a title from the database. Before this was fixed, one double quote in a station name
-ended the attribute and everything after it was parsed as markup.
+copy, a title from the database — the strings least likely to be trusted, in the one part of the
+page nobody reads. One double quote in a record's name would otherwise end the attribute, and
+everything after it would be parsed as markup.
 
 Three things follow:
 
@@ -778,11 +759,10 @@ Three things follow:
   NOT escaped**, by design: they exist to carry markup. Anything you interpolate into
   them is yours to escape, which is why the canonical example above calls
   `htmlspecialchars()` explicitly.
-- **Body classes are escaped too**, since 2026-08-17. The guarantee is not limited to
-  `<head>`: `addBodyClass()` values go through the same escaping, because an application
-  reasonably feeds it a slug, a content type or a user's chosen theme name, and a `"` in
-  any of those closes the `class` attribute. This was missed in the original pass over
-  this renderer, which looked only at head values.
+- **Body classes are escaped too.** The guarantee is not limited to `<head>`:
+  `addBodyClass()` values go through the same escaping, because an application reasonably
+  feeds it a slug, a content type or a user's chosen theme name, and a `"` in any of those
+  closes the `class` attribute.
 - A value that is `null`, an array or an object renders as an empty string rather than
   raising. A blank title is bad; a fatal error while rendering the `<head>` is worse.
 
@@ -798,15 +778,12 @@ $doc->addContent(json_encode(['error' => 'not found']));
 echo $doc->render();          // still a 404
 ```
 
-`Json::render()` and `Rss::render()` used to open with `header('HTTP/1.1 200 OK')`,
-which broke that in two ways. It **stamped 200 over the status already set**, so a JSON
-error was served as `200 OK` and a client checking `response.ok` saw every failure as a
-success carrying odd data. And it **pinned** the status: PHP ignores every later
-`http_response_code()` once a status line has been written by hand, reporting it only as
-a warning nobody reads in production.
-
 If you are writing a document type or a middleware, use `http_response_code()` and never
-`header('HTTP/...')`. The literal `HTTP/1.1` is also wrong on an HTTP/2 connection —
+`header('HTTP/...')`. A hand-written status line does two things you do not want: it stamps
+its own status over the one already set, so a JSON error is served as `200 OK` and a client
+checking `response.ok` reads every failure as a success carrying odd data; and it **pins**
+the status, because PHP ignores every later `http_response_code()` once a status line has
+been written by hand. The literal `HTTP/1.1` is also wrong on an HTTP/2 connection —
 `http_response_code()` lets PHP write the right one.
 
 ## Content Parsing and Processing
@@ -861,16 +838,6 @@ $doc->addBodyClass('theme-' . $user->theme);   // escaped for you — see below
 The list is emitted space-separated on the `<body>` tag by `Html::render()` and
 `Amp::render()`, and each value is **escaped**. With no classes and no `extraBodyTag`, the
 tag is `<body>` — nothing to opt out of and no stray attribute.
-
-!!! note "`addBodyClass()` used to look unimplemented, and was not"
-    `Document::addBodyClass()` carried a `@todo Use bodyclasses` for years while both
-    renderers printed the list all along. A consuming project read the note, concluded the
-    framework collected classes and never used them, and went looking for the missing half
-    of a complete feature.
-
-    The note is gone. It is worth naming as a documentation failure rather than a code one:
-    a stale `@todo` describing finished work is read as a statement about the present, and
-    it is more misleading than no comment at all.
 
 For raw attributes on the tag itself — event handlers, `data-` attributes, anything that is
 markup rather than a class name — use `$doc->extraBodyTag`, which is deliberately **not**
