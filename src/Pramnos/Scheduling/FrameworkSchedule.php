@@ -213,6 +213,16 @@ class FrameworkSchedule
                 'description' => 'Retire session tokens idle for a month',
             ],
 
+            // Spent and expired second-factor rows: the mailed codes, and the
+            // half-finished enrolments. Both cleanups existed with no caller, which
+            // is the same way `cleanupAllAuthTokens()` sat unused — there is no
+            // visible consequence until somebody asks why a table of expired secrets
+            // keeps every row it has ever written.
+            'auth:twofactor-cleanup' => [
+                'cadence'     => [['daily'], ['at', '03:50']],
+                'description' => 'Delete spent and expired second-factor codes and enrolments',
+            ],
+
             // Queued OAuth2 webhook events. The producers — GDPR erasure, device
             // deauthorization, permission changes — have always written them; for
             // a long time nothing read them, so they sat `pending` and the relying
