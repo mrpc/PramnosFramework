@@ -305,6 +305,12 @@ $items = $cache->getAllItems('sessions', 50);
 // ]
 ```
 
+The `key` is the **storage** key — what the entry is stored under, which is not the
+logical id it was saved with once a category or prefix is in play. The cache browser
+lists these, so anything reading one back has to look it up the same way: by storage
+key, through the adapter, with the namespace the entry was listed under. Reading it as
+a logical id answered "not found" for every entry on the page.
+
 `ttl` is the seconds actually remaining — `-1` for an entry that never expires, and
 absent (null) for a file the adapter cannot read as a cache entry. It used to be `-1`
 for every live entry, which made the cache browser's TTL column read "Never" for all

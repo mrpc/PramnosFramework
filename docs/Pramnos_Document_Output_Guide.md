@@ -525,6 +525,32 @@ switch ($format) {
 }
 ```
 
+### A JSON endpoint inside an MVC controller
+
+An action that answers JSON — an AJAX widget's numbers, a modal's contents — must
+switch the **document**, not only the `Content-Type` header:
+
+```php
+public function activeusers(): void
+{
+    \Pramnos\Framework\Factory::getDocument('json');   // ← the load-bearing line
+    header('Content-Type: application/json');
+    echo json_encode($counts);
+}
+```
+
+**A header alone does not stop the page.** The action echoes and returns, and the
+request goes on to render the theme, so the response is the JSON *followed by a
+complete web page*. `fetch(url).then(r => r.json())` throws on that, and what a
+person sees is a widget whose numbers never appear — with a 200 status and a
+response that begins with exactly the right JSON. Six endpoints on the framework's
+own dashboard were in that state.
+
+The alternative, for an action whose signature allows a return value, is
+`return \Pramnos\Http\Response::json($data);` — which carries the status and the
+headers with it. Prefer it in new code; the `getDocument('json')` form is what a
+`void` action needs.
+
 ### JSON Output
 
 ```php

@@ -50,11 +50,12 @@ $card   = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:h
 <script>
 function escHtml(t) { var d=document.createElement('div');d.textContent=t;return d.innerHTML; }
 
-function viewCacheItem(key) {
+function viewCacheItem(key, ns) {
     document.getElementById('cc-detail-key').textContent = key;
     document.getElementById('cc-detail-body').innerHTML = '<p style="text-align:center;color:#888">Loading…</p>';
     document.getElementById('cc-detail-modal').style.display = 'block';
-    fetch('<?php echo adminUrl('dashboard/cacheitem'); ?>?key=' + encodeURIComponent(key))
+    fetch('<?php echo adminUrl('dashboard/cacheitem'); ?>?key=' + encodeURIComponent(key)
+        + '&namespace=' + encodeURIComponent(ns || ''))
         .then(function(r){ return r.json(); })
         .then(function(data) {
             if (!data.success) {
@@ -100,7 +101,15 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 document.addEventListener('click', function(e) {
     var el = e.target.closest('[data-cache-key]');
-    if (el) { e.preventDefault(); viewCacheItem(el.getAttribute('data-cache-key')); }
+    if (el) {
+        e.preventDefault();
+        // The namespace travels with the key. Without it the endpoint had to
+        // guess the entry's directory by splitting the key on '_', which is
+        // right only for a single-word category — so every entry in
+        // `schema_columns_*` (and any other multi-word namespace) answered
+        // "Item not found or expired" for an item listed on the same page.
+        viewCacheItem(el.getAttribute('data-cache-key'), el.getAttribute('data-cache-namespace'));
+    }
 });
 </script>
 
@@ -225,6 +234,7 @@ document.addEventListener('click', function(e) {
                 <tr style="<?php echo $expired ? 'background:#fff8e1' : ''; ?>">
                     <td>
                         <code class="cc-key" data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>"
+                              data-cache-namespace="<?php echo htmlspecialchars($ns, ENT_QUOTES, 'UTF-8'); ?>"
                               title="Click to view"><?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?></code>
                     </td>
                     <td><span class="cc-badge cc-badge-secondary"><?php echo htmlspecialchars($ns !== '' ? $ns : 'default', ENT_QUOTES, 'UTF-8'); ?></span></td>
@@ -243,7 +253,8 @@ document.addEventListener('click', function(e) {
                     </td>
                     <td>
                         <button class="cc-btn" style="border-color:#0d6efd;color:#0d6efd"
-                                data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>">View</button>
+                                data-cache-key="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>"
+                              data-cache-namespace="<?php echo htmlspecialchars($ns, ENT_QUOTES, 'UTF-8'); ?>">View</button>
                     </td>
                 </tr>
                 <?php endforeach; ?>

@@ -83,6 +83,12 @@ class DashboardController extends Controller
             return;
         }
 
+        // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
         echo json_encode((new ActiveUsersService())->getCounts());
     }
@@ -109,6 +115,12 @@ class DashboardController extends Controller
             $window = ApiPerformanceService::WINDOW_24H;
         }
 
+        // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
         echo json_encode((new ApiPerformanceService())->getSummary($window));
     }
@@ -124,6 +136,12 @@ class DashboardController extends Controller
             return;
         }
 
+        // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
         echo json_encode((new DatabaseStatsService())->getStats());
     }
@@ -225,7 +243,9 @@ class DashboardController extends Controller
 
     /**
      * JSON endpoint: single cache item content.
-     * GET parameter: key (required).
+     *
+     * GET parameters: `key` (required) — the storage key as {@see cache()} lists
+     * it — and `namespace` (optional), the category it was listed under.
      *
      * Response: {success: bool, content: mixed, metadata: {size, type, created, ttl}}
      */
@@ -235,6 +255,12 @@ class DashboardController extends Controller
             return;
         }
 
+        // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
 
         $key = $_GET['key'] ?? '';
@@ -244,8 +270,33 @@ class DashboardController extends Controller
         }
 
         try {
-            $cache   = \Pramnos\Cache\Cache::getInstance();
-            $content = $cache->load($key);
+            /**
+             * Read through the adapter, by the key the browser was given.
+             *
+             * This called `Cache::load($key)`, and the two keys are not the same
+             * thing: `getAllItems()` reports the **storage** key, while `load()`
+             * builds a storage key out of a *logical* id and the instance's
+             * category. So the View button on the cache browser answered "Item
+             * not found or expired" for every entry on the page — a screen whose
+             * whole purpose is to show what is in the cache, unable to show any
+             * of it.
+             *
+             * The namespace comes from the row the operator clicked. Without it
+             * the adapter falls back to splitting the key on '_' to find the
+             * entry's directory, which is right only for a single-word category:
+             * `schema_columns_users` resolves to a directory called `schema`.
+             *
+             * Timeout 0 so the read does not apply an expiry of its own. This is
+             * a viewer, and an expired entry is exactly what somebody is looking
+             * for when they open it — the list marks it as expired and the
+             * content is still what is stored.
+             */
+            $namespace = trim((string) ($_GET['namespace'] ?? ''));
+            $cache     = \Pramnos\Cache\Cache::getInstance(
+                $namespace !== '' ? $namespace : null
+            );
+            $adapter   = $cache->getAdapter();
+            $content   = $adapter === null ? false : $adapter->load($key, 0);
             if ($content === false || $content === null) {
                 echo json_encode(['success' => false, 'error' => 'Item not found or expired']);
                 return;
@@ -290,11 +341,23 @@ class DashboardController extends Controller
 
         if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
             http_response_code(405);
-            header('Content-Type: application/json');
+            // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
+        header('Content-Type: application/json');
             echo json_encode(['success' => false, 'error' => 'Method not allowed']);
             return;
         }
 
+        // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
 
         try {

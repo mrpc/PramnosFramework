@@ -189,6 +189,12 @@ class ServicesController extends Controller
             $counts[$s] = ($counts[$s] ?? 0) + 1;
         }
 
+        // The document type, not only the header: with the default HTML
+        // document the request went on to render the theme *after* this
+        // action echoed, so the response was the JSON followed by a
+        // complete web page — and `fetch(...).then(r => r.json())` throws
+        // on that. Every AJAX widget on the dashboard was failing that way.
+        \Pramnos\Framework\Factory::getDocument('json');
         header('Content-Type: application/json');
         echo json_encode([
             'total'    => count($services),

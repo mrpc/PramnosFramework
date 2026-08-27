@@ -233,6 +233,43 @@ class DashboardControllerTest extends TestCase
         $this->assertIsArray($json);
     }
 
+    /**
+     * Every JSON endpoint switches the document to JSON, not just the header.
+     *
+     * With the default HTML document the request went on to render the theme
+     * *after* the action echoed, so the response was the JSON followed by a
+     * complete web page — and `fetch(...).then(r => r.json())` throws on that.
+     * Every AJAX widget on the dashboard was failing that way: the numbers
+     * simply never appeared, with nothing in the response status to say why.
+     *
+     * A unit test capturing only the echo cannot see the page that follows,
+     * which is why this asserts on the mechanism that prevents it.
+     */
+    public function testTheJsonEndpointsAnswerAsJsonDocuments(): void
+    {
+        // Arrange
+        $this->setMockUser(100);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_GET['key'] = 'no-such-key';
+
+        // Act & Assert
+        foreach (['activeusers', 'apistats', 'dbstats', 'cacheitem', 'clearcache'] as $action) {
+            \Pramnos\Document\Document::reset();
+            \Pramnos\Framework\Factory::getDocument('html');
+
+            ob_start();
+            $this->controller->$action();
+            ob_get_clean();
+
+            $this->assertInstanceOf(
+                \Pramnos\Document\DocumentTypes\Json::class,
+                \Pramnos\Framework\Factory::getDocument(),
+                $action . '() must leave the request answering as JSON, or the theme '
+                . 'renders a whole page after its payload'
+            );
+        }
+    }
+
     public function testDatabaseDisplaysDatabaseDetails(): void
     {
         $this->setMockUser(80);
@@ -338,13 +375,33 @@ class DashboardControllerTest extends TestCase
      * the cached content, type metadata, and a byte-formatted size ("N B").
      * This is the main branch the cache browser UI depends on.
      */
+    /**
+     * The storage key of a logical id, as the cache browser lists it.
+     *
+     * `cacheitem` is called with what the page shows, and the page shows what
+     * `getAllItems()` reports — the key an entry is *stored* under, not the
+     * logical id it was saved with. Those differ as soon as a category or prefix
+     * is in play, and the endpoint used to be called with the second while being
+     * handed the first: every entry on the page answered "not found".
+     */
+    private function storageKeyOf(string $logicalId): string
+    {
+        foreach (\Pramnos\Cache\Cache::getInstance()->getAllItems('', 500) as $item) {
+            if (is_array($item) && str_contains((string) ($item['key'] ?? ''), $logicalId)) {
+                return (string) $item['key'];
+            }
+        }
+
+        $this->fail('the cache browser does not list ' . $logicalId);
+    }
+
     public function testCacheItemReturnsContentWithByteSize(): void
     {
         // Arrange — store a real value under the singleton's current category
         $this->setMockUser(80);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save('small-value', 'dash_byte_key');
-        $_GET['key'] = 'dash_byte_key';
+        $_GET['key'] = $this->storageKeyOf('dash_byte_key');
 
         // Act
         ob_start();
@@ -370,7 +427,7 @@ class DashboardControllerTest extends TestCase
         $this->setMockUser(80);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save(str_repeat('k', 4096), 'dash_kb_key');
-        $_GET['key'] = 'dash_kb_key';
+        $_GET['key'] = $this->storageKeyOf('dash_kb_key');
 
         // Act
         ob_start();
@@ -393,7 +450,7 @@ class DashboardControllerTest extends TestCase
         $this->setMockUser(80);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save(str_repeat('m', 1100000), 'dash_mb_key');
-        $_GET['key'] = 'dash_mb_key';
+        $_GET['key'] = $this->storageKeyOf('dash_mb_key');
 
         // Act
         ob_start();
