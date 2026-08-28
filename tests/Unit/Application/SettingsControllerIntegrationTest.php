@@ -12,6 +12,9 @@ use Pramnos\Application\Settings;
 
 class TestableSettingsController extends SettingsController
 {
+    /** The last view this controller built, so a test can read what it was given. */
+    public $lastView = null;
+
     protected function requireMinUserType(int $minType): bool
     {
         return false; // bypass for tests
@@ -69,6 +72,8 @@ class TestableSettingsController extends SettingsController
                 $this->$key = $val;
             }
         };
+        $this->lastView = $view;
+
         return $view;
     }
 }
@@ -179,6 +184,29 @@ class SettingsControllerIntegrationTest extends TestCase
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
         $this->assertEquals('My Test Site', Settings::getSetting('sitename'));
+    }
+
+    /**
+     * The language field is a list of the catalogues that exist.
+     *
+     * It was ten characters of free text, and a typo in it is not a validation error: the
+     * catalogue is simply not found, `Language` falls back to English, and the setting reads
+     * `gr` while every page is in English with nothing anywhere saying why. Greek is `el`.
+     *
+     * The screen's own reading is asserted rather than the markup, because that is the part
+     * that can go wrong quietly — a view offered a picker with nothing in it for a long time
+     * because the method behind it looked in one directory and `load()` looked in three.
+     */
+    public function testTheLanguagePickerIsOfferedTheCataloguesThatExist()
+    {
+        // Act
+        ob_start();
+        $this->controller->display();
+        ob_get_clean();
+
+        // Assert
+        $this->assertIsArray($this->controller->lastView->languages ?? null,
+            'the screen has to be given a list, even an empty one');
     }
 
     /**

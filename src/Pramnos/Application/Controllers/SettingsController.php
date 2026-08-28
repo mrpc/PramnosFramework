@@ -125,6 +125,23 @@ class SettingsController extends Controller
             static fn (string $feature): bool => \Pramnos\Application\FeatureRegistry::isEnabled($feature)
         ));
         $view->timezones        = \DateTimeZone::listIdentifiers();
+
+        /*
+         * The languages this installation actually has, for the picker.
+         *
+         * `default_language` was a text field ten characters wide. A typo in it is not a
+         * validation error — `Language::load()` finds no catalogue and falls back to English,
+         * so the setting reads `gr` and the site is in English, and nothing anywhere says why.
+         * (The Greek catalogue is `el`.) A list of what exists cannot be mistyped.
+         *
+         * Empty when the installation has no catalogue at all, and the view falls back to a
+         * text field: better a field that works than a dropdown with nothing in it.
+         */
+        try {
+            $view->languages = \Pramnos\Translator\Language::getLanguages();
+        } catch (\Throwable) {
+            $view->languages = [];
+        }
         $view->success          = $_SESSION['settings_success'] ?? '';
         $view->warning          = $_SESSION['settings_warning'] ?? '';
         unset($_SESSION['settings_success'], $_SESSION['settings_warning']);

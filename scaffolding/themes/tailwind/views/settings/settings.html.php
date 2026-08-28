@@ -74,7 +74,34 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                     <div><label class="<?php echo $label; ?>">Admin Reply-To Email</label>
                         <input type="email" name="admin_replymail" class="<?php echo $input; ?>" value="<?php echo htmlspecialchars($s['admin_replymail'] ?? ''); ?>"></div>
                     <div><label class="<?php echo $label; ?>">Default Language</label>
-                        <input type="text" name="default_language" class="<?php echo $input; ?>" maxlength="10" value="<?php echo htmlspecialchars($s['default_language'] ?? 'en'); ?>" placeholder="en"></div>
+                        <?php
+                        /*
+                         * A list rather than a text field. A typo here is not a validation
+                         * error: the catalogue is simply not found and the site falls back to
+                         * English, so the setting says `gr` while every page is in English and
+                         * nothing says why. (Greek is `el`.)
+                         */
+                        $languages = (array) ($this->languages ?? []);
+                        $currentLang = $s['default_language'] ?? 'en';
+                        ?>
+                        <?php if ($languages !== []): ?>
+                        <select name="default_language" class="<?php echo $input; ?>">
+                            <?php foreach ($languages as $lang): ?>
+                                <option value="<?php echo htmlspecialchars($lang); ?>"<?php echo $currentLang === $lang ? ' selected' : ''; ?>><?php echo htmlspecialchars($lang); ?></option>
+                            <?php endforeach; ?>
+                            <?php if (!in_array($currentLang, $languages, true)): ?>
+                            <?php /* The stored value, kept so saving another field cannot
+                                     silently change the language. It is named as missing
+                                     because that is the interesting part. */ ?>
+                            <option value="<?php echo htmlspecialchars($currentLang); ?>" selected><?php echo htmlspecialchars($currentLang); ?> (no catalogue)</option>
+                            <?php endif; ?>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">From the catalogues in <code>app/language/</code>.</p>
+                        <?php else: ?>
+                        <input type="text" name="default_language" class="<?php echo $input; ?>" maxlength="10" value="<?php echo htmlspecialchars($currentLang); ?>" placeholder="en">
+                        <p class="text-xs text-base-content/60 mt-1">No language catalogue found, so this is a free-text field.</p>
+                        <?php endif; ?>
+                    </div>
                     <div><label class="<?php echo $label; ?>">Timezone</label>
                         <select name="timezone" class="<?php echo $input; ?>">
                             <?php

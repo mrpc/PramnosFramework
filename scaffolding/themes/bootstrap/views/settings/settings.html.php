@@ -90,7 +90,26 @@ ksort($initialSteps, SORT_NUMERIC);
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Default Language</label>
-                            <input type="text" name="default_language" class="form-control" maxlength="10" value="<?php echo htmlspecialchars($s['default_language'] ?? 'en'); ?>" placeholder="en">
+                        <?php
+                        // A list rather than a text field: a typo here is not a validation
+                        // error — the catalogue is not found, the site falls back to English,
+                        // and the setting says `gr` while every page is in English. (Greek
+                        // is `el`.)
+                        $languages   = (array) ($this->languages ?? []);
+                        $currentLang = $s['default_language'] ?? 'en';
+                        ?>
+                            <?php if ($languages !== []): ?>
+                            <select name="default_language" class="form-select">
+                                <?php foreach ($languages as $lang): ?>
+                                <option value="<?php echo htmlspecialchars($lang); ?>"<?php echo $currentLang === $lang ? ' selected' : ''; ?>><?php echo htmlspecialchars($lang); ?></option>
+                                <?php endforeach; ?>
+                                <?php if (!in_array($currentLang, $languages, true)): ?>
+                                <option value="<?php echo htmlspecialchars($currentLang); ?>" selected><?php echo htmlspecialchars($currentLang); ?> (no catalogue)</option>
+                                <?php endif; ?>
+                            </select>
+                            <?php else: ?>
+                            <input type="text" name="default_language" class="form-control" maxlength="10" value="<?php echo htmlspecialchars($currentLang); ?>" placeholder="en">
+                            <?php endif; ?>
                         </div>
                         <div class="col-md-8">
                             <label class="form-label fw-semibold">Timezone</label>

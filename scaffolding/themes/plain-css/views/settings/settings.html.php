@@ -73,7 +73,26 @@ ksort($initialSteps, SORT_NUMERIC);
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Default Language</label>
-                        <input type="text" name="default_language" maxlength="10" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($s['default_language'] ?? 'en'); ?>" placeholder="en">
+                        <?php
+                        // A list rather than a text field: a typo here is not a validation
+                        // error — the catalogue is not found, the site falls back to English,
+                        // and the setting says `gr` while every page is in English. (Greek
+                        // is `el`.)
+                        $languages   = (array) ($this->languages ?? []);
+                        $currentLang = $s['default_language'] ?? 'en';
+                        ?>
+                        <?php if ($languages !== []): ?>
+                        <select name="default_language" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box">
+                            <?php foreach ($languages as $lang): ?>
+                            <option value="<?php echo htmlspecialchars($lang); ?>"<?php echo $currentLang === $lang ? ' selected' : ''; ?>><?php echo htmlspecialchars($lang); ?></option>
+                            <?php endforeach; ?>
+                            <?php if (!in_array($currentLang, $languages, true)): ?>
+                            <option value="<?php echo htmlspecialchars($currentLang); ?>" selected><?php echo htmlspecialchars($currentLang); ?> (no catalogue)</option>
+                            <?php endif; ?>
+                        </select>
+                        <?php else: ?>
+                        <input type="text" name="default_language" maxlength="10" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($currentLang); ?>" placeholder="en">
+                        <?php endif; ?>
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Timezone</label>
