@@ -431,6 +431,15 @@ class Addon extends \Pramnos\Framework\Base
 
     static function trigerAddon($action, $type, $addon)
     {
+        // The same guard as isActive() and getAddon(), for the same reason: this is the same
+        // registry and the same offset, and `isset($array[null])` is a deprecation on the way
+        // to answering "no". Two of the three were guarded and this one was not — reported by
+        // a project that had to keep an override for exactly this call, which is what an
+        // asymmetry like that costs.
+        if (!is_string($addon) || $addon === '') {
+            return false;
+        }
+
         $args = func_get_args();
         $action = 'on' . $action;
         array_shift($args); //Remove action

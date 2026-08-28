@@ -1030,6 +1030,25 @@ class AddonTest extends TestCase
         $this->assertFalse(Addon::getAddon('system', ''));
     }
 
+    /**
+     * `trigerAddon()` too — the third reader of the same registry.
+     *
+     * It was left unguarded when the other two were fixed, which is how a project ended up
+     * keeping a one-line override of this method after removing the other two: the same
+     * registry, the same offset, the same deprecation, guarded in two places out of three.
+     *
+     * Asserted separately rather than added to the list above so it cannot be dropped by
+     * somebody tidying that list: this one has arguments after `$addon`, which is why it was
+     * missed in the first place.
+     */
+    public function testTriggeringRefusesANamelessAddon(): void
+    {
+        // Act & Assert
+        $this->assertFalse(Addon::trigerAddon('Init', 'system', null));
+        $this->assertFalse(Addon::trigerAddon('Init', 'system', ''));
+        $this->assertFalse(Addon::trigerAddon('Init', 'system', null, 'an argument'));
+    }
+
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
