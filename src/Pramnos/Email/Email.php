@@ -65,6 +65,16 @@ class Email extends \Pramnos\Framework\Base
     public $unsubscribeList = '';
     
     /**
+     * Structured-data blocks to embed, as arrays
+     *
+     * Rendered as `application/ld+json` in the message's `<head>`. See {@see Actions} for the
+     * shapes Gmail recognises, and {@see addStructuredData()} for why they are collected rather
+     * than written into the template.
+     * @var list<array<string, mixed>>
+     */
+    protected $structuredData = [];
+
+    /**
      * Custom email headers
      * @var array
      */
@@ -469,6 +479,84 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * Embed a schema.org block in this message.
+     *
+     * ```php
+     * $mail->addStructuredData(Actions::confirm(
+     *     'Confirm address',
+     *     'https://example.com/confirm/abc123'
+     * ));
+     * ```
+     *
+     * Collected here rather than written into the email template, for two reasons. The block
+     * describes *this message* — the URL carries a token that exists for one recipient — so a
+     * template is the wrong place for it. And it has to be encoded correctly: a `</script>`
+     * inside any value ends the block early and everything after it is parsed as markup, which
+     * is why it goes through {@see \Pramnos\Html\Seo::jsonLd()} rather than `json_encode()`.
+     *
+     * An empty array is ignored, so `addStructuredData(Actions::rsvp([]))` is safe: a builder
+     * that had nothing to describe returns nothing, and a `<script>` containing `[]` would be a
+     * claim that the message has no actions rather than the absence of a claim.
+     *
+     * @param  array<string, mixed> $data
+     * @return $this
+     */
+    public function addStructuredData(array $data)
+    {
+        if ($data !== []) {
+            $this->structuredData[] = $data;
+        }
+
+        return $this;
+    }
+
+    /**
+     * The `ld+json` blocks, as markup for the message head.
+     *
+     * Empty when there is nothing to say — not an empty `<script>`.
+     */
+    protected function structuredDataMarkup(): string
+    {
+        $markup = '';
+
+        foreach ($this->structuredData as $data) {
+            $markup .= \Pramnos\Html\Seo::jsonLd($data);
+        }
+
+        return $markup;
+    }
+
+    /**
+     * Put the blocks into the rendered HTML.
+     *
+     * Before `</head>` when there is a head, which is where Gmail's own documentation puts them
+     * and where a `<script>` cannot disturb the layout. A message with no `</head>` — a body
+     * fragment, which is what a template that renders only the content produces — gets them
+     * before `</body>`, and one with neither gets them prepended.
+     *
+     * They never reach the plain-text part: {@see PlainText} drops `head` and `script` outright,
+     * so the text half does not begin with a paragraph of JSON.
+     */
+    protected function embedStructuredData(string $html): string
+    {
+        $markup = $this->structuredDataMarkup();
+
+        if ($markup === '') {
+            return $html;
+        }
+
+        foreach (['</head>', '</body>'] as $anchor) {
+            $at = stripos($html, $anchor);
+
+            if ($at !== false) {
+                return substr($html, 0, $at) . $markup . substr($html, $at);
+            }
+        }
+
+        return $markup . $html;
+    }
+
+    /**
      * The `List-Unsubscribe` value: each entry in angle brackets, comma separated.
      *
      * @return string Empty when there is nothing to offer
@@ -685,6 +773,8 @@ class Email extends \Pramnos\Framework\Base
              * message whose alternative part does not match the HTML is also a documented spam
              * signal, so the part that was supposed to help deliverability was hurting it.
              */
+            $body = $this->embedStructuredData($body);
+
             $email->subject($this->subject)
                   ->html($body)
                   ->text(PlainText::fromHtml($body));

@@ -6,6 +6,7 @@ use_cases:
   - Offering an unsubscribe link and passing Gmail's bulk-sender rules
   - Understanding the plain-text part, or why a message reads badly in a text-only client
   - Working out which headers a message carries and why
+  - Putting a Gmail action button on a message, or finding out why one is not showing
 ---
 
 # Pramnos Framework - Email System Guide
@@ -599,6 +600,74 @@ URL; with neither, both headers are **left out** rather than invented, because a
 for the wrong domain is worse than none. And a list name is reduced to the characters those headers
 allow: `Feedback-ID` takes letters, digits, `_`, `.` and `-`, and one bad character or one
 over-long field invalidates the whole header.
+
+---
+
+## Gmail actions, and the brand mark beside the subject
+
+Gmail looks for `application/ld+json` in a message and, when it finds a block it recognises,
+draws a control **in the message list** — a "Confirm" button beside the subject, before the
+message is opened. That is the difference between a confirmation that takes one tap and one that
+takes four.
+
+```php
+use Pramnos\Email\Actions;
+
+$mail = new \Pramnos\Email\Email();
+$mail->setSubject('Confirm your address')
+     ->setBody($html)
+     ->addStructuredData(Actions::confirm(
+         'Confirm address',
+         'https://example.com/confirm/abc123'
+     ))
+     ->setTo($address)
+     ->send();
+```
+
+| Builder | Draws | Note |
+|---|---|---|
+| `Actions::confirm($name, $url)` | a one-tap confirm button | The URL **must act on the first request** — see below |
+| `Actions::view($name, $url)` | a link promoted to a button | `target`, not `handler`: a place to go rather than something to call |
+| `Actions::save($name, $url)` | "save this offer" | |
+| `Actions::rsvp(['yes' => …, 'no' => …, 'maybe' => …])` | yes / no / maybe | Three handlers; the answer *is* which URL was called |
+| `Actions::sender($name, $logo, $url)` | the brand mark beside the subject | The "highlight" half — same block, not an action |
+| `Actions::promotion([...])` | a card in the Promotions tab | Wrong twice over on transactional mail: it is not a promotion, and it invites the classifier to file a password reset where nobody looks |
+
+### Before you conclude it is broken
+
+**Gmail displays none of this until the sending domain is registered with Google.** That is the
+first thing anybody hits, it is invisible from inside the application, and it is not a bug in
+this code. `Actions::requirements()` returns the list as data for exactly that reason:
+
+- the sending domain must be registered with Google;
+- SPF or DKIM must authenticate the `From:` domain, and DMARC must pass;
+- the action URL must be HTTPS on a domain you control;
+- **a `ConfirmAction` handler must act on the first request** — no confirmation page, no
+  sign-in. Gmail sends a POST and does not follow up;
+- one action per message: Gmail shows the first it understands and ignores the rest.
+
+Everything is still correct and harmless without registration. Other clients ignore what they do
+not understand, and the markup is invisible in the rendered message.
+
+**The framework wires none of its own mail to an action, deliberately.** No endpoint it ships
+satisfies the `ConfirmAction` contract — the verification and step-up routes need a session and
+render a page — and an action pointing at one of them would draw a button that does nothing. A
+dead button is worse than no button.
+
+### Where the block goes
+
+Into the `<head>`, which is where Gmail's own documentation puts it and where a `<script>` cannot
+disturb the layout. A body fragment with no head gets it before `</body>`; a message with neither
+gets it prepended, so the feature does not depend on which template an application uses.
+
+It is encoded through [`Html\Seo::jsonLd()`](Pramnos_Html_Components_Guide.md#seo) rather than
+`json_encode()`. That matters: a `</script>` inside any value ends the block early and everything
+after it is parsed as markup, and these values come from record titles and user input. And it
+never reaches the plain-text part, because the converter drops `head` and `script` outright.
+
+An empty array is ignored, so `addStructuredData(Actions::rsvp([]))` is safe. A builder with
+nothing to describe returns nothing — a `<script>` containing `[]` would be a claim that the
+message has no actions, which is a different statement from making no claim.
 
 ---
 
