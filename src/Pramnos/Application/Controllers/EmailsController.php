@@ -101,6 +101,7 @@ class EmailsController extends Controller
                'dt-emails-status',
                (string) \Pramnos\Http\Request::staticGet('status_filter', '', 'get')
            )
+           ->addColumn('Opens', false, false, false, 'html', '', false, 'left', false)
            ->addColumn('', false, false, false, 'html', '', false, 'right', false);
 
         $view            = $this->getView('emails');
@@ -196,6 +197,8 @@ class EmailsController extends Controller
                 default => '<span class="pf-state pf-state-off">Pending</span>',
             };
 
+            $row[] = $this->trackingCell($id);
+
             $row[] = Icon::link($showUrl, 'view', 'Open this email')
                 . ($status === 1
                     ? ''
@@ -211,6 +214,74 @@ class EmailsController extends Controller
         unset($row);
 
         return \Pramnos\Http\Response::json($result);
+    }
+
+    /**
+     * What is known about this message being read, in one cell.
+     *
+     * Blank for a message that was not tracked, which is most of them — tracking is off unless
+     * the installation switched it on and the message belonged to a list. An empty cell is the
+     * honest rendering of "nobody measured this".
+     *
+     * Opens and **proxy** opens are shown apart, never summed. Apple Mail fetches every remote
+     * image on delivery whether or not anybody reads the message, so a single "opened" figure
+     * reports a message nobody read as widely read. A click is shown plainly, because a click is
+     * a person.
+     */
+    protected function trackingCell(int $mailId): string
+    {
+        $row = $this->trackingFor($mailId);
+
+        if ($row === null) {
+            return '<span class="pf-muted" title="This message was not tracked">—</span>';
+        }
+
+        $parts = [];
+
+        if ((int) $row['clicks'] > 0) {
+            $parts[] = '<span class="pf-state pf-state-on" title="Links followed. A click is a '
+                . 'person — no proxy follows a link.">' . (int) $row['clicks'] . ' clicked</span>';
+        }
+
+        if ((int) $row['opens'] > 0) {
+            $parts[] = '<span class="pf-state" title="Fetches that did not come from a known '
+                . 'mailbox proxy">' . (int) $row['opens'] . ' opened</span>';
+        }
+
+        if ((int) $row['proxy_opens'] > 0) {
+            $parts[] = '<span class="pf-state pf-state-off" title="Fetched by a mailbox provider '
+                . 'on delivery — Apple Mail Privacy Protection and the like. Not a reader.">'
+                . (int) $row['proxy_opens'] . ' prefetched</span>';
+        }
+
+        return $parts === []
+            ? '<span class="pf-muted" title="Tracked, and nothing has come back">tracked</span>'
+            : implode(' ', $parts);
+    }
+
+    /**
+     * The tracking row for one message, or null.
+     *
+     * @return ?array<string, mixed>
+     */
+    protected function trackingFor(int $mailId): ?array
+    {
+        if ($mailId < 1) {
+            return null;
+        }
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#emailtracking')
+                ->where('mailid', $mailId)
+                ->limit(1)
+                ->get();
+        } catch (\Throwable) {
+            // No tracking tables — the feature was never switched on here. Not an error.
+            return null;
+        }
+
+        return ($result->numRows ?? 0) > 0 ? (array) $result->fields : null;
     }
 
     /**

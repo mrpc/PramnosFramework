@@ -502,6 +502,15 @@ class EmailTest extends TestCase
         $this->assertNotEmpty($email->getLastError());
     }
 
+    /**
+     * Asking for tracking sets an id and leaves the message alone.
+     *
+     * This used to assert that the pixel was appended immediately. It no longer is, and that is
+     * the correction rather than a regression: appending it here put a remote image into every
+     * message that called the method — including a password reset — regardless of whether the
+     * installation had tracking on or the recipient had consented to anything. The pixel is
+     * added when the message is sent, and only for mail that belongs to a list.
+     */
     public function testEnableTracking(): void
     {
         $email = new Email();
@@ -509,8 +518,7 @@ class EmailTest extends TestCase
         $email->enableTracking('track_123');
 
         $this->assertSame('track_123', $email->trackingId);
-        $this->assertStringContainsString('<img src="', $email->body);
-        $this->assertStringContainsString('track_123', $email->body);
+        $this->assertSame('<p>Hello</p>', $email->body);
     }
 
     public function testHandleTrackingRequestExitsWithGif(): void

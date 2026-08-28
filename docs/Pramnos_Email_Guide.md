@@ -8,6 +8,7 @@ use_cases:
   - Working out which headers a message carries and why
   - Putting a Gmail action button on a message, or finding out why one is not showing
   - Building a one-click action a mail client can perform without a session
+  - Deciding whether to track opens, and reading the numbers honestly
 ---
 
 # Pramnos Framework - Email System Guide
@@ -778,67 +779,96 @@ message has no actions, which is a different statement from making no claim.
 
 ---
 
-## Email Tracking
+## Tracking: opens and clicks
 
-The framework includes built-in email tracking functionality that can track when emails are opened.
+Tracking is **off** unless three separate things are true. That is the design, not a precaution:
 
-### Enabling Tracking
-
-```php
-$email = new Email();
-$email->setSubject('Welcome!')
-      ->setBody('<h1>Welcome to our service!</h1>')
-      ->setTo('user@example.com')
-      ->enableTracking()  // Enable automatic tracking
-      ->send();
-
-// Or with custom tracking ID
-$email->enableTracking('user_123_welcome_email');
-```
-
-### Setting Up Tracking Route
-
-Create a route in your application to handle tracking requests:
+1. `'email' => ['tracking' => true]` in `app.php`. Absent means off.
+2. The message belongs to a **list** — `offerUnsubscribe()` was called on it. Transactional mail
+   is never tracked at any setting.
+3. `enableTracking()` was called on that message.
 
 ```php
-// In your router configuration
-$router->get('/email-track', function() {
-    $trackingId = $_GET['id'] ?? '';
-    \Pramnos\Email\Email::handleTrackingRequest($trackingId);
-});
+$mail->setSubject('This month at Example')
+     ->setBody($html)
+     ->setTo($address)
+     ->offerUnsubscribe('newsletter')   // the consent, and what makes it a list
+     ->enableTracking()
+     ->send();
 ```
 
-### Tracking Configuration
+Gate 2 is the one that matters. A pixel in a password reset is a remote image in the most
+sensitive message a system sends, to somebody who agreed to nothing — and until now the framework
+would happily have put one there, because `enableTracking()` appended it on the spot.
 
-```php
-use Pramnos\Application\Settings;
+### An open is a weak signal, and getting weaker
 
-// Configure tracking settings
-Settings::setSetting('site_url', 'https://yoursite.com');
-Settings::setSetting('email_tracking_path', '/email-track');
-```
+This is the part worth reading before deciding the feature is useful.
 
-### Database Schema for Tracking
+- **Apple Mail Privacy Protection**, on by default since iOS 15, fetches every remote image
+  through Apple's proxy **the moment a message arrives** — whether or not anybody ever opens it.
+  Uncorrected, that reports an open for every Apple recipient, minutes after sending.
+- **Gmail** proxies and caches images. The fetch comes from Google, so the IP tells you nothing
+  about the reader, and later opens may never reach you at all.
+- **Many clients block remote images**, Outlook for external senders among them. A real open
+  records nothing.
 
-The tracking system requires an `email_tracking` table:
+So opens and proxy fetches are counted in **separate columns and never added together**:
 
-```sql
-CREATE TABLE email_tracking (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    tracking_id VARCHAR(255) UNIQUE,
-    recipient TEXT,
-    subject VARCHAR(255),
-    sent_at DATETIME,
-    opened TINYINT DEFAULT 0,
-    opened_at DATETIME NULL
-);
-```
+| Column | Means |
+|---|---|
+| `opens` | A fetch that did not come from a known mailbox proxy. The closest thing to a reader. |
+| `proxy_opens` | A provider fetched it on delivery. Says the message arrived, not that it was read. |
+| `clicks` | Somebody followed a link. **This is a person.** |
 
-### Privacy Considerations
+A single "opened" figure is how a message nobody read gets reported at a 70% open rate. If you
+take one number from this feature, take the clicks.
 
-- **Disclosure**: Email tracking should be disclosed in your privacy policy
-- **Consent**: Some jurisdictions require explicit consent for tracking
-- **Blocking**: Some email clients block tracking pixels automatically
+Proxies are recognised by user agent, plus the two networks that fetch on delivery — Apple's
+identifies as Safari, so the user agent alone cannot name it. **A proxy that stops identifying
+itself will be counted as a reader**, which is the honest limit of the method.
+
+### Clicks
+
+`Tracking::wrapLinks()` rewrites every `http(s)` link so following it is recorded and the reader
+is redirected. Left alone: `mailto:`, `tel:`, in-page anchors, and **the unsubscribe link** — a
+reader unsubscribing is exercising a right, and routing that through a tracker is both distasteful
+and a way to break the one link a mailbox provider tests.
+
+**The destination lives inside the signed token**, never in the URL. A tracker that reads its
+destination from a query parameter is an open redirect, and an open redirect on a domain that
+sends mail is a phishing kit somebody else gets to use: the link comes from your domain, in a
+message that looks like yours, and lands wherever the attacker chose.
+
+### The routes, and the tables
+
+`/emailpixel` and `/emailclick` are bundled controllers — no route to register. The previous
+version of this feature asked an application to write both the route *and* the table, in a
+doc-block, which is why it never worked anywhere: the pixel pointed at a 404 and the insert failed
+into a `catch`.
+
+`emailtracking` holds one row per tracked message; `emailtrackingclicks` holds one row per link
+followed, because *which* link is the only question worth asking of a click. Both are created by
+a migration.
+
+The pixel always answers with the image, whatever happened behind it — an unknown id, a database
+that is away, a message that was never tracked. A broken image in the middle of a message is a
+worse outcome than a lost measurement.
+
+### Privacy
+
+This is processing personal data. Disclose it in the privacy policy the list's subscribers agreed
+to, keep the unsubscribe working, and do not switch it on for transactional mail — the framework
+will not let you, but the reasoning is worth carrying into whatever you build beside it.
+
+### What was actually sent
+
+`/admin/emails` lists every outbound message from the `mails` audit log — recipient, subject,
+module, date, status — with the full body and a resend. Tracked messages show their figures in an
+**Opens** column, with prefetches marked apart. A message that was not tracked shows a dash, which
+is the honest rendering of "nobody measured this".
+
+---
 
 ## SMTP Configuration
 

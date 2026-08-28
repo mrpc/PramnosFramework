@@ -184,6 +184,20 @@ class Email extends \Pramnos\Framework\Base
     public $trackingId = '';
 
     /**
+     * Whether this message asked to be tracked
+     *
+     * Asking is not the same as being tracked — see {@see enableTracking()} for the three gates.
+     * @var bool
+     */
+    protected $trackingRequested = false;
+
+    /**
+     * The `mails` row this send was recorded as, when it was
+     * @var ?int
+     */
+    protected $mailId = null;
+
+    /**
      * Enable debug logging
      * @var bool
      */
@@ -655,6 +669,21 @@ class Email extends \Pramnos\Framework\Base
                     'path'       => '',
                     'hash'       => md5($tomail . '|' . (string) $this->subject . '|' . $date),
                 ]);
+
+            /*
+             * Tie the tracking row to the audit row, now that the audit row exists.
+             *
+             * The two are written at different moments and cannot be otherwise: the pixel has to
+             * be in the body *before* the message is sent, and this log entry records whether
+             * sending worked. So the link is made here, afterwards — and without it the
+             * administration screen has opens and clicks with no message to attach them to.
+             */
+            if ($this->trackingRequested && $this->trackingId !== '') {
+                \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                    ->table('#PREFIX#emailtracking')
+                    ->where('tracking_id', $this->trackingId)
+                    ->update(['mailid' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId()]);
+            }
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Could not record mail in mails table: ' . $e->getMessage());
         }
@@ -773,6 +802,7 @@ class Email extends \Pramnos\Framework\Base
              * message whose alternative part does not match the HTML is also a documented spam
              * signal, so the part that was supposed to help deliverability was hurting it.
              */
+            $body = $this->applyTracking($body);
             $body = $this->embedStructuredData($body);
 
             $email->subject($this->subject)
@@ -1057,183 +1087,152 @@ class Email extends \Pramnos\Framework\Base
     /**
      * Enable email tracking to detect when emails are opened
      * 
-     * This adds a transparent tracking pixel to the email that reports
-     * back to your server when the email is opened.
-     * 
-     * Usage:
+     * Ask for this message's opens and clicks to be recorded.
+     *
+     * **Asking is not enough**, and that is the point. Nothing is tracked unless all three of
+     * these hold:
+     *
+     * 1. `'email' => ['tracking' => true]` in `app.php`. Absent means off.
+     * 2. The message belongs to a **list** — {@see offerUnsubscribe()} was called. Transactional
+     *    mail is never tracked at any setting: nobody consents to a password reset, and a pixel
+     *    in one is a pixel in the most sensitive message you send.
+     * 3. This method was called, on this message.
+     *
+     * When any of them is false this does nothing at all — no pixel, no row, no wrapped links —
+     * and says so by returning normally, because a mail that cannot be tracked is still a mail
+     * that has to be sent.
+     *
      * ```php
-     * $email = new \Pramnos\Email\Email();
-     * $email->setSubject('Welcome!')
-     *       ->setBody('<p>Hello and welcome!</p>')
-     *       ->setTo('user@example.com')
-     *       ->enableTracking()  // Enable tracking
-     *       ->send();
+     * $mail->setSubject('This month at Example')
+     *      ->setBody($html)
+     *      ->setTo($address)
+     *      ->offerUnsubscribe('newsletter')   // consent, and the thing that makes it a list
+     *      ->enableTracking()
+     *      ->send();
      * ```
      *
-     * You can also specify a custom tracking ID:
-     * ```php
-     * $email->enableTracking('user_123_welcome_email');
-     * ```
+     * ### What you will get, and what you will not
      *
-     * Privacy Considerations:
-     * - Email tracking should be disclosed to recipients in your privacy policy
-     * - Some email clients block tracking pixels
-     * - In some jurisdictions, explicit consent may be required for tracking
+     * An **open** is a weak signal and getting weaker. Apple Mail Privacy Protection fetches
+     * every remote image on delivery whether or not anybody reads the message, Gmail proxies and
+     * caches them, and many clients block them outright. So opens and proxy fetches are counted
+     * in separate columns and never added together — see {@see Tracking}.
      *
-     * @param string|null $trackingId Optional custom tracking ID (defaults to auto-generated)
+     * A **click** is a person. That is the number worth reading.
+     *
+     * ### Privacy
+     *
+     * This is processing personal data. Disclose it in the privacy policy the list's subscribers
+     * agreed to, and keep the unsubscribe link working — {@see Tracking::wrapLinks()} leaves it
+     * unwrapped on purpose, so it cannot be broken by the tracker.
+     *
+     * @param  string|null $trackingId Your own id, or null for a generated one. The id exists
+     *                                 as soon as this is called — an application may want to
+     *                                 store it beside its own record — but nothing is *tracked*
+     *                                 until the message is sent and the gates above are checked.
      * @return $this
      */
     public function enableTracking($trackingId = null)
     {
-        // Generate tracking ID if not provided
-        if ($trackingId === null) {
-            $trackingId = uniqid('email_', true);
-        }
-        
-        // Store tracking ID
-        $this->trackingId = $trackingId;
-        
-        // Get tracking URL - use configured route
-        $domain = \Pramnos\Application\Settings::getSetting('site_url') ?: 'https://example.com';
-        $trackingPath = \Pramnos\Application\Settings::getSetting('email_tracking_path') ?: '/email-track';
-        $trackingUrl = rtrim($domain, '/') . $trackingPath . '?id=' . urlencode($trackingId);
-        
-        // Add tracking pixel to email body
-        $trackingPixel = '<img src="' . $trackingUrl . '" alt="" width="1" height="1" style="display:none;" />';
-        $this->body = $this->body . $trackingPixel;
-        
-        // Store tracking info in database
-        $this->logTrackingEmail($trackingId);
-        
+        $this->trackingRequested = true;
+
+        /*
+         * The id is generated now, not at send time.
+         *
+         * Deferring it was the first attempt, and it changed the observable behaviour of a
+         * public method: `$mail->enableTracking(); $mail->trackingId;` used to give you an id,
+         * and an application may well have stored it beside its own record. There is no reason
+         * for the gates to cost anybody that — an id that is generated and then not used is
+         * free.
+         */
+        $this->trackingId = $trackingId !== null && trim((string) $trackingId) !== ''
+            ? (string) $trackingId
+            : uniqid('email_', true);
+
         return $this;
     }
 
     /**
-     * Log email tracking information
-     * @param string $trackingId
-     * @return void
+     * Put the pixel in, and wrap the links, if this message may be tracked.
+     *
+     * Called from `send()` once the body is final. Returns the body unchanged when tracking does
+     * not apply, which is the common case.
      */
-    private function logTrackingEmail($trackingId)
+    protected function applyTracking(string $body): string
     {
-        try {
-            // Get database instance
-            $db = \Pramnos\Database\Database::getInstance();
-            
-            // Format recipients for storage
-            $recipient = $this->to;
-            if (is_array($this->to)) {
-                $recipientAddresses = [];
-                foreach ($this->to as $address => $name) {
-                    if (is_numeric($address)) {
-                        $recipientAddresses[] = $name;
-                    } else {
-                        $recipientAddresses[] = "$name <$address>";
-                    }
-                }
-                $recipient = implode(', ', $recipientAddresses);
-            }
-            
-            // Store tracking information
-            $db->insertDataToTable('email_tracking', [
-                ['fieldName' => 'tracking_id', 'value' => $trackingId, 'type' => 'string'],
-                ['fieldName' => 'recipient', 'value' => $recipient, 'type' => 'string'],
-                ['fieldName' => 'subject', 'value' => $this->subject, 'type' => 'string'],
-                ['fieldName' => 'sent_at', 'value' => date('Y-m-d H:i:s'), 'type' => 'string'],
-                ['fieldName' => 'opened', 'value' => 0, 'type' => 'integer'],
-                ['fieldName' => 'opened_at', 'value' => null, 'type' => 'string']
-            ]);
-            
-        } catch (\Exception $e) {
-            \Pramnos\Logs\Logger::log("Error logging email tracking: " . $e->getMessage());
+        if (!$this->trackingRequested) {
+            return $body;
         }
+
+        $list = trim((string) $this->unsubscribeList);
+
+        if (!Tracking::allowed($list)) {
+            return $body;
+        }
+
+        $recipient = is_array($this->to)
+            ? implode(', ', array_map('strval', $this->to))
+            : (string) $this->to;
+
+        $recorded = Tracking::begin(
+            $recipient,
+            $list,
+            (string) $this->subject,
+            $this->mailId,
+            $this->trackingId
+        );
+
+        if (!$recorded) {
+            // Nothing was written, so nothing is measurable — and a pixel that records nowhere
+            // is a remote image in somebody's mail for no reason at all.
+            return $body;
+        }
+
+        $body = Tracking::wrapLinks($body, $this->trackingId, (string) $this->unsubscribe);
+
+        /*
+         * The pixel last, and inside the body rather than the head.
+         *
+         * A client that strips `<head>` — most of them — would drop it, and a pixel at the end
+         * is a pixel that does not shift the layout of anything above it.
+         */
+        return $body . Tracking::pixel($this->trackingId);
     }
 
     /**
-     * Handle email tracking requests
-     * 
-     * Usage:
-     * 1. Create a route in your application that points to this method:
-     *    - Route: /email-track
-     *    - Parameters: id (tracking ID)
-     * 
-     * 2. Example implementation in your router or controller:
-     *    ```
-     *    // In router config
-     *    $router->get('/email-track', function() {
-     *        $trackingId = $_GET['id'] ?? '';
-     *        \Pramnos\Email\Email::handleTrackingRequest($trackingId);
-     *    });
-     *    
-     *    // Or in a framework controller:
-     *    public function trackEmail(Request $request)
-     *    {
-     *        $trackingId = $request->query->get('id');
-     *        \Pramnos\Email\Email::handleTrackingRequest($trackingId);
-     *    }
-     *    ```
-     * 
-     * 3. Make sure your emails include tracking by calling $email->enableTracking()
-     *    before sending.
-     * 
-     * 4. You'll need a database table to store tracking data. Example structure:
-     *    ```
-     *    CREATE TABLE email_tracking (
-     *      id INT PRIMARY KEY AUTO_INCREMENT,
-     *      tracking_id VARCHAR(64) NOT NULL UNIQUE,
-     *      recipient TEXT,
-     *      subject VARCHAR(255),
-     *      sent_at DATETIME,
-     *      opened TINYINT(1) DEFAULT 0,
-     *      opened_at DATETIME NULL,
-     *      ip_address VARCHAR(45) NULL,
-     *      user_agent TEXT NULL,
-     *      INDEX (tracking_id)
-     *    );
-     *    ```
-     * 
-     * @param string $trackingId The tracking ID from the request
+     * Serve the tracking pixel, and record the fetch.
+     *
+     * Bound to `/emailpixel` by the bundled controller, so an application does not have to write
+     * a route — which is what the previous version of this asked for, in a doc-block, and is why
+     * the feature never worked anywhere.
+     *
+     * Always answers with the image, whatever happened. A tracking id that does not exist, a
+     * database that is away, a message that was never tracked: none of them is the reader's
+     * problem, and a broken image in the middle of a message is a worse outcome than a lost
+     * measurement.
+     *
+     * @param  string $trackingId
      * @return void
      */
     public static function handleTrackingRequest($trackingId)
     {
-        if (!empty($trackingId)) {
-            try {
-                // Log the email open in your database
-                $db = \Pramnos\Database\Database::getInstance();
-                
-                // Update tracking record to mark as opened
-                $db->updateTableData('email_tracking', 
-                    [
-                        ['fieldName' => 'opened', 'value' => 1, 'type' => 'integer'],
-                        ['fieldName' => 'opened_at', 'value' => date('Y-m-d H:i:s'), 'type' => 'string'],
-                        ['fieldName' => 'ip_address', 'value' => \Pramnos\Http\Request::clientIp() ?: null, 'type' => 'string'],
-                        ['fieldName' => 'user_agent', 'value' => $_SERVER['HTTP_USER_AGENT'] ?? null, 'type' => 'string']
-                    ], 
-                    "`tracking_id` = '" . $db->prepareInput($trackingId) . "'"
-                );
-                
-                // Optional: Log the event
-                \Pramnos\Logs\Logger::log("Email opened: $trackingId from " . \Pramnos\Http\Request::clientIp('unknown'));
-            } catch (\Exception $e) {
-                // Silent fail - don't show errors to email clients
-                \Pramnos\Logs\Logger::log("Error tracking email open: " . $e->getMessage(), \Pramnos\Logs\Logger::LEVEL_ERROR);
-            }
-        }
+        Tracking::recordOpen(
+            (string) $trackingId,
+            (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+            (string) \Pramnos\Http\Request::clientIp('')
+        );
 
-        // Return a transparent 1x1 pixel GIF
         if (!headers_sent()) {
             header('Content-Type: image/gif');
-            header('Cache-Control: no-cache, no-store, must-revalidate');
+            header('Cache-Control: no-cache, no-store, must-revalidate, private');
             header('Pragma: no-cache');
-            header('Expires: 0');
+            header('Content-Length: 43');
+            header('X-Robots-Tag: noindex, nofollow');
         }
-        
-        // Output transparent 1x1 GIF
+
+        // The same transparent 1x1 GIF this method has always returned. Changing the bytes for
+        // a differently-encoded but equivalent image would be a diff with no reader.
         echo base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
-        if (defined('PRAMNOS_TESTING')) {
-            return;
-        }
-        exit;
     }
 
     /**
