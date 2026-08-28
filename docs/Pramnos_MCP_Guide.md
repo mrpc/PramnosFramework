@@ -7,6 +7,7 @@ use_cases:
   - Working out why an assistant reimplemented something the framework already ships
   - Checking a change against the framework's rules before calling it finished
   - Letting an assistant read this installation's error logs instead of being handed a paste
+  - Working out what an MCP tool actually returns, or why a client says it is broken
 ---
 
 # MCP server
@@ -284,6 +285,92 @@ which is the wrong conclusion for somebody deciding whether a problem is over.
 
 Files with no structured entries — `GitDeploy`, `GitWebhookDebug`, which are shell output — are
 skipped by both. Counting levels in them produces a number that looks like a measurement.
+
+## Debugging it
+
+`mcp:serve` speaks JSON-RPC on stdio and blocks on STDIN. Run by hand it looks like a hang;
+run by a client, the client owns both pipes. Neither state lets you see what a tool returned,
+and hand-writing an `initialize` frame to find out has the worst property a debugging
+procedure can have: a mistake in the frame is indistinguishable from a broken tool.
+
+Two things, for the two different questions.
+
+### `mcp:call` — what does this tool return?
+
+```bash
+php <cli> mcp:call                                   # every tool, with the arguments it takes
+php <cli> mcp:call log-analytics --arg timespan=6h
+php <cli> mcp:call log-errors --json '{"limit": 5, "query": "timeout"}'
+php <cli> mcp:call route-list --raw                  # the JSON-RPC envelope, unwrapped
+```
+
+With no tool named it lists them, each with its input schema — including the enums, which
+are the difference between one guess and five:
+
+```
+log-analytics
+  Summarise this installation's logs: entry trend, counts per level, …
+  · timespan: string (1h|6h|24h|7d|30d)
+  · files: array
+```
+
+Four things it does deliberately:
+
+- **It goes through `McpServer::dispatch()`**, the same method the stdio loop calls, rather
+  than reaching for the tool object. A tool that works when called directly and fails through
+  the protocol is a real bug and this is where it shows.
+- **`--arg amount=2` arrives as the number 2.** A shell has only strings, and a schema that
+  wants an integer would otherwise reject the obvious spelling. `true`, `false`, `null`,
+  numbers and `a,b,c` lists are converted; use `--json` when a literal string is meant.
+- **A tool that threw exits non-zero.** An exception inside a tool comes back as a
+  *successful* JSON-RPC response whose content is the exception message, so without this it
+  would print like an answer.
+- **`--raw`** prints the envelope, for when the wrapper rather than the tool is the suspect.
+
+### `mcp:serve --log` — what is the client actually sending?
+
+The question `mcp:call` cannot answer. When Claude Code or an IDE starts the server, that
+process is not yours: you cannot see its STDOUT, and its STDERR goes wherever the client puts
+it. `--log` records every message in both directions.
+
+```bash
+php <cli> mcp:serve --log              # into the log directory, as mcp.log
+php <cli> mcp:serve --log=/tmp/mcp.log
+```
+
+In `.mcp.json`, add it to `args`:
+
+```jsonc
+{ "mcpServers": { "myapp": { "command": "docker-compose", "args":
+    ["exec", "-T", "-u", "www-data", "app", "php", "myapp.php", "mcp:serve", "--log"] } } }
+```
+
+Each line is written in **the framework's own structured-log format**, so the log viewer,
+`LogAnalytics` and the `log-errors` tool all read the file without knowing anything about MCP:
+
+```jsonc
+{"timestamp":"28/08/2026 15:04:11","level":"info","message":"→ tools/call log-analytics",
+ "data":{ … the whole request … }}
+{"timestamp":"28/08/2026 15:04:11","level":"info","message":"← result",
+ "data":{ … the whole response … },"duration_ms":41.2}
+```
+
+Which means the useful query is one you already have:
+
+```bash
+php <cli> mcp:call log-errors --json '{"files": ["mcp.log"]}'
+```
+
+- **A failed call is logged at `error`** — including a tool that *threw*, which the protocol
+  reports as a successful response. Without that, the most interesting event in a session is
+  filed as routine and unfindable among a thousand good calls.
+- **A malformed line is logged with the input that caused it.** "Parse error" alone is the
+  least actionable message a protocol can produce.
+- **It is off unless asked for, and it says the path on STDERR when it is on.** The payloads
+  are whatever the tools returned, which for `query-schema` is table structure — leave it
+  switched off when you are done.
+- An unwritable path degrades to no logging rather than taking the server down. A debugging
+  aid that kills the process it is instrumenting is worse than none.
 
 ## The built-in resources
 

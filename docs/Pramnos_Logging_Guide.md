@@ -308,7 +308,17 @@ $entries = LogAnalytics::entries();
 $entries = LogAnalytics::entries(['warning'], ['error.log'], '1h', 20, 'timeout');
 ```
 
-Four things worth knowing before you use either:
+Five things worth knowing before you use either:
+
+- **The date on a line is read day-first.** The framework's own `Logger` writes
+  `28/08/2026 13:39:37`, and `strtotime()` reads a slash-separated date as American
+  month-first — month 28 does not exist, so it returned `false` and both readers fell back
+  to `time()`. Every entry the framework had ever written came back stamped with the moment
+  somebody opened the screen. `LogManager::parseTimestamp()` is the one parser now: the
+  framework's formats first, then ISO and everything else PHP knows. A line whose date cannot
+  be read returns `null` and is in **no** time window, because an undatable entry counted
+  inside whichever window was asked for is how a whole file ends up in the last hour's
+  figures.
 
 - **`topErrors` is keyed by the message**, so one failure appearing in three files is a single
   row carrying the total. That is the number somebody acts on; three rows each look survivable.

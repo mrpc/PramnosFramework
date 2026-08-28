@@ -171,6 +171,9 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\PageCachePurge());
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
+        // Because `mcp:serve` is not something a person can debug: it speaks JSON-RPC on
+        // stdio and blocks on STDIN. This calls one tool and prints what it returns.
+        $this->add(new \Pramnos\Console\Commands\McpCall());
         $this->add(new \Pramnos\Console\Commands\DebugStatus());
         // Opens the toolbar for one browser on a server where it is off
         $this->add(new \Pramnos\Console\Commands\DebugToken());

@@ -6,6 +6,7 @@ namespace Pramnos\Console\Commands;
 
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Mcp\McpServer;
@@ -44,7 +45,14 @@ class McpServe extends Command
     protected function configure(): void
     {
         $this->setName('mcp:serve')
-            ->setDescription('Start an MCP server on stdio for AI assistant integration');
+            ->setDescription('Start an MCP server on stdio for AI assistant integration')
+            ->addOption(
+                'log',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Record every JSON-RPC message to a file (default: the log directory\'s mcp.log)',
+                false
+            );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -56,6 +64,14 @@ class McpServe extends Command
 
         $server = $this->resolveServer($app);
 
+        // `--log` with no value, `--log=/path`, or absent. VALUE_OPTIONAL gives null for
+        // the first and false for the third, which is the only way to tell them apart.
+        $log = $input->getOption('log');
+
+        if ($log !== false) {
+            $server->setTrafficLog($this->trafficLogPath(is_string($log) ? $log : null));
+        }
+
         $this->announce($server, $output);
 
         // Silence all PHP errors / notices to STDOUT — they would corrupt
@@ -66,6 +82,23 @@ class McpServe extends Command
         $server->run();
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Where the traffic log goes.
+     *
+     * Defaults into the framework's own log directory rather than the working directory:
+     * the file is written in the structured format the log viewer reads, so it shows up
+     * beside every other log without anybody configuring anything. `log-errors
+     * --files mcp.log` then answers "which call failed", which is the question.
+     */
+    private function trafficLogPath(?string $given): string
+    {
+        if ($given !== null && trim($given) !== '') {
+            return $given;
+        }
+
+        return \Pramnos\Logs\LogManager::getLogFilePath('mcp', 'log');
     }
 
     /**
@@ -102,6 +135,12 @@ class McpServe extends Command
             $stderr->writeln('  ' . count($resources) . ' resources: '
                 . implode(', ', array_map(fn($r) => $r->name, $resources)));
         }
+        if ($server->getTrafficLog() !== null) {
+            // Said out loud. A traffic log that nobody knows the path of is a file that
+            // gets left switched on, and the payloads are whatever the tools returned.
+            $stderr->writeln('  Logging every message to ' . $server->getTrafficLog());
+        }
+
         $stderr->writeln('  Waiting for JSON-RPC on stdin — this is normally launched by an');
         $stderr->writeln('  MCP client (see .mcp.json), not run by hand. Ctrl-C to stop.');
     }

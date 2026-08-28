@@ -74,6 +74,182 @@ class LogAnalyticsTest extends TestCase
     }
 
     /**
+     * A log file in the format the framework's own `Logger` writes.
+     *
+     * Which is `d/m/Y H:i:s` — day first, as it renders dates everywhere else. The other
+     * helper writes ISO, and that is precisely why the tests above never caught the bug
+     * below: ISO parses, so every fixture agreed with the reader.
+     *
+     * @param list<array{0: string, 1: string, 2: int}> $entries level, message, seconds ago
+     */
+    private function frameworkLog(string $name, array $entries): string
+    {
+        $lines = [];
+
+        foreach ($entries as [$level, $message, $ago]) {
+            $lines[] = json_encode([
+                'timestamp' => date('d/m/Y H:i:s', time() - $ago),
+                'message'   => $message,
+                'level'     => $level,
+            ]);
+        }
+
+        $path = LogManager::getLogFilePath($name, 'log');
+
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0777, true);
+        }
+
+        file_put_contents($path, implode("\n", $lines) . "\n");
+        $this->written[] = $path;
+
+        return $name . '.log';
+    }
+
+    // ── Reading the date off a line ──────────────────────────────────────────
+
+    /**
+     * The framework's own day-first dates are read as day-first.
+     *
+     * `strtotime('28/08/2026 13:39:37')` returns `false`: it reads a slash-separated date
+     * as American month-first, and month 28 does not exist. Both readers then fell back
+     * to `time()`, so every entry the framework had ever written came back stamped with
+     * the moment somebody opened the screen.
+     *
+     * The failure was never a missing date. It was a plausible wrong one — which is the
+     * only kind nobody checks.
+     */
+    public function testTheFrameworksOwnDateFormatIsRead(): void
+    {
+        // Arrange — the exact string the Logger writes
+        $written = mktime(13, 39, 37, 8, 28, 2026);
+
+        // Act
+        $parsed = LogManager::parseTimestamp('28/08/2026 13:39:37');
+
+        // Assert
+        $this->assertSame($written, $parsed);
+        $this->assertNotNull(
+            LogManager::parseTimestamp('28/08/2026 13:39:37'),
+            'strtotime() alone returned false here, which is what started all of this'
+        );
+    }
+
+    /**
+     * An ambiguous date is read day-first, because the framework wrote it.
+     *
+     * `08/02/2026` is 8 February to the writer of the line and 2 August to
+     * `strtotime()`. Six months of drift in the log viewer, on a date that parses
+     * cleanly either way and therefore never looks wrong.
+     */
+    public function testAnAmbiguousDateIsReadTheWayItWasWritten(): void
+    {
+        // Act
+        $parsed = LogManager::parseTimestamp('08/02/2026 10:00:00');
+
+        // Assert
+        $this->assertSame('2026-02-08', date('Y-m-d', (int) $parsed));
+    }
+
+    /**
+     * And the unambiguous formats still work, because other things write the log too.
+     *
+     * PHP's own error log, a third-party library, anything piped in: those are ISO or
+     * `d-M-Y`, and a parser that only knew the framework's format would break them.
+     */
+    public function testTheUnambiguousFormatsStillParse(): void
+    {
+        // Assert
+        $this->assertSame(
+            '2026-08-28',
+            date('Y-m-d', (int) LogManager::parseTimestamp('2026-08-28 13:39:37'))
+        );
+        $this->assertSame(
+            '2026-08-28',
+            date('Y-m-d', (int) LogManager::parseTimestamp('2026-08-28T13:39:37+00:00'))
+        );
+        $this->assertSame(
+            '2026-08-28',
+            date('Y-m-d', (int) LogManager::parseTimestamp('28-Aug-2026 13:39:37'))
+        );
+    }
+
+    /**
+     * A date that is not a date is null, not now.
+     *
+     * `null` is the whole point: the old code had no way to say "I could not read this",
+     * so it said "just now" instead.
+     */
+    public function testSomethingThatIsNotADateIsNull(): void
+    {
+        // Assert
+        $this->assertNull(LogManager::parseTimestamp(''));
+        $this->assertNull(LogManager::parseTimestamp('   '));
+        $this->assertNull(LogManager::parseTimestamp('not a date at all'));
+        $this->assertNull(
+            LogManager::parseTimestamp('31/02/2026 10:00:00'),
+            'a rolled-over date is a misread line, not the 3rd of March'
+        );
+    }
+
+    /**
+     * An old entry is not reported as current — the bug, end to end.
+     *
+     * Two hours old, in the framework's own format, asked for the last hour. Before the
+     * fix this came back as one entry dated *now*: the reader could not parse the date,
+     * used `time()`, and the entry then passed the window check it should have failed.
+     *
+     * On the dashboard that meant the trend chart put a whole log file in the current
+     * bucket, and "3 errors in the last hour" was three errors from any hour there had
+     * ever been.
+     */
+    public function testAnOldEntryIsNotCountedInTheLastHour(): void
+    {
+        // Arrange — two hours ago, written the way the framework writes it
+        $file = $this->frameworkLog('test_stale_' . bin2hex(random_bytes(3)), [
+            ['error', 'This happened two hours ago', 7200],
+        ]);
+
+        // Act
+        $lastHour = LogAnalytics::summary('1h', [$file]);
+        $lastDay  = LogAnalytics::summary('24h', [$file]);
+
+        // Assert
+        $this->assertSame([], $lastHour['topErrors'], 'it did not happen in the last hour');
+        $this->assertArrayNotHasKey('error', $lastHour['levels']);
+
+        // …and it is not lost, either: the day it did happen in still sees it
+        $this->assertSame(1, $lastDay['levels']['error']);
+        $this->assertSame('This happened two hours ago', $lastDay['topErrors'][0]['message']);
+    }
+
+    /**
+     * And a listed entry carries the time it was written, not the time it was read.
+     *
+     * The reason this mattered beyond a chart: an error from last week displayed with
+     * today's timestamp is somebody investigating an incident that is already over.
+     */
+    public function testAnEntryReportsWhenItHappened(): void
+    {
+        // Arrange
+        $ago  = 3600;
+        $file = $this->frameworkLog('test_when_' . bin2hex(random_bytes(3)), [
+            ['error', 'An hour ago exactly', $ago],
+        ]);
+
+        // Act
+        $entries = LogAnalytics::entries(['error'], [$file], '24h');
+
+        // Assert
+        $this->assertCount(1, $entries);
+        $this->assertSame(
+            date('Y-m-d H:i', time() - $ago),
+            substr((string) $entries[0]['timestamp'], 0, 16),
+            'the entry is dated when it was written'
+        );
+    }
+
+    /**
      * Every timespan the screen's selector offers is one the service knows.
      *
      * `6h` was on that selector and missing from the first version of this table, and an unknown

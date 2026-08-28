@@ -367,6 +367,58 @@ class LogManager
     }
     
     /**
+     * Read a timestamp out of a log line, in any format this framework writes.
+     *
+     * `strtotime()` alone is the wrong tool and was the bug. The framework's own
+     * `Logger` writes `28/08/2026 13:39:37` — day first, which is how it renders dates
+     * everywhere else — and `strtotime()` reads a slash-separated date as **American**
+     * month-first. Month 28 does not exist, so it returned `false`, and both readers
+     * below fell back to `time()`.
+     *
+     * The consequence was not a missing date. It was a *plausible wrong* one: every
+     * entry the framework had ever written came back stamped with the moment somebody
+     * opened the screen. An error from three days ago read as happening now, the trend
+     * chart put the whole file in the current bucket, and a "last hour" query counted
+     * entries from every hour there had ever been. The numbers were confident and wrong,
+     * which is the only kind of wrong nobody checks.
+     *
+     * Day-first is tried first for exactly that reason: `08/02/2026` is ambiguous and
+     * the framework's own writer is the likeliest author of a line in its own log.
+     *
+     * @param  string $value A timestamp as it appears in a log line
+     * @return ?int   Unix time, or null when the string is not a date this knows
+     */
+    public static function parseTimestamp(string $value): ?int
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        // The framework's own formats, day-first, before anything guesses.
+        foreach (['d/m/Y H:i:s', 'd/m/Y H:i', 'd-m-Y H:i:s', 'd-M-Y H:i:s', 'd/m/Y'] as $format) {
+            $date = \DateTime::createFromFormat($format, $value);
+
+            // `createFromFormat` accepts 31/02 and rolls it over, so the warnings are
+            // checked: a rolled-over date is a misread line, not a valid one.
+            $errors = \DateTime::getLastErrors();
+
+            if ($date !== false
+                && empty($errors['warning_count'])
+                && empty($errors['error_count'])) {
+                return $date->getTimestamp();
+            }
+        }
+
+        // ISO 8601, `Y-m-d H:i:s`, `@timestamp`, and everything else PHP knows —
+        // unambiguous formats, so guessing is safe here and only here.
+        $parsed = strtotime($value);
+
+        return $parsed === false ? null : $parsed;
+    }
+
+    /**
      * Get log analytics for a time period
      * @param string $filename The log file name
      * @param string $ext The log file extension
@@ -472,12 +524,13 @@ class LogManager
                     $data = json_decode($line, true);
                     if (json_last_error() === JSON_ERROR_NONE) {
                         // Extract timestamp
-                        $timestampStr = $data['timestamp'] ?? $data['datetime'] ?? '';
-                        if ($timestampStr) {
-                            $parsedTime = strtotime($timestampStr);
-                            if ($parsedTime !== false) {
-                                $timestamp = $parsedTime;
-                            }
+                        $timestampStr = (string) ($data['timestamp'] ?? $data['datetime'] ?? '');
+                        if ($timestampStr !== '') {
+                            // Null when it cannot be read — and then the entry is *not*
+                            // dated now. An undatable line counted inside whichever
+                            // window was asked for is how a whole file ends up in the
+                            // last hour's figures.
+                            $timestamp = self::parseTimestamp($timestampStr);
                         }
                         
                         // Extract level
@@ -495,16 +548,7 @@ class LogManager
             } 
             // Try to extract timestamp from standard log format [date/time]
             elseif (preg_match('/^\[([\d\/]+ [\d:]+)\]/', $line, $matches)) {
-                $timestampStr = $matches[1];
-                $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
-                if ($dateObj !== false) {
-                    $timestamp = $dateObj->getTimestamp();
-                } else {
-                    $parsedTime = strtotime($timestampStr);
-                    if ($parsedTime !== false) {
-                        $timestamp = $parsedTime;
-                    }
-                }
+                $timestamp = self::parseTimestamp($matches[1]);
                 
                 $message = $line;
                 
@@ -516,8 +560,9 @@ class LogManager
                 }
             }
             
-            // Check if timestamp is within range
-            if ($timestamp >= $startTime && $timestamp <= $endTime) {
+            // Check if timestamp is within range. A line whose date could not be read
+            // is outside every range: it has no place on a chart of when things happened.
+            if ($timestamp !== null && $timestamp >= $startTime && $timestamp <= $endTime) {
                 $totalEntries++;
                 
                 // Find the appropriate time bucket
@@ -652,12 +697,13 @@ class LogManager
                     $data = json_decode($trimmed, true);
                     if (json_last_error() === JSON_ERROR_NONE) {
                         // Extract timestamp
-                        $timestampStr = $data['timestamp'] ?? $data['datetime'] ?? '';
-                        if ($timestampStr) {
-                            $parsedTime = strtotime($timestampStr);
-                            if ($parsedTime !== false) {
-                                $timestamp = $parsedTime;
-                            }
+                        $timestampStr = (string) ($data['timestamp'] ?? $data['datetime'] ?? '');
+                        if ($timestampStr !== '') {
+                            // See parseTimestamp(): `strtotime()` alone read the
+                            // framework's own day-first dates as invalid and every entry
+                            // came back stamped "now", so an error from last week looked
+                            // like it had just happened.
+                            $timestamp = self::parseTimestamp($timestampStr);
                         }
                         
                         // Extract level
@@ -681,16 +727,7 @@ class LogManager
             // accepting slash (d/m/Y), ISO (Y-m-d) and dash-month (d-M-Y) styles
             // that the framework's own loggers emit.
             elseif (preg_match('/^\[([\d\/\-A-Za-z]+ [\d:]+)\](.*)$/', $trimmed, $matches)) {
-                $timestampStr = $matches[1];
-                $dateObj = \DateTime::createFromFormat('d/m/Y H:i:s', $timestampStr);
-                if ($dateObj !== false) {
-                    $timestamp = $dateObj->getTimestamp();
-                } else {
-                    $parsedTime = strtotime($timestampStr);
-                    if ($parsedTime !== false) {
-                        $timestamp = $parsedTime;
-                    }
-                }
+                $timestamp = self::parseTimestamp($matches[1]);
                 
                 $message = $matches[2];
                 
@@ -713,11 +750,15 @@ class LogManager
             
             // Apply filters
             
-            // Filter by time range
-            if ($startTime !== null && $timestamp < $startTime) {
+            // Filter by time range. An entry whose date could not be read is not in any
+            // window — claiming otherwise is what made old errors look current.
+            if ($timestamp === null && ($startTime !== null || $endTime !== null)) {
                 $include = false;
             }
-            if ($endTime !== null && $timestamp > $endTime) {
+            if ($startTime !== null && $timestamp !== null && $timestamp < $startTime) {
+                $include = false;
+            }
+            if ($endTime !== null && $timestamp !== null && $timestamp > $endTime) {
                 $include = false;
             }
             
@@ -752,7 +793,11 @@ class LogManager
             if ($include) {
                 $entries[] = [
                     'id' => $counter++,
-                    'timestamp' => date('Y-m-d H:i:s', $timestamp),
+                    // Null rather than a guess: "we do not know when" is a different
+                    // statement from a date, and the reader can tell them apart.
+                    'timestamp' => $timestamp === null
+                        ? null
+                        : date('Y-m-d H:i:s', $timestamp),
                     'level' => $level,
                     'message' => $message,
                     'context' => $context

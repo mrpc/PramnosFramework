@@ -484,6 +484,201 @@ class McpServerTest extends TestCase
         $this->assertSame('text/plain',  $item['mimeType']);
     }
 
+    // ── traffic log ───────────────────────────────────────────────────────────
+
+    /**
+     * With a traffic log set, every message in and out is recorded.
+     *
+     * This exists because `mcp:serve` cannot otherwise be watched. When a real client
+     * starts the server — Claude Code, an IDE — **the client owns both pipes**: STDOUT is
+     * the protocol and STDERR goes wherever the client puts it. There was no way to see
+     * what a tool returned to the assistant, and piping frames in by hand answers a
+     * different question: it tests the server you just started, not the one the client is
+     * talking to.
+     */
+    public function testTheTrafficLogRecordsBothDirections(): void
+    {
+        // Arrange
+        $log = sys_get_temp_dir() . '/mcp-traffic-' . bin2hex(random_bytes(4)) . '.log';
+        $this->server->setTrafficLog($log);
+        $this->server->addTool($this->makeTool('probe', 'A probe', ['type' => 'object']));
+
+        $in  = fopen('php://memory', 'r+');
+        $out = fopen('php://memory', 'r+');
+        fwrite($in, json_encode([
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call',
+            'params'  => ['name' => 'probe', 'arguments' => []],
+        ]) . "\n");
+        rewind($in);
+
+        try {
+            // Act
+            $this->server->run($in, $out);
+
+            // Assert
+            $lines = array_values(array_filter(explode("\n", (string) file_get_contents($log))));
+            $this->assertCount(2, $lines, 'one line in, one line out');
+
+            $request = json_decode($lines[0], true);
+            $reply   = json_decode($lines[1], true);
+
+            // Written in the framework's own structured-log format, so the log viewer,
+            // LogAnalytics and the log-errors MCP tool all read it without knowing
+            // anything about MCP.
+            foreach ([$request, $reply] as $entry) {
+                $this->assertArrayHasKey('timestamp', $entry);
+                $this->assertArrayHasKey('level', $entry);
+                $this->assertArrayHasKey('message', $entry);
+            }
+
+            // The summary line is what makes it scannable without unfolding the payload
+            $this->assertSame('→ tools/call probe', $request['message']);
+            $this->assertSame('← result', $reply['message']);
+            $this->assertSame('info', $reply['level']);
+
+            // …and the full payload is still there for when the summary is not enough
+            $this->assertSame('probe', $request['data']['params']['name']);
+            $this->assertArrayHasKey('duration_ms', $reply);
+        } finally {
+            @unlink($log);
+        }
+    }
+
+    /**
+     * A failed call is logged at `error`, including a tool that threw.
+     *
+     * The second half is the one that matters. A tool that throws comes back as a
+     * *successful* JSON-RPC response whose content is the exception message — so a log
+     * that only looked at `error` objects would file the most interesting event in the
+     * session as routine, and it would be unfindable among a thousand good calls.
+     */
+    public function testAFailedCallIsLoggedAsAnError(): void
+    {
+        // Arrange
+        $log = sys_get_temp_dir() . '/mcp-traffic-' . bin2hex(random_bytes(4)) . '.log';
+        $this->server->setTrafficLog($log);
+
+        $throwing = $this->createMock(McpToolInterface::class);
+        $throwing->method('name')->willReturn('breaks');
+        $throwing->method('description')->willReturn('Throws');
+        $throwing->method('inputSchema')->willReturn(['type' => 'object']);
+        $throwing->method('execute')->willThrowException(new \RuntimeException('nope'));
+        $this->server->addTool($throwing);
+
+        $in  = fopen('php://memory', 'r+');
+        $out = fopen('php://memory', 'r+');
+        fwrite($in, json_encode([
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call',
+            'params'  => ['name' => 'breaks', 'arguments' => []],
+        ]) . "\n");
+        fwrite($in, json_encode([
+            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'nonsense/method',
+        ]) . "\n");
+        rewind($in);
+
+        try {
+            // Act
+            $this->server->run($in, $out);
+
+            // Assert
+            $levels = array_map(
+                static fn (string $line): string => (string) (json_decode($line, true)['level'] ?? ''),
+                array_values(array_filter(explode("\n", (string) file_get_contents($log))))
+            );
+
+            // in, out(isError), in, out(error object)
+            $this->assertSame(['info', 'error', 'info', 'error'], $levels);
+        } finally {
+            @unlink($log);
+        }
+    }
+
+    /**
+     * A malformed line is logged with the input that caused it.
+     *
+     * "Parse error" on its own is the least actionable message a protocol can produce:
+     * the one thing needed to fix it is the line that failed.
+     */
+    public function testAMalformedLineIsLoggedWithTheInput(): void
+    {
+        // Arrange
+        $log = sys_get_temp_dir() . '/mcp-traffic-' . bin2hex(random_bytes(4)) . '.log';
+        $this->server->setTrafficLog($log);
+
+        $in  = fopen('php://memory', 'r+');
+        $out = fopen('php://memory', 'r+');
+        fwrite($in, "{not json at all\n");
+        rewind($in);
+
+        try {
+            // Act
+            $this->server->run($in, $out);
+
+            // Assert
+            $contents = (string) file_get_contents($log);
+            $this->assertStringContainsString('not json at all', $contents);
+            $this->assertStringContainsString('Parse error', $contents);
+        } finally {
+            @unlink($log);
+        }
+    }
+
+    /**
+     * Off by default, and off means nothing is written anywhere.
+     *
+     * The payloads are whatever a tool returned, which for some tools is table contents.
+     * A debugging aid that is on unless disabled is a debugging aid that ships enabled.
+     */
+    public function testTheTrafficLogIsOffUnlessAskedFor(): void
+    {
+        // Assert
+        $this->assertNull($this->server->getTrafficLog());
+
+        // Arrange — and it can be switched back off
+        $this->server->setTrafficLog('/tmp/whatever.log');
+        $this->assertSame('/tmp/whatever.log', $this->server->getTrafficLog());
+        $this->server->setTrafficLog(null);
+
+        $in  = fopen('php://memory', 'r+');
+        $out = fopen('php://memory', 'r+');
+        fwrite($in, json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping']) . "\n");
+        rewind($in);
+
+        // Act
+        $this->server->run($in, $out);
+
+        // Assert — the exchange happened and nothing was recorded
+        rewind($out);
+        $this->assertNotSame('', stream_get_contents($out));
+        $this->assertFileDoesNotExist('/tmp/whatever.log');
+    }
+
+    /**
+     * An unwritable log path does not take the server down with it.
+     *
+     * A debugging aid that kills the process it is instrumenting is worse than no
+     * debugging aid — and this one is switched on by somebody who is already looking at
+     * a problem.
+     */
+    public function testAnUnwritableLogPathIsSurvivable(): void
+    {
+        // Arrange — a path inside a directory that does not exist
+        $this->server->setTrafficLog('/nonexistent-' . bin2hex(random_bytes(4)) . '/mcp.log');
+
+        $in  = fopen('php://memory', 'r+');
+        $out = fopen('php://memory', 'r+');
+        fwrite($in, json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping']) . "\n");
+        rewind($in);
+
+        // Act
+        $this->server->run($in, $out);
+
+        // Assert — the protocol answered anyway
+        rewind($out);
+        $response = json_decode(trim((string) stream_get_contents($out)), true);
+        $this->assertSame('2.0', $response['jsonrpc']);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private function makeTool(string $name, string $description, array $schema): McpToolInterface&\PHPUnit\Framework\MockObject\MockObject

@@ -32,6 +32,14 @@ class McpServer
 
     private bool $initialized = false;
 
+    /**
+     * Where to record the JSON-RPC traffic, or null for nowhere.
+     *
+     * Off by default: this is a debugging aid and the payloads contain whatever a tool
+     * returned, which on some tools is table contents.
+     */
+    private ?string $trafficLog = null;
+
     public function __construct(
         private readonly string $appName    = 'Pramnos App',
         private readonly string $appVersion = '1.0.0',
@@ -77,6 +85,115 @@ class McpServer
         return $this->resources;
     }
 
+    // ── Traffic log ──────────────────────────────────────────────────────────
+
+    /**
+     * Record every message in and out to a log file.
+     *
+     * The reason this exists at all: when a real client starts the server — Claude Code,
+     * an IDE — **the client owns both pipes**. STDOUT is the protocol and STDERR goes to
+     * a log the client may or may not surface, so there is no way to watch what a tool
+     * returned. Piping JSON-RPC in by hand answers a different question: it tests the
+     * server you started, not the one the client is talking to.
+     *
+     * Lines are written in the framework's own structured-log format — `timestamp`,
+     * `level`, `message`, `data` — so the log viewer, `LogAnalytics` and the `log-errors`
+     * MCP tool all read this file without knowing anything about MCP. A failed call is
+     * logged at `error`, which is what makes it findable among a thousand successful ones.
+     *
+     * @param ?string $path Absolute path, or null to stop logging
+     */
+    public function setTrafficLog(?string $path): static
+    {
+        $this->trafficLog = $path;
+
+        return $this;
+    }
+
+    /** Where the traffic is going, for a command that wants to say so. */
+    public function getTrafficLog(): ?string
+    {
+        return $this->trafficLog;
+    }
+
+    /**
+     * One line of the traffic log.
+     *
+     * Failures are never swallowed silently *and* never thrown: a debugging aid that
+     * kills the server it is instrumenting is worse than no debugging aid. An
+     * unwritable path degrades to no logging.
+     *
+     * @param array<string, mixed> $message
+     */
+    private function logTraffic(string $direction, array $message, ?float $seconds = null): void
+    {
+        if ($this->trafficLog === null) {
+            return;
+        }
+
+        // A response carrying `error`, or a tool result flagged `isError`. The second is
+        // the one worth catching: a tool that threw comes back as a *successful*
+        // JSON-RPC response whose content is the exception message.
+        $failed = isset($message['error'])
+            || !empty($message['result']['isError']);
+
+        $entry = [
+            'timestamp' => date('c'),
+            'level'     => $failed ? 'error' : 'info',
+            'message'   => $this->describe($direction, $message),
+            'data'      => $message,
+        ];
+
+        if ($seconds !== null) {
+            $entry['duration_ms'] = round($seconds * 1000, 2);
+        }
+
+        $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if ($line === false) {
+            // Unencodable payload — a resource handle, invalid UTF-8. Say that rather
+            // than write nothing, because a gap in the log reads as "nothing happened".
+            $line = json_encode([
+                'timestamp' => date('c'),
+                'level'     => 'warning',
+                'message'   => $direction . ' ' . ($message['method'] ?? 'response')
+                    . ' — payload could not be encoded for the log',
+            ]);
+        }
+
+        @file_put_contents($this->trafficLog, $line . "\n", FILE_APPEND | LOCK_EX);
+    }
+
+    /**
+     * The one-line summary that makes the log readable without unfolding the payload.
+     *
+     * `→ tools/call log-analytics` beats a hundred characters of JSON when you are
+     * scrolling for the moment something went wrong.
+     *
+     * @param array<string, mixed> $message
+     */
+    private function describe(string $direction, array $message): string
+    {
+        $arrow = $direction === 'in' ? '→' : '←';
+
+        if (isset($message['method'])) {
+            $what = (string) $message['method'];
+
+            if ($what === 'tools/call' && isset($message['params']['name'])) {
+                $what .= ' ' . (string) $message['params']['name'];
+            }
+
+            return $arrow . ' ' . $what;
+        }
+
+        if (isset($message['error'])) {
+            return $arrow . ' error ' . (string) ($message['error']['code'] ?? '')
+                . ': ' . (string) ($message['error']['message'] ?? '');
+        }
+
+        return $arrow . ' result';
+    }
+
     // ── Main Loop ────────────────────────────────────────────────────────────
 
     /**
@@ -101,12 +218,22 @@ class McpServer
 
             $message = json_decode(trim($line), true);
             if (!is_array($message)) {
-                $this->write($out, $this->error(null, -32700, 'Parse error'));
+                $parseError = $this->error(null, -32700, 'Parse error');
+                // Logged with the offending line, because "parse error" without the input
+                // that caused it is the least actionable message a protocol can produce.
+                $this->logTraffic('in', ['method' => 'malformed', 'raw' => trim($line)]);
+                $this->logTraffic('out', $parseError);
+                $this->write($out, $parseError);
                 continue;
             }
 
+            $this->logTraffic('in', $message);
+
+            $started  = microtime(true);
             $response = $this->dispatch($message);
+
             if ($response !== null) {
+                $this->logTraffic('out', $response, microtime(true) - $started);
                 $this->write($out, $response);
             }
         }
