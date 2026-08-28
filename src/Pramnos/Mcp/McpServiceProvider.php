@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Mcp\Tools\FindSymbolTool;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
 use Pramnos\Mcp\Tools\LogAnalyticsTool;
 use Pramnos\Mcp\Tools\LogErrorsTool;
@@ -88,6 +89,19 @@ class McpServiceProvider extends ServiceProvider
         // checks is something that happened after the guide describing it was written.
         $server->addTool(new FrameworkDocsTool());
         $server->addTool(new PramnosCheckTool());
+
+        /*
+         * Where a symbol lives and who calls it.
+         *
+         * The question `grep` cannot answer, and the gap was found by hitting it: tracing
+         * which code ran a particular query took eight greps and then a patch to the query
+         * builder that dumped a backtrace. Grep finds strings; the calling line of the actual
+         * caller contained neither word of the thing being searched for.
+         *
+         * No application needed — it reads source files, which are there whether or not
+         * anything boots.
+         */
+        $server->addTool(new FindSymbolTool());
 
         /*
          * What is going wrong right now, and what it says.

@@ -140,7 +140,7 @@ class McpServeTest extends TestCase
 
         // Assert
         $text = $stderr->fetch();
-        $this->assertStringContainsString('9 tools', $text);
+        $this->assertStringContainsString('10 tools', $text);
         $this->assertStringContainsString('list-tables', $text);
         $this->assertStringContainsString('route-list', $text);
         // Named in the announcement too: the tools an assistant needs to know exist before
@@ -251,11 +251,11 @@ class McpServeTest extends TestCase
      * nothing else.
      *
      * The five others and the three resources all describe *this application*, so with no
-     * application there is genuinely nothing for them to report. The four here are the
+     * application there is genuinely nothing for them to report. The five here are the
      * exceptions, on purpose: two read the guides vendored beside the class and check the
-     * project against them, and two read the log directory. None needs a database or any
-     * configuration — and a server booting without an application is exactly when somebody
-     * is asking how any of this is supposed to work, or why it did not.
+     * project against them, one reads source files, and two read the log directory. None
+     * needs a database or any configuration — and a server booting without an application is
+     * exactly when somebody is asking how any of this is supposed to work, or why it did not.
      */
     public function testResolveServerWithoutAppStillOffersTheApplicationIndependentTools(): void
     {
@@ -269,12 +269,13 @@ class McpServeTest extends TestCase
         // Assert
         $this->assertInstanceOf(McpServer::class, $server);
         // Keyed by tool name, as `addTool()` stores them. Every application-independent tool
-        // is here: two read the vendored guides and check the project against them, two read
-        // the log directory. None of them needs a database or an application to answer.
+        // is here: two read the vendored guides and check the project against them, one reads
+        // source files, two read the log directory. None needs a database or an application.
         $this->assertSame(
             [
                 'framework-docs' => 'framework-docs',
                 'pramnos-check'  => 'pramnos-check',
+                'find-symbol'    => 'find-symbol',
                 'log-analytics'  => 'log-analytics',
                 'log-errors'     => 'log-errors',
             ],
@@ -412,14 +413,16 @@ class McpServeTest extends TestCase
         // Act
         $server = $method->invoke($command, $app);
 
-        // Assert — the five application-introspection tools, plus the four that do not depend
-        // on an application at all: the guides, the check against them, and the two log readers
+        // Assert — the five application-introspection tools, plus the five that do not depend
+        // on an application at all: the guides, the check against them, the symbol search, and
+        // the two log readers
         $tools = $server->getTools();
-        $this->assertCount(9, $tools);
+        $this->assertCount(10, $tools);
         $names = array_map(fn($t) => $t->name(), $tools);
         sort($names);
         $this->assertSame(
             [
+                'find-symbol',
                 'framework-docs',
                 'list-tables',
                 'log-analytics',

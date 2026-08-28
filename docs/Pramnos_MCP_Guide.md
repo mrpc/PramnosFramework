@@ -8,6 +8,7 @@ use_cases:
   - Checking a change against the framework's rules before calling it finished
   - Letting an assistant read this installation's error logs instead of being handed a paste
   - Working out what an MCP tool actually returns, or why a client says it is broken
+  - Finding out who calls a method, or where a class is defined, without grepping
 ---
 
 # MCP server
@@ -17,8 +18,9 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 as Claude Code expects, and it exposes two kinds of thing:
 
 - **tools** — callable capabilities: five introspect the application, two report what its logs
-  say, and two need neither an application nor a database because they are about the framework
-  itself — one reads its guides, the other checks this project against its rules;
+  say, one answers where a symbol is defined and who calls it, and two are about the framework
+  itself — one reads its guides, the other checks this project against its rules. Only the
+  first five need an application or a database;
 - **resources** — read-only files the assistant can fetch by URI.
 
 There is no HTTP surface and no port. The client starts the process, talks to it on stdin
@@ -84,10 +86,14 @@ for every one of its servers.
 | `migration-status` | Which migrations have run and which are pending |
 | `model-inspect` | A model's table, primary key, columns and relations |
 | `route-list` | Every registered route, with method, URI, action and permissions |
+| `find-symbol` | **Where a symbol is defined and who calls it** — see below |
 | `log-analytics` | **What is going wrong here, and how much** — see below |
 | `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
 | `pramnos-check` | **Whether this project has broken a documented rule** — see below |
+
+`find-symbol` reads source files and needs neither, so it works when nothing boots — which is
+when it is most likely to be wanted.
 
 The first five are **application introspection**: they answer *what exists in this
 project*. They need a database or an application to answer at all, and two of them are
@@ -224,6 +230,68 @@ Those are real, and they are the argument for the tool existing: the rules were 
 and the framework itself drifted from them in seventy-six places. They are recorded rather
 than quietly fixed, because rewriting seventy-six call sites is a decision about priorities
 and not a tidy-up.
+
+### `find-symbol`
+
+The question `grep` cannot answer. Grep finds **strings**; this finds **calls**, and names the
+function each one sits inside.
+
+```jsonc
+{"name": "hasTable"}                          // definitions and callers
+{"name": "SchemaBuilder::hasTable"}           // narrow the definitions
+{"name": "LogAnalytics", "scope": "app"}      // only the consuming project
+{"name": "parseTimestamp", "kind": "callers"}
+```
+
+```jsonc
+{
+  "symbol": "hasTable",
+  "files": {"searched": 1550, "containing": 8},
+  "definitions": [
+    {"source": "framework", "file": "…/SchemaBuilder.php", "kind": "method",
+     "name": "Pramnos\Database\SchemaBuilder::hasTable", "line": 308}
+  ],
+  "callers": [
+    {"source": "framework", "file": "…/Permissions.php", "line": 413,
+     "in": "Pramnos\Auth\Permissions::tableExists", "type": "method",
+     "code": "return $database->schema()->hasTable($table);"}
+  ],
+  "counts": {"definitions": 1, "callers": 7},
+  "complete": true
+}
+```
+
+**`in` is the field that matters.** `Permissions::tableExists` explains a line number;
+`src/Pramnos/Auth/Permissions.php:413` does not. The tool exists because of an afternoon spent
+tracing which code ran a particular query: eight greps, and then a patch to
+`QueryBuilder::exists()` that dumped a backtrace — in a framework whose entire source was on
+disk. Grep could not find it, because the calling line contained neither word being searched
+for: it read `$database->queryBuilder()->table($table)`, and the name was in a constant three
+lines up.
+
+Token-based, so a mention in a comment, a doc-block or a string literal is not reported — which
+is most of what grep returns when the name is an ordinary English word like `logs` or `table`.
+Measured on one case: grep returned 14 hits for `parseTimestamp`; four were calls, ten were in
+tests, and one was a sentence in a comment.
+
+- **`scope`** is `all` (default), `app` or `framework`. The framework's own **tests** are in
+  scope: "a test asserts this" is part of the answer to "who calls this", and it is what tells
+  you whether changing it is safe.
+- **`type`** on each caller distinguishes `method`, `static`, `call`, `new` and `class-ref` —
+  the last being `Foo::` with no parentheses after the name, which is how a class reached
+  statically is used, and how most of this framework's classes are used.
+- **A qualified name matches on its last segment**, so `\Pramnos\Logs\LogAnalytics::summary()`
+  is found by searching for `LogAnalytics`.
+- **Naming a class narrows the definitions, not the callers**, and the answer says so:
+  establishing that a given `$thing->hasTable()` is a `SchemaBuilder` would need type
+  inference.
+- **What it cannot see:** a dynamic call (`$method()`, `call_user_func`), a type hint, a `use`
+  statement, `instanceof`. An empty answer says this, because "nothing calls this" is how a
+  method gets deleted.
+
+No cache, deliberately: tokenising all 557 files of the framework measures at 60ms, and a cache
+is a second source of truth that can be stale about the one thing this tool exists to be right
+about.
 
 ### `log-analytics` and `log-errors`
 
