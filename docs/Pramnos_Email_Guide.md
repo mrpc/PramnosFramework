@@ -305,6 +305,34 @@ from a column an administrator edits. Anything with a separator in it is refused
 sanitised — there is no correct number of `..` segments to strip, and a name with a slash in
 it was never a wrapper name.
 
+## The inbox a message lands in
+
+`/messages` is where an account reads what was sent to it: a list, one message per page, and
+reading it marks it read. Not a mail client — no compose, no reply, no folders. The screens it
+does not have are screens nobody has to maintain.
+
+```php
+// src/Controllers/Messages.php — what `pramnos init` writes for an application
+class Messages extends \Pramnos\Messaging\Controllers\MessagesController {}
+```
+
+`MessagesController::unreadCount($userId)` is the number for a badge; it answers zero rather
+than throwing, because a badge is not worth an exception on an unrelated page.
+
+**This is the other end of a dead end.** `messages` has been in the schema since the messaging
+feature shipped, `MassMessageDispatcher` writes a row per recipient when a broadcast goes out as
+an internal message, and `Message::countUnread()` counted them — and nothing displayed any of
+it. An operator could compose a message, choose "internal message", watch the progress screen
+report every recipient delivered, and no recipient could read a word of it. Every part of the
+machinery was working: the insert succeeded, the count was right, the admin screen was honest
+about what it had done. Only the reader was missing, and no test notices a reader that was never
+written.
+
+`messages.type` carries the state, and it is overloaded — the same column distinguishes an inbox
+item from a sent one, an archived one and a deleted one. The listing therefore *names* the states
+it wants (`MessagesController::INBOX_TYPES`) rather than excluding the ones it does not: a state
+added later must not appear in somebody's inbox because a `NOT IN` list was not updated.
+
 ## A message to many accounts
 
 `massmessages` and `massmessagerecipients` have been in the schema since the messaging

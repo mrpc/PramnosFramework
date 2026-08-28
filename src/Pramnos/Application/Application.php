@@ -1239,6 +1239,20 @@ class Application extends Base
             'user.account', 'My Account', $base . 'account',
             NavSection::User, 10, requireAuth: true,
         ));
+        /*
+         * The inbox, when this application has the messaging feature.
+         *
+         * Registered here rather than left to each application because the table it reads has
+         * been written to since that feature shipped — a mass message sent as an internal
+         * message writes one row per recipient — and nothing displayed any of it. The
+         * administration side reported every recipient delivered, and "delivered" meant
+         * "written to a table nobody looks at".
+         */
+        NavRegistry::register(new NavItem(
+            'user.messages', 'Messages', $base . 'messages',
+            NavSection::User, 5, requireAuth: true, feature: 'messaging',
+            icon: 'mail',
+        ));
         NavRegistry::register(new NavItem(
             'user.logout', 'Logout', $base . 'login/logout',
             NavSection::User, 99, requireAuth: true,

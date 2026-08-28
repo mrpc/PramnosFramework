@@ -8425,5 +8425,37 @@ class MassMessages extends FrameworkMassMessagesController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/MassMessages.php', $controller);
+
+        /*
+         * And the reader, because the sender without it is a dead end.
+         *
+         * Choosing "internal message" writes one row per recipient into `messages`, the
+         * progress screen reports them delivered, and without this controller no recipient can
+         * read a word of it. Public rather than in the admin area: it is the account's own
+         * inbox.
+         */
+        $this->mkdir('src/Controllers');
+
+        $inbox = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Messaging\\Controllers\\MessagesController as FrameworkMessagesController;
+
+/**
+ * The account's own messages — `/messages`.
+ *
+ * Delegates to the framework controller: a list, one message per page, and reading it marks
+ * it read. Override an action here to change what a reader sees.
+ */
+class Messages extends FrameworkMessagesController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Messages.php', $inbox);
     }
 }

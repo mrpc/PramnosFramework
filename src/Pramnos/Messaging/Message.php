@@ -187,19 +187,24 @@ class Message extends \Pramnos\Application\Model
      */
     public function countUnread(int $userId): int
     {
-        $db  = \Pramnos\Database\Database::getInstance();
-        $uid = (int) $userId;
-        $types = implode(',', [self::TYPE_NEW, self::TYPE_UNREAD]);
-
-        $result = $db->query(
-            "SELECT COUNT(*) AS cnt FROM messages WHERE touserid = {$uid} AND type IN ({$types})"
-        );
-
-        if (!$result || !$result->fetch()) {
+        /*
+         * Through the query builder, and `#PREFIX#messages` rather than `messages`.
+         *
+         * This read a table called `messages` with no prefix, which is the right name on an
+         * installation with no prefix and a table that does not exist on any other — so the
+         * count was zero for everybody, for ever, on exactly the installations that configure
+         * one. It had no caller until the inbox screen, which is why nobody found out.
+         */
+        try {
+            return (int) \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#messages')
+                ->where('touserid', (int) $userId)
+                ->whereIn('type', [self::TYPE_NEW, self::TYPE_UNREAD])
+                ->count();
+        } catch (\Throwable) {
+            // A badge is not worth an exception on an unrelated page.
             return 0;
         }
-
-        return (int) ($result->fields['cnt'] ?? 0);
     }
 
     /**
@@ -210,17 +215,15 @@ class Message extends \Pramnos\Application\Model
      */
     public function countUnreadNotifications(int $userId): int
     {
-        $db  = \Pramnos\Database\Database::getInstance();
-        $uid = (int) $userId;
-
-        $result = $db->query(
-            "SELECT COUNT(*) AS cnt FROM messages WHERE touserid = {$uid} AND type = " . self::TYPE_NOTIFICATION_NEW
-        );
-
-        if (!$result || !$result->fetch()) {
+        // As countUnread(): the prefix, and a failure that answers zero rather than throwing.
+        try {
+            return (int) \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#messages')
+                ->where('touserid', (int) $userId)
+                ->where('type', self::TYPE_NOTIFICATION_NEW)
+                ->count();
+        } catch (\Throwable) {
             return 0;
         }
-
-        return (int) ($result->fields['cnt'] ?? 0);
     }
 }
