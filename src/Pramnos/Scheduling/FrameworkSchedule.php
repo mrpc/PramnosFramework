@@ -223,6 +223,16 @@ class FrameworkSchedule
                 'description' => 'Delete spent and expired second-factor codes and enrolments',
             ],
 
+            // Mass messages: the pending recipients of whatever is due. Not in the
+            // request that pressed send — four thousand emails inside a POST is a
+            // request that times out halfway, with nobody able to say how far it got.
+            // Every five minutes, and one batch per run: a large send takes as many
+            // runs as it needs and a message queued behind it is not starved.
+            'messages:dispatch' => [
+                'cadence'     => [['everyFiveMinutes']],
+                'description' => 'Deliver pending recipients of due mass messages',
+            ],
+
             // Queued OAuth2 webhook events. The producers — GDPR erasure, device
             // deauthorization, permission changes — have always written them; for
             // a long time nothing read them, so they sat `pending` and the relying

@@ -665,6 +665,7 @@ class Init extends Command
 
         if (in_array('messaging', $enabledFeatures, true)) {
             $this->scaffoldMailTemplatesWiring($namespace);
+            $this->scaffoldMassMessagesWiring($namespace);
         }
 
         if (!empty($selectedLibraries)) {
@@ -8283,5 +8284,40 @@ class MailTemplates extends FrameworkMailTemplatesController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/MailTemplates.php', $controller);
+    }
+
+    /**
+     * Creates src/Admin/Controllers/MassMessages.php — the compose-and-send screen.
+     *
+     * The `messaging` feature ships `massmessages`, `massmessagerecipients` and a model for
+     * each; without this wrapper the screen has no route, and telling an application's users
+     * something goes back to being a loop somebody writes inside a request.
+     */
+    private function scaffoldMassMessagesWiring(string $namespace): void
+    {
+        $this->mkdir('src/Admin/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Messaging\\Controllers\\MassMessagesController as FrameworkMassMessagesController;
+
+/**
+ * Mass message administration.
+ *
+ * Delegates to the framework controller. \$requiredUserType is 90 there, because this
+ * screen mails every account; lower it here only if this application's hierarchy puts that
+ * decision somewhere else.
+ */
+class MassMessages extends FrameworkMassMessagesController
+{
+}
+PHP;
+
+        $this->writeFile('src/Admin/Controllers/MassMessages.php', $controller);
     }
 }

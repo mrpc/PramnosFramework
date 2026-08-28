@@ -303,6 +303,58 @@ from a column an administrator edits. Anything with a separator in it is refused
 sanitised — there is no correct number of `..` segments to strip, and a name with a slash in
 it was never a wrapper name.
 
+## A message to many accounts
+
+`massmessages` and `massmessagerecipients` have been in the schema since the messaging
+feature shipped, with a model each and nothing that composed, sent or displayed one. There
+is now `/admin/MassMessages`, and behind it two classes:
+
+```php
+$audience = (new MassMessageAudience())->resolve(['usertype_min' => 0]);
+(new MassMessageDispatcher())->queue($messageId, $audience);   // once, in the request
+(new MassMessageDispatcher())->dispatch(100);                  // over and over, on a timer
+```
+
+### Queueing and delivering are separate because they fail differently
+
+`queue()` writes one recipient row per account and returns. `dispatch()` — driven by
+`messages:dispatch`, scheduled every five minutes — takes pending recipients in batches and
+marks each one as it is attempted.
+
+A send of four thousand emails inside a POST is a request that times out halfway, leaving an
+operator with no idea how far it got and a page offering to send again. Here the answer to
+"how far did it get" is a row count, and the answer to "is it safe to run again" is yes.
+
+**Queueing is the step that must not repeat.** A message that already has recipients is
+refused rather than queued a second time: everything else on this screen is recoverable, and
+that one reaches every person on the list.
+
+### What each channel means
+
+| Type | Delivery | Failure |
+| --- | --- | --- |
+| `TYPE_EMAIL` | one email per recipient, in the recipient's language and this installation's wrapper | the mailer refused it |
+| `TYPE_MESSAGE` | a row in `messages` — the account's own inbox | the write failed |
+| `TYPE_PUSH` | nothing; the framework has no push transport | every recipient, so it is visible |
+
+Push is refused rather than skipped. An operator who chose it is owed "there is no transport
+for this", not a message that reports itself sent to nobody.
+
+### The audience is resolved once
+
+Criteria are stored on the message (`request`, as JSON); the list they meant is stored in
+`massmessagerecipients`. Re-resolving at delivery time would silently include accounts
+created after somebody approved the send and drop the ones deleted since — so the recipients
+would stop matching what was approved.
+
+`usertype_min`, `validated_only` and `active_only`, all defaulting to "every account that can
+actually receive something". An application with its own idea of an audience hands
+`queue()` its own list of ids instead.
+
+The compose screen counts the audience **before** anybody presses send, because a count is
+the one number that changes an operator's mind, and it is exactly the number nobody has when
+the send is a loop somebody wrote in a controller.
+
 ## Email Tracking
 
 The framework includes built-in email tracking functionality that can track when emails are opened.

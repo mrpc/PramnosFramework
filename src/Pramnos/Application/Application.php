@@ -1297,6 +1297,20 @@ class Application extends Base
             ));
         }
 
+        // Mass messages — messaging feature. Same story as the templates one step above,
+        // one step further along: `massmessages` and `massmessagerecipients` shipped with
+        // models and nothing that composed, sent or displayed one, so telling an
+        // application's users something meant writing a loop inside a request.
+        //
+        // `minUserType: 90` rather than 80: this screen mails everybody.
+        if (in_array('messaging', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.massmessages', 'Mass messages', $admin('MassMessages'),
+                NavSection::Admin, 29, requireAuth: true, minUserType: 90,
+                feature: 'messaging', icon: 'mail', group: 'System',
+            ));
+        }
+
         // Queue — queue feature
         if (in_array('queue', $features, true)) {
             NavRegistry::register(new NavItem(
