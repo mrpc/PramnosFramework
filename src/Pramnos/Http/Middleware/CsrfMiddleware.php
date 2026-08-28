@@ -41,13 +41,37 @@ class CsrfMiddleware implements MiddlewareInterface
 {
     private const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS', 'TRACE'];
 
+    /**
+     * Paths that must accept a POST from somewhere that cannot hold a session token.
+     *
+     * `unsubscribe` is here by default, and it is not an oversight to be tidied away. RFC 8058
+     * one-click means a *mailbox provider's* server POSTs to that URL on the reader's behalf —
+     * Gmail has no session with this site and no token to send, so a CSRF check there rejects
+     * every unsubscribe a provider makes and the sender is judged on the failure. The signed
+     * token in the URL is that endpoint's defence, and it is a better one for the purpose: an
+     * attacker who cannot mint one cannot unsubscribe anybody, with or without a session.
+     *
+     * @var list<string>
+     */
+    private const DEFAULT_EXEMPT = ['unsubscribe'];
+
+    /**
+     * @param string       $fieldName   POST field carrying the token
+     * @param list<string> $exemptPaths First URL segments to let through, in addition to
+     *                                  {@see DEFAULT_EXEMPT}
+     */
     public function __construct(
-        private string $fieldName = '_csrf_token'
+        private string $fieldName = '_csrf_token',
+        private array $exemptPaths = []
     ) {}
 
     public function handle(Request $request, callable $next): mixed
     {
         if (in_array(strtoupper($request->getRequestMethod()), self::SAFE_METHODS, true)) {
+            return $next($request);
+        }
+
+        if ($this->isExempt()) {
             return $next($request);
         }
 
@@ -61,6 +85,25 @@ class CsrfMiddleware implements MiddlewareInterface
         }
 
         return $next($request);
+    }
+
+    /**
+     * Is this request's first path segment exempt?
+     *
+     * The first segment only, matched exactly: `unsubscribe` must not also exempt
+     * `unsubscribe-everything` or an application route that merely starts with those letters.
+     */
+    private function isExempt(): bool
+    {
+        $path    = trim((string) Request::$requestUri, '/');
+        $segment = strtolower(explode('/', explode('?', $path)[0])[0]);
+
+        if ($segment === '') {
+            return false;
+        }
+
+        return in_array($segment, self::DEFAULT_EXEMPT, true)
+            || in_array($segment, array_map('strtolower', $this->exemptPaths), true);
     }
 
     /**

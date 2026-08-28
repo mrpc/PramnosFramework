@@ -9,6 +9,7 @@
  *   $content  — the message body, already HTML
  *   $subject  — the subject line
  *   $sitename, $siteurl, $year
+ *   $unsubscribeUrl, $unsubscribeList — set only on mail that belongs to a list
  *
  * Written the way HTML mail has to be written, which is not how the rest of this framework
  * writes HTML: nested tables, inline attributes, no stylesheet and no class names. Outlook
@@ -22,6 +23,20 @@
  */
 $name = (string) ($sitename ?? '');
 $url  = (string) ($siteurl ?? '');
+
+/*
+ * The visible unsubscribe line, on the messages that have one.
+ *
+ * Empty on transactional mail — a password reset, a second-factor code — and that is not an
+ * omission. Nobody unsubscribes from being able to sign in, no mailbox provider asks you to
+ * offer it there, and a link that appears on such a message teaches people that the link does
+ * nothing.
+ *
+ * A visible link *and* the `List-Unsubscribe` headers, because Gmail and Yahoo look at both.
+ * The header is what draws their own unsubscribe control; the line in the footer is what a
+ * reader who does not know about that control uses instead of the spam button.
+ */
+$unsubscribe = (string) ($unsubscribeUrl ?? '');
 $esc  = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
@@ -55,7 +70,12 @@ $esc  = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOT
                 <tr>
                     <td style="padding:18px 28px;border-top:1px solid #e5e7eb;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#6b7280;">
                         <?php echo $esc($name !== '' ? $name . ' · ' : ''); ?><?php echo $esc($year ?? ''); ?><br>
+                        <?php if ($unsubscribe !== ''): ?>
+                        You are receiving this because you asked to hear from us.
+                        <a href="<?php echo $esc($unsubscribe); ?>" style="color:#6b7280;">Unsubscribe</a>.
+                        <?php else: ?>
                         This message was sent to you because of an action on your account.
+                        <?php endif; ?>
                     </td>
                 </tr>
             </table>

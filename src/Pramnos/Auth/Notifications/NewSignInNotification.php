@@ -94,6 +94,24 @@ class NewSignInNotification implements NotificationInterface
      * @param  mixed $notifiable The recipient
      * @return array<string, string>
      */
+    /**
+     * This one belongs to a list, so it carries an unsubscribe link.
+     *
+     * The only notification the framework sends that does: the account can already turn these
+     * alerts off on its privacy screen, so there is a real preference for the link to act on —
+     * and honouring an unsubscribe flips that same checkbox, rather than leaving a switch that
+     * says "on" while a record elsewhere suppresses the mail.
+     *
+     * It matters most under the `optout` policy, where the mail arrives without having been
+     * asked for. A message somebody did not choose, with no way out except the spam button, is
+     * exactly what mailbox providers count — and they count it against the password resets
+     * too.
+     */
+    public function unsubscribeList(): string
+    {
+        return 'newsignin';
+    }
+
     public function toMail(mixed $notifiable): array
     {
         $device = SignInFingerprint::describe($this->fingerprint);

@@ -487,4 +487,69 @@ class CsrfTest extends TestCase
         // Assert
         $this->assertStringContainsString('name="form_token"', $html);
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Exempt paths
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The one-click unsubscribe endpoint accepts a POST with no token.
+     *
+     * RFC 8058 one-click means a *mailbox provider's* server POSTs to that URL on the reader's
+     * behalf. Gmail has no session with this site and no token to send, so a CSRF check there
+     * rejects every unsubscribe a provider makes — and the sender is judged on the failure,
+     * silently, by having its mail filed as spam.
+     *
+     * The signed token in the URL is that endpoint's defence, and a better one for the purpose:
+     * somebody who cannot mint one cannot unsubscribe anybody, session or no session.
+     */
+    public function testTheUnsubscribeEndpointIsExemptFromTheTokenCheck(): void
+    {
+        // Arrange
+        $middleware = new CsrfMiddleware();
+        $request = Request::create('/unsubscribe?u=whatever', 'POST');
+
+        // Act & Assert — no token anywhere, and it passes through
+        $this->assertSame('ok', $middleware->handle($request, $this->passThroughNext()));
+    }
+
+    /**
+     * An application can name paths of its own, and they are matched as whole segments.
+     *
+     * Whole segments, because a prefix match would exempt more than was asked for: naming
+     * `hook` would let `hooks-admin` through, which is the kind of hole nobody finds by reading
+     * the config.
+     */
+    public function testAnApplicationCanExemptItsOwnPathsAndOnlyThose(): void
+    {
+        // Arrange
+        $middleware = new CsrfMiddleware('_csrf_token', ['webhook']);
+
+        // Act & Assert
+        $this->assertSame(
+            'ok',
+            $middleware->handle(Request::create('/webhook/stripe', 'POST'), $this->passThroughNext())
+        );
+
+        $this->expectException(\Exception::class);
+        $middleware->handle(
+            Request::create('/webhook-admin', 'POST'),
+            $this->passThroughNext()
+        );
+    }
+
+    /**
+     * Everything else still needs a token.
+     *
+     * The assertion that the exemption is an exemption rather than a hole.
+     */
+    public function testAnOrdinaryPostStillNeedsAToken(): void
+    {
+        // Arrange
+        $middleware = new CsrfMiddleware();
+
+        // Act & Assert
+        $this->expectException(\Exception::class);
+        $middleware->handle(Request::create('/transfer', 'POST'), $this->passThroughNext());
+    }
 }

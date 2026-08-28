@@ -221,7 +221,22 @@ class MassMessageDispatcher
     }
 
     /**
+     * The list a mass mailing belongs to.
+     *
+     * One name for all of them, because that is what a reader is unsubscribing from: they
+     * pressed the button on an announcement and mean "no more announcements", not "no more of
+     * announcement 4171". An application that sends distinguishable kinds overrides this.
+     */
+    public const UNSUBSCRIBE_LIST = 'massmessages';
+
+    /**
      * Mail it, in the recipient's own language and the installation's wrapper.
+     *
+     * This is the bulk sender Gmail and Yahoo wrote their rules for, so every message carries
+     * `List-Unsubscribe`, its one-click companion and a visible link — and an address that has
+     * used one is skipped rather than mailed again. Recorded as delivered when it is skipped:
+     * the recipient row is a record of what happened to a person, and "we honoured their
+     * request" is not a failure to retry on the next run.
      */
     protected function deliverAsEmail(array $message, int $userId): bool
     {
@@ -229,6 +244,10 @@ class MassMessageDispatcher
 
         if ((int) $user->userid !== $userId || trim((string) $user->email) === '') {
             return false;
+        }
+
+        if (\Pramnos\Email\Unsubscribe::isOptedOut((string) $user->email, static::UNSUBSCRIBE_LIST)) {
+            return true;
         }
 
         return (bool) \Pramnos\Translator\Language::using(
@@ -239,6 +258,7 @@ class MassMessageDispatcher
                 $mailer->body    = (string) ($message['message'] ?? '');
                 $mailer->to      = (string) $user->email;
                 $mailer->module  = 'massmessage';
+                $mailer->offerUnsubscribe(static::UNSUBSCRIBE_LIST, (string) $user->email);
 
                 return (bool) $mailer->send();
             }

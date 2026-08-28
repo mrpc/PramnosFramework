@@ -29,10 +29,40 @@ class Email extends \Pramnos\Framework\Base
     public $abuse = NULL;
     
     /**
-     * Unsubscribe link or email address
+     * Unsubscribe URL (or a bare `mailto:`), for the `List-Unsubscribe` header
      * @var string|null
      */
     public $unsubscribe = NULL;
+
+    /**
+     * A `mailto:` alternative offered alongside the URL
+     *
+     * Both go in the header when both are set. A provider picks whichever it supports, and
+     * the mailto is what keeps the header useful in a client older than RFC 8058.
+     * @var string|null
+     */
+    public $unsubscribeMailto = NULL;
+
+    /**
+     * Does the URL accept a POST with no confirmation? (RFC 8058)
+     *
+     * When true, `List-Unsubscribe-Post: List-Unsubscribe=One-Click` goes out beside the
+     * link, which is what makes Gmail and Yahoo draw their own unsubscribe control instead of
+     * offering "report spam" as the easier option. It is a promise about the endpoint: a POST
+     * to that URL must unsubscribe immediately, with no login and no "are you sure" page.
+     * @var bool
+     */
+    public $unsubscribeOneClick = false;
+
+    /**
+     * The list this message belongs to, or empty for transactional mail
+     *
+     * Not a header — it is what the visible footer link and the suppression check are built
+     * from. Transactional mail (a password reset, a second-factor code) has no list and gets
+     * no link: nobody unsubscribes from being able to sign in.
+     * @var string
+     */
+    public $unsubscribeList = '';
     
     /**
      * Custom email headers
@@ -278,6 +308,65 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * Offer an unsubscribe: the link, the mailto, the headers and the footer line.
+     *
+     * ```php
+     * $email->offerUnsubscribe('marketing');                  // for a known address
+     * $email->offerUnsubscribe('marketing', 'a@example.com');  // before setTo()
+     * ```
+     *
+     * One call rather than four properties, because the four have to agree: a
+     * `List-Unsubscribe-Post` promising one-click over a URL that shows a confirmation page is
+     * worse than no header, and a header with no visible link in the body fails the other half
+     * of what a mailbox provider looks at.
+     *
+     * @param  string $list  The list name — see {@see Unsubscribe}
+     * @param  string $email The recipient; defaults to whatever `setTo()` was given
+     * @return $this
+     */
+    public function offerUnsubscribe(string $list, string $email = '')
+    {
+        $address = $email !== '' ? $email : (string) $this->to;
+
+        if (trim($address) === '') {
+            return $this;
+        }
+
+        $token = Unsubscribe::token($address, $list);
+
+        $this->unsubscribeList     = $list;
+        $this->unsubscribe         = Unsubscribe::url($token);
+        $this->unsubscribeMailto   = Unsubscribe::mailto($token);
+        $this->unsubscribeOneClick = true;
+
+        return $this;
+    }
+
+    /**
+     * The `List-Unsubscribe` value: each entry in angle brackets, comma separated.
+     *
+     * @return string Empty when there is nothing to offer
+     */
+    protected function unsubscribeHeaderValue(): string
+    {
+        $entries = [];
+
+        foreach ([$this->unsubscribe, $this->unsubscribeMailto] as $candidate) {
+            $candidate = trim((string) $candidate);
+
+            if ($candidate === '') {
+                continue;
+            }
+
+            // Tolerate a caller that already wrapped it — this property predates the helper
+            // and existing applications set it by hand.
+            $entries[] = str_starts_with($candidate, '<') ? $candidate : '<' . $candidate . '>';
+        }
+
+        return implode(', ', array_unique($entries));
+    }
+
+    /**
      * Send the email
      * @return boolean
      */
@@ -288,7 +377,14 @@ class Email extends \Pramnos\Framework\Base
         $this->renderedBody = EmailTheme::wrap(
             (string) $this->body,
             $this->template,
-            ['subject' => (string) $this->subject]
+            [
+                'subject' => (string) $this->subject,
+                // So a wrapper can render the visible line. Empty on transactional mail, and
+                // a wrapper that prints an unsubscribe link on a password reset is a wrapper
+                // teaching its readers that the link means nothing.
+                'unsubscribeUrl'  => trim((string) $this->unsubscribe),
+                'unsubscribeList' => (string) $this->unsubscribeList,
+            ]
         );
 
         try {
@@ -503,9 +599,29 @@ class Email extends \Pramnos\Framework\Base
                 }
             }
             
-            // Handle unsubscribe header
-            if ($this->unsubscribe !== null && trim((string)$this->unsubscribe) != '') {
-                $email->getHeaders()->add(new \Symfony\Component\Mime\Header\UnstructuredHeader('List-Unsubscribe', trim((string)$this->unsubscribe)));
+            /*
+             * The two headers a mailbox provider looks for.
+             *
+             * `List-Unsubscribe` used to be emitted with whatever string the caller set, which
+             * is not a header value: RFC 2369 wants each entry inside angle brackets, and a
+             * bare URL is ignored — silently, because nothing in mail reports a malformed
+             * header back to the sender. So the header was there, looked right in a dump, and
+             * did nothing.
+             *
+             * `List-Unsubscribe-Post` is the other half, and the half Gmail and Yahoo actually
+             * require of anyone sending in volume. Without it they draw no unsubscribe control,
+             * and the reader's easiest way out of a list is the spam button — which is counted
+             * against every future message, including the transactional mail this header never
+             * appears on.
+             */
+            $unsubscribeHeader = $this->unsubscribeHeaderValue();
+
+            if ($unsubscribeHeader !== '') {
+                $email->getHeaders()->add(new \Symfony\Component\Mime\Header\UnstructuredHeader('List-Unsubscribe', $unsubscribeHeader));
+
+                if ($this->unsubscribeOneClick == true) {
+                    $email->getHeaders()->add(new \Symfony\Component\Mime\Header\UnstructuredHeader('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click'));
+                }
             }
             
             // Handle organization header

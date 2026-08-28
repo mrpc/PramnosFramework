@@ -1,0 +1,195 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Application\Controllers;
+
+use Pramnos\Email\Unsubscribe as UnsubscribeService;
+
+/**
+ * `/unsubscribe` — the endpoint the `List-Unsubscribe` headers point at.
+ *
+ * Two methods, and the difference between them is the whole reason this exists:
+ *
+ * - **POST** is RFC 8058 one-click. A mailbox provider's server sends it on the reader's
+ *   behalf, so there is no session, no login and no confirmation step — it unsubscribes and
+ *   answers 200. Gmail and Yahoo require this of anyone sending in volume, and they do not
+ *   report a failure back: mail from a sender whose endpoint refuses them is quietly filed as
+ *   spam, including the mail people wanted.
+ * - **GET** is a person clicking the link in the footer. It unsubscribes and says so on a page,
+ *   with a way back for somebody who pressed it by accident.
+ *
+ * Public on purpose. Requiring a login here would fail every one-click request and most of the
+ * human ones: people read mail in a browser they are not signed in to, and an address on a list
+ * does not always have an account at all. The signed token is the authorisation, and it is a
+ * better fit — it names one address and one list, it cannot be edited into naming somebody
+ * else's, and it works for a recipient this installation has never seen.
+ *
+ * The page is self-contained rather than themed, deliberately: it is one sentence shown to
+ * somebody who is leaving, and an application whose theme has no view for it would otherwise
+ * get a fatal at the worst possible moment. An application that wants its own look declares its
+ * own `Unsubscribe` controller, which takes precedence over this one.
+ *
+ * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
+ * @license MIT
+ */
+class Unsubscribe extends \Pramnos\Application\Controller
+{
+    public $actions = ['display'];
+
+    /**
+     * Unsubscribe, and say what happened.
+     */
+    public function display(array $args = []): void
+    {
+        $request = new \Pramnos\Http\Request();
+        $token   = (string) $request->get('u', '', 'request');
+        $method  = strtoupper((string) $request->getRequestMethod());
+        $oneClick = $method === 'POST';
+
+        $claim = $token === '' ? null : UnsubscribeService::verify($token);
+
+        if ($claim === null) {
+            /*
+             * A token that does not verify. Answered the same way whether it was truncated by
+             * a mail client, edited by somebody guessing, or signed before this installation's
+             * key changed — there is nothing useful to distinguish, and a message that
+             * confirmed which of those it was would be a message telling an attacker how close
+             * they are.
+             *
+             * One-click gets a 400 rather than a page: it is a machine, and a provider reading
+             * "we could not do it" as success is worse than the error.
+             */
+            if ($oneClick) {
+                $this->respond(400, 'This unsubscribe link is not valid.');
+
+                return;
+            }
+
+            $this->page(
+                'This link is not valid',
+                'We could not read this unsubscribe link. It may have been cut short by your '
+                . 'mail program. Replying to the message and asking to be removed works too, '
+                . 'and somebody will do it by hand.'
+            );
+
+            return;
+        }
+
+        $recorded = $this->optOut(
+            $claim['email'],
+            $claim['list'],
+            $oneClick ? 'one_click' : 'page'
+        );
+
+        if (!$recorded) {
+            /*
+             * The request verified and could not be written. Answered as a failure rather
+             * than with the usual page, because the page is a promise: "we have removed you"
+             * while the record does not exist is how somebody keeps receiving mail they have
+             * already unsubscribed from twice, and decides the sender is lying.
+             *
+             * A 500 for one-click, so a provider retries — this is exactly the case retrying
+             * fixes, since the cause is a database that was briefly unavailable.
+             */
+            if ($oneClick) {
+                $this->respond(500, 'Could not record the request. Please retry.');
+
+                return;
+            }
+
+            $this->page(
+                'We could not complete that',
+                'Something went wrong at our end and your request was not saved. Please try '
+                . 'the link again in a few minutes — or reply to the message and ask to be '
+                . 'removed, and somebody will do it by hand.'
+            );
+
+            return;
+        }
+
+        if ($oneClick) {
+            // A body nobody reads, but a 200 a provider does.
+            $this->respond(200, 'Unsubscribed.');
+
+            return;
+        }
+
+        $this->page(
+            'You have been unsubscribed',
+            'We have removed <strong>' . htmlspecialchars($claim['email'], ENT_QUOTES)
+            . '</strong> from these messages. Nothing else about your account has changed, and '
+            . 'messages you need in order to use it — a password reset, a security code — are '
+            . 'not affected.'
+        );
+    }
+
+    /**
+     * Record the unsubscribe. A seam, so a test needs no database to assert the answers.
+     */
+    protected function optOut(string $email, string $list, string $source): bool
+    {
+        return UnsubscribeService::optOut($email, $list, $source);
+    }
+
+    /**
+     * A plain response for a machine.
+     */
+    protected function respond(int $status, string $message): void
+    {
+        if (!headers_sent()) {
+            http_response_code($status);
+            header('Content-Type: text/plain; charset=utf-8');
+        }
+
+        echo $message . "\n";
+    }
+
+    /**
+     * A page for a person.
+     *
+     * Self-contained, and with `noindex` on it: an unsubscribe URL carries a token, and a
+     * search engine that indexed one would publish somebody's ability to unsubscribe them.
+     */
+    protected function page(string $title, string $body): void
+    {
+        $siteName = htmlspecialchars(
+            (string) \Pramnos\Application\Settings::getSetting('sitename'),
+            ENT_QUOTES
+        );
+        $siteUrl = (string) (\Pramnos\Application\Settings::getSetting('site_url')
+            ?: (defined('sURL') ? sURL : ''));
+
+        if (!headers_sent()) {
+            header('Content-Type: text/html; charset=utf-8');
+            header('X-Robots-Tag: noindex, nofollow');
+        }
+
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<meta name="robots" content="noindex, nofollow">'
+            . '<title>' . htmlspecialchars($title, ENT_QUOTES) . '</title>'
+            . '<style>'
+            . 'body{margin:0;padding:0;background:#f3f4f6;color:#1f2937;'
+            . 'font:16px/1.6 Helvetica,Arial,sans-serif;}'
+            . '.card{max-width:520px;margin:12vh auto;background:#fff;border:1px solid #e5e7eb;'
+            . 'border-radius:8px;padding:32px;}'
+            . 'h1{margin:0 0 12px;font-size:22px;}'
+            . 'a{color:#2563eb;}'
+            . '.site{margin:0 0 20px;font-size:13px;letter-spacing:.04em;'
+            . 'text-transform:uppercase;color:#6b7280;}'
+            . '@media (prefers-color-scheme: dark){'
+            . 'body{background:#111827;color:#e5e7eb;}'
+            . '.card{background:#1f2937;border-color:#374151;}'
+            . '.site{color:#9ca3af;}}'
+            . '</style></head><body><div class="card">'
+            . ($siteName !== '' ? '<p class="site">' . $siteName . '</p>' : '')
+            . '<h1>' . htmlspecialchars($title, ENT_QUOTES) . '</h1>'
+            . '<p>' . $body . '</p>'
+            . ($siteUrl !== ''
+                ? '<p><a href="' . htmlspecialchars($siteUrl, ENT_QUOTES) . '">'
+                    . 'Back to the site</a></p>'
+                : '')
+            . '</div></body></html>';
+    }
+}

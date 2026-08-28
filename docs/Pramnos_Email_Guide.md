@@ -3,6 +3,7 @@ use_cases:
   - Sending an email from application code
   - Configuring SMTP or another transport
   - Tracking or debugging delivery
+  - Offering an unsubscribe link and passing Gmail's bulk-sender rules
 ---
 
 # Pramnos Framework - Email System Guide
@@ -16,7 +17,8 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 3. [Configuration](#configuration)
 4. [Advanced Features](#advanced-features)
 5. [Email Tracking](#email-tracking)
-6. [SMTP Configuration](#smtp-configuration)
+6. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
+7. [SMTP Configuration](#smtp-configuration)
 7. [Error Handling](#error-handling)
 8. [Best Practices](#best-practices)
 9. [API Reference](#api-reference)
@@ -354,6 +356,135 @@ actually receive something". An application with its own idea of an audience han
 The compose screen counts the audience **before** anybody presses send, because a count is
 the one number that changes an operator's mind, and it is exactly the number nobody has when
 the send is a loop somebody wrote in a controller.
+
+## Unsubscribing, and what Gmail requires
+
+Gmail and Yahoo require this of anyone sending in volume, and they are not asking for a
+gesture. A bulk message must carry `List-Unsubscribe` **and** `List-Unsubscribe-Post`, the
+one-click endpoint must work with no login and no confirmation step, and the request must be
+honoured within two days. A sender who fails is not told: the mail is quietly filed as spam,
+including the mail people wanted.
+
+One call does all of it:
+
+```php
+$mail = new \Pramnos\Email\Email();
+$mail->to      = 'reader@example.com';
+$mail->subject = 'This month at Example';
+$mail->body    = $html;
+$mail->offerUnsubscribe('newsletter');   // after `to` is set
+$mail->send();
+```
+
+That sets four things that have to agree — the URL, the `mailto:` alternative, the one-click
+promise, and the list name the wrapper renders a visible link from. Set separately they can
+contradict each other, and a `List-Unsubscribe-Post` over a URL that shows a confirmation page
+is worse than no header at all: a provider follows it, gets a page, and counts the message as
+unhandled.
+
+Before sending, ask:
+
+```php
+if (\Pramnos\Email\Unsubscribe::isOptedOut($address, 'newsletter')) {
+    continue;   // they asked us to stop
+}
+```
+
+### Notifications say which list they belong to
+
+```php
+class WeeklyDigest implements NotificationInterface
+{
+    public function unsubscribeList(): string { return 'digest'; }
+    public function toMail(mixed $notifiable): array { … }
+}
+```
+
+`MailChannel` then does both halves without being asked: it skips an address that has opted
+out, and it offers the unsubscribe on the message it sends.
+
+**A notification that declares nothing is transactional** and gets none of it — no link, no
+header, no suppression. That is the right default. A password reset must arrive even for
+somebody who unsubscribed from everything, mailbox providers do not ask you to offer an
+unsubscribe there, and a link on such a message teaches people that the link does nothing.
+
+The framework's `newsignin` alerts are the one exception, because they have a real preference
+behind them: the account can already turn them off on its privacy screen, and honouring an
+unsubscribe flips that same checkbox.
+
+### The token is signed, not stored
+
+```php
+$token = \Pramnos\Email\Unsubscribe::token('reader@example.com', 'newsletter');
+```
+
+Nothing is written when a message goes out — a million-recipient send would otherwise write a
+million rows for links most people never open. The address and the list travel inside the
+token, signed with the installation's key, so an edited one fails verification and nobody can
+unsubscribe a stranger by changing a URL. There is no expiry, deliberately: people unsubscribe
+from a message they found six months later, and "this link has expired" is a sender making its
+own problem the reader's.
+
+### The endpoint
+
+`/unsubscribe` is a framework controller and is **public**, which it has to be: a one-click
+request arrives from a provider's server with no session, and an address on a list does not
+always have an account at all.
+
+| Method | Caller | Behaviour |
+| --- | --- | --- |
+| `POST` | a mailbox provider, on the reader's behalf | unsubscribes, answers `200`, no confirmation |
+| `GET` | a person clicking the footer link | unsubscribes and says so on a page |
+
+It is exempt from `CsrfMiddleware` by default, and that is not an oversight to be tidied away:
+Gmail has no token to send. A record that could not be written answers `500` to one-click, so
+the provider retries, and says so on the page rather than promising something that did not
+happen.
+
+An application that wants its own look declares its own `Unsubscribe` controller, which takes
+precedence.
+
+### What a list is
+
+A short name you choose — `marketing`, `newsletter`, `digest` — plus the reserved `all`, which
+suppresses everything carrying a link. Records live in `emailoptouts`, keyed on the **address**
+rather than a user id: an unsubscribe arrives from a mailbox, and often from somebody with no
+account — forwarded to, added to a list, inheriting an address.
+
+For a list backed by a preference somebody can see, say what unsubscribing means:
+
+```php
+\Pramnos\Email\Unsubscribe::handle('digest', function (string $email, string $list) {
+    Digest::disableFor($email);
+});
+```
+
+Otherwise a row the profile screen knows nothing about stops the mail while the checkbox still
+says it is on — a switch that lies to the person holding it.
+
+### `isOptedOut()` fails closed
+
+Alone among this framework's reads, it answers **true** when it cannot tell. Sending to
+somebody who unsubscribed is the one mistake a provider counts against every future message,
+including the transactional mail this is never asked about. A message not sent during a
+database outage is a message the next run sends.
+
+### The rest of the compliance list
+
+The parts that are not code:
+
+- **SPF, DKIM and DMARC** on the sending domain. Gmail requires authentication from every bulk
+  sender; without DKIM the headers above will not save you.
+- **A `From:` domain you own**, matching the DKIM signature. Not a free-mail address.
+- **A reply address that a person reads.** `admin_replymail`, and the `mailto:` unsubscribe uses
+  it too.
+- **Spam complaints under 0.10%**, measured in Google Postmaster Tools — the number the
+  unsubscribe link exists to keep down, because the alternative the reader has is the spam
+  button.
+- Every message goes out as `multipart/alternative` with a plain-text part already, which
+  `Email` builds from the HTML.
+
+---
 
 ## Email Tracking
 
