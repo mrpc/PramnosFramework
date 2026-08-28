@@ -343,14 +343,49 @@ class ApiCrudController extends Controller
         }
 
         try {
-            $database = \Pramnos\Database\Database::getInstance();
-            $table    = defined('DB_PERMISSIONSTABLE') ? DB_PERMISSIONSTABLE : '#PREFIX#permissions';
-            $exists   = (bool) $database->queryBuilder()->table($table)->exists();
+            $database = $this->db();
+            $table    = $this->legacyAclTable();
+            // Asked through the schema builder, not with a `SELECT ... FROM` against the
+            // table. A select against a table that is not there is an *error* on the way
+            // to being an answer: PostgreSQL raises `relation "permissions" does not
+            // exist`, the connection logs it before this catch ever sees it, and every
+            // API request on an installation with no legacy ACL wrote a line that looked
+            // like a fault. On this server it was the most frequent error in the log, and
+            // it was the framework asking a question. `Permissions::tableExists()` reached
+            // the same conclusion; this caller had not.
+            //
+            // `hasTable()` also resolves `#PREFIX#` and the schema/prefix difference
+            // between drivers, which the raw name did not.
+            $exists = $database->schema()->hasTable((string) $table);
         } catch (\Throwable) {
             $exists = false;
         }
 
         return $exists;
+    }
+
+    /**
+     * The legacy ACL table's name.
+     *
+     * Its own method, like {@see db()} below, so a test can point the probe at a table that
+     * certainly does not exist — which is the only state in which the bug above was
+     * visible, and the state every new installation is in.
+     */
+    protected function legacyAclTable(): string
+    {
+        return defined('DB_PERMISSIONSTABLE') ? DB_PERMISSIONSTABLE : '#PREFIX#permissions';
+    }
+
+    /**
+     * The connection this controller asks.
+     *
+     * A seam, matching `Permissions::db()`. The bug the probe above carried is a
+     * *dialect* fact — PostgreSQL logs the failed select, MySQL does not — so the test
+     * for it has to bring its own PostgreSQL connection.
+     */
+    protected function db(): \Pramnos\Database\Database
+    {
+        return \Pramnos\Database\Database::getInstance();
     }
 
     /**

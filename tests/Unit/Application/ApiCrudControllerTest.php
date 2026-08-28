@@ -459,4 +459,5 @@ class ApiCrudControllerTest extends TestCase
         $this->assertSame('probecrudcontroller', (new ProbeCrudController())->resource());
         $this->assertSame('invoices', (new NamedCrudController())->resource());
     }
+
 }
