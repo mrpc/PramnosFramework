@@ -6,6 +6,7 @@ use_cases:
   - Registering a project file as a resource an assistant can read
   - Working out why an assistant reimplemented something the framework already ships
   - Checking a change against the framework's rules before calling it finished
+  - Letting an assistant read this installation's error logs instead of being handed a paste
 ---
 
 # MCP server
@@ -14,9 +15,9 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 `php <cli> mcp:serve`. It speaks JSON-RPC 2.0 over stdio, which is what an assistant such
 as Claude Code expects, and it exposes two kinds of thing:
 
-- **tools** — callable capabilities: five introspect the application, and two need neither an
-  application nor a database because they are about the framework itself — one reads its
-  guides, the other checks this project against its rules;
+- **tools** — callable capabilities: five introspect the application, two report what its logs
+  say, and two need neither an application nor a database because they are about the framework
+  itself — one reads its guides, the other checks this project against its rules;
 - **resources** — read-only files the assistant can fetch by URI.
 
 There is no HTTP surface and no port. The client starts the process, talks to it on stdin
@@ -82,12 +83,15 @@ for every one of its servers.
 | `migration-status` | Which migrations have run and which are pending |
 | `model-inspect` | A model's table, primary key, columns and relations |
 | `route-list` | Every registered route, with method, URI, action and permissions |
+| `log-analytics` | **What is going wrong here, and how much** — see below |
+| `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
 | `pramnos-check` | **Whether this project has broken a documented rule** — see below |
 
 The first five are **application introspection**: they answer *what exists in this
 project*. They need a database or an application to answer at all, and two of them are
-skipped when no connection is configured.
+skipped when no connection is configured. The two log tools answer *what has been happening*,
+and need only a readable log directory.
 
 ### `framework-docs`
 
@@ -214,6 +218,67 @@ Those are real, and they are the argument for the tool existing: the rules were 
 and the framework itself drifted from them in seventy-six places. They are recorded rather
 than quietly fixed, because rewriting seventy-six call sites is a decision about priorities
 and not a tidy-up.
+
+### `log-analytics` and `log-errors`
+
+These two exist because of an asymmetry. «What is going wrong on this installation» is the
+first question anybody asks, and the answer already existed — the `/admin/logs` dashboard
+computes a trend, a breakdown by level, the most frequent errors with their counts, and a
+per-file error rate. It was reachable only by a human with an administrator's session.
+
+So an assistant asked to look at a problem got handed a pasted log file, which is both more
+work and less information: a paste has no counts, no rates, and no idea what it left out.
+
+The aggregation now lives in `Pramnos\Logs\LogAnalytics`, and the dashboard is one of its
+callers. One implementation on purpose — two copies of the same aggregation drift, and the day
+they disagree the screen and the tool each look right on their own.
+
+**`log-analytics`** returns the summary. Counts, not lines:
+
+```jsonc
+{}                                     // the last 24h, every readable file
+{"timespan": "1h"}                     // 1h, 6h, 24h, 7d, 30d
+{"timespan": "7d", "files": ["error.log"]}
+```
+
+```jsonc
+{
+  "timespan": "24h", "from": 1756300000, "to": 1756386400, "group": "hour",
+  "trends":    {"08:00": 4, "09:00": 0, "…": 0},
+  "levels":    {"info": 21, "error": 3},
+  "topErrors": [{"message": "column \"userid\" does not exist", "count": 2,
+                 "file": "error.log", "last_seen": "…"}],
+  "files":     {"error.log": {"last_entry": "…", "error_rate": 12.5, "total_entries": 24}},
+  "truncated": false
+}
+```
+
+Three things in that answer are deliberate:
+
+- **`topErrors` is keyed by the message**, so the same failure in three files is one row
+  carrying the total — which is the number somebody acts on, rather than three that each look
+  survivable.
+- **`truncated`** says a file was too large to scan in full and only its tail was read. Without
+  it, a summary of the last 25 MB of a multi-gigabyte log reads as a complete picture.
+- **An empty `files`** comes back with a `note`, because "no log files were readable" and
+  "nothing has gone wrong" are otherwise the same answer, and only one means stop looking.
+
+**`log-errors`** is the next question — what the lines say:
+
+```jsonc
+{}                                                  // newest error-level entries, last 24h
+{"levels": ["warning"], "query": "timeout"}
+{"files": ["error.log"], "timespan": "1h", "limit": 20}
+```
+
+Its defaults are the levels somebody means by "the error log" — `emergency`, `alert`,
+`critical`, `error`. `info` and `debug` are available by asking and are not what anybody wants
+first. The response is bounded at 200 entries and carries `complete`, which is false when the
+limit was reached: an answer that stopped early otherwise reads as «that is all there is»,
+which is the wrong conclusion for somebody deciding whether a problem is over.
+
+Files with no structured entries — `GitDeploy`, `GitWebhookDebug`, which are shell output — are
+skipped by both. Counting levels in them produces a number that looks like a measurement.
 
 ## The built-in resources
 

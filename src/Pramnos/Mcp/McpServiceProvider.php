@@ -6,6 +6,8 @@ namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
+use Pramnos\Mcp\Tools\LogAnalyticsTool;
+use Pramnos\Mcp\Tools\LogErrorsTool;
 use Pramnos\Mcp\Tools\PramnosCheckTool;
 use Pramnos\Mcp\Tools\ListTablesTool;
 use Pramnos\Mcp\Tools\MigrationStatusTool;
@@ -76,6 +78,21 @@ class McpServiceProvider extends ServiceProvider
         // behind it, since every rule it checks is something that happened after the guide
         // describing it was written.
         $server->addTool(new PramnosCheckTool());
+
+        /*
+         * What is going wrong right now, and what it says.
+         *
+         * These numbers existed in one place — the `/admin/logs` dashboard — reachable only by a
+         * human with an administrator's session. Which is the wrong shape for the first question
+         * anybody asks about an installation: an assistant asked to look at a problem had to be
+         * handed a pasted log file, which has no counts, no rates and no idea what it left out.
+         *
+         * Two tools rather than one, because they answer different questions: the summary says
+         * whether something is wrong and how much, and a hundred stack traces say nothing until
+         * somebody reads them.
+         */
+        $server->addTool(new LogAnalyticsTool());
+        $server->addTool(new LogErrorsTool());
 
         // Register standard file resources
         $root = defined('ROOT') ? ROOT : getcwd();

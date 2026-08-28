@@ -1077,121 +1077,30 @@ class LogController extends Controller
         // Get analytics data
         $timespan = Request::staticGet('timespan', '24h', 'get');
         
-        // Determine time range based on selected timespan
-        $endTime = time();
-        switch ($timespan) {
-            case '1h':
-                $startTime = $endTime - 3600;
-                $dateFormat = 'H:i';
-                $groupBy = 'minute';
-                break;
-            case '6h':
-                $startTime = $endTime - 21600;
-                $dateFormat = 'H:i';
-                $groupBy = 'minute';
-                break;
-            case '7d':
-                $startTime = $endTime - 604800;
-                $dateFormat = 'M d';
-                $groupBy = 'day';
-                break;
-            case '30d':
-                $startTime = $endTime - 2592000;
-                $dateFormat = 'M d';
-                $groupBy = 'day';
-                break;
-            case '24h':
-            default:
-                $startTime = $endTime - 86400;
-                $dateFormat = 'H:i';
-                $groupBy = 'hour';
-                break;
-        }
+        // The window, the grouping and the label format are the service's business now —
+        // `LogAnalytics::TIMESPANS` is the one table, and this screen's selector reads from it.
 
-        // Initialize analytics data
-        $logTrends = [];
-        $logLevels = [];
-        $topErrors = [];
-        $systemStatus = [];
-        $truncated = false; // set when any file was too large to scan in full
+        /*
+         * The aggregation moved to `Logs\LogAnalytics`.
+         *
+         * A hundred lines of it lived here, which meant these numbers were reachable only by a
+         * human with a browser and an administrator's session — the wrong shape for the first
+         * question anybody asks about an installation. They are a service now, and this screen is
+         * one of its callers; the MCP tools are the other. One implementation on purpose: two
+         * copies of an aggregation drift, and the day they disagree each looks right on its own.
+         */
+        $analytics = \Pramnos\Logs\LogAnalytics::summary($timespan, $this->whitelist);
 
-        // Collect analytics for each log file
-        foreach ($this->whitelist as $file) {
-            // Skip certain log files that might not have structured data
-            if (in_array($file, ['GitDeploy', 'GitWebhookDebug'])) {
-                continue;
-            }
-            
-            // Get path info
-            $pathInfo = pathinfo($file);
-            $name = $pathInfo['filename'];
-            $ext = $pathInfo['extension'] ?? 'log';
-            
-            // Get log analytics
-            $analytics = LogManager::getLogAnalytics($name, $ext, $startTime, $endTime, $groupBy);
-            
-            if (!empty($analytics)) {
-                if (!empty($analytics['truncated'])) {
-                    $truncated = true;
-                }
-                // Store trends data
-                foreach ($analytics['trends'] as $time => $count) {
-                    if (!isset($logTrends[$time])) {
-                        $logTrends[$time] = 0;
-                    }
-                    $logTrends[$time] += $count;
-                }
-                
-                // Store log levels data
-                foreach ($analytics['levels'] as $level => $count) {
-                    if (!isset($logLevels[$level])) {
-                        $logLevels[$level] = 0;
-                    }
-                    $logLevels[$level] += $count;
-                }
-                
-                // Store top errors
-                if (!empty($analytics['topErrors'])) {
-                    foreach ($analytics['topErrors'] as $error) {
-                        $key = md5($error['message']);
-                        if (!isset($topErrors[$key])) {
-                            $topErrors[$key] = [
-                                'message' => $error['message'],
-                                'count' => 0,
-                                'file' => $file,
-                                'last_seen' => $error['timestamp'] ?? ''
-                            ];
-                        }
-                        $topErrors[$key]['count'] += $error['count'];
-                    }
-                }
-                
-                // Store system status
-                $systemStatus[$file] = [
-                    'last_entry' => $analytics['lastEntry'] ?? null,
-                    'error_rate' => $analytics['errorRate'] ?? 0,
-                    'success_rate' => 100 - ($analytics['errorRate'] ?? 0),
-                    'total_entries' => $analytics['totalEntries'] ?? 0
-                ];
-            }
-        }
-        
-        // Sort top errors by count (descending)
-        uasort($topErrors, function($a, $b) {
-            return $b['count'] - $a['count'];
-        });
-        
-        // Limit to top 10 errors
-        $topErrors = array_slice($topErrors, 0, 10);
-        
-        // Format trend data for charts
-        $trendLabels = [];
-        $trendValues = [];
-        ksort($logTrends);
-        foreach ($logTrends as $time => $count) {
-            $trendLabels[] = date($dateFormat, $time);
-            $trendValues[] = $count;
-        }
+        $logTrends    = $analytics['trends'];
+        $logLevels    = $analytics['levels'];
+        $topErrors    = $analytics['topErrors'];
+        $systemStatus = $analytics['files'];
+        $truncated    = $analytics['truncated'];
+
+        // The service returns the trend already labelled and in order — the chart wants two
+        // parallel arrays.
+        $trendLabels = array_keys($logTrends);
+        $trendValues = array_values($logTrends);
         
         // Prepare level data for pie chart
         $levelLabels = array_keys($logLevels);
@@ -1212,12 +1121,22 @@ class LogController extends Controller
             $chartColors[] = $levelColors[$level] ?? '#74788d';
         }
 
-        // Enqueue the locally-bundled Chart.js (registered by the scaffolded
-        // app's registerVendorLibraries()). Chart.js is a mandatory library, so
-        // the handle is present; enqueuing by handle keeps it CSP-safe (served
-        // from assets/vendor/, never an inline CDN <script>).
+        /*
+         * Chart.js, and whether this installation has it.
+         *
+         * Enqueued by handle from `assets/vendor/`, never an inline CDN `<script>`, which is
+         * what keeps it inside the framework's own Content-Security-Policy.
+         *
+         * The `if` was a silent skip: `chartjs` is marked mandatory in the asset catalogue, so a
+         * project scaffolded before it was added has no handle for it — and this screen then
+         * rendered two cards with headings and empty canvases. A blank box with a title is the
+         * worst of the available failures, because it looks broken and says nothing. The view is
+         * told, so it can print the numbers instead.
+         */
         $doc = Factory::getDocument();
-        if (method_exists($doc, 'isScriptRegistered') && $doc->isScriptRegistered('chartjs')) {
+        $hasCharts = method_exists($doc, 'isScriptRegistered') && $doc->isScriptRegistered('chartjs');
+
+        if ($hasCharts) {
             $doc->enqueueScript('chartjs');
         }
 
@@ -1225,6 +1144,7 @@ class LogController extends Controller
         $view->toolbar      = $this->getToolbarLinks();
         $view->clearList    = $this->clearList;
         $view->timespan     = $timespan;
+        $view->hasCharts    = $hasCharts;
         $view->trendLabels  = $trendLabels;
         $view->trendValues  = $trendValues;
         $view->levelLabels  = array_map('ucfirst', $levelLabels);

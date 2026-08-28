@@ -4,6 +4,7 @@ use_cases:
   - Choosing a PSR-3 log level
   - Reading, rotating or migrating log files
   - Using the log viewer or the log console commands
+  - Getting the log dashboard's numbers from code, a command or an MCP tool
 ---
 
 # Pramnos Framework - Logging System Guide
@@ -267,6 +268,60 @@ foreach ($stats['level_distribution'] as $level => $count) {
 ```
 
 ## Log Viewer and Analytics
+
+### The dashboard's own figures — `LogAnalytics`
+
+Everything `/admin/logs` draws is one call. The aggregation used to live inside the controller,
+which meant a hundred lines of useful numbers were reachable only by a human with a browser and
+an administrator's session:
+
+```php
+use Pramnos\Logs\LogAnalytics;
+
+$summary = LogAnalytics::summary('24h');          // or '1h', '6h', '7d', '30d'
+$summary = LogAnalytics::summary('7d', ['error.log']);
+```
+
+```php
+[
+    'timespan'  => '24h',
+    'from'      => 1756300000,
+    'to'        => 1756386400,
+    'group'     => 'hour',
+    'trends'    => ['08:00' => 4, '09:00' => 0, /* … */],  // keyed by axis label
+    'levels'    => ['info' => 21, 'error' => 3],
+    'topErrors' => [
+        ['message' => '…', 'count' => 2, 'file' => 'error.log', 'last_seen' => '…'],
+    ],
+    'files'     => [
+        'error.log' => ['last_entry' => '…', 'error_rate' => 12.5, 'total_entries' => 24],
+    ],
+    'truncated' => false,
+]
+```
+
+And the entries themselves, newest first across every file:
+
+```php
+// Defaults to emergency/alert/critical/error — what somebody means by "the error log"
+$entries = LogAnalytics::entries();
+$entries = LogAnalytics::entries(['warning'], ['error.log'], '1h', 20, 'timeout');
+```
+
+Four things worth knowing before you use either:
+
+- **`topErrors` is keyed by the message**, so one failure appearing in three files is a single
+  row carrying the total. That is the number somebody acts on; three rows each look survivable.
+- **`truncated` is true** when a file was too large to scan in full and only its tail was read.
+  A summary of the last 25 MB of a multi-gigabyte log otherwise reads as a complete picture.
+- **An unknown timespan is `24h`**, and the returned `timespan` says so. The value usually
+  arrives from a query string.
+- **`GitDeploy` and `GitWebhookDebug` are skipped** — they are shell output, not structured
+  entries, and counting levels in them produces a number that looks like a measurement.
+
+The same service backs the `log-analytics` and `log-errors` MCP tools; see the
+[MCP guide](Pramnos_MCP_Guide.md). One implementation on purpose — two copies of an aggregation
+drift, and the day they disagree each caller looks right on its own.
 
 ### Real-time Log Viewing
 

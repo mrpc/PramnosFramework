@@ -42,16 +42,73 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         </div>
     <?php endif; ?>
 
+    <?php
+    /*
+     * The numbers, whether or not there is a Chart.js to draw them with.
+     *
+     * These two cards were a heading and an empty canvas on any installation without the
+     * `chartjs` handle — a project scaffolded before that library was added to the catalogue,
+     * which is a real state and one nothing announced. A blank box with a title is the worst of
+     * the available failures: it looks broken and says nothing, so the reader concludes the
+     * screen is broken rather than that an asset is missing.
+     *
+     * The data is on the server either way. Without the library it is a table, which is not as
+     * quick to read and is considerably better than nothing.
+     */
+    $hasCharts   = ($this->hasCharts ?? true) !== false;
+    $trendLabels = (array) ($this->trendLabels ?? []);
+    $trendValues = (array) ($this->trendValues ?? []);
+    $levelLabels = (array) ($this->levelLabels ?? []);
+    $levelValues = (array) ($this->levelValues ?? []);
+    ?>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
             <h3 class="font-semibold text-base-content mb-3">Log Entry Trends</h3>
+            <?php if ($hasCharts): ?>
             <div style="height:300px"><canvas id="log_trends_chart"></canvas></div>
+            <?php else: ?>
+            <div class="overflow-x-auto max-h-72">
+                <table class="table table-sm text-sm">
+                    <thead><tr class="text-left text-base-content/70"><th class="px-2 py-1">When</th><th class="px-2 py-1 text-right">Entries</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($trendLabels as $i => $label): ?>
+                        <tr><td class="px-2 py-1"><?php echo htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="px-2 py-1 text-right font-mono"><?php echo (int) ($trendValues[$i] ?? 0); ?></td></tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
         </div>
         <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
             <h3 class="font-semibold text-base-content mb-3">Log Levels Distribution</h3>
+            <?php if ($hasCharts): ?>
             <div style="height:300px"><canvas id="log_levels_chart"></canvas></div>
+            <?php else: ?>
+            <div class="overflow-x-auto max-h-72">
+                <table class="table table-sm text-sm">
+                    <thead><tr class="text-left text-base-content/70"><th class="px-2 py-1">Level</th><th class="px-2 py-1 text-right">Entries</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($levelLabels as $i => $label): ?>
+                        <tr><td class="px-2 py-1"><?php echo htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="px-2 py-1 text-right font-mono"><?php echo (int) ($levelValues[$i] ?? 0); ?></td></tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
+
+    <?php if (!$hasCharts): ?>
+    <div class="rounded-md bg-info/10 text-info px-4 py-3 text-sm mb-6">
+        The numbers above are shown as tables because this installation has no
+        <code>chartjs</code> asset registered. Vendor it into
+        <code>www/assets/vendor/chartjs/</code> and register the handle in
+        <code>Application::registerVendorLibraries()</code> — the framework's asset catalogue
+        lists the version it expects.
+    </div>
+    <?php endif; ?>
 
     <!-- Top errors -->
     <div class="card bg-base-100 border border-base-300 shadow-sm p-5 mb-6">

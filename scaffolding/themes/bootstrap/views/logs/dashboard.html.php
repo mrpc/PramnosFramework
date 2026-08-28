@@ -42,12 +42,41 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         </div>
     <?php endif; ?>
 
+    <?php
+    /*
+     * The numbers, whether or not there is a Chart.js to draw them with. See the Tailwind copy
+     * of this view for the reasoning: an empty `<canvas>` under a heading looks broken and says
+     * nothing, and an installation without the `chartjs` handle is a real state.
+     */
+    $hasCharts   = ($this->hasCharts ?? true) !== false;
+    $trendLabels = (array) ($this->trendLabels ?? []);
+    $trendValues = (array) ($this->trendValues ?? []);
+    $levelLabels = (array) ($this->levelLabels ?? []);
+    $levelValues = (array) ($this->levelValues ?? []);
+    $pairs = static function (array $labels, array $values): string {
+        $rows = '';
+        foreach ($labels as $i => $label) {
+            $rows .= '<tr><td>' . htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8')
+                . '</td><td style="text-align:right;font-family:monospace">'
+                . (int) ($values[$i] ?? 0) . '</td></tr>';
+        }
+
+        return $rows;
+    };
+    ?>
     <div class="row g-4 mb-4">
         <div class="col-12 col-lg-6">
             <div class="card shadow-sm h-100">
                 <div class="card-body">
                     <h3 class="h6 fw-semibold mb-3">Log Entry Trends</h3>
+                    <?php if ($hasCharts): ?>
                     <div style="height:300px"><canvas id="log_trends_chart"></canvas></div>
+                    <?php else: ?>
+                    <div class="table-responsive" style="max-height:300px">
+                        <table class="table table-sm"><thead><tr><th>When</th><th class="text-end">Entries</th></tr></thead>
+                        <tbody><?php echo $pairs($trendLabels, $trendValues); ?></tbody></table>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -55,11 +84,25 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
             <div class="card shadow-sm h-100">
                 <div class="card-body">
                     <h3 class="h6 fw-semibold mb-3">Log Levels Distribution</h3>
+                    <?php if ($hasCharts): ?>
                     <div style="height:300px"><canvas id="log_levels_chart"></canvas></div>
+                    <?php else: ?>
+                    <div class="table-responsive" style="max-height:300px">
+                        <table class="table table-sm"><thead><tr><th>Level</th><th class="text-end">Entries</th></tr></thead>
+                        <tbody><?php echo $pairs($levelLabels, $levelValues); ?></tbody></table>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
+    <?php if (!$hasCharts): ?>
+    <div class="alert alert-info small">
+        Shown as tables because this installation has no <code>chartjs</code> asset registered —
+        vendor it into <code>www/assets/vendor/chartjs/</code> and register the handle in
+        <code>Application::registerVendorLibraries()</code>.
+    </div>
+    <?php endif; ?>
 
     <!-- Top errors -->
     <div class="card shadow-sm mb-4">
