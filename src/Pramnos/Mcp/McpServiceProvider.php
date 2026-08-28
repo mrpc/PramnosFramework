@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Mcp\Tools\ConsoleCommandsTool;
 use Pramnos\Mcp\Tools\FindSymbolTool;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
 use Pramnos\Mcp\Tools\LogAnalyticsTool;
 use Pramnos\Mcp\Tools\LogErrorsTool;
 use Pramnos\Mcp\Tools\PramnosCheckTool;
+use Pramnos\Mcp\Tools\ThemeInfoTool;
 use Pramnos\Mcp\Tools\ListTablesTool;
 use Pramnos\Mcp\Tools\MigrationStatusTool;
 use Pramnos\Mcp\Tools\ModelInspectTool;
@@ -102,6 +104,31 @@ class McpServiceProvider extends ServiceProvider
          * anything boots.
          */
         $server->addTool(new FindSymbolTool());
+
+        /*
+         * What this CLI can do, from the live console definition.
+         *
+         * Twenty of the seventy commands generate code — `create:crud`, `create:screen`,
+         * `create:api-client`, `create:policy`. The reason this is a tool is that an assistant
+         * working in the codebase all day does not find out: it writes a controller by hand
+         * rather than running `create:controller`, because nothing told it the command exists,
+         * and `--help` on seventy commands is not a discovery mechanism.
+         *
+         * Read from the console rather than from a list kept here — a second catalogue is a
+         * second thing to forget, and this file has already been bitten by exactly that.
+         */
+        $server->addTool(new ConsoleCommandsTool());
+
+        /*
+         * The palette, and whether the stylesheet on disk was built from it.
+         *
+         * The second half is the reason. daisyUI is a Tailwind *plugin*, so a project that
+         * edits `app.css` and does not rebuild serves a stylesheet in which its component
+         * classes resolve to nothing: the page renders, unstyled, with no error anywhere. And
+         * the compiled file is committed on purpose — so a checkout serves the site without
+         * npm — which makes it exactly the kind of artifact somebody forgets to regenerate.
+         */
+        $server->addTool(new ThemeInfoTool());
 
         /*
          * What is going wrong right now, and what it says.

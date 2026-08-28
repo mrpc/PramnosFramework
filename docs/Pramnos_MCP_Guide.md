@@ -9,6 +9,8 @@ use_cases:
   - Letting an assistant read this installation's error logs instead of being handed a paste
   - Working out what an MCP tool actually returns, or why a client says it is broken
   - Finding out who calls a method, or where a class is defined, without grepping
+  - Finding out whether a generator already exists for the class you are about to write
+  - Reading the design tokens, or checking whether the compiled stylesheet is stale
 ---
 
 # MCP server
@@ -18,9 +20,10 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 as Claude Code expects, and it exposes two kinds of thing:
 
 - **tools** — callable capabilities: five introspect the application, two report what its logs
-  say, one answers where a symbol is defined and who calls it, and two are about the framework
-  itself — one reads its guides, the other checks this project against its rules. Only the
-  first five need an application or a database;
+  say, one answers where a symbol is defined and who calls it, one lists the CLI's own
+  commands, one reads the design tokens and the front-end build, and two are about the
+  framework itself — one reads its guides, the other checks this project against its rules.
+  Only the first five need an application or a database;
 - **resources** — read-only files the assistant can fetch by URI.
 
 There is no HTTP surface and no port. The client starts the process, talks to it on stdin
@@ -87,6 +90,8 @@ for every one of its servers.
 | `model-inspect` | A model's table, primary key, columns and relations |
 | `route-list` | Every registered route, with method, URI, action and permissions |
 | `find-symbol` | **Where a symbol is defined and who calls it** — see below |
+| `console-commands` | **Every CLI command, including the twenty code generators** — see below |
+| `theme-info` | **The design tokens, and whether the CSS was built from them** — see below |
 | `log-analytics` | **What is going wrong here, and how much** — see below |
 | `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
@@ -292,6 +297,90 @@ tests, and one was a sentence in a comment.
 No cache, deliberately: tokenising all 557 files of the framework measures at 60ms, and a cache
 is a second source of truth that can be stale about the one thing this tool exists to be right
 about.
+
+### `console-commands`
+
+Seventy-odd commands, twenty of which generate code. The reason this is a tool is the failure
+it fixes: an assistant working in a codebase for a whole day writes a controller by hand rather
+than running `create:controller`, because nothing told it the command exists. `--help` on
+seventy commands is not a discovery mechanism.
+
+```jsonc
+{}                                  // everything, grouped by prefix
+{"generators": true}                // only the commands that write files
+{"filter": "migration"}
+{"name": "create:crud"}             // one command's arguments and options
+```
+
+```jsonc
+{
+  "name": "create:crud",
+  "description": "Create a complete CRUD (model, controller, views and/or API + SPA screen)",
+  "usage": "create:crud [name]",
+  "generates": true,
+  "arguments": [{"name": "name", "description": "Name of the created object"}],
+  "options": [
+    {"name": "--table", "shortcut": "-t", "value": "value required", "description": "Database table"},
+    {"name": "--target", "value": "value optional", "description": "mvc, spa or both"}
+  ],
+  "class": "Pramnos\Console\Commands\Make\MakeCrud"
+}
+```
+
+- **`generates`** marks the commands that write files into the project. That is not something
+  to infer from a one-line description: it decides whether a command can be run to see what it
+  does.
+- **`class`** is there so `find-symbol` is the obvious next question when the description is not
+  enough. The two are meant to be used together.
+- Read from the **live** console definition. A second catalogue kept in the tool would be a
+  second thing to forget, and this file has already been bitten by exactly that.
+
+Twenty generators exist: `controller`, `model`, `migration`, `crud`, `api`, `api-client`,
+`screen`, `component`, `view`, `service`, `policy`, `provider`, `middleware`, `event`,
+`listener`, `task`, `webhook`, `seeder`, `test`, `command`. Ask before writing one by hand.
+
+### `theme-info`
+
+Two questions, and the second is the one that bites.
+
+```jsonc
+{}                              // palette, themes, theme directories, build, freshness
+{"theme": "msd-dark"}           // one theme's full token list
+{"token": "color-primary"}      // one token across every theme
+```
+
+«What colour is `--color-primary` here» is answerable by reading a file, once you know which
+file. «Is the CSS on disk built from the CSS in the repository» is not answerable by reading
+anything, and getting it wrong is silent:
+
+```jsonc
+"freshness": {
+  "built": true,
+  "built_at": "27/08/2026 14:51",
+  "stale": true,
+  "newer_than_the_build": ["src/Views/register/register.html.php", "…"],
+  "why": "These changed after the last build, so the served stylesheet does not reflect them."
+}
+```
+
+daisyUI is a Tailwind **plugin**, so it cannot come from a CDN and the build is not optional:
+without it the component classes resolve to nothing and the page renders *unstyled* rather than
+failing. And the compiled stylesheet is committed on purpose — so a checkout serves the site
+without npm — which makes it exactly the artifact somebody forgets to regenerate.
+
+Three kinds of source are checked, because Tailwind depends on all three: the entry stylesheet,
+the palette it `@import`s, and **every directory it `@source`s for class names**. The third is
+the one that surprises people — adding `btn-primary` to a view means that class has to be
+generated, so an untouched `app.css` is not evidence of a current bundle.
+
+The input and output paths are read out of the `package.json` script rather than assumed, the
+`--watch` script is never offered as the build command, and a project with no Tailwind script
+is told about `theme:build` instead — whose output has no freshness problem, because it is a
+direct translation of the palette.
+
+`{"token": …}` keeps a `null` where a theme does not declare the token, and says what that
+means: the value falls back to daisyUI's own, which is rarely the one beside it in the answer.
+That is usually the real question — "is this readable in the other theme".
 
 ### `log-analytics` and `log-errors`
 

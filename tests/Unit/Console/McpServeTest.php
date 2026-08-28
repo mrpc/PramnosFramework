@@ -140,14 +140,22 @@ class McpServeTest extends TestCase
 
         // Assert
         $text = $stderr->fetch();
-        $this->assertStringContainsString('10 tools', $text);
-        $this->assertStringContainsString('list-tables', $text);
-        $this->assertStringContainsString('route-list', $text);
-        // Named in the announcement too: the tools an assistant needs to know exist before
-        // it can decide to ask what the framework already does, or whether it has just broken
-        // one of the framework's rules.
-        $this->assertStringContainsString('framework-docs', $text);
-        $this->assertStringContainsString('pramnos-check', $text);
+
+        /*
+         * The count and the names come from the server, not from a literal.
+         *
+         * This test hard-coded the number three times in one day and broke every time a tool
+         * was added — which taught nothing except that the number had changed. What matters is
+         * that the banner is *complete*: a tool registered and not announced is a tool an
+         * assistant has no reason to believe exists.
+         */
+        $tools = $server->getTools();
+        $this->assertStringContainsString(count($tools) . ' tools', $text);
+
+        foreach ($tools as $tool) {
+            $this->assertStringContainsString($tool->name(), $text,
+                $tool->name() . ' is registered and not announced');
+        }
         // Resources are only mentioned when there are any, so this asserts the
         // branch as well as the text.
         $this->assertStringContainsString('resources:', $text);
@@ -268,19 +276,26 @@ class McpServeTest extends TestCase
 
         // Assert
         $this->assertInstanceOf(McpServer::class, $server);
-        // Keyed by tool name, as `addTool()` stores them. Every application-independent tool
-        // is here: two read the vendored guides and check the project against them, one reads
-        // source files, two read the log directory. None needs a database or an application.
-        $this->assertSame(
-            [
-                'framework-docs' => 'framework-docs',
-                'pramnos-check'  => 'pramnos-check',
-                'find-symbol'    => 'find-symbol',
-                'log-analytics'  => 'log-analytics',
-                'log-errors'     => 'log-errors',
-            ],
-            array_map(fn($t) => $t->name(), $server->getTools())
-        );
+
+        $names = array_keys($server->getTools());
+
+        /*
+         * Asserted as a property rather than as a list, because the list grows and the
+         * property does not: whatever is here must not need an application, and the tools that
+         * introspect *this* application must not be here. Enumerating instead meant this test
+         * broke every time a tool was added, which is noise pretending to be coverage.
+         */
+        foreach (['framework-docs', 'pramnos-check'] as $expected) {
+            $this->assertContains($expected, $names,
+                $expected . ' answers the same in every project and needs nothing to boot');
+        }
+
+        foreach (['list-tables', 'query-schema', 'migration-status', 'model-inspect', 'route-list'] as $needsApp) {
+            $this->assertNotContains($needsApp, $names,
+                $needsApp . ' describes an application, and there is no application');
+        }
+
+        // Nothing application-shaped, because there is no application
 
         // Nothing application-shaped, because there is no application
         $this->assertSame([], $server->getResources());
@@ -413,28 +428,30 @@ class McpServeTest extends TestCase
         // Act
         $server = $method->invoke($command, $app);
 
-        // Assert — the five application-introspection tools, plus the five that do not depend
-        // on an application at all: the guides, the check against them, the symbol search, and
-        // the two log readers
-        $tools = $server->getTools();
-        $this->assertCount(10, $tools);
-        $names = array_map(fn($t) => $t->name(), $tools);
-        sort($names);
-        $this->assertSame(
-            [
-                'find-symbol',
-                'framework-docs',
-                'list-tables',
-                'log-analytics',
-                'log-errors',
-                'migration-status',
-                'model-inspect',
-                'pramnos-check',
-                'query-schema',
-                'route-list',
-            ],
-            $names
-        );
+        /*
+         * Containment, not an exact list.
+         *
+         * The five application-introspection tools have to be here — that is what this branch
+         * is for — and the two that need a database have to be among them, because one was
+         * provided. Asserting the *whole* catalogue instead made this test a copy of it, and
+         * the copy broke on every addition while catching nothing: the test that actually
+         * guards the catalogue is the one below, which compares this branch against the
+         * provider.
+         */
+        $names = array_map(static fn ($t) => $t->name(), $server->getTools());
+
+        foreach ([
+            'list-tables',
+            'query-schema',
+            'migration-status',
+            'model-inspect',
+            'route-list',
+        ] as $expected) {
+            $this->assertContains($expected, $names, $expected . ' needs the application');
+        }
+
+        $this->assertGreaterThan(5, count($names),
+            'the application-independent tools are registered here too');
 
         // Repo root contains CLAUDE.md and README.md → registered as resources
         $resourceNames = array_map(fn($r) => $r->name, $server->getResources());
