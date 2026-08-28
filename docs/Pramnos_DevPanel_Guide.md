@@ -61,6 +61,50 @@ If you need the panel on a server that is not a development one, the answer is a
 use the [debug toolbar](Pramnos_Debug_Toolbar_Usage.md) with a signed one-browser token from
 `debug:token`, which expires on its own.
 
+## Adminer, at `/adminer`
+
+Adminer is the database tool most people already use, and the usual way to have it on a server
+is a PHP file dropped in the web root: a URL anybody can guess, protected by whatever the
+database password happens to be, and forgotten after the afternoon it was needed.
+
+```
+composer require vrana/adminer
+```
+
+That is all. The framework serves it at `/adminer`, and the Database tab links to it when the
+package is present.
+
+**Who may open it**, either:
+
+- **usertype ≥ 100** — the root account, on any deployment **including production**. That half
+  is deliberate: fixing data on a live server is a real thing an owner does, and a tool that
+  only works in development means they do it in `psql` with no undo, or leave `adminer.php` in
+  the web root for ever.
+- **a development environment**, subject to this panel's own usertype floor.
+
+Anything else gets a **404**, not a 403. A 403 confirms the route exists, and this is the one
+URL on the site where that is worth withholding.
+
+**Adminer keeps its own database login**, and this deliberately does not fill it in.
+Auto-login would make "may this browser reach a URL" the only thing between somebody and every
+row — and the accounts that can reach it are exactly the ones whose sessions are worth stealing.
+Two locks, and the second is not the framework's to remove.
+
+**A `suggest`, not a `require`.** A framework that shipped a database browser into every
+application's `vendor/` would enlarge the attack surface of applications that never asked for
+one, including the ones that do not read what a release added. With the package absent the route
+answers 404 like any other unknown address.
+
+Two details worth knowing:
+
+- Its assets live in `vendor/`, which no web root serves, and it links them as
+  `./static/default.css`. The output is rewritten to `?file=…` and those requests are served
+  from the package — the same trick Adminer's own single-file build uses. Paths are whitelisted
+  and resolved, because a whitelist that allows dots is one somebody gets through.
+- The route sends its own **CSP**. The site's policy is nonce-based and Adminer is full of
+  inline `onclick` handlers that a nonce policy blocks whatever the nonces say; the relaxation
+  applies to this URL and nothing else.
+
 ## The tabs
 
 ### Overview

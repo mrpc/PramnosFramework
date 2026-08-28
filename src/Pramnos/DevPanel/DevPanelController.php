@@ -597,7 +597,39 @@ class DevPanelController extends Controller
             $content .= $this->renderTimescaleDb($db);
         }
 
-        return $content;
+        // The tool most people would rather use, when the installation has it. A link rather
+        // than a reimplementation: this tab answers "what is in here and how big is it", and
+        // everything past that — editing a row, writing a query with completion, exporting —
+        // is what Adminer is for.
+        return $this->adminerLink() . $content;
+    }
+
+    /**
+     * A link to `/adminer`, when there is something behind it.
+     *
+     * Drawn only when the package is installed, so it never points at a 404 — `vrana/adminer`
+     * is a `suggest`, and most installations will not have it. The route's own gate is stricter
+     * than this panel's (root usertype, or this panel's floor in a development environment), so
+     * the link can appear for somebody the route will still refuse; saying what it requires is
+     * cheaper than a surprising 404.
+     */
+    private function adminerLink(): string
+    {
+        $root = defined('ROOT') ? ROOT : getcwd();
+        $installed = is_file($root . '/vendor/vrana/adminer/adminer/index.php')
+            || is_file($root . '/vendor/dg/adminer-custom/adminer.php');
+
+        if (!$installed) {
+            return '';
+        }
+
+        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+
+        return '<p style="margin:0 0 12px"><a href="' . htmlspecialchars($base . '/adminer', ENT_QUOTES)
+            . '" target="_blank" rel="noopener">Open Adminer &rarr;</a> '
+            . '<span style="opacity:.7">— the full database tool, behind this site\'s own gate. '
+            . 'Root accounts on any deployment; here, this panel\'s usertype floor. It keeps its '
+            . 'own database login.</span></p>';
     }
 
     private function renderTimescaleDb(\Pramnos\Database\Database $db): string

@@ -213,6 +213,12 @@ class TestClient
          * on them. Output written before the document renders comes first in the
          * response, which is the order a browser receives it in.
          */
+        // Reset first: `http_response_code()` is process-wide, so a 404 set by one test would
+        // otherwise be reported as the status of every request after it.
+        if (!headers_sent()) {
+            http_response_code(200);
+        }
+
         $bufferLevel = ob_get_level();
         ob_start();
 
@@ -349,6 +355,26 @@ class TestClient
     private function respond(Response $response): TestResponse
     {
         $echoed = ob_get_level() > 0 ? (string) ob_get_clean() : '';
+
+        /*
+         * The status the request actually set, when it set one.
+         *
+         * A controller that answers with `http_response_code(404)` and an `echo` — which is how
+         * the framework's own public endpoints answer, since they render no view — came back
+         * from here as **200**, because this builds its `Response` itself and never asked PHP
+         * what the request had decided. So a test could asserting nothing about the one thing a
+         * monitor, a crawler or a mailbox provider reads.
+         *
+         * Only an explicit code is taken. `http_response_code()` answers 200 both when
+         * something chose 200 and when nothing chose anything, so there is nothing to
+         * distinguish there — and a Response that already carries a status of its own (a
+         * redirect, a 403 from the area guard) is left alone.
+         */
+        $set = http_response_code();
+
+        if (is_int($set) && $set !== 200 && $response->getStatusCode() === 200) {
+            $response = $response->withStatus($set);
+        }
 
         if ($echoed === '') {
             return new TestResponse($response);
