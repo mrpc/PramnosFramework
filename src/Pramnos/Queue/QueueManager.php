@@ -484,6 +484,39 @@ class QueueManager
         return 'queueitems';
     }
 
+    /**
+     * A controller for the queue's models to hold — the named one, or a plain one.
+     *
+     * `Application\Model` takes a `Controller` in its constructor and will not be constructed
+     * without one, so every command that touches a queue model has to produce one. They asked
+     * for `Queueitems`, which is the name of the *administration screen* for queued jobs — and
+     * `Application::getController()` throws when a name does not resolve.
+     *
+     * So `queue:process` could not start at all in an application that had no such screen:
+     * «Cannot find controller: Queueitems», from a background worker, about a UI class it was
+     * never going to render anything with. Under a supervisor that is respawn, fail, repeat,
+     * and the only visible symptom is a queue that never drains.
+     *
+     * A plain `Controller` is the right fallback: a command does not use it for the things the
+     * screen-URL helpers on `QueueItem` are for. An application that *has* the controller still
+     * gets it, so a subclass carrying task handlers is never quietly replaced.
+     *
+     * Constructed with no argument, because `Controller` resolves the current application
+     * itself — which by this point in any command is the one that was just initialised.
+     *
+     * @param  object $application Whatever the command holds as its application
+     * @param  string $name        Controller to prefer
+     * @return \Pramnos\Application\Controller
+     */
+    public static function controllerOrPlain($application, string $name)
+    {
+        try {
+            return $application->getController($name);
+        } catch (\Throwable) {
+            return new \Pramnos\Application\Controller();
+        }
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     /**

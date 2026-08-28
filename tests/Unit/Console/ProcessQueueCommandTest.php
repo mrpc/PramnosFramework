@@ -308,6 +308,142 @@ class ProcessQueueCommandTest extends TestCase
     }
 
     /**
+     * A supervisor's lock path is the one the loop watches.
+     *
+     * The daemon loop asks two questions on every pass: has a stop been requested, and is my
+     * lock file still there. The second used to rebuild the path from this command's own
+     * default — `ROOT/var/QUEUE_PROCESSOR[_<workerId>]` — while `DaemonOrchestrator` hands the
+     * real one down in `PRAMNOS_JOB_LOCK_FILE`, beside which it writes the `.stop` sentinel.
+     *
+     * So under any orchestrator whose desired-process entry named its own `lockFile`, the file
+     * this looked for did not exist, and the worker announced "stop signal detected" and left
+     * on its first pass. For ever: the supervisor respawned it, it exited again, and the only
+     * visible symptom was a queue that never drained. Reproduced here by pointing the
+     * environment variable at a lock file that exists while the command's own default does
+     * not — which is exactly the arrangement a supervisor creates.
+     */
+    public function testTheDaemonLoopWatchesTheLockPathTheSupervisorHandedDown(): void
+    {
+        // Arrange — a lock where the supervisor says, and nothing where the default says
+        $workerId = 'sup-' . bin2hex(random_bytes(4));
+        $this->trackLockFile($workerId);
+        $handedDown = sys_get_temp_dir() . '/pf-queue-' . bin2hex(random_bytes(4)) . '.lock';
+        file_put_contents($handedDown, (string) getmypid());
+        $this->filesToCleanup[] = $handedDown;
+        $this->filesToCleanup[] = $handedDown . '.stop';
+        putenv(\Pramnos\Console\CommandBase::LOCK_FILE_ENV . '=' . $handedDown);
+
+        try {
+            $command = $this->createExecutable();
+            $command->nowValues = array_fill(0, 40, 1000);
+            $command->processBatchResults = [1];
+            // The sentinel the supervisor would write, once one batch has run — the loop's
+            // own way out, rather than a runtime limit that could mask an early exit.
+            $command->writeStopFileAfterFirstBatch = $handedDown . '.stop';
+
+            $input = new ArrayInput([
+                '--daemon'    => true,
+                '--worker-id' => $workerId,
+            ], $command->getDefinition());
+            $output = new BufferedOutput();
+
+            // Act
+            $result = $command->runExecute($input, $output);
+
+            // Assert — it worked rather than leaving on a lock file it was never given
+            $this->assertSame(0, $result);
+            $this->assertGreaterThan(0, $command->processBatchCallCount,
+                'the worker must run, not exit on a lock file it was never given');
+        } finally {
+            putenv(\Pramnos\Console\CommandBase::LOCK_FILE_ENV);
+        }
+    }
+
+    /**
+     * And a `.stop` beside *that* path still stops it.
+     *
+     * The other half: honouring the supervisor's path is only useful if the sentinel written
+     * beside it is seen. A worker that ignores stop requests is worse than one that exits too
+     * eagerly — a redeploy waits for it.
+     */
+    public function testAStopBesideTheSupervisorsLockPathIsObeyed(): void
+    {
+        // Arrange
+        $workerId = 'sup-stop-' . bin2hex(random_bytes(4));
+        $this->trackLockFile($workerId);
+        $handedDown = sys_get_temp_dir() . '/pf-queue-' . bin2hex(random_bytes(4)) . '.lock';
+        file_put_contents($handedDown, (string) getmypid());
+        file_put_contents($handedDown . '.stop', '1');
+        $this->filesToCleanup[] = $handedDown;
+        $this->filesToCleanup[] = $handedDown . '.stop';
+        putenv(\Pramnos\Console\CommandBase::LOCK_FILE_ENV . '=' . $handedDown);
+
+        try {
+            $command = $this->createExecutable();
+            $command->nowValues = array_fill(0, 20, 1000);
+
+            $input = new ArrayInput([
+                '--daemon'    => true,
+                '--worker-id' => $workerId,
+            ], $command->getDefinition());
+            $output = new BufferedOutput();
+
+            // Act
+            $result = $command->runExecute($input, $output);
+
+            // Assert
+            $this->assertSame(0, $result);
+            $this->assertSame(0, $command->processBatchCallCount);
+            $this->assertStringContainsString('Stop signal detected', $output->fetch());
+        } finally {
+            putenv(\Pramnos\Console\CommandBase::LOCK_FILE_ENV);
+        }
+    }
+
+    /**
+     * Under a supervisor it writes lines, not a repainting dashboard.
+     *
+     * The dashboard is a terminal UI: it clears the screen and repaints in place. Written into
+     * a supervised worker's log file that is thousands of escape sequences and no readable
+     * history — and that log is the only account of what the worker did. The live numbers are
+     * on `/admin/Services`, which reads the orchestrator's state file.
+     */
+    public function testNoDashboardIsPaintedIntoASupervisedWorkersLog(): void
+    {
+        // Arrange
+        $workerId = 'dash-' . bin2hex(random_bytes(4));
+        $this->trackLockFile($workerId);
+        $handedDown = sys_get_temp_dir() . '/pf-queue-' . bin2hex(random_bytes(4)) . '.lock';
+        file_put_contents($handedDown, (string) getmypid());
+        file_put_contents($handedDown . '.stop', '1');
+        $this->filesToCleanup[] = $handedDown;
+        $this->filesToCleanup[] = $handedDown . '.stop';
+        putenv(\Pramnos\Console\CommandBase::LOCK_FILE_ENV . '=' . $handedDown);
+
+        try {
+            $command = $this->createExecutable();
+            $command->nowValues = array_fill(0, 20, 1000);
+
+            $input = new ArrayInput([
+                '--daemon'    => true,
+                '--worker-id' => $workerId,
+            ], $command->getDefinition());
+            $output = new BufferedOutput();
+
+            // Act
+            $command->runExecute($input, $output);
+            $written = $output->fetch();
+
+            // Assert — no screen-clear, no cursor games
+            $this->assertStringNotContainsString("\033[2J", $written);
+            $this->assertStringNotContainsString("\033[?25l", $written);
+            $this->assertStringContainsString('Starting queue processor', $written);
+        } finally {
+            putenv(\Pramnos\Console\CommandBase::LOCK_FILE_ENV);
+        }
+    }
+
+    /**
      * In daemon mode with --runtime=N, the loop must exit when
      * now() - startTime >= N, printing the max-runtime message.
      */

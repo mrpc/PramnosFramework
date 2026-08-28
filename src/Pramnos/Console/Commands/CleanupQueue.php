@@ -64,7 +64,7 @@ class CleanupQueue extends Command
         $application->init();
         $application->database->setTrackingInfo(null, 'CleanupQueueCLI', []);
 
-        $controller   = $application->getController($this->getControllerName());
+        $controller   = \Pramnos\Queue\QueueManager::controllerOrPlain($application, $this->getControllerName());
         $queueManager = $this->createQueueManager($controller);
 
         $hours   = (int)$input->getOption('hours');

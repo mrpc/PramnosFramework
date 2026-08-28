@@ -167,7 +167,7 @@ class QueueRetry extends Command
         $application->init();
         $application->database->setTrackingInfo(null, 'QueueRetryCLI', []);
 
-        return $application->getController($this->getControllerName());
+        return \Pramnos\Queue\QueueManager::controllerOrPlain($application, $this->getControllerName());
         // @codeCoverageIgnoreEnd
     }
 

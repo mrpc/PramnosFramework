@@ -200,6 +200,16 @@ during a task lets that task finish.
 orchestrator already runs the schedule. See
 [§3](#3-daemonorchestrator--the-supervisor).
 
+### The queue worker does not need a controller to exist
+
+`queue:process` asks the application for a controller called `Queueitems` — the administration
+screen for queued jobs — because `Application\Model` will not be constructed without a
+`Controller` to hold. An application that has no such screen used to get
+«Cannot find controller: Queueitems» from a background worker, at start-up, for a class it was
+never going to render anything with; under a supervisor that means respawn, fail, repeat, with
+a queue that never drains. It falls back to a plain `Controller` now. An application that *has*
+one still gets it.
+
 ### This is not the queue worker
 
 `queue:process` runs background **jobs** — things an application dispatches and
@@ -456,6 +466,22 @@ supervised entry that could only ever fail to start.
 - Stopping a daemon = the orchestrator drops a `<lockFile>.stop` sentinel; the worker's
   `shouldStop()` (or a standalone script's `WorkerLock::stopRequested()`) sees it and exits
   after the current job. Constants: `HEARTBEAT_STALE_SECONDS` (300), `GIT_CHECK_SECONDS` (60).
+
+### A supervised worker watches the supervisor's lock path, and stops painting
+
+Two things follow from being spawned by `DaemonOrchestrator`, and both are read from
+`PRAMNOS_JOB_LOCK_FILE`, which it exports:
+
+- **The lock path is the supervisor's**, through `resolvedJobLockFilePath()`. A worker that
+  rebuilds the path itself can disagree, and disagreement here is invisible: a sentinel read
+  where nothing writes is indistinguishable from no sentinel. `queue:process` had three places
+  still computing their own answer, one of them the daemon loop's "is my lock still there"
+  check — so under any orchestrator naming its own `lockFile`, that worker announced
+  «stop signal detected» and left on its first pass, for ever.
+- **No dashboard.** `isSupervised()` is true, and the interactive dashboard is skipped: it
+  clears the screen and repaints in place, which in a log file is thousands of escape sequences
+  and no readable history. That log is the only account of what the worker did; the live
+  numbers belong on `/admin/Services`, which reads the state file.
 
 ### A stop request has a deadline
 

@@ -538,6 +538,25 @@ abstract class CommandBase extends Command
         return false;
     }
 
+    /**
+     * Was this process started by the daemon orchestrator?
+     *
+     * Read from {@see LOCK_FILE_ENV}, which the supervisor exports when it spawns a worker.
+     * That is a fact rather than a guess: the alternative is asking whether stdout is a
+     * terminal, which is also false when somebody pipes a command into `less`, or examining
+     * the parent pid, which is `init` because workers are launched through `setsid`.
+     *
+     * Worth knowing for anything that paints a screen. A repainting dashboard written into a
+     * log file is thousands of escape sequences and no readable history — the log a supervised
+     * worker leaves behind is the only account of what it did.
+     */
+    protected function isSupervised(): bool
+    {
+        $handedDown = getenv(self::LOCK_FILE_ENV);
+
+        return is_string($handedDown) && $handedDown !== '';
+    }
+
     // ── Orchestrator detection ────────────────────────────────────────────────
 
     /**

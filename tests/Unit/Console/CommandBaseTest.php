@@ -1887,4 +1887,39 @@ class CommandBaseTest extends TestCase
         $this->assertLessThanOrEqual(10, strlen(preg_replace('/\033\[[0-9;]*m/', '', $result)),
             'truncateText() result must be at most 10 visible chars');
     }
+
+    /**
+     * `isSupervised()` reads the path the orchestrator hands down, not a guess.
+     *
+     * Anything that paints a screen needs to know. Asking whether stdout is a terminal is also
+     * false when somebody pipes a command into `less`, and the parent pid is `init` because
+     * workers are launched through `setsid`.
+     */
+    public function testIsSupervisedFollowsTheHandedDownLockPath(): void
+    {
+        // Arrange
+        $instance = new class extends CommandBase {
+            protected function getJobName(): string { return 'sup_test'; }
+            protected function configure(): void { $this->setName('test:sup'); }
+
+            public function pubIsSupervised(): bool { return $this->isSupervised(); }
+        };
+
+        $saved = getenv(CommandBase::LOCK_FILE_ENV);
+        putenv(CommandBase::LOCK_FILE_ENV);
+
+        try {
+            // Act & Assert
+            $this->assertFalse($instance->pubIsSupervised(), 'run by hand, nothing is watching');
+
+            putenv(CommandBase::LOCK_FILE_ENV . '=/tmp/whatever.lock');
+            $this->assertTrue($instance->pubIsSupervised());
+        } finally {
+            if ($saved === false) {
+                putenv(CommandBase::LOCK_FILE_ENV);
+            } else {
+                putenv(CommandBase::LOCK_FILE_ENV . '=' . $saved);
+            }
+        }
+    }
 }

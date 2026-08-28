@@ -167,7 +167,7 @@ class ProcessQueue extends CommandBase
         }
 
         if ($this->checkIfRunning()) {
-            $file = (defined('ROOT') ? ROOT : sys_get_temp_dir()) . '/var/' . $this->jobname;
+            $file = $this->resolvedJobLockFilePath();
             $output->writeln('<error>Command is already running. Started at: ' . date('d/m/Y H:i:s', filemtime($file)) . '</error>');
             return 1;
         }
@@ -188,7 +188,7 @@ class ProcessQueue extends CommandBase
         $output->writeln('<info>Starting queue processor</info>');
         $this->startJob();
 
-        $controller   = $application->getController($this->getControllerName());
+        $controller   = \Pramnos\Queue\QueueManager::controllerOrPlain($application, $this->getControllerName());
         $worker       = $this->createWorker($controller, $workerId);
         $queueManager = $this->createQueueManager($controller, $workerId);
 
@@ -238,7 +238,12 @@ class ProcessQueue extends CommandBase
         $taskCount = 0;
         $startTime = $this->now();
 
-        $this->initializeInteractiveTerminal($output);
+        // No screen to paint when a supervisor is watching: this worker's log is the only
+        // account of what it did, and a repainting dashboard turns it into escape sequences.
+        // `/admin/Services` and the orchestrator's state file are where the live numbers are.
+        if (!$this->isSupervised()) {
+            $this->initializeInteractiveTerminal($output);
+        }
 
         $this->startTime  = $this->now();
         $this->lastRefresh = $this->now();
@@ -253,10 +258,25 @@ class ProcessQueue extends CommandBase
                 $hasTasks       = true;
 
                 while (true) {
-                    // Stop on a trapped signal / the .stop sentinel (shouldStop),
-                    // or when the lock file is removed out from under us.
+                    /*
+                     * Stop on a trapped signal / the `.stop` sentinel (shouldStop), or when
+                     * the lock file is removed out from under us.
+                     *
+                     * `resolvedJobLockFilePath()`, not a path rebuilt here. Rebuilt, this
+                     * asked for `ROOT/var/QUEUE_PROCESSOR` — this command's own default —
+                     * while a supervisor had handed down a different one. Under any
+                     * orchestrator whose desired-process entry names its own `lockFile`, the
+                     * file this looked for did not exist, so the worker announced "stop signal
+                     * detected" and exited on its first pass through the loop. For ever: the
+                     * supervisor respawned it, it exited again, and the only visible symptom
+                     * was a queue that never drained.
+                     *
+                     * That is the exact failure `resolvedJobLockFilePath()` exists to make
+                     * impossible, and three places in this file were still computing their
+                     * own answer.
+                     */
                     if ($this->shouldStop()
-                        || !file_exists((defined('ROOT') ? ROOT : sys_get_temp_dir()) . '/var/' . $this->jobname)) {
+                        || !file_exists($this->resolvedJobLockFilePath())) {
                         $output->writeln('<comment>Stop signal detected, exiting.</comment>');
                         break;
                     }
@@ -536,9 +556,8 @@ class ProcessQueue extends CommandBase
         $this->addStatusMessage('warning', 'Database unavailable. Waiting for reconnect');
 
         while (!$this->shouldStop()) {
-            $varBase = defined('ROOT') ? ROOT : sys_get_temp_dir();
-            if (!file_exists($varBase . '/var/' . $this->jobname)
-                || file_exists($varBase . '/var/' . $this->jobname . '.stop')) {
+            $lockFile = $this->resolvedJobLockFilePath();
+            if (!file_exists($lockFile) || file_exists($lockFile . '.stop')) {
                 return false;
             }
 
@@ -586,6 +605,11 @@ class ProcessQueue extends CommandBase
      */
     protected function renderDashboard(OutputInterface $output, array $data): void
     {
+        if ($this->isSupervised()) {
+            // See execute(): under a supervisor the log is the record, not a terminal.
+            return;
+        }
+
         $state = (string)($data['state'] ?? 'unknown');
 
         if ($state === 'reconnecting') {

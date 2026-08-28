@@ -170,7 +170,7 @@ class QueueFailed extends Command
         $application->init();
         $application->database->setTrackingInfo(null, 'QueueFailedCLI', []);
 
-        return $application->getController($this->getControllerName());
+        return \Pramnos\Queue\QueueManager::controllerOrPlain($application, $this->getControllerName());
         // @codeCoverageIgnoreEnd
     }
 
