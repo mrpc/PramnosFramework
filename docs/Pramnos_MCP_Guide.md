@@ -13,6 +13,8 @@ use_cases:
   - Reading the design tokens, or checking whether the compiled stylesheet is stale
   - Reading the documented API surface, or checking whether the OpenAPI document is stale
   - Finding the test that covers a class, before writing a second one somewhere else
+  - Checking a change against the framework's rules, or its coverage, without the noise of the
+    whole project
 ---
 
 # MCP server
@@ -22,7 +24,7 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 as Claude Code expects, and it exposes two kinds of thing:
 
 - **tools** — callable capabilities: five introspect the application, two report what its logs
-  say, and six answer questions about the code and the project itself — where a symbol is
+  say, and seven answer questions about the code and the project itself — where a symbol is
   defined and who calls it, which tests cover it, what the CLI can do, what the design tokens
   are, what the API documents, and what the framework's own guides and rules say. Only the
   first five need an application or a database;
@@ -96,6 +98,7 @@ for every one of its servers.
 | `theme-info` | **The design tokens, and whether the CSS was built from them** — see below |
 | `api-docs` | **What the API promises, and whether the document is current** — see below |
 | `find-tests` | **Which tests cover a class, and how to run them** — see below |
+| `coverage` | **Which lines of your change no test touches** — see below |
 | `log-analytics` | **What is going wrong here, and how much** — see below |
 | `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
@@ -180,9 +183,32 @@ checks is something that happened *after* the guide describing it was written.
 
 ```jsonc
 {}                                          // the whole project
+{"since": "HEAD"}                           // only the lines you changed — read this first
 {"path": "src/Models"}                      // one subtree, or a single file
 {"rules": ["raw-sql", "flash-query-params"]} // a subset
 ```
+
+#### `since` — the option that makes it usable
+
+Run over `src/`, this tool reports 76 findings, every one of them older than whatever you are
+working on. The guide has said so from the start, and the predictable consequence was that
+nobody ran it: with 76 pre-existing findings there is no way to see your own three.
+
+`since` narrows to the lines the diff touched.
+
+```jsonc
+{"since": "HEAD",     "changed_files": 4, "changed_lines": 212,
+ "suppressed": 5, "findings": [], "verdict": "No findings on the lines you changed."}
+```
+
+- **`HEAD`** is everything uncommitted, staged or not — what "my current change" means.
+  **`staged`** is the index only, for a pre-commit gate. Any ref works: `main`, `HEAD~3`, a tag.
+- **A new file counts entirely.** That is where new violations live, and skipping untracked
+  files would pass every freshly written class.
+- **Editing one line of a legacy file does not surface its other findings.** Otherwise this
+  would be a file-level filter with a misleading name.
+- **Outside a git working tree it refuses**, rather than reporting a clean change. "No findings
+  on the lines you changed" when nothing was compared is a pass nobody earned.
 
 Seven rules. Six are defects; the seventh polices the escape hatch.
 
@@ -457,6 +483,50 @@ does not exist puts a new test somewhere nobody looks.
   a `SeoTest` exercising `Seo` without declaring it.
 - **The framework's own tests are in scope**, because a framework class is covered there and
   nowhere else, and "no tests" would otherwise be a confident lie.
+
+### `coverage`
+
+The rule in these projects is coverage above 95% **on the code you changed**, and it was
+unverifiable. A coverage run produces a project-wide percentage, which barely moves when fifty
+uncovered lines are added to twenty thousand covered ones — so the rule was followed by
+assumption, which is to say not followed.
+
+```jsonc
+{}                          // uncommitted changes vs HEAD
+{"since": "main"}           // the whole branch
+{"path": "src/Mcp"}
+{"project": true}           // the whole-project figure, for context
+```
+
+```jsonc
+{
+  "report": {"file": "coverage/clover.xml", "generated_at": "28/08/2026 18:48", "stale": false},
+  "since": "HEAD", "changed_executable_lines": 306, "covered": 23, "uncovered": 283,
+  "percent": 7.5,
+  "files": [{"file": "src/Pramnos/Mcp/Tools/CoverageTool.php", "covered": 0,
+             "uncovered": 174, "uncovered_lines": [48, 50, 51, "…"]}],
+  "verdict": "283 of 306 changed lines are not covered by any test — 7.5%."
+}
+```
+
+That is a real first run: the tool pointed at its own author's work, reporting 7.5%. A number
+that can fail is the point.
+
+- **It reads `coverage/clover.xml` and runs nothing.** `./dockertest --coverage` holds a lock —
+  two concurrent runs corrupt the shared test databases — and it could not run from inside the
+  container it would have to start. Produce the report, then ask.
+- **A report older than the code is called stale.** Reading a stale one is worse than reading
+  none: it reports the previous version of a file as covered, and the line numbers have moved
+  underneath it.
+- **Lines that cannot be executed are not counted against you.** Blank lines, closing braces,
+  comments and property declarations are absent from the report entirely, and counting them as
+  uncovered would turn every honest change into a failure.
+- **A container's paths are joined to project-relative ones.** Clover records the path the test
+  run saw — `/var/www/html/src/…` — and getting that join wrong reports every line as
+  unmeasurable, which is a silent pass.
+
+`{"project": true}` is available and deliberately not the default: it is the number that made
+the rule unverifiable in the first place.
 
 ### `log-analytics` and `log-errors`
 

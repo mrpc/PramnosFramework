@@ -7,6 +7,7 @@ namespace Pramnos\Mcp;
 use Pramnos\Application\ServiceProvider;
 use Pramnos\Mcp\Tools\ApiDocsTool;
 use Pramnos\Mcp\Tools\ConsoleCommandsTool;
+use Pramnos\Mcp\Tools\CoverageTool;
 use Pramnos\Mcp\Tools\FindSymbolTool;
 use Pramnos\Mcp\Tools\FindTestsTool;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
@@ -155,6 +156,17 @@ class McpServiceProvider extends ServiceProvider
          * hold a lock, and two concurrent runs corrupt the shared test databases.
          */
         $server->addTool(new FindTestsTool());
+
+        /*
+         * Which lines of *this change* no test touches.
+         *
+         * The rule is coverage above 95% on changed code, and it was unverifiable: a coverage
+         * run produces a project-wide percentage, which barely moves when fifty uncovered
+         * lines are added to twenty thousand. So it was followed by assumption. This reads the
+         * clover report and intersects it with the diff, which is a list short enough to act
+         * on — and it reads rather than runs, because the test script holds a lock.
+         */
+        $server->addTool(new CoverageTool());
 
         /*
          * What is going wrong right now, and what it says.

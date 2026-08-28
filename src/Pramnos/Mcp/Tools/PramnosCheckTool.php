@@ -135,6 +135,13 @@ class PramnosCheckTool implements McpToolInterface
                     'items'       => ['type' => 'string', 'enum' => array_keys(self::RULES)],
                     'description' => 'Rules to run. Omit to run all of them.',
                 ],
+                'since' => [
+                    'type'        => 'string',
+                    'description' => 'Only findings on lines you changed. `HEAD` for everything '
+                        . 'uncommitted, `staged` for the index, or any ref (`main`, `HEAD~3`). '
+                        . 'This is the one to use before calling a change finished — without it '
+                        . 'the answer is dominated by findings older than your work.',
+                ],
             ],
         ];
     }
@@ -149,6 +156,7 @@ class PramnosCheckTool implements McpToolInterface
     {
         $target = isset($input['path']) ? trim((string) $input['path']) : '';
         $rules  = $this->requestedRules($input);
+        $since  = isset($input['since']) ? trim((string) $input['since']) : '';
 
         if ($rules === []) {
             return [
@@ -193,16 +201,97 @@ class PramnosCheckTool implements McpToolInterface
             fn(array $a, array $b): int => [$a['file'], $a['line']] <=> [$b['file'], $b['line']]
         );
 
+        $answer = [
+            'checked' => count($files),
+            'root'    => $this->relative($scanRoot),
+            'rules'   => $rules,
+        ];
+
+        if ($since !== '') {
+            $narrowed = $this->narrowToDiff($findings, $since);
+
+            if (isset($narrowed['error'])) {
+                return $narrowed + $answer;
+            }
+
+            $answer += $narrowed;
+            $findings = $narrowed['findings'];
+        }
+
+        $answer['findings'] = $findings;
+        $answer['verdict']  = $findings === []
+            ? ($since !== ''
+                ? 'No findings on the lines you changed.'
+                : 'No findings. ' . count($files) . ' files checked against '
+                    . count($rules) . ' rules.')
+            : count($findings) . ' finding(s). Each of these fails silently at runtime, '
+                . 'so none of them will show up as an error later.';
+
+        return $answer;
+    }
+
+    /**
+     * Only the findings that sit on lines this change touched.
+     *
+     * The reason the whole `since` option exists. Run over `src/`, this tool reports nine
+     * raw-SQL findings and sixty-seven flash-query-parameter ones — every one of them older
+     * than whatever is being worked on. Its own guide says so. The predictable consequence is
+     * that nobody runs it, including the assistant told to run it before calling a change
+     * finished: with seventy-six pre-existing findings there is no way to see your own three.
+     *
+     * Two findings are kept regardless of line: the ones about the *tree* rather than a line —
+     * a migration on the skipped baseline epoch, and a duplicate debug panel — because both are
+     * caused by adding a file, and the file being new is the finding.
+     *
+     * @param  list<array<string, mixed>> $findings
+     * @return array<string, mixed>
+     */
+    private function narrowToDiff(array $findings, string $since): array
+    {
+        $changes = (new \Pramnos\Support\GitChanges($this->root))->changedLines($since);
+
+        if ($changes['error'] !== null) {
+            return [
+                'error' => $changes['error'],
+                'note'  => 'Without a diff there is nothing to narrow to. Drop `since` to '
+                    . 'check everything, and read the count as a baseline rather than as a '
+                    . 'verdict on your change.',
+            ];
+        }
+
+        $kept = [];
+
+        foreach ($findings as $finding) {
+            $file = (string) ($finding['file'] ?? '');
+            $line = (int) ($finding['line'] ?? 0);
+
+            // A whole-file finding — line 1 by convention — is kept when the file itself is
+            // new or touched, because there is no meaningful line to compare.
+            $wholeFile = in_array(
+                (string) ($finding['rule'] ?? ''),
+                ['baseline-migration-timestamp', 'duplicate-debug-panel'],
+                true
+            );
+
+            if (!isset($changes['files'][$file])) {
+                continue;
+            }
+
+            if ($wholeFile || \Pramnos\Support\GitChanges::touches($changes['files'], $file, $line)) {
+                $kept[] = $finding;
+            }
+        }
+
         return [
-            'checked'  => count($files),
-            'root'     => $this->relative($scanRoot),
-            'rules'    => $rules,
-            'findings' => $findings,
-            'verdict'  => $findings === []
-                ? 'No findings. ' . count($files) . ' files checked against '
-                    . count($rules) . ' rules.'
-                : count($findings) . ' finding(s). Each of these fails silently at runtime, '
-                    . 'so none of them will show up as an error later.',
+            'since'         => $changes['ref'],
+            'changed_files' => count($changes['files']),
+            'changed_lines' => array_sum(array_map('count', $changes['files'])),
+            'suppressed'    => count($findings) - count($kept),
+            'findings'      => $kept,
+            'note'          => count($findings) === count($kept)
+                ? null
+                : (count($findings) - count($kept)) . ' finding(s) elsewhere in the project '
+                    . 'were left out — they are not from this change. Drop `since` to see them.',
         ];
     }
 

@@ -616,4 +616,151 @@ PHP);
         $this->assertArrayHasKey('path', $tool->inputSchema()['properties']);
         $this->assertArrayHasKey('rules', $tool->inputSchema()['properties']);
     }
+
+    // ── narrowing to the diff ────────────────────────────────────────────────
+
+    /**
+     * Runs git in the fixture project.
+     */
+    private function git(string $arguments): void
+    {
+        exec(
+            'git -c ' . escapeshellarg('safe.directory=' . $this->project)
+            . ' -C ' . escapeshellarg($this->project) . ' ' . $arguments . ' 2>&1'
+        );
+    }
+
+    /**
+     * A fixture project that is a git repository, with one committed violation.
+     *
+     * The committed one stands for the seventy-six findings this tool reports on the real
+     * codebase: all older than whatever is being worked on, and the reason nobody ran it.
+     */
+    private function repositoryWithAnOldViolation(): void
+    {
+        exec('git --version 2>/dev/null', $output, $status);
+
+        if ($status !== 0) {
+            $this->markTestSkipped('git is not available.');
+        }
+
+        $this->git('init --quiet');
+        $this->git('config user.email test@example.com');
+        $this->git('config user.name Test');
+
+        $this->write('src/Old.php', "<?php\n\$db->query('SELECT * FROM users');\n");
+        $this->git('add -A');
+        $this->git('commit --quiet -m first');
+    }
+
+    /**
+     * `since` hides the findings that are not from this change.
+     *
+     * The whole reason the option exists. Run over `src/`, this tool reports nine raw-SQL
+     * findings and sixty-seven flash-query-parameter ones — its own guide says so — and with
+     * seventy-six pre-existing findings there is no way to see your own three. So it was never
+     * run, including by the assistant instructed to run it before calling a change finished.
+     */
+    public function testSinceHidesFindingsThatAreNotFromThisChange(): void
+    {
+        // Arrange
+        $this->repositoryWithAnOldViolation();
+
+        // Act
+        $everything = $this->check(['rules' => ['raw-sql']]);
+        $mine       = $this->check(['rules' => ['raw-sql'], 'since' => 'HEAD']);
+
+        // Assert
+        $this->assertCount(1, $everything['findings'], 'the old violation is still there');
+        $this->assertSame([], $mine['findings']);
+        $this->assertSame(1, $mine['suppressed']);
+        $this->assertStringContainsString('not from this change', (string) $mine['note']);
+        $this->assertStringContainsString('lines you changed', $mine['verdict']);
+    }
+
+    /**
+     * A violation on a line you wrote is reported.
+     *
+     * The other half, and the one that makes the option a gate rather than a way to see
+     * nothing: it has to be able to fail.
+     */
+    public function testAViolationOnAChangedLineIsReported(): void
+    {
+        // Arrange
+        $this->repositoryWithAnOldViolation();
+        $this->write('src/New.php', "<?php\n\$db->query('DELETE FROM sessions');\n");
+
+        // Act
+        $answer = $this->check(['rules' => ['raw-sql'], 'since' => 'HEAD']);
+
+        // Assert
+        $this->assertCount(1, $answer['findings']);
+        $this->assertSame('src/New.php', $answer['findings'][0]['file']);
+        $this->assertSame(1, $answer['suppressed'], 'the committed one is still suppressed');
+    }
+
+    /**
+     * Editing one line of a file does not surface that file's other violations.
+     *
+     * The precise behaviour that makes the answer trustworthy: a one-line fix in a legacy file
+     * must not report the fifty findings that were already there, or the option is only a
+     * file-level filter with a misleading name.
+     */
+    public function testTouchingAFileDoesNotSurfaceItsOlderViolations(): void
+    {
+        // Arrange — two violations committed, only the second line edited
+        $this->repositoryWithAnOldViolation();
+        $this->write(
+            'src/Old.php',
+            "<?php\n\$db->query('SELECT * FROM users');\n\$x = 1;\n"
+        );
+
+        // Act
+        $answer = $this->check(['rules' => ['raw-sql'], 'since' => 'HEAD']);
+
+        // Assert
+        $this->assertSame([], $answer['findings'],
+            'the untouched line 2 stays out of it');
+        $this->assertSame(1, $answer['changed_files']);
+    }
+
+    /**
+     * `staged` narrows to the index, so it works as a pre-commit gate.
+     */
+    public function testStagedNarrowsToTheIndex(): void
+    {
+        // Arrange
+        $this->repositoryWithAnOldViolation();
+        $this->write('src/Staged.php', "<?php\n\$db->query('SELECT 1 FROM a');\n");
+        $this->git('add src/Staged.php');
+        $this->write('src/Unstaged.php', "<?php\n\$db->query('SELECT 1 FROM b');\n");
+
+        // Act
+        $answer = $this->check(['rules' => ['raw-sql'], 'since' => 'staged']);
+        $files  = array_column($answer['findings'], 'file');
+
+        // Assert
+        $this->assertContains('src/Staged.php', $files);
+        $this->assertNotContains('src/Unstaged.php', $files);
+    }
+
+    /**
+     * Outside a repository it refuses rather than reporting a clean change.
+     *
+     * Silence is the one answer a gate must never give by accident: "no findings on the lines
+     * you changed" when nothing was compared would be a pass nobody earned.
+     */
+    public function testWithoutARepositoryItRefusesRatherThanPassing(): void
+    {
+        // Arrange — a violation, and no git
+        $this->write('src/Thing.php', "<?php\n\$db->query('SELECT * FROM users');\n");
+
+        // Act
+        $answer = $this->check(['rules' => ['raw-sql'], 'since' => 'HEAD']);
+
+        // Assert
+        $this->assertStringContainsString('Not a git working tree', $answer['error']);
+        $this->assertArrayNotHasKey('verdict', $answer);
+        $this->assertStringContainsString('baseline', (string) $answer['note']);
+    }
 }

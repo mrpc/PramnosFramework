@@ -5728,7 +5728,11 @@ extra_flags="--display-deprecations --display-warnings --display-notices --displ
 
 if [[ "\$coverage" == true ]]; then
     mkdir -p coverage
-    docker-compose exec -u www-data app vendor/bin/phpunit --coverage-html coverage \$extra_flags "\${passthrough[@]}"
+    # Clover beside the HTML. The HTML report is for a person; `coverage/clover.xml` is what a
+    # tool reads — the `coverage` MCP tool answers "which lines of my change are uncovered"
+    # from it, and without the file that question has no answer at all.
+    docker-compose exec -u www-data app vendor/bin/phpunit --coverage-html coverage \
+        --coverage-clover coverage/clover.xml \$extra_flags "\${passthrough[@]}"
 elif [[ "\$nocoverage" == true ]]; then
     # --no-coverage overrides any <coverage> block in phpunit.xml; XDEBUG_MODE=off
     # removes the per-line instrumentation overhead completely.
