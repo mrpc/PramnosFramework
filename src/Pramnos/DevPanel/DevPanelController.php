@@ -2775,7 +2775,15 @@ class DevPanelController extends Controller
         .card-body { padding: 12px 14px; }
         table.info-table { width: 100%; border-collapse: collapse; }
         table.info-table th, table.info-table td { padding: 5px 8px; }
-        table.info-table th { text-align: left; color: var(--subtext); width: 40%; }
+        /*
+         * The label hugs its text instead of taking 40% of the row.
+         *
+         * With a fixed 40% gutter a two-word label sat at the far left and its value in the
+         * middle of the card, and the pair read as two unrelated columns — visibly so on the
+         * MCP panel, whose labels are short and whose values are one word.
+         */
+        table.info-table th { text-align: left; color: var(--subtext);
+            width: 1%; white-space: nowrap; padding-right: 16px; vertical-align: top; }
         table.info-table td { color: var(--text); }
         table.data-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
         table.data-table th { text-align: left; background: var(--surface); padding: 7px 10px;
@@ -2784,18 +2792,25 @@ class DevPanelController extends Controller
         table.data-table th.num, table.data-table td.num { text-align: right; }
         table.data-table tr:hover td { background: var(--surface2); }
         /*
-         * Links inside a data table.
+         * Links anywhere in the panel's content.
          *
-         * The table names became links into Adminer and arrived as the browser's own default:
-         * blue, purple once visited, underlined, on a dark panel. Fifteen of those in a column
-         * read as a broken stylesheet — which is what it was, because nothing here had ever
-         * needed a link inside a table before.
+         * This started as a rule for links inside a data table: the table names became links
+         * into Adminer and arrived as the browser's own default — blue, **purple once
+         * visited**, underlined, on a dark panel. Fifteen of those in a column read as a
+         * broken stylesheet.
+         *
+         * Scoped to the table, which was the mistake. The next link went into an info table
+         * — "readable in the log viewer" — and arrived unstyled for exactly the same reason:
+         * a visited link rendered in a colour nobody can read on `#313244`, sitting next to a
+         * green badge. Fixing the instance instead of the class means fixing it again every
+         * time, so the selector is now the content area. `nav` and the header keep their own
+         * styles above; this is everything a panel renders.
          */
-        table.data-table a { color: var(--blue); text-decoration: none;
+        .panel-content a { color: var(--blue); text-decoration: none;
             border-bottom: 1px dotted color-mix(in srgb, var(--blue) 45%, transparent); }
-        table.data-table a:visited { color: var(--blue); }
-        table.data-table a:hover { color: var(--text); border-bottom-color: var(--text); }
-        table.data-table a:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+        .panel-content a:visited { color: var(--blue); }
+        .panel-content a:hover { color: var(--text); border-bottom-color: var(--text); }
+        .panel-content a:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
         td.empty { text-align: center; color: var(--subtext); font-style: italic; padding: 16px; }
         h3 { color: var(--subtext); font-size: 13px; text-transform: uppercase;
              letter-spacing: 0.05em; margin: 20px 0 6px; }

@@ -401,6 +401,31 @@ class DevPanelMcpTest extends TestCase
     }
 
     /**
+     * Every link the panel renders is styled, wherever it is.
+     *
+     * This was fixed once and scoped wrong. The rule covered `table.data-table a`, because
+     * that is where the first link went; the next one went into an info table and arrived as
+     * the browser's default — a **visited** link, in a colour nobody can read on `#313244`,
+     * beside a green badge. Fixing the instance rather than the class means fixing it again
+     * every time a link is added.
+     *
+     * Asserted on the selector rather than by rendering, because CSS is the thing under test
+     * and there is no browser here to ask.
+     */
+    public function testLinksAreStyledAcrossTheWholePanelNotJustTables(): void
+    {
+        // Act
+        $css = (string) $this->call($this->controller(), 'panelCss');
+
+        // Assert
+        $this->assertStringContainsString('.panel-content a {', $css);
+        $this->assertStringContainsString('.panel-content a:visited', $css,
+            'a visited link is the one that actually goes unreadable');
+        $this->assertStringNotContainsString('table.data-table a {', $css,
+            'the table-scoped rule was the bug, not the fix');
+    }
+
+    /**
      * The script sends the CSRF token it was given, and posts to this panel.
      *
      * A POST that *executes* whatever a project registered gets a token even behind the

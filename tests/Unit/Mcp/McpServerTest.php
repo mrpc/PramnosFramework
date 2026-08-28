@@ -484,6 +484,123 @@ class McpServerTest extends TestCase
         $this->assertSame('text/plain',  $item['mimeType']);
     }
 
+    // ── stray output ──────────────────────────────────────────────────────────
+
+    /**
+     * A tool that prints does not corrupt the stream.
+     *
+     * On stdio the transport **is** STDOUT: one `echo` inside a tool and the client is reading
+     * markup where a JSON-RPC frame should be, and reports the entire server as broken. It
+     * happened: `route-list` discovered routes by requiring every PHP file under a namespace
+     * root, swept in the view templates, executed them, and printed a page of HTML.
+     *
+     * The root cause was fixed in route discovery. This is the guard at the boundary, because
+     * the next tool to do it will be a different tool — a stray `var_dump`, a deprecation
+     * notice from a library, a warning from a driver.
+     */
+    public function testAToolThatPrintsCannotCorruptTheStream(): void
+    {
+        // Arrange — a tool that echoes before returning, as the broken one did
+        $noisy = $this->createMock(McpToolInterface::class);
+        $noisy->method('name')->willReturn('noisy');
+        $noisy->method('description')->willReturn('Prints.');
+        $noisy->method('inputSchema')->willReturn(['type' => 'object']);
+        $noisy->method('execute')->willReturnCallback(static function (): array {
+            echo '<html>a whole page of markup</html>';
+
+            return ['answer' => 42];
+        });
+        $this->server->addTool($noisy);
+
+        $in  = fopen('php://memory', 'r+');
+        $out = fopen('php://memory', 'r+');
+        fwrite($in, json_encode([
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call',
+            'params'  => ['name' => 'noisy', 'arguments' => []],
+        ]) . "\n");
+        rewind($in);
+
+        // Act
+        $this->server->run($in, $out);
+
+        // Assert — the stream holds exactly one JSON frame and no markup
+        rewind($out);
+        $raw = trim((string) stream_get_contents($out));
+
+        // One line, and it parses. That is the whole contract of the transport: the markup is
+        // allowed to appear *inside* the frame, escaped, where it is data — what must never
+        // happen is a byte of it landing outside one, where the client is reading frames.
+        $lines = explode("\n", $raw);
+        $this->assertCount(1, $lines, 'exactly one frame went to the stream');
+
+        $response = json_decode($lines[0], true);
+        $this->assertIsArray($response, 'the client has to be able to parse the frame');
+        $this->assertSame('2.0', $response['jsonrpc']);
+        $this->assertSame('{', $raw[0], 'the frame starts where the frame starts');
+
+        // The tool's own answer survives
+        $this->assertStringContainsString('42', $response['result']['content'][0]['text']);
+
+        // …and the output is reported rather than silently swallowed: hiding it would hide
+        // the one thing somebody needs to see.
+        $this->assertTrue($response['result']['stray_output']);
+        $this->assertStringContainsString(
+            'a whole page of markup',
+            $response['result']['content'][1]['text']
+        );
+    }
+
+    /**
+     * A tool that prints *and* throws reports the exception, not the markup.
+     *
+     * Half a page of HTML in front of an exception message helps nobody, and the message is
+     * the answer.
+     */
+    public function testOutputBeforeAThrowIsDiscarded(): void
+    {
+        // Arrange
+        $noisy = $this->createMock(McpToolInterface::class);
+        $noisy->method('name')->willReturn('noisy');
+        $noisy->method('description')->willReturn('Prints, then throws.');
+        $noisy->method('inputSchema')->willReturn(['type' => 'object']);
+        $noisy->method('execute')->willReturnCallback(static function (): array {
+            echo 'noise';
+
+            throw new \RuntimeException('the real problem');
+        });
+        $this->server->addTool($noisy);
+
+        // Act
+        $response = $this->server->dispatch([
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call',
+            'params'  => ['name' => 'noisy', 'arguments' => []],
+        ]);
+
+        // Assert
+        $this->assertTrue($response['result']['isError']);
+        $this->assertSame('the real problem', $response['result']['content'][0]['text']);
+        $this->assertCount(1, $response['result']['content']);
+    }
+
+    /**
+     * A quiet tool gains nothing — no empty warning, no flag.
+     */
+    public function testAQuietToolIsUnaffected(): void
+    {
+        // Arrange
+        $this->server->addTool($this->makeTool('quiet', 'Silent.', ['type' => 'object']));
+
+        // Act
+        $response = $this->server->dispatch([
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call',
+            'params'  => ['name' => 'quiet', 'arguments' => []],
+        ]);
+
+        // Assert
+        $this->assertArrayNotHasKey('stray_output', $response['result']);
+        $this->assertCount(1, $response['result']['content']);
+    }
+
     // ── traffic log ───────────────────────────────────────────────────────────
 
     /**

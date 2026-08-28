@@ -312,14 +312,51 @@ class McpServer
             return $this->error($id, -32602, "Unknown tool: {$name}");
         }
 
+        /*
+         * Anything a tool prints is captured and kept out of the stream.
+         *
+         * On stdio the transport **is** STDOUT: one `echo` inside a tool and the client is
+         * reading markup where a JSON-RPC frame should be, and reports the whole server as
+         * broken. That is not hypothetical — `route-list` discovered routes by requiring every
+         * PHP file under a namespace root, swept in the view templates, and printed a page of
+         * HTML into the response.
+         *
+         * The root cause is fixed where it belongs, in route discovery. This is the guard at
+         * the boundary, because the next tool to do it will be a different tool: a stray
+         * `var_dump`, a deprecation notice from a library, a warning from a driver. The
+         * protocol has to survive all of them.
+         *
+         * Captured rather than discarded — silence would hide the very thing somebody needs to
+         * see — and reported on the result as `stray_output`.
+         */
+        ob_start();
+
         try {
             $output = $this->tools[$name]->execute($arguments);
+            $stray  = (string) ob_get_clean();
             $text   = is_string($output) ? $output : json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-            return $this->result($id, [
+
+            $result = [
                 'content' => [['type' => 'text', 'text' => $text]],
                 'isError'  => false,
-            ]);
+            ];
+
+            if (trim($stray) !== '') {
+                $result['content'][] = [
+                    'type' => 'text',
+                    'text' => 'This tool printed ' . strlen($stray) . ' bytes of output, which '
+                        . 'would have corrupted the protocol stream and was captured instead. '
+                        . 'The first 500 bytes: ' . substr($stray, 0, 500),
+                ];
+                $result['stray_output'] = true;
+            }
+
+            return $this->result($id, $result);
         } catch (\Throwable $e) {
+            // Discarded here on purpose: the exception message is the answer, and prepending
+            // half a page of markup to it helps nobody.
+            ob_end_clean();
+
             return $this->result($id, [
                 'content' => [['type' => 'text', 'text' => $e->getMessage()]],
                 'isError'  => true,

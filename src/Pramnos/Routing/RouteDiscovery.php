@@ -65,6 +65,27 @@ class RouteDiscovery
                 continue;
             }
 
+            /*
+             * Look before requiring.
+             *
+             * This used to `require_once` every `.php` file under the directory, which is
+             * only safe if every one of them declares a class and nothing else. Pointed at a
+             * namespace root — `App\ => src/`, as a project's composer.json maps it
+             * — it swept in `src/Views/**\/*.html.php` and **executed the views**: a page of
+             * markup printed into the response, and `$this` inside the view bound to this
+             * object, so the template set dynamic properties on it and then called a method
+             * it does not have.
+             *
+             * From the MCP server that was worse than a broken page. The stdio transport *is*
+             * STDOUT, so a view printing into it corrupts the JSON-RPC stream and the client
+             * sees the whole server as broken.
+             *
+             * A token scan costs microseconds and cannot run anything.
+             */
+            if (!$this->declaresAClass($file->getPathname())) {
+                continue;
+            }
+
             require_once $file->getPathname();
 
             $class = $this->pathToClass($file->getPathname(), $directory, $namespace);
@@ -75,6 +96,57 @@ class RouteDiscovery
 
             $this->registerRoutesFromClass($class);
         }
+    }
+
+    /**
+     * Does this file declare a class, without running it to find out?
+     *
+     * `token_get_all()` parses; it does not execute. `T_CLASS` after `::` is the `::class`
+     * constant rather than a declaration, and an anonymous class — `new class {…}` — is not
+     * something a route can be attached to either.
+     *
+     * @param string $path Absolute path to a PHP file
+     */
+    private function declaresAClass(string $path): bool
+    {
+        $contents = @file_get_contents($path);
+
+        if ($contents === false || !str_contains($contents, 'class')) {
+            return false;
+        }
+
+        $tokens    = @token_get_all($contents);
+        $previous  = null;
+
+        foreach ($tokens as $token) {
+            if (!is_array($token)) {
+                if (!in_array($token, [' ', "\n", "\r", "\t"], true)) {
+                    $previous = $token;
+                }
+
+                continue;
+            }
+
+            if (in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            if ($token[0] === T_CLASS) {
+                // `Foo::class`, and `new class {`, are not declarations.
+                if (is_array($previous)
+                    && in_array($previous[0], [T_DOUBLE_COLON, T_NEW], true)
+                ) {
+                    $previous = $token;
+                    continue;
+                }
+
+                return true;
+            }
+
+            $previous = $token;
+        }
+
+        return false;
     }
 
     /**
