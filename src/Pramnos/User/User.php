@@ -2225,7 +2225,19 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 $sessions->where('sid', '!=', $keepSid);
             }
 
-            $ended = (int) $sessions->update(['logout' => 1]);
+            /*
+             * `update()` returns a `Result`, not a row count.
+             *
+             * `(int) $result` raised "Object of class Result could not be converted to int" and
+             * produced a number that means nothing — so this method's documented return value,
+             * *how many sessions were ended*, was noise. Nothing broke visibly: the sessions
+             * were ended correctly, and only the count was wrong, which is why it survived.
+             * Found by a test that asserted the count rather than the effect.
+             */
+            $result = $sessions->update(['logout' => 1]);
+            $ended  = $result instanceof \Pramnos\Database\Result
+                ? (int) $result->getAffectedRows()
+                : (int) (bool) $result;
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'revokeOtherSessions could not end sessions for ' . (int) $this->userid

@@ -42,6 +42,17 @@ class Unsubscribe extends \Pramnos\Application\Controller
      */
     public function display(array $args = []): void
     {
+        /*
+         * A self-contained answer, so the site's layout is not rendered after it.
+         *
+         * Without this the framework goes on to render the whole page once the controller
+         * returns: the plain-text line a mailbox provider reads was followed by 180 KB of the
+         * site's HTML, and the page a person sees was followed by the site's header, navigation
+         * and footer. `raw` is the document type the framework already uses for self-contained
+         * output — the log-viewer iframe — and it renders the body and nothing around it.
+         */
+        \Pramnos\Framework\Factory::getDocument('raw');
+
         $request = new \Pramnos\Http\Request();
         $token   = (string) $request->get('u', '', 'request');
         $method  = strtoupper((string) $request->getRequestMethod());

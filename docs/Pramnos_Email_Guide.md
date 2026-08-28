@@ -7,6 +7,7 @@ use_cases:
   - Understanding the plain-text part, or why a message reads badly in a text-only client
   - Working out which headers a message carries and why
   - Putting a Gmail action button on a message, or finding out why one is not showing
+  - Building a one-click action a mail client can perform without a session
 ---
 
 # Pramnos Framework - Email System Guide
@@ -649,6 +650,99 @@ this code. `Actions::requirements()` returns the list as data for exactly that r
 Everything is still correct and harmless without registration. Other clients ignore what they do
 not understand, and the markup is invisible in the rendered message.
 
+### One-click actions: `MailAction`
+
+A `ConfirmAction` needs a URL that acts on the **first** request, with no confirmation page and no
+sign-in, because Gmail issues one POST and does not follow up. `Pramnos\Email\MailAction` is that
+endpoint, generalised from the one the framework already had — RFC 8058 one-click unsubscribe — so
+an application adds its own in three lines rather than writing a controller, a token format and a
+signature check.
+
+```php
+// once, in a service provider
+use Pramnos\Email\MailAction;
+
+MailAction::register('confirm-order', function (array $claim): bool {
+    return (new Order((int) $claim['order']))->confirm();
+});
+
+// in the mail
+$url = MailAction::url('confirm-order', ['order' => 42], 172800);
+$mail->addStructuredData(Actions::confirm('Confirm order', $url));
+```
+
+That is the whole integration. `/mailaction` is a bundled controller, so there is no route to
+register, and an application that wants its own look declares its own `MailAction` controller,
+which takes precedence.
+
+#### The token is the whole authorisation
+
+There is no session and no CSRF token, because the caller is a mailbox provider's server and
+neither exists. That is not something introduced here — a password-reset link has always worked
+this way — but it decides everything else:
+
+- **Signed**, with a key stored as `mailaction_secret` on first use. Rotating it invalidates every
+  outstanding link.
+- **Expiring**, and the expiry is *inside* the signed material. An expiry beside the signature is
+  one the holder can edit, which makes it advice.
+- **Naming one action and one payload.** The payload is readable by anybody holding the token, so
+  it carries identifiers, never secrets.
+- **`verify()` answers `null` for a forgery, a malformed token and an expired one alike** — one
+  answer, because distinguishing them tells somebody probing how close they are. `expired()`
+  exists separately so a *page* can say "this link has expired, ask for another", which is useful
+  and safe to say.
+
+#### GET does not act, unless you say it may
+
+```php
+MailAction::register('verify-address', $handler, actOnGet: true);
+```
+
+By default a GET performs nothing and a person following the visible link is shown a page with a
+button. That is not ceremony: a GET is issued by things nobody asked for — a link scanner in a
+corporate mail gateway, a client prefetching to build a preview, an antivirus proxy — and if a GET
+acted, those would act. Gmail sends a POST, so the button works either way.
+
+Opt in when the effect is safe to trigger that way. Confirming an address is the clear case:
+whoever holds the message has already proved the point.
+
+#### What the handler owes you
+
+**It must be idempotent.** Gmail retries, a reader may press twice, a client may prefetch.
+Confirming an already-confirmed thing is a *success* — returning `false` there turns a second
+press into a 500, and on a provider that retries 500s, into a loop.
+
+`false` means "could not, try again": it becomes a 500, which is correct, because the usual cause
+is a database that was briefly away and that is exactly what retrying fixes. A thrown exception is
+caught, logged and reported the same way, without showing the reader the internals.
+
+| Situation | A machine gets | A person gets |
+|---|---|---|
+| Done | `200` | a page saying so |
+| Invalid token | `400` | "this link is not valid" |
+| Expired | `410` | "this link has expired" |
+| Registered nowhere | `501`, naming the action | the same, so the cause is findable |
+| Needs a POST | `405` | a page with a button |
+| Handler failed or threw | `500` | "could not complete this" |
+
+The `501` matters more than it looks: a valid token for an action nothing handles is almost always
+a handler registered in a service provider that did not run — a feature switched off, a provider
+removed — and answering "not valid" would send somebody to inspect the token instead of the
+registration.
+
+#### What ships registered
+
+`revoke-sessions` — the handler a "this wasn't me" button needs. It ends every session on the
+account, and the framework's own new-sign-in alert **does not use it**; see below.
+
+```php
+$url = MailAction::url('revoke-sessions', ['user' => $userId], 3600);
+$mail->addStructuredData(Actions::confirm('It wasn\'t me', $url));
+```
+
+A short TTL is right for that one: the link ends every session on the account, and a message that
+sat in a mailbox for a month should not still be able to.
+
 ### Where the framework uses this itself, and where it will not
 
 **The password-reset mail carries a `ViewAction`.** That mail contains exactly one link, which is
@@ -656,13 +750,10 @@ its entire purpose, so an action pointing at it exposes nothing the message did 
 expose — and turns four taps on a phone into one. A `ViewAction` needs no handler and makes no
 promise about the first request, so there was never anything to build for it.
 
-**No `ConfirmAction` anywhere.** That one *does* have a contract — the URL must act on the first
-request, with no confirmation page and no sign-in, because Gmail sends a POST and does not follow
-up — and no endpoint the framework ships satisfies it: the verification and step-up routes need a
-session and render a page. An action pointing at one of them would draw a button that does
-nothing, and a dead button is worse than no button. Wiring one means **building the handler
-first**, which is a real and reasonable thing to do; it is not something to bolt onto an existing
-route.
+**No `ConfirmAction` on the framework's own mail — but the handler for one now exists.** The
+contract is real, and `MailAction` above is how it is met: `revoke-sessions` is registered and
+ready. What the framework does not do is *put it in a message*, because the only message it would
+belong in is the new-sign-in alert, and that is the paragraph below.
 
 **The new-sign-in alert carries no action at all, and that is a decision.** It contains no link
 either: a link in an unexpected security email is the shape of the attack it warns about, and a
