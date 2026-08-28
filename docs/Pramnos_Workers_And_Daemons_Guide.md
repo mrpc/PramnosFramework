@@ -541,6 +541,18 @@ So with no orchestrator running:
 - **Start** and **Restart** do nothing whatsoever. No error, no message: the operator clicks,
   the page reloads, the service stays down.
 
+**A pid is not enough to tell whether it is running.** The supervisor's normal home is a
+container of its own — that is what `pramnos init` writes for an application with background
+work — so the pid in its lock file belongs to *that* namespace, and a web request reading it is
+in another. There the number matches something unrelated, or nothing at all: a working
+supervisor reported dead, or a dead one reported alive because pid 14 happens to be Apache.
+
+So the reading is the pid **or** a heartbeat younger than 120 seconds. The state file is on the
+shared volume and is rewritten every reconcile cycle, so a recent mtime means actively cycling,
+and it cannot lie in the dangerous direction — a stopped supervisor stops touching it. A live
+pid with a stale heartbeat still counts as running, deliberately: that is the stuck-supervisor
+state, and the screen's warning for it is more useful than silence.
+
 The screen therefore reports the supervisor's own state above the list — running with its pid
 and last cycle, stale if it has not cycled for two minutes, and a warning naming the
 consequence if it is not running at all. `GET /admin/Services/status` carries the same reading

@@ -223,6 +223,14 @@ class ServicesController extends Controller
      * @return array<int, array<string, mixed>>
      */
     /**
+     * A heartbeat this recent means the supervisor is cycling.
+     *
+     * 120 seconds against a default reconcile interval of 10: long enough that a busy cycle
+     * or a slow disk does not read as death, short enough to notice one.
+     */
+    protected const HEARTBEAT_FRESH_SECONDS = 120;
+
+    /**
      * Whether the supervisor itself is running.
      *
      * The screen's Stop, Start and Restart do not spawn or kill anything: they write and
@@ -253,12 +261,33 @@ class ServicesController extends Controller
             $pid     = $content === false ? 0 : max(0, (int) trim((string) $content));
         }
 
-        $running = $pid > 0 && $this->processIsAlive($pid);
-
         $stateFile = \Pramnos\Console\DaemonOrchestrator::stateFilePath();
         $age       = is_file($stateFile)
             ? max(0, time() - (int) @filemtime($stateFile))
             : null;
+
+        /*
+         * Alive by its pid **or** by a heartbeat that is still moving.
+         *
+         * The pid alone was the answer, and a pid is only meaningful inside the namespace that
+         * issued it. The supervisor's normal home is a container of its own — that is what
+         * `pramnos init` now writes, and what this project runs — so the pid in the lock file
+         * belongs to *its* namespace, and the web request checking it is in another. There the
+         * number either matches something unrelated or nothing at all: a supervisor reported as
+         * dead while it works, or as alive because pid 14 happens to be Apache.
+         *
+         * The state file is the signal that crosses the boundary: it is on the shared volume,
+         * and the orchestrator rewrites it every reconcile cycle, so a recent mtime means not
+         * merely alive but actively cycling. It cannot produce a false positive — a stopped
+         * supervisor stops touching it.
+         *
+         * The pid check stays for the single-host case, and for the seconds between a
+         * supervisor starting and its first cycle. A stale heartbeat with a live pid is left
+         * as "running", deliberately: that is the stuck-supervisor state, and the screen has a
+         * warning for it that is more useful than silence.
+         */
+        $running = ($pid > 0 && $this->processIsAlive($pid))
+            || ($age !== null && $age <= self::HEARTBEAT_FRESH_SECONDS);
 
         return [
             'running'               => $running,

@@ -154,6 +154,16 @@ class ServicesControllerTest extends TestCase
             mkdir(dirname($lockFile), 0777, true);
         }
 
+        // The heartbeat is now part of the answer, so it has to be held still for a test
+        // about the pid. A fresh state file means "cycling" and would mask every case below.
+        $stateFile  = \Pramnos\Console\DaemonOrchestrator::stateFilePath();
+        $stateSaved = is_file($stateFile) ? (string) file_get_contents($stateFile) : null;
+        $stateMtime = is_file($stateFile) ? (int) filemtime($stateFile) : null;
+
+        if (is_file($stateFile)) {
+            touch($stateFile, time() - 3600);
+        }
+
         try {
             // Act & Assert — a pid nothing is using reads as not running
             file_put_contents($lockFile, '2147483646');
@@ -177,6 +187,83 @@ class ServicesControllerTest extends TestCase
                 file_put_contents($lockFile, $previous);
             } elseif (is_file($lockFile)) {
                 unlink($lockFile);
+            }
+
+            if ($stateSaved !== null) {
+                file_put_contents($stateFile, $stateSaved);
+                touch($stateFile, (int) $stateMtime);
+            }
+        }
+    }
+
+    /**
+     * A moving heartbeat is enough, because a pid from another container is not.
+     *
+     * The pid alone was the answer, and a pid only means something inside the namespace that
+     * issued it. The supervisor's normal home is a container of its own — that is what
+     * `pramnos init` writes for an application with background work — so the number in the
+     * lock file belongs to *its* namespace and the web request reading it is in another.
+     * There it matches something unrelated, or nothing: a working supervisor reported dead, or
+     * a dead one reported alive because pid 14 happens to be Apache.
+     *
+     * The state file crosses the boundary. It is on the shared volume, and the orchestrator
+     * rewrites it every reconcile cycle, so a recent mtime means not merely alive but actively
+     * cycling — and it cannot lie in the dangerous direction, because a stopped supervisor
+     * stops touching it.
+     */
+    public function testAMovingHeartbeatIsEnoughToCountAsRunning(): void
+    {
+        // Arrange
+        $probe = new class extends \Pramnos\Application\Controllers\ServicesController {
+            public function __construct()
+            {
+            }
+
+            public function expose(): array
+            {
+                return $this->orchestratorStatus();
+            }
+        };
+
+        $lockFile   = \Pramnos\Console\DaemonOrchestrator::orchestratorLockPath();
+        $stateFile  = \Pramnos\Console\DaemonOrchestrator::stateFilePath();
+        $lockSaved  = is_file($lockFile) ? (string) file_get_contents($lockFile) : null;
+        $stateSaved = is_file($stateFile) ? (string) file_get_contents($stateFile) : null;
+        $stateMtime = is_file($stateFile) ? (int) filemtime($stateFile) : null;
+
+        if (!is_dir(dirname($stateFile))) {
+            mkdir(dirname($stateFile), 0777, true);
+        }
+
+        try {
+            // A pid this host is definitely not running, and a state file written just now
+            file_put_contents($lockFile, '2147483646');
+            file_put_contents($stateFile, '[]');
+
+            // Act
+            $status = $probe->expose();
+
+            // Assert
+            $this->assertTrue($status['running'],
+                'a supervisor that is cycling is running, whatever its pid means here');
+            $this->assertNotNull($status['heartbeat_age_seconds']);
+
+            // …and an old one is not
+            touch($stateFile, time() - 3600);
+            $this->assertFalse($probe->expose()['running'],
+                'a heartbeat that stopped an hour ago is not a running supervisor');
+        } finally {
+            if ($lockSaved !== null) {
+                file_put_contents($lockFile, $lockSaved);
+            } elseif (is_file($lockFile)) {
+                unlink($lockFile);
+            }
+
+            if ($stateSaved !== null) {
+                file_put_contents($stateFile, $stateSaved);
+                touch($stateFile, (int) $stateMtime);
+            } elseif (is_file($stateFile)) {
+                unlink($stateFile);
             }
         }
     }
