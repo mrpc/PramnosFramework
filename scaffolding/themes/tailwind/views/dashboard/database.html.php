@@ -83,9 +83,38 @@ $fmtBytes = function (int $bytes): string {
 
     <!-- Active Processes -->
     <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
-        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
+        <?php
+        /*
+         * User and Database, once, in the header — not once per row.
+         *
+         * The query filters on `datname = current_database()`, so every row carried the same
+         * database name, and in practice the same user: two of the widest columns on the screen
+         * repeating a value that does not vary. The table needed a horizontal scrollbar, which
+         * put the query — the one column somebody is reading — off the right edge.
+         *
+         * A row that *does* differ (a replica's user, a TimescaleDB worker) is marked instead,
+         * so the information is not lost. Which is the point: these columns were not
+         * uninformative, they were uninformative *four times*.
+         */
+        $commonUsers = array_unique(array_filter(array_map(
+            static fn (array $p): string => (string) ($p['usename'] ?? ''),
+            $processes
+        )));
+        $commonDbs = array_unique(array_filter(array_map(
+            static fn (array $p): string => (string) ($p['datname'] ?? ''),
+            $processes
+        )));
+        $oneUser = count($commonUsers) === 1 ? reset($commonUsers) : '';
+        $oneDb   = count($commonDbs) === 1 ? reset($commonDbs) : '';
+        ?>
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex flex-wrap gap-2 justify-between items-center">
             <span>Active Processes</span>
-            <span class="badge badge-neutral badge-sm"><?php echo count($processes); ?></span>
+            <?php if ($oneUser !== '' || $oneDb !== ''): ?>
+                <span class="font-normal text-xs text-base-content/60 font-mono">
+                    <?php echo htmlspecialchars(trim($oneUser . ($oneDb !== '' ? ' @ ' . $oneDb : '')), ENT_QUOTES, 'UTF-8'); ?>
+                </span>
+            <?php endif; ?>
+            <span class="badge badge-neutral badge-sm ms-auto"><?php echo count($processes); ?></span>
         </div>
         <?php if (empty($processes)): ?>
             <p class="text-center text-base-content/60 py-6 text-sm">No active processes.</p>
@@ -95,8 +124,10 @@ $fmtBytes = function (int $bytes): string {
                 <thead class="bg-base-200 text-base-content/70 uppercase">
                     <tr>
                         <th class="px-3 py-2 text-left">PID</th>
-                        <th class="px-3 py-2 text-left">User</th>
-                        <th class="px-3 py-2 text-left">Database</th>
+                        <?php /* User and Database live in the header — see above. */ ?>
+                        <?php if ($oneUser === '' || $oneDb === ''): ?>
+                        <th class="px-3 py-2 text-left">Connection</th>
+                        <?php endif; ?>
                         <th class="px-3 py-2 text-left">Application</th>
                         <th class="px-3 py-2 text-left">IP</th>
                         <th class="px-3 py-2 text-left">Started</th>
@@ -128,11 +159,31 @@ $fmtBytes = function (int $bytes): string {
                     ?>
                     <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono"><?php echo (int) ($p['pid'] ?? 0); ?></td>
-                        <td class="px-3 py-2"><?php echo htmlspecialchars($p['usename'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($p['datname'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <?php if ($oneUser === '' || $oneDb === ''): ?>
+                        <?php /* Only when they are not all the same, and then together. */ ?>
+                        <td class="px-3 py-2 font-mono text-base-content/70">
+                            <?php echo htmlspecialchars(
+                                ($p['usename'] ?? '—') . ' @ ' . ($p['datname'] ?? '—'),
+                                ENT_QUOTES,
+                                'UTF-8'
+                            ); ?>
+                        </td>
+                        <?php endif; ?>
                         <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($p['application_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2 font-mono text-base-content/60"><?php echo htmlspecialchars($p['client_addr'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-base-content/60"><?php echo htmlspecialchars($p['backend_start'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
+                        <?php
+                        // `backend_start` arrives as a formatted string from the query. Reformatted
+                        // through the language's own convention when it can be read as a time —
+                        // `2026-08-28 09:46:29` wrapped onto two lines in this column, and the
+                        // seconds are noise for a connection that has been open for hours.
+                        $started = (string) ($p['backend_start'] ?? '');
+                        $startedAt = $started !== '' ? strtotime($started) : false;
+                        ?>
+                        <td class="px-3 py-2 text-base-content/60 whitespace-nowrap"><?php
+                            echo $startedAt !== false
+                                ? htmlspecialchars(localDateTime($startedAt), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($started !== '' ? $started : '—', ENT_QUOTES, 'UTF-8');
+                        ?></td>
                         <td class="px-3 py-2">
                             <?php if ($durSec > 0):
                                 // Only a *running* query is worth colouring. An idle connection

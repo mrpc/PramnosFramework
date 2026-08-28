@@ -29,7 +29,7 @@ $when  = static function ($value) use ($e): string {
     }
     $time = is_numeric($value) ? (int) $value : strtotime((string) $value);
 
-    return $time > 0 ? $e(date('Y-m-d H:i:s', $time)) : $e($value);
+    return $time > 0 ? $e(localDateTime( $time)) : $e($value);
 };
 $field = static function (string $label, string $value): void {
     echo '<div class="flex gap-3 py-1.5 border-b border-base-200 last:border-0">'

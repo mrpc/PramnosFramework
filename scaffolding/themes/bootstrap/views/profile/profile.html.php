@@ -75,13 +75,13 @@ $this->activeNav = 'profile';
                     <?php if (!empty($u->regdate)): ?>
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">Member Since</span>
-                        <span><?php echo htmlspecialchars(date('Y-m-d', is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></span>
+                        <span><?php echo htmlspecialchars(localDate( is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></span>
                     </li>
                     <?php endif; ?>
                     <?php if (!empty($u->lastlogin)): ?>
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">Last Login</span>
-                        <span><?php echo htmlspecialchars(date('Y-m-d H:i', is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></span>
+                        <span><?php echo htmlspecialchars(localDateTime( is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></span>
                     </li>
                     <?php endif; ?>
                 </ul>

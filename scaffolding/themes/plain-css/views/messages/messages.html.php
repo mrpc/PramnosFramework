@@ -5,7 +5,7 @@
 $messages = is_array($this->messages ?? null) ? $this->messages : [];
 $unread   = (int) ($this->unread ?? 0);
 $e        = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-$when     = static fn ($v): string => ((int) $v) > 0 ? date('Y-m-d H:i', (int) $v) : '—';
+$when     = static fn ($v): string => ((int) $v) > 0 ? localDateTime( (int) $v) : '—';
 $excerpt  = static function ($text): string {
     $plain = trim(preg_replace('/\s+/', ' ', strip_tags((string) $text)) ?? '');
 

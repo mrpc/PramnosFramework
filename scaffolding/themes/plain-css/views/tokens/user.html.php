@@ -55,10 +55,10 @@ $this->activeNav = 'users_tokens';
                         <td style="padding:6px 12px"><span style="background:#e9ecef;padding:2px 6px;border-radius:3px;font-size:11px"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth'); ?></span></td>
                         <td style="padding:6px 12px"><span style="color:<?php echo $statusColor[$status] ?? '#666'; ?>;font-weight:600;font-size:12px"><?php echo $statusLabel[$status] ?? 'Unknown'; ?></span></td>
                         <td style="padding:6px 12px;color:#888;font-size:12px"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—'); ?></td>
-                        <td style="padding:6px 12px;font-size:12px"><?php echo ($tok['created'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['created']) : '—'; ?></td>
-                        <td style="padding:6px 12px;font-size:12px"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['lastused']) : '—'; ?></td>
+                        <td style="padding:6px 12px;font-size:12px"><?php echo ($tok['created'] ?? 0) > 0 ? localDateTime( (int)$tok['created']) : '—'; ?></td>
+                        <td style="padding:6px 12px;font-size:12px"><?php echo ($tok['lastused'] ?? 0) > 0 ? localDateTime( (int)$tok['lastused']) : '—'; ?></td>
                         <td style="padding:6px 12px;font-size:12px;<?php echo $isExpired ? 'color:#856404' : ''; ?>">
-                            <?php echo $exp > 0 ? date('Y-m-d H:i', $exp) . ($isExpired ? ' (exp)' : '') : 'Never'; ?>
+                            <?php echo $exp > 0 ? localDateTime( $exp) . ($isExpired ? ' (exp)' : '') : 'Never'; ?>
                         </td>
                         <td style="padding:6px 12px;text-align:right">
                             <?php if ($status === 1): ?>

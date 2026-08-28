@@ -33,7 +33,7 @@ $st = (int) ($a['servertime'] ?? 0);
                 <dd class="col-sm-9"><?php echo htmlspecialchars((string)$a['ipaddress']); ?></dd>
                 <?php endif; ?>
                 <dt class="col-sm-3">Timestamp</dt>
-                <dd class="col-sm-9"><?php echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i:s', $st)) : htmlspecialchars((string)($a['action_time'] ?? '')); ?></dd>
+                <dd class="col-sm-9"><?php echo $st > 0 ? htmlspecialchars(localDateTime( $st)) : htmlspecialchars((string)($a['action_time'] ?? '')); ?></dd>
             </dl>
         </div>
     </div>

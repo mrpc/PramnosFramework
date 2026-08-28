@@ -16,6 +16,25 @@ use_cases:
 
 The Pramnos Framework includes a powerful theming system that provides flexible template management, widget support, menu systems, and complete design customization. This guide covers everything from basic theme usage to advanced theme development.
 
+## Dates
+
+Never `date('Y-m-d')` in a view. Three helpers, and they follow the language the page is written
+in:
+
+```php
+<?php echo localDate($row['created']); ?>       <!-- 28/08/2026   (el)   2026-08-28   (en) -->
+<?php echo localDateTime($row['created']); ?>   <!-- 28/08/2026 14:32 -->
+<?php echo localTime($row['created']); ?>       <!-- 14:32 -->
+```
+
+`0`, `null` and an empty column return the empty string rather than *1 January 1970*; pass a
+second argument for a dash. The patterns come from the `date_format` / `datetime_format` settings,
+then `app.php`'s `'dates' => ['el' => [...]]`, then the framework's table — see
+`Pramnos\General\DateFormat`.
+
+A value a machine reads is the exception: an `<input type="date">`, a `<time datetime>` attribute
+and an export filename stay ISO, and `date()` is right there.
+
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)

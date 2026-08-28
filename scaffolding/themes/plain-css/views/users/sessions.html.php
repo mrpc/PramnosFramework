@@ -31,7 +31,7 @@
                         <td><code><?php echo htmlspecialchars(substr((string) ($s['visitorid'] ?? ''), 0, 16)) . '…'; ?></code></td>
                         <td><?php echo htmlspecialchars($s['host_addr'] ?? ''); ?></td>
                         <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? ''), 0, 60)); ?></td>
-                        <td><?php echo isset($s['time']) ? htmlspecialchars(date('d/m/Y H:i', (int) $s['time'])) : ''; ?></td>
+                        <td><?php echo isset($s['time']) ? htmlspecialchars(localDateTime( (int) $s['time'])) : ''; ?></td>
                         <td>
                             <?php echo $active
                                 ? '<span class="badge bg-success">Active</span>'

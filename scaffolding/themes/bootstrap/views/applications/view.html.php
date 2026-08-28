@@ -132,7 +132,7 @@ $accessTypeLabel = function (int $t): string {
                         </div>
                         <div class="col-sm-6 col-lg-4">
                             <div class="text-muted small mb-1">Added</div>
-                            <div><?php echo ($app['added'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $app['added']) : '—'; ?></div>
+                            <div><?php echo ($app['added'] ?? 0) > 0 ? localDateTime( (int) $app['added']) : '—'; ?></div>
                         </div>
                         <?php if (!empty($app['description'])): ?>
                         <div class="col-12">
@@ -195,7 +195,7 @@ $accessTypeLabel = function (int $t): string {
                                 </td>
                                 <td class="small text-muted"><?php echo htmlspecialchars($u['scope'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                                 <td class="small text-muted"><?php echo htmlspecialchars($u['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                                <td class="small"><?php echo ($u['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $u['lastused']) : '—'; ?></td>
+                                <td class="small"><?php echo ($u['lastused'] ?? 0) > 0 ? localDateTime( (int) $u['lastused']) : '—'; ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

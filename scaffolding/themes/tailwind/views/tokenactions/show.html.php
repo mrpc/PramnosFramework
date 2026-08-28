@@ -40,7 +40,7 @@ $st = (int) ($a['servertime'] ?? 0);
                 <div class="block"></div>
                 <?php endif; ?>
                 <dt class="font-semibold text-base-content/80 text-sm w-40 inline-block">Timestamp</dt>
-                <dd class="inline"><?php echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i:s', $st)) : htmlspecialchars((string)($a['action_time'] ?? '')); ?></dd>
+                <dd class="inline"><?php echo $st > 0 ? htmlspecialchars(localDateTime( $st)) : htmlspecialchars((string)($a['action_time'] ?? '')); ?></dd>
             </dl>
         </div>
     </div>

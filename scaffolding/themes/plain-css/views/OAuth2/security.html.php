@@ -131,7 +131,7 @@ $this->activeNav = 'security';
                                         <div><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? 'Unknown device'), 0, 80)); ?></div>
                                         <small style="color:#888">
                                             <?php echo htmlspecialchars((string) ($s['host_addr'] ?? '')); ?>
-                                            · <?php echo htmlspecialchars(date('Y-m-d H:i', (int) ($s['time'] ?? 0))); ?>
+                                            · <?php echo htmlspecialchars(localDateTime( (int) ($s['time'] ?? 0))); ?>
                                         </small>
                                     </td>
                                     <td style="padding:10px 16px;text-align:right">

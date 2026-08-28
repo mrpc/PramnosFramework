@@ -88,11 +88,11 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     </div>
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <span class="text-muted">Registered</span>
-                        <span><?php echo ($user['regdate'] ?? 0) > 0 ? date('Y-m-d', (int) $user['regdate']) : '—'; ?></span>
+                        <span><?php echo ($user['regdate'] ?? 0) > 0 ? localDate( (int) $user['regdate']) : '—'; ?></span>
                     </div>
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <span class="text-muted">Last Login</span>
-                        <span><?php echo ($user['lastlogin'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $user['lastlogin']) : '—'; ?></span>
+                        <span><?php echo ($user['lastlogin'] ?? 0) > 0 ? localDateTime( (int) $user['lastlogin']) : '—'; ?></span>
                     </div>
                 </div>
             </div>
@@ -202,8 +202,8 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                                 <td><span class="badge bg-secondary"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
                                 <td><span class="badge bg-<?php echo $sBadge; ?>"><?php echo $sLabel; ?></span></td>
                                 <td class="small text-muted"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                                <td class="small"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $tok['lastused']) : '—'; ?></td>
-                                <td class="small"><?php echo $exp > 0 ? date('Y-m-d H:i', $exp) : 'Never'; ?></td>
+                                <td class="small"><?php echo ($tok['lastused'] ?? 0) > 0 ? localDateTime( (int) $tok['lastused']) : '—'; ?></td>
+                                <td class="small"><?php echo $exp > 0 ? localDateTime( $exp) : 'Never'; ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

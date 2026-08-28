@@ -164,7 +164,7 @@ $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'
                         <?php endif; ?>
                     </td>
                     <td class="text-xs text-base-content/60">
-                        <?php echo $setting['updated_at'] ? $e(date('Y-m-d H:i', (int) $setting['updated_at'])) : '—'; ?>
+                        <?php echo $setting['updated_at'] ? $e(localDateTime( (int) $setting['updated_at'])) : '—'; ?>
                     </td>
                     <td class="text-end whitespace-nowrap">
                         <?php

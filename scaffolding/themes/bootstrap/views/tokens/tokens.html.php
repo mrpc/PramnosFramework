@@ -39,7 +39,7 @@
                         ?></td>
                         <td class="text-muted small"><?php
                             $lu = (int) ($tok['lastused'] ?? 0);
-                            echo $lu > 0 ? htmlspecialchars(date('Y-m-d H:i', $lu)) : '—';
+                            echo $lu > 0 ? htmlspecialchars(localDateTime( $lu)) : '—';
                         ?></td>
                         <td>
                             <?php echo (int)($tok['status'] ?? 1) === 1

@@ -66,7 +66,7 @@ foreach ($rows as $row) {
                         <td class="px-6 py-4 whitespace-nowrap font-mono text-sm text-base-content/70"><?php echo htmlspecialchars(substr((string) ($s['visitorid'] ?? ''), 0, 16)) . '…'; ?></td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-base-content"><?php echo htmlspecialchars($s['host_addr'] ?? ''); ?></td>
                         <td class="px-6 py-4 text-sm text-base-content/70"><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? ''), 0, 60)); ?></td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-base-content/70"><?php echo isset($s['time']) ? htmlspecialchars(date('d/m/Y H:i', (int) $s['time'])) : ''; ?></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-base-content/70"><?php echo isset($s['time']) ? htmlspecialchars(localDateTime( (int) $s['time'])) : ''; ?></td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="px-2 py-0.5 rounded-full text-xs font-medium <?php echo $active ? 'bg-success/10 text-success' : 'bg-base-200 text-base-content/80'; ?>"><?php echo $active ? 'Active' : 'Logged out'; ?></span></td>
                     </tr>
                 <?php endforeach; ?>

@@ -149,7 +149,7 @@ $accessTypeLabel = function (int $t): string {
                             <?php echo (int) ($app['public'] ?? 0) ? 'Yes' : 'No'; ?>
                         </span>
                     </div>
-                    <?php $field('Added', ($app['added'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $app['added']) : '—'); ?>
+                    <?php $field('Added', ($app['added'] ?? 0) > 0 ? localDateTime( (int) $app['added']) : '—'); ?>
                     <?php if (!empty($app['description'])): ?>
                     <div class="col-span-full">
                         <div class="text-xs text-base-content/60 mb-0.5">Description</div>
@@ -210,7 +210,7 @@ $accessTypeLabel = function (int $t): string {
                             </td>
                             <td class="px-4 py-2 text-xs text-base-content/60"><?php echo htmlspecialchars($u['scope'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                             <td class="px-4 py-2 text-xs text-base-content/60"><?php echo htmlspecialchars($u['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td class="px-4 py-2 text-xs"><?php echo ($u['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $u['lastused']) : '—'; ?></td>
+                            <td class="px-4 py-2 text-xs"><?php echo ($u['lastused'] ?? 0) > 0 ? localDateTime( (int) $u['lastused']) : '—'; ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>

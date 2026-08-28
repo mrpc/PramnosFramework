@@ -21,7 +21,7 @@ $when  = static function ($value) use ($e): string {
     // A timestamp or a datetime string, depending on the driver that wrote it.
     $time = is_numeric($value) ? (int) $value : strtotime((string) $value);
 
-    return $time > 0 ? $e(date('Y-m-d H:i', $time)) : $e($value);
+    return $time > 0 ? $e(localDateTime( $time)) : $e($value);
 };
 
 /** One label/value row, so the panel below is a list of facts rather than markup. */

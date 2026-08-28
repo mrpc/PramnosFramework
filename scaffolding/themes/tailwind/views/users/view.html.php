@@ -102,11 +102,11 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-base-content/70">Registered</span>
-                        <span class="text-xs"><?php echo ($user['regdate'] ?? 0) > 0 ? date('Y-m-d', (int) $user['regdate']) : '—'; ?></span>
+                        <span class="text-xs"><?php echo ($user['regdate'] ?? 0) > 0 ? localDate( (int) $user['regdate']) : '—'; ?></span>
                     </div>
                     <div class="px-4 py-2.5 flex justify-between">
                         <span class="text-base-content/70">Last Login</span>
-                        <span class="text-xs"><?php echo ($user['lastlogin'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $user['lastlogin']) : '—'; ?></span>
+                        <span class="text-xs"><?php echo ($user['lastlogin'] ?? 0) > 0 ? localDateTime( (int) $user['lastlogin']) : '—'; ?></span>
                     </div>
                 </div>
             </div>
@@ -233,8 +233,8 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                             <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-base-200 text-base-content/80 text-xs rounded-sm"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
                             <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $sCls; ?>"><?php echo $sLabel; ?></span></td>
                             <td class="px-4 py-2 text-xs text-base-content/60"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td class="px-4 py-2 text-xs"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $tok['lastused']) : '—'; ?></td>
-                            <td class="px-4 py-2 text-xs"><?php echo $exp > 0 ? date('Y-m-d H:i', $exp) : 'Never'; ?></td>
+                            <td class="px-4 py-2 text-xs"><?php echo ($tok['lastused'] ?? 0) > 0 ? localDateTime( (int) $tok['lastused']) : '—'; ?></td>
+                            <td class="px-4 py-2 text-xs"><?php echo $exp > 0 ? localDateTime( $exp) : 'Never'; ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
@@ -263,7 +263,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 }
                 $time = is_numeric($value) ? (int) $value : strtotime((string) $value);
 
-                return $time > 0 ? date('Y-m-d H:i', $time) : (string) $value;
+                return $time > 0 ? localDateTime( $time) : (string) $value;
             };
             $esc = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 

@@ -22,7 +22,7 @@ $e        = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 
 $when     = static function ($value): string {
     $time = (int) $value;
 
-    return $time > 0 ? date('Y-m-d H:i', $time) : '—';
+    return $time > 0 ? localDateTime( $time) : '—';
 };
 ?>
 <div class="container py-4">

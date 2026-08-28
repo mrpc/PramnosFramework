@@ -15,7 +15,7 @@
             <div style="background:#f5f5f5;border-radius:6px;padding:14px;text-align:left;font-size:13px;margin-bottom:14px">
                 <div style="margin-bottom:4px"><strong>Device Code:</strong> <?php echo htmlspecialchars($this->deviceAuth['user_code'] ?? ''); ?></div>
                 <div style="margin-bottom:4px"><strong>Scopes:</strong> <?php echo htmlspecialchars($this->deviceAuth['scope'] ?? ''); ?></div>
-                <div><strong>Authorized:</strong> <?php echo date('Y-m-d H:i:s'); ?></div>
+                <div><strong>Authorized:</strong> <?php echo localDateTime(time()); ?></div>
             </div>
             <p style="color:#888;font-size:12px">You may now close this window and return to your device.</p>
         </div>

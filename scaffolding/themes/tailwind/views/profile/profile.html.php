@@ -78,13 +78,13 @@ $inputCls = 'input w-full';
                     <?php if (!empty($u->regdate)): ?>
                     <div class="flex justify-between px-6 py-3 text-sm">
                         <span class="text-base-content/70">Member Since</span>
-                        <span class="text-base-content"><?php echo htmlspecialchars(date('Y-m-d', is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></span>
+                        <span class="text-base-content"><?php echo htmlspecialchars(localDate( is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></span>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($u->lastlogin)): ?>
                     <div class="flex justify-between px-6 py-3 text-sm">
                         <span class="text-base-content/70">Last Login</span>
-                        <span class="text-base-content"><?php echo htmlspecialchars(date('Y-m-d H:i', is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></span>
+                        <span class="text-base-content"><?php echo htmlspecialchars(localDateTime( is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></span>
                     </div>
                     <?php endif; ?>
                 </div>

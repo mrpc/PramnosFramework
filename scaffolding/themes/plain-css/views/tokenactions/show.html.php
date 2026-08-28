@@ -32,7 +32,7 @@ $st = (int) ($a['servertime'] ?? 0);
                 <?php if (!empty($a['ipaddress'])): ?>
                 <div><dt>IP Address</dt><dd><?php echo htmlspecialchars((string)$a['ipaddress']); ?></dd></div>
                 <?php endif; ?>
-                <div><dt>Timestamp</dt><dd><?php echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i:s', $st)) : htmlspecialchars((string)($a['action_time'] ?? '')); ?></dd></div>
+                <div><dt>Timestamp</dt><dd><?php echo $st > 0 ? htmlspecialchars(localDateTime( $st)) : htmlspecialchars((string)($a['action_time'] ?? '')); ?></dd></div>
             </dl>
         </div>
     </div>

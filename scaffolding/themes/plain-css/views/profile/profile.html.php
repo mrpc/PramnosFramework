@@ -81,13 +81,13 @@ $this->activeNav = 'profile';
                         <?php if (!empty($u->regdate)): ?>
                         <tr style="border-bottom:1px solid #f0f0f0">
                             <th style="text-align:left;padding:10px 16px;width:160px;color:#444">Member Since</th>
-                            <td style="padding:10px 16px;color:#666"><?php echo htmlspecialchars(date('Y-m-d', is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></td>
+                            <td style="padding:10px 16px;color:#666"><?php echo htmlspecialchars(localDate( is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></td>
                         </tr>
                         <?php endif; ?>
                         <?php if (!empty($u->lastlogin)): ?>
                         <tr>
                             <th style="text-align:left;padding:10px 16px;color:#444">Last Login</th>
-                            <td style="padding:10px 16px;color:#666"><?php echo htmlspecialchars(date('Y-m-d H:i', is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></td>
+                            <td style="padding:10px 16px;color:#666"><?php echo htmlspecialchars(localDateTime( is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></td>
                         </tr>
                         <?php endif; ?>
                     </table>

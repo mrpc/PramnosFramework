@@ -20,7 +20,7 @@ $when  = static function ($value) use ($e): string {
     }
     $time = is_numeric($value) ? (int) $value : strtotime((string) $value);
 
-    return $time > 0 ? $e(date('Y-m-d H:i', $time)) : $e($value);
+    return $time > 0 ? $e(localDateTime( $time)) : $e($value);
 };
 $members = [];
 if (is_iterable($this->members ?? null)) {

@@ -24,7 +24,7 @@ $isHtml  = (int) ($message['html'] ?? 0) === 1;
     <article class="card bg-base-100 border border-base-300 shadow-xs p-6">
         <h1 class="text-xl font-semibold mb-1"><?php echo $e($message['subject'] ?? ''); ?></h1>
         <p class="text-xs text-base-content/50 mb-4">
-            <?php echo $e($date > 0 ? date('Y-m-d H:i', $date) : ''); ?>
+            <?php echo $e($date > 0 ? localDateTime( $date) : ''); ?>
         </p>
         <div class="prose max-w-none text-base-content">
             <?php echo $isHtml ? ($message['text'] ?? '') : nl2br($e($message['text'] ?? '')); ?>

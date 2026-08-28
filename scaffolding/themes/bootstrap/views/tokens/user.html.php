@@ -52,10 +52,10 @@ $statusLabel = function (int $s): string {
                         <td><span class="badge bg-secondary"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth'); ?></span></td>
                         <td><?php echo $statusLabel($status); ?></td>
                         <td class="small text-muted"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—'); ?></td>
-                        <td class="small"><?php echo ($tok['created'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['created']) : '—'; ?></td>
-                        <td class="small"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['lastused']) : '—'; ?></td>
+                        <td class="small"><?php echo ($tok['created'] ?? 0) > 0 ? localDateTime( (int)$tok['created']) : '—'; ?></td>
+                        <td class="small"><?php echo ($tok['lastused'] ?? 0) > 0 ? localDateTime( (int)$tok['lastused']) : '—'; ?></td>
                         <td class="small <?php echo $isExpired ? 'text-warning' : ''; ?>">
-                            <?php echo $exp > 0 ? date('Y-m-d H:i', $exp) . ($isExpired ? ' <em>(expired)</em>' : '') : 'Never'; ?>
+                            <?php echo $exp > 0 ? localDateTime( $exp) . ($isExpired ? ' <em>(expired)</em>' : '') : 'Never'; ?>
                         </td>
                         <td class="text-end">
                             <?php if ($status === 1): ?>

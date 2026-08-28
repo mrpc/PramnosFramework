@@ -11,7 +11,7 @@ $isHtml  = (int) ($message['html'] ?? 0) === 1;
     <p><a href="<?php echo sURL; ?>messages">&larr; <?php echo $e(t('Messages')); ?></a></p>
     <article style="border:1px solid #ddd;border-radius:4px;padding:20px">
         <h1 style="margin:0 0 4px;font-size:20px"><?php echo $e($message['subject'] ?? ''); ?></h1>
-        <p style="margin:0 0 16px;font-size:12px;color:#888"><?php echo $e($date > 0 ? date('Y-m-d H:i', $date) : ''); ?></p>
+        <p style="margin:0 0 16px;font-size:12px;color:#888"><?php echo $e($date > 0 ? localDateTime( $date) : ''); ?></p>
         <div><?php echo $isHtml ? ($message['text'] ?? '') : nl2br($e($message['text'] ?? '')); ?></div>
     </article>
 </div>

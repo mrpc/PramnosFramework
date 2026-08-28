@@ -52,10 +52,10 @@ $statusBadge = function (int $s): string {
                     <td class="px-4 py-2"><span class="inline-block px-2 py-0.5 bg-base-200 text-base-content/80 text-xs rounded-sm"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth'); ?></span></td>
                     <td class="px-4 py-2"><?php echo $statusBadge($status); ?></td>
                     <td class="px-4 py-2 text-xs text-base-content/60"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—'); ?></td>
-                    <td class="px-4 py-2 text-xs"><?php echo ($tok['created'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['created']) : '—'; ?></td>
-                    <td class="px-4 py-2 text-xs"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$tok['lastused']) : '—'; ?></td>
+                    <td class="px-4 py-2 text-xs"><?php echo ($tok['created'] ?? 0) > 0 ? localDateTime( (int)$tok['created']) : '—'; ?></td>
+                    <td class="px-4 py-2 text-xs"><?php echo ($tok['lastused'] ?? 0) > 0 ? localDateTime( (int)$tok['lastused']) : '—'; ?></td>
                     <td class="px-4 py-2 text-xs <?php echo $isExpired ? 'text-warning' : ''; ?>">
-                        <?php echo $exp > 0 ? date('Y-m-d H:i', $exp) . ($isExpired ? ' (expired)' : '') : 'Never'; ?>
+                        <?php echo $exp > 0 ? localDateTime( $exp) . ($isExpired ? ' (expired)' : '') : 'Never'; ?>
                     </td>
                     <td class="px-4 py-2 text-right flex gap-1 justify-end">
                         <?php if ($status === 1): ?>

@@ -328,3 +328,55 @@ if (!function_exists('humanCheckField')) {
             . '"></script>';
     }
 }
+
+if (!function_exists('localDate')) {
+    /**
+     * A date, written the way the current language writes dates.
+     *
+     * ```php
+     * <td><?php echo localDate($row['created']); ?></td>
+     * ```
+     *
+     * `date('Y-m-d')` was in about forty views, and it is the wrong answer in every language but
+     * one. A Greek page showing `2026-08-28` is not wrong the way a mistranslation is wrong — it
+     * is read, understood, and quietly filed as software written by somebody else, which is the
+     * whole reason a project translates its screens.
+     *
+     * `0`, null and an empty column return `$empty` rather than *1 January 1970*: a row with no
+     * date is the ordinary case in these tables, and "1970" is a value somebody has to be told
+     * to ignore.
+     *
+     * @param int|string|null $timestamp
+     * @param string          $empty What to show when there is no date
+     */
+    function localDate($timestamp, string $empty = ''): string
+    {
+        return \Pramnos\General\DateFormat::date($timestamp, $empty);
+    }
+}
+
+if (!function_exists('localDateTime')) {
+    /**
+     * A date and a time, in the current language's convention. {@see localDate()}
+     *
+     * @param int|string|null $timestamp
+     * @param string          $empty
+     */
+    function localDateTime($timestamp, string $empty = ''): string
+    {
+        return \Pramnos\General\DateFormat::dateTime($timestamp, $empty);
+    }
+}
+
+if (!function_exists('localTime')) {
+    /**
+     * A time of day, in the current language's convention. {@see localDate()}
+     *
+     * @param int|string|null $timestamp
+     * @param string          $empty
+     */
+    function localTime($timestamp, string $empty = ''): string
+    {
+        return \Pramnos\General\DateFormat::time($timestamp, $empty);
+    }
+}

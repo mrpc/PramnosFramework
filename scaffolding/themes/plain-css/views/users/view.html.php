@@ -79,8 +79,8 @@ $this->activeNav = 'users_view';
                 <?php $row('Tokens', '<a href="' . adminUrl('Tokens/userid/') . $uid . '" style="font-weight:600">' . (int)($usageStats['total_tokens'] ?? 0) . '</a>'); ?>
                 <?php $row('Unique Apps', '<strong>' . (int)($usageStats['unique_apps'] ?? 0) . '</strong>'); ?>
                 <?php $row('Sessions', '<a href="' . adminUrl('users/sessions/') . $uid . '" style="font-weight:600">' . $sessionCount . '</a>'); ?>
-                <?php $row('Registered', ($user['regdate'] ?? 0) > 0 ? date('Y-m-d', (int)$user['regdate']) : '—'); ?>
-                <?php $row('Last Login', ($user['lastlogin'] ?? 0) > 0 ? date('Y-m-d H:i', (int)$user['lastlogin']) : '—'); ?>
+                <?php $row('Registered', ($user['regdate'] ?? 0) > 0 ? localDate( (int)$user['regdate']) : '—'); ?>
+                <?php $row('Last Login', ($user['lastlogin'] ?? 0) > 0 ? localDateTime( (int)$user['lastlogin']) : '—'); ?>
             </div>
 
             <div class="card">
@@ -174,8 +174,8 @@ $this->activeNav = 'users_view';
                                 <td style="padding:6px 12px"><span style="background:#e9ecef;padding:2px 6px;border-radius:3px;font-size:11px"><?php echo htmlspecialchars($tok['tokentype'] ?? 'auth', ENT_QUOTES, 'UTF-8'); ?></span></td>
                                 <td style="padding:6px 12px"><span style="color:<?php echo $sColors[$s] ?? '#666'; ?>;font-weight:600;font-size:12px"><?php echo $sLabels[$s] ?? '?'; ?></span></td>
                                 <td style="padding:6px 12px;color:#888;font-size:12px"><?php echo htmlspecialchars($tok['ipaddress'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                                <td style="padding:6px 12px;font-size:12px"><?php echo ($tok['lastused'] ?? 0) > 0 ? date('Y-m-d H:i', (int) $tok['lastused']) : '—'; ?></td>
-                                <td style="padding:6px 12px;font-size:12px"><?php echo $exp > 0 ? date('Y-m-d H:i', $exp) : 'Never'; ?></td>
+                                <td style="padding:6px 12px;font-size:12px"><?php echo ($tok['lastused'] ?? 0) > 0 ? localDateTime( (int) $tok['lastused']) : '—'; ?></td>
+                                <td style="padding:6px 12px;font-size:12px"><?php echo $exp > 0 ? localDateTime( $exp) : 'Never'; ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

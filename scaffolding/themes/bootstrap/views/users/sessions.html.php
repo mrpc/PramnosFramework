@@ -25,7 +25,7 @@
                         <td><code><?php echo htmlspecialchars(substr((string) ($s['visitorid'] ?? ''), 0, 16)) . '…'; ?></code></td>
                         <td><?php echo htmlspecialchars($s['host_addr'] ?? ''); ?></td>
                         <td class="text-muted small"><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? ''), 0, 60)); ?></td>
-                        <td><?php echo isset($s['time']) ? htmlspecialchars(date('d/m/Y H:i', (int) $s['time'])) : ''; ?></td>
+                        <td><?php echo isset($s['time']) ? htmlspecialchars(localDateTime( (int) $s['time'])) : ''; ?></td>
                         <td><span class="badge bg-<?php echo $active ? 'success' : 'secondary'; ?>"><?php echo $active ? 'Active' : 'Logged out'; ?></span></td>
                     </tr>
                 <?php endforeach; ?>

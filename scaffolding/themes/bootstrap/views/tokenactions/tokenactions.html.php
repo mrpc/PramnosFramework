@@ -61,7 +61,7 @@
                         <td><?php echo $a['execution_time_ms'] !== null ? number_format((float)$a['execution_time_ms'], 0) : '—'; ?></td>
                         <td class="text-muted small"><?php
                             $st = (int)($a['servertime'] ?? 0);
-                            echo $st > 0 ? htmlspecialchars(date('Y-m-d H:i', $st)) : '—';
+                            echo $st > 0 ? htmlspecialchars(localDateTime( $st)) : '—';
                         ?></td>
                         <td><a href="<?php echo adminUrl('TokenActions' . '/show/' . ((int)$a['actionid'])); ?>" class="btn btn-sm btn-outline-secondary">View</a></td>
                     </tr>
