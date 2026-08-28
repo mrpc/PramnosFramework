@@ -237,6 +237,11 @@ and therefore usually answered with "it must have been sent". The limit is the o
 that: mail sent to an address the account used *before* it was changed does not appear, and
 nothing pretends otherwise.
 
+**The panels are the tailwind theme's.** `scaffolding/themes/tailwind/views/users/view.html.php`
+draws all ten; the bootstrap and plain-css themes ship a simpler user screen with none of them.
+The controller collects the records either way, so a project on those themes has the data and
+has to render what it wants from it.
+
 **Every read is guarded on its own.** These tables arrive with features — an application
 without `authserver` has none of the `authserver.*` ones — so a panel with nothing behind
 it renders empty rather than taking the page down, and an empty panel is still rendered:
