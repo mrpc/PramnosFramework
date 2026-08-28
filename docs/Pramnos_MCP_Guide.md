@@ -24,7 +24,8 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 as Claude Code expects, and it exposes two kinds of thing:
 
 - **tools** — callable capabilities: five introspect the application, two report what its logs
-  say, and seven answer questions about the code and the project itself — where a symbol is
+  say, one writes the day's changelog entry, and seven answer questions about the code and the
+  project itself — where a symbol is
   defined and who calls it, which tests cover it, what the CLI can do, what the design tokens
   are, what the API documents, and what the framework's own guides and rules say. Only the
   first five need an application or a database;
@@ -99,6 +100,7 @@ for every one of its servers.
 | `api-docs` | **What the API promises, and whether the document is current** — see below |
 | `find-tests` | **Which tests cover a class, and how to run them** — see below |
 | `coverage` | **Which lines of your change no test touches** — see below |
+| `changelog-add` | **Adds a section to today's changelog post** — the only tool that writes |
 | `log-analytics` | **What is going wrong here, and how much** — see below |
 | `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
@@ -527,6 +529,35 @@ that can fail is the point.
 
 `{"project": true}` is available and deliberately not the default: it is the number that made
 the rule unverifiable in the first place.
+
+### `changelog-add`
+
+The only tool here that writes, and the only one that needed to be: the rule is one post per
+day with every section listed at the top under a count, so adding an entry means appending the
+section, rebuilding the list from the headings, and getting the count and its plural right.
+
+```jsonc
+{"title": "Two rules that could not be checked", "body": "…", "categories": ["Testing"]}
+{"title": "…", "body": "…", "preview": true}      // see the result, write nothing
+{"title": "…", "body": "…", "replace": true}      // rewrite an existing section
+```
+
+Four things it refuses to do:
+
+- **It never edits the summary list** — the list is *derived* from the `##` headings, every
+  time. A hand-maintained list drifts from what it describes, and the drift is invisible.
+- **It refuses a duplicate title** unless asked to replace one. Two sections with one name make
+  a summary entry that points at whichever the reader finds first.
+- **It verifies before writing.** If the rebuilt list does not have exactly one entry per
+  section, nothing is written and it says so — that mismatch is the failure it exists to
+  prevent, and producing it silently would be worse than hand-editing.
+- **It will not write into an installed package.** An entry under `vendor/` is edited into
+  oblivion by the next `composer update`. A development checkout — a symlink, or a git tree — is
+  the framework's own history, so that counts.
+
+A new post gets the frontmatter, the `# 28 August 2026` heading, and `<!-- more -->` in the
+right place: everything above the fold is the excerpt the blog index shows, so the summary
+belongs above it and the sections below.
 
 ### `log-analytics` and `log-errors`
 

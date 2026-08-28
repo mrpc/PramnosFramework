@@ -6,6 +6,7 @@ namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
 use Pramnos\Mcp\Tools\ApiDocsTool;
+use Pramnos\Mcp\Tools\ChangelogAddTool;
 use Pramnos\Mcp\Tools\ConsoleCommandsTool;
 use Pramnos\Mcp\Tools\CoverageTool;
 use Pramnos\Mcp\Tools\FindSymbolTool;
@@ -167,6 +168,15 @@ class McpServiceProvider extends ServiceProvider
          * on — and it reads rather than runs, because the test script holds a lock.
          */
         $server->addTool(new CoverageTool());
+
+        /*
+         * The only tool here that writes, and it earned that by being a ritual that kept going
+         * wrong. One post per day, every section listed at the top with a count: done by hand a
+         * dozen times in a day that produced a regex that threw and a summary list three
+         * entries behind the sections it summarised. Nothing noticed — the page renders and the
+         * list is simply wrong. Mechanical, repetitive, silent when it fails.
+         */
+        $server->addTool(new ChangelogAddTool());
 
         /*
          * What is going wrong right now, and what it says.
