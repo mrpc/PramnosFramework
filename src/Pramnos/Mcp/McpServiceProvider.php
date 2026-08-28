@@ -58,25 +58,35 @@ class McpServiceProvider extends ServiceProvider
         /** @var McpServer $server */
         $server = $app->getContainer()->get('mcp.server');
 
-        $db = $app->database ?? null;
-        if ($db !== null) {
-            $server->addTool(new ListTablesTool($db));
-            $server->addTool(new QuerySchemaTool($db));
-        }
+        self::registerDefaults($server, $app);
+    }
 
-        $server->addTool(new MigrationStatusTool($app));
-        $server->addTool(new ModelInspectTool());
-        $server->addTool(new RouteListTool($app));
-
-        // Not application introspection like the five above — this one answers "how
-        // does the framework work", from the guides vendored alongside this class. It
-        // takes no application, because it is the same answer in every project.
+    /**
+     * Every tool and resource the framework ships, on one server.
+     *
+     * **Public and static because there are two callers.** This provider is one; the other is
+     * `mcp:serve`, which builds a server of its own when no container has one — the console can
+     * reach an application without initialising it, and it can be run with no application at
+     * all. That fallback used to carry its own copy of this list, and the copy went stale: two
+     * tools were added here and the command went on advertising seven, so an assistant launching
+     * the server the documented way could not call them. There is one list now.
+     *
+     * @param ?\Pramnos\Application\Application $app Null when there is no application — the
+     *                                                framework's own tools still register
+     */
+    public static function registerDefaults(
+        McpServer $server,
+        ?\Pramnos\Application\Application $app = null
+    ): void {
+        // Outside the `$app` guard, deliberately. These answer questions about the framework
+        // rather than about this application, so a missing application makes nothing
+        // unanswerable — and a server booting without one is exactly when somebody is asking
+        // how any of this is supposed to work.
+        //
+        // `framework-docs` lets an assistant *find* a rule; `pramnos-check` tells it when one
+        // has been broken, and only the second has evidence behind it, since every rule it
+        // checks is something that happened after the guide describing it was written.
         $server->addTool(new FrameworkDocsTool());
-
-        // The other half of the same idea. `framework-docs` lets an assistant *find* a rule;
-        // this one tells it when a rule has been broken — and only the second has evidence
-        // behind it, since every rule it checks is something that happened after the guide
-        // describing it was written.
         $server->addTool(new PramnosCheckTool());
 
         /*
@@ -90,13 +100,33 @@ class McpServiceProvider extends ServiceProvider
          * Two tools rather than one, because they answer different questions: the summary says
          * whether something is wrong and how much, and a hundred stack traces say nothing until
          * somebody reads them.
+         *
+         * No application needed — they read the log directory, which is where a broken
+         * application's explanation is.
          */
         $server->addTool(new LogAnalyticsTool());
         $server->addTool(new LogErrorsTool());
 
-        // Register standard file resources
+        if ($app === null) {
+            return;
+        }
+
+        // Application introspection: what exists in *this* project. Two of them need a
+        // database and are skipped without one.
+        $db = $app->database ?? null;
+
+        if ($db !== null) {
+            $server->addTool(new ListTablesTool($db));
+            $server->addTool(new QuerySchemaTool($db));
+        }
+
+        $server->addTool(new MigrationStatusTool($app));
+        $server->addTool(new ModelInspectTool());
+        $server->addTool(new RouteListTool($app));
+
         $root = defined('ROOT') ? ROOT : getcwd();
-        foreach ($this->defaultResources($root) as [$uri, $name, $path]) {
+
+        foreach (self::defaultResources((string) $root) as [$uri, $name, $path]) {
             if (is_file($path)) {
                 $server->addResource(new McpResource($uri, $name, $path));
             }
@@ -104,7 +134,7 @@ class McpServiceProvider extends ServiceProvider
     }
 
     /** @return list<array{string, string, string}> */
-    private function defaultResources(string $root): array
+    private static function defaultResources(string $root): array
     {
         return [
             ['file://CLAUDE.md',     'Claude Code guide',       $root . '/CLAUDE.md'],

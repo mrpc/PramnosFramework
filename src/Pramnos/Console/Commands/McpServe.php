@@ -9,15 +9,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Pramnos\Mcp\McpServer;
-use Pramnos\Mcp\McpResource;
 use Pramnos\Mcp\McpServiceProvider;
-use Pramnos\Mcp\Tools\FrameworkDocsTool;
-use Pramnos\Mcp\Tools\PramnosCheckTool;
-use Pramnos\Mcp\Tools\ListTablesTool;
-use Pramnos\Mcp\Tools\MigrationStatusTool;
-use Pramnos\Mcp\Tools\ModelInspectTool;
-use Pramnos\Mcp\Tools\QuerySchemaTool;
-use Pramnos\Mcp\Tools\RouteListTool;
 
 /**
  * Start an MCP (Model Context Protocol) server on stdio.
@@ -177,40 +169,16 @@ class McpServe extends Command
             return $server;
         }
 
-        // Fallback: build a default server with the five built-in tools
-        $appName = self::applicationName($app);
-        $appVersion = defined('VERSION') ? VERSION : '1.0.0';
+        // Fallback: a default server, with the same tools the provider would have added.
+        //
+        // One list, in `McpServiceProvider::registerDefaults()`. This branch used to hold a
+        // second copy of it, and the copy went stale — two tools were added to the provider and
+        // this command went on advertising seven, so the tools were unreachable through the
+        // documented way of launching the server. A catalogue in two places is a catalogue that
+        // disagrees with itself.
+        $server = new McpServer(self::applicationName($app), defined('VERSION') ? VERSION : '1.0.0');
 
-        $server = new McpServer($appName, $appVersion);
-
-        // Outside the `$app` guard below, deliberately. The guides answer questions about
-        // the framework, not about this application, so there is nothing for a missing
-        // application to make unanswerable — and a server that boots without one is
-        // exactly when somebody is asking how any of this is supposed to work.
-        $server->addTool(new FrameworkDocsTool());
-        $server->addTool(new PramnosCheckTool());
-
-        if ($app !== null) {
-            $db = $app->database ?? null;
-            if ($db !== null) {
-                $server->addTool(new ListTablesTool($db));
-                $server->addTool(new QuerySchemaTool($db));
-            }
-            $server->addTool(new MigrationStatusTool($app));
-            $server->addTool(new ModelInspectTool());
-            $server->addTool(new RouteListTool($app));
-
-            $root = defined('ROOT') ? ROOT : getcwd();
-            foreach ([
-                ['file://CLAUDE.md',   'Claude Code guide',  $root . '/CLAUDE.md'],
-                ['file://README.md',   'Project README',     $root . '/README.md'],
-                ['file://app/app.php', 'App config',         $root . '/app/app.php'],
-            ] as [$uri, $name, $path]) {
-                if (is_file($path)) {
-                    $server->addResource(new McpResource($uri, $name, $path));
-                }
-            }
-        }
+        McpServiceProvider::registerDefaults($server, $app);
 
         return $server;
     }

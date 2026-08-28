@@ -140,7 +140,7 @@ class McpServeTest extends TestCase
 
         // Assert
         $text = $stderr->fetch();
-        $this->assertStringContainsString('7 tools', $text);
+        $this->assertStringContainsString('9 tools', $text);
         $this->assertStringContainsString('list-tables', $text);
         $this->assertStringContainsString('route-list', $text);
         // Named in the announcement too: the tools an assistant needs to know exist before
@@ -247,15 +247,15 @@ class McpServeTest extends TestCase
 
     /**
      * resolveServer(null) — e.g. when the command runs outside a Pramnos console
-     * application — falls back to a server carrying the two application-independent tools
-     * and nothing else.
+     * application — falls back to a server carrying the application-independent tools and
+     * nothing else.
      *
-     * The five other tools and the three resources all describe *this application*, so
-     * with no application there is genuinely nothing for them to report. `framework-docs`
-     * is the exception on purpose: it reads the guides vendored beside the class, needs no
-     * database and no configuration, and answers the same thing in every project. A server
-     * booting without an application is exactly when somebody is asking how any of this is
-     * supposed to work.
+     * The five others and the three resources all describe *this application*, so with no
+     * application there is genuinely nothing for them to report. The four here are the
+     * exceptions, on purpose: two read the guides vendored beside the class and check the
+     * project against them, and two read the log directory. None needs a database or any
+     * configuration — and a server booting without an application is exactly when somebody
+     * is asking how any of this is supposed to work, or why it did not.
      */
     public function testResolveServerWithoutAppStillOffersTheApplicationIndependentTools(): void
     {
@@ -268,11 +268,16 @@ class McpServeTest extends TestCase
 
         // Assert
         $this->assertInstanceOf(McpServer::class, $server);
-        // Keyed by tool name, as `addTool()` stores them. Both application-independent
-        // tools are here: one reads the vendored guides, the other checks the project against
-        // them. Neither needs a database or an application to answer.
+        // Keyed by tool name, as `addTool()` stores them. Every application-independent tool
+        // is here: two read the vendored guides and check the project against them, two read
+        // the log directory. None of them needs a database or an application to answer.
         $this->assertSame(
-            ['framework-docs' => 'framework-docs', 'pramnos-check' => 'pramnos-check'],
+            [
+                'framework-docs' => 'framework-docs',
+                'pramnos-check'  => 'pramnos-check',
+                'log-analytics'  => 'log-analytics',
+                'log-errors'     => 'log-errors',
+            ],
             array_map(fn($t) => $t->name(), $server->getTools())
         );
 
@@ -328,11 +333,65 @@ class McpServeTest extends TestCase
     }
 
     /**
-     * resolveServer() with an app that has no 'mcp.server' binding must build
-     * the default server containing all five built-in tools. With a database
-     * available, ListTablesTool and QuerySchemaTool are included too; the
-     * repository's own CLAUDE.md / README.md are picked up as resources
-     * (ROOT points at the repo root in the test environment).
+     * The command's fallback offers exactly what the provider offers.
+     *
+     * This is the test that should have existed already. `mcp:serve` builds its own server
+     * whenever no container has one — which is the normal case, because the console reaches an
+     * application without initialising it — and it used to do that from a second, hand-written
+     * copy of the tool catalogue. The copy went stale: two tools were registered in
+     * `McpServiceProvider` and the command went on advertising seven, so the new tools were
+     * unreachable through the documented way of starting the server. Both lists looked right on
+     * their own; there was nothing to compare them against.
+     *
+     * There is one list now, and this asserts it stays one. Counting is not enough — two
+     * catalogues of the same size can hold different tools — so the names are compared.
+     */
+    public function testTheFallbackOffersExactlyWhatTheProviderDoes(): void
+    {
+        // Arrange — the same application for both, so any difference is the catalogue's
+        $container = new \Pramnos\Application\Container();
+        $db        = $this->createMock(\Pramnos\Database\Database::class);
+        $app       = $this->createMock(\Pramnos\Application\Application::class);
+        $app->database = $db;
+        $app->method('getContainer')->willReturn($container);
+
+        // Act — the command's fallback, and the provider's own registration
+        $fromCommand = (new \ReflectionMethod(new McpServe(), 'resolveServer'))
+            ->invoke(new McpServe(), $app);
+
+        $fromProvider = new McpServer('Test', '1.0.0');
+        \Pramnos\Mcp\McpServiceProvider::registerDefaults($fromProvider, $app);
+
+        // Assert
+        $names = static function (McpServer $server): array {
+            $list = array_map(static fn ($tool) => $tool->name(), $server->getTools());
+            sort($list);
+
+            return $list;
+        };
+
+        $this->assertSame(
+            $names($fromProvider),
+            $names($fromCommand),
+            'the command and the provider must not keep separate tool catalogues'
+        );
+
+        $this->assertSame(
+            array_keys($fromProvider->getResources()),
+            array_keys($fromCommand->getResources()),
+            'nor separate resource lists'
+        );
+    }
+
+    /**
+     * resolveServer() with an app that has no 'mcp.server' binding must build the default
+     * server carrying every built-in tool. With a database available, `list-tables` and
+     * `query-schema` are included too; the repository's own CLAUDE.md / README.md are picked
+     * up as resources (ROOT points at the repo root in the test environment).
+     *
+     * This branch used to hold its own copy of the catalogue, and the copy went stale — two
+     * tools were added to the provider and the command went on offering seven. The next test
+     * is the one that stops that happening again; this one is the list itself.
      */
     public function testResolveServerFallbackRegistersBuiltinToolsAndResources(): void
     {
@@ -353,16 +412,18 @@ class McpServeTest extends TestCase
         // Act
         $server = $method->invoke($command, $app);
 
-        // Assert — the five application-introspection tools, plus the two that do not depend
-        // on an application at all: the guides, and the check against them
+        // Assert — the five application-introspection tools, plus the four that do not depend
+        // on an application at all: the guides, the check against them, and the two log readers
         $tools = $server->getTools();
-        $this->assertCount(7, $tools);
+        $this->assertCount(9, $tools);
         $names = array_map(fn($t) => $t->name(), $tools);
         sort($names);
         $this->assertSame(
             [
                 'framework-docs',
                 'list-tables',
+                'log-analytics',
+                'log-errors',
                 'migration-status',
                 'model-inspect',
                 'pramnos-check',

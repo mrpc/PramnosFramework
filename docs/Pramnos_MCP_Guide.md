@@ -91,7 +91,12 @@ for every one of its servers.
 The first five are **application introspection**: they answer *what exists in this
 project*. They need a database or an application to answer at all, and two of them are
 skipped when no connection is configured. The two log tools answer *what has been happening*,
-and need only a readable log directory.
+and need only a readable log directory — so they register even when there is no application,
+which is exactly when somebody is asking why.
+
+All nine come from one list, `McpServiceProvider::registerDefaults()`. `mcp:serve` calls it
+when no container has a server, which is the normal case; a second copy of that list is how
+two tools once ended up registered and unreachable at the same time.
 
 ### `framework-docs`
 
