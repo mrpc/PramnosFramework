@@ -100,9 +100,15 @@ class SessionExchangeMintTest extends TestCase
         $this->db->query('DELETE FROM `#PREFIX#users`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
 
-        // `new User($id)` caches its read for an hour, so a row written now would
-        // otherwise be answered from a previous test's miss.
-        $this->db->cacheflush();
+        // `new User($id)` caches its read, so a row written now would otherwise be
+        // answered from a previous test's miss.
+        //
+        // The category, not everything. A full `cacheflush()` walks and deletes whatever
+        // the rest of the suite has written to the file cache: 0.7s for this class alone
+        // and 13s inside a full run, all of it spent emptying a cache that the tests after
+        // this one then have to refill. `userlist` is the category `User::load()` reads
+        // through — see its `get(true, 10, 'userlist')`.
+        $this->db->cacheflush('userlist');
 
         RequestIdentity::reset();
 
@@ -327,7 +333,7 @@ class SessionExchangeMintTest extends TestCase
                 time()
             )
         );
-        $this->db->cacheflush();
+        $this->db->cacheflush('userlist');
     }
 
     /**

@@ -45,6 +45,12 @@ class DashboardControllerTest extends TestCase
 {
     private TestableDashboardController $controller;
 
+    /** The adapter the cache had before this class replaced it. */
+    private mixed $savedCacheAdapter = null;
+
+    /** The in-memory store this class runs against, shared by every category. */
+    private mixed $cacheAdapter = null;
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
@@ -71,6 +77,23 @@ class DashboardControllerTest extends TestCase
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+
+        // An in-memory cache for this class, and this class only.
+        //
+        // `cache()` enumerates every category and reads up to fifty items from each, and
+        // `tearDown()` below clears the store. Against the file cache that meant walking —
+        // and then deleting — whatever the rest of the suite had written: fifteen seconds
+        // across nineteen tests, most of the run of this file, and every test afterwards
+        // paying for a cache this class had emptied.
+        //
+        // It also makes the assertions mean something. What `cache()` reports depended on
+        // what other tests happened to leave behind, so "the screen lists the namespaces"
+        // was true or false according to test order.
+        $cache = \Pramnos\Cache\Cache::getInstance();
+        $adapterProperty = new \ReflectionProperty(\Pramnos\Cache\Cache::class, 'adapter');
+        $this->savedCacheAdapter = $adapterProperty->getValue($cache);
+        $this->cacheAdapter      = new \Pramnos\Cache\Adapter\ArrayAdapter();
+        $adapterProperty->setValue($cache, $this->cacheAdapter);
 
         // Create sessions table for ActiveUsersService tests
         $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#sessions` (
@@ -111,9 +134,31 @@ class DashboardControllerTest extends TestCase
             $app->currentUser = null;
         }
         \Pramnos\Cache\Cache::getInstance()->clear();
+
+        // The real store back, so the next class finds the cache it expects.
+        $adapterProperty = new \ReflectionProperty(\Pramnos\Cache\Cache::class, 'adapter');
+        $adapterProperty->setValue(\Pramnos\Cache\Cache::getInstance(), $this->savedCacheAdapter);
+
         $_GET = [];
         $_POST = [];
         $_SERVER = [];
+    }
+
+    /**
+     * Put one entry in a named cache category, in the store this class installed.
+     *
+     * `Cache::getInstance($category)` is a *different* instance with its own adapter, so
+     * seeding through it would write to the real file cache while the controller read the
+     * in-memory one. Both are pointed at the same store here, which is also the only way
+     * an item gets a category: an entry saved with no category has none, under either
+     * adapter, and `getCategories()` correctly does not invent one.
+     */
+    private function seedCache(string $category, string $id, string $value): void
+    {
+        $instance = \Pramnos\Cache\Cache::getInstance($category);
+        (new \ReflectionProperty(\Pramnos\Cache\Cache::class, 'adapter'))
+            ->setValue($instance, $this->cacheAdapter);
+        $instance->save($value, $id);
     }
 
     private function setMockUser(int $usertype): void
@@ -505,8 +550,8 @@ class DashboardControllerTest extends TestCase
         // return non-empty data and the aggregation loop runs in full
         $this->setMockUser(80);
         $cache = \Pramnos\Cache\Cache::getInstance();
-        $cache->save('value-one', 'dash_agg_key1');
-        $cache->save('value-two', 'dash_agg_key2');
+        $this->seedCache('dashagg', 'key1', 'value-one');
+        $this->seedCache('dashagg', 'key2', 'value-two');
 
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {

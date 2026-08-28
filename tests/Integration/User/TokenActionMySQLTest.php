@@ -63,7 +63,11 @@ class TokenActionMySQLTest extends TestCase
 
         // Flush the query cache so stale cached rows from prior test runs
         // (Token::load() caches for 3600 s) cannot contaminate our fresh rows.
-        $this->db->cacheflush();
+        //
+        // The category, not everything: a full flush walks and deletes whatever the whole
+        // suite has written to the file cache, per test, and then every test after this one
+        // pays to refill it. `usertokens` is the category `Token::load()` reads through.
+        $this->db->cacheflush('usertokens');
 
         // Rows only. The schema belongs to the class (see setUpBeforeClass): dropping three
         // tables and running the framework migrations per test was most of this class's
