@@ -651,6 +651,93 @@ script) polls for 55 s of each minute:
 **Under `DaemonOrchestrator`:** run the orchestrator itself as the single systemd service; it
 spawns and supervises the workers from `buildDesiredProcesses()`.
 
+### <a id="creating-the-orchestrator-service"></a>Creating the orchestrator service — Ubuntu / Debian
+
+This is the whole thing, on a stock Ubuntu or Debian box. `/admin/Services` links here when it
+finds no supervisor running.
+
+**1. Check the command exists.** An application declares its own orchestrator — a
+`DaemonOrchestrator` subclass, conventionally named `daemons:start`:
+
+```bash
+cd /srv/app && php console list | grep daemons
+```
+
+If nothing comes back, there is no supervisor to run yet: write the subclass first
+([§3](#3-daemonorchestrator--the-supervisor)). A scaffolded application gets one in
+`src/ConsoleCommands/Daemons.php`.
+
+**2. The unit file** — `/etc/systemd/system/app-daemons.service`:
+
+```ini
+[Unit]
+Description=Application daemon orchestrator
+# Ordering only. `After` does not wait for the database to be *ready*, which is the
+# failure this file is written around — see the restart policy below.
+After=network-online.target postgresql.service mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/app
+ExecStart=/usr/bin/php /srv/app/console daemons:start
+# `always`, not `on-failure`. This process's worst failure is a *clean* exit: a machine
+# that comes back before the database accepts connections boots the framework into its
+# maintenance page and returns 0. `on-failure` looks at that and correctly does nothing,
+# leaving the supervisor gone with every other service up and healthy beside it.
+Restart=always
+RestartSec=5
+# It supervises children; let systemd clean up the whole tree.
+KillMode=mixed
+TimeoutStopSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**3. Enable it:**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now app-daemons
+systemctl status app-daemons
+sudo journalctl -u app-daemons -f      # what it is doing, live
+```
+
+**4. Confirm from the application**, not from the pid — `/admin/Services` reads the
+orchestrator's own state file, so it can tell a live process from one that has stopped
+cycling. `DaemonOrchestrator::status()` is the same reading for a monitor.
+
+**Two things that go wrong on a fresh box:**
+
+- **`var/` is not writable.** The locks, heartbeats and state file live in `ROOT/var`, and
+  under `User=www-data` a directory owned by the deploying user is a supervisor that starts and
+  immediately cannot record anything: `sudo chown -R www-data:www-data /srv/app/var`.
+- **A crontab is already running the schedule.** The orchestrator supervises the schedule
+  worker itself, so both together run every scheduled job twice. Remove the `schedule:run`
+  crontab line, or override `includeScheduler()` to `false`.
+
+**In Docker**, the same process is a service beside the app, sharing its image and volume so it
+runs the code the site is running:
+
+```yaml
+  daemons:
+    build: { context: . }
+    restart: unless-stopped          # for the reason given above
+    command: php /var/www/html/console.php daemons:start
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - db
+```
+
+`pramnos init` writes exactly that for an application whose features have background work —
+the queue, messaging, broadcasting, or the periodic jobs `auth` and `authserver` schedule.
+
 ---
 
 ## See also

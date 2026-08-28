@@ -31,11 +31,33 @@
         <div class="alert alert-warning mb-4">
             <div>
                 <strong>The orchestrator is not running.</strong>
-                Start and Restart below have nothing to act on them — they write a request
-                that the supervisor reads on its next cycle. Run
-                <code>pramnos orchestrate</code> (or whatever this installation calls it)
-                and they start working again. Stop still takes effect: a daemon checks its
-                own stop file.
+                Start and Restart below have nothing to act on — they write a request that the
+                supervisor reads on its next cycle. Stop still takes effect: a daemon checks
+                its own stop file.
+                <?php
+                /*
+                 * The link, because "run the orchestrator" is not an instruction anybody can
+                 * follow from here. It is a systemd unit, a user, a writable `var/` and a
+                 * crontab line to remove — and the person reading this banner is usually
+                 * looking at a screen that has just told them their buttons do nothing.
+                 *
+                 * To the framework's published guide rather than a page in this application:
+                 * these are the same instructions for every installation, and a copy here
+                 * would be one nobody updates. The anchor is a heading in that guide with an
+                 * explicit id, so it does not move when the section is renamed.
+                 */
+                ?>
+                <p class="mt-2">
+                    <a class="link link-primary"
+                       href="https://mrpc.github.io/PramnosFramework/Pramnos_Workers_And_Daemons_Guide/#creating-the-orchestrator-service"
+                       target="_blank" rel="noopener">
+                        How to create the orchestrator service &rarr;
+                    </a>
+                    <span class="text-base-content/60">
+                        — a systemd unit for Ubuntu / Debian, and the Docker equivalent.
+                        Offline: <code>vendor/mrpc/pramnosframework/docs/Pramnos_Workers_And_Daemons_Guide.md</code>
+                    </span>
+                </p>
             </div>
         </div>
     <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>

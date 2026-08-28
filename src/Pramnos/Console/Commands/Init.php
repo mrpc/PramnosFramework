@@ -615,7 +615,18 @@ class Init extends Command
         );
         $catalog = $this->loadAssetCatalog();
         $this->writeFile('src/Application.php', $this->getApplicationTemplate($namespace, $selectedLibraries, $catalog));
-        $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName));
+        $withDaemons = self::needsDaemonSupervisor($enabledFeatures);
+
+        if ($withDaemons) {
+            $this->writeFile('src/ConsoleCommands/Daemons.php', $this->renderStub('daemons', [
+                'namespace' => $namespace,
+                'appName'   => strtoupper($appName),
+                'cliName'   => $cliName,
+                'workers'   => self::daemonWorkerLines($enabledFeatures),
+            ]));
+        }
+
+        $this->writeFile('src/Console.php', $this->getConsoleTemplate($namespace, $appName, $withDaemons));
         $this->writeFile("$cliName.php", $this->getCliEntryPointTemplate($namespace, $appName));
         $this->writeFile(
             'src/Controllers/Home.php',
@@ -691,7 +702,8 @@ class Init extends Command
             $this->scaffoldDocker(
                 $namespace, $dockerPort, $dbType, $dbName, $dbUser, $dbPass, $cacheSystem,
                 $dbRootPass, $cliName, $needsNode,
-                $appStyle !== 'mvc' && self::spaNeedsNode($spaStack) ? $spaDevPort : 0
+                $appStyle !== 'mvc' && self::spaNeedsNode($spaStack) ? $spaDevPort : 0,
+                $enabledFeatures
             );
         }
 
@@ -5246,7 +5258,7 @@ PHP;
      * @param int  $spaDevPort When non-zero, publish this port too so Vite's dev
      *                         server is reachable from the host
      */
-    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = '', bool $withNode = false, int $spaDevPort = 0): void
+    private function scaffoldDocker(string $namespace, int $port, string $dbType, string $dbName, string $dbUser, string $dbPass, string $cacheSystem, string $dbRootPass, string $cliName = '', bool $withNode = false, int $spaDevPort = 0, array $features = []): void
     {
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
         $slug       = strtolower(str_replace([' ', '_'], '-', $namespace));
@@ -5300,6 +5312,38 @@ PHP;
 
         if ($cacheSystem !== 'none') {
             $compose .= "  cache:\n    container_name: {$slug}_cache\n    image: $cacheSystem:latest\n";
+        }
+
+        /*
+         * The supervisor, when the enabled features give it something to supervise.
+         *
+         * Without it, development runs no background work at all: the queue fills and nobody
+         * empties it, the schedule's periodic jobs never run, and both look like the code
+         * being wrong rather than absent. The bugs then wait for production, which is the one
+         * place they cannot be looked at — and the first symptom is usually a screen with no
+         * rows on it, which reads as a broken query.
+         *
+         * It shares the app image and the app's volume, so it runs the code the site is
+         * running rather than a copy that drifts.
+         *
+         * `restart: unless-stopped`, not `on-failure`: this container's worst failure is a
+         * *clean* exit. A machine that comes back before the database is accepting connections
+         * boots the framework into its maintenance page and returns 0, which `on-failure`
+         * looks at and correctly does nothing about — leaving the supervisor gone, and every
+         * other container up and healthy beside it.
+         */
+        if ($cliName !== '' && self::needsDaemonSupervisor($features)) {
+            $compose .= "  daemons:\n    container_name: {$slug}_daemons\n"
+                . "    build:\n      context: .\n      args:\n"
+                . "        UID: \${UID:-1000}\n        GID: \${GID:-1000}\n"
+                . "    restart: unless-stopped\n"
+                . "    command: php /var/www/html/$cliName.php daemons:start\n"
+                . "    volumes:\n      - .:/var/www/html\n$extraVolumes"
+                . "    depends_on:\n      - db\n";
+
+            if ($cacheSystem !== 'none') {
+                $compose .= "      - cache\n";
+            }
         }
 
         $toolPort = $port + 1;
@@ -5981,8 +6025,60 @@ $registrations
 PHP;
     }
 
-    private function getConsoleTemplate(string $namespace, string $appName): string
+    /**
+     * Which features mean this application has background work to supervise.
+     *
+     * `queue` and `messaging` dispatch jobs somebody has to run. `broadcasting` needs the
+     * WebSocket daemon held open. `auth` and `authserver` schedule periodic work of their own
+     * — expiring tokens, pruning sessions, clearing abandoned second-factor setups — and a
+     * stack with nothing running the schedule runs none of it, silently, for ever.
+     */
+    private const DAEMON_FEATURES = ['queue', 'messaging', 'broadcasting', 'auth', 'authserver'];
+
+    /**
+     * True when the scaffold should generate a supervisor and a container to run it in.
+     *
+     * @param list<string> $features
+     */
+    public static function needsDaemonSupervisor(array $features): bool
     {
+        return array_intersect($features, self::DAEMON_FEATURES) !== [];
+    }
+
+    /**
+     * The body of the generated `buildDesiredProcesses()`.
+     *
+     * The framework's schedule worker is supervised without being declared, so this only
+     * lists what the enabled features add on top of it.
+     *
+     * @param list<string> $features
+     */
+    public static function daemonWorkerLines(array $features): string
+    {
+        $lines = [];
+
+        if (in_array('queue', $features, true) || in_array('messaging', $features, true)) {
+            $lines[] = "        // Background jobs. The schedule worker is supervised for you;";
+            $lines[] = "        // this is the one that runs what the application dispatches.";
+            $lines[] = "        \$processes[] = \$this->worker('queue', 'queue:process --daemon', 'background jobs');";
+        }
+
+        if ($lines === []) {
+            // Nothing beyond the schedule, and saying so beats an empty method body that
+            // reads like something was forgotten.
+            $lines[] = "        // Only the framework's schedule worker, which is supervised without being";
+            $lines[] = "        // declared here. Add your own with \$this->worker(...).";
+        }
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    private function getConsoleTemplate(string $namespace, string $appName, bool $withDaemons = false): string
+    {
+        $daemons = $withDaemons
+            ? "        \$this->add(new \\$namespace\\ConsoleCommands\\Daemons());\n"
+            : '';
+
         return <<<PHP
 <?php
 namespace $namespace;
@@ -5992,7 +6088,7 @@ class Console extends \\Pramnos\\Console\\Application
     protected function registerCommands(): void
     {
         parent::registerCommands();
-        // Register your custom commands here:
+$daemons        // Register your custom commands here:
         // \$this->add(new \\$namespace\\ConsoleCommands\\MyCommand());
     }
 }

@@ -1,0 +1,82 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }}\ConsoleCommands;
+
+use Pramnos\Console\DaemonOrchestrator;
+
+/**
+ * The supervisor for this application's background workers — `daemons:start`.
+ *
+ * One process to run, and it keeps the rest alive: it spawns each declared worker,
+ * respawns a crash, stops one that leaves the list, and compares git HEAD every cycle so a
+ * deploy restarts them without being told. `/admin/Services` reads its state file, which is
+ * why that screen can say whether the supervisor itself is running rather than only listing
+ * what it should be running.
+ *
+ * ```
+ * php {{ cliName }}.php daemons:start                 # supervise, until stopped
+ * php {{ cliName }}.php daemons:start --interactive    # the same, with a live dashboard
+ * php {{ cliName }}.php daemons:start --once --dry-run # what it would do, and nothing else
+ * ```
+ *
+ * The framework's schedule worker (`work`) is supervised without being declared here — it
+ * runs the periodic jobs the framework itself schedules, and a stack with a supervisor and no
+ * crontab used to run none of them. `broadcast:serve` joins it when the WebSocket transport
+ * is on.
+ *
+ * Add a worker of your own to {@see buildDesiredProcesses()}. Declare it there rather than
+ * starting it from the shell: a process nothing supervises is a process that is running until
+ * the first time it is not.
+ */
+class Daemons extends DaemonOrchestrator
+{
+    protected function getJobName(): string
+    {
+        return 'daemon_orchestrator';
+    }
+
+    protected function getDashboardTitle(): string
+    {
+        return ' {{ appName }} DAEMONS ';
+    }
+
+    protected function getEntryPoint(): string
+    {
+        return ROOT . '/{{ cliName }}.php';
+    }
+
+    /**
+     * Which workers should be running.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function buildDesiredProcesses(): array
+    {
+        $processes = [];
+{{ workers }}
+        return $processes;
+    }
+
+    /**
+     * One entry, for a command this application's CLI can run.
+     *
+     * @param  string $name    Slot id, lock name and label on the services screen
+     * @param  string $command The CLI command and its arguments
+     * @param  string $profile What it does, in words, for the dashboard
+     * @return array<string, mixed>
+     */
+    private function worker(string $name, string $command, string $profile): array
+    {
+        return [
+            'id'           => $name,
+            'daemon'       => $name,
+            'workerId'     => $name . '-1',
+            'lockFile'     => ROOT . '/var/' . strtoupper($name) . '.lock',
+            'profile'      => $profile,
+            'shellCommand' => escapeshellarg(PHP_BINARY) . ' '
+                . escapeshellarg(ROOT . '/{{ cliName }}.php') . ' ' . $command,
+        ];
+    }
+}

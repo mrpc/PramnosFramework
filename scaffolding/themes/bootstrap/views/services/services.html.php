@@ -25,9 +25,13 @@
     <?php if (!$supervising): ?>
         <div class="alert alert-warning">
             <strong>The orchestrator is not running.</strong>
-            Start and Restart below have nothing to act on them. Run
-            <code>pramnos orchestrate</code> and they work again; Stop still takes effect,
-            because a daemon checks its own stop file.
+            Start and Restart below have nothing to act on — they write a request the
+            supervisor reads on its next cycle. Stop still takes effect, because a daemon
+            checks its own stop file.
+            <p class="mb-0 mt-2">
+                <a href="https://mrpc.github.io/PramnosFramework/Pramnos_Workers_And_Daemons_Guide/#creating-the-orchestrator-service" target="_blank" rel="noopener">How to create the orchestrator service &rarr;</a>
+                <span class="text-muted">— a systemd unit for Ubuntu / Debian, and the Docker equivalent.</span>
+            </p>
         </div>
     <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
         <div class="alert alert-warning">

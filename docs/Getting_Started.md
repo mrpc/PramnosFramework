@@ -54,6 +54,23 @@ docker-compose up -d
 - **`./dockerbash`**: Enter the application container's shell.
 - **`./dockertest`**: Run your PHPUnit tests inside the Docker environment.
 
+### The `daemons` container
+
+If the features you enabled have background work — `queue`, `messaging`, `broadcasting`, or
+the periodic jobs `auth` and `authserver` schedule — `init` also writes a `daemons` service and
+`src/ConsoleCommands/Daemons.php`, the supervisor it runs.
+
+It is there so that development runs the same background work production does. Without it a
+fresh project's queue fills and nothing empties it, and the scheduled cleanups never run —
+and neither of those announces itself. What you see is a screen with no rows on it, a job that
+stays queued, a token that never expires, each of which reads as a bug in the code that would
+have used them.
+
+Add a worker of your own in `buildDesiredProcesses()`; the framework's schedule worker is
+supervised without being declared. `/admin/Services` shows what it is running, and
+[Workers & Daemons](Pramnos_Workers_And_Daemons_Guide.md#creating-the-orchestrator-service) has
+the systemd unit for a server.
+
 ## Project Structure
 
 A typical Pramnos project following initialization looks like this:
