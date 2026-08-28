@@ -114,6 +114,17 @@ class TestClient
             parse_str($parsed['query'], $_GET);
         }
 
+        /*
+         * `$_REQUEST` too, because that is what `Request::get()` reads by default.
+         *
+         * PHP builds it from `$_GET`/`$_POST` at start-up, so in a real request it is simply
+         * there — and a test that set only `$_GET` left every `$request->get('x')` reading an
+         * array from whenever the test process started. The parameter arrived, the controller
+         * could not see it, and what came back was the "missing parameter" branch: a page
+         * saying the link was invalid about a link that was fine.
+         */
+        $_REQUEST = $_GET;
+
         /**
          * The routing parameter, which is what actually decides the controller.
          *
@@ -138,6 +149,7 @@ class TestClient
 
         if (in_array(strtoupper($method), ['POST', 'PUT', 'DELETE', 'PATCH'])) {
             $_POST = $parameters;
+            $_REQUEST = array_merge($_GET, $_POST);
             // Also update raw input for Request
             Request::setRawInput(http_build_query($parameters));
         } else {
