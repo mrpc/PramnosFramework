@@ -241,14 +241,22 @@ class UsersController extends Controller
             // that was queued and refused, and the mail log is indexed by address rather
             // than by account, so it is not a screen anybody thinks to cross-reference.
             //
-            // Matched on the current address, which is the limit worth knowing: mail sent
-            // to an address this account used *before* it was changed does not appear here.
-            // Joining on history would need the old addresses to have been kept, and they
-            // are not.
+            // Matched case-insensitively, which is not pedantry: on PostgreSQL `=` is
+            // case-sensitive, so a mail addressed to `Name@example.com` while the account
+            // says `name@example.com` was invisible here — and an empty panel is
+            // indistinguishable from an account nothing was ever sent to. MySQL's default
+            // collation folds case already, so this could only ever show up on one engine.
+            //
+            // Still the *current* address, which is the limit worth knowing: mail sent to an
+            // address this account used before it was changed does not appear. Which is why
+            // the panel names the address it matched on rather than saying "this address":
+            // a zero nobody can check is the shape of every "the screen is broken" report.
             'emails' => $email === '' ? [] : $rows(fn ($qb) => $qb->table('#PREFIX#mails')
-                ->where('tomail', $email)->orderBy('date', 'desc')->limit(10)->get()),
+                ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])
+                ->orderBy('date', 'desc')->limit(10)->get()),
             'emailCount' => $email === '' ? 0 : $count(fn ($qb) => $qb->table('#PREFIX#mails')
-                ->where('tomail', $email)->count()),
+                ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])->count()),
+            'emailAddress' => $email,
 
             // What was done with this account's tokens — issued, revoked, refreshed.
             'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions')

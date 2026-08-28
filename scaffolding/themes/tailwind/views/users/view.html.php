@@ -489,7 +489,16 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <?php $panel('Emails received', (int) $r('emailCount', 0), adminUrl('emails')); ?>
                 <?php $emails = $r('emails'); ?>
                 <?php if ($emails === []): ?>
-                <div class="p-4 text-sm text-base-content/60">Nothing was sent to this address.</div>
+                <div class="p-4 text-sm text-base-content/60">
+                    <?php /* The address, not "this address". The mail log is keyed by
+                             address and this panel matches on the account's current one —
+                             so an operator reading a zero needs to see *which* address was
+                             looked for, or the zero is indistinguishable from a broken
+                             screen. It is also how the limitation becomes visible: mail sent
+                             to an address the account has since changed is not here. */ ?>
+                    Nothing was sent to
+                    <span class="font-mono"><?php echo $esc($r('emailAddress', '')); ?></span>.
+                </div>
                 <?php else: ?>
                 <table class="table table-sm text-sm">
                     <thead class="bg-base-200 text-xs text-base-content/70 uppercase">

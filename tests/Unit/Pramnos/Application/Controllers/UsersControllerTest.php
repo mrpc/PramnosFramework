@@ -737,6 +737,40 @@ class UsersControllerTest extends TestCase
         $this->assertSame(0, $none['emailCount']);
     }
 
+    /**
+     * The address is matched whatever its capitalisation.
+     *
+     * `=` is case-sensitive on PostgreSQL, so a mail addressed to `Name@example.com` while
+     * the account says `name@example.com` was simply not on the page — and an empty panel is
+     * indistinguishable from an account nothing was ever sent to. MySQL's default collation
+     * folds case, which is why this could only ever be seen on one engine and why the test
+     * has to assert the *behaviour* rather than the SQL.
+     *
+     * The address is published with the rows for the same reason: a zero an operator cannot
+     * check is the shape of every "the screen is broken" report.
+     */
+    public function testTheAddressIsMatchedWhateverItsCapitalisation(): void
+    {
+        // Arrange — stored one way, asked for another
+        $address = 'Mixed_' . bin2hex(random_bytes(4)) . '@Example.COM';
+        $this->db->query(
+            "INSERT INTO `mails` (`status`, `frommail`, `fromname`, `tomail`, `toname`, "
+            . "`subject`, `content`, `date`, `module`, `moduleinfo`, `extrainfo`, "
+            . "`path`, `hash`) VALUES (1, 'from@example.com', 'From', "
+            . "'" . $address . "', 'To', 'Mixed case', 'Body', 3000, 'auth', '', '', '', "
+            . "'" . md5($address) . "')"
+        );
+
+        // Act
+        $records = (new UsersProbe())->exposeUserRecords(1, strtolower($address));
+
+        // Assert
+        $this->assertSame(1, $records['emailCount']);
+        $this->assertSame('Mixed case', $records['emails'][0]['subject']);
+        $this->assertSame(strtolower($address), $records['emailAddress'],
+            'the panel has to be able to say which address it looked for');
+    }
+
     // ── The per-user operator actions ───────────────────────────────────────────
     //
     // Thirteen actions were added to this controller so that everything the framework

@@ -212,6 +212,7 @@ off by default**:
         'password_history'                     => 5,
         'totp_replay_cache'                    => true,
         'human_check'                          => ['login' => true, 'register' => true],
+        'require_factor_enrolment_from_usertype' => 80,
     ],
 ],
 ```
@@ -234,6 +235,7 @@ control.
 | `password_history` | "change it" meaning "type the same one again" | somebody who wants their old password back cannot have it, and support cannot give it to them |
 | `totp_replay_cache` | one TOTP code completing two logins inside the same 30-second window | needs a cache that can count atomically (Redis, memcached); without one the older guard applies and nothing is refused |
 | `human_check` | a script submitting the sign-in, registration or reset form thousands of times for free | the visitor's battery, and a browser with no Web Worker or no `crypto.subtle` cannot submit the form at all |
+| `require_factor_enrolment_from_usertype` | an administrator satisfying the requirement above with a mailed code for ever | every page redirects to the setup screen until they enrol; needs `RequireFactorEnrolmentMiddleware` registered |
 
 Three of them are worth expanding, because their shape matters more than their name.
 
@@ -265,6 +267,43 @@ double-submitted form. Answering it needs a store both requests can see atomical
 is what `Cache::increment()` is; a count of 1 means this request claimed the code. When no
 counting cache is available the code is *allowed* on the older guard rather than refused,
 because a login that fails when Redis is down is worse than the window.
+
+**The two second-factor floors are one decision in two switches.**
+`require_second_factor_from_usertype` makes a factor a condition of signing in. It cannot lock
+anybody out, and that is deliberate: an account above the floor with nothing enrolled is asked
+for a code by email, which every account can satisfy — enrolment happens *after* signing in,
+so refusing the mail would be a lockout by design.
+
+Which means that switch alone leaves an administrator holding nothing but a mailbox, and a
+mailed code is the weakest factor here: it is one mailbox compromise from being no factor at
+all, and the password reset arrives at the same address.
+`require_factor_enrolment_from_usertype` is the other half. Set it to the **same number**, and
+register the middleware:
+
+```php
+'middleware' => [
+    'Pramnos\Http\Middleware\RequireFactorEnrolmentMiddleware',
+],
+```
+
+Then an account at or above that usertype has every page redirected to the second-factor setup
+screen until it holds an authenticator, a passkey, or an adaptor scoring at least
+`FactorEnrolment::MIN_STRENGTH`. The mailed code becomes the on-ramp rather than the
+destination.
+
+Three things make it a wall rather than a trap:
+
+- **The doors out stay open** — the setup screens, the passkey endpoints, the sign-in flow, the
+  account area, signing out, the API and the discovery documents. Every one of those is a
+  lockout on its own if it closes.
+- **It fails open.** No session, no application, a store that will not read: the request goes
+  through. Guessing the other way redirects every administrator in a loop, and the screen that
+  would fix it is one of the ones being redirected.
+- **There is a way back from a terminal.** `auth:twofactor-status --missing` lists who the wall
+  will stop *before* you set the switch; `auth:twofactor-reset <user>` clears an enrolment so
+  somebody who lost their authenticator can enrol again — they sign in with a mailed code and
+  meet the wall, which is the whole recovery path and needs no secret read out over a phone.
+  Neither command ever prints a secret, a QR URI or a backup code.
 
 **Password history is compared with the login's own verifier.** A previous password is
 stored exactly as `users.password` stored it and checked with `PasswordHash::verify()` — a

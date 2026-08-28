@@ -144,6 +144,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\AuthTokenCleanup());
         $this->add(new \Pramnos\Console\Commands\AuthTwoFactorCleanup());
         $this->add(new \Pramnos\Console\Commands\MessagesDispatch());
+        $this->add(new \Pramnos\Console\Commands\AuthTwoFactorStatus());
+        $this->add(new \Pramnos\Console\Commands\AuthTwoFactorReset());
         $this->add(new \Pramnos\Console\Commands\AuthWebhookDeliver());
         $this->add(new \Pramnos\Console\Commands\QueueFailed());
         $this->add(new \Pramnos\Console\Commands\QueueRetry());

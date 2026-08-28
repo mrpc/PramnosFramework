@@ -226,6 +226,27 @@ class SecurityPolicy
     }
 
     /**
+     * The usertype at and above which a mailed code is not enough, or 0 for none.
+     *
+     * The sibling of {@see secondFactorFromUsertype()}, and the half that makes it mean
+     * something. That switch requires a second factor to sign in; an account with nothing
+     * set up satisfies it with a six-digit code by email, because enrolment happens after
+     * signing in and refusing the mail would be a lockout by design.
+     *
+     * A mailed code is the weakest factor here, though, and one mailbox compromise away from
+     * being no factor at all — on exactly the accounts worth the most. This says which
+     * accounts must hold an authenticator, a passkey or an equally strong adaptor, and
+     * `RequireFactorEnrolmentMiddleware` walks them to the setup screen until they do.
+     *
+     * Set it to the same number as the other one. Two different numbers describe an account
+     * that must complete a factor it is not required to have.
+     */
+    public static function factorEnrolmentFromUsertype(): int
+    {
+        return max(0, (int) self::value('require_factor_enrolment_from_usertype', 0));
+    }
+
+    /**
      * One switch, from `auth.security` in the application's configuration.
      *
      * @param  string $key     The switch
