@@ -326,6 +326,81 @@ class DevPanelMcpTest extends TestCase
     }
 
     /**
+     * The emitted script is valid JavaScript.
+     *
+     * It shipped broken. The script lives in a PHP **heredoc**, where `\n` is an escape PHP
+     * itself consumes — so `'\n'` written in the source reached the browser as a real line
+     * break *inside a JS string literal*:
+     *
+     * ```js
+     * .join('
+     * ');            // Uncaught SyntaxError: Invalid or unexpected token
+     * ```
+     *
+     * Every other test on this panel passed: the markup was right, the token was right, and
+     * `assertStringContainsString('// sent ')` matched happily. Nothing was asserting that the
+     * result was a program. So this hands the script to `node --check`, which is the only
+     * thing that actually knows.
+     *
+     * Skipped rather than failed where node is absent — a missing tool is not a broken page —
+     * and node is in the container this suite runs in.
+     */
+    public function testTheEmittedScriptIsValidJavaScript(): void
+    {
+        // Arrange
+        exec('node --version 2>/dev/null', $probe, $status);
+
+        if ($status !== 0) {
+            $this->markTestSkipped('node is not available, so the script cannot be parsed.');
+        }
+
+        $html = (string) $this->call($this->controller(), 'mcpScript', 'atoken123');
+
+        // The script tag's contents, which is what a browser is handed
+        $this->assertSame(
+            1,
+            preg_match('~<script[^>]*>(.*)</script>~s', $html, $matches),
+            'there is exactly one script block to check'
+        );
+
+        $file = tempnam(sys_get_temp_dir(), 'mcp-panel-') . '.js';
+        file_put_contents($file, $matches[1]);
+
+        try {
+            // Act
+            exec('node --check ' . escapeshellarg($file) . ' 2>&1', $output, $status);
+
+            // Assert
+            $this->assertSame(
+                0,
+                $status,
+                "the panel emitted invalid JavaScript:\n" . implode("\n", $output)
+            );
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * A newline in the output is an escape, not an actual line break.
+     *
+     * The specific mistake, asserted directly as well — because `node --check` would also
+     * pass on a script that had lost the escape in some *other* way that happened to stay
+     * parseable, and joining log lines with a literal `\n` is the behaviour, not an
+     * implementation detail.
+     */
+    public function testNewlinesInTheScriptSurviveAsEscapes(): void
+    {
+        // Act
+        $html = (string) $this->call($this->controller(), 'mcpScript', 'atoken123');
+
+        // Assert
+        $this->assertStringContainsString("join('\\n')", $html);
+        $this->assertStringNotContainsString("join('\n')", $html,
+            'a real line break inside a JS string literal is a syntax error');
+    }
+
+    /**
      * The script sends the CSRF token it was given, and posts to this panel.
      *
      * A POST that *executes* whatever a project registered gets a token even behind the

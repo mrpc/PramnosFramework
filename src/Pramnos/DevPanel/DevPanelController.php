@@ -2223,7 +2223,7 @@ class DevPanelController extends Controller
                 }
 
                 var content = (data.response && data.response.result && data.response.result.content) || [];
-                var text = content.map(function (block) { return block.text || ''; }).join('\n');
+                var text = content.map(function (block) { return block.text || ''; }).join('\\n');
 
                 if (data.response && data.response.error) {
                   result.className = 'mcp-result failed';
@@ -2234,8 +2234,8 @@ class DevPanelController extends Controller
                 // {"limit": 5} are different calls, and a schema that rejected the first
                 // is otherwise a mystery.
                 var sent = JSON.stringify(data.request.params.arguments);
-                result.textContent = '// sent ' + sent + '\n\n' + (text || '(empty)')
-                  + (data.failed ? '\n\n// the tool reported a failure (isError)' : '');
+                result.textContent = '// sent ' + sent + '\\n\\n' + (text || '(empty)')
+                  + (data.failed ? '\\n\\n// the tool reported a failure (isError)' : '');
               }).catch(function (error) {
                 timing.textContent = '';
                 result.className = 'mcp-result failed';
