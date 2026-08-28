@@ -93,6 +93,37 @@ like a comb.
 
 ## It worked, and then it stopped
 
+### The bar remembers which tab you had open
+
+Across page changes, for the length of the browser session. Following one bug through three
+screens used to mean reopening the same tab three times — and the tab most often reopened is
+the one that explains why the page you landed on is not the page you asked for. Whether the
+bar is hidden, and how tall the panel is, are remembered for longer: those are preferences,
+the open tab is "where I was a moment ago".
+
+### Second factors, and the codes
+
+The **Auth** tab carries the second-factor state whenever somebody is signed in or a step-up
+is half-finished: what the account holds, whether the site requires a factor of it, whether it
+is behind the enrolment wall, and — during a step-up — which methods were demanded, whether a
+mailed code is live and how long the resend has.
+
+That block is the answer to two questions that are otherwise unanswerable from the page:
+*why am I being asked for a code*, and *why does every page redirect me to the setup screen*.
+The second one especially: from outside, the enrolment wall looks like a redirect loop, and
+the first guess is always a routing bug.
+
+**The codes themselves are off by default.** With
+`'debug' => ['reveal_factor_codes' => true]` in `app.php`, the tab also shows the
+authenticator secret, a TOTP code valid right now, and the last six digits mailed — which
+saves the loop of opening a mail catcher and copying digits twenty times a day.
+
+Leave it out of a deployed configuration. The argument for showing them is sound — the panel
+renders only where debugging is on, and the codes belong to the viewer's own session — but the
+payload rides on responses, sits in the browser's network log, and gets pasted into bug
+reports. A live code in a paste is a live code, and a debug flag left on by accident is a
+normal kind of accident.
+
 Almost always **Auth**. It answers four things about the request in view: who the server
 identified, which credential did it (`apiKey`, `accessToken`, cookie), where that
 credential came from, and **how long it has left** — counted from the token's own expiry

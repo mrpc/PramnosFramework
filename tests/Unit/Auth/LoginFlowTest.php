@@ -844,6 +844,46 @@ class LoginFlowTest extends TestCase
     }
 
     /**
+     * The demanded code can actually be sent — the account never enrolled it.
+     *
+     * This is the lockout the floor was one line away from being, and it was live. The floor
+     * puts an administrator with nothing set up on the step-up page and demands a mailed
+     * code, which is the one demand every account can satisfy. `sendFactorChallenge()` then
+     * refused to send it, because the check was `isEnrolledFor()` and the account had never
+     * enrolled the email factor: the page offered a button that could not work, there was no
+     * other way in, and nothing said why.
+     *
+     * So a demand authorises a send, and the demand is carried in the pending state rather
+     * than recomputed — only the login that started knows what it demanded, and the
+     * new-device policy can demand the same method from the same kind of account.
+     */
+    public function testTheFloorsDemandedCodeCanBeSent(): void
+    {
+        // Arrange — nothing enrolled, and the floor demands a mailed code
+        $this->installApplication(['totp', 'email'], ['require_second_factor_from_usertype' => 90]);
+        $this->flow->fakeAuth->response       = $this->successResponse(7);
+        $this->flow->fakeEmailFactor->enabled = false;
+        $this->flow->usertype                 = 90;
+        $result = $this->flow->attempt('alice', 'secret');
+        $this->assertSame(['email'], $result->stepUpMethods, 'the demand is the precondition');
+
+        // Act
+        $sent = $this->flow->sendFactorChallenge('email');
+
+        // Assert
+        $this->assertTrue($sent, 'a demanded factor has to be sendable, or the demand is a wall');
+        $this->assertSame(1, $this->flow->fakeEmailFactor->sent);
+
+        // …and what the step-up can complete includes it, so a screen asking "what is
+        // available here" is not told "nothing" on exactly these accounts.
+        $names = array_map(
+            static fn ($factor): string => $factor->name(),
+            $this->flow->pendingFactors()
+        );
+        $this->assertContains('email', $names);
+    }
+
+    /**
      * An account below the floor is unaffected.
      */
     public function testAnOrdinaryAccountIsNotAskedByTheFloor(): void

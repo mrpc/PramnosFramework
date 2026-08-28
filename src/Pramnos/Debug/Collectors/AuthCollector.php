@@ -62,7 +62,246 @@ class AuthCollector implements CollectorInterface
             'credential' => $credential['type'],
             'source'     => $credential['source'],
             'token'      => $credential['token'],
+            'twofactor'  => $this->twoFactor(),
         ];
+    }
+
+    /**
+     * The second factor: what this account holds, what the site demands, and what is in
+     * flight.
+     *
+     * Three questions that are otherwise answered by reading a session nobody can see and a
+     * policy spread across two configuration switches:
+     *
+     *  - **why am I being asked for a code** — the sign-in floor applies to this usertype,
+     *    or the account enrolled something itself;
+     *  - **why does every page redirect me to the setup screen** — the enrolment floor
+     *    applies and what the account holds is not strong enough. Without this the wall
+     *    looks like a redirect loop, and the first guess is always a routing bug;
+     *  - **where in the step-up am I** — a half-finished login lives entirely in the
+     *    session, so from outside a stuck sign-in and a fresh one are the same page.
+     *
+     * **No code and no secret is ever in here.** Not because a debug payload is public — it
+     * is not, and the bar only renders where debugging is on — but because a live six-digit
+     * code in a network log is a live six-digit code, and this payload ends up pasted into
+     * bug reports. What travels is whether a code exists and how long the resend has left.
+     *
+     * Skipped entirely for a request with nobody in it and nothing pending: the reads below
+     * are queries, and an anonymous page load should not pay for them.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function twoFactor(): ?array
+    {
+        try {
+            $flow      = new \Pramnos\Auth\LoginFlow();
+            $pendingId = $flow->pendingUserId();
+            $user      = \Pramnos\User\User::getCurrentUser();
+            $userId    = is_object($user) ? (int) ($user->userid ?? 0) : 0;
+
+            if ($userId < 1 && $pendingId === null) {
+                return null;
+            }
+
+            $signInFloor = \Pramnos\Auth\SecurityPolicy::secondFactorFromUsertype();
+            $enrolFloor  = \Pramnos\Auth\SecurityPolicy::factorEnrolmentFromUsertype();
+            $enrolment   = new \Pramnos\Auth\FactorEnrolment();
+            $subject     = $userId > 0 ? $userId : (int) $pendingId;
+            $usertype    = $userId > 0 ? (int) ($user->usertype ?? 0) : $this->usertypeOf($subject);
+
+            $state = [
+                'held'                => $enrolment->factorsFor($subject),
+                'sign_in_floor'       => $signInFloor,
+                'enrolment_floor'     => $enrolFloor,
+                'required_to_sign_in' => $signInFloor > 0 && $usertype >= $signInFloor,
+                'must_enrol'          => $enrolment->isRequiredFor($subject, $usertype),
+                'pending'             => null,
+            ];
+
+            if ($pendingId !== null) {
+                $methods = [];
+                foreach ($flow->pendingFactors() as $factor) {
+                    $methods[] = $factor->name();
+                }
+
+                $state['pending'] = [
+                    'userid'       => $pendingId,
+                    'methods'      => $methods,
+                    'mailed_code'  => $flow->hasLiveEmailCode(),
+                    'resend_in'    => $flow->secondsUntilResend(),
+                    'waiting_for'  => max(0, time() - (int) ($_SESSION['loginflow_pending_time'] ?? time())),
+                ];
+            }
+
+            if ($this->revealsCodes()) {
+                $state['revealed'] = $this->revealedCodes($subject);
+            }
+
+            return $state;
+        } catch (\Throwable $exception) {
+            // A panel that raises takes the page with it, and this one is describing the
+            // request rather than serving it. Reported in the payload so the developer sees
+            // that the reading failed instead of reading "no second factor" as an answer.
+            return ['error' => $exception->getMessage()];
+        }
+    }
+
+    /**
+     * Whether this installation has asked for live codes in the panel.
+     *
+     * `debug.reveal_factor_codes`, and **off unless it is set**:
+     *
+     * ```php
+     * // app/app.php — development only
+     * 'debug' => ['reveal_factor_codes' => true],
+     * ```
+     *
+     * The argument for showing them is sound as far as it goes: the panel renders only where
+     * debugging is on, and the codes below belong to the viewer's own session — the enrolment
+     * secret is on the setup screen they can open, and the mailed code went to their own
+     * mailbox. Nothing here is disclosed to somebody who could not already get it.
+     *
+     * The argument for a switch is what happens to the payload afterwards. It rides on
+     * responses, sits in the browser's network log, and gets pasted into bug reports and
+     * screenshots — and a debug flag left on by accident is a normal kind of accident. A live
+     * six-digit code and a TOTP secret in a paste are a credential in a paste, so this is a
+     * decision an installation makes on purpose rather than a default it inherits.
+     */
+    private function revealsCodes(): bool
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+
+        if (!is_object($application)) {
+            return false;
+        }
+
+        return ($application->applicationInfo['debug']['reveal_factor_codes'] ?? false) === true;
+    }
+
+    /**
+     * The codes themselves, for a developer who would otherwise be reading a mailbox.
+     *
+     * Two things, and each answers a question that costs minutes every time:
+     *
+     *  - **the enrolment secret and a code valid right now** — "the setup screen wants six
+     *    digits and my phone is on the other desk";
+     *  - **the mailed code** — the six digits a step-up just sent. Recovered from the
+     *    recorded mail body, because the store keeps only an HMAC of it: the code cannot be
+     *    read back from `twofactor_email_codes` by design, and that is worth keeping.
+     *
+     * Every read is guarded on its own. A panel is a description of a request, and a
+     * description that raises takes the page with it.
+     *
+     * @return array<string, mixed>
+     */
+    private function revealedCodes(int $userId): array
+    {
+        $revealed = ['note' => 'debug.reveal_factor_codes is on — development only'];
+
+        try {
+            $service = new \Pramnos\Auth\TwoFactorAuthService(
+                \Pramnos\Framework\Factory::getDatabase()
+            );
+            $secret = $service->getSecret($userId) ?: $this->pendingSetupSecret($userId);
+
+            if (is_string($secret) && $secret !== '') {
+                $revealed['totp_secret'] = $secret;
+                $revealed['totp_now']    = \Pramnos\Auth\TOTPHelper::generateCode($secret);
+            }
+        } catch (\Throwable $exception) {
+            $revealed['totp_error'] = $exception->getMessage();
+        }
+
+        try {
+            $mailed = $this->lastMailedCode($userId);
+
+            if ($mailed !== null) {
+                $revealed['mailed_code'] = $mailed;
+            }
+        } catch (\Throwable $exception) {
+            $revealed['mailed_error'] = $exception->getMessage();
+        }
+
+        return $revealed;
+    }
+
+    /**
+     * The secret of an enrolment somebody is in the middle of, before it is confirmed.
+     *
+     * `user_twofactor.secret` is only written when the setup completes, so during the step
+     * where the screen shows a QR code the secret lives in `twofactor_setup` — which is
+     * exactly the moment a developer wants to read it.
+     */
+    private function pendingSetupSecret(int $userId): ?string
+    {
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('authserver.twofactor_setup')
+            ->select(['temp_secret'])
+            ->where('userid', $userId)
+            ->where('used', 0)
+            ->orderBy('created_at', 'desc')
+            ->limit(1)
+            ->get();
+
+        $row = $result === false || $result === null ? null : $result->fetch();
+
+        return is_array($row) && ($row['temp_secret'] ?? '') !== '' ? (string) $row['temp_secret'] : null;
+    }
+
+    /**
+     * The six digits of the most recent code mailed to this account.
+     *
+     * Out of the mail log, not the code store: `twofactor_email_codes` holds an HMAC and
+     * nothing else, which is the right design and means the code is unrecoverable from it.
+     * The mail body is where it exists, and only for as long as the log keeps it.
+     */
+    private function lastMailedCode(int $userId): ?string
+    {
+        $user  = new \Pramnos\User\User($userId);
+        $email = trim((string) ($user->email ?? ''));
+
+        if ($email === '') {
+            return null;
+        }
+
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#mails')
+            ->select(['content', 'date'])
+            ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])
+            ->orderBy('date', 'desc')
+            ->limit(5)
+            ->get();
+
+        if ($result === false || $result === null) {
+            return null;
+        }
+
+        while (($row = $result->fetch()) !== null) {
+            // The first standalone six-digit run in the newest mail that has one. Ordered
+            // newest-first and capped at five, because a code from last week is worse than
+            // no code: somebody would type it.
+            if (preg_match('/\b(\d{6})\b/', (string) ($row['content'] ?? ''), $match) === 1) {
+                return $match[1];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A pending account's usertype, which the request does not have to hand.
+     *
+     * During a step-up nobody is signed in yet — `getCurrentUser()` is anonymous — so the
+     * floors cannot be evaluated against the session. One read, and only while a step-up is
+     * actually in flight.
+     */
+    private function usertypeOf(int $userId): int
+    {
+        if ($userId < 1) {
+            return 0;
+        }
+
+        return (int) (new \Pramnos\User\User($userId))->usertype;
     }
 
     /**

@@ -272,4 +272,75 @@ class AuthCollectorTest extends TestCase
             . '.' . $encode($claims)
             . '.' . 'signature-that-nothing-here-checks';
     }
+
+    /**
+     * An anonymous request with nothing pending carries no second-factor block.
+     *
+     * The reads behind it are queries. A page load by somebody who is not signed in and is
+     * not half-way through signing in has no second factor to describe, and should not pay
+     * to find that out.
+     */
+    public function testAnAnonymousRequestCarriesNoSecondFactorBlock(): void
+    {
+        // Act
+        $data = (new AuthCollector())->collect();
+
+        // Assert
+        $this->assertNull($data['twofactor']);
+    }
+
+    /**
+     * A reading that fails says so, instead of reporting "no second factor".
+     *
+     * There is no database in a unit test, so this is the failure path — and the failure
+     * path is the one worth pinning here. "Nothing enrolled" and "could not tell" are
+     * different answers, and a panel that conflates them would have a developer chasing an
+     * enrolment that was never read.
+     *
+     * The second assertion holds on both paths: no code, ever. The panel's whole payload is
+     * attached to responses and ends up in bug reports, and a live six-digit code in a bug
+     * report is a live six-digit code. The state this describes — whether a code exists, how
+     * long the resend has — is asserted for real against a database in the application's own
+     * suite.
+     */
+    public function testAFailedReadingIsReportedRatherThanReadAsNoFactor(): void
+    {
+        // Arrange — the session a half-finished login leaves behind
+        $_SESSION['loginflow_pending_userid']     = 4242;
+        $_SESSION['loginflow_pending_identifier'] = 'alice';
+        $_SESSION['loginflow_pending_time']       = time() - 12;
+
+        // Act
+        $data = (new AuthCollector())->collect();
+
+        // Assert
+        $this->assertIsArray($data['twofactor']);
+        $this->assertArrayHasKey('error', $data['twofactor'],
+            'with no database the reading cannot be done, and saying so is the answer');
+
+        $encoded = json_encode($data['twofactor']);
+        $this->assertDoesNotMatchRegularExpression('/\b\d{6}\b/', (string) $encoded,
+            'no six-digit code may reach the payload');
+        $this->assertStringNotContainsStringIgnoringCase('secret', (string) $encoded);
+    }
+
+    /**
+     * Codes are absent unless the installation asked for them.
+     *
+     * The default, and the one that matters: this payload rides on responses, sits in a
+     * network log and gets pasted into bug reports. An installation that has not set
+     * `debug.reveal_factor_codes` must never find a live code in there — including one that
+     * arrived because somebody enabled debugging to investigate something else.
+     */
+    public function testCodesAreNotRevealedByDefault(): void
+    {
+        // Arrange — a pending step-up, and no application asking for codes
+        $_SESSION['loginflow_pending_userid'] = 4242;
+
+        // Act
+        $data = (new AuthCollector())->collect();
+
+        // Assert
+        $this->assertArrayNotHasKey('revealed', (array) $data['twofactor']);
+    }
 }

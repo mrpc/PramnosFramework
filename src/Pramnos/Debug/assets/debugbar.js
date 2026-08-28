@@ -72,6 +72,16 @@
 
     /** Where the panel's height is remembered, the way the hidden flag is. */
     var HEIGHT_KEY = 'pramnos.debugbar.height';
+    /**
+     * Which tab was open, so a page change does not close the panel.
+     *
+     * The bar remembered whether it was hidden and how tall it was, and forgot the one piece
+     * of state a developer is actually in the middle of using. Every navigation collapsed the
+     * panel, so following a bug across three pages meant reopening the same tab three times —
+     * and the tab most often reopened is the one that explains why the page you just landed on
+     * is not the page you asked for.
+     */
+    var TAB_KEY = 'pramnos.debugbar.tab';
 
     /** The panel will not be dragged smaller or larger than this, in pixels. */
     var MIN_HEIGHT = 80;
@@ -237,6 +247,7 @@
     var selected = -1;          // entry whose tabs are shown; -1 = none yet
     var userPicked = false;     // has the reader chosen a request themselves?
     var activeTab = null;       // 'requests' or a payload key; null = panel closed
+    var tabRestored = false;    // whether the previous page's tab has been reopened yet
     var openCategory = null;     // category key of open dropdown menu, or null
     var devPanelEnabled = false;
     var devPanelCustomUrl = null;
@@ -529,6 +540,15 @@
             }
 
             ensureBar();
+
+            // Reopen whatever was open before this page. Once per page load: after that the
+            // developer's clicks own the state, and re-applying it on every recorded XHR
+            // would fight them.
+            if (!tabRestored) {
+                tabRestored = true;
+                activeTab = restoreTab(entries[entries.length - 1]);
+            }
+
             render();
         } catch (e) {
             /* instrumentation never breaks the page */
@@ -1104,6 +1124,54 @@
         root.addEventListener('click', onClick);
 
         setHidden(isHiddenStored());
+    }
+
+    /**
+     * Remember which tab is open, or that none is.
+     *
+     * `sessionStorage`, not `localStorage`: this is "where I was a moment ago", and it should
+     * end with the tab rather than greet somebody a week later with a panel they opened once.
+     * The hidden flag is the opposite — that is a preference, and it stays.
+     */
+    function rememberTab() {
+        try {
+            if (activeTab === null) {
+                sessionStorage.removeItem(TAB_KEY);
+            } else {
+                sessionStorage.setItem(TAB_KEY, activeTab);
+            }
+        } catch (e) {
+            /* see isHiddenStored — storage throws outright in some modes */
+        }
+    }
+
+    /**
+     * The tab that was open on the previous page, if it is still a tab.
+     *
+     * Validated against what this response actually has: a payload without a `queries` key
+     * would otherwise render an empty panel with no tab highlighted, which reads as a broken
+     * bar rather than as a tab that does not apply here.
+     */
+    function restoreTab(entry) {
+        var stored;
+
+        try {
+            stored = sessionStorage.getItem(TAB_KEY);
+        } catch (e) {
+            return null;
+        }
+
+        if (!stored) {
+            return null;
+        }
+
+        if (stored === 'requests' || stored === 'client') {
+            return stored;
+        }
+
+        var data = entry && entry.payload ? entry.payload : null;
+
+        return data && Object.prototype.hasOwnProperty.call(data, stored) ? stored : null;
     }
 
     /** Whether the bar was hidden on a previous page. */
@@ -1965,6 +2033,8 @@
             html += '<p class="pdb-muted">No credential was presented.</p>';
         }
 
+        html += renderTwoFactor(data.twofactor);
+
         var token = data.token;
         if (!token) {
             return html;
@@ -1985,6 +2055,132 @@
 
         return html + '<table class="pdb-table"><thead><tr><th>Claim</th><th>Value</th></tr>'
             + '</thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    /**
+     * The second factor: what this account holds, what the site demands, what is in flight.
+     *
+     * Three questions a developer otherwise answers by reading a session they cannot see:
+     *
+     *  - why am I being asked for a code (the floor applies, or the account enrolled one);
+     *  - why does every page redirect me to the setup screen (the enrolment floor applies
+     *    and what the account holds is not strong enough) — without this the wall reads as
+     *    a redirect loop, and the first guess is always a routing bug;
+     *  - where in the step-up am I (a half-finished login lives only in the session, so from
+     *    outside a stuck sign-in and a fresh one look identical).
+     *
+     * No code and no secret is in the payload — only whether a code exists and how long the
+     * resend has left. A live six-digit code in a network log is a live six-digit code, and
+     * this panel gets pasted into bug reports.
+     */
+    function renderTwoFactor(state) {
+        if (!state) {
+            return '';
+        }
+
+        if (state.error) {
+            return '<p class="pdb-muted">Second factor: could not be read — '
+                + esc(state.error) + '</p>';
+        }
+
+        var html = '<p><strong>Second factor</strong> ';
+
+        html += state.held && state.held.length
+            ? esc(state.held.join(', '))
+            : '<span class="pdb-muted">nothing enrolled</span>';
+
+        if (state.required_to_sign_in) {
+            html += ' <span class="pdb-muted">· required to sign in (usertype '
+                + esc(state.sign_in_floor) + '+)</span>';
+        } else if (state.sign_in_floor) {
+            html += ' <span class="pdb-muted">· below the sign-in floor ('
+                + esc(state.sign_in_floor) + ')</span>';
+        }
+
+        html += '</p>';
+
+        if (state.must_enrol) {
+            // Loud on purpose. This is the one state that makes every other page in the
+            // application misbehave, and it is invisible from the page it lands on.
+            html += '<p class="pdb-level-warning">Enrolment required: every page redirects to the '
+                + 'second-factor setup screen until this account holds something stronger '
+                + 'than a mailed code (floor ' + esc(state.enrolment_floor) + ').</p>';
+        }
+
+        html += renderRevealedCodes(state.revealed);
+
+        var pending = state.pending;
+
+        if (!pending) {
+            return html;
+        }
+
+        html += '<p>Step-up pending for <strong>#' + esc(pending.userid) + '</strong>'
+            + ' <span class="pdb-muted">· ' + esc(pending.waiting_for) + 's ago</span></p>';
+
+        html += '<table class="pdb-table"><tbody>'
+            + '<tr><td>Methods offered</td><td>'
+            + (pending.methods && pending.methods.length
+                ? esc(pending.methods.join(', '))
+                : '<span class="pdb-muted">none — the floor demands a mailed code</span>')
+            + '</td></tr>'
+            + '<tr><td>Mailed code live</td><td>' + (pending.mailed_code ? 'yes' : 'no')
+            + '</td></tr>'
+            + '<tr><td>Resend allowed in</td><td>'
+            + (pending.resend_in > 0 ? esc(pending.resend_in) + 's' : 'now')
+            + '</td></tr></tbody></table>';
+
+        return html;
+    }
+
+    /**
+     * The codes themselves, where the installation asked for them.
+     *
+     * `debug.reveal_factor_codes` is off unless an application sets it, so most installations
+     * never see this block. Where it is on, it saves the loop a developer otherwise runs
+     * twenty times a day: open the mail catcher, find the newest message, copy six digits,
+     * come back.
+     *
+     * Marked as what it is. A panel that shows a live credential without saying so is a panel
+     * somebody screenshots into a ticket.
+     */
+    function renderRevealedCodes(revealed) {
+        if (!revealed) {
+            return '';
+        }
+
+        var rows = '';
+
+        if (revealed.totp_now) {
+            rows += '<tr><td>Code now</td><td class="pdb-sql"><strong>'
+                + esc(revealed.totp_now) + '</strong></td></tr>';
+        }
+
+        if (revealed.totp_secret) {
+            rows += '<tr><td>Authenticator secret</td><td class="pdb-sql">'
+                + esc(revealed.totp_secret) + '</td></tr>';
+        }
+
+        if (revealed.mailed_code) {
+            rows += '<tr><td>Last mailed code</td><td class="pdb-sql"><strong>'
+                + esc(revealed.mailed_code) + '</strong></td></tr>';
+        }
+
+        ['totp_error', 'mailed_error'].forEach(function (key) {
+            if (revealed[key]) {
+                rows += '<tr><td>' + esc(key.replace('_', ' ')) + '</td><td class="pdb-muted">'
+                    + esc(revealed[key]) + '</td></tr>';
+            }
+        });
+
+        if (rows === '') {
+            return '<p class="pdb-muted">No code to reveal — nothing is enrolled and nothing '
+                + 'has been mailed.</p>';
+        }
+
+        return '<p class="pdb-level-warning">Live credentials below — '
+            + 'debug.reveal_factor_codes is on. Development only.</p>'
+            + '<table class="pdb-table"><tbody>' + rows + '</tbody></table>';
     }
 
     /**
@@ -3345,6 +3541,7 @@
                 // what the ✕ is for.
                 activeTab = activeTab === tab.dataset.panel ? null : tab.dataset.panel;
                 openCategory = null;
+                rememberTab();
                 render();
                 return;
             }
@@ -3354,6 +3551,7 @@
                     // Panel is expanded: first close/collapse the panel
                     activeTab = null;
                     openCategory = null;
+                    rememberTab();
                     render();
                 } else {
                     // Panel is already collapsed: hide the entire toolbar

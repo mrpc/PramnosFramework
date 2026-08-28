@@ -54,6 +54,17 @@ class LoginFlow
     /** Session key: unix time the step-up became pending (TTL anchor). */
     protected const S_PENDING_TIME = 'loginflow_pending_time';
 
+    /**
+     * What this particular step-up demanded, decided when it began.
+     *
+     * Kept because a demand is not the same thing as an enrolment, and only the login that
+     * started knows which it was. The usertype floor and the new-device policy both add
+     * methods to an account that never chose them — that is the case they exist for — so
+     * recomputing "may this factor be used" from `isEnrolledFor()` alone answers no to
+     * exactly the accounts the policy is aimed at.
+     */
+    protected const S_PENDING_METHODS = 'loginflow_pending_methods';
+
     private ?Auth $auth;
     private ?Loginlockout $lockout;
     private ?TwoFactorAuthService $twoFactor;
@@ -412,7 +423,21 @@ class LoginFlow
             return false;
         }
 
-        if (!$factor->isEnrolledFor($pending['userId'])) {
+        /**
+         * Enrolled, **or** demanded by this login.
+         *
+         * The enrolment check on its own was a lockout, and of exactly the accounts the
+         * policy is written for. `require_second_factor_from_usertype` puts an
+         * administrator with nothing set up on the step-up page and demands a mailed code
+         * — the one demand every account can satisfy — and then this refused to send it,
+         * because the account had never enrolled the email factor. The page offered a
+         * button that could not work, and there was no other way in: no code, no sign-in,
+         * no message saying why. The new-device policy can demand the same method from the
+         * same kind of account, so the demand rather than the enrolment is what governs.
+         */
+        if (!$factor->isEnrolledFor($pending['userId'])
+            && !in_array($factorName, $pending['methods'], true)
+        ) {
             return false;
         }
 
@@ -441,7 +466,30 @@ class LoginFlow
     {
         $pending = $this->pending();
 
-        return $pending === null ? [] : SecondFactorRegistry::enrolledFor($pending['userId']);
+        if ($pending === null) {
+            return [];
+        }
+
+        $factors = SecondFactorRegistry::enrolledFor($pending['userId']);
+        $names   = array_map(static fn ($factor): string => $factor->name(), $factors);
+
+        // Plus whatever this login demanded and the account has not enrolled — which is the
+        // whole point of a demand. Without them a caller asking "what can be completed
+        // here" is told "nothing" on precisely the accounts a policy is forcing through a
+        // step-up.
+        foreach ($pending['methods'] as $method) {
+            if (in_array($method, $names, true)) {
+                continue;
+            }
+
+            $factor = SecondFactorRegistry::get((string) $method);
+
+            if ($factor !== null) {
+                $factors[] = $factor;
+            }
+        }
+
+        return $factors;
     }
 
     /**
@@ -787,6 +835,7 @@ class LoginFlow
         $_SESSION[static::S_PENDING_REMEMBER]   = $remember;
         $_SESSION[static::S_PENDING_IDENTIFIER] = $identifier;
         $_SESSION[static::S_PENDING_TIME]       = time();
+        $_SESSION[static::S_PENDING_METHODS]    = array_values($methods);
 
         /**
          * The auth link is sent here, once, and nowhere else.
@@ -831,6 +880,7 @@ class LoginFlow
             'userId'     => (int) $_SESSION[static::S_PENDING_USER],
             'remember'   => (bool) ($_SESSION[static::S_PENDING_REMEMBER] ?? false),
             'identifier' => (string) ($_SESSION[static::S_PENDING_IDENTIFIER] ?? ''),
+            'methods'    => array_values((array) ($_SESSION[static::S_PENDING_METHODS] ?? [])),
         ];
     }
 
@@ -841,7 +891,8 @@ class LoginFlow
             $_SESSION[static::S_PENDING_USER],
             $_SESSION[static::S_PENDING_REMEMBER],
             $_SESSION[static::S_PENDING_IDENTIFIER],
-            $_SESSION[static::S_PENDING_TIME]
+            $_SESSION[static::S_PENDING_TIME],
+            $_SESSION[static::S_PENDING_METHODS]
         );
     }
 }
