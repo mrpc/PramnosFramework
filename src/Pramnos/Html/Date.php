@@ -51,6 +51,64 @@ class Date extends Html
      */
     public $maxyear = 2037;
 
+    /**
+     * Show a time field beside the date.
+     *
+     * Declared, and that is the point of this block. `Base::__set()` accepts any property, so
+     * `$date->time = true` was stored, no warning was raised, and `render()` never read it —
+     * every such form silently lost its time. `getDate()` *did* read `$this->time`, so the
+     * reader half was there the whole time, waiting for a value nothing could set.
+     * @var bool
+     */
+    public $time = false;
+    /**
+     * Put the time field on its own line
+     * @var bool
+     */
+    public $timeChangeLine = true;
+    /**
+     * Render a datepicker (the default) or three dropdowns
+     * @var bool
+     */
+    public $calendar = true;
+    /**
+     * Let the datepicker's year be changed directly
+     * @var bool
+     */
+    public $changeyear = true;
+    /**
+     * Label each dropdown with D:, M:, Y:
+     * @var bool
+     */
+    public $dropdownLabels = true;
+    /**
+     * Year as a dropdown too, rather than a number field
+     * @var bool
+     */
+    public $dropdownYear = false;
+    /**
+     * Start the dropdowns on an empty option, so "unset" is distinguishable
+     * from "today" — a birth date nobody has chosen must not read as today's.
+     * @var bool
+     */
+    public $dropdownRequireSelect = false;
+    /**
+     * Accept a bare year, and treat it as one
+     * @var bool
+     */
+    public $onlyyear = false;
+    /**
+     * The time of day a bare year is stored at. Not midnight on purpose: it is the marker
+     * that says "this value is a year", which `render()` reads back to decide whether to
+     * show four digits or a full date.
+     * @var string
+     */
+    public $onlyyearhour = '01';
+    /** @var string */
+    public $onlyyearminute = '11';
+    /** @var string */
+    public $onlyyearsecond = '33';
+
     public $array = false;
     /**
      * Is the field required?
@@ -97,6 +155,10 @@ class Date extends Html
     public function getDate($requestType = 'request')
     {
         $request = new \Pramnos\Http\Request();
+
+        if ($this->calendar == false) {
+            return $this->getDropdownDate($request, $requestType);
+        }
 
         if ($this->array == true) {
             $date = $request->get($this->name . "_datepicker",
@@ -162,6 +224,117 @@ class Date extends Html
 
 
     /**
+     * The date as three posted dropdowns, when `$calendar` is false.
+     *
+     * A separate reader rather than a branch inside `getDate()`, because the two wire formats
+     * have nothing in common: the datepicker posts one `dd/mm/yyyy` string, this posts three
+     * numbers under three names.
+     *
+     * @param  \Pramnos\Http\Request $request
+     * @param  string $requestType Form method
+     * @return int Unix timestamp, or 0 when nothing usable was posted
+     */
+    protected function getDropdownDate($request, $requestType = 'request')
+    {
+        $day   = (int) $request->get($this->name . 'day', 0, $requestType);
+        $month = (int) $request->get($this->name . 'month', 0, $requestType);
+        $year  = (int) $request->get($this->name . 'year', 0, $requestType);
+
+        if ($day < 1 || $month < 1 || $year < 1) {
+            // An empty option was left selected. Zero rather than a guess: with
+            // `dropdownRequireSelect` on, "not chosen" is a state the caller asked to be able
+            // to see, and inventing today's date would hide exactly what it was for.
+            return 0;
+        }
+
+        if ($this->time == true) {
+            $posted = explode(':', (string) $request->get(
+                $this->name . '_timepicker', date('H:i', $this->date), $requestType
+            ));
+
+            return (int) mktime(
+                (int) ($posted[0] ?? 0),
+                (int) ($posted[1] ?? 0),
+                0,
+                $month,
+                $day,
+                $year
+            );
+        }
+
+        return (int) mktime(0, 0, 0, $month, $day, $year);
+    }
+
+    /**
+     * Three `<select>` boxes instead of a datepicker.
+     *
+     * Not decoration: a birth date is the case this exists for. A datepicker asking somebody
+     * to page back forty years is worse than picking a year from a list, and
+     * `dropdownRequireSelect` is what keeps an unanswered field from reading as today.
+     *
+     * @return string
+     */
+    protected function renderDropdowns(\Pramnos\Translator\Language $lang)
+    {
+        $required = $this->required == true ? ' required' : '';
+        $blank    = ($this->dropdownRequireSelect && $this->_originalValue == 0)
+            ? '<option selected value=""></option>'
+            : '';
+
+        /*
+         * "Selected" has to mean chosen.
+         *
+         * Under `dropdownRequireSelect` nothing is pre-selected unless there was a real value
+         * to begin with. Both of this class's stand-ins for "nothing was set" have to be
+         * caught: `0`, and `time()`, which `render()` substitutes for it on a required field.
+         * The original condition tested only the second, so an optional field with no value
+         * came back with day 1 and month 1 pre-selected — read from a zero timestamp, which is
+         * 1 January 1970, and offered as though the visitor had picked it.
+         */
+        $preselect = !$this->dropdownRequireSelect
+            || ($this->_originalValue != 0 && $this->date != time());
+
+        $box = function (string $suffix, int $from, int $to, string $format) use (
+            $required, $blank, $preselect
+        ): string {
+            $name = htmlspecialchars($this->name . $suffix, ENT_QUOTES);
+            $html = '<select' . $required . ' name="' . $name . '" id="' . $name . '">' . "\n"
+                . $blank;
+
+            for ($value = $from; $value <= $to; $value++) {
+                $selected = ($preselect && $value == (int) date($format, $this->date))
+                    ? ' selected'
+                    : '';
+                $html .= '<option value="' . $value . '"' . $selected . '>'
+                    . $value . '</option>' . "\n";
+            }
+
+            return $html . '</select> ';
+        };
+
+        $return = ($this->dropdownLabels == true ? $lang->_('D') . ': ' : '')
+            . $box('day', 1, 31, 'd')
+            . ($this->dropdownLabels == true ? $lang->_('M') . ': ' : '')
+            . $box('month', 1, 12, 'm')
+            . ($this->dropdownLabels == true ? $lang->_('Y') . ': ' : '');
+
+        if ($this->dropdownYear == true) {
+            return $return . $box('year', (int) $this->minyear, (int) $this->maxyear, 'Y');
+        }
+
+        // A number field rather than a two-thousand-option list. The browser enforces the
+        // bounds itself, and the four digits posted are the same either way.
+        $name = htmlspecialchars($this->name . 'year', ENT_QUOTES);
+
+        return $return . '<input type="number" name="' . $name . '" id="' . $name . '"'
+            . ' value="' . ($this->_originalValue == 0 && $this->dropdownRequireSelect
+                ? '' : date('Y', $this->date)) . '"'
+            . ' size="4" maxlength="4" min="' . (int) $this->minyear . '"'
+            . ' max="' . (int) $this->maxyear . '" inputmode="numeric"'
+            . ($this->required == true ? ' required' : '') . ' />' . "\n";
+    }
+
+    /**
      * Html date field
      * @param string $name Field name
      * @param int $date Unix timestamp
@@ -200,6 +373,11 @@ class Date extends Html
             }
         }
 
+
+        if ($this->calendar == false) {
+            // Three dropdowns instead of a datepicker, plus the time field if asked for.
+            return $this->renderDropdowns($lang) . $this->renderTime();
+        }
 
         $unique = "";
 
@@ -274,8 +452,28 @@ class Date extends Html
         }
         $return .= " />";
 
+        return $return . $this->renderTime();
+    }
 
+    /**
+     * The time field beside the date, when `$time` is on.
+     *
+     * Its own method because both branches of `render()` end with it, and because the widget
+     * it delegates to owns the field name `getDate()` reads back. Nothing at all when `$time`
+     * is false, which is the default.
+     *
+     * @return string
+     */
+    protected function renderTime()
+    {
+        if ($this->time != true) {
+            return '';
+        }
 
-        return $return;
+        $time = new Time($this->name, $this->date);
+        $time->required = $this->required;
+        $time->class = $this->class;
+
+        return ($this->timeChangeLine == true ? "<br />\n" : '') . $time->render();
     }
 }

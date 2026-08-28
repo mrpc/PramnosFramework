@@ -22,7 +22,14 @@ class Breadcrumb extends \Pramnos\Framework\Base
 
     /**
      * Add a breadcrumb item
-     * @param string $label  Text of the breadcrumb
+     *
+     * `$label` is rendered as **HTML**, by design and by long-standing contract: callers pass
+     * markup — an icon, an emphasised word — and the structured-data name is `strip_tags()`d
+     * precisely because of it. A label built from user input has to be escaped by whoever
+     * builds it. `$url` and `$title` are attribute values and are escaped here, where there
+     * is no such contract to keep.
+     *
+     * @param string $label  Text of the breadcrumb (rendered as HTML — see above)
      * @param string $url    URL of breadcrumb
      * @param string $title  Meta Title
      */
@@ -44,26 +51,39 @@ class Breadcrumb extends \Pramnos\Framework\Base
         $text = '<nav aria-label="breadcrumb" role="navigation">'
             . '<ol class="breadcrumb">'
             . "\n";
-        $script = '<script type="application/ld+json">{'
-            . '"@context": "https://schema.org", '
-            . '"@type": "BreadcrumbList", '
-            . '"itemListElement": [';
+        /*
+         * The structured data is built as an array and encoded, not concatenated.
+         *
+         * It used to be a string, escaped with `addslashes()`, and that made one apostrophe
+         * enough to destroy the whole `BreadcrumbList` — not the entry it appeared in. `\'`
+         * is not a valid JSON escape sequence, so `json_decode()` stops at the first one and
+         * everything after it is lost. Breadcrumb labels are user data: a person's name, a
+         * place, a category title.
+         *
+         * And nothing sees it. The visible `<ol>` renders identically, the page is 200, and
+         * an HTML snapshot comparing the same broken text agrees with itself byte for byte.
+         * The only reader that notices is the one that cannot tell you.
+         *
+         * The URL had the same hole and was not escaped at all. Encoding the structure closes
+         * both, and `JSON_HEX_TAG` closes a third: a label containing `</script>` would
+         * otherwise end the element it is inside.
+         */
+        $structured = array(
+            '@context'        => 'https://schema.org',
+            '@type'           => 'BreadcrumbList',
+            'itemListElement' => array(),
+        );
         $header = count($this->items) + 1;
         $count = 0;
-        $comma = '';
         foreach ($this->items as $item) {
             $count += 1;
             $label = isset($item['label']) ? (string)$item['label'] : '';
-            $script .= $comma . '{ "@type": "ListItem", '
-                . '"position": '
-                . $count
-                . ', "name": "'
-                . addslashes(strip_tags($label))
-                . '", '
-                . '"item": "'
-                . $item['url']
-                . '" }';
-            $comma = ', ';
+            $structured['itemListElement'][] = array(
+                '@type'    => 'ListItem',
+                'position' => $count,
+                'name'     => strip_tags($label),
+                'item'     => (string)($item['url'] ?? ''),
+            );
             if ($item['title'] == '') {
                 $item['title'] = $label;
             }
@@ -75,18 +95,26 @@ class Breadcrumb extends \Pramnos\Framework\Base
             if ($header == 2) {
                 $text .= ' aria-current="page"';
             }
+            // Attribute values, so escaped: a title defaults to the label, and a label is
+            // routinely built from a name, a place or a category somebody typed. Unescaped,
+            // one double quote in any of those ends the attribute and everything after it is
+            // markup the visitor chose. The label's own text is deliberately left alone —
+            // see addItem().
+            $title = htmlspecialchars((string) $item['title'], ENT_QUOTES);
+            $url   = htmlspecialchars((string) $item['url'], ENT_QUOTES);
+
             $text .= '><h'
                 . $header
                 . ' >';
             if ($item['url'] != '') {
                 $text .= '<a title="'
-                    . $item['title']
+                    . $title
                     . '" href="'
-                    . $item['url']
+                    . $url
                     . '">';
             } else {
                 $text .= '<span title="'
-                    . $item['title']
+                    . $title
                     . '">';
             }
             $text .= '<span>'
@@ -106,7 +134,13 @@ class Breadcrumb extends \Pramnos\Framework\Base
             $header -= 1;
 
         }
-        $script .= ']} </script>';
+        $script = '<script type="application/ld+json">'
+            . json_encode(
+                $structured,
+                JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+                    | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            )
+            . '</script>';
         $text .= '</ol></nav>';
         return $text . $script;
     }

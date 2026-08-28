@@ -170,6 +170,176 @@ class DateTest extends TestCase
         $this->assertTrue($widget->required,            'required defaults to true');
         $this->assertNull($widget->showdate,            'showdate defaults to NULL');
         $this->assertNull($widget->arrayid,             'arrayid defaults to NULL');
+
+        // Declared rather than magic, which is the whole finding: `Base::__set()` accepts
+        // any property, so `$widget->time = true` used to be stored in `_data`, raise no
+        // warning, and be read by nothing. A form asking for a time silently lost it.
+        $this->assertFalse($widget->time,              'time defaults to false');
+        $this->assertTrue($widget->timeChangeLine,     'timeChangeLine defaults to true');
+        $this->assertTrue($widget->calendar,           'calendar defaults to true');
+        $this->assertTrue($widget->dropdownLabels,     'dropdownLabels defaults to true');
+        $this->assertFalse($widget->dropdownYear,      'dropdownYear defaults to false');
+        $this->assertFalse($widget->dropdownRequireSelect);
+        $this->assertFalse($widget->onlyyear,          'onlyyear defaults to false');
+    }
+
+    // =========================================================================
+    // $time — the field that was accepted and ignored
+    // =========================================================================
+
+    /**
+     * `$time = true` renders a time field beside the date.
+     *
+     * It did not. `getDate()` read `$this->time` and parsed a `{name}_timepicker` value, so
+     * the reader half was there — but `render()` never emitted the field, and the property was
+     * not even declared, so setting it raised nothing. Nine admin forms in one application
+     * were asking for a time and receiving midnight.
+     */
+    public function testTimeRendersAFieldBesideTheDate(): void
+    {
+        // Arrange
+        $widget = new Date('meeting', mktime(14, 30, 0, 5, 17, 2024));
+        $widget->time = true;
+
+        // Act
+        $html = $widget->render();
+
+        // Assert
+        $this->assertStringContainsString('type="time"', $html);
+        $this->assertStringContainsString('name="meeting_timepicker"', $html);
+        $this->assertStringContainsString('value="14:30"', $html);
+    }
+
+    /**
+     * And the name it posts under is the one `getDate()` reads back.
+     *
+     * The round trip is the point: a widget that renders a time nobody can read is the same
+     * defect in the other direction.
+     */
+    public function testTheRenderedTimeIsTheOneGetDateReadsBack(): void
+    {
+        // Arrange
+        $widget = new Date('meeting', 0);
+        $widget->time = true;
+        $_POST['meeting_datepicker'] = '17/05/2024';
+        $_POST['meeting_timepicker'] = '14:30';
+
+        // Act
+        $parsed = $widget->getDate('post');
+
+        // Assert
+        $this->assertSame(mktime(14, 30, 0, 5, 17, 2024), $parsed);
+    }
+
+    /**
+     * `timeChangeLine` decides whether it goes on its own line.
+     */
+    public function testTimeChangeLineControlsTheLineBreak(): void
+    {
+        // Arrange
+        $widget = new Date('meeting', mktime(9, 0, 0, 5, 17, 2024));
+        $widget->time = true;
+        $widget->timeChangeLine = false;
+
+        // Act & Assert
+        $this->assertStringNotContainsString('<br />', $widget->render());
+    }
+
+    // =========================================================================
+    // $calendar = false — three dropdowns
+    // =========================================================================
+
+    /**
+     * With `calendar` off, the date is three select boxes.
+     *
+     * A birth date is what this is for: a datepicker asking somebody to page back forty years
+     * is worse than picking a year from a list.
+     */
+    public function testTheDropdownVariantRendersThreeBoxes(): void
+    {
+        // Arrange
+        $widget = new Date('birth', mktime(0, 0, 0, 5, 17, 1980));
+        $widget->calendar = false;
+        $widget->dropdownYear = true;
+
+        // Act
+        $html = $widget->render();
+
+        // Assert
+        $this->assertSame(3, substr_count($html, '<select'));
+        $this->assertStringContainsString('name="birthday"', $html);
+        $this->assertStringContainsString('name="birthmonth"', $html);
+        $this->assertStringContainsString('name="birthyear"', $html);
+        $this->assertStringNotContainsString('datepicker', $html);
+
+        // the stored date is pre-selected in all three
+        preg_match_all('~<option value="(\d+)" selected~', $html, $matches);
+        $this->assertSame(['17', '5', '1980'], $matches[1]);
+    }
+
+    /**
+     * Without `dropdownYear`, the year is a bounded number field.
+     *
+     * Rather than a two-thousand-option list. The browser enforces the bounds itself and the
+     * four digits posted are the same either way.
+     */
+    public function testTheYearIsANumberFieldUnlessAskedForAsADropdown(): void
+    {
+        // Arrange
+        $widget = new Date('birth', mktime(0, 0, 0, 5, 17, 1980));
+        $widget->calendar = false;
+
+        // Act
+        $html = $widget->render();
+
+        // Assert
+        $this->assertSame(2, substr_count($html, '<select'));
+        $this->assertStringContainsString('type="number"', $html);
+        $this->assertStringContainsString('min="1902"', $html);
+        $this->assertStringContainsString('max="2037"', $html);
+    }
+
+    /**
+     * `dropdownRequireSelect` starts empty, so "not answered" stays visible.
+     *
+     * Without it the boxes pre-select today, and a birth date nobody filled in comes back as
+     * today's date — a value the visitor never chose, indistinguishable from one they did.
+     */
+    public function testRequireSelectStartsEmptyAndReadsBackAsUnset(): void
+    {
+        // Arrange
+        $widget = new Date('birth', 0);
+        $widget->calendar = false;
+        $widget->dropdownRequireSelect = true;
+        $widget->required = false;
+
+        // Act
+        $html = $widget->render();
+
+        // Assert — an empty option, selected, and nothing else selected
+        $this->assertStringContainsString('<option selected value=""></option>', $html);
+        $this->assertSame(0, preg_match('~<option value="\d+" selected~', $html));
+
+        // …and an unanswered form reads back as unset rather than as today
+        $_POST = ['birthday' => '', 'birthmonth' => '', 'birthyear' => ''];
+        $this->assertSame(0, $widget->getDate('post'));
+    }
+
+    /**
+     * The three boxes round-trip through `getDate()`.
+     */
+    public function testTheDropdownVariantReadsItsOwnFields(): void
+    {
+        // Arrange
+        $widget = new Date('birth', 0);
+        $widget->calendar = false;
+        $_POST = ['birthday' => '17', 'birthmonth' => '5', 'birthyear' => '1980'];
+
+        // Act
+        $parsed = $widget->getDate('post');
+
+        // Assert
+        $this->assertSame(mktime(0, 0, 0, 5, 17, 1980), $parsed);
     }
 
     // =========================================================================

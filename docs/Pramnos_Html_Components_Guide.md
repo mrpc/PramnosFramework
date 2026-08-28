@@ -22,7 +22,8 @@ each one constructed, configured with public properties, and turned into a strin
 | [`Pagination`](#pagination) | page links from a count, a current page and a URL pattern |
 | [`Datatable`](#datatable-and-its-datasource) | a DataTables-backed table, with server-side paging and filters |
 | [`Breadcrumb`](#breadcrumb) | a breadcrumb trail, plus its `BreadcrumbList` structured data |
-| `Date` | date and time formatting helpers |
+| [`Date`](#date-and-time) | a date field — datepicker or three dropdowns — with an optional time |
+| [`Time`](#date-and-time) | a native time field, and what `Date::$time` renders |
 | `Seo` | canonical URLs, meta tags and structured data |
 | [`Form\Field`](#formfield) | one field **inside a form**, with a label and a style preset |
 
@@ -268,6 +269,13 @@ echo $bc->render();
 It emits the trail twice: as an `<ol class="breadcrumb">` for the reader, and as
 `BreadcrumbList` JSON-LD for a search engine, from the same items.
 
+**A label is rendered as HTML; a title and a URL are escaped.** Callers pass markup in a label
+on purpose — an icon, an emphasised word — which is why the structured-data name is
+`strip_tags()`d rather than escaped. So a label built from user input has to be escaped by
+whoever builds it. The `title` and `href` attributes have no such contract and are escaped
+here: a title defaults to the label, and one double quote in a name would otherwise end the
+attribute and make everything after it markup the visitor chose.
+
 ### Every label is wrapped in a heading, and your CSS has to know
 
 ```html
@@ -305,6 +313,57 @@ application compiling its own Tailwind, needs it too.
 **`render()` does not escape labels.** It is documented that way because a caller sometimes
 wants markup in a crumb — so anything dynamic has to go through `htmlspecialchars()` before
 `addItem()`.
+
+---
+
+## Date and time
+
+```php
+$when = new \Pramnos\Html\Date('startdate', $record->starts);
+echo $when->render();
+// …and on the way back in
+$record->starts = $when->getDate('post');
+```
+
+One `dd/mm/yyyy` text field with a datepicker attached. `getDate()` reads it back from
+`{name}_datepicker`, which is the name `render()` emitted — the round trip is the contract, and
+the wire format is deliberately not `type="date"`, because a native date input posts
+`YYYY-MM-DD` and every receiving end already parses the other one.
+
+### A time beside the date
+
+```php
+$when->time = true;             // adds a Time widget, posting {name}_timepicker
+$when->timeChangeLine = false;  // …on the same line
+```
+
+`getDate()` combines the two into one timestamp.
+
+The time field itself is a native `<input type="time">` — `Pramnos\Html\Time`, usable on its
+own — which submits `HH:MM` on every platform that matters. The browser draws the clock,
+validates the value and localises how it is displayed.
+
+### Three dropdowns instead of a datepicker
+
+```php
+$birth = new \Pramnos\Html\Date('birth', $user->born);
+$birth->calendar = false;              // day / month / year boxes
+$birth->dropdownYear = true;           // year as a <select> too
+$birth->dropdownRequireSelect = true;  // start empty — "not answered" stays visible
+$birth->dropdownLabels = false;        // drop the D: M: Y: labels
+```
+
+A birth date is the case this exists for: a datepicker asking somebody to page back forty
+years is worse than picking a year from a list. Without `dropdownYear` the year is a
+`type="number"` field bounded by `minyear`/`maxyear`, rather than a two-thousand-option list.
+
+**`dropdownRequireSelect` is the one worth understanding.** Without it the boxes pre-select the
+current value, and a field nobody filled in comes back as a real date the visitor never chose
+— indistinguishable from one they did. With it, nothing is selected until somebody selects it,
+and `getDate()` returns `0` for an unanswered field.
+
+These boxes post as `{name}day`, `{name}month` and `{name}year`; `getDate()` reads whichever
+set `$calendar` says to expect.
 
 ---
 

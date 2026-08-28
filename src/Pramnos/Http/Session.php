@@ -502,4 +502,61 @@ class Session extends Base
             return null;
         }
     }
+
+    /**
+     * Store a session variable.
+     *
+     * The other half of `get()`, and it was missing for years. That is the kind of absence
+     * nothing catches: a caller writes `$session->set(...)` **because `get()` exists**, and
+     * gets `Call to undefined method` — a fatal at runtime, on whichever request happens to
+     * reach that line, not an error anything sees earlier.
+     *
+     * `ensureStarted()` first, because in lazy-session mode a write can be the first thing
+     * that needs a session at all — the same reason `getCsrfToken()` and `regenerateToken()`
+     * call it. Without that, the value would be assigned to a `$_SESSION` array that is never
+     * persisted, and read back as null on the next request: a write that silently does
+     * nothing, which is worse than the fatal it replaced.
+     *
+     * @param  string $key
+     * @param  mixed  $value
+     * @return void
+     */
+    public function set($key, $value)
+    {
+        $this->ensureStarted();
+        $_SESSION[$key] = $value;
+    }
+
+    /**
+     * Is this key present?
+     *
+     * Distinct from `get($key) !== null`, which cannot tell a stored null from an absent
+     * key — and does not, on its own, say anything about a session that was never started.
+     *
+     * Deliberately does *not* start one. Asking whether something is stored must not create
+     * the session cookie that lazy mode exists to avoid handing to visitors with no state.
+     *
+     * @param  string $key
+     * @return bool
+     */
+    public function has($key)
+    {
+        return isset($_SESSION) && array_key_exists($key, $_SESSION);
+    }
+
+    /**
+     * Remove a session variable.
+     *
+     * Like `has()`, it starts nothing: there is nothing to remove from a session that does
+     * not exist, and creating one in order to unset a key in it would be absurd.
+     *
+     * @param  string $key
+     * @return void
+     */
+    public function remove($key)
+    {
+        if (isset($_SESSION)) {
+            unset($_SESSION[$key]);
+        }
+    }
 }

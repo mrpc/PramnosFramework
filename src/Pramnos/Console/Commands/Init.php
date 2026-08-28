@@ -1173,9 +1173,19 @@ class Init extends Command
         // and what they keep; a project starting today has no such history, and
         // a token that never expires is one an attacker keeps for ever. Raise or
         // remove it here if the application needs longer-lived tokens.
+        // `newsignin_policy` starts at `optout` in a new project, where the framework
+        // default is `optin` — because that is what existing installations rely on, and
+        // changing it under them would start sending mail nobody asked for. A project
+        // starting today has no such history. Under `optin` the people who most need to be
+        // told their credentials were used from a new device are the ones who will never
+        // find the checkbox, so the protection reaches the users who were already careful.
+        // The account still owns the decision; `optout` only changes where it starts from,
+        // and `/admin/Settings` overrides this line.
         $authSection = in_array('auth', $features, true)
             ? "    'auth' => [\n"
               . "        'token_ttl' => 604800, // 7 days; 0 = never expires\n"
+              . "        // optin | optout | always | off — see the Authentication guide\n"
+              . "        'newsignin_policy' => 'optout',\n"
               . "    ],\n"
             : '';
 

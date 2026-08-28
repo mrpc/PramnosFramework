@@ -81,7 +81,7 @@ class BreadcrumbTest extends TestCase
         // No list items
         $this->assertStringNotContainsString('<li', $html);
         // JSON-LD block present but empty items
-        $this->assertStringContainsString('"@type": "BreadcrumbList"', $html);
+        $this->assertStringContainsString('"@type":"BreadcrumbList"', $html);
     }
 
     /**
@@ -104,8 +104,8 @@ class BreadcrumbTest extends TestCase
         $this->assertStringNotContainsString('<span title=', $html);
 
         // JSON-LD – item present
-        $this->assertStringContainsString('"position": 1', $html);
-        $this->assertStringContainsString('"name": "Home"', $html);
+        $this->assertStringContainsString('"position":1', $html);
+        $this->assertStringContainsString('"name":"Home"', $html);
     }
 
     /**
@@ -162,11 +162,19 @@ class BreadcrumbTest extends TestCase
         // Act
         $html = $bc->render();
 
-        // Assert – two positions in the JSON-LD
-        $this->assertStringContainsString('"position": 1', $html);
-        $this->assertStringContainsString('"position": 2', $html);
-        $this->assertStringContainsString('"name": "Home"', $html);
-        $this->assertStringContainsString('"name": "Category"', $html);
+        // Assert — decoded rather than matched, because the exact spacing of the JSON is
+        // json_encode's business and not part of the contract. It was matched literally,
+        // which is why replacing hand-built concatenation with an encoder broke this test
+        // without anything about the output being wrong.
+        preg_match('~<script type="application/ld\+json">(.*?)</script>~s', $html, $m);
+        $decoded = json_decode((string) ($m[1] ?? ''), true);
+
+        $this->assertSame(JSON_ERROR_NONE, json_last_error(), json_last_error_msg());
+        $this->assertSame([1, 2], array_column($decoded['itemListElement'], 'position'));
+        $this->assertSame(
+            ['Home', 'Category'],
+            array_column($decoded['itemListElement'], 'name')
+        );
     }
 
     /**
@@ -200,5 +208,98 @@ class BreadcrumbTest extends TestCase
 
         // Assert – explicit title wins
         $this->assertStringContainsString('title="About Our Company"', $html);
+    }
+
+    /**
+     * The structured data is valid JSON even when a label has an apostrophe.
+     *
+     * It was not. The JSON-LD was concatenated by hand and escaped with `addslashes()`, which
+     * also escapes the *single* quote — and `\'` is not a valid JSON escape sequence. So one
+     * apostrophe made the whole `BreadcrumbList` unreadable, not just the entry it appeared
+     * in: `json_decode()` stops at the first one.
+     *
+     * Breadcrumb labels are user data — a person's name, a place, a category title — so this
+     * is the common case rather than the awkward one. And nothing sees it: the visible list
+     * renders identically, the page is 200, and an HTML snapshot comparing the same broken
+     * text agrees with itself byte for byte. The only reader that notices is a search engine,
+     * which cannot tell you.
+     */
+    public function testTheStructuredDataIsValidJsonForAwkwardLabels(): void
+    {
+        // Arrange
+        $breadcrumb = new Breadcrumb();
+        $breadcrumb->addItem("D'Angelo N.", '/pro/1');
+        $breadcrumb->addItem('A "quoted" label', '/q');
+        $breadcrumb->addItem('back\\slash', '');
+
+        // Act
+        preg_match(
+            '~<script type="application/ld\+json">(.*)</script>~s',
+            $breadcrumb->render(),
+            $matches
+        );
+        $decoded = json_decode((string) ($matches[1] ?? ''), true);
+
+        // Assert
+        $this->assertSame(JSON_ERROR_NONE, json_last_error(), json_last_error_msg());
+        $this->assertIsArray($decoded);
+        $this->assertSame(
+            ["D'Angelo N.", 'A "quoted" label', 'back\\slash'],
+            array_column($decoded['itemListElement'], 'name'),
+            'the labels must survive the encoding unchanged'
+        );
+    }
+
+    /**
+     * A label containing `</script>` does not end the structured-data element.
+     *
+     * The same defect one step further: hand-built JSON inside a `<script>` block is escaped
+     * by the JSON rules, and HTML has its own. `JSON_HEX_TAG` is what keeps a label from
+     * closing the tag and turning the rest of the page into markup somebody else chose.
+     *
+     * The *visible* label is deliberately not escaped — callers pass markup on purpose, which
+     * is why the structured-data name is `strip_tags()`d. This is about the one place where
+     * that contract does not apply.
+     */
+    public function testALabelCannotCloseTheStructuredDataElement(): void
+    {
+        // Arrange
+        $breadcrumb = new Breadcrumb();
+        $breadcrumb->addItem('x</script><img src=y>', '');
+
+        // Act
+        preg_match(
+            '~<script type="application/ld\+json">(.*?)</script>~s',
+            $breadcrumb->render(),
+            $matches
+        );
+
+        // Assert
+        $this->assertStringNotContainsString('</script>', (string) ($matches[1] ?? '</script>'),
+            'the JSON must not be able to end its own element');
+        $this->assertSame(JSON_ERROR_NONE, json_last_error());
+    }
+
+    /**
+     * A quote in a title does not end the attribute it is in.
+     *
+     * The title defaults to the label, and labels are built from names, places and category
+     * titles somebody typed. Unescaped, one double quote ends `title="` and everything after
+     * it is markup the visitor chose — in the one part of this class that has no
+     * markup-carrying contract to protect.
+     */
+    public function testAQuoteInATitleCannotEscapeTheAttribute(): void
+    {
+        // Arrange
+        $breadcrumb = new Breadcrumb();
+        $breadcrumb->addItem('Label', '/x', 'a " onmouseover=alert(1) x="');
+
+        // Act
+        $html = $breadcrumb->render();
+
+        // Assert — the payload may appear as inert text; what must not appear is the quote
+        // that would end the attribute and make it markup again.
+        $this->assertStringNotContainsString('" onmouseover', $html);
+        $this->assertStringContainsString('&quot; onmouseover', $html);
     }
 }

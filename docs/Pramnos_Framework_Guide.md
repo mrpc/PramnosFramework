@@ -608,6 +608,31 @@ Check what you are actually sending:
 curl -D- -o /dev/null -s https://example.test/ | grep -i set-cookie
 ```
 
+### Reading and writing a session value
+
+```php
+$session = \Pramnos\Http\Session::getInstance();
+
+$session->set('checkout_step', 2);
+$session->get('checkout_step');     // 2, or null when absent
+$session->has('checkout_step');     // true — and true for a stored null
+$session->remove('checkout_step');
+```
+
+`set()` calls `ensureStarted()` first, because in lazy mode a write can be the first thing
+that needs a session at all — without it the value would be assigned to an array that is never
+persisted and read back as null on the next request. `has()` and `remove()` deliberately start
+nothing: asking whether something is stored must not hand a session cookie to a visitor with no
+state, and there is nothing to remove from a session that does not exist.
+
+`has()` is not `get($key) !== null`. It distinguishes a stored `null` from an absent key, which
+is the question a caller actually has when deciding whether to compute a value again.
+
+> **`set()` was missing until 2026-08-28.** `get()` existed, so callers wrote
+> `$session->set(...)` and got `Call to undefined method` — a fatal on whichever request
+> reached that line, not an error anything saw earlier. One was found in production on a path a
+> full-page cache had been hiding behind cache misses.
+
 ### What "lazy" means, and what it does not
 
 It means **do not create a session for a visitor who has none**. A request arriving

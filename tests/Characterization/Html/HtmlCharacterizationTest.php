@@ -99,9 +99,16 @@ class HtmlCharacterizationTest extends TestCase
         // Act
         $html = $bc->render();
 
-        // Assert
-        $this->assertStringContainsString('"@type": "BreadcrumbList"', $html);
-        $this->assertStringContainsString('"@context": "https://schema.org"', $html);
+        // Assert — decoded, not string-matched. The exact spacing belongs to whatever builds
+        // the JSON, and pinning it made this test fail when hand-built concatenation was
+        // replaced by json_encode() — a change that fixed a real defect (one apostrophe in a
+        // label made the whole list unparseable) without altering anything this test is about.
+        preg_match('~<script type="application/ld\+json">(.*?)</script>~s', $html, $matches);
+        $decoded = json_decode((string) ($matches[1] ?? ''), true);
+
+        $this->assertSame(JSON_ERROR_NONE, json_last_error(), json_last_error_msg());
+        $this->assertSame('BreadcrumbList', $decoded['@type']);
+        $this->assertSame('https://schema.org', $decoded['@context']);
     }
 
     /**

@@ -141,6 +141,37 @@ class NewSignInAlert
     private const HISTORY_LIMIT = 100;
 
     /**
+     * The policy in force: the setting, or the application's declared default.
+     *
+     * The setting wins when it has a value, so `/admin/Settings` remains the answer for a
+     * running installation. The application's default is what an installation starts from,
+     * declared in `app.php`:
+     *
+     * ```php
+     * 'auth' => ['newsignin_policy' => 'optout'],
+     * ```
+     *
+     * That indirection is here so a new project can start at `optout` without changing
+     * anything for an existing one. `optin` stays the framework's default: an upgrade that
+     * begins mailing a user base nobody warned would be a surprise delivered by a patch
+     * release. A project scaffolded today has no such history, so `pramnos init` writes
+     * `optout` into its `app.php`.
+     */
+    public static function policy(): string
+    {
+        $configured = (string) (\Pramnos\Application\Settings::getSetting(self::POLICY_SETTING) ?: '');
+
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        $default = \Pramnos\Application\Application::currentInstance()
+            ->applicationInfo['auth']['newsignin_policy'] ?? '';
+
+        return (string) $default !== '' ? (string) $default : 'optin';
+    }
+
+    /**
      * Whether this user asked to be told.
      *
      * @param  int                             $userId   The user
@@ -179,7 +210,7 @@ class NewSignInAlert
          * signed up with, about that account's own sign-in, and it can be turned off in
          * one click.)
          */
-        $policy = (string) (\Pramnos\Application\Settings::getSetting(self::POLICY_SETTING) ?: 'optin');
+        $policy = self::policy();
         if ($policy === 'off') {
             return false;
         }

@@ -20,6 +20,73 @@ class SessionSecurityTest extends TestCase
     }
 
     // =========================================================================
+    // Session::set() / has() / remove()
+    // =========================================================================
+
+    /**
+     * A value written with `set()` comes back from `get()`.
+     *
+     * The pair was half-written for years: `get()` existed and `set()` did not, which is the
+     * kind of absence nothing catches. A caller writes `$session->set(...)` *because* `get()`
+     * is there, and gets `Call to undefined method` — a fatal on whichever request reaches
+     * that line, not an error anything sees earlier. It was found in production, on a code
+     * path a full-page cache had been hiding behind cache misses.
+     */
+    public function testAValueWrittenComesBack(): void
+    {
+        // Arrange
+        $session = new Session();
+
+        // Act
+        $session->set('pf_test_key', 'a value');
+
+        // Assert
+        $this->assertSame('a value', $session->get('pf_test_key'));
+
+        // Cleanup
+        $session->remove('pf_test_key');
+    }
+
+    /**
+     * `has()` distinguishes a stored null from a key that was never set.
+     *
+     * `get()` cannot: it answers null for both, which is exactly the question a caller has
+     * when deciding whether to compute the value again.
+     */
+    public function testHasTellsAStoredNullFromAnAbsentKey(): void
+    {
+        // Arrange
+        $session = new Session();
+        $session->set('pf_test_null', null);
+
+        // Act & Assert
+        $this->assertTrue($session->has('pf_test_null'), 'a stored null is still stored');
+        $this->assertNull($session->get('pf_test_null'));
+        $this->assertFalse($session->has('pf_test_never_written'));
+
+        // Cleanup
+        $session->remove('pf_test_null');
+    }
+
+    /**
+     * `remove()` takes it out, and removing what is not there is not an error.
+     */
+    public function testRemoveTakesTheValueOutAndIsSafeTwice(): void
+    {
+        // Arrange
+        $session = new Session();
+        $session->set('pf_test_gone', 'here');
+
+        // Act
+        $session->remove('pf_test_gone');
+        $session->remove('pf_test_gone');
+
+        // Assert
+        $this->assertFalse($session->has('pf_test_gone'));
+        $this->assertNull($session->get('pf_test_gone'));
+    }
+
+    // =========================================================================
     // Session::isHttps()
     // =========================================================================
 

@@ -443,6 +443,17 @@ their credentials were used from a new device is closer to an obligation than a 
 the outage's own mailing list. The default is the behaviour every installation had before
 the setting existed, so upgrading starts and stops nobody's mail.
 
+A **new project starts at `optout`**: `pramnos init` writes it into `app.php`, where it acts as
+the default the setting overrides.
+
+```php
+'auth' => ['newsignin_policy' => 'optout'],
+```
+
+`optin` stays the *framework's* default, because that is what existing installations rely on —
+an upgrade that begins mailing a user base would be a surprise delivered by a patch release. A
+project scaffolded today has no such history.
+
 **`optout` is the one to reach for on a real user base.** Under `optin`, the people who most
 need this mail are the ones who will never find the checkbox, so the feature ends up
 protecting the users who were already careful. `optout` keeps the choice with the account and
