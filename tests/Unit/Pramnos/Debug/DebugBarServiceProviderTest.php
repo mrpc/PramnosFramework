@@ -82,11 +82,13 @@ class DebugBarServiceProviderTest extends TestCase
      * ob_start() and set_error_handler(), so we only assert that collectors
      * were added — the output-buffer injection is not exercised in unit tests.
      */
-    public function testBootAddsCollectorsWhenDebugEnabledViaSettings(): void
+    public function testBootAddsCollectorsWhenDebugEnabled(): void
     {
-        // Arrange — enable debug via Settings so isDebugEnabled() returns true
-        putenv('APP_DEBUG=');
-        Settings::setSetting('debug', true, false);
+        // Arrange — `APP_DEBUG`, which is one of the three signals that remain. It used to be
+        // the `debug` *setting*: a row in the settings table, editable from the settings
+        // screen, that turned the toolbar on for every visitor of the site rather than for
+        // the person who set it. See `isDebugEnabled()` for why that is no longer a signal.
+        putenv('APP_DEBUG=1');
         $provider = new DebugBarServiceProvider($this->app);
 
         // Act
@@ -240,78 +242,39 @@ class DebugBarServiceProviderTest extends TestCase
     }
 
     /**
-     * isDebugEnabled() must return true when Settings has debug="true" (string).
-     * This covers the `$debug === 'true'` branch inside isDebugEnabled().
+     * A settings row does not turn the toolbar on. It used to, and that was the hole.
+     *
+     * `debug` and `development` are rows in the settings table, editable from
+     * `/admin/Settings`. Flipping either one turned the toolbar on **for every visitor of
+     * the site** — and what it carries is every query with its bindings, the session's keys,
+     * the request's authentication state, the resolved route and middleware. A row in a
+     * table nobody thinks of as dangerous is not the right lock for that.
+     *
+     * They were redundant as well as risky: a development environment says so through
+     * `APP_DEBUG` or the `DEVELOPMENT` constant, and a developer on a live server has
+     * `debug:token`, which is signed, single-use and expires by itself.
+     *
+     * The settings still mean what they always meant elsewhere — error display, the
+     * DevPanel, the debug log. Only this decision stopped reading them.
      */
-    public function testIsDebugEnabledReturnsTrueWhenSettingsDebugIsStringTrue(): void
+    public function testASettingsRowDoesNotOpenTheToolbar(): void
     {
-        // Arrange — no env, Settings debug = 'true'
+        // Arrange — no environment signal, and both settings saying yes as loudly as they can
         putenv('APP_DEBUG=');
-        Settings::setSetting('debug', 'true', false);
-        $provider = new DebugBarServiceProvider($this->app);
 
-        // Act
-        $result = $this->callIsDebugEnabled($provider);
+        foreach ([true, '1', 'true', 'yes'] as $value) {
+            Settings::setSetting('debug', $value, false);
+            Settings::setSetting('development', $value, false);
+            $provider = new DebugBarServiceProvider($this->app);
 
-        // Assert
-        $this->assertTrue($result);
+            // Act & Assert
+            $this->assertFalse(
+                $this->callIsDebugEnabled($provider),
+                'a settings value of ' . var_export($value, true) . ' must not open the toolbar'
+            );
+        }
     }
 
-    /**
-     * isDebugEnabled() must return true when Settings has debug="yes" (string).
-     * This covers the `$debug === 'yes'` branch inside isDebugEnabled().
-     */
-    public function testIsDebugEnabledReturnsTrueWhenSettingsDebugIsYes(): void
-    {
-        // Arrange
-        putenv('APP_DEBUG=');
-        Settings::setSetting('debug', 'yes', false);
-        $provider = new DebugBarServiceProvider($this->app);
-
-        // Act
-        $result = $this->callIsDebugEnabled($provider);
-
-        // Assert
-        $this->assertTrue($result);
-    }
-
-    /**
-     * isDebugEnabled() must return true when Settings has development=true.
-     * Covers the fallback `$dev === true` branch.
-     */
-    public function testIsDebugEnabledReturnsTrueWhenSettingsDevelopmentIsTrue(): void
-    {
-        // Arrange
-        putenv('APP_DEBUG=');
-        Settings::setSetting('debug', false, false);
-        Settings::setSetting('development', true, false);
-        $provider = new DebugBarServiceProvider($this->app);
-
-        // Act
-        $result = $this->callIsDebugEnabled($provider);
-
-        // Assert
-        $this->assertTrue($result,
-            'isDebugEnabled() must return true when Settings development=true');
-    }
-
-    /**
-     * isDebugEnabled() must return true when Settings has development="yes".
-     */
-    public function testIsDebugEnabledReturnsTrueWhenSettingsDevelopmentIsYes(): void
-    {
-        // Arrange
-        putenv('APP_DEBUG=');
-        Settings::setSetting('debug', false, false);
-        Settings::setSetting('development', 'yes', false);
-        $provider = new DebugBarServiceProvider($this->app);
-
-        // Act
-        $result = $this->callIsDebugEnabled($provider);
-
-        // Assert
-        $this->assertTrue($result);
-    }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

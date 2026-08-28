@@ -79,9 +79,17 @@ class DebugStatusTest extends TestCase
     }
 
     /**
-     * Test executing the command when debug mode is enabled via settings.
+     * The `debug` setting is reported, and reported as *not* opening the toolbar.
+     *
+     * It used to open it, and this test asserted that. Two things were wrong with it, and the
+     * second is why the assertion is inverted rather than deleted: a settings row is editable
+     * from `/admin/Settings` and applies to every visitor, and what the toolbar carries is
+     * every query with its bindings, the session's keys and the request's authentication
+     * state. So the row no longer opens the toolbar — and the command has to say so, because
+     * an operator who set it and then read "Toolbar active: ON" would draw the opposite
+     * conclusion from the truth in either direction.
      */
-    public function testExecuteWithDebugEnabledViaSettings(): void
+    public function testTheDebugSettingIsShownButDoesNotOpenTheToolbar(): void
     {
         // Arrange
         putenv('APP_DEBUG=false');
@@ -95,8 +103,11 @@ class DebugStatusTest extends TestCase
         // Assert
         $this->assertSame(0, $code);
         $display = $tester->getDisplay();
-        $this->assertStringContainsString('Toolbar active:   ON', $display);
         $this->assertStringContainsString('debug (settings): true', $display);
+        $this->assertStringContainsString('Toolbar active:   OFF', $display);
+        $this->assertStringContainsString('does not open the toolbar', $display);
+        $this->assertStringContainsString('debug:token', $display,
+            'and it has to name the way that does work on a live server');
     }
 
     /**

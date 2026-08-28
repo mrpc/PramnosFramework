@@ -443,8 +443,17 @@ class Application extends Base
         // isDebugMode(), because that method also decides whether errors are
         // shown to the browser — a debug token must open the toolbar for one
         // person, not turn a production server into a development one.
+        //
+        // Asked through the toolbar's own gate rather than through `isDebugMode()`. That
+        // method also decides whether errors are shown, and it still reads the `debug` and
+        // `development` **settings** for that purpose — but a settings row must not open the
+        // toolbar: it is editable from `/admin/Settings`, it applies to every visitor, and
+        // what the toolbar carries is every query with its bindings, the session's keys and
+        // the request's authentication state. Two expressions of one question also meant an
+        // installation could satisfy one gate and not the other, leaving a provider
+        // registered and inert.
         if (!FeatureRegistry::isEnabled('debug')
-            && ($this->isDebugMode() || \Pramnos\Debug\DebugAccess::isGranted())) {
+            && \Pramnos\Debug\DebugBarServiceProvider::toolbarAllowed()) {
             $class = FeatureRegistry::getProvider('debug');
             if ($class !== null && class_exists($class)) {
                 $this->serviceProviders[] = new $class($this);

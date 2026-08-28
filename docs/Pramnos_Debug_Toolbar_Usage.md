@@ -93,6 +93,22 @@ like a comb.
 
 ## It worked, and then it stopped
 
+### What turns the toolbar on
+
+Three things, and nothing else:
+
+| | |
+| --- | --- |
+| `debug:token` | a signed, single-use, expiring grant for **one browser** — the only way it appears on a live server |
+| `APP_DEBUG` in the environment | this deployment is a development one |
+| the `DEVELOPMENT` constant | the same statement, made in code |
+
+**The `debug` and `development` settings do not.** They used to, and that was a hole: they are
+rows editable from `/admin/Settings`, and flipping one turned the toolbar on for every visitor
+of the site rather than for the person who flipped it — with every query, the session's keys
+and the request's authentication state in it. They still govern error display, the DevPanel and
+the debug log; `debug:status` prints all of this, including which signal is actually open.
+
 ### The bar remembers which tab you had open
 
 Across page changes, for the length of the browser session. Following one bug through three

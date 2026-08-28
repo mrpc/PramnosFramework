@@ -174,28 +174,74 @@ class DebugBarServiceProvider extends ServiceProvider
         self::$booted = false;
     }
 
+    /**
+     * Whether the toolbar renders on this request.
+     *
+     * Three answers, and each one is a statement somebody made deliberately:
+     *
+     *  1. **A signed token** — `debug:token`, minted at a terminal, redeemed once, expiring
+     *     by itself. The only reason the toolbar appears on a live installation, and it
+     *     appears for that one browser.
+     *  2. **`APP_DEBUG`** in the environment — this deployment is a development one.
+     *  3. **The `DEVELOPMENT` constant** — the same statement, made in code.
+     *
+     * ## What was removed, and why
+     *
+     * The `debug` and `development` **settings** used to be two more answers. They are rows
+     * in the settings table, editable from `/admin/Settings` by anybody who can reach it —
+     * and flipping one turned the toolbar on **for every visitor of the site**, not for the
+     * person who flipped it.
+     *
+     * What the toolbar carries makes that a serious escalation rather than an untidy one:
+     * every query with its bindings, the session's keys, the request's authentication state,
+     * the resolved route and middleware. A single row in a table nobody thinks of as
+     * dangerous is not the right lock for that, and the two settings were redundant besides
+     * — an environment that is a development environment already says so, and a developer on
+     * a live server has the token.
+     *
+     * The settings themselves still mean what they always meant everywhere else: error
+     * display, the DevPanel, the debug log. Only this decision stopped reading them.
+     */
     private function isDebugEnabled(): bool
     {
-        // A signed token opens the toolbar for one browser on a server where it
-        // is otherwise off. Checked first because it is the only reason the
-        // toolbar would appear on a live installation, and because redeeming a
-        // token has to happen even when every other check would have said yes.
+        return static::toolbarAllowed();
+    }
+
+    /**
+     * The toolbar's own gate, in one place because it is asked from two.
+     *
+     * `Application::registerServiceProviders()` asks whether to load this provider at all,
+     * and the provider asks whether to boot its collectors. Those were two different
+     * expressions of the same question, so an installation could satisfy one and not the
+     * other — a provider registered and then doing nothing, which is a confusing state to
+     * debug with a tool that is not running.
+     *
+     * `getenv()` rather than the environment alone was the other half of that: `.env` is
+     * loaded through `symfony/dotenv`, which populates `$_ENV` and `$_SERVER` and does not
+     * call `putenv()`. So `getenv('APP_DEBUG')` answered "not set" on a project whose `.env`
+     * says otherwise, and the toolbar was arriving through the settings path instead — the
+     * one being removed here. `envvar()` reads what dotenv actually wrote.
+     */
+    public static function toolbarAllowed(): bool
+    {
+        // Checked first because redeeming a token has to happen even where another signal
+        // would have said yes: the redemption is what sets the cookie for later requests.
         if (DebugAccess::isGranted()) {
             return true;
         }
 
-        $envDebug = getenv('APP_DEBUG');
-        if ($envDebug !== false && $envDebug !== '' && $envDebug !== '0' && $envDebug !== 'false') {
-            return true;
+        $envDebug = function_exists('envvar')
+            ? envvar('APP_DEBUG', null)
+            : (getenv('APP_DEBUG') ?: null);
+
+        if (is_string($envDebug) || is_bool($envDebug) || is_int($envDebug)) {
+            $value = is_string($envDebug) ? strtolower(trim($envDebug)) : $envDebug;
+
+            if ($value !== '' && $value !== '0' && $value !== 'false' && $value !== false && $value !== 0) {
+                return true;
+            }
         }
-        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
-            return true;
-        }
-        $debug = \Pramnos\Application\Settings::getSetting('debug');
-        if ($debug === true || $debug === '1' || $debug === 'true' || $debug === 'yes') {
-            return true;
-        }
-        $dev = \Pramnos\Application\Settings::getSetting('development');
-        return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
+
+        return defined('DEVELOPMENT') && DEVELOPMENT === true;
     }
 }
