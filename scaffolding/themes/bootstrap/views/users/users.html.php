@@ -16,10 +16,16 @@
     <?php if (!empty($this->error)): ?>
         <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
+    <?php /* The two links are wrapped: `space-between` on three children puts the middle
+             one in the centre of the row, which reads as a broken stylesheet rather than as
+             a layout — the heading left, "+ New User" floating in the middle, "User types"
+             right. Grouped, it is heading | actions again. */ ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Users</h2>
-        <a href="<?php echo adminUrl('Users/edit'); ?>" class="btn btn-primary">+ New User</a>
-        <a href="<?php echo adminUrl('Users/types'); ?>" class="btn btn-sm btn-link" title="What each user type may do">User types</a>
+        <div class="d-flex align-items-center gap-2">
+            <a href="<?php echo adminUrl('Users/types'); ?>" class="btn btn-sm btn-link" title="What each user type may do">User types</a>
+            <a href="<?php echo adminUrl('Users/edit'); ?>" class="btn btn-primary">+ New User</a>
+        </div>
     </div>
     <?php echo $this->datatable->render(); ?>
 </div>

@@ -10,7 +10,6 @@
  */
 $s               = $this->settings ?? [];
 $tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
-$devpanelEnabled = $this->devpanelEnabled ?? false;
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
 ksort($defaultSteps, SORT_NUMERIC);
@@ -65,11 +64,6 @@ ksort($initialSteps, SORT_NUMERIC);
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="tab-security-btn" data-bs-toggle="tab" data-bs-target="#settings-tab-security" type="button" role="tab">Security</button>
             </li>
-            <?php if ($devpanelEnabled): ?>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="tab-devpanel-btn" data-bs-toggle="tab" data-bs-target="#settings-tab-devpanel" type="button" role="tab">DevPanel</button>
-            </li>
-            <?php endif; ?>
         </ul>
 
         <div class="tab-content" id="settingsTabsContent">
@@ -110,18 +104,6 @@ ksort($initialSteps, SORT_NUMERIC);
                                 <?php endforeach; ?>
                             </select>
                             <div class="form-text">Server time: <?php echo date('H:i'); ?></div>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-semibold d-block">Debug Mode</label>
-                            <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
-                                <small class="text-warning">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</small>
-                            <?php else: ?>
-                            <div class="form-check form-switch mt-1">
-                                <input class="form-check-input" type="checkbox" name="debug" value="yes" id="chk_debug"
-                                    <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                                <label class="form-check-label" for="chk_debug">Enabled</label>
-                            </div>
-                            <?php endif; ?>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label fw-semibold d-block">Force HTTPS</label>
@@ -214,31 +196,6 @@ ksort($initialSteps, SORT_NUMERIC);
                     </div>
                 </div></div>
             </div>
-
-            <?php if ($devpanelEnabled): ?>
-            <!-- ── DevPanel ───────────────────────────────────────────────── -->
-            <div class="tab-pane fade" id="settings-tab-devpanel" role="tabpanel">
-                <div class="card mb-3"><div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Minimum Usertype for DevPanel</label>
-                            <input type="number" name="devpanel.min_usertype" class="form-control" min="0" max="100"
-                                value="<?php
-                                    $dpu = $s['devpanel.min_usertype'] ?? '';
-                                    echo htmlspecialchars($dpu !== '' ? $dpu : '90');
-                                ?>">
-                            <div class="form-text">Users with a usertype below this value cannot access the DevPanel.</div>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">DevPanel Mount Point</label>
-                            <input type="text" name="devpanel.mount" class="form-control"
-                                value="<?php echo htmlspecialchars($s['devpanel.mount'] !== '' ? $s['devpanel.mount'] : 'devpanel'); ?>">
-                            <div class="form-text">URL segment where the DevPanel is mounted (e.g. <code>devpanel</code>).</div>
-                        </div>
-                    </div>
-                </div></div>
-            </div>
-            <?php endif; ?>
 
         </div><!-- /.tab-content -->
 

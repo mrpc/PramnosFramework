@@ -335,8 +335,11 @@ HTML;
         if (class_exists(\Pramnos\User\User::class)) {
             try {
                 $user = \Pramnos\User\User::getCurrentUser();
-                $min = \Pramnos\Application\Settings::getSetting('devpanel.min_usertype');
-                $minUserType = ($min !== false && $min !== null && (int) $min > 0) ? (int) $min : 90;
+                // The panel's own resolution — `app.php` first, then the legacy settings row.
+                // Asked directly here once, which meant this link and the panel itself could
+                // disagree about who may open it: the link appeared, and the panel answered 403.
+                $min = (int) \Pramnos\DevPanel\DevPanelController::config('min_usertype', 90);
+                $minUserType = $min > 0 ? $min : 90;
 
                 if ($user === null || (int) ($user->usertype ?? 0) < $minUserType) {
                     return false;

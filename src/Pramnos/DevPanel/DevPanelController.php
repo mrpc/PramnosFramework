@@ -101,11 +101,41 @@ class DevPanelController extends Controller
 
         parent::__construct($application);
 
-        // Allow app to set a higher minimum via app.php devpanel.min_usertype
-        $min = Settings::getSetting('devpanel.min_usertype');
-        if ($min !== false && $min !== null && (int) $min > 0) {
-            $this->minUserType = (int) $min;
+        $min = (int) static::config('min_usertype', 0);
+
+        if ($min > 0) {
+            $this->minUserType = $min;
         }
+    }
+
+    /**
+     * One of this panel's own settings, from `app/app.php`.
+     *
+     * ```php
+     * 'devpanel' => ['mount' => 'devpanel', 'min_usertype' => 90],
+     * ```
+     *
+     * From the config and nowhere else. Where this panel is mounted and who may open it are
+     * properties of the deployment — versioned with the code, next to the line that enables
+     * the feature — not rows on an administration screen, which is where they used to live
+     * next to a checkbox that opened the panel itself: three editable answers to "may this
+     * browser browse the database", on a live server, leaving no trace in the repository.
+     *
+     * A `devpanel.min_usertype` / `devpanel.mount` row in the settings table is no longer
+     * read. It was never reachable from the screen anyway: PHP replaces the `.` in a field
+     * name with `_`, so both inputs posted under a name the controller never asked for, and
+     * every save wrote the default back. An installation that thought it had set one had not.
+     *
+     * @param  string $key     `mount` or `min_usertype`
+     * @param  mixed  $default Used when the config says nothing
+     * @return mixed
+     */
+    public static function config(string $key, $default = null)
+    {
+        $configured = \Pramnos\Application\Application::currentInstance()
+            ->applicationInfo['devpanel'][$key] ?? null;
+
+        return ($configured === null || $configured === '') ? $default : $configured;
     }
 
     /**
@@ -1719,7 +1749,7 @@ class DevPanelController extends Controller
     {
         $title    = 'DevPanel — ' . ucfirst($activeTab);
         $baseUrl  = defined('sURL') ? rtrim((string) sURL, '/') : '';
-        $mountPoint = Settings::getSetting('devpanel.mount') ?: 'devpanel';
+        $mountPoint = (string) static::config('mount', 'devpanel');
 
         $tabs = [
             'overview'    => 'Overview',
@@ -1815,30 +1845,43 @@ class DevPanelController extends Controller
             $this->renderError(404, 'DevPanel feature is not enabled.');
         }
         if (!$this->isDevMode()) {
-            $this->renderError(403, 'DevPanel is only available in development mode (DEVELOPMENT=true or debug=yes).');
+            $this->renderError(
+                403,
+                'The DevPanel opens only in a development environment: APP_DEBUG in .env, or '
+                . 'the DEVELOPMENT constant. It is deliberately not a setting — a tool that '
+                . 'browses the database is not something a checkbox should be able to open on '
+                . 'a live server.'
+            );
         }
         return $this->guardUserType();
     }
 
     /**
-     * Returns true when the application is running in development/debug mode.
-     * Mirrors the check used by DebugBarServiceProvider and Application::isDebugMode().
+     * True in a development deployment — the one thing that opens this panel.
+     *
+     * This used to read the `debug` and `development` **settings** as well: rows in the
+     * settings table, one of them a checkbox on the administration screen. Which made the
+     * answer to "may this browser open a tool that browses the database, reads the cache and
+     * dumps the container" something anybody who reached that screen could tick, on a live
+     * server, without a deploy and without a trace in the repository.
+     *
+     * The environment is the lock instead: `APP_DEBUG` in `.env` or the `DEVELOPMENT`
+     * constant, both of which take shell access and a restart, and both of which are visible
+     * in the deployment rather than in a table. A developer tool is part of how a server was
+     * built, not a runtime preference.
+     *
+     * It also removes the thing nobody could explain from outside: the panel stayed open with
+     * "Debug Mode" unchecked, because the *other* setting — the one with no field on any
+     * screen — was true.
+     *
+     * `getenv('APP_DEBUG')` was asked here directly, and answers "not set" on a project whose
+     * `.env` says otherwise: `symfony/dotenv` writes `$_ENV` and never calls `putenv()`. So
+     * the panel had been opening through that invisible setting by accident rather than
+     * through the environment on purpose.
      */
     private function isDevMode(): bool
     {
-        if (defined('DEVELOPMENT') && DEVELOPMENT === true) {
-            return true;
-        }
-        $env = getenv('APP_DEBUG');
-        if ($env !== false && $env !== '' && $env !== '0' && $env !== 'false') {
-            return true;
-        }
-        $debug = Settings::getSetting('debug');
-        if ($debug === 'yes' || $debug === '1' || $debug === 'true' || $debug === true) {
-            return true;
-        }
-        $dev = Settings::getSetting('development');
-        return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
+        return \Pramnos\Application\Application::isDeveloperEnvironment();
     }
 
     /**

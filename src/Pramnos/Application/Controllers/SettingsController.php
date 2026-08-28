@@ -86,11 +86,9 @@ class SettingsController extends Controller
         $doc        = Factory::getDocument();
         $doc->title = 'System Settings';
 
-        $devpanelEnabled = \Pramnos\Application\FeatureRegistry::isEnabled('devpanel');
-
         $keys = [
             'sitename', 'site_url', 'admin_mail', 'admin_replymail',
-            'default_language', 'timezone', 'debug', 'forcessl',
+            'default_language', 'timezone', 'forcessl',
             'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_tls',
             'loginlockoutwindowseconds', 'loginlockoutsteps',
             // Whether an account is told about a sign-in from a device it has not used,
@@ -98,11 +96,6 @@ class SettingsController extends Controller
             \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
             \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
         ];
-        if ($devpanelEnabled) {
-            $keys[] = 'devpanel.min_usertype';
-            $keys[] = 'devpanel.mount';
-        }
-
         $settings = [];
         foreach ($keys as $key) {
             $settings[$key] = (string) Settings::getSetting($key, '');
@@ -131,7 +124,6 @@ class SettingsController extends Controller
             ['auth', 'authserver', 'queue', 'messaging', 'cache', 'devpanel', 'broadcasting'],
             static fn (string $feature): bool => \Pramnos\Application\FeatureRegistry::isEnabled($feature)
         ));
-        $view->devpanelEnabled  = $devpanelEnabled;
         $view->timezones        = \DateTimeZone::listIdentifiers();
         $view->success          = $_SESSION['settings_success'] ?? '';
         $view->warning          = $_SESSION['settings_warning'] ?? '';
@@ -159,18 +151,19 @@ class SettingsController extends Controller
         Settings::setSetting('default_language', trim($request->get('default_language', 'en', 'post')));
         Settings::setSetting('timezone',         trim($request->get('timezone', 'UTC', 'post')));
         /*
-         * `debug` only when its field was on the form.
+         * `debug` is deliberately not written here any more, and has no field on the screen.
          *
-         * It moved to the DevPanel tab, which is rendered only when that feature is enabled —
-         * and an unchecked checkbox submits nothing, so "absent" and "off" look identical from
-         * here. Writing it unconditionally would have turned the setting off on every save
-         * made by an installation without the DevPanel: a switch quietly reset by saving an
-         * unrelated field, which is the kind of thing nobody connects to the save they just
-         * made. The hidden companion field says the tab was there.
+         * It used to open the debug toolbar for every visitor, write the view's path into the
+         * source of every page, and open the DevPanel. All three follow the environment now
+         * (`APP_DEBUG` in `.env`, the `DEVELOPMENT` constant) or a signed one-browser token,
+         * because none of them is a runtime preference — they are part of how a server was
+         * built, and a checkbox on a screen an administrator can reach is not the right lock
+         * for a tool that browses the database.
+         *
+         * The setting itself still exists, and `Application::isDebugMode()` still reads it,
+         * for an application that wants a switch of its own. It is simply no longer one of
+         * this screen's fields.
          */
-        if (trim($request->get('debug_present', '', 'post')) !== '') {
-            Settings::setSetting('debug',        $this->normalizeYesNo($request->get('debug', 'no', 'post')));
-        }
         Settings::setSetting('forcessl',         $this->normalizeYesNo($request->get('forcessl', 'no', 'post')));
 
         // Email / SMTP
@@ -235,13 +228,23 @@ class SettingsController extends Controller
         }
         Settings::setSetting('loginlockoutsteps', $normalizedSteps);
 
-        // DevPanel (only when feature is active)
-        if (\Pramnos\Application\FeatureRegistry::isEnabled('devpanel')) {
-            Settings::setSetting('devpanel.min_usertype', (string) $this->normalizeIntRange(
-                $request->get('devpanel.min_usertype', '90', 'post'), 0, 100, 90
-            ));
-            Settings::setSetting('devpanel.mount', trim($request->get('devpanel.mount', 'devpanel', 'post')));
-        }
+        /*
+         * The DevPanel has no fields here any more — not the mount point, not the usertype
+         * floor, and not the "Debug Mode" switch that used to open it.
+         *
+         * Everything about that panel is a property of the deployment: whether it is
+         * reachable at all (the environment), where it is mounted, and who may open it. Those
+         * belong in `app/app.php`, versioned with the code, next to the decision to enable the
+         * feature in the first place — not in three rows an administrator can edit on a live
+         * server, one of which was a checkbox opening a database browser.
+         *
+         * `app.php` reads:
+         *
+         *     'devpanel' => ['mount' => 'devpanel', 'min_usertype' => 90],
+         *
+         * An installation that already has the settings rows keeps working: the panel still
+         * honours them when the config says nothing.
+         */
 
         if (count($lockoutErrors) > 0) {
             $_SESSION['settings_warning'] = 'Lockout rules adjusted to safe defaults: '
@@ -256,9 +259,6 @@ class SettingsController extends Controller
             'settings-tab-email',
             'settings-tab-security',
         ];
-        if (\Pramnos\Application\FeatureRegistry::isEnabled('devpanel')) {
-            $allowedTabs[] = 'settings-tab-devpanel';
-        }
         if (in_array($activeTab, $allowedTabs, true)) {
             $this->redirect(adminUrl('settings#') . $activeTab);
             return;

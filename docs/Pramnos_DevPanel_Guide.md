@@ -29,15 +29,37 @@ are complementary and neither replaces the other.
 Access requires **all** of:
 
 - the `devpanel` feature enabled;
-- development mode (`DEVELOPMENT`);
+- a **development environment** — `APP_DEBUG=1` in `.env`, or the `DEVELOPMENT` constant;
 - a signed-in user with `usertype >= 90`, or a policy callback that says yes.
 
-Two optional settings:
+Two optional keys, in `app.php` beside the feature list:
 
-| Setting | Meaning |
-| --- | --- |
-| `devpanel.mount` | Path to mount on. Default `devpanel`. |
-| `devpanel.min_usertype` | Raise the minimum usertype above 90. |
+```php
+'devpanel' => [
+    'mount'        => 'devpanel',  // path to mount on
+    'min_usertype' => 90,          // raise the floor above 90
+],
+```
+
+### There is no setting that opens this panel
+
+Not `debug`, not `development`, not a checkbox on `/admin/Settings`. The environment is the
+only lock, and that is deliberate: this panel browses the database, reads the cache and dumps
+the container. A row in the settings table makes that reachable by anybody who can open the
+administration area, on a live server, with no deploy and nothing in the repository to say it
+happened.
+
+`devpanel.mount` and `devpanel.min_usertype` used to be **settings** too, with fields on that
+screen. They read from `app.php` now, for the same reason — where a developer tool is mounted
+and who may open it are properties of the deployment. (The fields never worked, as it
+happens: PHP replaces the `.` in a form field name with `_`, so both inputs posted under a
+name the controller never asked for, and every save wrote the default back. An installation
+that thought it had moved the mount point had not.)
+
+If you need the panel on a server that is not a development one, the answer is a deploy —
+`APP_DEBUG=1` and a restart — not a switch. For reading a live production request instead,
+use the [debug toolbar](Pramnos_Debug_Toolbar_Usage.md) with a signed one-browser token from
+`debug:token`, which expires on its own.
 
 ## The tabs
 

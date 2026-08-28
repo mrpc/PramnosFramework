@@ -435,23 +435,84 @@ class DevPanelHelpersTest extends TestCase
     }
 
     /**
-     * isDevMode() returns true when the debug setting in Settings is 'yes'.
+     * Where the panel is mounted and who may open it come from `app/app.php`.
      *
-     * This covers the Settings::getSetting('debug') branch used by applications
-     * that set debug via their settings file rather than a PHP constant.
+     * ```php
+     * 'devpanel' => ['mount' => 'inside', 'min_usertype' => 95],
+     * ```
+     *
+     * They used to be two inputs on `/admin/Settings`, and neither ever saved: PHP replaces
+     * the `.` in a field name with `_`, so `devpanel.mount` arrived as `devpanel_mount`, the
+     * controller asked for the dotted key, found nothing, took its default and wrote *that* —
+     * every save reset the mount point to `devpanel`, including a save of the site name on
+     * another tab. The fields are gone; this is the reading that replaced them.
      */
-    public function testIsDevModeReturnsTrueWhenDebugSettingIsYes(): void
+    public function testMountAndFloorComeFromTheApplicationConfig(): void
     {
-        // Arrange — set the debug setting before instantiating
+        // Arrange
+        $application = \Pramnos\Application\Application::currentInstance();
+        $saved = $application->applicationInfo['devpanel'] ?? null;
+        $application->applicationInfo['devpanel'] = ['mount' => 'inside', 'min_usertype' => 95];
+
+        try {
+            // Act & Assert
+            $this->assertSame('inside', DevPanelController::config('mount', 'devpanel'));
+            $this->assertSame(95, DevPanelController::config('min_usertype', 90));
+        } finally {
+            if ($saved === null) {
+                unset($application->applicationInfo['devpanel']);
+            } else {
+                $application->applicationInfo['devpanel'] = $saved;
+            }
+        }
+    }
+
+    /**
+     * With nothing configured, the built-in defaults answer — not a settings row.
+     *
+     * A leftover `devpanel.mount` row must not move the panel: one place decides, and it is
+     * the file in the repository.
+     */
+    public function testAnUnconfiguredPanelUsesItsDefaultsAndIgnoresTheSettingsRow(): void
+    {
+        // Arrange
+        $application = \Pramnos\Application\Application::currentInstance();
+        $saved = $application->applicationInfo['devpanel'] ?? null;
+        unset($application->applicationInfo['devpanel']);
+        \Pramnos\Application\Settings::setSetting('devpanel.mount', 'elsewhere');
+
+        try {
+            // Act & Assert
+            $this->assertSame('devpanel', DevPanelController::config('mount', 'devpanel'));
+        } finally {
+            if ($saved !== null) {
+                $application->applicationInfo['devpanel'] = $saved;
+            }
+        }
+    }
+
+    /**
+     * A `debug` setting does not open the panel.
+     *
+     * It used to, and that was the whole problem: a checkbox on `/admin/Settings` — reachable
+     * by anybody who could open the administration area — turning on a tool that browses the
+     * database, reads the cache and dumps the container, on a live server, with no deploy and
+     * no trace in the repository. The environment is the lock now, and this is the assertion
+     * that the row cannot pick it: a setting left over from an older installation, or written
+     * by hand, must change nothing.
+     */
+    public function testTheDebugSettingDoesNotOpenThePanel(): void
+    {
+        // Arrange
         \Pramnos\Application\Settings::clearSettings();
         \Pramnos\Application\Settings::setSetting('debug', 'yes');
 
-        // Act — isDevMode() reads Settings
+        // Act
         $result = $this->controller->pubIsDevMode();
 
         // Assert
-        $this->assertTrue($result,
-            'isDevMode() must return true when Settings debug=yes');
+        $this->assertFalse($result,
+            'a row in the settings table must not open a developer tool');
     }
 
     /**

@@ -10,7 +10,6 @@
  */
 $s               = $this->settings ?? [];
 $tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
-$devpanelEnabled = $this->devpanelEnabled ?? false;
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
 ksort($defaultSteps, SORT_NUMERIC);
@@ -50,7 +49,6 @@ ksort($initialSteps, SORT_NUMERIC);
             <button type="button" class="plain-tab-btn active" data-tab="settings-tab-general" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:2px solid #0d6efd;margin-bottom:-2px;color:#0d6efd">General</button>
             <button type="button" class="plain-tab-btn" data-tab="settings-tab-email" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Email / SMTP</button>
             <button type="button" class="plain-tab-btn" data-tab="settings-tab-security" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Security</button>
-            <?php if ($devpanelEnabled): ?><button type="button" class="plain-tab-btn" data-tab="settings-tab-devpanel" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">DevPanel</button><?php endif; ?>
         </div>
 
         <!-- General -->
@@ -89,18 +87,6 @@ ksort($initialSteps, SORT_NUMERIC);
                             <?php endforeach; ?>
                         </select>
                         <small style="color:#888;font-size:11px">Server time: <?php echo date('H:i'); ?></small>
-                    </div>
-                    <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Debug Mode</label>
-                        <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
-                            <small style="color:#e67e22;font-size:12px">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</small>
-                        <?php else: ?>
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                            <input type="checkbox" name="debug" value="yes"
-                                <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                            <span style="font-size:13px">Enabled</span>
-                        </label>
-                        <?php endif; ?>
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Force HTTPS</label>
@@ -190,31 +176,6 @@ ksort($initialSteps, SORT_NUMERIC);
                 </div>
             </div>
         </div>
-
-        <?php if ($devpanelEnabled): ?>
-        <!-- DevPanel -->
-        <div id="settings-tab-devpanel" class="plain-settings-pane" style="display:none">
-            <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                    <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Min Usertype for DevPanel</label>
-                        <input type="number" name="devpanel.min_usertype" min="0" max="100" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"
-                            value="<?php
-                                $dpu = $s['devpanel.min_usertype'] ?? '';
-                                echo htmlspecialchars($dpu !== '' ? $dpu : '90');
-                            ?>">
-                        <small style="color:#888;font-size:11px">Users below this type cannot access the DevPanel.</small>
-                    </div>
-                    <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">DevPanel Mount Point</label>
-                        <input type="text" name="devpanel.mount" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"
-                            value="<?php echo htmlspecialchars($s['devpanel.mount'] !== '' ? $s['devpanel.mount'] : 'devpanel'); ?>">
-                        <small style="color:#888;font-size:11px">URL segment where the DevPanel is mounted.</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
 
         <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary">Save Settings</button>

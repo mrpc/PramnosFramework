@@ -5,14 +5,13 @@ declare(strict_types=1);
 namespace Pramnos\DevPanel;
 
 use Pramnos\Application\ServiceProvider;
-use Pramnos\Application\Settings;
 
 /**
  * Bootstraps the DevPanel feature.
  *
  * Activated by listing 'devpanel' in app.php features.  The panel is only
  * accessible to authenticated admin users (minimum usertype 90 by default,
- * configurable via app.php devpanel.min_usertype).
+ * configurable via app.php: 'devpanel' => ['min_usertype' => 90]).
  *
  * The controller is auto-discoverable via the framework's getFrameworkController()
  * mechanism (Devpanel.php in Application\Controllers\) — no route registration
@@ -45,11 +44,11 @@ class DevPanelServiceProvider extends ServiceProvider
      */
     protected function bootHttp(): void
     {
-        // Verify the minimum usertype setting is sane (warn in logs if not).
-        $min = Settings::getSetting('devpanel.min_usertype');
-        if ($min !== false && $min !== null && ((int) $min < 1 || (int) $min > 100)) {
+        // Verify the configured minimum usertype is sane (warn in logs if not).
+        $min = DevPanelController::config('min_usertype');
+        if ($min !== null && $min !== '' && ((int) $min < 1 || (int) $min > 100)) {
             \Pramnos\Logs\Logger::log(
-                'DevPanel: devpanel.min_usertype must be between 1 and 100; got ' . (string) $min,
+                'DevPanel: min_usertype must be between 1 and 100; got ' . (string) $min,
                 'devpanel',
             );
         }

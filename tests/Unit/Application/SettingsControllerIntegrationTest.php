@@ -172,11 +172,6 @@ class SettingsControllerIntegrationTest extends TestCase
     public function testSaveSystem()
     {
         $_POST['sitename'] = 'My Test Site';
-        // `debug_present` alongside it: the field lives on the DevPanel tab now, and a form
-        // posted without that tab must leave the setting alone rather than read a missing
-        // checkbox as "off".
-        $_POST['debug'] = 'yes';
-        $_POST['debug_present'] = '1';
 
         ob_start();
         $this->controller->saveSystem();
@@ -184,30 +179,69 @@ class SettingsControllerIntegrationTest extends TestCase
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
         $this->assertEquals('My Test Site', Settings::getSetting('sitename'));
-        $this->assertEquals('yes', Settings::getSetting('debug'));
     }
 
     /**
-     * A save from a form without the DevPanel tab leaves `debug` as it was.
+     * This screen does not write `debug`, even when something posts it.
      *
-     * The field moved to that tab, which is rendered only where the feature is enabled — and
-     * an unchecked checkbox submits nothing, so from the controller "absent" and "off" are the
-     * same POST. Writing it unconditionally turned the setting off on every save an
-     * installation without the DevPanel made: a switch reset by saving an unrelated field,
-     * which nobody connects to the save they just made.
+     * The field is gone, because what it decided is gone: the debug toolbar, the view path in
+     * every page's source and the DevPanel all follow the deployment now. What is asserted
+     * here is the half a removed field does not give you — that a hand-crafted POST, or a
+     * stale form cached in somebody's browser, cannot put the setting back and re-open a
+     * developer tool on a live server.
      */
-    public function testSavingWithoutTheDevPanelTabLeavesDebugAlone()
+    public function testTheDebugSettingIsNotWritableFromThisScreen()
     {
-        Settings::setSetting('debug', 'yes', false);
+        // Arrange
+        Settings::setSetting('debug', 'no', false);
         $_POST['sitename'] = 'My Test Site';
-        unset($_POST['debug'], $_POST['debug_present']);
+        $_POST['debug'] = 'yes';
+        $_POST['debug_present'] = '1';
+
+        // Act
+        ob_start();
+        $this->controller->saveSystem();
+        ob_get_clean();
+
+        // Assert
+        $this->assertEquals('no', Settings::getSetting('debug'),
+            'a POST must not be able to turn a developer tool on');
+    }
+
+    /**
+     * The DevPanel's own settings are not this screen's business either.
+     *
+     * The tab is gone — mount point, usertype floor and the "Debug Mode" switch that opened
+     * the panel. All three describe a developer tool, which is part of how a server was built:
+     * they belong in `app/app.php`, versioned with the code, beside the line that enables the
+     * feature. On the screen they were three rows an administrator could edit on a live server
+     * — one of them opening a database browser — and two of them never saved at all, because
+     * PHP turns the `.` in a field name into `_` and the controller asked for the dotted key.
+     *
+     * Asserted from the POST side, which is what a stale cached form or a hand-made request
+     * looks like: a value arriving under either name must not land in the settings table.
+     */
+    public function testTheDevPanelSettingsAreNotWritableFromThisScreen()
+    {
+        // Arrange
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['devpanel']);
+        Settings::setSetting('devpanel.mount', 'inside', false);
+        Settings::setSetting('devpanel.min_usertype', '95', false);
+
+        // Act — both spellings: the dotted one the form used to carry, and the one PHP posts
+        $_POST['sitename'] = 'My Test Site';
+        $_POST['devpanel.mount'] = 'elsewhere';
+        $_POST['devpanel_mount'] = 'elsewhere';
+        $_POST['devpanel_min_usertype'] = '10';
 
         ob_start();
         $this->controller->saveSystem();
         ob_get_clean();
 
-        $this->assertEquals('yes', Settings::getSetting('debug'),
-            'a form that never carried the field must not turn it off');
+        // Assert
+        $this->assertEquals('inside', Settings::getSetting('devpanel.mount'));
+        $this->assertEquals('95', Settings::getSetting('devpanel.min_usertype'),
+            'a POST must not be able to lower the floor on a developer tool');
     }
 
     public function testList()
