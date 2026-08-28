@@ -1305,17 +1305,32 @@ class UsersController extends Controller
         if ($id > 0) {
             $user->load($id);
         }
-        $doc->title = 'Sessions: ' . htmlspecialchars($user->username ?? '', ENT_QUOTES, 'UTF-8');
+
+        /**
+         * With no id, every session — which is the screen the dashboard's "Active users
+         * (now)" figure comes from.
+         *
+         * It used to filter on `userid = $id` unconditionally, so opening it without one
+         * asked for `userid = 0` and answered with guests, under the title "Sessions: ".
+         * The number on the dashboard therefore had no screen behind it at all: the only
+         * route in was a per-account link, and "who is on the site right now" — the question
+         * an operator opens a dashboard to ask — could not be answered anywhere.
+         */
+        $db      = \Pramnos\Database\Database::getInstance();
+        $query   = $db->queryBuilder()->table('#PREFIX#sessions');
+
+        if ($id > 0) {
+            $query->where('userid', $id);
+        }
 
         // The sessions table tracks last activity in the `time` column (unix ts)
         // and marks terminated sessions with logout=1 — there is no `date` column,
         // so ordering by it silently returned no rows. Show active sessions first.
-        $db = \Pramnos\Database\Database::getInstance();
-        $sessionList = $db->queryBuilder()
-            ->table('#PREFIX#sessions')
-            ->where('userid', $id)
-            ->orderBy('time', 'desc')
-            ->getAll();
+        $sessionList = $query->orderBy('time', 'desc')->limit($id > 0 ? 200 : 500)->getAll();
+
+        $doc->title = $id > 0
+            ? 'Sessions: ' . htmlspecialchars($user->username ?? '', ENT_QUOTES, 'UTF-8')
+            : 'Active sessions';
 
         $view              = $this->getView('users');
         $view->action      = 'sessions';
@@ -1323,6 +1338,13 @@ class UsersController extends Controller
         // the user's detail page (users/view/:id).
         $view->user        = ['userid' => (int) ($user->userid ?? 0), 'username' => (string) ($user->username ?? '')];
         $view->sessionList = $sessionList;
+        // Whether this is one account's list or the whole site's, which decides both the
+        // heading and whether the table needs a column saying whose session each row is.
+        $view->scopedToUser = $id > 0;
+        // The window the dashboard's "now" figure uses, so the screen and the number cannot
+        // disagree about what "active" means.
+        $view->activeWindow = \Pramnos\Application\Statistics\ActiveUsersService::WINDOW_NOW;
+
         return $view->display('sessions');
     }
 

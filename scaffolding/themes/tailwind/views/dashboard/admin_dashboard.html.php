@@ -12,29 +12,50 @@
 <div class="px-4 py-6">
     <h2 class="mb-6">Admin Dashboard</h2>
 
+    <?php
+    /*
+     * The four figures are links to the screen each one comes from.
+     *
+     * A number on a dashboard is the start of a question — "why is that high", "which
+     * accounts" — and a box that cannot be clicked makes the reader hunt through the sidebar
+     * for the screen that answers it. They were four boxes and four dead ends.
+     *
+     * Each one points at the screen its own figure is *read from*, which is not the same as
+     * the screen that sounds related. The active-users count comes from the sessions table,
+     * so it opens the sessions list — not the account list, which answers "who exists"
+     * rather than "who is here". The request figures come from `tokenactions`, so they open
+     * the token-action list — not the application log, which is a different record entirely
+     * and would have sent the reader looking for numbers that are not in it.
+     *
+     * `TokenActions/stats` is where those numbers are *computed*, and it is a JSON endpoint
+     * feeding a widget. A dashboard box that opens a JSON document is a link that looks
+     * broken, so the boxes point at the screen a person can read.
+     */
+    ?>
+
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div class="card bg-primary text-primary-content">
+        <a href="<?php echo adminUrl('Users/sessions'); ?>" class="card bg-primary text-primary-content transition hover:brightness-110" title="The sessions this number counts">
             <div class="p-5">
                 <div class="text-xs opacity-75">Active Users (now)</div>
                 <div class="text-3xl font-bold"><?php echo (int)($this->activeUsers['now'] ?? 0); ?></div>
                 <div class="text-xs opacity-75">Last 24h: <?php echo (int)($this->activeUsers['last_24h'] ?? 0); ?></div>
             </div>
-        </div>
-        <div class="card bg-success text-success-content">
+        </a>
+        <a href="<?php echo adminUrl('TokenActions'); ?>" class="card bg-success text-success-content transition hover:brightness-110" title="The requests this number counts">
             <div class="p-5">
                 <div class="text-xs opacity-75">API Requests (24h)</div>
                 <div class="text-3xl font-bold"><?php echo (int)($this->apiStats['total_requests'] ?? 0); ?></div>
                 <div class="text-xs opacity-75">Errors: <?php echo number_format(($this->apiStats['error_rate'] ?? 0) * 100, 1); ?>%</div>
             </div>
-        </div>
-        <div class="card bg-info text-info-content">
+        </a>
+        <a href="<?php echo adminUrl('TokenActions'); ?>" class="card bg-info text-info-content transition hover:brightness-110" title="Where the time goes, per request">
             <div class="p-5">
                 <div class="text-xs opacity-75">Avg Latency (24h)</div>
                 <div class="text-3xl font-bold"><?php echo number_format($this->apiStats['avg_execution_time'] ?? 0, 0); ?> ms</div>
                 <div class="text-xs opacity-75">p95: <?php echo number_format($this->apiStats['p95_execution_time'] ?? 0, 0); ?> ms</div>
             </div>
-        </div>
-        <div class="card bg-secondary text-secondary-content">
+        </a>
+        <a href="<?php echo adminUrl('Dashboard/database'); ?>" class="card bg-secondary text-secondary-content transition hover:brightness-110" title="Tables, sizes and connections">
             <div class="p-5">
                 <div class="text-xs opacity-75">DB Size</div>
                 <div class="text-3xl font-bold">
@@ -47,7 +68,7 @@
                 </div>
                 <div class="text-xs opacity-75">Connections: <?php echo (int)($this->dbStats['connections_active'] ?? 0); ?></div>
             </div>
-        </div>
+        </a>
     </div>
 
     <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">

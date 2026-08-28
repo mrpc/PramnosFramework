@@ -29,6 +29,15 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
     : (string) $rawDate;
 ?>
 <div class="max-w-4xl mx-auto py-6 px-4">
+    <?php
+    /*
+     * A trail, like every other screen in this area. The preview had a Back button and no
+     * breadcrumb, so it was the one page here that could not say where it sat — and "Back"
+     * only helps somebody who arrived the way the button assumes.
+     */
+    $this->activeNav = 'emails_show';
+    $this->insert('../partials/admin_breadcrumb');
+    ?>
     <div class="flex items-center gap-3 mb-4">
         <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-outline btn-xs">&larr; Back</a>
         <h2 >Email #<?php echo (int)($mail['id'] ?? 0); ?></h2>

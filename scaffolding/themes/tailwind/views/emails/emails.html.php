@@ -23,5 +23,26 @@
         <a href="<?php echo adminUrl('MailTemplates'); ?>" class="btn btn-ghost btn-sm"
            title="The templates these are rendered from">Mail templates</a>
     </div>
+    <?php
+    /*
+     * Scoped to one address, when the operator arrived from an account's own page.
+     *
+     * Said out loud, with a way out. A filtered list looks exactly like a short one, and a
+     * short mail log reads as "nothing was ever sent" — which is the wrong conclusion to
+     * hand somebody who came here to find out whether a code was delivered.
+     */
+    $scopedTo = (string) ($this->scopedTo ?? '');
+    ?>
+    <?php if ($scopedTo !== ''): ?>
+        <div class="alert alert-info mb-4 flex flex-wrap items-center gap-3">
+            <span>
+                Showing only mail sent to
+                <strong class="font-mono"><?php echo htmlspecialchars($scopedTo, ENT_QUOTES, 'UTF-8'); ?></strong>.
+                Mail to an address this account used before it was changed is not here.
+            </span>
+            <a href="<?php echo htmlspecialchars((string) ($this->clearUrl ?? adminUrl('emails')), ENT_QUOTES, 'UTF-8'); ?>"
+               class="btn btn-ghost btn-xs ms-auto">Show all</a>
+        </div>
+    <?php endif; ?>
     <?php echo $this->datatable->render(); ?>
 </div>

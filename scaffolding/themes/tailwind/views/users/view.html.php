@@ -486,7 +486,19 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 
             <!-- Mail: what this address was actually sent -->
             <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
-                <?php $panel('Emails received', (int) $r('emailCount', 0), adminUrl('emails')); ?>
+                <?php
+                /*
+                 * "See all" carries the address, so the mail screen opens filtered to this
+                 * account rather than to everybody. An unfiltered link on a per-account panel
+                 * is a link that answers a different question than the one being asked.
+                 */
+                $panel(
+                    'Emails received',
+                    (int) $r('emailCount', 0),
+                    adminUrl('emails') . '?tomail=' . urlencode((string) $r('emailAddress', ''))
+                        . '&from=user&uid=' . $uid
+                );
+                ?>
                 <?php $emails = $r('emails'); ?>
                 <?php if ($emails === []): ?>
                 <div class="p-4 text-sm text-base-content/60">

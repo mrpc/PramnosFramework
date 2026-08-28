@@ -14,6 +14,12 @@ class TestableEmailsController extends EmailsController
 {
     public array $redirectedTo = [];
 
+    /** The `WHERE` fragment the list is scoped with, for the test that asserts its shape. */
+    public function exposeAddressCondition(): string
+    {
+        return $this->addressCondition();
+    }
+
     public function redirect($url = null, $quit = true, $code = '302')
     {
         if ($url === null) {
@@ -35,6 +41,9 @@ class TestableEmailsController extends EmailsController
             public mixed $datatable;
             public mixed $success;
             public mixed $error;
+            /** The address the list is scoped to, and the way back to all of it. */
+            public mixed $scopedTo;
+            public mixed $clearUrl;
 
             public function display($view = '') {
                 return 'mock html view for ' . $view;
@@ -205,6 +214,54 @@ class EmailsControllerTest extends BaseTestCase
         $this->assertNotEmpty($output);
         $this->assertEmpty($this->controller->redirectedTo);
         $this->assertSame('Email History', $doc->title);
+    }
+
+    /**
+     * Opened from an account, the screen filters to that account's address.
+     *
+     * And the filter has to reach the **datatable's own source**, not only the page: the
+     * table fetches its rows itself, so a filter that lives in the page's query string alone
+     * vanishes on the first sort or page change — and the operator is then reading
+     * everybody's mail believing it is one person's.
+     */
+    public function testTheListCanBeScopedToOneAddress(): void
+    {
+        // Arrange
+        $this->setMockUser(80);
+        $_GET['tomail'] = 'Someone@Example.COM';
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        try {
+            // Act
+            ob_start();
+            try {
+                $this->controller->display();
+            } finally {
+                ob_get_clean();
+            }
+
+            // Assert — the condition is quoted by the driver rather than concatenated, and
+            // it is case-insensitive, because `=` is case-sensitive on PostgreSQL and a
+            // filter matching nothing looks exactly like an account nothing was sent to.
+            $condition = $this->controller->exposeAddressCondition();
+            $this->assertStringContainsString('LOWER(tomail)', $condition);
+            $this->assertStringContainsString('someone@example.com', strtolower($condition));
+
+            // …and a hostile address comes back as a value rather than as SQL. The filter
+            // arrives in a query string, so this is the assertion that matters: the fragment
+            // goes to `Datasource::getList()` as text, and building it by concatenation is
+            // how a list screen becomes an injection point.
+            $_GET['tomail'] = "x' OR '1'='1";
+            $hostile = $this->controller->exposeAddressCondition();
+            $this->assertStringNotContainsString("OR '1'='1'", $hostile);
+            $this->assertMatchesRegularExpression("/LOWER\\('.*'\\)/", $hostile);
+        } finally {
+            unset($_GET['tomail']);
+        }
     }
 
     public function testShowDisplaysEmailPreview(): void

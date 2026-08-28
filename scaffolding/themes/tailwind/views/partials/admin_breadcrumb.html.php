@@ -46,6 +46,31 @@ $orgLabel    = $orgName !== '' ? $orgName : ($orgId > 0 ? '#' . $orgId : 'Organi
 $orgsUrl     = $base . 'Organizations';
 $orgViewUrl  = $orgId > 0 ? $base . 'Organizations/view/' . $orgId : $orgsUrl;
 
+/**
+ * A username for an id, for the "you came from this account" crumb.
+ *
+ * One lookup, shared: two screens now build that crumb — the token-action list and the mail
+ * log — and a second copy of this query is a second place for it to drift.
+ */
+$nameOfUser = static function (int $userId): string {
+    if ($userId < 1) {
+        return '';
+    }
+
+    try {
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#users')->select(['username'])->where('userid', $userId)->first();
+
+        if ($row && ($row->numRows ?? 0) > 0) {
+            return (string) ($row->fields['username'] ?? '');
+        }
+    } catch (\Exception $e) {
+        // The numeric id is a usable crumb; a breadcrumb must not take a page down.
+    }
+
+    return '';
+};
+
 // Context-aware trail for the Token Actions list. When filtered by a token it
 // distinguishes the origin (Tokens list vs a specific user) via the `from` param.
 $tokenId  = (int) ($_GET['token_id'] ?? 0);
@@ -57,17 +82,7 @@ if ($tokenId > 0) {
     if ($from === 'tokens') {
         $taTrail = [['Tokens', $tokensUrl], [$tokenCrumb, '']];
     } elseif ($from === 'user' && $fromUid > 0) {
-        // Resolve the source user's name for a friendlier crumb.
-        $srcName = '';
-        try {
-            $srcRow = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#users')->select(['username'])->where('userid', $fromUid)->first();
-            if ($srcRow && ($srcRow->numRows ?? 0) > 0) {
-                $srcName = (string) ($srcRow->fields['username'] ?? '');
-            }
-        } catch (\Exception $e) {
-            // fall back to the numeric id below
-        }
+        $srcName  = $nameOfUser($fromUid);
         $srcLabel = htmlspecialchars($srcName !== '' ? $srcName : ('#' . $fromUid), ENT_QUOTES, 'UTF-8');
         $taTrail  = [['Users', $usersUrl], [$srcLabel, $base . 'users/view/' . $fromUid], [$tokenCrumb, '']];
     } else {
@@ -77,6 +92,76 @@ if ($tokenId > 0) {
 
 // Trail beyond Home / Dashboard, per page. Each entry: [label, url] — the last
 // item's url is '' so it renders as the current (non-link) crumb.
+/**
+ * The mail log's trail, which depends on why you are looking at it.
+ *
+ * Opened from an account's own page the list is *that account's mail*, and the honest path is
+ * the one the operator walked: Users → the person → their mail. Showing Dashboard → Emails
+ * for a screen that is scoped to one person describes a journey nobody took, and it offers no
+ * way back to the record they were reading.
+ *
+ * The origin travels in the link as `from=user&uid=N`, the same convention the token-action
+ * list already uses.
+ */
+$mailAddress = trim((string) ($_GET['tomail'] ?? ''));
+$emailsUrl   = $base . 'Emails';
+$emailsTrail = [['Email history', '']];
+
+if ($mailAddress !== '') {
+    $addressCrumb = htmlspecialchars($mailAddress, ENT_QUOTES, 'UTF-8');
+
+    if ($from === 'user' && $fromUid > 0) {
+        $mailName  = $nameOfUser($fromUid);
+        $mailLabel = htmlspecialchars($mailName !== '' ? $mailName : ('#' . $fromUid), ENT_QUOTES, 'UTF-8');
+        $emailsTrail = [
+            ['Users', $usersUrl],
+            [$mailLabel, $base . 'users/view/' . $fromUid],
+            ['Emails', ''],
+        ];
+    } else {
+        /*
+         * Filtered with no origin: work it out from the address.
+         *
+         * A URL is pasted, bookmarked and shared, and a trail that only reads correctly when
+         * the caller remembered to append `from=user` is a trail that is usually wrong. The
+         * address *is* the account, when exactly one account has it — so the same path is
+         * offered without anybody having to carry it in the query string.
+         */
+        $ownerId = 0;
+
+        try {
+            $owner = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#users')
+                ->select(['userid', 'username'])
+                ->whereRaw('LOWER(email) = ?', [strtolower($mailAddress)])
+                ->limit(2)
+                ->getAll();
+        } catch (\Exception $e) {
+            $owner = [];
+        }
+
+        // Exactly one, or none: two accounts sharing an address is a data problem, and
+        // guessing which one the operator meant would be worse than the generic trail.
+        if (is_array($owner) && count($owner) === 1) {
+            $ownerId = (int) ($owner[0]['userid'] ?? 0);
+            $ownerNm = (string) ($owner[0]['username'] ?? '');
+        }
+
+        if ($ownerId > 0) {
+            $emailsTrail = [
+                ['Users', $usersUrl],
+                [
+                    htmlspecialchars($ownerNm !== '' ? $ownerNm : ('#' . $ownerId), ENT_QUOTES, 'UTF-8'),
+                    $base . 'users/view/' . $ownerId,
+                ],
+                ['Emails', ''],
+            ];
+        } else {
+            $emailsTrail = [['Email history', $emailsUrl], [$addressCrumb, '']];
+        }
+    }
+}
+
 $trails = [
     'users'             => [['Users', '']],
     'users_view'        => [['Users', $usersUrl], [$userLabel, '']],
@@ -93,6 +178,8 @@ $trails = [
     'mailtemplates'      => [['Message templates', '']],
     'mailtemplates_view' => [['Message templates', $base . 'MailTemplates'], [htmlspecialchars((string) ($this->template['title'] ?? ''), ENT_QUOTES, 'UTF-8'), '']],
     'mailtemplates_edit' => [['Message templates', $base . 'MailTemplates'], [((int) ($this->template['templateid'] ?? 0)) > 0 ? 'Edit' : 'New template', '']],
+    'emails'            => $emailsTrail,
+    'emails_show'       => [['Email history', $emailsUrl], ['#' . (int) ($this->mail['id'] ?? 0), '']],
     'tokens'            => [['Tokens', '']],
     'tokens_view'       => [['Tokens', $tokensUrl], ['Token #' . (int) ($this->token['tokenid'] ?? 0), '']],
     'tokenactions'      => $taTrail,

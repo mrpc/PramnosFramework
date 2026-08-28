@@ -59,8 +59,17 @@ class EmailsController extends Controller
          * sent. "Did the code reach this address" — the question this screen exists for —
          * could only be answered by paging.
          */
+        // The address this screen is scoped to, when it was opened from an account.
+        //
+        // Carried on the datatable's own source URL, not only on the page's: the table
+        // fetches its rows itself, so a filter that lives only in the page's query string is
+        // a filter that disappears on the first sort or page change — and the operator is
+        // then looking at everybody's mail believing it is one person's.
+        $address = $this->scopedAddress();
+
         $dt = new \Pramnos\Html\Datatable('dt-emails');
-        $dt->source           = adminUrl('emails/data');
+        $dt->source           = adminUrl('emails/data')
+            . ($address === '' ? '' : '?tomail=' . urlencode($address));
         $dt->bootstrap        = false;
         $dt->footerTextSearch = true;
 
@@ -96,8 +105,49 @@ class EmailsController extends Controller
 
         $view            = $this->getView('emails');
         $view->datatable = $dt;
+        // So the screen can say it is showing one account's mail rather than all of it. A
+        // short list with no explanation reads as an empty log.
+        $view->scopedTo   = $address;
+        $view->clearUrl   = adminUrl('emails');
 
         return $view->display();
+    }
+
+    /**
+     * The address this screen was opened for, or an empty string.
+     *
+     * The mail log is keyed by address because `mails` has no `userid`, so "this account's
+     * mail" is a filter on `tomail` and nothing else. Which is also the limit: mail sent to
+     * an address the account has since changed is not in it.
+     */
+    protected function scopedAddress(): string
+    {
+        return trim((string) \Pramnos\Http\Request::staticGet('tomail', '', 'get'));
+    }
+
+    /**
+     * That address as a `WHERE` fragment, quoted by the driver.
+     *
+     * `Datasource::getList()` takes SQL rather than bindings, so the value is quoted with
+     * `prepareQuery()` — the address arrives in a query string, and building this by
+     * concatenation is how a list screen becomes an injection point.
+     *
+     * Matched case-insensitively, for the same reason the account's own panel is: `=` is
+     * case-sensitive on PostgreSQL, and a filter that silently matches nothing looks exactly
+     * like an account that was never written to.
+     */
+    protected function addressCondition(): string
+    {
+        $address = $this->scopedAddress();
+
+        if ($address === '') {
+            return '';
+        }
+
+        return \Pramnos\Framework\Factory::getDatabase()->prepareQuery(
+            'LOWER(tomail) = LOWER(%s)',
+            $address
+        );
     }
 
     /**
@@ -119,7 +169,8 @@ class EmailsController extends Controller
         $result = \Pramnos\Html\Datatable\Datasource::getList(
             'mails',
             ['id', 'tomail', 'subject', 'module', 'date', 'status'],
-            false
+            false,
+            $this->addressCondition()
         );
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
