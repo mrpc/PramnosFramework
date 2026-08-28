@@ -224,6 +224,48 @@ something drains it. When the table is empty the panel says so — and says how 
 waiting in the spool — rather than reporting "no data for this period", which is a different
 problem with a different fix.
 
+### MCP
+
+Every registered MCP tool, each one's schema rendered **as a form**, and the answer on the
+page. It is here because `mcp:serve` cannot be watched: it speaks JSON-RPC on stdio and, under
+a real client, does not own its own pipes.
+
+```
+Tools
+  ▸ log-analytics
+      Summarise this installation's logs: entry trend, counts per level, …
+      timespan [1h ▾]   files [comma separated]
+      [ Call ]  ☐ show the JSON-RPC envelope              41 ms
+      // sent {"timespan":"1h"}
+      { "trends": { … }, "levels": { … } }
+```
+
+Four things it is careful about, each of them a wrong answer avoided:
+
+- **Every field can be left out.** An omitted argument and an empty string are different
+  things — a tool with a default gets to keep it — so each control carries an explicit
+  `— omit —`, and a boolean is a tri-state select rather than a checkbox, because an
+  unchecked box cannot express "leave it out".
+- **The arguments actually sent are printed above the answer.** `{"limit": "5"}` and
+  `{"limit": 5}` are different calls, and a schema that rejected the first is otherwise a
+  mystery.
+- **A tool that threw is shown as a failure.** The protocol reports it as a *successful*
+  response whose content happens to be the exception message, so without that it reads as
+  the result.
+- **The call goes through `McpServer::dispatch()`**, the same method the stdio loop calls. A
+  tool that works when invoked directly and fails through the protocol is a real bug, and
+  only the envelope shows it — the checkbox prints it.
+
+The tab builds its own server when the container has none, so it works with the `mcp` feature
+off, and says so: what the feature adds is the container binding that an application's *own*
+tools are registered into. The POST that runs a tool carries a CSRF token, because the panel's
+other endpoints read and this one executes whatever a project registered.
+
+The traffic log row says whether `mcp:serve --log` has ever run, and links `mcp.log` into the
+log viewer. The panel cannot switch it on: that log belongs to the server process the client
+started, which is not this one. See the
+[MCP guide](Pramnos_MCP_Guide.md) for `mcp:call` and `--log`.
+
 ### Git, PHP Info
 
 HEAD commit, branches and remotes; and `phpinfo()` for admins.

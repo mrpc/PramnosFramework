@@ -90,9 +90,21 @@ class DevPanelController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        // `logs` is dispatched like the rest, but guards itself: it accepts a
-        // signed debug grant as well as an admin user. See logs().
-        $this->addAuthAction(['display', 'db', 'cache', 'users', 'performance', 'git', 'phpinfo', 'logs']);
+        /*
+         * What `Controller::exec()` will dispatch.
+         *
+         * Deliberately *not* derived from `tabs()`, because the two lists mean different
+         * things: `adminer` is a tab and not an action, `overview` is a tab whose action is
+         * called `display`, and `logs` is an action with no tab — it is the debug toolbar's
+         * own JSON endpoint. A test asserts the two agree where they should, which is the
+         * only part worth automating: a tab with no action is a 404 in the navigation.
+         *
+         * `logs` is dispatched like the rest but guards itself: it accepts a signed debug
+         * grant as well as an admin user. See logs().
+         */
+        $this->addAuthAction([
+            'display', 'db', 'cache', 'users', 'performance', 'git', 'mcp', 'phpinfo', 'logs',
+        ]);
 
         // Register custom panel slugs as auth actions so Controller::exec() dispatches them.
         foreach (array_keys(static::$customPanels) as $slug) {
@@ -211,6 +223,31 @@ class DevPanelController extends Controller
         }
 
         $this->renderLayout('cache', $this->renderCache());
+        return null;
+    }
+
+    /**
+     * MCP — every registered tool, callable from a form, with the answer on the page.
+     *
+     * The server speaks JSON-RPC on stdio and blocks on STDIN, so there was no way to look
+     * at it. `mcp:call` fixed that for a terminal; this is the same thing for somebody who
+     * is already in the panel, and it adds what a terminal cannot show conveniently: the
+     * schema as a form, so a tool's arguments are discovered rather than guessed.
+     *
+     * The POST branch is an AJAX endpoint rather than a page reload, because the useful
+     * motion here is call, adjust one argument, call again.
+     */
+    public function mcp(): mixed
+    {
+        if ($this->guardAccess()) {
+            return null;
+        }
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $this->handleMcpCall();
+        }
+
+        $this->renderLayout('mcp', $this->renderMcp());
         return null;
     }
 
@@ -1775,6 +1812,445 @@ class DevPanelController extends Controller
     }
 
     // =========================================================================
+    // MCP
+    // =========================================================================
+
+    /**
+     * The server this panel talks to.
+     *
+     * Container first, so a project that registered a tool in a service provider sees it
+     * here — the same resolution `mcp:serve` and `mcp:call` do. Falling back to a server
+     * built from the framework's defaults means the panel works with the `mcp` feature
+     * switched off, which is when somebody is most likely to be wondering why a client
+     * cannot see anything.
+     */
+    private function mcpServer(): \Pramnos\Mcp\McpServer
+    {
+        $app = $this->application ?? \Pramnos\Application\Application::currentInstance();
+
+        if ($app !== null && $app->getContainer()->has('mcp.server')) {
+            /** @var \Pramnos\Mcp\McpServer $server */
+            $server = $app->getContainer()->get('mcp.server');
+
+            return $server;
+        }
+
+        $server = new \Pramnos\Mcp\McpServer(
+            defined('TITLE') && TITLE !== '' ? (string) TITLE : 'Pramnos App',
+            defined('VERSION') ? VERSION : '1.0.0'
+        );
+
+        \Pramnos\Mcp\McpServiceProvider::registerDefaults($server, $app);
+
+        return $server;
+    }
+
+    /**
+     * AJAX endpoint: run one tool and hand back both halves of the exchange.
+     *
+     * The **request** is returned as well as the response, deliberately. Half the value of
+     * this screen is seeing what the form actually built — `{"limit": "5"}` and
+     * `{"limit": 5}` are different calls, and a schema that rejected the first is otherwise
+     * a mystery.
+     *
+     * Dispatched through `McpServer::dispatch()` rather than by reaching for the tool: a
+     * tool that works when called directly and fails through the protocol is a real bug,
+     * and it only shows here.
+     */
+    private function handleMcpCall(): void
+    {
+        header('Content-Type: application/json');
+
+        // A POST that *executes* something gets a token, even behind the panel's own gate.
+        // The other endpoints here read; this one runs whatever a project registered, and a
+        // project is free to register a tool that writes.
+        $session = \Pramnos\Framework\Factory::getSession();
+
+        if (!$session->verifyCsrfToken((string) ($_POST['csrf'] ?? ''))) {
+            http_response_code(419);
+            echo json_encode(['ok' => false, 'error' => 'Stale form — reload the page.']);
+            $this->terminate();
+            return; // terminate() may be a no-op in tests — never fall through
+        }
+
+        $tool      = (string) ($_POST['tool'] ?? '');
+        $arguments = json_decode((string) ($_POST['arguments'] ?? '{}'), true);
+
+        if (!is_array($arguments)) {
+            http_response_code(400);
+            echo json_encode([
+                'ok'    => false,
+                'error' => 'Arguments were not a JSON object: ' . json_last_error_msg(),
+            ]);
+            $this->terminate();
+            return;
+        }
+
+        $request = [
+            'jsonrpc' => '2.0',
+            'id'      => 1,
+            'method'  => 'tools/call',
+            'params'  => ['name' => $tool, 'arguments' => $arguments],
+        ];
+
+        $started = microtime(true);
+
+        try {
+            $response = $this->mcpServer()->dispatch($request);
+        } catch (\Throwable $exception) {
+            // dispatch() catches a throwing *tool* and reports it as `isError`. Reaching
+            // here means the protocol layer itself broke, which is worth saying plainly
+            // rather than showing as an empty result.
+            http_response_code(500);
+            echo json_encode([
+                'ok'      => false,
+                'error'   => 'The server itself threw: ' . $exception->getMessage(),
+                'request' => $request,
+            ]);
+            $this->terminate();
+            return;
+        }
+
+        // Displayed only after dispatch has had the array: PHP decodes `{}` to an empty
+        // *array*, which re-encodes as `[]` — and a page whose whole job is showing what was
+        // sent must not show `"arguments": []` for a call that sent an object.
+        if ($arguments === []) {
+            $request['params']['arguments'] = new \stdClass();
+        }
+
+        echo json_encode([
+            'ok'       => true,
+            'ms'       => round((microtime(true) - $started) * 1000, 1),
+            'request'  => $request,
+            'response' => $response,
+            // A tool that threw comes back as a *successful* JSON-RPC response whose content
+            // is the exception message. Said out loud, or the page shows it as the answer.
+            'failed'   => !empty($response['result']['isError']) || isset($response['error']),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $this->terminate();
+    }
+
+    /**
+     * The MCP panel.
+     */
+    private function renderMcp(): string
+    {
+        $server  = $this->mcpServer();
+        $tools   = $server->getTools();
+        $session = \Pramnos\Framework\Factory::getSession();
+        $token   = htmlspecialchars($session->getCsrfToken(), ENT_QUOTES);
+
+        $html = '';
+
+        /*
+         * The distinction that catches people out, and it is not "MCP is off".
+         *
+         * `mcp:serve` works either way: with no container-bound server it builds one from
+         * the framework's defaults, so a client sees the nine built-in tools regardless. What
+         * the feature adds is the container binding — which is the only place an application
+         * can register a tool of its own. So the honest warning is about *your* tools, not
+         * about whether anything is served, and saying "no client is being served" would
+         * send somebody looking for a broken client.
+         */
+        if (!FeatureRegistry::isEnabled('mcp')) {
+            $html .= '<div class="alert alert-info">The <code>mcp</code> feature is not in '
+                . "<code>app.php</code>'s features list. A client still gets the built-in "
+                . 'tools below — <code>mcp:serve</code> builds its own server when the '
+                . 'container has none — but nothing this application registers in a service '
+                . 'provider will be part of it, because there is no <code>mcp.server</code> '
+                . 'to add it to.</div>';
+        }
+
+        $html .= '<div class="card"><div class="card-title">Server</div><div class="card-body">'
+            . '<table class="info-table"><tr><th>Name</th><td><code>'
+            . htmlspecialchars($server->getName()) . '</code></td></tr>'
+            . '<tr><th>Tools</th><td>' . count($tools) . '</td></tr>'
+            . '<tr><th>Resources</th><td>' . count($server->getResources()) . '</td></tr>'
+            . '<tr><th>Traffic log</th><td>' . $this->mcpTrafficLogStatus() . '</td></tr>'
+            . '</table></div></div>';
+
+        $html .= '<h3>Tools</h3>';
+
+        if ($tools === []) {
+            $html .= '<div class="alert alert-info">No tools are registered.</div>';
+
+            return $html;
+        }
+
+        foreach ($tools as $tool) {
+            $html .= $this->renderMcpTool($tool);
+        }
+
+        $html .= $this->renderMcpResources($server);
+
+        return $html . $this->mcpScript($token);
+    }
+
+    /**
+     * One tool: what it is for, a form built from its schema, and somewhere for the answer.
+     *
+     * `<details>` rather than tabs or a sidebar: nine tools with nine descriptions is a page
+     * you scan, and the one you want stays open while you adjust an argument and call again.
+     */
+    private function renderMcpTool(\Pramnos\Mcp\McpToolInterface $tool): string
+    {
+        $name   = $tool->name();
+        $id     = 'mcp-' . preg_replace('/[^a-z0-9]+/i', '-', $name);
+        $schema = $tool->inputSchema();
+        $props  = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+        $required = is_array($schema['required'] ?? null) ? $schema['required'] : [];
+
+        $fields = '';
+
+        foreach ($props as $field => $spec) {
+            $fields .= $this->renderMcpField(
+                $id,
+                (string) $field,
+                is_array($spec) ? $spec : [],
+                in_array($field, $required, true)
+            );
+        }
+
+        if ($fields === '') {
+            $fields = '<p class="mcp-note">This tool takes no arguments.</p>';
+        }
+
+        return '<details class="mcp-tool" id="' . $id . '">'
+            . '<summary><code>' . htmlspecialchars($name) . '</code></summary>'
+            . '<div class="mcp-tool-body">'
+            . '<p class="mcp-desc">' . htmlspecialchars($tool->description()) . '</p>'
+            . '<div class="mcp-fields">' . $fields . '</div>'
+            . '<div class="mcp-actions">'
+            . '<button type="button" class="mcp-run" data-tool="' . htmlspecialchars($name, ENT_QUOTES)
+            . '" data-target="' . $id . '">Call</button>'
+            . '<label class="mcp-raw"><input type="checkbox" class="mcp-envelope"> '
+            . 'show the JSON-RPC envelope</label>'
+            . '<span class="mcp-timing"></span>'
+            . '</div>'
+            . '<pre class="mcp-result" hidden></pre>'
+            . '</div></details>';
+    }
+
+    /**
+     * One field, as the control its type deserves.
+     *
+     * An enum becomes a `<select>` — the whole reason to render a schema rather than a
+     * textarea is that the valid values stop being something you look up. A boolean becomes
+     * a tri-state select rather than a checkbox: an unchecked box and an absent argument are
+     * the same thing to a form and very different things to a tool, and "leave it out" has
+     * to be expressible.
+     *
+     * @param array<string, mixed> $spec
+     */
+    private function renderMcpField(string $toolId, string $field, array $spec, bool $required): string
+    {
+        $type  = (string) ($spec['type'] ?? 'string');
+        $desc  = trim((string) ($spec['description'] ?? ''));
+        $attr  = ' data-field="' . htmlspecialchars($field, ENT_QUOTES) . '"'
+            . ' data-type="' . htmlspecialchars($type, ENT_QUOTES) . '"';
+        $label = '<label for="' . $toolId . '-' . htmlspecialchars($field, ENT_QUOTES) . '">'
+            . htmlspecialchars($field)
+            . ($required ? ' <span class="mcp-required">required</span>' : '')
+            . '</label>';
+        $id = ' id="' . $toolId . '-' . htmlspecialchars($field, ENT_QUOTES) . '"';
+
+        if (isset($spec['enum']) && is_array($spec['enum'])) {
+            $control = '<select' . $id . $attr . '><option value="">— omit —</option>';
+
+            foreach ($spec['enum'] as $option) {
+                $control .= '<option>' . htmlspecialchars((string) $option) . '</option>';
+            }
+
+            $control .= '</select>';
+        } elseif ($type === 'boolean') {
+            $control = '<select' . $id . $attr . '>'
+                . '<option value="">— omit —</option><option value="true">true</option>'
+                . '<option value="false">false</option></select>';
+        } elseif ($type === 'array') {
+            $items = is_array($spec['items'] ?? null) ? $spec['items'] : [];
+            $hint  = isset($items['enum']) && is_array($items['enum'])
+                ? implode(', ', array_map('strval', $items['enum']))
+                : 'comma separated';
+            $control = '<input type="text"' . $id . $attr
+                . ' placeholder="' . htmlspecialchars($hint, ENT_QUOTES) . '">';
+        } else {
+            $control = '<input type="' . ($type === 'integer' || $type === 'number' ? 'number' : 'text')
+                . '"' . $id . $attr . ' placeholder="— omit —">';
+        }
+
+        return '<div class="mcp-field">' . $label . $control
+            . ($desc !== '' ? '<span class="mcp-hint">' . htmlspecialchars($desc) . '</span>' : '')
+            . '</div>';
+    }
+
+    /**
+     * The resources, which are files and therefore either readable or a lie.
+     */
+    private function renderMcpResources(\Pramnos\Mcp\McpServer $server): string
+    {
+        $resources = $server->getResources();
+
+        if ($resources === []) {
+            return '';
+        }
+
+        $rows = '';
+
+        foreach ($resources as $uri => $resource) {
+            $rows .= '<tr><td><code>' . htmlspecialchars((string) $uri) . '</code></td>'
+                . '<td>' . htmlspecialchars((string) $resource->name) . '</td></tr>';
+        }
+
+        return '<h3>Resources</h3><table class="data-table">'
+            . '<thead><tr><th>URI</th><th>Name</th></tr></thead><tbody>'
+            . $rows . '</tbody></table>';
+    }
+
+    /**
+     * Whether the traffic log exists, and how to switch it on when it does not.
+     *
+     * The panel cannot enable it: the log belongs to the `mcp:serve` process the *client*
+     * started, which is a different process from this one. Saying so beats a switch that
+     * appears to do something.
+     */
+    private function mcpTrafficLogStatus(): string
+    {
+        $path = \Pramnos\Logs\LogManager::getLogFilePath('mcp', 'log');
+
+        if (!is_file($path)) {
+            return '<span class="badge">off</span> — start the server with '
+                . '<code>mcp:serve --log</code> to record what a client sends. '
+                . 'It writes to <code>mcp.log</code>, which the '
+                . '<a href="' . htmlspecialchars($this->logsUrl(), ENT_QUOTES) . '">log viewer</a> reads.';
+        }
+
+        return '<span class="badge ok">' . $this->humanBytes((int) filesize($path)) . '</span> '
+            . '<code>mcp.log</code>, last written '
+            . htmlspecialchars(date('d/m/Y H:i', (int) filemtime($path))) . ' — readable in the '
+            . '<a href="' . htmlspecialchars($this->logsUrl(), ENT_QUOTES) . '">log viewer</a>.';
+    }
+
+    /** The administration log viewer, filtered to the MCP traffic. */
+    private function logsUrl(): string
+    {
+        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+
+        return $base . '/admin/Logs/viewer?file=mcp.log';
+    }
+
+    /**
+     * The page's own script.
+     *
+     * Inline with the CSP nonce, like the panel's stylesheet: this panel is one self-contained
+     * document with no asset pipeline behind it, and an external file would need a route.
+     */
+    private function mcpScript(string $token): string
+    {
+        $nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
+        $na    = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
+        $url   = htmlspecialchars(
+            (defined('sURL') ? rtrim((string) sURL, '/') : '')
+                . '/' . (string) static::config('mount', 'devpanel') . '/mcp',
+            ENT_QUOTES
+        );
+
+        return <<<HTML
+        <script{$na}>
+        (function () {
+          // Build the arguments object from the fields, skipping the empty ones. An omitted
+          // argument and an empty string are different: a schema with a default gets to keep
+          // it, and "" is a value a tool may well reject.
+          function collect(root) {
+            var out = {};
+            root.querySelectorAll('[data-field]').forEach(function (el) {
+              var raw = el.value;
+              if (raw === '' || raw === null) { return; }
+              var type = el.getAttribute('data-type');
+              if (type === 'integer' || type === 'number') { out[el.getAttribute('data-field')] = Number(raw); }
+              else if (type === 'boolean') { out[el.getAttribute('data-field')] = raw === 'true'; }
+              else if (type === 'array') {
+                out[el.getAttribute('data-field')] = raw.split(',').map(function (s) { return s.trim(); })
+                  .filter(function (s) { return s !== ''; });
+              } else { out[el.getAttribute('data-field')] = raw; }
+            });
+            return out;
+          }
+
+          document.querySelectorAll('.mcp-run').forEach(function (button) {
+            button.addEventListener('click', function () {
+              var panel  = document.getElementById(button.getAttribute('data-target'));
+              var result = panel.querySelector('.mcp-result');
+              var timing = panel.querySelector('.mcp-timing');
+              var raw    = panel.querySelector('.mcp-envelope').checked;
+              var body   = new URLSearchParams();
+
+              body.set('csrf', '{$token}');
+              body.set('tool', button.getAttribute('data-tool'));
+              body.set('arguments', JSON.stringify(collect(panel)));
+
+              button.disabled = true;
+              timing.textContent = 'calling…';
+              result.hidden = false;
+              result.className = 'mcp-result';
+              result.textContent = '';
+
+              fetch('{$url}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: body.toString(),
+                credentials: 'same-origin'
+              }).then(function (response) {
+                return response.json().catch(function () {
+                  // A non-JSON body here means something upstream printed into the response —
+                  // a fatal, a redirect to a login page. Saying that beats "unexpected token".
+                  throw new Error('The panel did not answer with JSON (HTTP ' + response.status + ').');
+                });
+              }).then(function (data) {
+                timing.textContent = data.ms !== undefined ? data.ms + ' ms' : '';
+
+                if (!data.ok) {
+                  result.className = 'mcp-result failed';
+                  result.textContent = data.error || 'The call failed.';
+                  return;
+                }
+
+                if (data.failed) { result.className = 'mcp-result failed'; }
+
+                if (raw) {
+                  result.textContent = JSON.stringify({request: data.request, response: data.response}, null, 2);
+                  return;
+                }
+
+                var content = (data.response && data.response.result && data.response.result.content) || [];
+                var text = content.map(function (block) { return block.text || ''; }).join('\n');
+
+                if (data.response && data.response.error) {
+                  result.className = 'mcp-result failed';
+                  text = 'JSON-RPC error ' + data.response.error.code + ': ' + data.response.error.message;
+                }
+
+                // What the form actually built, above the answer: {"limit": "5"} and
+                // {"limit": 5} are different calls, and a schema that rejected the first
+                // is otherwise a mystery.
+                var sent = JSON.stringify(data.request.params.arguments);
+                result.textContent = '// sent ' + sent + '\n\n' + (text || '(empty)')
+                  + (data.failed ? '\n\n// the tool reported a failure (isError)' : '');
+              }).catch(function (error) {
+                timing.textContent = '';
+                result.className = 'mcp-result failed';
+                result.textContent = error.message;
+              }).then(function () {
+                button.disabled = false;
+              });
+            });
+          });
+        })();
+        </script>
+        HTML;
+    }
+
+    // =========================================================================
     // Layout & HTML helpers
     // =========================================================================
 
@@ -1788,6 +2264,58 @@ class DevPanelController extends Controller
      * @param  array<string, string> $tabs
      * @return array<string, string>
      */
+    /**
+     * This panel's tabs, in order. The **only** list.
+     *
+     * There were two — one in `renderLayout()`, one in `tabStrip()` — and the comment on the
+     * second claimed to be the single source while being the copy. Adding a tab meant adding
+     * it twice, and forgetting the second gave a page that wore the strip without appearing
+     * in it. Same defect the MCP tool catalogue had, one file over.
+     *
+     * @return array<string, string> slug => label
+     */
+    protected static function tabs(): array
+    {
+        $tabs = [
+            'overview'    => 'Overview',
+            'db'          => 'Database',
+            'cache'       => 'Cache',
+            'users'       => 'Users',
+            'performance' => 'Performance',
+            'git'         => 'Git',
+            // Between Git and PHP Info: a developer tool, beside the other developer tools.
+            'mcp'         => 'MCP',
+            'phpinfo'     => 'PHP Info',
+        ];
+
+        // Beside Database, not at the end: it is the same subject, and a tool two tabs away
+        // from the thing it operates on is a tool people scroll past.
+        $tabs = static::withAdminerTab($tabs);
+
+        foreach (static::$customPanels as $slug => $panel) {
+            $tabs[$slug] = $panel['label'];
+        }
+
+        return $tabs;
+    }
+
+    /**
+     * Where a tab points.
+     *
+     * Adminer is a route of its own rather than an action of this panel, and `overview` is
+     * the mount point with nothing after it. Everything else is `/<mount>/<slug>`.
+     */
+    protected static function tabHref(string $slug, string $baseUrl, string $mountPoint): string
+    {
+        if ($slug === 'adminer') {
+            return (string) static::adminerTabUrl();
+        }
+
+        return $slug === 'overview'
+            ? $baseUrl . '/' . $mountPoint
+            : $baseUrl . '/' . $mountPoint . '/' . $slug;
+    }
+
     protected static function withAdminerTab(array $tabs): array
     {
         if (static::adminerTabUrl() === null) {
@@ -1847,30 +2375,11 @@ class DevPanelController extends Controller
         $base       = defined('sURL') ? rtrim((string) sURL, '/') : '';
         $mountPoint = (string) static::config('mount', 'devpanel');
 
-        $tabs = [
-            'overview'    => 'Overview',
-            'db'          => 'Database',
-            'cache'       => 'Cache',
-            'users'       => 'Users',
-            'performance' => 'Performance',
-            'git'         => 'Git',
-            'phpinfo'     => 'PHP Info',
-        ];
-
-        // Beside Database, not at the end: it is the same subject, and a tool two tabs away
-        // from the thing it operates on is a tool people scroll past.
-        $tabs = static::withAdminerTab($tabs);
-
         $html = '';
 
-        foreach ($tabs as $key => $label) {
-            $href = $key === 'adminer'
-                ? (string) static::adminerTabUrl()
-                : ($key === 'overview'
-                    ? $base . '/' . $mountPoint
-                    : $base . '/' . $mountPoint . '/' . $key);
-
-            $html .= '<a href="' . htmlspecialchars($href, ENT_QUOTES) . '"'
+        foreach (static::tabs() as $key => $label) {
+            $html .= '<a href="'
+                . htmlspecialchars(static::tabHref($key, $base, $mountPoint), ENT_QUOTES) . '"'
                 . ($key === $activeTab ? ' class="active"' : '') . '>'
                 . htmlspecialchars($label) . '</a>';
         }
@@ -1976,46 +2485,23 @@ class DevPanelController extends Controller
 
         $returnUrl = $this->rememberedReturnUrl($baseUrl, $mountPoint);
 
-        $tabs = [
-            'overview'    => 'Overview',
-            'db'          => 'Database',
-            'cache'       => 'Cache',
-            'users'       => 'Users',
-            'performance' => 'Performance',
-            'git'         => 'Git',
-            'phpinfo'     => 'PHP Info',
-        ];
-
         /*
-         * Adminer as a tab, when the installation has it.
+         * The tabs come from `tabs()` — including Adminer, which is a full page of its own
+         * rather than something rendered inside this panel, but wears this strip at the top
+         * and marks itself active. A tool reached through a different door is a tool people
+         * forget is there.
          *
-         * It is a full page of its own rather than something rendered inside this panel — it is
-         * a whole application — but it wears this strip at the top and marks itself active, so
-         * moving between them is moving between tabs. A tool reached through a different door
-         * is a tool people forget is there.
+         * Path-based hrefs, from `tabHref()`: the framework routes `/devpanel/<action>`, not
+         * `?action=<action>`, which the URL router ignores.
          */
-        // Beside Database, not at the end: it is the same subject, and a tool two tabs away
-        // from the thing it operates on is a tool people scroll past.
-        $tabs = static::withAdminerTab($tabs);
-
-        // Append registered custom panels to the navigation.
-        foreach (static::$customPanels as $slug => $panel) {
-            $tabs[$slug] = $panel['label'];
-        }
-
         $tabHtml = '';
-        foreach ($tabs as $key => $label) {
-            $active = $key === $activeTab ? ' class="active"' : '';
-            // Use path-based routing — the framework routes /devpanel/<action>
-            // not ?action=<action> (which the URL router ignores).
-            $href   = $key === 'overview'
-                ? $baseUrl . '/' . $mountPoint
-                : $baseUrl . '/' . $mountPoint . '/' . $key;
 
-            // Adminer is its own route, not an action of this panel.
-            if ($key === 'adminer') {
-                $href = (string) static::adminerTabUrl();
-            }
+        foreach (static::tabs() as $key => $label) {
+            $active = $key === $activeTab ? ' class="active"' : '';
+            $href   = htmlspecialchars(
+                static::tabHref($key, $baseUrl, $mountPoint),
+                ENT_QUOTES
+            );
 
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
@@ -2336,6 +2822,45 @@ class DevPanelController extends Controller
                        color: var(--subtext); text-decoration: none; font-size: 12px; }
         .range-bar a.active { background: var(--blue); color: #1e1e2e; }
         .phpinfo-wrapper { background: white; border-radius: 8px; padding: 16px; color: #333; }
+        /* MCP panel — a tool per <details>, its schema as a form, the answer underneath. */
+        details.mcp-tool { background: var(--surface); border-radius: 6px; margin-bottom: 8px; }
+        details.mcp-tool > summary { padding: 9px 14px; cursor: pointer; font-size: 13px;
+                                     list-style-position: inside; }
+        details.mcp-tool > summary:hover { background: var(--surface2); }
+        details.mcp-tool[open] > summary { border-bottom: 1px solid var(--surface2); }
+        .mcp-tool-body { padding: 12px 14px; }
+        .mcp-desc { color: var(--subtext); font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+        .mcp-note { color: var(--subtext); font-style: italic; font-size: 13px; }
+        .mcp-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                      gap: 10px 14px; }
+        .mcp-field { display: flex; flex-direction: column; gap: 3px; }
+        .mcp-field label { font-size: 12px; color: var(--subtext); }
+        .mcp-required { color: var(--yellow); font-size: 11px; }
+        .mcp-field input, .mcp-field select { background: var(--bg2); color: var(--text);
+            border: 1px solid var(--surface2); border-radius: 4px; padding: 5px 7px; font-size: 13px;
+            font-family: inherit; width: 100%; }
+        .mcp-field input:focus, .mcp-field select:focus { outline: none; border-color: var(--blue); }
+        .mcp-hint { font-size: 11px; color: var(--subtext); opacity: 0.8; line-height: 1.4; }
+        .mcp-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px;
+                       flex-wrap: wrap; }
+        .mcp-actions button { background: var(--blue); color: var(--bg); border: none;
+            padding: 6px 16px; border-radius: 5px; cursor: pointer; font-size: 13px;
+            font-family: inherit; }
+        .mcp-actions button:hover { opacity: 0.85; }
+        .mcp-actions button:disabled { opacity: 0.5; cursor: default; }
+        .mcp-raw { font-size: 12px; color: var(--subtext); display: flex; align-items: center;
+                   gap: 5px; cursor: pointer; }
+        .mcp-timing { font-size: 12px; color: var(--subtext); margin-left: auto; }
+        /*
+         * `pre` wraps rather than scrolling sideways: these payloads have long single lines
+         * (a stack trace, a SQL statement) and a horizontal scrollbar inside a details block
+         * is a scrollbar nobody finds.
+         */
+        pre.mcp-result { margin-top: 12px; background: var(--bg2); border-radius: 5px;
+            padding: 10px 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 12px; line-height: 1.5; max-height: 420px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-word; border-left: 3px solid var(--surface2); }
+        pre.mcp-result.failed { border-left-color: var(--red); color: var(--red); }
         CSS;
     }
 }

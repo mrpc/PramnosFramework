@@ -293,7 +293,7 @@ run by a client, the client owns both pipes. Neither state lets you see what a t
 and hand-writing an `initialize` frame to find out has the worst property a debugging
 procedure can have: a mistake in the frame is indistinguishable from a broken tool.
 
-Two things, for the two different questions.
+Three things, for three different questions.
 
 ### `mcp:call` — what does this tool return?
 
@@ -326,6 +326,32 @@ Four things it does deliberately:
   *successful* JSON-RPC response whose content is the exception message, so without this it
   would print like an answer.
 - **`--raw`** prints the envelope, for when the wrapper rather than the tool is the suspect.
+
+### The MCP tab in the DevPanel — the same thing, interactively
+
+`/devpanel/mcp` lists every registered tool, renders each one's schema **as a form**, and
+calls it on the page. It is the answer to "what does this return" when you are already in the
+panel, and it adds what a terminal cannot do conveniently: the arguments are discovered
+instead of looked up.
+
+- **An enum becomes a `<select>`.** That is the whole reason to render the schema rather than
+  a textarea.
+- **Every field can be left out.** An omitted argument and an empty string are different
+  things — a tool with a default gets to keep it — so each control carries an explicit
+  `— omit —`, and a boolean is a tri-state select rather than a checkbox, because an
+  unchecked box cannot say "leave it out".
+- **The arguments actually sent are printed above the answer.** `{"limit": "5"}` and
+  `{"limit": 5}` are different calls, and a schema that rejected the first is otherwise a
+  mystery.
+- **A tool that threw is shown as a failure.** The protocol reports it as a *successful*
+  response whose content is the exception message.
+- **`show the JSON-RPC envelope`** prints the request and response as they go over the wire,
+  for when the wrapper rather than the tool is the suspect.
+
+It builds its own server when the container has none, so the tab works with the `mcp` feature
+switched off — and says so, because the thing the feature adds is the container binding that
+an application's *own* tools get registered into. The POST that runs a tool carries a CSRF
+token: the panel's other endpoints read, this one executes whatever a project registered.
 
 ### `mcp:serve --log` — what is the client actually sending?
 
