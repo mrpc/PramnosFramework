@@ -4,6 +4,8 @@ use_cases:
   - Configuring SMTP or another transport
   - Tracking or debugging delivery
   - Offering an unsubscribe link and passing Gmail's bulk-sender rules
+  - Understanding the plain-text part, or why a message reads badly in a text-only client
+  - Working out which headers a message carries and why
 ---
 
 # Pramnos Framework - Email System Guide
@@ -509,8 +511,94 @@ The parts that are not code:
 - **Spam complaints under 0.10%**, measured in Google Postmaster Tools — the number the
   unsubscribe link exists to keep down, because the alternative the reader has is the spam
   button.
-- Every message goes out as `multipart/alternative` with a plain-text part already, which
-  `Email` builds from the HTML.
+- Every message goes out as `multipart/alternative` with a plain-text part, which `Email` builds
+  from the HTML — see below, because for a long time it built a bad one.
+
+---
+
+## The plain-text part
+
+Every message is `multipart/alternative`, and the text half used to be `strip_tags($body)`. That
+produces a part which is technically present and practically useless, in three specific ways:
+
+- **Every link disappeared.** `strip_tags` keeps the anchor *text* and throws the `href` away, so
+  «click here to confirm your address» arrived with nothing to click and no address to copy. On a
+  confirmation mail that is the entire message gone.
+- **The text ran together.** HTML mail is nested tables, and adjacent cells have no whitespace
+  between them, so a header, a heading and a paragraph arrived as one line.
+- **The stylesheet came along.** `strip_tags` removes the `<style>` *tags* and keeps what was
+  inside them, so a reader in a text-only client was shown the CSS.
+
+And a text part that does not match the HTML is a documented spam signal, so the thing meant to
+help deliverability was hurting it.
+
+`Pramnos\Email\PlainText` converts instead:
+
+```php
+use Pramnos\Email\PlainText;
+
+$text = PlainText::fromHtml($html);
+```
+
+```
+Example <https://example.com>
+
+Confirm your address
+
+Hello Yannis, please click here to confirm
+<https://example.com/confirm?t=abc123>.
+
+- One
+- Two
+
+Device | Last seen
+Chrome | 28/08/2026
+```
+
+Written against `DOMDocument`, and with **no new dependency**: an html-to-text package is a
+reasonable choice for an application and the wrong one for a framework, which would impose it on
+every project that ever sends a message.
+
+Six decisions in it worth knowing, because each one is a wrong output avoided:
+
+| It does | Because |
+|---|---|
+| `text <https://…>`, and just the URL when the text already is the URL | A text-only reader has to be able to reach the same place — and `https://… <https://…>` reads as a mistake |
+| Drops `<head>`, `<style>`, `<script>` and `<title>` entirely | The old output began with the CSS and then repeated the subject line |
+| Reads `role="presentation"` to tell a layout table from a data one | A layout table's cells joined with ` | ` is nonsense; a data table's rows joined with newlines is unreadable. The distinction is already in the markup for screen readers |
+| Skips `display:none` and zero-height elements | A preheader is written for the inbox preview and is invisible in the HTML; repeating it in the text is a difference between the two halves |
+| `[alt text]` for an image with one, nothing for a decorative one | A line reading `[]` is worse than no line |
+| Wraps at 78 columns but never breaks a URL | A wrapped URL is an unusable URL: the client links the first half and leaves the rest as text |
+
+The charset is declared with a `<meta>` tag prepended to the markup rather than with
+`mb_convert_encoding($html, 'HTML-ENTITIES', …)`, which is deprecated as of PHP 8.2 — and without
+either, libxml assumes ISO-8859-1 and every Greek character becomes mojibake.
+
+---
+
+## The headers a message carries
+
+Four of these are added automatically. None changes what the reader sees; all of them change what
+happens to the message — which is why they go missing, and why they went missing here. Nothing in
+mail reports a missing header back to the sender, and nothing reports a malformed one either.
+
+| Header | On | Why |
+|---|---|---|
+| `Auto-Submitted: auto-generated` | every message | RFC 3834. Stops an out-of-office responder replying to a password reset — and then to the reply, which is how a mail loop starts |
+| `X-Entity-Ref-ID` | every message | Gmail groups by subject, and «a new sign-in to your account» repeats. Two sign-ins arrived as one thread with the older behind "show trimmed content" — exactly the message somebody needs to see twice |
+| `Precedence: bulk` | list mail | Not in any standard, honoured nearly everywhere. The older half of the same idea as `Auto-Submitted`. **Not** on transactional mail: marking a password reset bulk invites a provider to deprioritise the one message the reader is waiting for |
+| `List-ID` (RFC 2919) | list mail | A stable identifier, so a client can group, filter and unsubscribe by list rather than guessing from the subject |
+| `Feedback-ID` | list mail | Google Postmaster's grouping key. Without it every complaint lands in one bucket and the dashboard can say something is wrong but not what; with it, «the newsletter is marked as spam and the receipts are not» becomes a fact |
+
+**A header you set yourself wins.** These are defaults, not policy — an application with its own
+`Feedback-ID` scheme distinguishing campaigns, which is the whole point of that header, must not
+have it overwritten by a generic one.
+
+The host in `List-ID` and `Feedback-ID` comes from the `From:` address, falling back to the site
+URL; with neither, both headers are **left out** rather than invented, because a stable identifier
+for the wrong domain is worse than none. And a list name is reduced to the characters those headers
+allow: `Feedback-ID` takes letters, digits, `_`, `.` and `-`, and one bad character or one
+over-long field invalidates the whole header.
 
 ---
 
