@@ -24,7 +24,8 @@ each one constructed, configured with public properties, and turned into a strin
 | [`Breadcrumb`](#breadcrumb) | a breadcrumb trail, plus its `BreadcrumbList` structured data |
 | [`Date`](#date-and-time) | a date field — datepicker or three dropdowns — with an optional time |
 | [`Time`](#date-and-time) | a native time field, and what `Date::$time` renders |
-| `Seo` | canonical URLs, meta tags and structured data |
+| [`Icon`](#row-actions-as-icons) | one inline SVG glyph, or an icon wrapped in a link |
+| [`Seo`](#seo) | a canonical link and a `ld+json` structured-data block |
 | [`Form\Field`](#formfield) | one field **inside a form**, with a label and a style preset |
 
 Every one of them also renders when cast to a string, so `echo $component` works.
@@ -693,6 +694,68 @@ to a settings form.
 built: `datetime` → `datetime-local`, `image` → `text` (it always carried a path, and
 nothing ever rendered a picker for it). Passing them to `Input` directly would get you a
 plain text box.
+
+---
+
+## Seo
+
+Two strings for the `<head>`, and the only two pieces of markup there that a crawler reads
+differently from a browser.
+
+```php
+use Pramnos\Html\Seo;
+
+echo Seo::canonicalLink('https://example.com/stations/kosmos');
+echo Seo::jsonLd([
+    '@context' => 'https://schema.org',
+    '@type'    => 'RadioStation',
+    'name'     => $station['name'],
+    'url'      => $url,
+]);
+```
+
+Both are `static` and neither has state, which is why this one is not constructed like the
+components above.
+
+They live here rather than on `Document` because a page does not have to be built through a
+`Document` to need them: an application rendering a layout template directly wants the same
+string, produced the same way, and a second copy of the encoding rules below is how the two
+drift apart. `Document::setCanonical()` and `Document::addStructuredData()` call these.
+
+### `jsonLd()`
+
+The encoding flags are not a preference. Each answers a specific way the block goes wrong:
+
+| Flag | What it prevents |
+|---|---|
+| `JSON_HEX_TAG` | **the only injection this format has** — a `</script>` inside any value ends the block early and everything after it is parsed as markup. Structured data is assembled from record titles and descriptions, which is exactly where such a string arrives from. |
+| `JSON_HEX_AMP` | the same reasoning one step out, for consumers that re-parse the block out of an HTML string. |
+| `JSON_UNESCAPED_SLASHES` | every URL becoming `https:\/\/…` — valid JSON, and unreadable in view-source, which is the only place anybody ever checks it. |
+| `JSON_UNESCAPED_UNICODE` | non-Latin text becoming `\uXXXX`, with the same cost and no benefit. |
+
+**Absent is not empty.** Omit a key you have no value for rather than emitting `"genre": ""`.
+An empty string is a claim that the field *is* blank, which is a different statement from not
+making the claim, and consumers treat it as one. The method will not do this for you — it
+cannot tell a deliberate empty string from a lookup that returned nothing, and guessing would
+be worse than either.
+
+An empty array returns an empty string, and so does data that cannot be encoded — a resource
+handle, invalid UTF-8, recursion. A page with no structured data is a smaller problem than a
+page with a broken script block in its head, and the caller gets to carry on rendering.
+
+### `canonicalLink()`
+
+```html
+<link rel="canonical" href="https://example.com/stations/kosmos">
+```
+
+The URL is escaped with `ENT_QUOTES | ENT_SUBSTITUTE` and **not** double-encoded, so a URL
+that already contains an entity survives. An empty or whitespace-only URL returns an empty
+string rather than `href=""`, which resolves to the current page and tells a crawler the
+opposite of nothing.
+
+`Breadcrumb` renders its own `BreadcrumbList` block through the same encoder — see
+[Breadcrumb](#breadcrumb).
 
 ---
 
