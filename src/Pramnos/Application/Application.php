@@ -646,6 +646,12 @@ class Application extends Base
      */
     public function isDebugMode(): bool
     {
+        // NOTE: this one still reads the `debug` and `development` settings, and it is the
+        // *widest* of the three questions. For "is a developer looking at this request",
+        // which is what decides whether internals are written into a page, ask
+        // {@see isDeveloperEnvironment()} — a settings row must not change what a visitor's
+        // page source contains.
+
         $env = getenv('APP_DEBUG');
         if ($env !== false && $env !== '' && $env !== '0' && $env !== 'false') {
             return true;
@@ -659,6 +665,41 @@ class Application extends Base
         }
         $dev = Settings::getSetting('development');
         return $dev === true || $dev === '1' || $dev === 'true' || $dev === 'yes';
+    }
+
+    /**
+     * Whether this deployment is a development one.
+     *
+     * The environment or the constant, and nothing else. Two things are deliberately not
+     * here:
+     *
+     *  - **the `debug` and `development` settings.** They are rows in the settings table,
+     *    editable from `/admin/Settings`, and they apply to every visitor of the site. A row
+     *    like that must not decide whether internals are written into a page: the view-path
+     *    comment this gates was in the source of every rendered page, indexed along with it,
+     *    telling anybody who looked where the application's files live.
+     *  - **a debug token.** A token opens the *toolbar* for one browser on a live server, on
+     *    purpose. It should not also start rewriting the HTML that everybody else's cache and
+     *    crawler will see.
+     *
+     * `isDebugMode()` remains the wider question — it still reads the settings, and it is
+     * what an application should ask about its own error display.
+     */
+    public static function isDeveloperEnvironment(): bool
+    {
+        $env = function_exists('envvar') ? envvar('APP_DEBUG', null) : (getenv('APP_DEBUG') ?: null);
+
+        if (is_string($env)) {
+            $env = strtolower(trim($env));
+        }
+
+        if ($env !== null && $env !== '' && $env !== '0' && $env !== 'false'
+            && $env !== false && $env !== 0
+        ) {
+            return true;
+        }
+
+        return defined('DEVELOPMENT') && DEVELOPMENT === true;
     }
 
     /**

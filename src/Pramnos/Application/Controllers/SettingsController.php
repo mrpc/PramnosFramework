@@ -158,7 +158,19 @@ class SettingsController extends Controller
         Settings::setSetting('admin_replymail',  trim($request->get('admin_replymail', '', 'post')));
         Settings::setSetting('default_language', trim($request->get('default_language', 'en', 'post')));
         Settings::setSetting('timezone',         trim($request->get('timezone', 'UTC', 'post')));
-        Settings::setSetting('debug',            $this->normalizeYesNo($request->get('debug', 'no', 'post')));
+        /*
+         * `debug` only when its field was on the form.
+         *
+         * It moved to the DevPanel tab, which is rendered only when that feature is enabled —
+         * and an unchecked checkbox submits nothing, so "absent" and "off" look identical from
+         * here. Writing it unconditionally would have turned the setting off on every save
+         * made by an installation without the DevPanel: a switch quietly reset by saving an
+         * unrelated field, which is the kind of thing nobody connects to the save they just
+         * made. The hidden companion field says the tab was there.
+         */
+        if (trim($request->get('debug_present', '', 'post')) !== '') {
+            Settings::setSetting('debug',        $this->normalizeYesNo($request->get('debug', 'no', 'post')));
+        }
         Settings::setSetting('forcessl',         $this->normalizeYesNo($request->get('forcessl', 'no', 'post')));
 
         // Email / SMTP

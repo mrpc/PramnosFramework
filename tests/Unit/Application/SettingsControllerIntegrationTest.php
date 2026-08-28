@@ -172,8 +172,12 @@ class SettingsControllerIntegrationTest extends TestCase
     public function testSaveSystem()
     {
         $_POST['sitename'] = 'My Test Site';
+        // `debug_present` alongside it: the field lives on the DevPanel tab now, and a form
+        // posted without that tab must leave the setting alone rather than read a missing
+        // checkbox as "off".
         $_POST['debug'] = 'yes';
-        
+        $_POST['debug_present'] = '1';
+
         ob_start();
         $this->controller->saveSystem();
         $echoed = ob_get_clean();
@@ -181,6 +185,29 @@ class SettingsControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
         $this->assertEquals('My Test Site', Settings::getSetting('sitename'));
         $this->assertEquals('yes', Settings::getSetting('debug'));
+    }
+
+    /**
+     * A save from a form without the DevPanel tab leaves `debug` as it was.
+     *
+     * The field moved to that tab, which is rendered only where the feature is enabled — and
+     * an unchecked checkbox submits nothing, so from the controller "absent" and "off" are the
+     * same POST. Writing it unconditionally turned the setting off on every save an
+     * installation without the DevPanel made: a switch reset by saving an unrelated field,
+     * which nobody connects to the save they just made.
+     */
+    public function testSavingWithoutTheDevPanelTabLeavesDebugAlone()
+    {
+        Settings::setSetting('debug', 'yes', false);
+        $_POST['sitename'] = 'My Test Site';
+        unset($_POST['debug'], $_POST['debug_present']);
+
+        ob_start();
+        $this->controller->saveSystem();
+        ob_get_clean();
+
+        $this->assertEquals('yes', Settings::getSetting('debug'),
+            'a form that never carried the field must not turn it off');
     }
 
     public function testList()

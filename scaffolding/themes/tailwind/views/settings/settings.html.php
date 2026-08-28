@@ -89,17 +89,6 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                         </select>
                         <p class="text-xs text-base-content/60 mt-1">Server time: <?php echo date('H:i'); ?></p>
                     </div>
-                    <div><label class="<?php echo $label; ?>">Debug Mode</label>
-                        <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
-                            <p class="text-xs text-warning mt-1">&#9888; Always ON — DEVELOPMENT constant is defined in app config. This setting has no effect.</p>
-                        <?php else: ?>
-                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
-                            <input type="checkbox" name="debug" value="yes" class="w-4 h-4"
-                                <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
-                            <span class="text-sm text-base-content/80">Enabled</span>
-                        </label>
-                        <?php endif; ?>
-                    </div>
                     <div><label class="<?php echo $label; ?>">Force HTTPS</label>
                         <label class="flex items-center gap-2 mt-1 cursor-pointer">
                             <input type="checkbox" name="forcessl" value="yes" class="w-4 h-4"
@@ -288,6 +277,44 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
         <div id="settings-tab-devpanel" class="settings-pane hidden">
             <div class="<?php echo $card; ?>">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label class="<?php echo $label; ?>">Debug Mode</label>
+                        <?php
+                        /*
+                         * Here rather than under General, because this is the only thing it
+                         * still decides.
+                         *
+                         * It used to open the debug toolbar for every visitor of the site —
+                         * queries with their bindings, session keys, authentication state —
+                         * from a row anybody reaching this screen can flip, and it wrote the
+                         * view's file path into the source of every page. Both of those follow
+                         * the environment now. What is left is this panel and the debug log,
+                         * so this is where the switch belongs: a checkbox called "Debug Mode"
+                         * sitting among the general settings is read as "show me the developer
+                         * tools", and it no longer does that.
+                         */
+                        ?>
+                        <?php if (defined('DEVELOPMENT') && DEVELOPMENT === true): ?>
+                            <p class="text-xs text-warning mt-1">&#9888; Always ON — the DEVELOPMENT constant is defined in the application config, so this setting has no effect.</p>
+                        <?php else: ?>
+                        <?php /* Says "this field was on the form": an unchecked checkbox
+                                 submits nothing, and without this the controller could not
+                                 tell an installation that turned it off from one whose
+                                 DevPanel tab was never rendered. */ ?>
+                        <input type="hidden" name="debug_present" value="1">
+                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
+                            <input type="checkbox" name="debug" value="yes" class="w-4 h-4"
+                                <?php echo (($s['debug'] ?? '') === 'yes') ? 'checked' : ''; ?>>
+                            <span class="text-sm text-base-content/80">Enabled</span>
+                        </label>
+                        <?php endif; ?>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            Opens this panel, together with the usertype floor beside it, and
+                            writes the debug log. It does <strong>not</strong> open the debug
+                            toolbar and adds nothing to a page a visitor sees — those follow
+                            <code>APP_DEBUG</code>, the <code>DEVELOPMENT</code> constant, or a
+                            one-browser grant from <code>debug:token</code>.
+                        </p>
+                    </div>
                     <div><label class="<?php echo $label; ?>">Minimum Usertype for DevPanel</label>
                         <input type="number" name="devpanel.min_usertype" class="<?php echo $input; ?>" min="0" max="100"
                             value="<?php

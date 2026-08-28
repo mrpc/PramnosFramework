@@ -166,7 +166,16 @@ $trails = [
     'users'             => [['Users', '']],
     'users_view'        => [['Users', $usersUrl], [$userLabel, '']],
     'users_edit'        => [['Users', $usersUrl], [$uid > 0 ? $userLabel : 'New User', '']],
-    'users_sessions'    => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Sessions', '']],
+    // With no account in view this is the whole site's list, and there is no person to put in
+    // the trail. It read "Users / Anonymous / Sessions", linking to `users/view/1`: an
+    // unloaded `User` has `username = "Anonymous"` and `userid = 1`, so the crumb named a
+    // person who does not exist and pointed at somebody who might.
+    //
+    // Which is why the test is the controller's own flag rather than the id: a model default
+    // that happens to look like real data is exactly what an `$uid > 0` check cannot see.
+    'users_sessions'    => ($this->scopedToUser ?? true)
+        ? [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Sessions', '']]
+        : [['Users', $usersUrl], ['Active sessions', '']],
     'users_tokens'      => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Tokens', '']],
     'users_activity'    => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Activity', '']],
     'users_notify'      => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Message', '']],

@@ -287,4 +287,35 @@ class DebugBarServiceProviderTest extends TestCase
         $method = $ref->getMethod('isDebugEnabled');
         return (bool) $method->invoke($provider);
     }
+
+    /**
+     * A page carries no developer internals because of a settings row either.
+     *
+     * The same hole one step along: `View` wrote the view's file path into an HTML comment on
+     * every rendered page, gated on `isDebugMode()` — which reads the `debug` and
+     * `development` settings. So a row editable from the settings screen decided whether
+     * every visitor's page source, and every crawler's copy of it, said where the
+     * application's files live.
+     *
+     * Asserted through the shared method rather than by rendering a view: what matters is
+     * that the *decision* no longer consults the settings, and that is where it lives.
+     */
+    public function testASettingsRowDoesNotPutInternalsInAPage(): void
+    {
+        // Arrange
+        putenv('APP_DEBUG=');
+        Settings::setSetting('debug', 'yes', false);
+        Settings::setSetting('development', 'yes', false);
+
+        // Act & Assert
+        $this->assertFalse(
+            \Pramnos\Application\Application::isDeveloperEnvironment(),
+            'the settings must not make a request a developer request'
+        );
+
+        // …and the environment does, which is what a development checkout has.
+        putenv('APP_DEBUG=1');
+        $this->assertTrue(\Pramnos\Application\Application::isDeveloperEnvironment());
+        putenv('APP_DEBUG=');
+    }
 }

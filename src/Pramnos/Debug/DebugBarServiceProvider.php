@@ -216,11 +216,12 @@ class DebugBarServiceProvider extends ServiceProvider
      * other — a provider registered and then doing nothing, which is a confusing state to
      * debug with a tool that is not running.
      *
-     * `getenv()` rather than the environment alone was the other half of that: `.env` is
-     * loaded through `symfony/dotenv`, which populates `$_ENV` and `$_SERVER` and does not
-     * call `putenv()`. So `getenv('APP_DEBUG')` answered "not set" on a project whose `.env`
-     * says otherwise, and the toolbar was arriving through the settings path instead — the
-     * one being removed here. `envvar()` reads what dotenv actually wrote.
+     * The environment half lives in `Application::isDeveloperEnvironment()`, which is also
+     * what decides whether a page carries developer internals — one definition, two readers.
+     * It reads `envvar()` rather than `getenv()`: `.env` is loaded through `symfony/dotenv`,
+     * which writes `$_ENV` and `$_SERVER` and never calls `putenv()`, so `getenv('APP_DEBUG')`
+     * answered "not set" on a project whose `.env` says otherwise — and the toolbar was
+     * arriving through the settings path instead, the one being removed here.
      */
     public static function toolbarAllowed(): bool
     {
@@ -230,18 +231,6 @@ class DebugBarServiceProvider extends ServiceProvider
             return true;
         }
 
-        $envDebug = function_exists('envvar')
-            ? envvar('APP_DEBUG', null)
-            : (getenv('APP_DEBUG') ?: null);
-
-        if (is_string($envDebug) || is_bool($envDebug) || is_int($envDebug)) {
-            $value = is_string($envDebug) ? strtolower(trim($envDebug)) : $envDebug;
-
-            if ($value !== '' && $value !== '0' && $value !== 'false' && $value !== false && $value !== 0) {
-                return true;
-            }
-        }
-
-        return defined('DEVELOPMENT') && DEVELOPMENT === true;
+        return \Pramnos\Application\Application::isDeveloperEnvironment();
     }
 }

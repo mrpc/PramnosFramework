@@ -272,22 +272,26 @@ class View extends \Pramnos\Framework\Base
     /**
      * Whether this request is being debugged.
      *
-     * Asks the application rather than reading `DEVELOPMENT` here: `isDebugMode()`
-     * checks the `APP_DEBUG` environment variable as well, and a second copy of that
-     * decision would answer differently on the machines where the environment
-     * variable is the one being used.
+     * Asks `Application::isDeveloperEnvironment()` — the environment variable or the
+     * `DEVELOPMENT` constant — rather than reading either here: a second copy of that
+     * decision answers differently on the machines where the other signal is the one in use.
      *
-     * Defaults to **false** when there is no application to ask. A view rendered
-     * outside a request is not a debugging session, and the safe answer for a
-     * disclosure is the quiet one.
+     * False when neither is set, which is the safe answer for a disclosure.
      *
      * @return bool
      */
     protected function inDebugMode(): bool
     {
-        $application = $this->controller->application ?? null;
-
-        return $application !== null && $application->isDebugMode();
+        /*
+         * The environment, not the settings.
+         *
+         * This gates a comment naming the view's file, in the source of every rendered page.
+         * `isDebugMode()` reads the `debug` and `development` settings, so a row editable
+         * from `/admin/Settings` decided whether every visitor's page — and every crawler's
+         * copy of it — told them where the application's files live. That is a disclosure,
+         * and a settings row is the wrong lock for one.
+         */
+        return \Pramnos\Application\Application::isDeveloperEnvironment();
     }
 
     /**
