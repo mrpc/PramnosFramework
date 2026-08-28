@@ -11,6 +11,8 @@ use_cases:
   - Finding out who calls a method, or where a class is defined, without grepping
   - Finding out whether a generator already exists for the class you are about to write
   - Reading the design tokens, or checking whether the compiled stylesheet is stale
+  - Reading the documented API surface, or checking whether the OpenAPI document is stale
+  - Finding the test that covers a class, before writing a second one somewhere else
 ---
 
 # MCP server
@@ -20,10 +22,10 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 as Claude Code expects, and it exposes two kinds of thing:
 
 - **tools** — callable capabilities: five introspect the application, two report what its logs
-  say, one answers where a symbol is defined and who calls it, one lists the CLI's own
-  commands, one reads the design tokens and the front-end build, and two are about the
-  framework itself — one reads its guides, the other checks this project against its rules.
-  Only the first five need an application or a database;
+  say, and six answer questions about the code and the project itself — where a symbol is
+  defined and who calls it, which tests cover it, what the CLI can do, what the design tokens
+  are, what the API documents, and what the framework's own guides and rules say. Only the
+  first five need an application or a database;
 - **resources** — read-only files the assistant can fetch by URI.
 
 There is no HTTP surface and no port. The client starts the process, talks to it on stdin
@@ -92,6 +94,8 @@ for every one of its servers.
 | `find-symbol` | **Where a symbol is defined and who calls it** — see below |
 | `console-commands` | **Every CLI command, including the twenty code generators** — see below |
 | `theme-info` | **The design tokens, and whether the CSS was built from them** — see below |
+| `api-docs` | **What the API promises, and whether the document is current** — see below |
+| `find-tests` | **Which tests cover a class, and how to run them** — see below |
 | `log-analytics` | **What is going wrong here, and how much** — see below |
 | `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
@@ -381,6 +385,78 @@ direct translation of the palette.
 `{"token": …}` keeps a `null` where a theme does not declare the token, and says what that
 means: the value falls back to daisyUI's own, which is rarely the one beside it in the answer.
 That is usually the real question — "is this readable in the other theme".
+
+### `api-docs`
+
+`route-list` answers *what URIs exist*. This answers *what the API promises* — parameters,
+request bodies, response codes, which credential each operation needs. Different question, and
+the one an integration is written against.
+
+```jsonc
+{}                                       // the operation list, plus the document's own facts
+{"summary_only": true}                   // counts and freshness, no list
+{"filter": "token"}
+{"operation": "GET /me/tokens"}          // one operation in full
+```
+
+Each operation carries the **scheme names** from its `security` requirement rather than the
+whole object, because "does this need a credential, and which" is the first thing anybody asks
+and the object buries it.
+
+The freshness check is the same idea as `theme-info`'s and matters for the same reason: the
+OpenAPI document is a generated file that gets **committed**, so a controller can gain a
+parameter while the published document goes on describing the old shape. Nothing fails. The API
+works and the documentation lies, which is the worst available outcome because somebody
+believes it.
+
+Two generators are recognised, because a project uses one or the other — `api:docs` reading
+`#[Route]` attributes, or an `openapi:generate` npm script converting apiDoc annotations.
+Reporting only the framework's own would tell half the projects they have no API documentation.
+An application with neither is told that `api:docs` would produce an empty document and pointed
+at `route-list`, which parses the routes file instead.
+
+`servers`, `parameters`, `summary` and `$ref` are legal keys beside the methods under a path,
+and are not operations. Treating every key as one invented `SERVERS /oauth/token` and inflated
+a real project's count from 15 to 20 — a fabricated endpoint in a list of endpoints is the same
+failure as a wrong URI.
+
+### `find-tests`
+
+Where the test for this is, read from `#[CoversClass]` rather than guessed from a filename.
+
+```jsonc
+{"class": "LogManager"}
+{"class": "Pramnos\Logs\LogManager"}
+{"uncovered": true, "path": "src/Mcp"}
+```
+
+```jsonc
+{
+  "class": "LogManager", "covered": true,
+  "coveredBy": [{"class": "LogManager", "tests": [
+    {"class": "…\LogManagerTest", "file": "…/tests/Unit/Pramnos/Logs/LogManagerTest.php",
+     "methods": 10}]}],
+  "command": "./dockertest --filter 'LogManagerViewerCharacterizationTest|LogManagerTest'"
+}
+```
+
+Guessing from the name has a wrong answer often enough to matter: `Pramnos\Logs\LogManager` is
+tested in `tests/Unit/Pramnos/Logs/`, not `tests/Unit/Logs/`, and writing to a directory that
+does not exist puts a new test somewhere nobody looks.
+
+- **It runs nothing.** Running tests is something a shell does well, and wrapping it would hide
+  the project's rule about *how*: these projects hold a lock, and two concurrent runs corrupt
+  the shared test databases. So the command is reported — `./dockertest` when the project has
+  one — and never executed.
+- **The command runs every matching test class**, as a `--filter` alternation. Naming one of
+  three is worse than useless: it looks like the command that verifies a change and silently
+  skips two thirds of the evidence.
+- **An undeclared class is not called untested.** `#[CoversClass]` is a declaration, not a
+  measurement — but it is what the coverage report goes by, so the answer says both and points
+  at whatever test files merely *mention* the class. That found a real gap on this repository:
+  a `SeoTest` exercising `Seo` without declaring it.
+- **The framework's own tests are in scope**, because a framework class is covered there and
+  nowhere else, and "no tests" would otherwise be a confident lie.
 
 ### `log-analytics` and `log-errors`
 

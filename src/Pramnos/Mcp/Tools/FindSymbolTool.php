@@ -596,8 +596,13 @@ class FindSymbolTool implements McpToolInterface
                  * duplicate is dropped by absolute path, and the framework entry wins because
                  * it is scanned second only if it was not already claimed.
                  */
+                // CATCH_GET_CHILD: a tests tree is not stable while tests run — the suite
+                // creates and deletes fixture directories, and one that disappears between
+                // being listed and being opened would otherwise throw away the whole answer.
                 $iterator = new \RecursiveIteratorIterator(
-                    new \RecursiveDirectoryIterator($absolute, \FilesystemIterator::SKIP_DOTS)
+                    new \RecursiveDirectoryIterator($absolute, \FilesystemIterator::SKIP_DOTS),
+                    \RecursiveIteratorIterator::LEAVES_ONLY,
+                    \RecursiveIteratorIterator::CATCH_GET_CHILD
                 );
 
                 /** @var \SplFileInfo $file */

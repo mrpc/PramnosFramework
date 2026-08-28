@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Pramnos\Mcp;
 
 use Pramnos\Application\ServiceProvider;
+use Pramnos\Mcp\Tools\ApiDocsTool;
 use Pramnos\Mcp\Tools\ConsoleCommandsTool;
 use Pramnos\Mcp\Tools\FindSymbolTool;
+use Pramnos\Mcp\Tools\FindTestsTool;
 use Pramnos\Mcp\Tools\FrameworkDocsTool;
 use Pramnos\Mcp\Tools\LogAnalyticsTool;
 use Pramnos\Mcp\Tools\LogErrorsTool;
@@ -129,6 +131,30 @@ class McpServiceProvider extends ServiceProvider
          * npm — which makes it exactly the kind of artifact somebody forgets to regenerate.
          */
         $server->addTool(new ThemeInfoTool());
+
+        /*
+         * What the API *promises*, as opposed to which URIs exist.
+         *
+         * Parameters, request bodies, response codes, which credential each operation needs —
+         * the shape an integration is written against. And the same freshness question as the
+         * stylesheet, for the same reason: the OpenAPI document is a generated file that is
+         * committed, so a controller can gain a parameter while the published document goes on
+         * describing the old shape. Nothing fails. The API works and the documentation lies.
+         */
+        $server->addTool(new ApiDocsTool());
+
+        /*
+         * Where the test for this is — read from `#[CoversClass]`, not guessed from a filename.
+         *
+         * Guessing has a wrong answer often enough to matter: `Pramnos\Logs\LogManager` is
+         * tested in `tests/Unit/Pramnos/Logs/`, not `tests/Unit/Logs/`, and writing to a
+         * directory that does not exist puts a new test somewhere nobody will find it.
+         *
+         * It reports the command and does not run it. Running tests is something a shell does
+         * well, and wrapping it would hide the project's own rule about *how* — these projects
+         * hold a lock, and two concurrent runs corrupt the shared test databases.
+         */
+        $server->addTool(new FindTestsTool());
 
         /*
          * What is going wrong right now, and what it says.

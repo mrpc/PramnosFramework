@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\Pramnos\Html;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Document\Document;
 use Pramnos\Document\DocumentTypes\Amp;
@@ -27,6 +28,8 @@ use Pramnos\Http\Request;
  * parsed as markup. Structured data is assembled from record titles and descriptions,
  * which is exactly where such a string arrives from.
  */
+#[CoversClass(Seo::class)]
+#[CoversClass(Html::class)]
 class SeoTest extends TestCase
 {
     /**
