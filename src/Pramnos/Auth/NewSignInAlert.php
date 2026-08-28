@@ -158,16 +158,26 @@ class NewSignInAlert
          *
          * The feature was per-user opt-in and nothing else: an operator could not turn it
          * on for everybody, and could not turn it off during an incident that was
-         * generating thousands of sign-ins. Three values, and the default is the old
+         * generating thousands of sign-ins. Four values, and the default is the old
          * behaviour, so no installation changes by upgrading:
          *
-         *   - `optin`  — the user's own preference decides (default)
+         *   - `optin`  — the user's own preference decides, and silence means no (default)
+         *   - `optout` — the same, except silence means **yes**: on for everybody who has
+         *                not turned it off
          *   - `always` — every account is notified, whatever they chose
          *   - `off`    — nobody is, whatever they chose
          *
          * `always` is not hypothetical politeness: for a service where the account *is*
          * the product — an authentication server — telling somebody their credentials were
          * used from a new device is closer to an obligation than a setting.
+         *
+         * `optout` is that argument without taking the choice away. Under `optin` the
+         * people who most need the mail are the ones who will never find the checkbox, so
+         * a security feature ends up protecting the users who were already careful. The
+         * account still owns the decision; it just starts from protected. (Nothing about
+         * that is a data-protection problem: the mail goes to the address the account
+         * signed up with, about that account's own sign-in, and it can be turned off in
+         * one click.)
          */
         $policy = (string) (\Pramnos\Application\Settings::getSetting(self::POLICY_SETTING) ?: 'optin');
         if ($policy === 'off') {
@@ -185,8 +195,17 @@ class NewSignInAlert
                 ->value('value');
         } catch (\Throwable) {
             // A preference that cannot be read is not a reason to fail a login, and
-            // the safe answer for "should we send mail" is no.
+            // the safe answer for "should we send mail" is no — under `optout` too. A
+            // failed query is not consent, and a login storm caused by a broken
+            // `userdetails` would otherwise mail the entire user base.
             return false;
+        }
+
+        if ($policy === 'optout') {
+            // Absent means on. `setEnabledFor()` writes '0' rather than deleting the row,
+            // so a user who turned it off stays off — the two cases are distinguishable,
+            // which is what makes this policy possible at all.
+            return (string) $value !== '0';
         }
 
         return (string) $value === '1';

@@ -1743,6 +1743,54 @@ class DevPanelController extends Controller
     // =========================================================================
 
     /**
+     * The session key holding the page the panel was opened from.
+     */
+    public const RETURN_KEY = 'devpanel_return';
+
+    /**
+     * Where "Back" goes: the page this panel was opened from.
+     *
+     * It went to the site root, which is almost never where anybody came from. You open the
+     * panel from the screen you are debugging — usually deep in the administration area,
+     * often with a filter in the query string — read one number, press Back and land on the
+     * home page, with the way back to what you were doing gone.
+     *
+     * The referrer is recorded once, on the way in, and only when it is not this panel: the
+     * tabs across the top are same-panel navigation, so the original page survives moving
+     * between Database, Cache and Users. It lives in the session because the panel is entered
+     * from anywhere, including a link in the debug toolbar, and there is no request of ours to
+     * thread it through.
+     *
+     * Only a URL on this site is kept. A recorded referrer is rendered into a link on a page
+     * an administrator will click, so a foreign one would make this panel a way to send
+     * somebody somewhere else, with the panel's own appearance vouching for it.
+     */
+    protected function rememberedReturnUrl(string $baseUrl, string $mountPoint): string
+    {
+        $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $panelUrl = rtrim($baseUrl, '/') . '/' . $mountPoint;
+
+        if ($referrer !== ''
+            && $baseUrl !== ''
+            && str_starts_with($referrer, $baseUrl)
+            && !str_starts_with($referrer, $panelUrl)
+        ) {
+            $_SESSION[static::RETURN_KEY] = $referrer;
+        }
+
+        $remembered = (string) ($_SESSION[static::RETURN_KEY] ?? '');
+
+        // Re-checked on the way out rather than trusted because it was checked on the way in:
+        // the session outlives the request that wrote it, and a value that stopped being ours
+        // — a changed site URL, a session restored from elsewhere — must not become a link.
+        if ($remembered !== '' && $baseUrl !== '' && str_starts_with($remembered, $baseUrl)) {
+            return htmlspecialchars($remembered, ENT_QUOTES);
+        }
+
+        return $baseUrl;
+    }
+
+    /**
      * Outputs the full self-contained HTML page and exits.
      */
     protected function renderLayout(string $activeTab, string $content): void
@@ -1750,6 +1798,8 @@ class DevPanelController extends Controller
         $title    = 'DevPanel — ' . ucfirst($activeTab);
         $baseUrl  = defined('sURL') ? rtrim((string) sURL, '/') : '';
         $mountPoint = (string) static::config('mount', 'devpanel');
+
+        $returnUrl = $this->rememberedReturnUrl($baseUrl, $mountPoint);
 
         $tabs = [
             'overview'    => 'Overview',
@@ -1799,7 +1849,7 @@ class DevPanelController extends Controller
             <header>
               <span class="logo">⚙ DevPanel</span>
               <nav>{$tabHtml}</nav>
-              <a href="{$baseUrl}" class="back-btn">&#8592; Back</a>
+              <a href="{$returnUrl}" class="back-btn">&#8592; Back</a>
             </header>
             <main>
               <div class="panel-content">
@@ -1807,7 +1857,7 @@ class DevPanelController extends Controller
                 {$content}
               </div>
             </main>
-            <footer>PramnosFramework DevPanel · <a href="{$baseUrl}/{$mountPoint}/phpinfo">PHP Info</a> · <a href="{$baseUrl}">&#8592; Back to app</a></footer>
+            <footer>PramnosFramework DevPanel · <a href="{$baseUrl}/{$mountPoint}/phpinfo">PHP Info</a> · <a href="{$returnUrl}">&#8592; Back to app</a></footer>
           </div>
         </body>
         </html>

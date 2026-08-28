@@ -21,6 +21,12 @@ class InspectableDevPanelController extends DevPanelController
     // Prevent exit() during tests
     protected function terminate(): void {}
 
+    // Expose rememberedReturnUrl()
+    public function pubReturnUrl(string $baseUrl, string $mountPoint): string
+    {
+        return $this->rememberedReturnUrl($baseUrl, $mountPoint);
+    }
+
     // Prevent HTML output during tests
     protected function renderLayout(string $activeTab, string $content): void {}
 
@@ -489,6 +495,88 @@ class DevPanelHelpersTest extends TestCase
                 $application->applicationInfo['devpanel'] = $saved;
             }
         }
+    }
+
+    /**
+     * "Back" returns to the page the panel was opened from.
+     *
+     * It went to the site root, which is almost never where anybody came from. You open the
+     * panel from the screen you are debugging — deep in the administration area, often with a
+     * filter in the query string — read one number, press Back, and land on the home page with
+     * the way back to what you were doing gone.
+     */
+    public function testBackReturnsToThePageThePanelWasOpenedFrom(): void
+    {
+        // Arrange
+        $_SESSION = [];
+        $_SERVER['HTTP_REFERER'] = 'https://example.com/admin/Users/view/42';
+
+        // Act
+        $back = $this->controller->pubReturnUrl('https://example.com', 'devpanel');
+
+        // Assert
+        $this->assertSame('https://example.com/admin/Users/view/42', $back);
+    }
+
+    /**
+     * Moving between the panel's own tabs does not overwrite it.
+     *
+     * The tabs across the top are same-panel navigation, so each of them arrives with the
+     * previous panel page as its referrer. Recorded blindly, "Back" would walk backwards
+     * through Database, Cache and Users and never reach the screen the panel was opened from.
+     */
+    public function testTheTabsDoNotOverwriteWhereYouCameFrom(): void
+    {
+        // Arrange — in from an admin screen, then one tab click inside the panel
+        $_SESSION = [];
+        $_SERVER['HTTP_REFERER'] = 'https://example.com/admin/Users/view/42';
+        $this->controller->pubReturnUrl('https://example.com', 'devpanel');
+        $_SERVER['HTTP_REFERER'] = 'https://example.com/devpanel/db';
+
+        // Act
+        $back = $this->controller->pubReturnUrl('https://example.com', 'devpanel');
+
+        // Assert
+        $this->assertSame('https://example.com/admin/Users/view/42', $back);
+    }
+
+    /**
+     * A referrer from another site is not turned into a link.
+     *
+     * The recorded value is rendered into a link on a page an administrator will click. A
+     * foreign one would make this panel a way to send somebody somewhere else, with the
+     * panel's own appearance vouching for it.
+     */
+    public function testAForeignReferrerIsIgnored(): void
+    {
+        // Arrange
+        $_SESSION = [];
+        $_SERVER['HTTP_REFERER'] = 'https://evil.example.net/pay';
+
+        // Act
+        $back = $this->controller->pubReturnUrl('https://example.com', 'devpanel');
+
+        // Assert
+        $this->assertSame('https://example.com', $back, 'nothing but this site may be linked');
+    }
+
+    /**
+     * And a remembered value that stopped being ours is dropped rather than linked.
+     *
+     * The session outlives the request that wrote it: a changed site URL, or a session
+     * restored from somewhere else, must not become a link because it passed a check once.
+     */
+    public function testARememberedValueIsRecheckedOnTheWayOut(): void
+    {
+        // Arrange
+        $_SESSION = [DevPanelController::RETURN_KEY => 'https://old-domain.example/admin'];
+        unset($_SERVER['HTTP_REFERER']);
+
+        // Act
+        $back = $this->controller->pubReturnUrl('https://example.com', 'devpanel');
+
+        // Assert
+        $this->assertSame('https://example.com', $back);
     }
 
     /**

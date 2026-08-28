@@ -184,7 +184,8 @@ ksort($initialSteps, SORT_NUMERIC);
                     ?>
                             <label class="form-label fw-semibold" for="<?php echo $policyKey; ?>">New sign-in alerts</label>
                             <select class="form-select form-select-sm" id="<?php echo $policyKey; ?>" name="<?php echo $policyKey; ?>">
-                                <option value="optin" <?php echo $policyValue === 'optin' ? 'selected' : ''; ?>>Each user decides (default)</option>
+                                <option value="optin" <?php echo $policyValue === 'optin' ? 'selected' : ''; ?>>Each user decides, off unless asked for (default)</option>
+                                <option value="optout" <?php echo $policyValue === 'optout' ? 'selected' : ''; ?>>Each user decides, on unless turned off</option>
                                 <option value="always" <?php echo $policyValue === 'always' ? 'selected' : ''; ?>>Always notify</option>
                                 <option value="off" <?php echo $policyValue === 'off' ? 'selected' : ''; ?>>Never notify</option>
                             </select>

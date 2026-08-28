@@ -355,6 +355,56 @@ class NewSignInAlertTest extends DatabaseTestCase
     }
 
     /**
+     * `optout` is on for an account that has never touched the preference.
+     *
+     * Under `optin` the people who most need this mail are the ones who will never find the
+     * checkbox, so a security feature ends up protecting the users who were already careful.
+     * This is the same per-user choice with the starting point reversed.
+     */
+    public function testOptOutIsOnForAnAccountThatNeverChoseAnything(): void
+    {
+        // Arrange — no stored preference at all, which is what a real account looks like
+        $this->db->queryBuilder()
+            ->table('#PREFIX#userdetails')
+            ->where('userid', self::USER)
+            ->where('fieldname', NewSignInAlert::PREFERENCE)
+            ->delete();
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optout');
+
+        try {
+            // Act & Assert
+            $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+        } finally {
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+        }
+    }
+
+    /**
+     * And it still stops for an account that turned it off.
+     *
+     * The half that makes it an opt-*out* rather than `always` under a friendlier name. It
+     * works because `setEnabledFor()` writes `'0'` instead of deleting the row: "chose no" and
+     * "never chose" are different states, and this policy is the difference between them.
+     */
+    public function testOptOutRespectsAnAccountThatTurnedItOff(): void
+    {
+        // Arrange
+        NewSignInAlert::setEnabledFor(self::USER, false, $this->db);
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optout');
+
+        try {
+            // Act & Assert
+            $this->assertFalse(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+
+            // …and back on when they change their mind
+            NewSignInAlert::setEnabledFor(self::USER, true, $this->db);
+            $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
+        } finally {
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+        }
+    }
+
+    /**
      * With no policy set, the user's own preference decides.
      *
      * Which is the behaviour every installation had before the setting existed: upgrading

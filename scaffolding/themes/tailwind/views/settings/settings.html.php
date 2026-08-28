@@ -163,7 +163,10 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                         <select class="select select-sm w-full" id="<?php echo $policyKey; ?>"
                                 name="<?php echo $policyKey; ?>">
                             <option value="optin" <?php echo $policyValue === 'optin' ? 'selected' : ''; ?>>
-                                Each user decides (default)
+                                Each user decides, off unless asked for (default)
+                            </option>
+                            <option value="optout" <?php echo $policyValue === 'optout' ? 'selected' : ''; ?>>
+                                Each user decides, on unless turned off
                             </option>
                             <option value="always" <?php echo $policyValue === 'always' ? 'selected' : ''; ?>>
                                 Always notify
@@ -177,6 +180,9 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                             browser it has not signed in from before. Compared against the
                             activity log, so an account with history is not told its usual
                             device is new.
+                            <br>Under <em>on unless turned off</em>, the people who most need
+                            the mail are covered without having to find the checkbox — and can
+                            still turn it off in one click.
                         </p>
                     </div>
                     <div>

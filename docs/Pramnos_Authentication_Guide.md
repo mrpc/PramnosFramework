@@ -432,7 +432,8 @@ the settings screen:
 
 | Value | Meaning |
 | --- | --- |
-| `optin` (default) | the account's own preference decides |
+| `optin` (default) | the account's own preference decides; silence means no |
+| `optout` | the same, except silence means **yes** — on unless the account turned it off |
 | `always` | every account is notified, whatever it chose |
 | `off` | nobody is, whatever they chose |
 
@@ -441,6 +442,19 @@ their credentials were used from a new device is closer to an obligation than a 
 `off` exists for the incident where the alert stops being a security feature and becomes
 the outage's own mailing list. The default is the behaviour every installation had before
 the setting existed, so upgrading starts and stops nobody's mail.
+
+**`optout` is the one to reach for on a real user base.** Under `optin`, the people who most
+need this mail are the ones who will never find the checkbox, so the feature ends up
+protecting the users who were already careful. `optout` keeps the choice with the account and
+changes only where it starts from. It works because the preference stores `'0'` rather than
+deleting its row: "chose no" and "never chose" are different states, and this policy is the
+difference between them.
+
+Nothing about it needs a consent record. The mail goes to the address the account signed up
+with, about that account's own sign-in, and it can be turned off in one click — a security
+notification, not marketing. If your installation sends it under `optout`, the unsubscribe
+link and `List-Unsubscribe` headers described in the [Email Guide](Pramnos_Email_Guide.md) are
+what keep it that way in a mailbox provider's eyes.
 
 The per-account state is on the user's admin screen, with a toggle when the policy leaves
 the decision to the user — and a sentence instead of a switch when it does not, because a

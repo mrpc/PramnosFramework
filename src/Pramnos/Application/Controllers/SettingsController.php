@@ -190,7 +190,7 @@ class SettingsController extends Controller
         );
         Settings::setSetting(
             \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
-            in_array($policy, ['optin', 'always', 'off'], true) ? $policy : 'optin'
+            in_array($policy, ['optin', 'optout', 'always', 'off'], true) ? $policy : 'optin'
         );
 
         /**
