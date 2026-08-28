@@ -339,4 +339,61 @@ class ActionsTest extends TestCase
         $this->assertSame('Please confirm.', $text);
         $this->assertStringNotContainsString('schema.org', $text);
     }
+
+    // ── where the framework uses this itself ─────────────────────────────────
+
+    /**
+     * A `ViewAction` needs no handler, which is why one of the framework's own mails has one.
+     *
+     * The distinction that was got wrong first time round: the one-request contract belongs to
+     * `ConfirmAction` alone. A `ViewAction` is a URL — no POST, no immediacy, nothing to build —
+     * so "we have no handler for it" was never a reason not to use one.
+     *
+     * The password-reset mail contains exactly one link, which is its entire purpose, so an
+     * action pointing at that link exposes nothing the message did not already expose and turns
+     * four taps on a phone into one.
+     */
+    public function testAViewActionNeedsNothingBuiltForIt(): void
+    {
+        // Arrange
+        $action = Actions::view('Reset password', 'https://example.com/reset/abc123');
+
+        // Assert
+        $this->assertArrayNotHasKey(
+            'handler',
+            $action['potentialAction'],
+            'nothing to receive a POST, so nothing to build'
+        );
+        $this->assertSame('https://example.com/reset/abc123', $action['potentialAction']['target']);
+
+        // And the requirement that stops `confirm` being used the same way is about `confirm`
+        $requirements = implode(' ', Actions::requirements());
+        $this->assertStringContainsString('ConfirmAction handler must act', $requirements);
+    }
+
+    /**
+     * The new-sign-in alert deliberately carries no action.
+     *
+     * Asserted because it is a decision that reads like an omission, and the next person to add
+     * "one-tap review your sessions" will be improving the product. A link in an unexpected
+     * security email is the shape of the attack the message warns about — and a button in the
+     * message list is the same thing, larger and easier to press. The notification says so in
+     * its own docblock; this is the assertion that it stays true.
+     */
+    public function testTheNewSignInAlertOffersNoActionOnPurpose(): void
+    {
+        // Act
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 4) . '/src/Pramnos/Auth/Notifications/NewSignInNotification.php'
+        );
+
+        // Assert
+        $this->assertStringNotContainsString('addStructuredData', $source);
+        $this->assertStringNotContainsString('Actions::', $source);
+        $this->assertStringContainsString(
+            'rather than following a link in an email',
+            $source,
+            'the reason is stated in the message itself'
+        );
+    }
 }

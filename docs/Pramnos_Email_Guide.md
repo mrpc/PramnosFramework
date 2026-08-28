@@ -649,10 +649,26 @@ this code. `Actions::requirements()` returns the list as data for exactly that r
 Everything is still correct and harmless without registration. Other clients ignore what they do
 not understand, and the markup is invisible in the rendered message.
 
-**The framework wires none of its own mail to an action, deliberately.** No endpoint it ships
-satisfies the `ConfirmAction` contract — the verification and step-up routes need a session and
-render a page — and an action pointing at one of them would draw a button that does nothing. A
-dead button is worse than no button.
+### Where the framework uses this itself, and where it will not
+
+**The password-reset mail carries a `ViewAction`.** That mail contains exactly one link, which is
+its entire purpose, so an action pointing at it exposes nothing the message did not already
+expose — and turns four taps on a phone into one. A `ViewAction` needs no handler and makes no
+promise about the first request, so there was never anything to build for it.
+
+**No `ConfirmAction` anywhere.** That one *does* have a contract — the URL must act on the first
+request, with no confirmation page and no sign-in, because Gmail sends a POST and does not follow
+up — and no endpoint the framework ships satisfies it: the verification and step-up routes need a
+session and render a page. An action pointing at one of them would draw a button that does
+nothing, and a dead button is worse than no button. Wiring one means **building the handler
+first**, which is a real and reasonable thing to do; it is not something to bolt onto an existing
+route.
+
+**The new-sign-in alert carries no action at all, and that is a decision.** It contains no link
+either: a link in an unexpected security email is the shape of the attack it warns about, and a
+button in the message list is the same thing, larger and easier to press. The message tells the
+reader to open the site themselves. A one-tap "this wasn't me" would need both a new one-click
+revoke endpoint *and* a reversal of that judgement — worth discussing, not worth assuming.
 
 ### Where the block goes
 

@@ -1002,6 +1002,24 @@ class Account extends Controller
             $mailer->body    = $body;
             $mailer->to      = $email;
             $mailer->module  = 'auth'; // tag it in the mails audit log
+
+            /*
+             * The same link, offered as a button in the message list.
+             *
+             * A `ViewAction` needs nothing but a URL — no handler, no one-request contract, none
+             * of what a `ConfirmAction` demands — and this mail already contains exactly one
+             * link, which is its entire purpose. So the action exposes nothing the message did
+             * not already expose, and turns four taps on a phone into one.
+             *
+             * It is *not* added to the new-sign-in alert, and that is a decision rather than an
+             * oversight: {@see \Pramnos\Auth\Notifications\NewSignInNotification} contains no
+             * link on purpose, because a link in an unexpected security email is the shape of
+             * the attack it warns about. A button would be the same thing, larger.
+             */
+            $mailer->addStructuredData(
+                \Pramnos\Email\Actions::view(t('Reset password'), $link)
+            );
+
             $mailer->send();
         } catch (\Throwable $e) {
             // A mail-transport failure must not break the flow (nor reveal, via a
