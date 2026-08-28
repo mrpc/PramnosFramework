@@ -273,6 +273,50 @@ class ApplicationTest extends TestCase
     }
     
     /**
+     * The redirect's script fallback carries the request's CSP nonce.
+     *
+     * It did not, and the policy this framework sends is nonce-based — so every redirect that
+     * happened after output had started was refused by the browser («Executing inline script
+     * violates the following Content Security Policy directive») and the visitor sat on a page
+     * that had already decided to send them somewhere else. The nonce injector could not save
+     * it: that runs inside the HTML document's render, and this is echoed straight to the
+     * output stream, outside it.
+     */
+    public function testTheRedirectFallbackCarriesTheCspNonce(): void
+    {
+        $this->app->cspNonce = 'a-nonce-for-this-request';
+
+        ob_start();
+        try {
+            $this->app->redirect('/somewhere', false);
+        } finally {
+            $output = ob_get_clean();
+        }
+
+        $this->assertStringContainsString('<script nonce="a-nonce-for-this-request">', $output);
+    }
+
+    /**
+     * And a quote in the destination cannot break out of the script or the link.
+     *
+     * The URL was interpolated raw into a JavaScript string literal *and* an HTML attribute. A
+     * destination carrying a quote — a return URL, a filter, anything built from a request —
+     * closed the string, and the rest of it was code.
+     */
+    public function testTheRedirectFallbackEscapesItsDestination(): void
+    {
+        ob_start();
+        try {
+            $this->app->redirect('/x?a="+alert(1)+"', false);
+        } finally {
+            $output = ob_get_clean();
+        }
+
+        $this->assertStringNotContainsString('"+alert(1)+"', $output);
+        $this->assertStringContainsString('alert', $output, 'the destination is still there');
+    }
+
+    /**
      * Test redirect with stored redirect url.
      */
     public function testRedirectWithStoredUrl(): void

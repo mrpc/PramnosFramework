@@ -76,7 +76,8 @@ package is present.
 
 **Who may open it**, either:
 
-- **usertype ≥ 100** — the root account, on any deployment **including production**. That half
+- **usertype ≥ 99** — `Root` in `UserTypes::DEFAULTS`, on any deployment **including production**,
+  and with or without the `devpanel` feature. That half
   is deliberate: fixing data on a live server is a real thing an owner does, and a tool that
   only works in development means they do it in `psql` with no undo, or leave `adminer.php` in
   the web root for ever.
@@ -94,6 +95,32 @@ Two locks, and the second is not the framework's to remove.
 application's `vendor/` would enlarge the attack surface of applications that never asked for
 one, including the ones that do not read what a release added. With the package absent the route
 answers 404 like any other unknown address.
+
+### What locks it, on a public server
+
+The gate on the URL *is* the authorisation — the connection is supplied, so reaching the page is
+reaching the database. That makes the list of what holds it worth reading in full:
+
+| | |
+| --- | --- |
+| **Who** | signed in, and usertype ≥ 99 (`Root`) — or a development environment plus the DevPanel's floor. Everybody else gets a **404**, not a 403 |
+| **Credentials** | come from the configuration only. Adminer's login form is removed, and `$_POST['auth']` is discarded before Adminer sees the request |
+| **Which connections** | the primary and the declared replicas (`database.read` / `database.write`). A request naming any other host, user or database gets the default rather than what it asked for |
+| **Audit** | every open **and every refusal** is logged to `auth` with the account, the address and the URL |
+| **Headers** | own CSP with `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex` |
+| **Session** | ours is closed and emptied before Adminer runs; Adminer gets its own `adminer_sid` namespace |
+| **No package** | 404, like any other unknown address |
+
+Two of those were holes and are worth naming rather than listing. **Removing the login form did
+not remove the ability to log in**: `auth.inc.php` acts on `$_POST['auth']` before anything else,
+so a hand-made POST — or a form on another site aimed at this URL — could have pointed this
+Adminer at any host reachable from the server, with any credentials the sender knew. And a
+**request naming another server** was obeyed, because that is Adminer's own design: the query
+string says who to connect as. Behind a single-purpose gate it must not.
+
+What this does **not** protect against is somebody who already has a root account's session. If
+that is a concern, keep `adminer_autologin` off, and the operator types the database password —
+two locks instead of one.
 
 Two details worth knowing:
 

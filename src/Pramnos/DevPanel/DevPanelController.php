@@ -579,7 +579,10 @@ class DevPanelController extends Controller
 
         $rows = '';
         foreach ($tables as $t) {
-            $tbl  = htmlspecialchars($t['tbl']  ?? '');
+            // The name links into Adminer's view of that table, when there is an Adminer to link
+            // to. This list answers "what is in here and how big is it"; the next question is
+            // always about one table, and it used to mean retyping the name somewhere else.
+            $tbl  = static::adminerTableLink((string) ($t['tbl'] ?? ''));
             $tot  = htmlspecialchars((string) ($t['total'] ?? ''));
             $data = htmlspecialchars((string) ($t['data']  ?? ''));
             $rowc = number_format((int) ($t['rows'] ?? 0));
@@ -597,39 +600,40 @@ class DevPanelController extends Controller
             $content .= $this->renderTimescaleDb($db);
         }
 
-        // The tool most people would rather use, when the installation has it. A link rather
-        // than a reimplementation: this tab answers "what is in here and how big is it", and
-        // everything past that — editing a row, writing a query with completion, exporting —
-        // is what Adminer is for.
-        return $this->adminerLink() . $content;
+        // No "Open Adminer" line: it is a tab of its own now, immediately beside this one, and
+        // a link to the neighbouring tab is furniture. The table names below link into it, which
+        // is the useful half — this tab answers "what is in here and how big is it", and the
+        // next question is always about one specific table.
+        return $content;
     }
 
     /**
-     * A link to `/adminer`, when there is something behind it.
+     * A link into Adminer for one table, or the plain name when there is no Adminer.
      *
-     * Drawn only when the package is installed, so it never points at a 404 — `vrana/adminer`
-     * is a `suggest`, and most installations will not have it. The route's own gate is stricter
-     * than this panel's (root usertype, or this panel's floor in a development environment), so
-     * the link can appear for somebody the route will still refuse; saying what it requires is
-     * cheaper than a surprising 404.
+     * The table list answers "what is in here and how big is it"; the next question is always
+     * about one specific table, and until this it had to be retyped somewhere else. Nothing is
+     * drawn as a link when the package is absent or the visitor would be refused — a link that
+     * 404s reads as a broken panel rather than an absent tool.
      */
-    private function adminerLink(): string
+    public static function adminerTableLink(string $table): string
     {
-        $root = defined('ROOT') ? ROOT : getcwd();
-        $installed = is_file($root . '/vendor/vrana/adminer/adminer/index.php')
-            || is_file($root . '/vendor/dg/adminer-custom/adminer.php');
+        $escaped = htmlspecialchars($table, ENT_QUOTES);
+        $base    = static::adminerTabUrl();
 
-        if (!$installed) {
-            return '';
+        if ($base === null || $table === '') {
+            return $escaped;
         }
 
-        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $connection = \Pramnos\DevPanel\AdminerBridge::chosen();
 
-        return '<p style="margin:0 0 12px"><a href="' . htmlspecialchars($base . '/adminer', ENT_QUOTES)
-            . '" target="_blank" rel="noopener">Open Adminer &rarr;</a> '
-            . '<span style="opacity:.7">— the full database tool, behind this site\'s own gate. '
-            . 'Root accounts on any deployment; here, this panel\'s usertype floor. It keeps its '
-            . 'own database login.</span></p>';
+        if ($connection === []) {
+            return $escaped;
+        }
+
+        $url = $base . '?' . \Pramnos\DevPanel\AdminerBridge::query($connection)
+            . '&table=' . urlencode($table);
+
+        return '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">' . $escaped . '</a>';
     }
 
     private function renderTimescaleDb(\Pramnos\Database\Database $db): string
@@ -1775,6 +1779,139 @@ class DevPanelController extends Controller
     // =========================================================================
 
     /**
+     * Insert the Adminer tab immediately after Database, when there is one to insert.
+     *
+     * Position is not decoration here: Adminer and the Database tab are the same subject, and
+     * the reason this panel's own tab has a link *out* rather than a copy of Adminer is that
+     * they belong next to each other.
+     *
+     * @param  array<string, string> $tabs
+     * @return array<string, string>
+     */
+    protected static function withAdminerTab(array $tabs): array
+    {
+        if (static::adminerTabUrl() === null) {
+            return $tabs;
+        }
+
+        $ordered = [];
+
+        foreach ($tabs as $key => $label) {
+            $ordered[$key] = $label;
+
+            if ($key === 'db') {
+                $ordered['adminer'] = 'Adminer';
+            }
+        }
+
+        // No Database tab to sit beside — appended rather than dropped.
+        return isset($ordered['adminer']) ? $ordered : $ordered + ['adminer' => 'Adminer'];
+    }
+
+    /**
+     * `/adminer`, or null when there is nothing behind it.
+     *
+     * Null when the package is not installed *or* when this visitor would be refused: a tab
+     * that answers 404 is worse than no tab, because the reader concludes the tool is broken
+     * rather than absent.
+     */
+    public static function adminerTabUrl(): ?string
+    {
+        $controller = '\Pramnos\Application\Controllers\Adminer';
+
+        if (!class_exists($controller)) {
+            return null;
+        }
+
+        if (!$controller::isAvailable()) {
+            return null;
+        }
+
+        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+
+        return $base . '/adminer';
+    }
+
+    /**
+     * This panel's tab strip, for a page that is not this panel.
+     *
+     * Adminer wears it so that it reads as one of the panel's tabs rather than as a different
+     * application somebody happened to link to. One list, built here, so a tab added to the
+     * panel appears there too instead of being forgotten in a second copy.
+     *
+     * @param  string $activeTab Which tab to mark, e.g. `adminer`
+     * @return string HTML
+     */
+    public static function tabStrip(string $activeTab): string
+    {
+        $base       = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $mountPoint = (string) static::config('mount', 'devpanel');
+
+        $tabs = [
+            'overview'    => 'Overview',
+            'db'          => 'Database',
+            'cache'       => 'Cache',
+            'users'       => 'Users',
+            'performance' => 'Performance',
+            'git'         => 'Git',
+            'phpinfo'     => 'PHP Info',
+        ];
+
+        // Beside Database, not at the end: it is the same subject, and a tool two tabs away
+        // from the thing it operates on is a tool people scroll past.
+        $tabs = static::withAdminerTab($tabs);
+
+        $html = '';
+
+        foreach ($tabs as $key => $label) {
+            $href = $key === 'adminer'
+                ? (string) static::adminerTabUrl()
+                : ($key === 'overview'
+                    ? $base . '/' . $mountPoint
+                    : $base . '/' . $mountPoint . '/' . $key);
+
+            $html .= '<a href="' . htmlspecialchars($href, ENT_QUOTES) . '"'
+                . ($key === $activeTab ? ' class="active"' : '') . '>'
+                . htmlspecialchars($label) . '</a>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Where "Back" goes, for a page outside this panel.
+     *
+     * The same remembered referrer the panel's own Back button uses, so a visitor who came from
+     * a screen returns to it whichever of the two they went through.
+     */
+    public static function returnUrlFor(string $mountPoint = ''): string
+    {
+        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $mount = $mountPoint !== '' ? $mountPoint : (string) static::config('mount', 'devpanel');
+
+        $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $panelUrl = $base . '/' . $mount;
+        $adminer  = $base . '/adminer';
+
+        if ($referrer !== ''
+            && $base !== ''
+            && str_starts_with($referrer, $base)
+            && !str_starts_with($referrer, $panelUrl)
+            && !str_starts_with($referrer, $adminer)
+        ) {
+            $_SESSION[static::RETURN_KEY] = $referrer;
+        }
+
+        $remembered = (string) ($_SESSION[static::RETURN_KEY] ?? '');
+
+        if ($remembered !== '' && $base !== '' && str_starts_with($remembered, $base)) {
+            return $remembered;
+        }
+
+        return $base !== '' ? $base : '/';
+    }
+
+    /**
      * The session key holding the page the panel was opened from.
      */
     public const RETURN_KEY = 'devpanel_return';
@@ -1802,10 +1939,16 @@ class DevPanelController extends Controller
         $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
         $panelUrl = rtrim($baseUrl, '/') . '/' . $mountPoint;
 
+        // Adminer counts as this panel, not as somewhere the visitor came from. It is one of
+        // the tabs now, so recording it sent Back from the panel *into* Adminer — the two
+        // bouncing off each other, with the screen the person actually came from lost.
+        $adminerUrl = rtrim($baseUrl, '/') . '/adminer';
+
         if ($referrer !== ''
             && $baseUrl !== ''
             && str_starts_with($referrer, $baseUrl)
             && !str_starts_with($referrer, $panelUrl)
+            && !str_starts_with($referrer, $adminerUrl)
         ) {
             $_SESSION[static::RETURN_KEY] = $referrer;
         }
@@ -1843,6 +1986,18 @@ class DevPanelController extends Controller
             'phpinfo'     => 'PHP Info',
         ];
 
+        /*
+         * Adminer as a tab, when the installation has it.
+         *
+         * It is a full page of its own rather than something rendered inside this panel — it is
+         * a whole application — but it wears this strip at the top and marks itself active, so
+         * moving between them is moving between tabs. A tool reached through a different door
+         * is a tool people forget is there.
+         */
+        // Beside Database, not at the end: it is the same subject, and a tool two tabs away
+        // from the thing it operates on is a tool people scroll past.
+        $tabs = static::withAdminerTab($tabs);
+
         // Append registered custom panels to the navigation.
         foreach (static::$customPanels as $slug => $panel) {
             $tabs[$slug] = $panel['label'];
@@ -1856,6 +2011,12 @@ class DevPanelController extends Controller
             $href   = $key === 'overview'
                 ? $baseUrl . '/' . $mountPoint
                 : $baseUrl . '/' . $mountPoint . '/' . $key;
+
+            // Adminer is its own route, not an action of this panel.
+            if ($key === 'adminer') {
+                $href = (string) static::adminerTabUrl();
+            }
+
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
 
@@ -2136,6 +2297,19 @@ class DevPanelController extends Controller
         table.data-table td { padding: 6px 10px; border-bottom: 1px solid var(--surface); }
         table.data-table th.num, table.data-table td.num { text-align: right; }
         table.data-table tr:hover td { background: var(--surface2); }
+        /*
+         * Links inside a data table.
+         *
+         * The table names became links into Adminer and arrived as the browser's own default:
+         * blue, purple once visited, underlined, on a dark panel. Fifteen of those in a column
+         * read as a broken stylesheet — which is what it was, because nothing here had ever
+         * needed a link inside a table before.
+         */
+        table.data-table a { color: var(--blue); text-decoration: none;
+            border-bottom: 1px dotted color-mix(in srgb, var(--blue) 45%, transparent); }
+        table.data-table a:visited { color: var(--blue); }
+        table.data-table a:hover { color: var(--text); border-bottom-color: var(--text); }
+        table.data-table a:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
         td.empty { text-align: center; color: var(--subtext); font-style: italic; padding: 16px; }
         h3 { color: var(--subtext); font-size: 13px; text-transform: uppercase;
              letter-spacing: 0.05em; margin: 20px 0 6px; }

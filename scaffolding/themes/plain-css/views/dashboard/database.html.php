@@ -46,6 +46,11 @@ $card = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hid
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
         <a href="<?php echo adminUrl('dashboard'); ?>" style="font-size:.85rem">&larr; Dashboard</a>
         <h2 style="margin:0">Database Details</h2>
+        <?php /* Only for an account the route will actually serve — see the controller. */ ?>
+        <?php if (!empty($this->adminerUrl)): ?>
+            <a href="<?php echo htmlspecialchars($this->adminerUrl, ENT_QUOTES, 'UTF-8'); ?>"
+               style="margin-left:auto;padding:4px 10px;border:1px solid #ccc;border-radius:4px;text-decoration:none;color:inherit">Open in Adminer</a>
+        <?php endif; ?>
         <?php if (!empty($stats['version'])): ?>
             <span class="db-badge db-badge-secondary"><?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?></span>
         <?php endif; ?>

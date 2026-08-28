@@ -179,6 +179,20 @@ class DashboardController extends Controller
         $view->tsData      = $tsData;
         $view->replication = $replication;
         $view->publicViews = $publicViews;
+
+        /*
+         * A link to Adminer for a root account, from the screen that is already about the
+         * database.
+         *
+         * Null for everybody else, and null when the package is not installed, so the view draws
+         * nothing rather than an entry that answers 404. This screen answers "how big, how busy,
+         * how far behind"; the question after that is always about a row, and that is the tool
+         * for it.
+         */
+        $view->adminerUrl  = class_exists('\Pramnos\DevPanel\DevPanelController')
+            ? \Pramnos\DevPanel\DevPanelController::adminerTabUrl()
+            : null;
+
         return $view->display('database');
     }
 

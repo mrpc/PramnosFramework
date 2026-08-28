@@ -29,6 +29,11 @@ $fmtBytes = function (int $bytes): string {
     <div class="d-flex align-items-center gap-2 mb-4">
         <a href="<?php echo adminUrl('dashboard'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Dashboard</a>
         <h2 class="mb-0">Database Details</h2>
+        <?php /* Only for an account the route will actually serve — see the controller. */ ?>
+        <?php if (!empty($this->adminerUrl)): ?>
+            <a href="<?php echo htmlspecialchars($this->adminerUrl, ENT_QUOTES, 'UTF-8'); ?>"
+               class="btn btn-sm btn-outline-secondary ms-auto">Open in Adminer</a>
+        <?php endif; ?>
         <?php if (!empty($stats['version'])): ?>
             <span class="badge bg-secondary"><?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?></span>
         <?php endif; ?>

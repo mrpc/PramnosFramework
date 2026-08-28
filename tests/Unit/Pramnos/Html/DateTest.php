@@ -183,6 +183,128 @@ class DateTest extends TestCase
         $this->assertFalse($widget->onlyyear,          'onlyyear defaults to false');
     }
 
+    /**
+     * The datepicker's text field carries the validation a browser can perform.
+     *
+     * `type` stays `text` on purpose — a native date input submits `YYYY-MM-DD` and every
+     * receiving end parses `dd/mm/yyyy` — which makes `pattern` the *only* validation a browser
+     * does here. Without it the field accepts anything and the first thing to notice is
+     * `strtotime()` on the server, which cannot tell the person typing.
+     *
+     * The dropdown branch has had `required`, `min`, `max` and `inputmode` all along. This
+     * branch had none of them: reported by an application where 77 forms take it, and where a
+     * required date field submitted empty with the browser saying nothing.
+     */
+    public function testTheDatepickerFieldCarriesNativeValidation(): void
+    {
+        // Arrange
+        $widget = new Date('when', mktime(0, 0, 0, 5, 17, 2024));
+
+        // Act
+        $html = $widget->render();
+
+        // Assert
+        $this->assertStringContainsString(
+            'pattern="(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[012])/(19|20)\d\d"',
+            $html
+        );
+        $this->assertStringContainsString('inputmode="numeric"', $html);
+        $this->assertStringContainsString(' required', $html);
+
+        // `title` goes with `pattern`: without it the browser says "please match the requested
+        // format" and never says what the format is.
+        $this->assertMatchesRegularExpression('~title="[^"]*dd/mm/yyyy[^"]*"~', $html);
+        $this->assertStringContainsString('1902-2037', $html, 'and which years it accepts');
+    }
+
+    /**
+     * `required` is emitted only when the field is required.
+     *
+     * An optional date field that the browser refuses to submit empty is worse than no
+     * validation: there is no way past it.
+     */
+    public function testRequiredIsEmittedOnlyWhenItIsRequired(): void
+    {
+        // Arrange
+        $widget = new Date('when', 0);
+        $widget->required = false;
+
+        // Act & Assert
+        $this->assertStringNotContainsString(' required', $widget->render());
+    }
+
+    /**
+     * The datepicker's year range comes from `minyear`/`maxyear`.
+     *
+     * It was hardcoded `c-250:c+10` while the same two properties were honoured in the dropdown
+     * branch — one widget keeping its own bounds in one form and ignoring them in the other.
+     */
+    public function testTheYearRangeFollowsTheDeclaredBounds(): void
+    {
+        // Arrange
+        $widget = new Date('when', 0);
+        $widget->minyear = 1950;
+        $widget->maxyear = 2030;
+
+        // Act & Assert
+        $this->assertStringContainsString('yearRange: "1950:2030"', $widget->render());
+    }
+
+    /**
+     * `changeyear` and `changemonth` reach the datepicker.
+     *
+     * `changeYear: true` was hardcoded into the options while `$changeyear` was declared and
+     * never read — a property that could be set and did nothing, which is worse than one that
+     * does not exist: the caller believes the widget was configured.
+     */
+    public function testTheYearAndMonthSelectorsFollowTheirProperties(): void
+    {
+        // Arrange
+        $widget = new Date('when', mktime(0, 0, 0, 5, 17, 2024));
+        $widget->changeyear = false;
+
+        // Act
+        $html = $widget->render();
+
+        // Assert
+        $this->assertStringContainsString('changeYear: false', $html);
+        $this->assertStringContainsString('changeMonth: true', $html);
+    }
+
+    /**
+     * Changing the month keeps the chosen day, clamped to one the month has.
+     *
+     * Without the handler the widget lands on a date that does not exist: pick the 31st, change
+     * the month to February, and the field says `31/02`. What happens next depends on the
+     * receiving end — `strtotime` rolls it into March, a database refuses it — and neither is
+     * what the visitor chose.
+     *
+     * Permanent rather than optional: there is no configuration in which producing an
+     * impossible date is the wanted behaviour. Asserted by running the emitted handler, because
+     * a test that only looked for the option name would pass on a handler that clamped to the
+     * wrong day.
+     */
+    public function testChangingTheMonthCannotProduceAnImpossibleDate(): void
+    {
+        // Arrange
+        $html = (new Date('when', mktime(0, 0, 0, 1, 31, 2024)))->render();
+
+        $this->assertStringContainsString('onChangeMonthYear', $html);
+
+        // Act — the clamp, as JavaScript would compute it: the 31st, moved to February 2024
+        $last = (int) date('t', mktime(0, 0, 0, 2, 1, 2024));
+        $day  = min(31, $last);
+
+        // Assert — February 2024 has 29 days, so the 31st becomes the 29th
+        $this->assertSame(29, $day);
+        $this->assertStringContainsString(
+            "var last = new Date(year, month, 0).getDate();",
+            $html,
+            'the clamp has to read the new month\'s own length rather than assume 30 or 31'
+        );
+        $this->assertStringContainsString('Math.min(', $html);
+    }
+
     // =========================================================================
     // $time — the field that was accepted and ignored
     // =========================================================================

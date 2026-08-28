@@ -251,6 +251,7 @@
     var openCategory = null;     // category key of open dropdown menu, or null
     var devPanelEnabled = false;
     var devPanelCustomUrl = null;
+    var adminerUrl = null;
     var root = null;
     var tabsEl = null;
     var panelEl = null;
@@ -1028,7 +1029,25 @@
         }
 
         return '<a class="pdb-devpanel" href="' + escAttr(devPanelUrl())
-            + '" title="DevPanel">&#128270; DevPanel</a>';
+            + '" title="DevPanel">&#128270; DevPanel</a>' + adminerLink();
+    }
+
+    /**
+     * The database tool, beside the DevPanel link.
+     *
+     * The toolbar is the one thing a developer already has open on the page, so this is where
+     * the link belongs. Drawn only when the server said so: the payload carries a URL when the
+     * package is installed *and* the account would be served, and null otherwise — a link that
+     * answers 404 reads as a broken tool rather than an absent one.
+     */
+    function adminerLink() {
+        if (!adminerUrl) {
+            return '';
+        }
+
+        return '<a class="pdb-devpanel" href="' + escAttr(adminerUrl)
+            + '" title="Adminer — the database, behind this site\'s own gate">'
+            + '&#128451; Adminer</a>';
     }
 
     /**
@@ -3918,6 +3937,7 @@
             var payload = JSON.parse(island.textContent || '{}');
             devPanelEnabled = payload.devpanel_enabled !== false;
             devPanelCustomUrl = payload.devpanel_url || null;
+            adminerUrl = payload.adminer_url || null;
             record(
                 payload.request_method || 'GET',
                 payload.request_path || (location.pathname + location.search),

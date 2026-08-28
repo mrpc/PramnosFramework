@@ -73,9 +73,19 @@ class Date extends Html
     public $calendar = true;
     /**
      * Let the datepicker's year be changed directly
+     *
+     * Read by `render()`, which is worth saying because it was not: the option was written into
+     * the datepicker as a hardcoded `changeYear: true` while this property sat here unread, so
+     * setting it to `false` did nothing at all and looked like a datepicker that ignored its
+     * configuration.
      * @var bool
      */
     public $changeyear = true;
+    /**
+     * Let the datepicker's month be changed directly
+     * @var bool
+     */
+    public $changemonth = true;
     /**
      * Label each dropdown with D:, M:, Y:
      * @var bool
@@ -413,15 +423,44 @@ class Date extends Html
 
         $return = "";
 
+        /*
+         * `changeYear` and `changeMonth` come from the properties, and the day is kept when the
+         * month changes.
+         *
+         * The first was hardcoded `true` while `$changeyear` was declared and never read — a
+         * property that could be set and did nothing. The second did not exist.
+         *
+         * `onChangeMonthYear` is not optional and not behind a flag. Without it the widget can
+         * land on a date that does not exist: pick the 31st, change the month to February, and
+         * the field says `31/02`. What happens next depends on the receiving end — a `strtotime`
+         * rolls it into March, a database refuses it — and neither is what the visitor chose. The
+         * day is clamped to the last one the new month has, which is the only answer that keeps
+         * their intent.
+         *
+         * Written into the input's value rather than through `setDate()`, because `setDate()`
+         * inside this handler re-enters it.
+         */
+        $changeYear  = $this->changeyear ? 'true' : 'false';
+        $changeMonth = $this->changemonth ? 'true' : 'false';
+
         $return .= "
             <script>
             window.addEventListener(\"load\", function () {
             jQuery( \"#" . $this->name . $unique . "_datepicker\" ).datepicker({
                     autoclose: true,
-                    changeYear: true,
-                    yearRange: \"c-250:c+10\",
+                    changeYear: " . $changeYear . ",
+                    changeMonth: " . $changeMonth . ",
+                    yearRange: \"" . (int) $this->minyear . ":" . (int) $this->maxyear . "\",
                     dateFormat: 'dd/mm/yyyy',
                     format: 'dd/mm/yyyy',
+                    onChangeMonthYear: function (year, month, inst) {
+                        var last = new Date(year, month, 0).getDate();
+                        var day = Math.min(inst && inst.selectedDay ? inst.selectedDay : 1, last);
+                        jQuery(this).val(
+                            (day < 10 ? '0' : '') + day + '/'
+                            + (month < 10 ? '0' : '') + month + '/' + year
+                        );
+                    },
             });\n";
 
         if ($this->validate) {
@@ -436,6 +475,33 @@ class Date extends Html
         $return .="\n});\n</script>";
 
 
+        /*
+         * The browser validates this field, because nothing else in the page does.
+         *
+         * `type` stays `text` deliberately: a native `<input type="date">` submits `YYYY-MM-DD`
+         * and every receiving end here parses `dd/mm/yyyy`, so switching it would silently
+         * change the wire format of every form. While it is `text`, `pattern` is the *only*
+         * validation a browser performs — without it the field accepts anything and the first
+         * thing to notice is `strtotime()` on the server, which does not report back to the
+         * person typing.
+         *
+         * The dropdown branch below has had `required`, `min`, `max` and `inputmode` all along.
+         * This branch — the one 77 forms in one application take — had none of them: a required
+         * date field submitted empty with the browser saying nothing.
+         *
+         * `title` goes with `pattern` and is not decoration. Without it the browser says «please
+         * match the requested format» and never says what the format is.
+         */
+        $pattern = '(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[012])/(19|20)\d\d';
+
+        if ($this->onlyyear == true) {
+            // The same allowance the `onlyyear` reader makes: a bare year is a valid entry.
+            $pattern .= '|(19|20)\d\d';
+        }
+
+        $title = $lang->_('Invalid Format') . ' (dd/mm/yyyy, '
+            . (int) $this->minyear . '-' . (int) $this->maxyear . ')';
+
         $return .= '<input type="text" maxlength="10" name="'
             . $name
             . '" id="'
@@ -445,8 +511,16 @@ class Date extends Html
             . $this->class
             . '" data-inputmask="\'alias\': \'dd/mm/yyyy\'" data-mask value="'
             . $value
-            . '"';
+            . '" pattern="' . $pattern . '"'
+            . ' title="' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '"'
+            . ' inputmode="numeric"';
 
+        if ($this->required == true) {
+            $return .= ' required';
+        }
+
+        // `$tabindex` is declared on `Html`, this class's parent, rather than here — it is a
+        // global HTML attribute and every component wants it. Read, not magic.
         if ($this->tabindex != null) {
             $return .=" tabindex=\"".$this->tabindex."\" ";
         }

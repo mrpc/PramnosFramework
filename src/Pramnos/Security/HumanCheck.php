@@ -223,7 +223,14 @@ class HumanCheck
      * a real limitation of those adapters, and an installation using this to do
      * security work should be on Redis or Memcached.
      */
-    private function claim(string $nonce, int $expires): bool
+    /**
+     * `protected`, so the single-use record can be replaced.
+     *
+     * It is the one part of verification that needs a live cache, which makes it the one part a
+     * test cannot exercise without one — and an installation with a different idea of "seen
+     * before" (a shared store across web heads, a table) has somewhere to put it.
+     */
+    protected function claim(string $nonce, int $expires): bool
     {
         $key = 'solved:' . $nonce;
         // Live slightly past the challenge's own expiry, so a replay cannot

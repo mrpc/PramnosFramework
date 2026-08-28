@@ -167,16 +167,121 @@ class AdminerControllerTest extends TestCase
     }
 
     /**
-     * The root usertype is 100, and that is asserted rather than assumed.
+     * The floor is the usertype `Root` actually is.
      *
-     * A floor that drifted down to the administration area's — 80 on a typical deployment —
-     * would be invisible until it mattered: everybody who can open `/admin` would be able to
-     * read and write every row in the database, on production, and nothing about the screen
-     * would look different.
+     * It was 100 — a number no account has, because `UserTypes::DEFAULTS` tops out at 99 — so
+     * the one person this route exists for was refused on production, with the same 404
+     * everybody else gets and no way to tell the two apart.
+     *
+     * Asserted against `UserTypes` rather than repeated as a literal: a scale that gains a rung
+     * must not leave this behind, and the two numbers agreeing by coincidence is exactly how
+     * this went wrong.
      */
-    public function testTheFloorIsRoot(): void
+    public function testTheFloorIsTheUsertypeRootActuallyIs(): void
     {
+        // Arrange — the highest rung the framework ships, ignoring the machine account
+        $rungs = array_diff(
+            array_keys(\Pramnos\User\UserTypes::DEFAULTS),
+            \Pramnos\User\UserTypes::EXACT
+        );
+
         // Act & Assert
-        $this->assertSame(100, Adminer::ROOT_USERTYPE);
+        $this->assertSame(max($rungs), Adminer::ROOT_USERTYPE);
+        $this->assertSame('Root', \Pramnos\User\UserTypes::DEFAULTS[Adminer::ROOT_USERTYPE]);
+
+        // …and an administrator is below it, which is the whole point of the floor
+        $this->assertGreaterThan(90, Adminer::ROOT_USERTYPE);
+    }
+
+    /**
+     * Root does not need the DevPanel feature; the development fallback does.
+     *
+     * Asked directly: «if the devpanel is not enabled, do I have Adminer?» Yes, if you are root —
+     * this is the owner's tool and not a part of that panel, and an installation may well ship
+     * without it. What must *not* survive the feature being off is the other clause, which
+     * borrows the panel's usertype floor: a floor configured for a panel that is not installed
+     * is a number with nothing behind it, and letting a usertype-90 account through on the
+     * strength of it would be a gate configured by accident.
+     *
+     * Asserted on the source of the gate rather than by standing up two applications and a
+     * session: the two branches and the order they are in are the whole behaviour.
+     */
+    public function testRootNeedsNoDevPanelFeatureButTheFallbackDoes(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 4) . '/src/Pramnos/Application/Controllers/Adminer.php'
+        );
+
+        $gate = substr(
+            $source,
+            (int) strpos($source, 'protected function mayOpen'),
+            (int) strpos($source, 'protected static function rootFloor')
+                - (int) strpos($source, 'protected function mayOpen')
+        );
+
+        // Assert — the root check comes first and asks nothing about the feature
+        $rootAt    = strpos($gate, 'static::rootFloor()');
+        $featureAt = strpos($gate, "isEnabled('devpanel')");
+
+        $this->assertIsInt($rootAt);
+        $this->assertIsInt($featureAt);
+        $this->assertLessThan(
+            $featureAt,
+            $rootAt,
+            'a root account must be answered before anything about the DevPanel is asked'
+        );
+
+        // …and the fallback is behind the feature
+        $this->assertStringContainsString("isEnabled('devpanel')", $gate);
+    }
+
+    /**
+     * Adminer's own links stop carrying the database username.
+     *
+     * Adminer identifies a connection in the query string — driver, host, `username`, `db` — so
+     * every link it drew published them into the address bar, the browser history and any log in
+     * between. The password was never there; the rest is still more than a URL should say about
+     * somebody's database.
+     *
+     * Safe to strip *because* of how this route works: the connection comes from the
+     * configuration and is supplied again server-side on every request, so a link without it
+     * lands on the same page. What must survive is navigation — a link that lost `table=` goes
+     * somewhere else — and that is the other half of what this asserts.
+     */
+    public function testTheConnectionIsStrippedFromAdminersOwnLinks(): void
+    {
+        // Arrange
+        $probe = new class extends Adminer {
+            public function __construct()
+            {
+            }
+
+            public function strip(string $html): string
+            {
+                return $this->stripConnectionFromLinks($html);
+            }
+        };
+
+        // Act
+        $stripped = $probe->strip(
+            '<a href="adminer?pgsql=db&amp;username=app_user&amp;db=app_db&amp;table=users">t</a>'
+            . '<form action="adminer?server=db&amp;username=root&amp;db=app_db">'
+            . '<a href="https://www.adminer.org/?v=1">out</a>'
+            . '<a href="adminer?file=static%2Fdefault.css">css</a>'
+        );
+
+        // Assert — the connection is gone
+        $this->assertStringNotContainsString('username=', $stripped);
+        $this->assertStringNotContainsString('app_user', $stripped);
+        $this->assertStringNotContainsString('db=app_db', $stripped);
+        $this->assertStringNotContainsString('pgsql=', $stripped);
+
+        // …navigation is not
+        $this->assertStringContainsString('table=users', $stripped);
+        $this->assertStringContainsString('file=static', $stripped);
+
+        // …and an outbound link is left exactly as Adminer wrote it
+        $this->assertStringContainsString('https://www.adminer.org/?v=1', $stripped);
     }
 }

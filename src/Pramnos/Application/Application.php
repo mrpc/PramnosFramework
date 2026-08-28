@@ -1705,11 +1705,7 @@ class Application extends Base
             if (!headers_sent()) {
                 header("Location: " . $url, true, $code);
             }
-            echo '<script>window.location="'
-                . $url
-                . '"</script>Redirecting. If your browser doesn\'t '
-                . 'redirect, please click '
-                . '<a href="' . $url . '">here</a>.';
+            echo $this->redirectFallback($url);
             if ($quit == true) {
                 $this->closeWithStatus('', (int) $code);
             }
@@ -1719,17 +1715,54 @@ class Application extends Base
             if (!headers_sent()) {
                 header("Location: " . $this->_redirect, true, $code);
             }
-            echo '<script>window.location="'
-                . $this->_redirect
-                . '"</script>Redirecting. If your browser doesn\'t '
-                . 'redirect, please click '
-                . '<a href="' . $this->_redirect . '">here</a>.';
+            echo $this->redirectFallback($this->_redirect);
             if ($quit == true) {
                 $this->closeWithStatus('', (int) $code);
             }
             return true;
         }
         return false;
+    }
+
+    /**
+     * The body of a redirect: the script and the link a visitor falls back to.
+     *
+     * Only reached when the `Location` header could not be sent, which is the case this exists
+     * for — output had already started, so the header is gone and the page has to move the
+     * browser itself.
+     *
+     * **The script carries the request's CSP nonce.** It did not, and the policy this framework
+     * sends is nonce-based, so every such redirect was refused by the browser with
+     * «Executing inline script violates the following Content Security Policy directive» in
+     * the console and nothing at all on the page — the visitor sat on a page that had already
+     * decided to send them somewhere else. The nonce injector could not save it either: that
+     * runs inside the HTML document's own render, and this is echoed straight to the output
+     * stream, outside it.
+     *
+     * The URL is escaped twice over, for the two contexts it lands in. It was interpolated raw
+     * into a JavaScript string literal *and* an HTML attribute: a destination carrying a quote
+     * — a return URL, a filter, anything built from a request — closed the string and the rest
+     * was code.
+     *
+     * @param  string $url Where the visitor is being sent
+     * @return string HTML
+     */
+    protected function redirectFallback(string $url): string
+    {
+        $nonce = (string) ($this->cspNonce ?? '');
+        $attribute = $nonce === ''
+            ? ''
+            : ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"';
+
+        return '<script' . $attribute . '>window.location='
+            // `JSON_UNESCAPED_SLASHES` so the URL stays readable in a view-source; the HEX
+            // flags are what make it safe to sit inside a `<script>` element at all.
+            . json_encode(
+                $url,
+                JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES
+            )
+            . ';</script>Redirecting. If your browser doesn\'t redirect, please click '
+            . '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">here</a>.';
     }
 
     public function setControllerInfo($controllerInfo = array())

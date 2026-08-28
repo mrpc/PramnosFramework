@@ -1471,6 +1471,19 @@ class Document extends \Pramnos\Framework\Base
                     return $matches[0];
                 }
 
+                /*
+                 * A tag that already carries a nonce keeps the one it has.
+                 *
+                 * `humanCheckField()` and a few other helpers emit their own, because they
+                 * write a script outside any document render. Adding a second produced
+                 * `<script nonce="X" nonce="X">` — a duplicate attribute, which is a parse
+                 * error, and a page whose most security-sensitive inline script was the one
+                 * with malformed markup around it.
+                 */
+                if (preg_match('/\bnonce\s*=/i', $matches[1])) {
+                    return $matches[0];
+                }
+
                 return '<script nonce="' . $nonce . '"' . $matches[1] . '>';
             },
             $content

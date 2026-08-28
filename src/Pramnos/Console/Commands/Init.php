@@ -753,7 +753,7 @@ class Init extends Command
             // All tests set skipDockerRun = true; the Docker compose lifecycle (up --build,
             // waitForDatabase, container composer sync, migrate, createAdminUser) is never
             // exercised in the unit test suite.
-            // Pull the image-only services (db, cache, adminer) as an explicit,
+            // Pull the image-only services (db, cache) as an explicit,
             // retryable step *before* building/starting. Large images (e.g.
             // TimescaleDB ~1.4GB) can fail or time out on the first fetch; folding
             // the pull into "up --build" turns such a failure into a confusing
@@ -3367,19 +3367,21 @@ PHP;
 
         $this->scaffoldPalette($appName);
 
-        $pfUtils = $this->scaffoldingDir . '/assets/js/pf-utils.js';
-        if (file_exists($pfUtils)) {
-            $this->writeFile($this->webRoot . '/assets/js/pf-utils.js', file_get_contents($pfUtils));
-        }
-
-        $pfWebauthn = $this->scaffoldingDir . '/assets/js/pf-webauthn.js';
-        if (file_exists($pfWebauthn)) {
-            $this->writeFile($this->webRoot . '/assets/js/pf-webauthn.js', file_get_contents($pfWebauthn));
-        }
-
-        $pfAuth = $this->scaffoldingDir . '/assets/js/pf-auth.js';
-        if (file_exists($pfAuth)) {
-            $this->writeFile($this->webRoot . '/assets/js/pf-auth.js', file_get_contents($pfAuth));
+        /*
+         * Every `pf-*.js`, by glob rather than by name.
+         *
+         * Three were listed here individually, and `pf-humancheck.js` — added later — was not
+         * among them. So a scaffolded project got the markup for the proof-of-work check, the
+         * server-side verification of it, and no script to solve it: the form submitted an
+         * empty solution, the server refused it, and the visitor was told their browser needed
+         * JavaScript. `project:resync --js` had already learned to glob for exactly this
+         * reason; this is the same list, in the place that writes it first.
+         */
+        foreach (glob($this->scaffoldingDir . '/assets/js/pf-*.js') ?: [] as $script) {
+            $this->writeFile(
+                $this->webRoot . '/assets/js/' . basename($script),
+                (string) file_get_contents($script)
+            );
         }
 
         if ($uiSystem === 'bootstrap') {
@@ -5356,12 +5358,19 @@ PHP;
             }
         }
 
-        $toolPort = $port + 1;
-        if ($isPostgres) {
-            $compose .= "  adminer:\n    container_name: {$slug}_adminer\n    image: adminer\n    ports:\n      - \"$toolPort:8080\"\n";
-        } else {
-            $compose .= "  phpmyadmin:\n    container_name: {$slug}_pma\n    image: phpmyadmin/phpmyadmin\n    ports:\n      - \"$toolPort:80\"\n    environment:\n      PMA_HOST: db\n      UPLOAD_LIMIT: 5G\n";
-        }
+        /*
+         * No database-tool container.
+         *
+         * There used to be one — `adminer` for PostgreSQL, `phpmyadmin` for MySQL — on the port
+         * next to the application's. The framework serves Adminer itself now, at `/adminer`,
+         * behind the application's own gate: root usertype on any deployment, or a development
+         * environment subject to the DevPanel's floor, and a 404 for everybody else.
+         *
+         * A second container is worse than redundant. It is a database administration tool on a
+         * published port with no authentication of its own beyond the database password, in a
+         * compose file people copy to servers — and it is the piece nobody remembers is there.
+         * `composer require vrana/adminer` and the route replace it.
+         */
 
         $this->writeFile('docker-compose.yml', $compose);
         $this->ensureHostUserEnv();
@@ -5919,9 +5928,10 @@ BASH;
                 $steps[] = "Development API key (send as the <comment>apiKey</comment> header — already pre-filled in the docs):\n"
                     . "    <comment>$apiKey</comment>";
             }
-            $toolPort = $dockerPort + 1;
-            $toolName = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
-            $steps[] = "Access $toolName at <comment>http://localhost:$toolPort</comment>";
+            // No separate database tool to point at: the framework serves Adminer itself,
+            // behind the application's own gate, once the package is installed.
+            $steps[] = "Database tool: <comment>composer require vrana/adminer</comment>, then "
+                . "<comment>{$appUrl}/adminer</comment> as a root account";
             $steps[] = "Use <comment>./dockerbash</comment> to enter the container";
             $steps[] = "Database:\n    User: <comment>$dbUser</comment> / Pass: <comment>$dbPass</comment>"
                 . ($dbType === 'mysql' ? "\n    Root Pass: <comment>$dbRootPass</comment>" : '');
@@ -6133,12 +6143,9 @@ PHP;
         string $apiPrefix  = '/api/1.0',
         string $appStyle   = 'mvc'
     ): string {
-        $toolPort     = $dockerPort + 1;
-        $toolName     = ($dbType === 'mysql') ? 'PHPMyAdmin' : 'Adminer';
         $featureList  = $enabledFeatures ? implode(', ', $enabledFeatures) : 'none';
         $libList      = $selectedLibraries ? implode(', ', $selectedLibraries) : 'none';
         $appUrl       = $useDocker ? "http://localhost:$dockerPort" : '/';
-        $toolUrl      = $useDocker ? "http://localhost:$toolPort" : '#';
         $apiUrl       = $useDocker ? "http://localhost:$dockerPort" . $apiPrefix : $apiPrefix;
 
         $sections = "<h1>Welcome to $appName</h1>\n<p>Your Pramnos Framework application is ready.</p>\n\n";
@@ -6155,7 +6162,11 @@ PHP;
             if ($withApi) {
                 $sections .= "  <li><a href=\"$apiUrl\">REST API: $apiUrl</a></li>\n";
             }
-            $sections .= "  <li><a href=\"$toolUrl\">$toolName: $toolUrl</a></li>\n";
+            // The database tool is a route on the application now, not a container of its own,
+            // and it needs a package installed and a root account — so it is described rather
+            // than linked, which is the honest thing for a link that would 404 for most people.
+            $sections .= "  <li>Database tool: <code>composer require vrana/adminer</code>, "
+                . "then <a href=\"$appUrl/adminer\">$appUrl/adminer</a> as a root account</li>\n";
             $sections .= "</ul>\n\n";
         }
 

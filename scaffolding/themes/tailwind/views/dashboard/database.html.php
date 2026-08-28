@@ -36,6 +36,18 @@ $fmtBytes = function (int $bytes): string {
                 <?php echo htmlspecialchars($stats['version'], ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php endif; ?>
+        <?php
+        /*
+         * Adminer, for the account that may open it — the controller publishes the URL only for
+         * a root account with the package installed, and null otherwise, so there is no link
+         * here that answers 404. This screen says how big, how busy and how far behind; the
+         * question after that is always about a row.
+         */
+        ?>
+        <?php if (!empty($this->adminerUrl)): ?>
+            <a href="<?php echo htmlspecialchars($this->adminerUrl, ENT_QUOTES, 'UTF-8'); ?>"
+               class="btn btn-sm btn-outline ms-auto">Open in Adminer</a>
+        <?php endif; ?>
         <?php if (!empty($tsData['ts_version'])): ?>
             <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-info/10 text-info">
                 TimescaleDB <?php echo htmlspecialchars($tsData['ts_version'], ENT_QUOTES, 'UTF-8'); ?>
@@ -88,14 +100,32 @@ $fmtBytes = function (int $bytes): string {
                         <th class="px-3 py-2 text-left">Application</th>
                         <th class="px-3 py-2 text-left">IP</th>
                         <th class="px-3 py-2 text-left">Started</th>
-                        <th class="px-3 py-2 text-left">Running</th>
+                        <th class="px-3 py-2 text-left">Running / idle</th>
                         <th class="px-3 py-2 text-left">State</th>
                         <th class="px-3 py-2 text-left">Query</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-base-300">
                 <?php foreach ($processes as $p): ?>
-                    <?php $durSec = (int) ($p['duration_sec'] ?? 0); ?>
+                    <?php
+                    /*
+                     * Two numbers, and `state` says which one is true.
+                     *
+                     * This column read `duration_sec` — `now() - query_start` — for every row,
+                     * idle connections included, where it measures time since that connection
+                     * last ran anything rather than work in progress. A pooled connection idle
+                     * for three hours showed as "194m 6s" in red beside the word `idle`, so the
+                     * screen looked like a stuck query every time it was opened. Two of those
+                     * and nobody reads the column again.
+                     */
+                    $isActive = ($p['state'] ?? '') === 'active';
+                    $activeSec = isset($p['active_sec']) ? (int) $p['active_sec'] : 0;
+                    $idleSec   = isset($p['idle_sec']) ? (int) $p['idle_sec'] : 0;
+                    // A MySQL process list has neither column; `duration_sec` is what it has.
+                    $durSec = $isActive
+                        ? ($activeSec ?: (int) ($p['duration_sec'] ?? 0))
+                        : $idleSec;
+                    ?>
                     <tr class="hover:bg-base-200">
                         <td class="px-3 py-2 font-mono"><?php echo (int) ($p['pid'] ?? 0); ?></td>
                         <td class="px-3 py-2"><?php echo htmlspecialchars($p['usename'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
@@ -105,11 +135,19 @@ $fmtBytes = function (int $bytes): string {
                         <td class="px-3 py-2 text-base-content/60"><?php echo htmlspecialchars($p['backend_start'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td class="px-3 py-2">
                             <?php if ($durSec > 0):
-                                $cls = $durSec > 300 ? 'bg-error/10 text-error' : ($durSec > 60 ? 'bg-warning/10 text-warning' : 'bg-primary/10 text-primary');
+                                // Only a *running* query is worth colouring. An idle connection
+                                // is the normal state of a pool, however long it has been idle.
+                                $cls = !$isActive
+                                    ? 'bg-base-200 text-base-content/60'
+                                    : ($durSec > 300
+                                        ? 'bg-error/10 text-error'
+                                        : ($durSec > 60 ? 'bg-warning/10 text-warning' : 'bg-primary/10 text-primary'));
                                 $min = intdiv($durSec, 60);
                                 $sec = $durSec % 60;
-                                $txt = $min > 0 ? "{$min}m {$sec}s" : "{$durSec}s"; ?>
-                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $cls; ?>"><?php echo $txt; ?></span>
+                                $txt = $min > 0 ? "{$min}m {$sec}s" : "{$durSec}s";
+                                $txt = $isActive ? $txt : 'idle ' . $txt; ?>
+                                <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $cls; ?>"
+                                      title="<?php echo $isActive ? 'How long this query has been running' : 'How long this connection has been idle — normal for a pooled connection'; ?>"><?php echo $txt; ?></span>
                             <?php else: ?>—<?php endif; ?>
                         </td>
                         <td class="px-3 py-2">

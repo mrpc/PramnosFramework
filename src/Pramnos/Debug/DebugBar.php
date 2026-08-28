@@ -182,6 +182,14 @@ class DebugBar
             'status_code'      => (int) (http_response_code() ?: 200),
             'devpanel_enabled' => $this->canAccessDevPanel(),
             'devpanel_url'     => $devPanelUrl,
+            /*
+             * Adminer, when this visitor would actually be served it.
+             *
+             * The toolbar is the one thing on the page a developer already has open, so the
+             * link belongs here too. Null rather than a URL when the package is absent or the
+             * account is below the floor — a link that answers 404 reads as a broken tool.
+             */
+            'adminer_url'      => $this->adminerUrl(),
         ];
 
         // Hex-escaping the four characters that could end the element early means
@@ -321,6 +329,22 @@ HTML;
         }
 
         return $name;
+    }
+
+    /**
+     * `/adminer`, when the route would serve this request, or null.
+     */
+    private function adminerUrl(): ?string
+    {
+        if (!class_exists(\Pramnos\DevPanel\DevPanelController::class)) {
+            return null;
+        }
+
+        try {
+            return \Pramnos\DevPanel\DevPanelController::adminerTabUrl();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

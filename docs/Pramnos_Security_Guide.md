@@ -609,22 +609,63 @@ Three details decide whether this is safe to switch on:
   other hand, fails *open*: if a challenge cannot be created the page still renders, and
   the verification then refuses the submission, which is the same answer arrived at from
   the other end.
-- **A browser that cannot solve it cannot submit the form.** No Web Worker, no
-  `crypto.subtle`, or a page served over plain HTTP where `crypto.subtle` is absent — the
-  client sends an empty solution and the server refuses it. That is the cost in the table,
-  and it is the reason the switch is per form rather than global: pricing registration is
-  usually worth it, pricing sign-in locks out whoever is on the wrong browser.
+- **Any browser with JavaScript can solve it.** There are four paths and they all produce
+  the same answer:
+
+  | | Hash | Where |
+  | --- | --- | --- |
+  | 1 | `crypto.subtle` | a Web Worker |
+  | 2 | this framework's own SHA-256 | a Web Worker |
+  | 3 | `crypto.subtle` | the main thread |
+  | 4 | this framework's own SHA-256 | the main thread, in slices |
+
+  Paths 2 and 4 exist because **`crypto.subtle` is only available in a secure context** —
+  HTTPS, or localhost. A site reached over plain HTTP by hostname or LAN address (a staging
+  box, a colleague's machine, a tablet on the office network) has none of it, and until those
+  paths existed the check could not be solved there at all: the form submitted an empty
+  solution, the server refused it, and the visitor read "your browser must support
+  JavaScript" while using a browser that supported it perfectly well. It happened on a login
+  form.
+
+  Hashing in JavaScript is slower for the same difficulty, which is the right trade — a slow
+  sign-in beats a sign-in that cannot happen. On the main thread the search is sliced with
+  `setTimeout` so the tab keeps responding.
+
+  What is left over is a browser with **JavaScript switched off**, which submits an empty
+  solution and is refused. That one cannot be otherwise: the check *is* the JavaScript, and
+  letting a request through because it claimed to have none would make the check bypassable
+  by saying so.
 
 **The signing key needs no setting up.** `securitySalt` is used when the installation has
 one; otherwise the class generates 32 random bytes on first use and keeps them in the
 `humancheck_secret` setting. It does not write `securitySalt` itself — that value salts
 stored passwords, and filling it in would change how every existing password verifies.
 
-**The worker needs `blob:` in `worker-src`**, which the framework's default policy now
-allows. `pf-humancheck.js` builds its solver from a Blob rather than a published file, so
-adopting the check is one script tag; under `worker-src 'self'` alone the browser refuses
-the worker and the form cannot be submitted at all. A project that writes its own policy
-instead of the framework's has to allow it there.
+**The worker wants `blob:` in `worker-src`**, which the framework's default policy allows.
+`pf-humancheck.js` builds its solver from a Blob rather than a published file, so adopting the
+check is one script tag. Under `worker-src 'self'` alone the browser refuses the worker — which
+is no longer fatal: the client falls back to solving on the main thread. It is slower, so a
+project writing its own policy should still allow it.
+
+### The client and the server agree, and that is a test
+
+They have to match byte for byte: the payload with the signature stripped, `:` between payload
+and candidate, SHA-256, leading-zero *bits*, and base-36 for the candidate. Any one of those
+being wrong looks identical from production — a refused login, blamed on the browser.
+
+So it is not a claim. `HumanCheckClientAgreementTest` loads
+`scaffolding/assets/js/pf-humancheck.js` — the exact bytes a browser is served — under **Node**,
+runs it down all four paths with the capabilities of each withheld the way an old browser
+withholds them, and verifies every answer with `HumanCheck::verify()`. The pure-JS SHA-256 is
+compared against a real one over empty input, ASCII, a long string, Greek text and an emoji
+(surrogate pairs and multi-byte UTF-8, which is where a hand-written encoder goes wrong).
+
+Change the separator in that file by one character and five of its six tests fail. Without Node
+on the machine the test skips, loudly — run it somewhere with Node before shipping a change to
+that file.
+
+**Do not reimplement the hash to test it.** A PHP copy of the algorithm agrees with itself and
+proves nothing; the only useful assertion is the one that makes the shipped client do the job.
 
 The view side is one line, `humanCheckField()`:
 

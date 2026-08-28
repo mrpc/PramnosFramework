@@ -32,16 +32,36 @@ class DatabaseInspector
     {
         try {
             if ($this->db->type === 'postgresql') {
+                /*
+                 * `active_sec` and `idle_sec`, because `state` decides which number means
+                 * anything.
+                 *
+                 * `duration_sec` was `now() - query_start` for every row, idle ones included —
+                 * where it measures time since the connection last ran anything, not work in
+                 * progress. A pooled connection sitting idle for three hours was reported as
+                 * running for 194 minutes, in red, so the screen looked like a stuck query every
+                 * time somebody opened it. Two of those and nobody reads the column again.
+                 *
+                 * `active_sec` is the running query's own age and is null unless the backend is
+                 * running one. `idle_sec` is how long it has been idle. `duration_sec` stays for
+                 * anything already reading it.
+                 */
                 $r = $this->db->query(
                     "SELECT pid, usename, datname, application_name,
                             client_addr::text AS client_addr,
                             state, wait_event_type, wait_event,
                             to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS') AS backend_start,
+                            CASE WHEN state = 'active'
+                                THEN EXTRACT(EPOCH FROM (now() - query_start))::int
+                            END AS active_sec,
+                            CASE WHEN state <> 'active'
+                                THEN EXTRACT(EPOCH FROM (now() - state_change))::int
+                            END AS idle_sec,
                             EXTRACT(EPOCH FROM (now() - query_start))::int AS duration_sec,
                             left(query, 200) AS query
                      FROM pg_stat_activity
                      WHERE datname = current_database() AND pid <> pg_backend_pid()
-                     ORDER BY duration_sec DESC NULLS LAST
+                     ORDER BY (state = 'active') DESC, duration_sec DESC NULLS LAST
                      LIMIT 50"
                 );
             } else {
