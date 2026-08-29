@@ -445,10 +445,18 @@ that one reaches every person on the list.
 | --- | --- | --- |
 | `TYPE_EMAIL` | one email per recipient, in the recipient's language and this installation's wrapper | the mailer refused it |
 | `TYPE_MESSAGE` | a row in `messages` — the account's own inbox | the write failed |
-| `TYPE_PUSH` | nothing; the framework has no push transport | every recipient, so it is visible |
+| `TYPE_PUSH` | one web push per subscribed browser ([guide](Pramnos_Push_Guide.md)) | no browser is subscribed |
 
-Push is refused rather than skipped. An operator who chose it is owed "there is no transport
-for this", not a message that reports itself sent to nobody.
+**An account with no subscription is a failure, not a skip.** It is the ordinary case — most
+accounts have never granted notification permission — and recording it as delivered would leave
+an operator reading "4,812 delivered" about a message that reached forty people. The same is
+true of an installation with no VAPID pair or no encryption library: it is checked before the
+send rather than left to the channel, which logs and returns, so every recipient of a message
+that was never encrypted would otherwise be recorded as delivered.
+
+Somebody who unsubscribed is the exception, and is recorded as **delivered**: the recipient row
+is a record of what happened to a person, and "we honoured their request" is not a failure to
+retry on the next run.
 
 ### The audience is resolved once
 
@@ -457,9 +465,36 @@ Criteria are stored on the message (`request`, as JSON); the list they meant is 
 created after somebody approved the send and drop the ones deleted since — so the recipients
 would stop matching what was approved.
 
-`usertype_min`, `validated_only` and `active_only`, all defaulting to "every account that can
-actually receive something". An application with its own idea of an audience hands
-`queue()` its own list of ids instead.
+| Criterion | What it selects |
+| --- | --- |
+| `usertype_min` / `usertype_max` | a band. A ceiling matters: with a floor alone, "everybody below staff" can only be written as "everybody", which also reaches the operators |
+| `validated_only`, `active_only` | on by default — a validated address is the difference between a send and a bounce, and an inactive account is one somebody switched off |
+| `language` | the **account's** language. A message in Greek sent to everybody also reaches the people who set their account to English, and they cannot read it |
+| `twofactor` | `with` or `without`. Fails closed: on an installation with no `authserver`, "holding a second factor" is nobody, not everybody |
+| `last_login_after` / `last_login_before` | the active and the dormant audience. An account that never signed in has `lastlogin = 0`, so it is in the dormant one — which is the correct answer to that question |
+| `exclude_optouts` | a list name. They are skipped at delivery either way; naming it here is what makes the **count** honest |
+
+The last one is worth dwelling on. The compose screen counts the audience **before** anybody
+presses send, because a count is the one number that changes an operator's mind — and a count
+that includes nine hundred people who unsubscribed changes it in the wrong direction. An
+opt-out from `all` counts for every list: somebody who pressed "stop sending me anything" is not
+asking to stay on the announcements list.
+
+An application with its own idea of an audience hands `queue()` its own list of ids instead.
+
+### The send options travel with the criteria
+
+A campaign can also carry a wrapper, an unsubscribe list, open/click tracking and a Gmail
+action — the same options the [single-account screen](#a-message-to-one-account) offers, and
+they matter more here: a wrapper wrong on one message is a mistake, and wrong on forty thousand
+is the send.
+
+They are stored under `options` inside the same `request` JSON, because they are part of the
+same decision and a column per option is a migration every time somebody adds one. A row
+written before they existed has no `options` key and reads as none.
+
+**Tracking gets its own id per recipient.** One id for the campaign would count the first open
+out of forty thousand people as an open, and nothing after it.
 
 The compose screen counts the audience **before** anybody presses send, because a count is
 the one number that changes an operator's mind, and it is exactly the number nobody has when

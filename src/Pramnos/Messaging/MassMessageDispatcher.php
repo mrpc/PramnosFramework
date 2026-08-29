@@ -33,11 +33,15 @@ use Pramnos\Database\Database;
  * | --- | --- | --- |
  * | `TYPE_EMAIL` | one email per recipient, through the configured wrapper | the mailer refused it |
  * | `TYPE_MESSAGE` | a row in `messages`, which is the account's own inbox | the write failed |
- * | `TYPE_PUSH` | nothing — the framework has no push transport | every recipient, with a reason |
+ * | `TYPE_PUSH` | one web push per subscribed browser | no browser is subscribed |
  *
- * Push is refused rather than silently skipped. An operator who chose it is owed the
- * answer "there is no transport for this", not a message that reports itself sent to
- * nobody.
+ * An account with no subscription is a **failure**, not a skip. It is the ordinary case —
+ * most accounts have never granted permission — and recording it as delivered would leave
+ * an operator reading "4,812 delivered" about a message that reached forty people.
+ *
+ * The exception is somebody who unsubscribed: that recipient is recorded as **delivered**,
+ * because the row is a record of what happened to a person and "we honoured their request"
+ * is not a failure to retry on the next run.
  *
  * ## Scheduling
  *
@@ -215,9 +219,114 @@ class MassMessageDispatcher
         return match ($type) {
             MassMessage::TYPE_MESSAGE => $this->deliverAsMessage($message, $userId),
             MassMessage::TYPE_EMAIL   => $this->deliverAsEmail($message, $userId),
-            // No transport, so no pretending. See the class docblock.
+            MassMessage::TYPE_PUSH    => $this->deliverAsPush($message, $userId),
+            // A type nobody implemented. No pretending. See the class docblock.
             default                   => false,
         };
+    }
+
+    /**
+     * The options an operator chose when composing, out of the stored request.
+     *
+     * `massmessages.request` is the audit record of what was asked for, so the send options
+     * live there beside the audience criteria rather than in columns of their own: they are
+     * part of the same decision, and a column per option is a migration every time somebody
+     * adds one.
+     *
+     * @param  array<string, mixed> $message
+     * @return array<string, mixed>
+     */
+    protected function optionsOf(array $message): array
+    {
+        $request = $message['request'] ?? null;
+
+        if (is_string($request)) {
+            $request = json_decode($request, true);
+        }
+
+        return is_array($request) ? (array) ($request['options'] ?? []) : [];
+    }
+
+    /**
+     * Can this installation send a web push at all?
+     *
+     * Checked here rather than left to the channel, because the channel logs and returns:
+     * `sendNow()` tells a caller nothing, so without this every recipient of a message that was
+     * never encrypted — no key pair, no library — would be recorded as **delivered**. That is
+     * the one report this class must never produce, and no screen would contradict it.
+     */
+    protected function canPush(): bool
+    {
+        return \Pramnos\Push\Vapid::configured()
+            && class_exists(ltrim(\Pramnos\Notification\Channels\PushChannel::LIBRARY, '\\'));
+    }
+
+    /** A seam, so a test can watch what was dispatched without a push service. */
+    protected function notifier(): \Pramnos\Notification\Notifier
+    {
+        return new \Pramnos\Notification\Notifier();
+    }
+
+    /** The same, for mail: a test can assert what a campaign composes without an SMTP server. */
+    protected function mailer(): \Pramnos\Email\Email
+    {
+        return new \Pramnos\Email\Email();
+    }
+
+    /**
+     * Push it to every browser this account has subscribed.
+     *
+     * The body is the mail body, and `Message` strips it to one readable line — a push is two
+     * lines on a lock screen, and handed HTML it shows the tags.
+     *
+     * @param array<string, mixed> $message
+     */
+    protected function deliverAsPush(array $message, int $userId): bool
+    {
+        if (!$this->canPush()) {
+            return false;
+        }
+
+        if (\Pramnos\Push\Subscriptions::forUser($userId) === []) {
+            /*
+             * No subscribed browser. A failure rather than a skip, and deliberately so.
+             *
+             * Most accounts have never granted notification permission, so this is the common
+             * case — and counting it as delivered would report a send of four thousand about a
+             * message that reached forty people.
+             */
+            return false;
+        }
+
+        $options = $this->optionsOf($message);
+
+        $notification = (new \Pramnos\Notification\Message(
+            (string) ($message['subject'] ?? ''),
+            (string) ($message['message'] ?? '')
+        ))->to('push');
+
+        $url = trim((string) ($options['link'] ?? ''));
+
+        if ($url !== '') {
+            $notification->link($url);
+        }
+
+        // One tag per campaign: a person who is sent two announcements sees two notifications,
+        // and a person whose device receives the same one twice sees one.
+        $notification->pushOptions(['tag' => 'massmessage-' . (int) ($message['messageid'] ?? 0)]);
+
+        try {
+            $this->notifier()->sendNow(new \Pramnos\User\User($userId), $notification);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'MassMessageDispatcher could not push to ' . $userId . ': ' . $exception->getMessage(),
+                'messaging'
+            );
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -246,23 +355,67 @@ class MassMessageDispatcher
             return false;
         }
 
-        if (\Pramnos\Email\Unsubscribe::isOptedOut((string) $user->email, static::UNSUBSCRIBE_LIST)) {
+        $options = $this->optionsOf($message);
+        $list    = trim((string) ($options['list'] ?? '')) ?: static::UNSUBSCRIBE_LIST;
+
+        if (\Pramnos\Email\Unsubscribe::isOptedOut((string) $user->email, $list)) {
             return true;
         }
 
         return (bool) \Pramnos\Translator\Language::using(
             trim((string) $user->language),
-            function () use ($message, $user): bool {
-                $mailer = new \Pramnos\Email\Email();
+            function () use ($message, $user, $options, $list): bool {
+                $mailer = $this->mailer();
                 $mailer->subject = (string) ($message['subject'] ?? '');
                 $mailer->body    = (string) ($message['message'] ?? '');
                 $mailer->to      = (string) $user->email;
                 $mailer->module  = 'massmessage';
-                $mailer->offerUnsubscribe(static::UNSUBSCRIBE_LIST, (string) $user->email);
+                $mailer->offerUnsubscribe($list, (string) $user->email);
+
+                $this->applyOptions($mailer, $options);
 
                 return (bool) $mailer->send();
             }
         );
+    }
+
+    /**
+     * The composer's mail options, applied to one recipient's message.
+     *
+     * A wrapper, open/click tracking and a Gmail action — the same three the single-account
+     * screen offers, because a campaign is where they actually matter: a wrapper wrong on one
+     * message is a mistake, and wrong on forty thousand is the send.
+     *
+     * Tracking is asked for per recipient, and gets its own id per recipient, because that is
+     * what makes the numbers mean anything: one id for the campaign would count one open from
+     * forty thousand people as an open, and nothing else.
+     *
+     * @param array<string, mixed> $options
+     */
+    protected function applyOptions(\Pramnos\Email\Email $mailer, array $options): void
+    {
+        if (array_key_exists('template', $options)) {
+            // `''` is "no wrapper for this one", which is not the same answer as "the
+            // installation's default" — hence the key test rather than a truthiness test.
+            $template = $options['template'];
+            $mailer->setTemplate($template === null ? null : (string) $template);
+        }
+
+        if (!empty($options['tracking'])) {
+            $mailer->enableTracking();
+        }
+
+        $action = trim((string) ($options['action_type'] ?? ''));
+        $name   = trim((string) ($options['action_name'] ?? ''));
+        $url    = trim((string) ($options['action_url'] ?? ''));
+
+        if ($action !== '' && $name !== '' && filter_var($url, FILTER_VALIDATE_URL) !== false) {
+            $mailer->addStructuredData(match ($action) {
+                'confirm' => \Pramnos\Email\Actions::confirm($name, $url),
+                'save'    => \Pramnos\Email\Actions::save($name, $url),
+                default   => \Pramnos\Email\Actions::view($name, $url),
+            });
+        }
     }
 
     /**

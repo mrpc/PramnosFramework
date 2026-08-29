@@ -160,6 +160,10 @@ class MassMessagesController extends Controller
         $view->message     = $message->getData();
         $view->types       = self::TYPES;
         $view->criteria    = $criteria;
+        $view->options     = $this->optionsOf($message);
+        $view->languages   = $this->audienceLanguages();
+        $view->templates   = $this->mailTemplates();
+        $view->tracking    = \Pramnos\Email\Tracking::enabled();
         // Before anybody presses send, not after.
         $view->audienceSize = (new MassMessageAudience())->count($criteria);
 
@@ -199,11 +203,8 @@ class MassMessagesController extends Controller
             return;
         }
 
-        $criteria = [
-            'usertype_min'   => max(0, (int) $request->get('usertype_min', 0, 'post', 'int')),
-            'validated_only' => (bool) $request->get('validated_only', 0, 'post', 'int'),
-            'active_only'    => (bool) $request->get('active_only', 0, 'post', 'int'),
-        ];
+        $criteria = $this->criteriaFrom($request);
+        $options  = $this->optionsFrom($request);
 
         $scheduled = trim((string) $request->get('scheduled', '', 'post'));
         $scheduled = $scheduled === '' ? 0 : (int) strtotime($scheduled);
@@ -224,8 +225,10 @@ class MassMessagesController extends Controller
         }
 
         // The criteria, not the list: what somebody decided belongs in the audit trail, and
-        // what it meant at queue time belongs in the recipient rows.
-        $message->request = json_encode($criteria, JSON_UNESCAPED_SLASHES);
+        // what it meant at queue time belongs in the recipient rows. The send options sit
+        // beside them under their own key — same decision, same record — which is also what
+        // keeps a row written before they existed readable: no key, no options.
+        $message->request = $this->requestJson($criteria, $options);
 
         try {
             $message->save();
@@ -347,6 +350,88 @@ class MassMessagesController extends Controller
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /**
+     * The audience criteria out of the compose form.
+     *
+     * A method rather than eight lines inside `save()`, because these are the decisions worth
+     * asserting on their own: each one silently selects a different set of people.
+     *
+     * @return array<string, mixed>
+     */
+    protected function criteriaFrom(\Pramnos\Http\Request $request): array
+    {
+        $criteria = array_filter([
+            'usertype_min'   => max(0, (int) $request->get('usertype_min', 0, 'post', 'int')),
+            'usertype_max'   => max(0, (int) $request->get('usertype_max', 0, 'post', 'int')),
+            'language'       => trim((string) $request->get('language', '', 'post')),
+            'twofactor'      => trim((string) $request->get('twofactor', '', 'post')),
+            'last_login_after'  => $this->timestampOf((string) $request->get('last_login_after', '', 'post')),
+            'last_login_before' => $this->timestampOf((string) $request->get('last_login_before', '', 'post')),
+            // The audience that will actually be mailed, not the one that would have been.
+            // Left in, the count promises an operator several hundred people who unsubscribed
+            // and will be skipped at delivery — and the count is the number that decides
+            // whether the send happens at all.
+            'exclude_optouts' => trim((string) $request->get('exclude_optouts', '', 'post')),
+        ], static fn ($value): bool => $value !== '' && $value !== 0);
+
+        /*
+         * The two booleans are written after the filter, not through it.
+         *
+         * Their `false` is meaningful — "include unvalidated accounts" — and `array_filter`
+         * drops it, which would silently restore the default of excluding them.
+         */
+        $criteria['validated_only'] = (bool) $request->get('validated_only', 0, 'post', 'int');
+        $criteria['active_only']    = (bool) $request->get('active_only', 0, 'post', 'int');
+
+        return $criteria;
+    }
+
+    /**
+     * The send options out of the compose form.
+     *
+     * @return array<string, mixed>
+     */
+    protected function optionsFrom(\Pramnos\Http\Request $request): array
+    {
+        $options = array_filter([
+            'link'        => trim((string) $request->get('link', '', 'post')),
+            'list'        => trim((string) $request->get('list', '', 'post')),
+            'tracking'    => (bool) $request->get('tracking', 0, 'post', 'int'),
+            'action_type' => trim((string) $request->get('action_type', '', 'post')),
+            'action_name' => trim((string) $request->get('action_name', '', 'post')),
+            'action_url'  => trim((string) $request->get('action_url', '', 'post')),
+        ], static fn ($value): bool => $value !== '' && $value !== false);
+
+        $template = $request->get('template', '__default__', 'post');
+
+        if ((string) $template !== '__default__') {
+            // `''` is a real answer — no wrapper for this campaign — so it is stored as one
+            // rather than filtered away with the empty strings above.
+            $options['template'] = (string) $template;
+        }
+
+        return $options;
+    }
+
+    /**
+     * The audit record of one composed message: what it was aimed at, and how it was sent.
+     *
+     * The options sit under their own key inside the criteria rather than beside them, so a row
+     * written before they existed — which is every mass message already in an installation's
+     * table — has no `options` key and reads as none. A campaign that chose nothing writes no
+     * key at all, because an empty object in the record reads as a decision somebody made.
+     *
+     * @param array<string, mixed> $criteria
+     * @param array<string, mixed> $options
+     */
+    protected function requestJson(array $criteria, array $options): string
+    {
+        return (string) json_encode(
+            $options === [] ? $criteria : $criteria + ['options' => $options],
+            JSON_UNESCAPED_SLASHES
+        );
+    }
+
+    /**
      * The audience criteria stored with a message, or the defaults.
      *
      * `request` is a JSON column the model documents as "the originating API request", and
@@ -360,7 +445,101 @@ class MassMessagesController extends Controller
     {
         $decoded = json_decode((string) ($message->request ?? ''), true);
 
-        return is_array($decoded) ? $decoded : [];
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        unset($decoded['options']);
+
+        return $decoded;
+    }
+
+    /**
+     * The send options stored with a message, or none.
+     *
+     * @return array<string, mixed>
+     */
+    protected function optionsOf(MassMessage $message): array
+    {
+        $decoded = json_decode((string) ($message->request ?? ''), true);
+
+        return is_array($decoded) ? (array) ($decoded['options'] ?? []) : [];
+    }
+
+    /**
+     * A date from the form as a timestamp, or 0.
+     *
+     * `strtotime()` reads a slash-separated date as American month-first, so `03/04/2026` is
+     * March on a screen that said April. The form fields are `<input type="date">`, which
+     * posts ISO — this only has to refuse anything that is not.
+     */
+    protected function timestampOf(string $value): int
+    {
+        $value = trim($value);
+
+        if ($value === '' || !preg_match('~^\d{4}-\d{2}-\d{2}$~', $value)) {
+            return 0;
+        }
+
+        $stamp = strtotime($value);
+
+        return $stamp === false ? 0 : $stamp;
+    }
+
+    /**
+     * The languages accounts actually have, for the audience filter.
+     *
+     * Read from `users` rather than from the installation's catalogue: a language nobody has
+     * set is an audience of nobody, and offering it invites an operator to compose a message
+     * and then wonder why the count is zero.
+     *
+     * @return list<string>
+     */
+    protected function audienceLanguages(): array
+    {
+        $languages = [];
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#users')
+                ->select(['language'])
+                ->groupBy('language')
+                ->get();
+
+            while (($row = $result->fetch()) !== null) {
+                $language = trim((string) ($row['language'] ?? ''));
+
+                if ($language !== '') {
+                    $languages[] = $language;
+                }
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        sort($languages);
+
+        return $languages;
+    }
+
+    /**
+     * The mail wrappers this installation can render, by name.
+     *
+     * @return list<string>
+     */
+    protected function mailTemplates(): array
+    {
+        $names = [];
+
+        foreach (\Pramnos\Email\EmailTheme::directories() as $directory) {
+            foreach ((array) @glob($directory . DIRECTORY_SEPARATOR . '*.html.php') as $file) {
+                $names[basename((string) $file, '.html.php')] = true;
+            }
+        }
+
+        ksort($names);
+
+        return array_keys($names);
     }
 
     /**

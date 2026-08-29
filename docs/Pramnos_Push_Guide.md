@@ -345,5 +345,6 @@ happened.
 
 - [Service Worker Guide](Pramnos_Service_Worker_Guide.md) — registering one, and the caching it also does
 - [Realtime Guide](Pramnos_Realtime_Guide.md) — SSE and WebSockets, for when the page is open
+- [Email Guide → a message to many accounts](Pramnos_Email_Guide.md#a-message-to-many-accounts) — pushing a campaign, and the audience filters
 - [Queue Guide](Pramnos_Queue_Guide.md) — sending a large batch off the request
 - [Email Guide](Pramnos_Email_Guide.md) — the other channel that reaches somebody who is not here

@@ -6,6 +6,10 @@
  *   $this->message      — the row being edited, empty for a new one
  *   $this->types        — channel number => label
  *   $this->criteria     — the stored audience criteria
+ *   $this->options      — the stored send options (wrapper, list, tracking, action)
+ *   $this->languages    — the languages accounts actually have
+ *   $this->templates    — the mail wrappers this installation can render
+ *   $this->tracking     — whether open/click tracking is switched on at all
  *   $this->audienceSize — how many accounts those criteria match, right now
  *
  * The count is on the form on purpose. It is the one number that changes an operator's
@@ -20,6 +24,11 @@ $message  = is_array($this->message ?? null) ? $this->message : [];
 $types    = is_array($this->types ?? null) ? $this->types : [];
 $criteria = is_array($this->criteria ?? null) ? $this->criteria : [];
 $size     = (int) ($this->audienceSize ?? 0);
+$options   = is_array($this->options ?? null) ? $this->options : [];
+$languages = is_array($this->languages ?? null) ? $this->languages : [];
+$templates = is_array($this->templates ?? null) ? $this->templates : [];
+$tracking  = (bool) ($this->tracking ?? false);
+$day       = static fn ($stamp): string => (int) $stamp > 0 ? date('Y-m-d', (int) $stamp) : '';
 $id       = (int) ($message['messageid'] ?? 0);
 $e        = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked' : '';
@@ -52,9 +61,11 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 </select>
                 <p class="text-xs text-muted mt-1">
                     Email goes out through this installation's wrapper, in each recipient's own
-                    language. An internal message lands in the account's inbox. Push has no
-                    transport in the framework and every recipient is recorded as failed —
-                    which is the honest answer rather than a message that reports itself sent.
+                    language. An internal message lands in the account's inbox. Push reaches every
+                    browser that subscribed — and an account with none is recorded as
+                    <em>failed</em>, because most accounts have never granted permission and
+                    counting those as delivered would report a send of thousands about a
+                    message that reached dozens.
                 </p>
             </div>
 
@@ -72,6 +83,61 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
             <div class="d-flex align-items-baseline gap-3">
                 <h3 class="font-medium">Audience</h3>
                 <span class="badge bg-primary"><?php echo number_format($size); ?> account(s)</span>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="usertype_max">Usertype ceiling</label>
+                    <input type="number" name="usertype_max" id="usertype_max" min="0" max="99"
+                           class="form-control form-control-sm"
+                           value="<?php echo (int) ($criteria['usertype_max'] ?? 0); ?>">
+                    <p class="text-xs text-muted mt-1">
+                        0 for no ceiling. With a floor alone, "everybody below staff" can only be
+                        written as "everybody" — which also reaches the operators.
+                    </p>
+                </div>
+
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="language">Language</label>
+                    <select name="language" id="language" class="form-select form-select-sm">
+                        <option value="">Any</option>
+                        <?php foreach ($languages as $language): ?>
+                            <option value="<?php echo $e($language); ?>"
+                                <?php echo ($criteria['language'] ?? '') === $language ? 'selected' : ''; ?>>
+                                <?php echo $e($language); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="text-xs text-muted mt-1">
+                        The account's language, not yours. One message per language, each to its
+                        own audience, is the only honest way to write this.
+                    </p>
+                </div>
+
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="twofactor">Second factor</label>
+                    <select name="twofactor" id="twofactor" class="form-select form-select-sm">
+                        <option value="">Any</option>
+                        <option value="with" <?php echo ($criteria['twofactor'] ?? '') === 'with' ? 'selected' : ''; ?>>Holds one</option>
+                        <option value="without" <?php echo ($criteria['twofactor'] ?? '') === 'without' ? 'selected' : ''; ?>>Does not</option>
+                    </select>
+                </div>
+
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="last_login_after">Signed in after</label>
+                    <input type="date" name="last_login_after" id="last_login_after" class="form-control form-control-sm"
+                           value="<?php echo $e($day($criteria['last_login_after'] ?? 0)); ?>">
+                </div>
+
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="last_login_before">Not signed in since</label>
+                    <input type="date" name="last_login_before" id="last_login_before" class="form-control form-control-sm"
+                           value="<?php echo $e($day($criteria['last_login_before'] ?? 0)); ?>">
+                    <p class="text-xs text-muted mt-1">
+                        The dormant audience. An account that never signed in at all is in it —
+                        that is the most dormant an account can be.
+                    </p>
+                </div>
             </div>
 
             <div>
@@ -97,11 +163,106 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 Active accounts only
             </label>
 
+            <div>
+                <label class="block text-sm font-medium mb-1" for="exclude_optouts">Exclude anyone who unsubscribed from</label>
+                <input type="text" name="exclude_optouts" id="exclude_optouts" class="form-control form-control-sm"
+                       placeholder="massmessages"
+                       value="<?php echo $e((string) ($criteria['exclude_optouts'] ?? '')); ?>">
+                <p class="text-xs text-muted mt-1">
+                    They are skipped at delivery either way. Naming the list here is what makes
+                    the <strong>count</strong> honest — and the count is the number that decides
+                    whether the send happens at all.
+                </p>
+            </div>
+
             <p class="text-xs text-muted">
                 The count above is what these criteria match now. The audience is resolved
                 once, when the message is queued — so it cannot quietly grow to include
                 accounts created after somebody approved the send.
             </p>
+        </div>
+
+        <div class="card p-3 mb-3">
+            <h3 class="fw-medium">Message options</h3>
+
+            <div>
+                <label class="block text-sm font-medium mb-1" for="link">Link</label>
+                <input type="url" name="link" id="link" class="form-control form-control-sm" placeholder="https://"
+                       value="<?php echo $e((string) ($options['link'] ?? '')); ?>">
+                <p class="text-xs text-muted mt-1">Where a push notification opens.</p>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="template">Wrapper</label>
+                    <?php $chosen = array_key_exists('template', $options) ? (string) $options['template'] : '__default__'; ?>
+                    <select name="template" id="template" class="form-select form-select-sm">
+                        <option value="__default__" <?php echo $chosen === '__default__' ? 'selected' : ''; ?>>The installation's default</option>
+                        <option value="" <?php echo $chosen === '' ? 'selected' : ''; ?>>None — send the body bare</option>
+                        <?php foreach ($templates as $template): ?>
+                            <option value="<?php echo $e($template); ?>" <?php echo $chosen === $template ? 'selected' : ''; ?>>
+                                <?php echo $e($template); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="col-sm-6">
+                    <label class="block text-sm font-medium mb-1" for="list">Unsubscribe list</label>
+                    <input type="text" name="list" id="list" class="form-control form-control-sm" placeholder="massmessages"
+                           value="<?php echo $e((string) ($options['list'] ?? '')); ?>">
+                    <p class="text-xs text-muted mt-1">
+                        What a reader is unsubscribing <em>from</em>. Empty means the shared
+                        `massmessages` list — one button, no more announcements.
+                    </p>
+                </div>
+            </div>
+
+            <label class="form-check">
+                <input type="checkbox" name="tracking" value="1" class="form-check-input"
+                       <?php echo $tracking ? '' : 'disabled'; ?>
+                       <?php echo !empty($options['tracking']) ? 'checked' : ''; ?>>
+                <span>
+                    Track opens and clicks
+                    <span class="text-xs text-muted">
+                        <?php if ($tracking): ?>
+                            One tracking id per recipient, so the numbers mean something. Opens are
+                            inflated by mail clients that prefetch images; clicks are people.
+                        <?php else: ?>
+                            Switched off for this installation.
+                        <?php endif; ?>
+                    </span>
+                </span>
+            </label>
+
+            <div>
+                <label class="block text-sm font-medium mb-1">Gmail action</label>
+                <div class="row g-3">
+                    <div class="col-sm-4">
+                        <select name="action_type" class="form-select form-select-sm">
+                            <?php foreach (['' => 'No action', 'view' => 'View', 'confirm' => 'Confirm', 'save' => 'Save'] as $value => $label): ?>
+                                <option value="<?php echo $e($value); ?>"
+                                    <?php echo (string) ($options['action_type'] ?? '') === $value ? 'selected' : ''; ?>>
+                                    <?php echo $e($label); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-sm-4">
+                        <input type="text" name="action_name" class="form-control form-control-sm" placeholder="Button text" maxlength="60"
+                               value="<?php echo $e((string) ($options['action_name'] ?? '')); ?>">
+                    </div>
+                    <div class="col-sm-4">
+                        <input type="url" name="action_url" class="form-control form-control-sm" placeholder="https://"
+                               value="<?php echo $e((string) ($options['action_url'] ?? '')); ?>">
+                    </div>
+                </div>
+                <p class="text-xs text-muted mt-1">
+                    The same URL for everybody, so this is for a page rather than for anything
+                    carrying a per-recipient token. <strong>Confirm</strong> must act on the first
+                    request, with no page and no login — Gmail's server follows it.
+                </p>
+            </div>
         </div>
 
         <div class="card p-3 mb-3">
