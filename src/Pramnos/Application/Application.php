@@ -1252,6 +1252,20 @@ class Application extends Base
             'user.messages', 'Messages', $base . 'messages',
             NavSection::User, 5, requireAuth: true, feature: 'messaging',
             icon: 'mail',
+            /*
+             * The unread count, beside the label.
+             *
+             * `unreadCount()` had existed since the inbox screen shipped and had exactly one
+             * caller — the inbox itself, which is the one screen where the number is redundant.
+             * Somebody with an unread message had no way of knowing unless they went looking,
+             * which for a message somebody sent them is the whole problem.
+             *
+             * A closure, so it is resolved when a page is rendered rather than when the
+             * navigation is registered: a count read at boot is the count as it was when the
+             * process started, which for this is always wrong.
+             */
+            badge: static fn (int $userId): int
+                => \Pramnos\Messaging\Controllers\MessagesController::unreadCount($userId),
         ));
         NavRegistry::register(new NavItem(
             'user.logout', 'Logout', $base . 'login/logout',

@@ -439,6 +439,43 @@ and its docblock is worth quoting because the edge case is the whole design:
 A menu that vanished because nobody had granted anything yet would look like a broken
 install, which is exactly what happened before the framework had a permission system.
 
+### A count beside a label
+
+A `NavItem` may carry a **badge** — the notification count beside a menu entry:
+
+```php
+NavRegistry::register(new NavItem(
+    'user.messages', 'Messages', $base . 'messages',
+    NavSection::User, 5, requireAuth: true, feature: 'messaging',
+    icon: 'mail',
+    badge: static fn (int $userId): int => MessagesController::unreadCount($userId),
+));
+```
+
+A **closure**, not an `int`, and that is the whole of the design: navigation is registered once
+at boot, so a number resolved there is the count as it was when the process started — for an
+unread badge, always wrong and usually zero.
+
+Read it with `badgeCount($userId)`, and render it with `badgeLabel($userId)`, which writes
+anything over ninety-nine as `99+`. The difference between a hundred unread and four hundred is
+not one anybody acts on, and a four-digit badge is wider than the label it sits beside.
+
+Four things it will not do, because a badge is decoration on a screen that is about something
+else and a navigation item that throws takes every page on the site with it:
+
+- **It is not asked for a signed-out visitor.** The navigation renders for everybody, and a
+  count for user 0 is a query against an account that does not exist — on every page, for every
+  crawler.
+- **It is resolved once per account per request.** A theme renders the navigation more than once
+  — a header and a mobile menu are two renders of the same list.
+- **A closure that throws counts zero.** The database is unreachable, or the table has not been
+  migrated.
+- **A negative answer counts zero.** «-1 unread» reads as a broken page rather than a broken
+  count.
+
+The closure must be cheap: an indexed `COUNT`, not a join. It runs on every page a signed-in
+visitor loads.
+
 ---
 
 ## Diagnosing a decision

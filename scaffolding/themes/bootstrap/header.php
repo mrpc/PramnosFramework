@@ -32,8 +32,20 @@
                     <?php endforeach; ?>
                 </ul>
                 <ul class="navbar-nav ms-auto">
+                    <?php
+                    /*
+                     * The unread badge, beside the label.
+                     *
+                     * `badgeCount()` is zero for every item that did not register one, and zero
+                     * for a signed-out visitor, so nothing is drawn unless there is something to
+                     * draw. `aria-label` carries the meaning: a number on its own is announced
+                     * as a number, and «Messages 3» tells a screen-reader user nothing about
+                     * what the three are.
+                     */
+                    ?>
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
-                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <?php $_badge = $_item->badgeCount((int) ($_navUser->userid ?? 0)); ?>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?><?php if ($_badge > 0): ?> <span class="badge rounded-pill text-bg-danger" aria-label="<?php echo $_badge; ?> unread"><?php echo htmlspecialchars($_item->badgeLabel((int) ($_navUser->userid ?? 0)), ENT_QUOTES, 'UTF-8'); ?></span><?php endif; ?></a></li>
                     <?php endforeach; ?>
                     <?php if (!empty($_adminTop)): ?>
                     <li class="nav-item dropdown">

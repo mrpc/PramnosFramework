@@ -66,5 +66,65 @@ readonly class NavItem
         public bool        $guestOnly    = false,
         public ?string     $parent       = null,
         public ?string     $group        = null,
+        /**
+         * A number to show beside the label, as a callable that produces it.
+         *
+         * A callable rather than an `int`, because navigation is registered once at boot and
+         * rendered on every request: a number resolved at registration would be the count as it
+         * was when the application started, which for an unread badge is always wrong and
+         * usually zero.
+         *
+         * It is called with the signed-in user's id and must be cheap — an indexed `COUNT`, not
+         * a join. {@see badgeCount()} memoises it for the request and answers zero if it throws.
+         *
+         * @var (callable(int): int)|null
+         */
+        public ?\Closure $badge = null,
     ) {}
+
+    /**
+     * The number to show, or zero.
+     *
+     * Memoised in a function static, because the class is `readonly` — which forbids both an
+     * instance property to cache in and a static one to hold a map. Per request rather than per
+     * instance for the reason a badge is memoised at all: a theme reads the navigation more
+     * than once per page (a header and a mobile menu are two renders of the same list), and a
+     * badge is not worth two queries.
+     *
+     * Zero on any failure. A count is decoration on a screen that is about something else, and
+     * a navigation item that throws takes every page with it.
+     */
+    public function badgeCount(int $userId): int
+    {
+        static $resolved = [];
+
+        if ($this->badge === null || $userId < 1) {
+            return 0;
+        }
+
+        $key = $this->id . '|' . $userId;
+
+        if (isset($resolved[$key])) {
+            return $resolved[$key];
+        }
+
+        try {
+            return $resolved[$key] = max(0, (int) ($this->badge)($userId));
+        } catch (\Throwable) {
+            return $resolved[$key] = 0;
+        }
+    }
+
+    /**
+     * How a badge over ninety-nine is written.
+     *
+     * `99+`, because the difference between a hundred and four hundred unread is not a
+     * difference anybody acts on, and a four-digit badge is wider than the label it sits beside.
+     */
+    public function badgeLabel(int $userId): string
+    {
+        $count = $this->badgeCount($userId);
+
+        return $count > 99 ? '99+' : (string) $count;
+    }
 }
