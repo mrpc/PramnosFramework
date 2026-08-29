@@ -4,6 +4,7 @@ use_cases:
   - Configuring SMTP or another transport
   - Tracking or debugging delivery
   - Offering an unsubscribe link and passing Gmail's bulk-sender rules
+  - Declaring the kinds of mail an application sends, and offering preferences over them
   - Understanding the plain-text part, or why a message reads badly in a text-only client
   - Working out which headers a message carries and why
   - Putting a Gmail action button on a message, or finding out why one is not showing
@@ -31,7 +32,8 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 5. [Email Tracking](#email-tracking)
 6. [A message to one account](#a-message-to-one-account)
 7. [A message to many accounts](#a-message-to-many-accounts)
-8. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
+8. [What kinds of mail this application sends](#what-kinds-of-mail-this-application-sends)
+9. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
 9. [The line the inbox shows beside the subject](#the-line-the-inbox-shows-beside-the-subject)
 10. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
 11. [Accessibility in the message](#accessibility-in-the-message)
@@ -511,6 +513,100 @@ out of forty thousand people as an open, and nothing after it.
 The compose screen counts the audience **before** anybody presses send, because a count is
 the one number that changes an operator's mind, and it is exactly the number nobody has when
 the send is a loop somebody wrote in a controller.
+
+## What kinds of mail this application sends
+
+A *kind* — «password reset», «weekly digest», «sign-in alert» — is the thing a person means
+when they say they get too many emails from you, and every feature around mail needs a name
+for it. None of them had one. The unsubscribe list was a string typed at each call site, the
+mass-send screen asked for one in a free-text box, the audit log's `module` column was whatever
+the sender happened to write, and there was no way at all to show somebody the mail they can
+turn off, because nothing knew what it was.
+
+```php
+use Pramnos\Email\MailType;
+use Pramnos\Email\MailTypes;
+
+// Once, at boot — a ServiceProvider or Application.php
+MailTypes::register(new MailType(
+    'digest',                             // recorded on every send
+    'Weekly digest',                      // what a person reads on a preferences page
+    'A summary of what happened, every Monday.',
+    'digest'                              // the unsubscribe list — omit for transactional
+));
+```
+
+Then one call at the send:
+
+```php
+$mail->type('digest')->setTo($address)->setSubject($subject)->setBody($html)->send();
+```
+
+### What the one call decides
+
+Four things have to agree for a message on a list, and they were decided separately:
+
+| | Without a type | With one |
+| --- | --- | --- |
+| `List-Unsubscribe` + `List-Unsubscribe-Post` | `offerUnsubscribe('digest')` | from the type |
+| The visible link in the footer | the same call | from the type |
+| **Not sending to somebody who left the list** | *nothing did this* | from the type |
+| What the audit log calls it | whatever was typed | the type's name |
+
+The third row is the one that mattered. `offerUnsubscribe()` put a working link in the message
+and then sent it to the address that had used the previous one — so the reader unsubscribed
+twice and decided the sender was lying, which is what the spam button is for. A `type()`d send
+to an opted-out address returns `false`, sets `getLastError()` to say why, and **still writes
+the `mails` row**: «we did not send this, and this is why» is exactly what an audit log is for.
+
+### The list is what makes it optional
+
+A type with a list is one somebody can turn off. A type without one is transactional and
+cannot be — a password reset, a second-factor code, a receipt. Not a judgement about
+importance: it is whether the message is a consequence of something the person just did. Those
+must arrive for somebody who unsubscribed from everything, mailbox providers do not ask you to
+offer an opt-out on them, and offering one anyway teaches people that the link does nothing.
+
+An unknown type name is treated as transactional rather than raising. The thing that would
+throw is a send, so a typo would stop a password reset — it means one message goes out without
+a link it should not have carried anyway.
+
+### The framework's own
+
+Registered without anybody asking, so a plain installation has a preferences page rather than
+only one that thought to declare its types:
+
+| Name | Kind |
+| --- | --- |
+| `newsignin` | optional — list `newsignin` |
+| `second-factor-code` | transactional |
+| `device-auth-link` | transactional |
+| `security-change` | transactional |
+
+Register the same name to override any of them — the label is what a person reads, and an
+application wording it differently, or in another language, should not have to work around the
+default.
+
+### The preferences page
+
+`/unsubscribe` is no longer one button that says *none, ever*. After honouring the link it
+lists every optional type with what it is and whether this address is receiving it, each row a
+link carrying its own signed token for that address and that list — so the page needs no
+session and cannot be edited into changing somebody else's settings.
+
+That is the difference between a reader who wanted fewer emails keeping one of four and a
+reader who wanted fewer emails receiving none. The sender reads the second as a clean
+unsubscribe rather than as the failure it was.
+
+`a=in` on a GET turns something back on. It is never honoured for one-click POST: RFC 8058 says
+a POST to that endpoint unsubscribes, and a provider that found a parameter turning it into a
+subscribe would be right to stop trusting the endpoint.
+
+### Nothing breaks without it
+
+An application that registers nothing keeps working exactly as before. `offerUnsubscribe()`
+still takes a list, and mail without a declared type is transactional. This adds a way to say
+what you send; it does not require you to.
 
 ## Unsubscribing, and what Gmail requires
 

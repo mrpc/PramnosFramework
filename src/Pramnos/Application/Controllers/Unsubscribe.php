@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Application\Controllers;
 
+use Pramnos\Email\MailTypes;
 use Pramnos\Email\Unsubscribe as UnsubscribeService;
 
 /**
@@ -58,6 +59,16 @@ class Unsubscribe extends \Pramnos\Application\Controller
         $method  = strtoupper((string) $request->getRequestMethod());
         $oneClick = $method === 'POST';
 
+        /*
+         * `a=in` is a person turning something back on from the preferences list below.
+         *
+         * Never honoured for one-click: RFC 8058 says a POST to this endpoint unsubscribes, and
+         * a provider that saw a parameter turn that into a subscribe would be right to stop
+         * trusting the endpoint. The signed token is the same either way — it names one address
+         * and one list, which is the authorisation for both directions.
+         */
+        $optingIn = !$oneClick && (string) $request->get('a', '', 'request') === 'in';
+
         $claim = $token === '' ? null : UnsubscribeService::verify($token);
 
         if ($claim === null) {
@@ -87,11 +98,13 @@ class Unsubscribe extends \Pramnos\Application\Controller
             return;
         }
 
-        $recorded = $this->optOut(
-            $claim['email'],
-            $claim['list'],
-            $oneClick ? 'one_click' : 'page'
-        );
+        $recorded = $optingIn
+            ? $this->optIn($claim['email'], $claim['list'])
+            : $this->optOut(
+                $claim['email'],
+                $claim['list'],
+                $oneClick ? 'one_click' : 'page'
+            );
 
         if (!$recorded) {
             /*
@@ -126,13 +139,78 @@ class Unsubscribe extends \Pramnos\Application\Controller
             return;
         }
 
+        $address = htmlspecialchars($claim['email'], ENT_QUOTES);
+
+        if ($optingIn) {
+            $this->page(
+                'You are subscribed again',
+                'We will send these messages to <strong>' . $address . '</strong> again.',
+                $this->preferences($claim['email'])
+            );
+
+            return;
+        }
+
         $this->page(
             'You have been unsubscribed',
-            'We have removed <strong>' . htmlspecialchars($claim['email'], ENT_QUOTES)
-            . '</strong> from these messages. Nothing else about your account has changed, and '
-            . 'messages you need in order to use it — a password reset, a security code — are '
-            . 'not affected.'
+            'We have removed <strong>' . $address . '</strong> from these messages. Nothing '
+            . 'else about your account has changed, and messages you need in order to use it — '
+            . 'a password reset, a security code — are not affected.',
+            $this->preferences($claim['email'])
         );
+    }
+
+    /**
+     * The rest of what this address receives, and a way to change each one.
+     *
+     * An unsubscribe page that offers only «you are off this list» leaves somebody who wanted
+     * fewer emails with one button, and the button says *none, ever*. That is how a person who
+     * would have kept one of four messages ends up receiving none of them — and the sender
+     * reads it as a clean unsubscribe rather than as the failure it was.
+     *
+     * Built from {@see MailTypes}, so it lists what this application actually sends, described
+     * in words somebody can act on. An installation that has registered nothing optional gets
+     * nothing here, which is correct: there is no choice to offer.
+     *
+     * Each row is a link carrying its own signed token for **this address and that list**, so
+     * the page needs no session and cannot be edited into changing somebody else's settings.
+     */
+    protected function preferences(string $email): string
+    {
+        $types = MailTypes::optional();
+
+        if ($types === []) {
+            return '';
+        }
+
+        $rows = '';
+
+        foreach ($types as $type) {
+            $off   = $this->isOptedOut($email, $type->list);
+            $token = UnsubscribeService::token($email, $type->list);
+            $url   = UnsubscribeService::url($token) . ($off ? '&a=in' : '');
+
+            $rows .= '<li><strong>' . htmlspecialchars($type->label, ENT_QUOTES) . '</strong> — '
+                . ($off ? '<span class="off">not receiving</span>' : 'receiving')
+                . '<br><span class="what">'
+                . htmlspecialchars($type->description, ENT_QUOTES) . '</span>'
+                . ' <a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
+                . ($off ? 'Turn back on' : 'Turn off') . '</a></li>';
+        }
+
+        return '<h2>Everything else you can receive</h2><ul class="prefs">' . $rows . '</ul>';
+    }
+
+    /** Undo an opt-out. A seam, like {@see optOut()}. */
+    protected function optIn(string $email, string $list): bool
+    {
+        return UnsubscribeService::optIn($email, $list);
+    }
+
+    /** Is this address off this list? A seam, like {@see optOut()}. */
+    protected function isOptedOut(string $email, string $list): bool
+    {
+        return UnsubscribeService::isOptedOut($email, $list);
     }
 
     /**
@@ -162,7 +240,7 @@ class Unsubscribe extends \Pramnos\Application\Controller
      * Self-contained, and with `noindex` on it: an unsubscribe URL carries a token, and a
      * search engine that indexed one would publish somebody's ability to unsubscribe them.
      */
-    protected function page(string $title, string $body): void
+    protected function page(string $title, string $body, string $extra = ''): void
     {
         $siteName = htmlspecialchars(
             (string) \Pramnos\Application\Settings::getSetting('sitename'),
@@ -186,17 +264,27 @@ class Unsubscribe extends \Pramnos\Application\Controller
             . '.card{max-width:520px;margin:12vh auto;background:#fff;border:1px solid #e5e7eb;'
             . 'border-radius:8px;padding:32px;}'
             . 'h1{margin:0 0 12px;font-size:22px;}'
+            . 'h2{margin:28px 0 8px;font-size:15px;text-transform:uppercase;'
+            . 'letter-spacing:.04em;color:#6b7280;}'
             . 'a{color:#2563eb;}'
+            . '.prefs{list-style:none;margin:0;padding:0;}'
+            . '.prefs li{padding:12px 0;border-top:1px solid #e5e7eb;font-size:15px;}'
+            . '.what{color:#6b7280;font-size:14px;}'
+            . '.off{color:#b45309;}'
             . '.site{margin:0 0 20px;font-size:13px;letter-spacing:.04em;'
             . 'text-transform:uppercase;color:#6b7280;}'
             . '@media (prefers-color-scheme: dark){'
             . 'body{background:#111827;color:#e5e7eb;}'
             . '.card{background:#1f2937;border-color:#374151;}'
-            . '.site{color:#9ca3af;}}'
+            . '.site{color:#9ca3af;}'
+            . '.prefs li{border-color:#374151;}'
+            . '.what{color:#9ca3af;}'
+            . '.off{color:#fbbf24;}}'
             . '</style></head><body><div class="card">'
             . ($siteName !== '' ? '<p class="site">' . $siteName . '</p>' : '')
             . '<h1>' . htmlspecialchars($title, ENT_QUOTES) . '</h1>'
             . '<p>' . $body . '</p>'
+            . $extra
             . ($siteUrl !== ''
                 ? '<p><a href="' . htmlspecialchars($siteUrl, ENT_QUOTES) . '">'
                     . 'Back to the site</a></p>'

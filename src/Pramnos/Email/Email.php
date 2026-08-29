@@ -171,6 +171,17 @@ class Email extends \Pramnos\Framework\Base
     public $module = '';
 
     /**
+     * The registered kind of mail this is — see {@see MailTypes}.
+     *
+     * Applied at send time rather than when it is set, so `type()` and `setTo()` can be called
+     * in either order: the unsubscribe token has to name the recipient, and the recipient is
+     * often set afterwards.
+     *
+     * @var string
+     */
+    protected $mailType = '';
+
+    /**
      * Whether send() records the outbound email in the `mails` table.
      * On by default so the table is a complete delivery log; set false to
      * suppress recording for a specific send.
@@ -436,6 +447,90 @@ class Email extends \Pramnos\Framework\Base
      * @param  string $email The recipient; defaults to whatever `setTo()` was given
      * @return $this
      */
+    /**
+     * Declare what kind of mail this is, and let the registry decide the rest.
+     *
+     * ```php
+     * $email->type('digest')->setTo($address)->setSubject(…)->send();
+     * ```
+     *
+     * For a registered type with a list this does what {@see offerUnsubscribe()} does — the
+     * link, the mailto, both headers, the footer line — **and** the half that call never did:
+     * the send is skipped when the address has opted out of that list. Four things that have to
+     * agree, decided once from a name, instead of at each call site.
+     *
+     * For a transactional type, or a name nothing registered, it records the name and changes
+     * nothing else. An unknown name is not an error: the thing that would throw is a send, and
+     * a typo must not stop a password reset.
+     *
+     * @param  string $name A name registered with {@see MailTypes::register()}
+     * @return $this
+     */
+    public function type(string $name)
+    {
+        $this->mailType = trim($name);
+
+        if ($this->module === '') {
+            $this->module = $this->mailType;
+        }
+
+        return $this;
+    }
+
+    /** The registered kind of mail this is, or '' when none was declared. */
+    public function mailType(): string
+    {
+        return $this->mailType;
+    }
+
+    /**
+     * Turn the declared type into the unsubscribe wiring, once the recipient is known.
+     *
+     * @return bool false when this address has opted out and the message must not be sent
+     */
+    protected function applyMailType(): bool
+    {
+        $list = MailTypes::listFor($this->mailType);
+
+        if ($list === '') {
+            return true;
+        }
+
+        $address = trim($this->emailToString($this->to));
+
+        if ($address === '') {
+            return true;
+        }
+
+        if ($this->optedOut($address, $list)) {
+            /*
+             * Not an error, and not silent either.
+             *
+             * A suppressed message is the system working, so `send()` reports failure the way
+             * a refused SMTP connection would and somebody reading a log sees an address that
+             * asked us to stop rather than a mail server that did. The `mails` row is still
+             * written — «we did not send this, and this is why» is exactly what an audit log is
+             * for, and its absence is what makes "why did they not get it" unanswerable.
+             */
+            $this->lastError = 'Not sent: ' . $address . ' has unsubscribed from "' . $list . '".';
+
+            return false;
+        }
+
+        // Only when the caller has not already built one by hand.
+        if (trim((string) $this->unsubscribe) === '') {
+            $this->offerUnsubscribe($list, $address);
+        }
+
+        return true;
+    }
+
+    /** Has this address left this list? A seam, so a send can be tested without a store. */
+    protected function optedOut(string $address, string $list): bool
+    {
+        return Unsubscribe::isOptedOut($address, $list);
+    }
+
     public function offerUnsubscribe(string $list, string $email = '')
     {
         $address = $email !== '' ? $email : (string) $this->to;
@@ -688,6 +783,16 @@ class Email extends \Pramnos\Framework\Base
      */
     public function send()
     {
+        // Suppression before composition: an address that asked us to stop is a message not
+        // sent, and rendering a body first only wastes the work. This also fills in the
+        // unsubscribe link, which the wrapper below reads.
+        if (!$this->applyMailType()) {
+            $this->renderedBody = (string) $this->body;
+            $this->recordMail(false);
+
+            return false;
+        }
+
         // The wrapper, once, before anybody reads the body: the mailer sends this and the
         // audit log records it, so they have to be the same string.
         $this->renderedBody = EmailTheme::wrap(

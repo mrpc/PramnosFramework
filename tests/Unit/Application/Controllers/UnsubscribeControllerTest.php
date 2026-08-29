@@ -7,6 +7,8 @@ namespace Pramnos\Tests\Unit\Application\Controllers;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Controllers\Unsubscribe as UnsubscribeController;
+use Pramnos\Email\MailType;
+use Pramnos\Email\MailTypes;
 use Pramnos\Email\Unsubscribe;
 
 /**
@@ -46,6 +48,7 @@ class UnsubscribeControllerTest extends TestCase
         unset($_SERVER['REQUEST_METHOD']);
         \Pramnos\Http\Request::resetInstance();
         Unsubscribe::reset();
+        MailTypes::reset();
         parent::tearDown();
     }
 
@@ -79,10 +82,28 @@ class UnsubscribeControllerTest extends TestCase
                 echo $message;
             }
 
-            protected function page(string $title, string $body): void
+            /** @var array<int, array{0:string,1:string}> */
+            public array $optIns = [];
+
+            /** @var array<string, bool> list => off? */
+            public array $off = [];
+
+            protected function optIn(string $email, string $list): bool
+            {
+                $this->optIns[] = [$email, $list];
+
+                return $this->recorded;
+            }
+
+            protected function isOptedOut(string $email, string $list): bool
+            {
+                return $this->off[$list] ?? false;
+            }
+
+            protected function page(string $title, string $body, string $extra = ''): void
             {
                 $this->status = 200;
-                echo $title . '|' . $body;
+                echo $title . '|' . $body . '|' . $extra;
             }
         };
     }
@@ -213,4 +234,134 @@ class UnsubscribeControllerTest extends TestCase
         $this->assertStringNotContainsString('have been unsubscribed', strtolower($body));
         $this->assertStringContainsString('could not', strtolower($body));
     }
+    /**
+     * The page offers the rest of what this address can receive, not only the one it left.
+     *
+     * A page whose only control says «none, ever» is how somebody who would have kept one of
+     * four messages ends up receiving none — and the sender reads it as a clean unsubscribe
+     * rather than the failure it was.
+     */
+    public function testThePageOffersTheOtherThingsThisAddressCanReceive(): void
+    {
+        // Arrange
+        MailTypes::reset();
+        MailTypes::register(new MailType('digest', 'Weekly digest', 'A summary, every Monday.', 'digest'));
+        MailTypes::register(new MailType('receipt', 'Receipts', 'What you paid for.'));
+
+        $_GET['u'] = Unsubscribe::token('reader@example.com', 'marketing');
+        $_REQUEST  = $_GET;
+        $controller = $this->controller();
+
+        // Act
+        $page = $this->dispatch($controller);
+
+        // Assert
+        $this->assertStringContainsString('Weekly digest', $page);
+        $this->assertStringContainsString('A summary, every Monday.', $page);
+        $this->assertStringNotContainsString('Receipts', $page,
+            'transactional mail is not a choice, and showing it as one is a lie');
+    }
+
+    /**
+     * A list this address has already left is offered back, and the link says so.
+     *
+     * The state has to be visible: a row that reads the same whether somebody is on the list or
+     * off it makes the page a list of buttons whose effect nobody can predict.
+     */
+    public function testAListAlreadyLeftIsOfferedBack(): void
+    {
+        // Arrange
+        MailTypes::reset();
+        MailTypes::register(new MailType('digest', 'Weekly digest', 'A summary.', 'digest'));
+
+        $_GET['u'] = Unsubscribe::token('reader@example.com', 'marketing');
+        $_REQUEST  = $_GET;
+        $controller = $this->controller();
+        $controller->off = ['digest' => true];
+
+        // Act
+        $page = $this->dispatch($controller);
+
+        // Assert
+        $this->assertStringContainsString('not receiving', $page);
+        $this->assertStringContainsString('Turn back on', $page);
+        $this->assertStringContainsString('a=in', $page);
+    }
+
+    /**
+     * `a=in` on a GET subscribes rather than unsubscribes.
+     *
+     * The same signed token authorises both directions — it names one address and one list, and
+     * cannot be edited into naming somebody else's.
+     */
+    public function testTurningSomethingBackOnSubscribes(): void
+    {
+        // Arrange
+        $_GET['u'] = Unsubscribe::token('reader@example.com', 'digest');
+        $_GET['a'] = 'in';
+        $_REQUEST  = $_GET;
+        $controller = $this->controller();
+
+        // Act
+        $page = $this->dispatch($controller);
+
+        // Assert
+        $this->assertSame([['reader@example.com', 'digest']], $controller->optIns);
+        $this->assertSame([], $controller->optOuts);
+        $this->assertStringContainsString('subscribed again', $page);
+    }
+
+    /**
+     * One-click never subscribes, whatever the request says.
+     *
+     * RFC 8058 says a POST to this endpoint unsubscribes. A provider that found a parameter
+     * turning that into a subscribe would be right to stop trusting the endpoint — and the
+     * consequence of losing that trust is every message being filed as spam, not just this one.
+     */
+    public function testOneClickIgnoresTheSubscribeParameter(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['u'] = Unsubscribe::token('reader@example.com', 'digest');
+        $_POST['a'] = 'in';
+        $_REQUEST = $_POST;
+        $controller = $this->controller();
+
+        // Act
+        $this->dispatch($controller);
+
+        // Assert
+        $this->assertSame([], $controller->optIns);
+        $this->assertSame(
+            [['reader@example.com', 'digest', 'one_click']],
+            $controller->optOuts
+        );
+        $this->assertSame(200, $controller->status);
+    }
+
+    /**
+     * An installation that registered nothing still has something to offer.
+     *
+     * The framework's own optional mail — the sign-in alerts — is registered without anybody
+     * asking, so the page is a preferences page on a plain installation rather than only on one
+     * that thought to declare its types.
+     */
+    public function testTheFrameworksOwnOptionalMailIsOfferedWithoutRegistration(): void
+    {
+        // Arrange
+        MailTypes::reset();
+
+        $_GET['u'] = Unsubscribe::token('reader@example.com', 'marketing');
+        $_REQUEST  = $_GET;
+        $controller = $this->controller();
+
+        // Act
+        $page = $this->dispatch($controller);
+
+        // Assert
+        $this->assertStringContainsString('Sign-in alerts', $page);
+        $this->assertStringNotContainsString('Sign-in codes', $page,
+            'a code you need in order to sign in is not a preference');
+    }
+
 }

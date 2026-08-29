@@ -853,15 +853,26 @@ class UsersController extends Controller
     /**
      * The unsubscribe lists this installation has records for.
      *
-     * Every list anybody has ever opted out of, plus `all`. There is no registry of lists — a
-     * list is whatever name a sender used — so the opt-out records are the only evidence of
-     * which names are real, and a free-text field beside them is what allows a new one.
+     * The lists {@see \Pramnos\Email\MailTypes} declares, then `all`, then every other list
+     * anybody has ever opted out of.
+     *
+     * The declared ones first because they are the ones that mean something: a registered type
+     * carries a label, a description and the suppression that goes with it. The discovered ones
+     * are still offered after them — before the registry existed a list was whatever name a
+     * sender typed, and an installation with opt-outs against `newsletter-2024` should not lose
+     * the ability to send to it because nobody has declared it yet.
      *
      * @return list<string>
      */
     protected function mailLists(): array
     {
-        $lists = [\Pramnos\Email\Unsubscribe::LIST_ALL];
+        $lists = [];
+
+        foreach (\Pramnos\Email\MailTypes::optional() as $type) {
+            $lists[] = $type->list;
+        }
+
+        $lists[] = \Pramnos\Email\Unsubscribe::LIST_ALL;
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
