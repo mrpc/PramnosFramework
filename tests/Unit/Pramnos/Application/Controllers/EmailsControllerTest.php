@@ -44,6 +44,8 @@ class TestableEmailsController extends EmailsController
             /** The address the list is scoped to, and the way back to all of it. */
             public mixed $scopedTo;
             public mixed $clearUrl;
+            /** Everything knowable about one sent message, for the detail screen. */
+            public mixed $report;
 
             public function display($view = '') {
                 return 'mock html view for ' . $view;

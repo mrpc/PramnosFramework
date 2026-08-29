@@ -49,3 +49,105 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
         </div>
     </div>
 </div>
+
+<?php
+/*
+ * Everything else known about this message.
+ *
+ * Read out of the stored body rather than out of the sending code: a template that lost its
+ * unsubscribe link and one that kept it are identical from there. Rendered plainly here — this
+ * theme has no component library to lean on, and the facts are the point.
+ */
+$report = $this->report ?? null;
+
+if ($report !== null):
+    $tracking = $report->tracking();
+    $when = static fn (int $at): string => $at > 0 ? date('j M Y, H:i', $at) : '\u2014';
+?>
+<h3>Tracking</h3>
+<?php if (!empty($tracking['recorded'])): ?>
+    <p>
+        <strong><?php echo (int) $tracking['clicks']; ?></strong> clicked &middot;
+        <strong><?php echo (int) $tracking['opens']; ?></strong> opened &middot;
+        <strong><?php echo (int) $tracking['proxyOpens']; ?></strong> prefetched
+    </p>
+    <p>
+        Prefetched means a mailbox provider fetched the image on delivery. It is not somebody
+        reading the message, which is why it is counted apart.
+    </p>
+    <p>
+        First opened <?php echo $when((int) ($tracking['firstOpenAt'] ?? 0)); ?>,
+        last opened <?php echo $when((int) ($tracking['lastOpenAt'] ?? 0)); ?>,
+        first clicked <?php echo $when((int) ($tracking['firstClickAt'] ?? 0)); ?>.
+    </p>
+<?php else: ?>
+    <p>Not tracked.</p>
+<?php endif; ?>
+<p>
+    Pixel in the body: <?php echo !empty($tracking['pixel']) ? 'yes' : 'no'; ?>.
+    Wrapped links: <?php echo (int) ($tracking['wrappedLinks'] ?? 0); ?>.
+</p>
+<?php if (!empty($tracking['note'])): ?>
+    <p><em><?php echo htmlspecialchars($tracking['note']); ?></em></p>
+<?php endif; ?>
+
+<h3>Structured data (Gmail actions and highlights)</h3>
+<?php $blocks = $report->structuredData(); ?>
+<?php if ($blocks === []): ?>
+    <p>None. Gmail draws no button in the message list for this mail.</p>
+<?php else: foreach ($blocks as $block): ?>
+    <p>
+        <code><?php echo htmlspecialchars((string) $block['type']); ?></code>
+        <?php echo htmlspecialchars((string) ($block['description'] ?? $block['name'] ?? '')); ?>
+    </p>
+    <?php if (!empty($block['actions'])): ?>
+        <ul>
+        <?php foreach ($block['actions'] as $action): ?>
+            <li>
+                <code><?php echo htmlspecialchars((string) ($action['action'] ?? '')); ?></code>
+                <?php echo htmlspecialchars((string) ($action['name'] ?? '')); ?>
+                <?php if (!empty($action['url'])): ?>
+                    &rarr; <?php echo htmlspecialchars($action['url']); ?>
+                <?php endif; ?>
+            </li>
+        <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+    <?php if (!empty($block['raw'])): ?>
+        <p><strong>Unreadable JSON — Gmail ignores it silently.</strong></p>
+    <?php endif; ?>
+<?php endforeach; endif; ?>
+<p>Gmail shows none of this until the sending domain is registered with Google.</p>
+
+<h3>Links, and where they really go</h3>
+<?php $links = $report->links(); ?>
+<?php if ($links === []): ?>
+    <p>No links in this message.</p>
+<?php else: ?>
+    <table>
+        <thead><tr><th>In the markup</th><th>Goes to</th><th></th></tr></thead>
+        <tbody>
+        <?php foreach ($links as $link): ?>
+            <tr>
+                <td><?php echo htmlspecialchars((string) $link['url']); ?></td>
+                <td><?php echo htmlspecialchars((string) ($link['destination'] ?? $link['url'])); ?></td>
+                <td>
+                    <?php if (!empty($link['broken'])): ?>token does not verify
+                    <?php elseif (!empty($link['wrapped'])): ?>tracked<?php endif; ?>
+                    <?php if ((int) $link['count'] > 1): ?> &times;<?php echo (int) $link['count']; ?><?php endif; ?>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+<?php endif; ?>
+<?php $unsub = $report->unsubscribe(); ?>
+<?php if (!empty($unsub['note'])): ?>
+    <p><em><?php echo htmlspecialchars($unsub['note']); ?></em></p>
+<?php endif; ?>
+
+<h3>As a text-only client shows it</h3>
+<?php /* The half nobody looks at, and the half that used to arrive as the stylesheet with every
+         link removed. A text part that does not match the HTML is a documented spam signal. */ ?>
+<pre style="white-space:pre-wrap;word-break:break-word"><?php echo htmlspecialchars($report->plainText()); ?></pre>
+<?php endif; ?>

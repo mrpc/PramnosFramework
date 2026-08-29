@@ -329,6 +329,19 @@ class EmailsController extends Controller
         $view       = $this->getView('emails');
         $view->mail = $result->fields;
 
+        /*
+         * Everything else that is knowable about this message.
+         *
+         * The body was stored as it was sent, so it can be read back: the pixel it carries, the
+         * actions Gmail would draw from it, where each link really goes, and what a text-only
+         * client sees. None of that is visible from the sending code — a template that lost its
+         * unsubscribe link and one that kept it look identical from there.
+         */
+        $view->report = new \Pramnos\Email\MessageReport(
+            (array) $result->fields,
+            $this->trackingFor($mailId)
+        );
+
         return $view->display('show');
     }
 
