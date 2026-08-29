@@ -128,6 +128,17 @@ class MailChannel implements ChannelInterface
             $email->setTemplate($template === null ? null : (string) $template);
         }
 
+        if (method_exists($notification, 'mailPreheader')) {
+            $preheader = trim((string) $notification->mailPreheader());
+
+            if ($preheader !== '') {
+                // Only when there is one: an empty call would replace the body-derived line
+                // with nothing, and the wrapper would go back to opening with whatever it
+                // happens to open with.
+                $email->preheader($preheader);
+            }
+        }
+
         if (method_exists($notification, 'trackingRequested') && $notification->trackingRequested()) {
             $email->enableTracking();
         }

@@ -222,6 +222,22 @@ class MessageTest extends TestCase
     }
 
     /**
+     * A preheader set on the message reaches the mail channel's declaration.
+     *
+     * Unset, it is empty rather than blank — `Email` then derives one from the body, and an
+     * empty string handed over would replace that with nothing.
+     */
+    public function testThePreheaderIsDeclaredOnlyWhenThereIsOne(): void
+    {
+        // Assert
+        $this->assertSame('', (new Message('Hi', 'B'))->mailPreheader());
+        $this->assertSame(
+            'Your code is 481920',
+            (new Message('Hi', 'B'))->preheader('  Your code is 481920  ')->mailPreheader()
+        );
+    }
+
+    /**
      * Every setter returns the message, because this is written as one expression.
      */
     public function testTheSettersChain(): void
@@ -233,6 +249,7 @@ class MessageTest extends TestCase
             ->list('digest')
             ->template('receipt')
             ->track()
+            ->preheader('The line beside the subject')
             ->from('ops@example.com')
             ->action(['@type' => 'EmailMessage'])
             ->pushOptions(['tag' => 'x']);

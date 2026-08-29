@@ -109,6 +109,19 @@ class Email extends \Pramnos\Framework\Base
      */
     public $template = null;
 
+    /** How many characters of preheader a mailbox list actually shows. */
+    public const PREHEADER_LENGTH = 100;
+
+    /**
+     * The line a mailbox list shows beside the subject.
+     *
+     * Empty means "derive it from the body" rather than "do not have one" — see
+     * {@see preheaderText()}, and the reason the two are not the same thing.
+     *
+     * @var string
+     */
+    public $preheader = '';
+
     /**
      * The wrapped body, from the last {@see send()}.
      *
@@ -255,6 +268,81 @@ class Email extends \Pramnos\Framework\Base
     {
         $this->body = $body;
         return $this;
+    }
+
+    /**
+     * The line a mailbox list shows under the subject.
+     *
+     * Every inbox — Gmail, Apple Mail, Outlook — prints the first readable text of the message
+     * beside the subject, and nobody chose what that is. On a wrapped message it is whatever
+     * the wrapper happens to open with: a logo's `alt`, a "view this in your browser" link, or
+     * the first cell of a layout table. Which means the second most prominent line in the
+     * inbox — the one that decides whether the mail is opened — is an accident.
+     *
+     * Set explicitly, or derived from the body. Rendered hidden by the wrapper, so it is read
+     * by the mailbox list and by nobody else — and {@see PlainText} drops `display:none`, so
+     * it does not open the text part either.
+     *
+     * @param  string $text
+     * @return $this
+     */
+    public function preheader($text)
+    {
+        $this->preheader = trim((string) $text);
+
+        return $this;
+    }
+
+    /**
+     * The preheader as it will be rendered: the one that was set, or the body's own opening.
+     *
+     * Derived rather than left empty, because "no preheader" is not a neutral state — it is
+     * the wrapper's first text, chosen by nobody. The body's opening sentence is at worst a
+     * repetition of something the reader is about to see, which is what most mail does anyway.
+     */
+    public function preheaderText(): string
+    {
+        if ($this->preheader !== '') {
+            return $this->preheader;
+        }
+
+        $text = trim(PlainText::fromHtml((string) $this->body));
+
+        if ($text === '') {
+            return '';
+        }
+
+        $text = trim((string) preg_replace('~\s+~u', ' ', $text));
+
+        if (function_exists('mb_substr')) {
+            return mb_substr($text, 0, self::PREHEADER_LENGTH);
+        }
+
+        return substr($text, 0, self::PREHEADER_LENGTH);
+    }
+
+    /**
+     * Which language this message is written in, for `<html lang>`.
+     *
+     * The catalogue in force while the message is composed, which is the recipient's own —
+     * `Notifier` and the mass dispatcher both switch to it before composing. Falls back to the
+     * installation's default, and then to `en`, because an empty `lang` is worse than a wrong
+     * one: a screen reader with no language announces the text in whatever it was last set to.
+     */
+    protected function messageLanguage(): string
+    {
+        foreach ([
+            \Pramnos\Translator\Language::getInstance()->currentlang(),
+            \Pramnos\Application\Settings::getSetting('language'),
+        ] as $candidate) {
+            $language = trim((string) $candidate);
+
+            if ($language !== '') {
+                return $language;
+            }
+        }
+
+        return 'en';
     }
 
     /**
@@ -612,6 +700,10 @@ class Email extends \Pramnos\Framework\Base
                 // teaching its readers that the link means nothing.
                 'unsubscribeUrl'  => trim((string) $this->unsubscribe),
                 'unsubscribeList' => (string) $this->unsubscribeList,
+                'preheader'       => $this->preheaderText(),
+                // The reader's language, for `<html lang>`. A screen reader announces the
+                // wrong one otherwise, and pronounces Greek as if it were English.
+                'language'        => $this->messageLanguage(),
             ]
         );
 

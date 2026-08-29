@@ -1341,6 +1341,7 @@ class UsersControllerTest extends TestCase
         $this->assertSame('', $message->unsubscribeList());
         $this->assertFalse($message->trackingRequested());
         $this->assertSame([], $message->mailStructuredData());
+        $this->assertSame('', $message->mailPreheader());
         $this->assertNull($message->mailTemplate());
     }
 
@@ -1376,6 +1377,7 @@ class UsersControllerTest extends TestCase
             'template'    => 'receipt',
             'list'        => 'digest',
             'tracking'    => '1',
+            'preheader'   => 'Your code is 481920',
             'action_type' => 'confirm',
             'action_name' => 'Confirm it',
             'action_url'  => 'https://example.com/confirm/abc',
@@ -1388,6 +1390,7 @@ class UsersControllerTest extends TestCase
         $this->assertSame('https://example.com/account', $message->toPush(null)['url']);
         $this->assertSame('receipt', $message->mailTemplate());
         $this->assertSame('digest', $message->unsubscribeList());
+        $this->assertSame('Your code is 481920', $message->mailPreheader());
         $this->assertTrue($message->trackingRequested());
 
         $blocks = $message->mailStructuredData();

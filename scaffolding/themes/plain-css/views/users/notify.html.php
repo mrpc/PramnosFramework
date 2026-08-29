@@ -103,6 +103,17 @@ $label = 'display:block;font-size:0.85em;margin-bottom:4px';
                 <summary style="padding:8px 12px;font-size:0.9em;cursor:pointer">Email options</summary>
                 <div style="padding:12px;border-top:1px solid #ddd">
                     <div style="margin-bottom:14px">
+                        <label style="<?php echo $label; ?>" for="pf-message-preheader">Preheader</label>
+                        <input type="text" id="pf-message-preheader" name="preheader"
+                               style="<?php echo $field; ?>" maxlength="120">
+                        <span style="<?php echo $hint; ?>">
+                            The line the inbox shows beside the subject. Left empty it is taken from
+                            the message's own opening — which beats the wrapper's, but is not a
+                            sentence written for the inbox.
+                        </span>
+                    </div>
+
+                    <div style="margin-bottom:14px">
                         <label style="<?php echo $label; ?>" for="pf-message-template">Wrapper</label>
                         <select id="pf-message-template" name="template" style="<?php echo $field; ?>">
                             <option value="__default__">The installation's default</option>

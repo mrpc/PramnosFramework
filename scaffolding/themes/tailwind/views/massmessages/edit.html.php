@@ -190,6 +190,17 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
             <h3 class="font-medium">Message options</h3>
 
             <div>
+                <label class="block text-sm font-medium mb-1" for="preheader">Preheader</label>
+                <input type="text" name="preheader" id="preheader" class="input input-sm w-full" maxlength="120"
+                       value="<?php echo $e((string) ($options['preheader'] ?? '')); ?>">
+                <p class="text-xs text-base-content/60 mt-1">
+                    The line the inbox shows beside the subject. Left empty it is taken from the
+                    message's own opening — which beats the wrapper's, but is not a sentence
+                    written for the inbox.
+                </p>
+            </div>
+
+            <div>
                 <label class="block text-sm font-medium mb-1" for="link">Link</label>
                 <input type="url" name="link" id="link" class="input input-sm w-full" placeholder="https://"
                        value="<?php echo $e((string) ($options['link'] ?? '')); ?>">

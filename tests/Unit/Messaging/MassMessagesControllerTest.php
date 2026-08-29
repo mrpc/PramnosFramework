@@ -197,6 +197,7 @@ class MassMessagesControllerTest extends TestCase
         $options = $this->post([
             'link'        => 'https://example.com/notice',
             'list'        => 'announcements',
+            'preheader'   => 'Ten minutes on Sunday',
             'tracking'    => '1',
             'template'    => 'receipt',
             'action_type' => 'view',
@@ -206,6 +207,7 @@ class MassMessagesControllerTest extends TestCase
 
         $this->assertSame('https://example.com/notice', $options['link']);
         $this->assertSame('announcements', $options['list']);
+        $this->assertSame('Ten minutes on Sunday', $options['preheader']);
         $this->assertTrue($options['tracking']);
         $this->assertSame('receipt', $options['template']);
         $this->assertSame('view', $options['action_type']);

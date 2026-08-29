@@ -9,6 +9,9 @@ use_cases:
   - Putting a Gmail action button on a message, or finding out why one is not showing
   - Building a one-click action a mail client can perform without a session
   - Deciding whether to track opens, and reading the numbers honestly
+  - Choosing the line an inbox shows beside the subject
+  - Making a message readable in dark mode, or by a screen reader
+  - Checking SPF, DKIM, DMARC and BIMI on the sending domain
   - Sending one account a message from the administration area
   - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
 ---
@@ -25,11 +28,16 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 4. [Advanced Features](#advanced-features)
 5. [Email Tracking](#email-tracking)
 6. [A message to one account](#a-message-to-one-account)
-7. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
-7. [SMTP Configuration](#smtp-configuration)
-7. [Error Handling](#error-handling)
-8. [Best Practices](#best-practices)
-9. [API Reference](#api-reference)
+7. [A message to many accounts](#a-message-to-many-accounts)
+8. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
+9. [The line the inbox shows beside the subject](#the-line-the-inbox-shows-beside-the-subject)
+10. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
+11. [Accessibility in the message](#accessibility-in-the-message)
+12. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
+13. [SMTP Configuration](#smtp-configuration)
+14. [Error Handling](#error-handling)
+15. [Best Practices](#best-practices)
+16. [API Reference](#api-reference)
 
 ## Overview
 
@@ -617,7 +625,8 @@ database outage is a message the next run sends.
 The parts that are not code:
 
 - **SPF, DKIM and DMARC** on the sending domain. Gmail requires authentication from every bulk
-  sender; without DKIM the headers above will not save you.
+  sender; without DKIM the headers above will not save you. Check yours with
+  [`mail:dns-check`](#what-dns-says-and-what-the-application-cannot-see).
 - **A `From:` domain you own**, matching the DKIM signature. Not a free-mail address.
 - **A reply address that a person reads.** `admin_replymail`, and the `mailto:` unsubscribe uses
   it too.
@@ -628,6 +637,72 @@ The parts that are not code:
   from the HTML — see below, because for a long time it built a bad one.
 
 ---
+
+## The line the inbox shows beside the subject
+
+The second most prominent piece of text in an inbox, and until now chosen by nobody.
+
+Every mailbox list — Gmail, Apple Mail, Outlook — prints the message's first readable text next
+to the subject. On a wrapped message that is whatever the wrapper opens with: a logo's `alt`, a
+"view this in your browser" link, the first cell of a layout table. So the line that decides
+whether the mail is opened is an accident of the template.
+
+```php
+$mail->preheader('Your code is 481920 — it expires in ten minutes.');
+```
+
+Or on a notification, beside the other mail options:
+
+```php
+(new Message('Your export is ready', $body))->preheader('It is on your downloads page.');
+```
+
+**Left unset it is derived from the body's own opening**, cut to 100 characters and flattened to
+one line. That is deliberate: "no preheader" is not a neutral state, and the body's first
+sentence is at worst a repetition of what the reader is about to see — which is what most
+marketing mail does on purpose.
+
+The wrapper renders it hidden three ways, because no single one works everywhere: `display:none`,
+`mso-hide:all` for Outlook, and a 1px transparent colour for the rest. It is padded with
+zero-width non-joiners so a client does not follow it with the *next* thing it finds, which is
+how "Your code is 481920 View this in your browser Unsubscribe" ends up in somebody's inbox.
+
+`PlainText` drops `display:none`, so a hidden preheader does not open the text part either.
+
+## Dark mode, and why the wrapper declares it
+
+```html
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+```
+
+Without these, Apple Mail and Outlook invert the colours themselves. Their inversion is
+per-element and knows nothing about images, so a dark logo on the white card it was drawn for
+ends up black on near-black, and a hairline border becomes the loudest thing in the message.
+Declaring support stops the client guessing and hands the decision to a
+`@media (prefers-color-scheme: dark)` block.
+
+**Every colour that block overrides is also inline.** Gmail strips `<style>` from a forwarded
+message and several clients drop it outright, so the block is an improvement where it survives
+and never the thing keeping the message readable. A wrapper of your own should keep that
+property: inline the light palette, and let the stylesheet only *change* it.
+
+## Accessibility in the message
+
+Three things a mail template gets wrong by default, all of them in the bundled wrapper now:
+
+- **`role="presentation"` on every layout table.** Without it a screen reader announces "table,
+  two columns, row one of three" about a message that has no table in it — the layout is read
+  aloud as data. A table that really is data should not have the attribute.
+- **`lang` on `<html>`**, from the language the message was composed in — which `Notifier` and
+  the mass dispatcher both switch to the recipient's before composing. An empty `lang` is worse
+  than a wrong one: the reader falls back to its own setting silently, and announces Greek as if
+  it were English.
+- **16px body text**, not 12. Mail is read on phones, and the footer was the smallest thing on
+  the least-read part of the message.
+
+And `alt` on every image, including the decorative ones, where it should be `alt=""` — an empty
+`alt` tells a screen reader to skip the image, while a missing one makes it read the filename.
 
 ## The plain-text part
 
@@ -979,6 +1054,72 @@ module, date, status — with the full body and a resend. Tracked messages show 
 is the honest rendering of "nobody measured this".
 
 ---
+
+## What DNS says, and what the application cannot see
+
+```
+./yourapp mail:dns-check
+./yourapp mail:dns-check example.com --selector=mail
+```
+
+The one part of deliverability that is not in the message. SPF, DKIM, DMARC and BIMI are records
+on a domain: this framework can compose a perfect email, set every header a mailbox provider
+asks for, and still have it filed as spam — with nothing in any log. The only symptom is mail
+quietly not arriving, reported months later as "I never got the password reset".
+
+```
+Sending domain: example.com
+
+  ok   SPF — Present.
+       v=spf1 include:spf.protection.outlook.com -all
+
+  ??   DKIM — Not checked — a DKIM record lives under a selector, and the selector is chosen
+       by whatever signs the mail.
+
+  ok   DMARC — Present, but `p=none` — it asks for reports and enforces nothing.
+       v=DMARC1; p=none; rua=mailto:dmarc@example.com
+
+ gone  BIMI — No BIMI record — no logo beside the subject.
+```
+
+The command exits non-zero when the domain does not meet the bulk-sender bar, so it can sit in a
+deploy check — this is exactly the kind of thing that is correct on the day it is set up and
+wrong two domain transfers later.
+
+Three judgements in it are worth stating, because a check that cries wolf is one nobody reads:
+
+- **An unchecked DKIM is not a failed DKIM.** The selector belongs to whatever signs the mail,
+  often a relay, so an application frequently does not know it. Pass `--selector` and it becomes
+  a real check; without one it reports "not checked" and does not fail the domain.
+- **`p=none` clears the bar.** Gmail and Yahoo ask for *a* DMARC record. `p=none` is one, and
+  failing everybody at `p=none` would be failing most of the internet — so the verdict passes
+  and the finding ("somebody forging this domain is still delivered") stays visible beside it.
+- **BIMI is not deliverability.** It is a logo, a Verified Mark Certificate is bought and needs a
+  registered trademark, and an installation without one is not misconfigured.
+
+Two states the command reports that a simpler "found / not found" check would call success:
+
+- **Two SPF records**, which is a PermError under RFC 7208 — a receiver gets no result at all,
+  so two records authenticate strictly *less* than one. It is a common state, because each was
+  added by a different person for a different service.
+- **A DMARC record at `p=none`**, which every tool reports as "DMARC found" and which enforces
+  nothing — and silently stops BIMI from ever working.
+
+### BIMI, in order
+
+The logo beside the subject, and the only item here that is worth money.
+
+1. **DMARC at `p=quarantine` or `p=reject`.** Not optional and not negotiable; `p=none` disables
+   BIMI at every provider.
+2. **An SVG Tiny PS** — a restricted SVG profile, square, with a solid background — at a public
+   HTTPS URL.
+3. **A TXT record** at `default._bimi.<domain>` reading `v=BIMI1; l=https://…/logo.svg`.
+4. **A Verified Mark Certificate**, referenced with `a=`. Gmail and Apple show nothing without
+   one; a few other providers will show the logo on the record alone. A VMC requires a registered
+   trademark and is bought from a certificate authority.
+
+`mail:dns-check` reports each of these separately, so "we published BIMI and nothing happened" has
+an answer.
 
 ## SMTP Configuration
 

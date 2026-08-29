@@ -401,6 +401,12 @@ class MassMessageDispatcher
             $mailer->setTemplate($template === null ? null : (string) $template);
         }
 
+        $preheader = trim((string) ($options['preheader'] ?? ''));
+
+        if ($preheader !== '') {
+            $mailer->preheader($preheader);
+        }
+
         if (!empty($options['tracking'])) {
             $mailer->enableTracking();
         }

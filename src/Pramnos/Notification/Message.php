@@ -47,6 +47,8 @@ class Message implements NotificationInterface
 
     protected bool $tracking = false;
 
+    protected string $preheaderText = '';
+
     protected string $from = '';
 
     /** @var list<array<string, mixed>> */
@@ -126,6 +128,21 @@ class Message implements NotificationInterface
     public function track(bool $tracking = true): static
     {
         $this->tracking = $tracking;
+
+        return $this;
+    }
+
+    /**
+     * The line a mailbox list shows beside the subject.
+     *
+     * Left unset, `Email` derives it from the body — which is better than the wrapper's own
+     * opening, and worse than a sentence somebody wrote for the inbox.
+     *
+     * @return $this
+     */
+    public function preheader(string $text): static
+    {
+        $this->preheaderText = trim($text);
 
         return $this;
     }
@@ -234,6 +251,11 @@ class Message implements NotificationInterface
     public function mailTemplate(): ?string
     {
         return $this->template;
+    }
+
+    public function mailPreheader(): string
+    {
+        return $this->preheaderText;
     }
 
     public function trackingRequested(): bool

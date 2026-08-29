@@ -395,6 +395,7 @@ class MassMessagesController extends Controller
         $options = array_filter([
             'link'        => trim((string) $request->get('link', '', 'post')),
             'list'        => trim((string) $request->get('list', '', 'post')),
+            'preheader'   => trim((string) $request->get('preheader', '', 'post')),
             'tracking'    => (bool) $request->get('tracking', 0, 'post', 'int'),
             'action_type' => trim((string) $request->get('action_type', '', 'post')),
             'action_name' => trim((string) $request->get('action_name', '', 'post')),

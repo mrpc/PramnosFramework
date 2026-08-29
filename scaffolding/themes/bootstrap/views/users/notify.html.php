@@ -104,6 +104,17 @@ $labels = [
             <details class="border rounded mb-4">
                 <summary class="px-3 py-2 fw-medium">Email options</summary>
                 <div class="p-3 border-top row g-3">
+                    <div class="col-12">
+                        <label class="form-label" for="pf-message-preheader">Preheader</label>
+                        <input type="text" id="pf-message-preheader" name="preheader"
+                               class="form-control form-control-sm" maxlength="120">
+                        <p class="form-text">
+                            The line the inbox shows beside the subject. Left empty it is taken from
+                            the message's own opening — which beats the wrapper's, but is not a
+                            sentence written for the inbox.
+                        </p>
+                    </div>
+
                     <div class="col-sm-6">
                         <label class="form-label" for="pf-message-template">Wrapper</label>
                         <select id="pf-message-template" name="template" class="form-select form-select-sm">

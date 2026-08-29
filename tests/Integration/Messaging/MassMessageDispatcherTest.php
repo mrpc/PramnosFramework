@@ -969,6 +969,7 @@ class MassMessageDispatcherTest extends BaseTestCase
                 'request' => json_encode(['options' => [
                     'list'        => 'announcements',
                     'template'    => 'receipt',
+                    'preheader'   => 'Ten minutes on Sunday morning',
                     'tracking'    => true,
                     'action_type' => 'confirm',
                     'action_name' => 'Confirm it',
@@ -988,6 +989,7 @@ class MassMessageDispatcherTest extends BaseTestCase
 
         $mailer = $dispatcher->sent[0];
         $this->assertSame('receipt', $mailer->templateGiven);
+        $this->assertSame('Ten minutes on Sunday morning', $mailer->preheaderGiven);
         $this->assertSame(1, $mailer->trackingCalls, 'one id per recipient, not one per campaign');
         $this->assertSame('announcements', $mailer->list);
         $this->assertCount(1, $mailer->blocks);
@@ -1020,6 +1022,8 @@ class MassMessageDispatcherTest extends BaseTestCase
             $dispatcher->sent[0]->list
         );
         $this->assertSame(0, $dispatcher->sent[0]->trackingCalls);
+        $this->assertNull($dispatcher->sent[0]->preheaderGiven,
+            'without one the body supplies it, which an empty string would prevent');
         $this->assertFalse($dispatcher->sent[0]->templateGiven, 'no wrapper choice was made');
     }
 
@@ -1276,6 +1280,14 @@ class WatchedMailDispatcher extends MassMessageDispatcher
             public int $trackingCalls = 0;
             public string $list = '';
             public array $blocks = [];
+            public ?string $preheaderGiven = null;
+
+            public function preheader($text)
+            {
+                $this->preheaderGiven = (string) $text;
+
+                return $this;
+            }
 
             public function setTemplate(?string $template)
             {

@@ -33,7 +33,8 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `route:` | Routing introspection | `route:list` |
 | `queue:` | Background job queue | `queue:process`, `queue:failed`, `queue:retry` |
 | `user:` | User administration | `user:create`, `user:password` |
-| `key:` | Secret/key management | `key:generate` |
+| `key:` | Secret/key management | `key:generate`, `push:vapid-generate` |
+| `mail:` | Deliverability the application cannot see | `mail:dns-check` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |

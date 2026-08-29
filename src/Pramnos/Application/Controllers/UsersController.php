@@ -992,6 +992,12 @@ class UsersController extends Controller
             $notification->list($list);
         }
 
+        $preheader = trim((string) \Pramnos\Http\Request::staticGet('preheader', '', 'post'));
+
+        if ($preheader !== '') {
+            $notification->preheader($preheader);
+        }
+
         if ((string) \Pramnos\Http\Request::staticGet('tracking', '', 'post') !== '') {
             $notification->track();
         }

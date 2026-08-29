@@ -180,6 +180,35 @@ class MailChannelTest extends TestCase
         $this->assertFalse($spy->templateSet);
         $this->assertSame(0, $spy->trackingCalls);
         $this->assertSame([], $spy->structured);
+        $this->assertNull($spy->preheaderGiven);
+    }
+
+    /**
+     * A declared preheader is handed over; an empty one is not.
+     *
+     * Handing over an empty string would replace the line `Email` derives from the body with
+     * nothing at all — and the wrapper would go back to opening with whatever it happens to
+     * open with, which is the state this whole feature exists to end.
+     */
+    public function testAnEmptyPreheaderIsNotHandedOver(): void
+    {
+        // Arrange
+        $wanted   = new SpyEmail();
+        $unwanted = new SpyEmail();
+
+        // Act
+        (new MailChannel($wanted))->send(
+            new MailNotifiable('a@example.com'),
+            new FullyDressedNotification(null, false, [], 'Your code is 481920')
+        );
+        (new MailChannel($unwanted))->send(
+            new MailNotifiable('a@example.com'),
+            new FullyDressedNotification(null, false, [], '   ')
+        );
+
+        // Assert
+        $this->assertSame('Your code is 481920', $wanted->preheaderGiven);
+        $this->assertNull($unwanted->preheaderGiven);
     }
 
     /**
@@ -296,6 +325,8 @@ class SpyEmail extends Email
 
     public int $trackingCalls = 0;
 
+    public ?string $preheaderGiven = null;
+
     public bool $templateSet = false;
 
     public mixed $templateGiven = false;
@@ -308,6 +339,13 @@ class SpyEmail extends Email
     public function setTo($to)              { $this->to      = $to;      return $this; }
     public function setFrom($from)          { $this->from    = $from;    return $this; }
     public function send()                  { $this->sendCount++;        return true;  }
+
+    public function preheader($text)
+    {
+        $this->preheaderGiven = (string) $text;
+
+        return $this;
+    }
 
     public function setTemplate(?string $template)
     {
@@ -340,7 +378,8 @@ class FullyDressedNotification implements NotificationInterface
     public function __construct(
         private ?string $template,
         private bool $tracking,
-        private array $blocks
+        private array $blocks,
+        private string $preheader = ''
     ) {}
 
     public function via(mixed $notifiable): array    { return ['mail']; }
@@ -349,6 +388,7 @@ class FullyDressedNotification implements NotificationInterface
     public function mailTemplate(): ?string          { return $this->template; }
     public function trackingRequested(): bool        { return $this->tracking; }
     public function mailStructuredData(): array      { return $this->blocks; }
+    public function mailPreheader(): string          { return $this->preheader; }
 }
 
 /** Notification that has a toMail() method. */

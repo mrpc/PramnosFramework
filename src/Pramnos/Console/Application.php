@@ -169,6 +169,10 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\CacheClear());
         $this->add(new \Pramnos\Console\Commands\ThemeBuild());
         $this->add(new \Pramnos\Console\Commands\PageCachePurge());
+        // Deliverability is the one part of sending mail an application cannot see: SPF,
+        // DKIM, DMARC and BIMI are records on a domain, and a perfect message is still filed
+        // as spam without them, with nothing in any log to say so.
+        $this->add(new \Pramnos\Console\Commands\MailDnsCheck());
         // The VAPID key pair web push needs. Run once — rotating it stops every existing
         // subscription working, and nobody is told.
         $this->add(new \Pramnos\Console\Commands\PushVapidGenerate());
