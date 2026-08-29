@@ -533,8 +533,17 @@ class PramnosCheckTool implements McpToolInterface
      */
     private function isSuppressed(string $rule, string $line, string $previous): bool
     {
+        /*
+         * `m`, because one caller passes a whole file rather than a line.
+         *
+         * The baseline-migration rule is file-level: it has no line to point at, so it checks
+         * the file's contents for its suppression comment. Without the multiline modifier `$`
+         * anchors to the end of the *string*, so the comment only counted if it happened to be
+         * the last line of the file — and the escape hatch the finding's own `fix` text tells
+         * you to use did nothing.
+         */
         $pattern = '/pramnos-check:\s*ignore\s+' . preg_quote($rule, '/')
-            . '\s*[—\-]\s*(\S.*)$/u';
+            . '\s*[—\-]\s*(\S.*)$/um';
 
         return (bool) (preg_match($pattern, $line) || preg_match($pattern, $previous));
     }

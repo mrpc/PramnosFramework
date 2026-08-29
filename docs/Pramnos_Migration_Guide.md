@@ -32,6 +32,7 @@ class CreateUsersTable extends Migration
     public string $description  = 'Creates the users table';
     public bool   $autorun      = true;         // false = requires --force
     public bool   $transactional = false;       // true = wrap in BEGIN/COMMIT on PostgreSQL
+    public bool   $conditional   = false;       // true = creates nothing on some engines
 
     public function up(): void
     {
@@ -62,6 +63,22 @@ class CreateUsersTable extends Migration
 | `$dependencies` | `array` | `[]` | Slugs of migrations that must run before this one |
 | `$autorun` | `bool` | `true` | `false` = requires `--force` |
 | `$transactional` | `bool` | `false` | Wrap `up()` in `BEGIN`/`COMMIT`/`ROLLBACK` on PostgreSQL |
+| `$conditional` | `bool` | `false` | This migration legitimately creates nothing on some engines — see below |
+
+### `$conditional` — a migration that correctly creates nothing
+
+A few migrations are conditional by design. `pramnos.framework_policies` exists on MySQL and
+plain PostgreSQL and **must not** exist on TimescaleDB, which manages its own policies: the
+migration runs, records itself applied, and creates nothing — correctly.
+
+From the outside that is indistinguishable from a migration whose table somebody dropped by
+hand: the history says applied and the table is not there. That is the most alarming thing a
+drift check can report, and reporting it about a migration behaving exactly as designed is how a
+check stops being read. So the migration says so, and
+[`schema-drift`](Pramnos_MCP_Guide.md#schema-drift) lists it apart.
+
+It is **declared, not detected**: "does this `return` depend on the engine" is not a question to
+answer by pattern-matching somebody's source.
 
 > **Note:** `$autoExecute` is a PHP 8.4 property hook that maps to `$autorun`. Existing code using `$autoExecute` continues to work unchanged.
 

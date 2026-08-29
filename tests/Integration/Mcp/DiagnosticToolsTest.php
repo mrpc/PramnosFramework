@@ -42,6 +42,10 @@ class DiagnosticToolsTest extends TestCase
         $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
         $app->database = $db;
         $this->app     = $app;
+
+        // `users` is the one table every installation has, and the assertions below rely on it
+        // being there — which in a shared test database depends on whichever class ran last.
+        \Pramnos\User\User::setupDb();
     }
 
     /**

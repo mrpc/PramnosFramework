@@ -94,6 +94,135 @@ class SchemaDriftToolTest extends TestCase
     }
 
     /**
+     * A view is an object a migration creates, and it is read like one.
+     *
+     * The live side reads `information_schema.tables`, which lists views. Matching only
+     * `CREATE TABLE` on the declared side reported every view in the project as a live object
+     * nothing creates — twenty-two of them, on a report whose whole value is that its lists are
+     * short.
+     */
+    public function testAViewIsReadLikeATable(): void
+    {
+        // Act
+        $tables = $this->probe()->probeTablesIn(<<<'PHP'
+            <?php
+            $db->query("CREATE OR REPLACE VIEW authserver.slow_api_calls AS SELECT 1");
+            $db->query("CREATE MATERIALIZED VIEW pramnos.changelog_daily AS SELECT 1");
+            PHP);
+
+        // Assert
+        $this->assertSame(
+            ['authserver.slow_api_calls', 'pramnos.changelog_daily'],
+            $tables
+        );
+    }
+
+    /**
+     * A migration whose table name is a constant is recorded as unreadable, not as nothing.
+     *
+     * `createTable(DeferredWriteQueue::TABLE, …)`, or a name read from a setting. Statically
+     * there is nothing to read — and the consequence, if it went unsaid, is that the table it
+     * creates appears under "no migration creates this", which is false and is the worst thing
+     * this tool can say.
+     */
+    public function testATableNamedByAConstantIsReportedAsUnreadable(): void
+    {
+        // Arrange
+        $directory = sys_get_temp_dir() . '/drift-const-' . bin2hex(random_bytes(4));
+        mkdir($directory);
+        file_put_contents(
+            $directory . '/2026_08_29_000001_create_deferredwrites_table.php',
+            "<?php\n\$schema->createTable(DeferredWriteQueue::TABLE, function (\$t) {});\n"
+        );
+
+        try {
+            // Act
+            $tool = new class ($this->emptyApplication(), $directory) extends SchemaDriftTool {
+                public function __construct(Application $app, private string $directory)
+                {
+                    parent::__construct($app);
+                }
+
+                /** @return list<string> */
+                protected function migrationFiles(): array
+                {
+                    return (array) glob($this->directory . '/*.php');
+                }
+
+                /** @return array<string, list<string>> */
+                public function probeDeclared(): array { return $this->declaredTables(); }
+
+                /** @return list<string> */
+                public function probeUnreadable(): array
+                {
+                    return (new \ReflectionProperty(SchemaDriftTool::class, 'unreadable'))
+                        ->getValue($this);
+                }
+            };
+
+            // Assert
+            $this->assertSame([], $tool->probeDeclared(), 'nothing can be read from it');
+            $this->assertSame(['create_deferredwrites_table'], $tool->probeUnreadable());
+        } finally {
+            exec('rm -rf ' . escapeshellarg($directory));
+        }
+    }
+
+    /**
+     * A migration that declared itself conditional is not drift.
+     *
+     * `pramnos.framework_policies` exists on MySQL and plain PostgreSQL and must *not* exist on
+     * TimescaleDB, which manages its own policies. The history saying applied with no table is
+     * the migration behaving exactly as designed — and reported as "applied without leaving its
+     * table", which is the loudest finding this tool has, one false alarm at the top of a report
+     * is enough to stop somebody reading it.
+     */
+    public function testAConditionalMigrationIsNotDrift(): void
+    {
+        // Arrange
+        $directory = sys_get_temp_dir() . '/drift-cond-' . bin2hex(random_bytes(4));
+        mkdir($directory);
+        file_put_contents(
+            $directory . '/2026_08_29_000001_create_framework_policies_table.php',
+            "<?php\npublic bool \$conditional = true;\n"
+            . "\$schema->createTable('pramnos.framework_policies', function (\$t) {});\n"
+        );
+
+        try {
+            // Act
+            $answer = (new class ($this->emptyApplicationWithDb(), $directory) extends SchemaDriftTool {
+                public function __construct(Application $app, private string $directory)
+                {
+                    parent::__construct($app);
+                }
+
+                /** @return list<string> */
+                protected function migrationFiles(): array
+                {
+                    return (array) glob($this->directory . '/*.php');
+                }
+
+                /** @return list<string> */
+                protected function liveTables(): array { return []; }
+
+                /** @return array<string, true> */
+                protected function appliedSlugs(): array
+                {
+                    return ['create_framework_policies_table' => true];
+                }
+            })->execute([]);
+
+            // Assert
+            $this->assertArrayNotHasKey('applied_but_missing', $answer);
+            $this->assertSame('pramnos.framework_policies', $answer['conditional'][0]['table']);
+            $this->assertStringContainsString('every migration has left its table behind',
+                $answer['verdict']);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($directory));
+        }
+    }
+
+    /**
      * A prefixed live table and its unprefixed declaration are one table.
      */
     public function testThePrefixIsNotADifference(): void
@@ -398,6 +527,20 @@ class SchemaDriftToolTest extends TestCase
 
         // Assert
         $this->assertArrayHasKey('error', (new SchemaDriftTool($app))->execute([]));
+    }
+
+    private function emptyApplicationWithDb(): Application
+    {
+        $db = new class {
+            public bool $connected = true;
+            public string $type = 'mysql';
+            public string $prefix = '';
+        };
+
+        $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
+        $app->database = $db;
+
+        return $app;
     }
 
     private function emptyApplication(): Application

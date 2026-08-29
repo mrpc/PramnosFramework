@@ -48,10 +48,30 @@ class SchemaDriftTool implements McpToolInterface
      * reports every such table as created by nothing, which is the loudest possible false
      * alarm about the most carefully written migrations in the project.
      */
-    private const CREATORS = ['createtable', 'createtableifnotexists', 'hastable'];
+    private const CREATORS = ['createtable', 'createtableifnotexists', 'hastable', 'quotetable'];
+
+    /** @var array<string, true> Migrations that legitimately create nothing on some engines. */
+    private array $conditional = [];
+
+    /** Set while scanning a migration that names a table with something other than a literal. */
+    private bool $unresolved = false;
+
+    /** @var list<string> The migrations whose table names could not be read statically. */
+    private array $unreadable = [];
 
     public function __construct(private readonly Application $app)
     {
+    }
+
+    /**
+     * Has this migration declared itself conditional?
+     *
+     * Read from the source rather than from an instance, like everything else here: a migration
+     * is a class whose constructor wants an application and whose `up()` talks to a database.
+     */
+    protected function isConditional(string $source): bool
+    {
+        return preg_match('/\$conditional\s*=\s*true/i', $source) === 1;
     }
 
     public function name(): string
@@ -99,9 +119,10 @@ class SchemaDriftTool implements McpToolInterface
             return $this->one($one, $declared, $live, $applied, $prefix);
         }
 
-        $unmanaged = [];
-        $missing   = [];
-        $pending   = [];
+        $unmanaged   = [];
+        $missing     = [];
+        $pending     = [];
+        $conditional = [];
 
         foreach ($live as $table) {
             if ($this->declarationFor($table, $declared, $prefix) === null) {
@@ -117,7 +138,30 @@ class SchemaDriftTool implements McpToolInterface
             $ran = array_values(array_filter($slugs, static fn (string $slug): bool => isset($applied[$slug])));
 
             if ($ran !== []) {
-                $missing[] = ['table' => $table, 'migrations' => $ran];
+                /*
+                 * A migration that declared itself conditional is not a finding.
+                 *
+                 * `pramnos.framework_policies` exists on MySQL and plain PostgreSQL and must
+                 * *not* exist on TimescaleDB, which manages its own policies — so the history
+                 * saying applied with no table is the migration behaving exactly as designed.
+                 * Reported as drift, it is the loudest possible false alarm, and one false
+                 * alarm at the top of a report is enough to make somebody stop reading it.
+                 */
+                // `$unconditional`, not `$declared`: this loop is `foreach ($declared as …)`,
+                // and reassigning it here emptied the map it was iterating — so the report
+                // counted zero declared tables while listing findings derived from them.
+                $unconditional = array_values(array_filter(
+                    $ran,
+                    fn (string $slug): bool => !isset($this->conditional[$slug])
+                ));
+
+                if ($unconditional === []) {
+                    $conditional[] = ['table' => $table, 'migrations' => $ran];
+
+                    continue;
+                }
+
+                $missing[] = ['table' => $table, 'migrations' => $unconditional];
 
                 continue;
             }
@@ -133,12 +177,24 @@ class SchemaDriftTool implements McpToolInterface
             'unmanaged'       => $unmanaged === [] ? null : $unmanaged,
             'unmanaged_note'  => $unmanaged === [] ? null
                 : 'These exist and no migration creates them. A fresh installation will not have '
-                . 'them, and the deploy that discovers it will be somebody else\'s.',
+                . 'them, and the deploy that discovers it will be somebody else\'s.'
+                . ($this->unreadable === [] ? '' : ' Read the caveat below before acting on this '
+                    . 'list: some of it may be a table this tool could not see.'),
+            'unreadable_migrations' => $this->unreadable === [] ? null : $this->unreadable,
+            'unreadable_note' => $this->unreadable === [] ? null
+                : 'These migrations name their table with a constant or a setting rather than a '
+                . 'literal, so it cannot be read without running them — and a table they create '
+                . 'appears above as though nothing created it. The migration history table is '
+                . 'the other case: it is created by the runner, not by a migration.',
             'applied_but_missing' => $missing === [] ? null : $missing,
             'applied_but_missing_note' => $missing === [] ? null
                 : 'The history says these migrations ran, and their table is not there. Every '
                 . 'future run will consider them done.',
             'not_created_yet' => $pending === [] ? null : $pending,
+            'conditional'     => $conditional === [] ? null : $conditional,
+            'conditional_note' => $conditional === [] ? null
+                : 'These migrations declared that they create nothing on some engines, and this '
+                . 'is one of them. Not drift.',
             'verdict'         => $this->verdict($unmanaged, $missing, $pending),
         ], static fn ($value): bool => $value !== null);
     }
@@ -219,7 +275,18 @@ class SchemaDriftTool implements McpToolInterface
              */
             $slug = $this->slugOf($path);
 
-            foreach ($this->tablesIn($source) as $table) {
+            if ($this->isConditional($source)) {
+                $this->conditional[$slug] = true;
+            }
+
+            $this->unresolved = false;
+            $names            = $this->tablesIn($source);
+
+            if ($this->unresolved) {
+                $this->unreadable[] = $slug;
+            }
+
+            foreach ($names as $table) {
                 $tables[$table] ??= [];
 
                 if (!in_array($slug, $tables[$table], true)) {
@@ -249,14 +316,15 @@ class SchemaDriftTool implements McpToolInterface
         $count  = count($tokens);
 
         /*
-         * `CREATE TABLE <name>` written out in a string, for the migrations that do.
+         * `CREATE TABLE <name>` and `CREATE VIEW <name>`, for the migrations that write SQL.
          *
          * Only when the name is literal — an interpolated `{$t}` is caught by the `hasTable()`
          * guard above it instead, and guessing at a variable's value is how a tool starts
          * reporting tables that do not exist.
          */
         if (preg_match_all(
-            '~CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?([A-Za-z0-9_.#]+)[`"\]]?~i',
+            '~CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?(?:TABLE|VIEW)\s+'
+            . '(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?([A-Za-z0-9_.#]+)[`"\]]?~i',
             $source,
             $matches
         ) > 0) {
@@ -320,7 +388,21 @@ class SchemaDriftTool implements McpToolInterface
                         if ($name !== '') {
                             $found[] = $name;
                         }
+
+                        break;
                     }
+
+                    /*
+                     * A table named by something other than a literal.
+                     *
+                     * `createTable(DeferredWriteQueue::TABLE, …)`, or a name read from a
+                     * setting with a default. Statically there is nothing to read, and the
+                     * consequence is that the table it creates lands in `unmanaged` — reported
+                     * as "no migration creates this", which is false and is the worst thing
+                     * this tool can say. So the file is recorded as unreadable instead, and the
+                     * report says so beside the list.
+                     */
+                    $this->unresolved = true;
 
                     break;
                 }
@@ -385,15 +467,21 @@ class SchemaDriftTool implements McpToolInterface
          * The schema is kept for anything outside `public`, because that is how a migration
          * writes it — `authserver.permissions` — and flattening it here is what made a
          * schema-qualified table and an unprefixed legacy one look like the same table.
+         *
+         * Views are included. A migration that creates one is a migration whose object either
+         * exists or does not, and asking only about `BASE TABLE` reported every view in the
+         * project as "applied without leaving its table" — the loudest finding this tool has,
+         * about the objects it was most confidently right that it had created.
          */
         $sql = $db->type === 'postgresql'
             ? "SELECT table_schema, table_name AS name FROM information_schema.tables
                WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
                  AND table_schema NOT LIKE '\\_timescaledb%'
                  AND table_schema NOT LIKE 'timescaledb%'
-                 AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name"
+                 AND table_type IN ('BASE TABLE', 'VIEW') ORDER BY table_schema, table_name"
             : "SELECT NULL AS table_schema, table_name AS name FROM information_schema.tables
-               WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name";
+               WHERE table_schema = DATABASE() AND table_type IN ('BASE TABLE', 'VIEW')
+               ORDER BY table_name";
 
         try {
             $result = $db->query($sql);
@@ -533,6 +621,8 @@ class SchemaDriftTool implements McpToolInterface
             $parts[] = count($missing) . ' migration(s) applied without their table';
         }
 
-        return implode(', and ', $parts) . '. Both fail on a fresh installation rather than here.';
+        return implode(', and ', $parts) . '. '
+            . (count($parts) === 1 ? 'It fails' : 'Both fail')
+            . ' on a fresh installation rather than here.';
     }
 }

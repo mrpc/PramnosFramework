@@ -90,6 +90,24 @@ abstract class Migration extends \Pramnos\Framework\Base
      */
     public bool $transactional = false;
 
+    /**
+     * Does this migration legitimately do nothing on some engines?
+     *
+     * A few of them are conditional by design: `pramnos.framework_policies` exists on MySQL and
+     * plain PostgreSQL and **must not** exist on TimescaleDB, which manages its own policies.
+     * The migration runs, records itself applied, and creates nothing — correctly.
+     *
+     * Which is indistinguishable, from the outside, from a migration whose table was dropped by
+     * hand: the history says applied and the table is not there. That is the most alarming thing
+     * a drift check can report, and reporting it about a migration that is behaving exactly as
+     * designed is how a check stops being read. So the migration says so, and
+     * {@see \Pramnos\Mcp\Tools\SchemaDriftTool} lists it apart.
+     *
+     * Declared, not detected: "does this `return` depend on the engine" is not a question to
+     * answer by pattern-matching somebody's source.
+     */
+    public bool $conditional = false;
+
     // =========================================================================
     // Internal state
     // =========================================================================

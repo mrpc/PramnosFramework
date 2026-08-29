@@ -408,6 +408,58 @@ PHP);
     }
 
     /**
+     * The suppression the finding tells you to write actually suppresses it.
+     *
+     * This rule is file-level — it has no line to point at, so it checks the whole file for the
+     * comment. The pattern anchored `$` without the multiline modifier, which anchors to the end
+     * of the *string*: the comment counted only if it happened to be the last line of the file,
+     * and the escape hatch the finding's own `fix` text tells you to use did nothing.
+     *
+     * Asserted with the comment in the middle of the file, which is where anybody would put it.
+     *
+     * @return void
+     */
+    public function testTheSuppressionTheFindingRecommendsWorks(): void
+    {
+        // Arrange — the comment above the class, not at the end of the file
+        $this->write(
+            'database/migrations/2020_01_01_000009_add_thing.php',
+            "<?php\n\n"
+            . "// pramnos-check: ignore baseline-migration-timestamp — original baseline migration\n"
+            . "class AddThing extends Migration\n{\n    public function up(): void {}\n}\n"
+        );
+
+        // Act
+        $result = $this->check(['rules' => ['baseline-migration-timestamp']]);
+
+        // Assert
+        $this->assertSame([], $result['findings']);
+    }
+
+    /**
+     * A suppression with no reason is not a suppression.
+     *
+     * The comment has to say why, because the reason is the whole difference between a rule
+     * somebody thought about and a rule somebody silenced.
+     *
+     * @return void
+     */
+    public function testASuppressionWithoutAReasonIsNotOne(): void
+    {
+        // Arrange
+        $this->write(
+            'database/migrations/2020_01_01_000009_add_thing.php',
+            "<?php\n// pramnos-check: ignore baseline-migration-timestamp\nclass AddThing {}\n"
+        );
+
+        // Act
+        $result = $this->check(['rules' => ['baseline-migration-timestamp']]);
+
+        // Assert
+        $this->assertCount(1, $result['findings']);
+    }
+
+    /**
      * A second reader of the `_debug` payload is reported, when the shipped panel is present.
      *
      * Identified by the construction — consuming `_debug` — rather than by a filename that

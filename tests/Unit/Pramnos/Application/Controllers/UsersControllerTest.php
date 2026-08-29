@@ -674,6 +674,59 @@ class UsersControllerTest extends TestCase
     }
 
     /**
+     * The token-action panel finds a real action, which is the assertion that was missing.
+     *
+     * The key-presence test above pins that the screen *asks*. It cannot tell an empty panel
+     * from a broken one — and this one was broken from the day it was written: `tokenactions`
+     * has no `userid` (the account is on the token) and no `actiondate` (it is `servertime`),
+     * so both queries could only fail. The helper catches, the panel renders empty, and an
+     * empty panel is exactly what an account with no API tokens is supposed to look like.
+     *
+     * Found by a diagnostic tool reading the error log, months later.
+     */
+    public function testTheTokenActionPanelFindsARealAction(): void
+    {
+        // Arrange
+        $this->db->query(
+            'CREATE TABLE IF NOT EXISTS `tokenactions` ('
+            . '`actionid` bigint NOT NULL AUTO_INCREMENT, `tokenid` int NOT NULL, '
+            . '`urlid` int NOT NULL DEFAULT 0, `method` varchar(6) NOT NULL DEFAULT \'\', '
+            . '`servertime` int NOT NULL DEFAULT 0, `return_status` int NULL, '
+            . 'PRIMARY KEY (`actionid`))'
+        );
+
+        $this->db->query(
+            "INSERT INTO `usertokens` (`userid`, `tokentype`, `token`, `created`, `notes`) "
+            . "VALUES (3, 'api', 'tok_" . bin2hex(random_bytes(6)) . "', " . time() . ", 'A token')"
+        );
+        $tokenId = (int) $this->db->getInsertId();
+
+        $this->db->query(
+            'INSERT INTO `tokenactions` (`tokenid`, `urlid`, `method`, `servertime`, `return_status`) '
+            . 'VALUES (' . $tokenId . ', 7, \'GET\', ' . (time() - 60) . ', 200), '
+            . '(' . $tokenId . ', 8, \'POST\', ' . time() . ', 201)'
+        );
+
+        try {
+            // Act
+            $records = (new UsersProbe())->exposeUserRecords(3);
+
+            // Assert
+            $this->assertSame(2, $records['tokenActionCount'],
+                'the count is the whole panel when the list is collapsed');
+            $this->assertCount(2, $records['tokenActions']);
+            $this->assertSame('POST', $records['tokenActions'][0]['method'],
+                'newest first, ordered by the column that exists');
+
+            // …and another account's tokens are not this account's actions
+            $this->assertSame(0, (new UsersProbe())->exposeUserRecords(999999)['tokenActionCount']);
+        } finally {
+            $this->db->query('DELETE FROM `tokenactions` WHERE tokenid = ' . $tokenId);
+            $this->db->query('DELETE FROM `usertokens` WHERE tokenid = ' . $tokenId);
+        }
+    }
+
+    /**
      * A missing table is an empty panel, not a broken page.
      *
      * These tables arrive with features: an application without `authserver` has none of

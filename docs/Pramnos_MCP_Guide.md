@@ -566,6 +566,20 @@ Three findings, and they are three different problems:
 - **A migration that has not run here.** Ordinary, and listed apart so it does not drown the
   other two.
 
+Two more things it says, and both exist because the first version said them wrong:
+
+- **A migration can declare itself conditional.** `pramnos.framework_policies` exists on MySQL
+  and plain PostgreSQL and must *not* exist on TimescaleDB, which manages its own policies — so
+  the history saying applied with no table is the migration behaving exactly as designed.
+  Reported as drift, it is the loudest possible false alarm, and one at the top of a report is
+  enough to make somebody stop reading it. `public bool $conditional = true;` on the migration,
+  and it is listed apart.
+- **It says what it could not read.** A migration that names its table with a constant or a
+  setting — `createTable(DeferredWriteQueue::TABLE, …)` — cannot be read without running it, and
+  the table it creates would otherwise appear under "no migration creates this". Those
+  migrations are listed under `unreadable_migrations` and the note beside the unmanaged list
+  points at them.
+
 Two things it does that a simpler implementation would not:
 
 - **It reads raw SQL as well as the schema builder**, and takes the `hasTable()` guard above an

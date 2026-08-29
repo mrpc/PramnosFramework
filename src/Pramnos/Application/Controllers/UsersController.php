@@ -258,11 +258,24 @@ class UsersController extends Controller
                 ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])->count()),
             'emailAddress' => $email,
 
-            // What was done with this account's tokens — issued, revoked, refreshed.
-            'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions')
-                ->where('userid', $userId)->orderBy('actiondate', 'desc')->limit(10)->get()),
-            'tokenActionCount' => $count(fn ($qb) => $qb->table('#PREFIX#tokenactions')
-                ->where('userid', $userId)->count()),
+            /*
+             * What was done with this account's tokens.
+             *
+             * Joined through `usertokens`, because `tokenactions` has **no `userid`** — it has
+             * `tokenid` and `urlid`, and the account is on the token. This panel asked it for
+             * `WHERE userid = ?` and ordered by an `actiondate` that does not exist either, so
+             * every user screen ran two queries that could only fail. The failure was invisible:
+             * the helper catches, the panel renders empty, and an empty panel is what an account
+             * with no API tokens is supposed to look like.
+             */
+            'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions ta')
+                ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
+                ->select(['ta.actionid', 'ta.tokenid', 'ta.urlid', 'ta.method', 'ta.servertime',
+                    'ta.return_status', 'ut.notes'])
+                ->where('ut.userid', $userId)->orderBy('ta.servertime', 'desc')->limit(10)->get()),
+            'tokenActionCount' => $count(fn ($qb) => $qb->table('#PREFIX#tokenactions ta')
+                ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
+                ->where('ut.userid', $userId)->count()),
 
             // Which organizations the account belongs to.
             'organizations' => $rows(fn ($qb) => $qb->table('authserver.user_organizations uo')

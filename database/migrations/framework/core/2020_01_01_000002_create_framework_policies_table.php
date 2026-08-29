@@ -18,12 +18,22 @@ use Pramnos\Database\Migration;
  * own scheduling.
  *
  */
+// pramnos-check: ignore baseline-migration-timestamp — original baseline migration
 class CreateFrameworkPoliciesTable extends Migration
 {
     public string  $feature      = 'core';
     public string  $scope        = 'framework';
     public int     $priority     = 30;
     public array   $dependencies = ['create_pramnos_schema'];
+
+    /*
+     * Nothing to create on TimescaleDB, which manages its own policies — see `up()`.
+     *
+     * Declared so a drift check does not report a migration behaving exactly as designed as
+     * "applied without leaving its table", which is the most alarming thing such a check can
+     * say and the fastest way to make people stop reading it.
+     */
+    public bool    $conditional  = true;
     public $description  = 'Creates the pramnos.framework_policies table';
 
     public function up(): void
