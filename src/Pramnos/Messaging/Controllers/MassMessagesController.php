@@ -53,7 +53,7 @@ class MassMessagesController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view', 'edit', 'save', 'send', 'delete']);
+        $this->addAuthAction(['display', 'view', 'edit', 'preview', 'save', 'send', 'delete']);
         parent::__construct($application);
     }
 
@@ -164,10 +164,133 @@ class MassMessagesController extends Controller
         $view->languages   = $this->audienceLanguages();
         $view->templates   = $this->mailTemplates();
         $view->tracking    = \Pramnos\Email\Tracking::enabled();
+        $view->groups        = $this->userGroups();
+        $view->organizations = $this->organizations();
         // Before anybody presses send, not after.
-        $view->audienceSize = (new MassMessageAudience())->count($criteria);
+        $view->preview      = (new MassMessageAudience())->preview($criteria);
+        $view->audienceSize = (int) $view->preview['total'];
 
         return $view->display('edit');
+    }
+
+    /**
+     * Who these criteria mean, before anything is saved or sent.
+     *
+     * The screen asked an operator to choose a band of accounts and then pressed send. What the
+     * choice *meant* was visible only afterwards, in the recipient rows of a message that had
+     * already gone out — and a send to the wrong band is not something anybody can take back.
+     *
+     * The same form, posted to a different action: the criteria are read exactly as `save()`
+     * reads them, resolved, and the compose screen is rendered again with the answer on it.
+     * Nothing is written, so an operator can try a filter, look, and change it — which is the
+     * loop that was missing.
+     *
+     * Deliberately not JSON and not a fetch: this has to work identically in three themes and
+     * with no JavaScript, and the thing being previewed is a form the browser can post.
+     */
+    public function preview(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $request  = new \Pramnos\Http\Request();
+        $criteria = $this->criteriaFrom($request);
+        $message  = new MassMessage($this);
+        $id       = (int) $request->get('messageid', 0, 'post', 'int');
+
+        if ($id > 0) {
+            $message->load($id);
+        }
+
+        /*
+         * The unsaved body and subject, carried through.
+         *
+         * Previewing is something somebody does *while writing*. Rendering the stored message
+         * would throw away what they had typed, which turns one look at the audience into
+         * retyping the message — so nobody would look.
+         */
+        $message->subject = trim(strip_tags((string) $request->get('subject', '', 'post')));
+        $message->message = (string) $request->get('message', '', 'post');
+        $message->type    = (int) $request->get('type', MassMessage::TYPE_EMAIL, 'post', 'int');
+        $message->scheduled = $this->timestampOf((string) $request->get('scheduled', '', 'post'));
+
+        $doc        = Factory::getDocument();
+        $doc->title = $id > 0 ? 'Edit mass message' : 'New mass message';
+
+        $view                = $this->getView('massmessages');
+        $view->message       = $message->getData();
+        $view->types         = self::TYPES;
+        $view->criteria      = $criteria;
+        $view->options       = $this->optionsFrom($request);
+        $view->languages     = $this->audienceLanguages();
+        $view->templates     = $this->mailTemplates();
+        $view->tracking      = \Pramnos\Email\Tracking::enabled();
+        $view->groups        = $this->userGroups();
+        $view->organizations = $this->organizations();
+        $view->preview       = (new MassMessageAudience())->preview($criteria);
+        $view->audienceSize  = (int) $view->preview['total'];
+        $view->previewed     = true;
+
+        return $view->display('edit');
+    }
+
+    /**
+     * The account groups this installation has, for the picker.
+     *
+     * @return array<int, string> groupid => name
+     */
+    protected function userGroups(): array
+    {
+        $groups = [];
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#usergroups')
+                ->select(['groupid', 'name'])
+                ->orderBy('name', 'asc')
+                ->get();
+
+            while (($row = $result->fetch()) !== null) {
+                $groups[(int) ($row['groupid'] ?? 0)] = (string) ($row['name'] ?? '');
+            }
+        } catch (\Throwable) {
+            // No table, or no groups. An empty picker is the honest answer; a screen that
+            // refused to render because one optional filter has nothing to offer is not.
+            return [];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * The organizations this installation has, for the picker.
+     *
+     * Belongs to the authserver feature, so an installation without it has no such table and
+     * this answers with nothing rather than raising.
+     *
+     * @return array<int, string> organization_id => name
+     */
+    protected function organizations(): array
+    {
+        $organizations = [];
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('organizations')
+                ->select(['organization_id', 'name'])
+                ->where('is_active', 1)
+                ->orderBy('name', 'asc')
+                ->get();
+
+            while (($row = $result->fetch()) !== null) {
+                $organizations[(int) ($row['organization_id'] ?? 0)] = (string) ($row['name'] ?? '');
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return $organizations;
     }
 
     /**
@@ -381,6 +504,23 @@ class MassMessagesController extends Controller
          */
         $criteria['validated_only'] = (bool) $request->get('validated_only', 0, 'post', 'int');
         $criteria['active_only']    = (bool) $request->get('active_only', 0, 'post', 'int');
+
+        /*
+         * Groups, organizations and named accounts, all after the filter for the same reason.
+         *
+         * They arrive as arrays from a multi-select or as a pasted string from a spreadsheet,
+         * and `MassMessageAudience::ids()` reads both. `array_filter` above drops an empty
+         * array as readily as an empty string, which is right — but it also cannot tell an
+         * array of ids from a scalar, so these are normalised here and written only when they
+         * name something.
+         */
+        foreach (['groups', 'organizations', 'only_ids', 'exclude_ids'] as $key) {
+            $ids = MassMessageAudience::ids($request->get($key, [], 'post'));
+
+            if ($ids !== []) {
+                $criteria[$key] = $ids;
+            }
+        }
 
         return $criteria;
     }

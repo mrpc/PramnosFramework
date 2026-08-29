@@ -11,6 +11,10 @@
  *   $this->templates    — the mail wrappers this installation can render
  *   $this->tracking     — whether open/click tracking is switched on at all
  *   $this->audienceSize — how many accounts those criteria match, right now
+ *   $this->groups       — groupid => name, for the picker
+ *   $this->organizations— organization_id => name, for the picker
+ *   $this->preview      — ['total' => int, 'sample' => rows, 'truncated' => int]
+ *   $this->previewed    — true when this render came from pressing Preview
  *
  * The count is on the form on purpose. It is the one number that changes an operator's
  * mind, and it is the number nobody has when a send is a loop somebody wrote in a
@@ -24,6 +28,21 @@ $message  = is_array($this->message ?? null) ? $this->message : [];
 $types    = is_array($this->types ?? null) ? $this->types : [];
 $criteria = is_array($this->criteria ?? null) ? $this->criteria : [];
 $size     = (int) ($this->audienceSize ?? 0);
+$groups        = is_array($this->groups ?? null) ? $this->groups : [];
+$organizations = is_array($this->organizations ?? null) ? $this->organizations : [];
+$preview       = is_array($this->preview ?? null) ? $this->preview : ['total' => $size, 'sample' => [], 'truncated' => 0];
+$previewed     = (bool) ($this->previewed ?? false);
+$picked        = static function (array $criteria, string $key, $id): string {
+    $chosen = $criteria[$key] ?? [];
+
+    return in_array((int) $id, array_map('intval', is_array($chosen) ? $chosen : []), true)
+        ? ' selected' : '';
+};
+$idList        = static function (array $criteria, string $key): string {
+    $ids = $criteria[$key] ?? [];
+
+    return implode(', ', array_map('intval', is_array($ids) ? $ids : []));
+};
 $options   = is_array($this->options ?? null) ? $this->options : [];
 $languages = is_array($this->languages ?? null) ? $this->languages : [];
 $templates = is_array($this->templates ?? null) ? $this->templates : [];
@@ -151,6 +170,62 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 </p>
             </div>
 
+            <div style="display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+                <?php if ($groups !== []): ?>
+                <div>
+                    <label style="display:block;font-size:0.85em;margin-bottom:4px" for="groups">Groups</label>
+                    <select name="groups[]" id="groups" multiple size="5" style="width:100%;padding:6px 8px">
+                        <?php foreach ($groups as $groupId => $name): ?>
+                            <option value="<?php echo (int) $groupId; ?>"<?php echo $picked($criteria, 'groups', $groupId); ?>>
+                                <?php echo $e($name); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="text-xs pf-muted mt-1">
+                        Accounts in <em>any</em> of the chosen groups. Nothing chosen means
+                        the filter is not applied at all.
+                    </p>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($organizations !== []): ?>
+                <div>
+                    <label style="display:block;font-size:0.85em;margin-bottom:4px" for="organizations">Organizations</label>
+                    <select name="organizations[]" id="organizations" multiple size="5" style="width:100%;padding:6px 8px">
+                        <?php foreach ($organizations as $orgId => $name): ?>
+                            <option value="<?php echo (int) $orgId; ?>"<?php echo $picked($criteria, 'organizations', $orgId); ?>>
+                                <?php echo $e($name); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="text-xs pf-muted mt-1">
+                        Accounts belonging to <em>any</em> of them.
+                    </p>
+                </div>
+                <?php endif; ?>
+
+                <div>
+                    <label style="display:block;font-size:0.85em;margin-bottom:4px" for="only_ids">Only these accounts</label>
+                    <textarea name="only_ids" id="only_ids" rows="2" style="width:100%;padding:6px 8px;font-family:monospace"
+                              placeholder="42, 108, 1904"><?php echo $e($idList($criteria, 'only_ids')); ?></textarea>
+                    <p class="text-xs pf-muted mt-1">
+                        User ids, however you have them — commas, spaces or one per line. Filled
+                        in, nobody else is reached. The filters above <em>still</em> apply, so an
+                        account named here that is inactive or unsubscribed is not sent to, and
+                        the preview shows you that.
+                    </p>
+                </div>
+
+                <div>
+                    <label style="display:block;font-size:0.85em;margin-bottom:4px" for="exclude_ids">Except these accounts</label>
+                    <textarea name="exclude_ids" id="exclude_ids" rows="2" style="width:100%;padding:6px 8px;font-family:monospace"
+                              placeholder="7, 19"><?php echo $e($idList($criteria, 'exclude_ids')); ?></textarea>
+                    <p class="text-xs pf-muted mt-1">
+                        Removed from whatever the rest of this matched.
+                    </p>
+                </div>
+            </div>
+
             <label class="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="validated_only" value="1" 
                     <?php echo $checked($criteria['validated_only'] ?? null); ?>>
@@ -180,6 +255,60 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 once, when the message is queued — so it cannot quietly grow to include
                 accounts created after somebody approved the send.
             </p>
+
+            <div style="padding-top:8px;border-top:1px solid rgba(128,128,128,.25)">
+                <button type="submit" formaction="<?php echo adminUrl('MassMessages/preview'); ?>" formnovalidate style="padding:6px 12px">
+                    Preview this audience
+                </button>
+                <span class="text-xs pf-muted">
+                    Nothing is saved and nothing is sent — it resolves the filters and shows you
+                    who they mean.
+                </span>
+            </div>
+
+            <?php if ($previewed): ?>
+                <div style="border:1px solid #ddd;border-radius:4px;padding:12px;background:#fafafa">
+                    <?php if ((int) $preview['total'] === 0): ?>
+                        <p class="text-sm">
+                            <strong>Nobody.</strong> These filters match no account — narrowed
+                            past the point where anybody is left, which is the useful thing to
+                            find out here rather than after pressing send.
+                        </p>
+                    <?php else: ?>
+                        <p class="text-sm mb-2">
+                            <strong><?php echo number_format((int) $preview['total']); ?></strong>
+                            account(s).
+                            <?php if ((int) $preview['truncated'] > 0): ?>
+                                The first <?php echo count($preview['sample']); ?> are listed;
+                                <?php echo number_format((int) $preview['truncated']); ?> more are not.
+                            <?php endif; ?>
+                        </p>
+                        <div style="overflow-x:auto">
+                            <table style="width:100%;border-collapse:collapse;font-size:0.85em">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th><th>Username</th><th>Email</th>
+                                        <th>Usertype</th><th>Language</th><th>Last signed in</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($preview['sample'] as $row): ?>
+                                        <tr>
+                                            <td><?php echo (int) $row['userid']; ?></td>
+                                            <td><?php echo $e($row['username']); ?></td>
+                                            <td><?php echo $e($row['email']); ?></td>
+                                            <td><?php echo (int) $row['usertype']; ?></td>
+                                            <td><?php echo $e($row['language']); ?></td>
+                                            <td><?php echo (int) $row['lastlogin'] > 0
+                                                ? date('d/m/Y', (int) $row['lastlogin']) : '—'; ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
 
         <div style="border:1px solid #ddd;border-radius:4px;padding:14px;margin-bottom:14px">

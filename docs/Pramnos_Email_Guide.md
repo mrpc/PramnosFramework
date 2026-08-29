@@ -486,9 +486,45 @@ would stop matching what was approved.
 | `language` | the **account's** language. A message in Greek sent to everybody also reaches the people who set their account to English, and they cannot read it |
 | `twofactor` | `with` or `without`. Fails closed: on an installation with no `authserver`, "holding a second factor" is nobody, not everybody |
 | `last_login_after` / `last_login_before` | the active and the dormant audience. An account that never signed in has `lastlogin = 0`, so it is in the dormant one — which is the correct answer to that question |
+| `groups` | in **any** of the chosen groups. Any, not all: "members and volunteers" is a message to both, and the intersection is a smaller audience somebody can name directly |
+| `organizations` | in **any** of them. The membership table is the authserver feature's, so an installation without it matches nobody rather than raising |
+| `only_ids` | these accounts and no others — «send this to these three people», the commonest thing anybody wants from this screen |
+| `exclude_ids` | everything the rest matched, minus these |
 | `exclude_optouts` | a list name. They are skipped at delivery either way; naming it here is what makes the **count** honest |
 
-The last one is worth dwelling on. The compose screen counts the audience **before** anybody
+**A filter that matches nobody is an empty audience, not everybody.** The dangerous direction:
+a group filter falling back to "no filter" is how a message meant for eleven volunteers reaches
+every account on the installation, and the operator finds out from the replies.
+
+**`only_ids` does not override the other criteria.** An operator pasting a list from a
+spreadsheet has not checked which of those accounts is inactive, unvalidated or unsubscribed,
+and a screen that sent to them anyway would be treating a paste as an override of every check
+on the page. The preview is where they see which ones dropped out. Ids are read however
+somebody has them — commas, newlines or spaces — because all three are the same intention.
+
+### Looking before sending
+
+```php
+$preview = (new MassMessageAudience())->preview($criteria);
+// ['total' => 4812, 'sample' => [ … 25 rows … ], 'truncated' => 4787]
+```
+
+The screen asked an operator to choose criteria and then pressed send. What the criteria
+*meant* — how many people, and which ones — was visible only afterwards, in the recipient rows
+of a message that had already gone out. A send to the wrong band of accounts is not something
+anybody can take back.
+
+**Preview this audience** on the compose form posts the same fields to `MassMessages/preview`,
+which resolves them and renders the form again with the answer on it. Nothing is written and
+nothing is sent, so an operator can try a filter, look, and change it — which is the loop that
+was missing. It is a form post rather than a fetch on purpose: it has to work identically in
+three themes and with no JavaScript.
+
+The sample is a window, not the audience — forty thousand rows are not a thing to render — and
+it says how many it is not showing, because a list that silently stopped at twenty-five would
+read as an audience of twenty-five.
+
+The last of the criteria is worth dwelling on. The compose screen counts the audience **before** anybody
 presses send, because a count is the one number that changes an operator's mind — and a count
 that includes nine hundred people who unsubscribed changes it in the wrong direction. An
 opt-out from `all` counts for every list: somebody who pressed "stop sending me anything" is not

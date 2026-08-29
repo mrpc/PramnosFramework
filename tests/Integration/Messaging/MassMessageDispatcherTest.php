@@ -380,6 +380,195 @@ class MassMessageDispatcherTest extends BaseTestCase
     }
 
     /**
+     * `only_ids` sends to the accounts somebody named, and to nobody else.
+     *
+     * The commonest thing anybody wants from this screen — «send this to these three people» —
+     * and the one it could not do at all. The band, the language and the second-factor filters
+     * are for describing a group you cannot enumerate; a list you can enumerate had no field.
+     */
+    public function testOnlyIdsNarrowsToTheAccountsNamed(): void
+    {
+        // Act
+        $ids = (new MassMessageAudience($this->db))
+            ->resolve(['only_ids' => [$this->users[0], $this->users[2]]]);
+
+        // Assert
+        $this->assertContains($this->users[0], $ids);
+        $this->assertContains($this->users[2], $ids);
+        $this->assertNotContains($this->users[1], $ids);
+    }
+
+    /**
+     * And naming an account does not override the safety filters.
+     *
+     * `only_ids` is applied as a filter rather than instead of the rest, deliberately: an
+     * operator pasting a list from a spreadsheet has not checked which of those accounts is
+     * inactive or has an unvalidated address, and a screen that sent to them anyway would be
+     * treating a paste as an override of every check on the page.
+     */
+    public function testNamingAnAccountDoesNotOverrideTheSafetyFilters(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('#PREFIX#users')
+            ->where('userid', $this->users[0])->update(['active' => 0]);
+
+        // Act
+        $ids = (new MassMessageAudience($this->db))
+            ->resolve(['only_ids' => [$this->users[0], $this->users[1]]]);
+
+        // Assert
+        $this->assertNotContains($this->users[0], $ids, 'switched off is switched off');
+        $this->assertContains($this->users[1], $ids);
+    }
+
+    /**
+     * `exclude_ids` removes accounts from whatever the rest of the criteria matched.
+     *
+     * «Everybody except these two» — the person who has already been told, the account that
+     * complained last time. Without it the only way to express it is a band that happens to
+     * leave them out, which is a different audience that also leaves out people it should not.
+     */
+    public function testExcludeIdsRemovesAccountsFromTheAudience(): void
+    {
+        // Act
+        $ids = (new MassMessageAudience($this->db))
+            ->resolve(['exclude_ids' => [$this->users[1]]]);
+
+        // Assert
+        $this->assertContains($this->users[0], $ids);
+        $this->assertNotContains($this->users[1], $ids);
+        $this->assertContains($this->users[2], $ids);
+    }
+
+    /**
+     * Ids arrive however somebody has them.
+     *
+     * From a spreadsheet they are newline-separated, from a chat message comma-separated, and
+     * from a colleague with spaces between them. All three are the same intention, and refusing
+     * two of them is a screen telling somebody their list is wrong when it is the screen that is.
+     */
+    public function testAPastedListOfIdsIsReadWhateverSeparatesIt(): void
+    {
+        // Act
+        $ids = (new MassMessageAudience($this->db))->resolve([
+            'only_ids' => $this->users[0] . ",\n " . $this->users[2],
+        ]);
+
+        // Assert
+        $this->assertContains($this->users[0], $ids);
+        $this->assertContains($this->users[2], $ids);
+        $this->assertNotContains($this->users[1], $ids);
+    }
+
+    /**
+     * A group filter naming groups with nobody in them is an empty audience, not everybody.
+     *
+     * The dangerous direction. A filter that cannot be satisfied resolving to "no filter" is how
+     * a message meant for eleven volunteers goes to every account on the installation, and the
+     * operator finds out from the replies.
+     */
+    public function testAGroupFilterThatMatchesNobodyIsNotEverybody(): void
+    {
+        // Act — a group id nothing is in
+        $ids = (new MassMessageAudience($this->db))->resolve(['groups' => [987654]]);
+
+        // Assert
+        $this->assertSame([], $ids);
+    }
+
+    /**
+     * An organizations filter behaves the same way, including where there is no such table.
+     *
+     * The membership table belongs to the authserver feature. An installation without it must
+     * answer "nobody" rather than raising — and must not answer "everybody".
+     */
+    public function testAnOrganizationFilterThatMatchesNobodyIsNotEverybody(): void
+    {
+        // Act
+        $ids = (new MassMessageAudience($this->db))->resolve(['organizations' => [987654]]);
+
+        // Assert
+        $this->assertSame([], $ids);
+    }
+
+    /**
+     * A group filter reaches exactly the accounts in that group.
+     */
+    public function testAGroupFilterReachesTheAccountsInThatGroup(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('#PREFIX#usergroups')
+            ->insert(['name' => 'Volunteers ' . bin2hex(random_bytes(3)), 'description' => '']);
+        $groupId = (int) $this->db->getInsertId();
+        $this->db->queryBuilder()->table('#PREFIX#userstogroups')
+            ->insert(['userid' => $this->users[1], 'groupid' => $groupId]);
+
+        try {
+            // Act
+            $ids = (new MassMessageAudience($this->db))->resolve(['groups' => [$groupId]]);
+
+            // Assert
+            $this->assertSame([$this->users[1]], $ids);
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userstogroups')
+                ->where('groupid', $groupId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#usergroups')
+                ->where('groupid', $groupId)->delete();
+        }
+    }
+
+    /**
+     * The preview says how many, and shows enough of them to recognise the filter.
+     *
+     * The screen asked an operator to choose criteria and then pressed send. What those criteria
+     * meant was visible only afterwards, in the recipient rows of a message that had already
+     * gone out — and a send to the wrong band of accounts is not something anybody can take back.
+     */
+    public function testThePreviewSaysHowManyAndWhichOnes(): void
+    {
+        // Act
+        $preview = (new MassMessageAudience($this->db))
+            ->preview(['only_ids' => [$this->users[0], $this->users[1]]]);
+
+        // Assert
+        $this->assertSame(2, $preview['total']);
+        $this->assertCount(2, $preview['sample']);
+        $this->assertSame(0, $preview['truncated']);
+        $this->assertSame($this->users[0], $preview['sample'][0]['userid']);
+        $this->assertNotSame('', $preview['sample'][0]['email'],
+            'the address is what an operator recognises an account by');
+    }
+
+    /**
+     * The sample is a window, and says how much it is not showing.
+     *
+     * An audience of forty thousand is not a thing to render, and a list that silently stopped
+     * at twenty-five would read as an audience of twenty-five.
+     */
+    public function testThePreviewSampleSaysHowManyItIsNotShowing(): void
+    {
+        // Act
+        $preview = (new MassMessageAudience($this->db))->preview([], 1);
+
+        // Assert
+        $this->assertGreaterThanOrEqual(3, $preview['total']);
+        $this->assertCount(1, $preview['sample']);
+        $this->assertSame($preview['total'] - 1, $preview['truncated']);
+    }
+
+    /**
+     * A preview of criteria nobody matches says nobody, rather than failing.
+     */
+    public function testThePreviewOfAnEmptyAudienceIsEmpty(): void
+    {
+        // Act
+        $preview = (new MassMessageAudience($this->db))->preview(['only_ids' => [987654]]);
+
+        // Assert
+        $this->assertSame(['total' => 0, 'sample' => [], 'truncated' => 0], $preview);
+    }
+
+    /**
      * And the usertype floor is a threshold, like everywhere else.
      */
     public function testTheUsertypeFloorIsAThreshold(): void

@@ -287,6 +287,8 @@ class PushSetupTest extends TestCase
 
             protected function hasBrowserScript(): bool { return true; }
 
+            protected function browserScriptIsCurrent(): bool { return true; }
+
             public function probeInstall(\Symfony\Component\Console\Input\InputInterface $in,
                 \Symfony\Component\Console\Output\OutputInterface $out): mixed
             {
@@ -596,6 +598,71 @@ class PushSetupTest extends TestCase
         };
     }
 
+    /**
+     * A script that is there but predates the soft prompt is reported as work to do.
+     *
+     * A file that exists is not a file that works. This one is generated boilerplate, so a
+     * project has whatever version was current when `push:setup` last ran — and a copy written
+     * before the invitation existed renders the invitation markup and never unhides it. Nothing
+     * fails; the invitation is simply never shown, which is the exact failure this command
+     * exists to end. Found on a real installation, by somebody saying they still could not find
+     * where to turn notifications on.
+     */
+    public function testAnOutOfDateBrowserScriptIsNotDone(): void
+    {
+        // Arrange — the script as it was before the soft prompt
+        $root = $this->tempRoot();
+        mkdir($root . '/www/assets/js', 0755, true);
+        file_put_contents(
+            $root . '/www/assets/js/push.js',
+            "// old\nvar b = document.querySelector('[data-push-subscribe]');\n"
+        );
+
+        try {
+            $command = $this->rooted($root);
+
+            // Act & Assert
+            $this->assertTrue($command->probeHasScript(), 'the file is there');
+            $this->assertFalse($command->probeScriptIsCurrent(), 'and it is not the current one');
+
+            // And writing it says it is replacing rather than creating
+            $output = new \Symfony\Component\Console\Output\BufferedOutput();
+            $command->probeWriteScriptTo($output);
+
+            $this->assertStringContainsString('replacing', $output->fetch());
+            $this->assertTrue($command->probeScriptIsCurrent(), 'and now it is');
+        } finally {
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+    }
+
+    /**
+     * The script this framework ships handles every identifier a page may put in its markup.
+     *
+     * The other half of the same guard: the stub is what `MARKERS` describes, so a marker added
+     * to a view without being handled in the script is caught here rather than by somebody
+     * pressing a button that does nothing.
+     */
+    public function testTheShippedScriptHandlesEveryMarker(): void
+    {
+        // Arrange
+        $root = $this->tempRoot();
+        mkdir($root . '/www/assets/js', 0755, true);
+
+        try {
+            // Act
+            $this->rooted($root)->probeWriteScript();
+            $script = (string) file_get_contents($root . '/www/assets/js/push.js');
+
+            // Assert
+            foreach (PushSetup::MARKERS as $marker) {
+                $this->assertStringContainsString($marker, $script);
+            }
+        } finally {
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+    }
+
     private function tempRoot(): string
     {
         return sys_get_temp_dir() . '/pushsetup-' . bin2hex(random_bytes(5));
@@ -628,6 +695,14 @@ class PushSetupTest extends TestCase
             }
 
             public function probeHasScript(): bool { return $this->hasBrowserScript(); }
+
+            public function probeScriptIsCurrent(): bool { return $this->browserScriptIsCurrent(); }
+
+            public function probeWriteScriptTo(
+                \Symfony\Component\Console\Output\OutputInterface $out
+            ): mixed {
+                return $this->writeBrowserScript($out);
+            }
 
             public function probeHandlers(): ?string { return $this->pushHandlers(); }
         };
@@ -684,6 +759,8 @@ class PushSetupTest extends TestCase
             protected function hasTable(): bool { return $this->is('migration'); }
 
             protected function hasBrowserScript(): bool { return $this->is('script'); }
+
+            protected function browserScriptIsCurrent(): bool { return $this->is('script'); }
 
             protected function inspect(): array
             {

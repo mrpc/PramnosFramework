@@ -273,6 +273,68 @@ class MassMessagesControllerTest extends TestCase
      *
      * @param array<string, string> $fields
      */
+    /**
+     * The group, organization and account-id filters come off the form as lists of ids.
+     *
+     * A multi-select posts an array; a textarea posts a string somebody pasted. Both are the
+     * same intention, and the criteria that get stored have to be the same either way — they
+     * are read back by a different request, on a different day, to resolve an audience.
+     */
+    public function testTheNewAudienceFiltersComeOffTheForm(): void
+    {
+        // Act
+        $criteria = $this->post([
+            'groups'        => ['3', '7'],
+            'organizations' => ['12'],
+            'only_ids'      => "42, 108\n1904",
+            'exclude_ids'   => '7',
+        ])->probeCriteria();
+
+        // Assert
+        $this->assertSame([3, 7], $criteria['groups']);
+        $this->assertSame([12], $criteria['organizations']);
+        $this->assertSame([42, 108, 1904], $criteria['only_ids']);
+        $this->assertSame([7], $criteria['exclude_ids']);
+    }
+
+    /**
+     * A filter nobody filled in is not stored.
+     *
+     * A stored `'groups' => []` and a stored `'groups' => [3]` resolve to different audiences,
+     * and the empty one is indistinguishable from a filter somebody meant to set. Absent means
+     * absent.
+     */
+    public function testAnUnusedAudienceFilterIsNotStored(): void
+    {
+        // Act
+        $criteria = $this->post([
+            'groups'      => [],
+            'only_ids'    => '   ',
+            'exclude_ids' => 'not a number',
+        ])->probeCriteria();
+
+        // Assert
+        $this->assertArrayNotHasKey('groups', $criteria);
+        $this->assertArrayNotHasKey('only_ids', $criteria);
+        $this->assertArrayNotHasKey('exclude_ids', $criteria);
+    }
+
+    /**
+     * A duplicated id is stored once.
+     *
+     * People paste. A list with the same account twice is not two recipients — the dispatcher
+     * dedupes at queue time, but the *count* an operator reads before deciding would be wrong,
+     * and the count is what the decision is made on.
+     */
+    public function testADuplicatedIdIsStoredOnce(): void
+    {
+        // Act
+        $criteria = $this->post(['only_ids' => '42, 42, 108, 42'])->probeCriteria();
+
+        // Assert
+        $this->assertSame([42, 108], $criteria['only_ids']);
+    }
+
     private function post(array $fields): MassMessagesProbe
     {
         $_POST    = $fields;

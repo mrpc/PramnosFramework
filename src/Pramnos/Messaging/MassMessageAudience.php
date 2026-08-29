@@ -27,9 +27,28 @@ use Pramnos\Database\Database;
  * ```
  *
  * All three are defaults, so `resolve([])` means "every account that can actually receive
- * something". Anything else is an application's own question, which is what {@see resolve()}
- * being one query over `users` leaves room for: an application with its own audience writes
- * its own list and hands it to `MassMessageDispatcher::queue()` directly.
+ * something".
+ *
+ * | Key | Means |
+ * | --- | --- |
+ * | `usertype_min` / `usertype_max` | the band, either end |
+ * | `validated_only` / `active_only` | on by default; an address that bounces is not an audience |
+ * | `language` | the account's own, not the operator's |
+ * | `twofactor` | `with` or `without` |
+ * | `last_login_after` / `last_login_before` | recent, or dormant |
+ * | `groups` | in **any** of these groups |
+ * | `organizations` | in **any** of these organizations |
+ * | `only_ids` | these accounts and no others |
+ * | `exclude_ids` | everything above, minus these |
+ * | `exclude_optouts` | the list name, so the count matches what will be sent |
+ *
+ * `only_ids` is applied as a filter rather than instead of the rest, deliberately: naming an
+ * account that is inactive, unvalidated or opted out must not send to it, and {@see preview()}
+ * is where an operator sees that it did not.
+ *
+ * Anything beyond these is an application's own question, which is what {@see resolve()} being
+ * one query over `users` leaves room for: an application with its own audience writes its own
+ * list and hands it to `MassMessageDispatcher::queue()` directly.
  */
 class MassMessageAudience
 {
@@ -116,6 +135,51 @@ class MassMessageAudience
             $query->where('lastlogin', '>=', $since);
         }
 
+        $groups = static::ids($criteria['groups'] ?? []);
+
+        if ($groups !== []) {
+            $members = $this->membersOfGroups($groups);
+
+            if ($members === []) {
+                return [];   // named groups with nobody in them is an empty audience, not everybody
+            }
+
+            $query->whereIn('userid', $members);
+        }
+
+        $organizations = static::ids($criteria['organizations'] ?? []);
+
+        if ($organizations !== []) {
+            $members = $this->membersOfOrganizations($organizations);
+
+            if ($members === []) {
+                return [];
+            }
+
+            $query->whereIn('userid', $members);
+        }
+
+        /*
+         * Named accounts, and named accounts only.
+         *
+         * `only_ids` answers "send this to these three people" — the commonest thing anybody
+         * wants from this screen and the one it could not do. It is applied as a filter rather
+         * than short-circuiting the rest, so the safety criteria still hold: naming an account
+         * that is inactive, unvalidated or opted out does not send to it, and the preview shows
+         * the operator that it did not.
+         */
+        $only = static::ids($criteria['only_ids'] ?? []);
+
+        if ($only !== []) {
+            $query->whereIn('userid', $only);
+        }
+
+        $exclude = static::ids($criteria['exclude_ids'] ?? []);
+
+        if ($exclude !== []) {
+            $query->whereIn('userid', $exclude, 'and', true);
+        }
+
         $before = (int) ($criteria['last_login_before'] ?? 0);
 
         if ($before > 0) {
@@ -152,6 +216,191 @@ class MassMessageAudience
         }
 
         return array_values(array_keys($rows));
+    }
+
+    /**
+     * Who this audience is, in enough detail to be read before it is sent to.
+     *
+     * The screen asked an operator to choose criteria and then pressed send. What those criteria
+     * *meant* — how many people, and which ones — was visible only afterwards, in the recipient
+     * rows of a message that had already gone out. A send to the wrong band of accounts is not
+     * something an operator can take back, and «4,812 people» is the number that changes their
+     * mind, so it has to arrive before the decision rather than after it.
+     *
+     * The sample is a window, not the audience: an audience of forty thousand is not a thing to
+     * render, and the first `$sample` rows are enough to recognise that the filter did what was
+     * meant. They are the same order the send uses.
+     *
+     * @param  array<string, mixed> $criteria
+     * @param  int                  $sample How many accounts to describe
+     * @return array{total: int, sample: list<array<string, mixed>>, truncated: int}
+     */
+    public function preview(array $criteria = [], int $sample = 25): array
+    {
+        $ids = $this->resolve($criteria);
+        $total = count($ids);
+
+        if ($total === 0) {
+            return ['total' => 0, 'sample' => [], 'truncated' => 0];
+        }
+
+        $window = array_slice($ids, 0, max(1, $sample));
+        $rows   = [];
+
+        try {
+            $result = $this->database->queryBuilder()
+                ->table('#PREFIX#users')
+                ->select(['userid', 'username', 'email', 'usertype', 'language', 'lastlogin'])
+                ->whereIn('userid', $window)
+                ->orderBy('userid', 'asc')
+                ->get();
+
+            while (($row = $result->fetch()) !== null) {
+                $rows[] = [
+                    'userid'    => (int) ($row['userid'] ?? 0),
+                    'username'  => (string) ($row['username'] ?? ''),
+                    'email'     => (string) ($row['email'] ?? ''),
+                    'usertype'  => (int) ($row['usertype'] ?? 0),
+                    'language'  => (string) ($row['language'] ?? ''),
+                    'lastlogin' => (int) ($row['lastlogin'] ?? 0),
+                ];
+            }
+        } catch (\Throwable) {
+            // The count is the part that matters; a sample that cannot be read is a smaller
+            // failure than a preview that refuses to render.
+            $rows = [];
+        }
+
+        return [
+            'total'     => $total,
+            'sample'    => $rows,
+            'truncated' => max(0, $total - count($rows)),
+        ];
+    }
+
+    /**
+     * A list of account ids from whatever the form sent — an array, or a pasted string.
+     *
+     * People paste ids. From a spreadsheet they arrive newline-separated, from a chat message
+     * comma-separated, and from a colleague with spaces between them. All three are the same
+     * intention, and refusing two of them is a screen telling somebody their list is wrong when
+     * it is the screen that is.
+     *
+     * @param  mixed $value
+     * @return list<int>
+     */
+    public static function ids(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = preg_split('~[^0-9]+~', $value) ?: [];
+        }
+
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $ids = [];
+
+        foreach ($value as $item) {
+            $id = (int) $item;
+
+            if ($id > 0 && !in_array($id, $ids, true)) {
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The accounts in any of these groups.
+     *
+     * *Any*, not all. "Members and volunteers" is a message to both, and an operator who wants
+     * the intersection has a smaller audience they can name directly — whereas the union cannot
+     * be expressed at all if this is an AND.
+     *
+     * @param  list<int> $groups
+     * @return list<int>
+     */
+    protected function membersOfGroups(array $groups): array
+    {
+        $ids = [];
+
+        try {
+            $result = $this->database->queryBuilder()
+                ->table('#PREFIX#userstogroups')
+                ->select(['userid'])
+                ->whereIn('groupid', $groups)
+                ->get();
+
+            while (($row = $result->fetch()) !== null) {
+                $id = (int) ($row['userid'] ?? 0);
+
+                if ($id > 0) {
+                    $ids[$id] = true;
+                }
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_keys($ids);
+    }
+
+    /**
+     * The accounts belonging to any of these organizations.
+     *
+     * The membership table is the authserver feature's, and its name is configurable — so an
+     * installation without that feature has no such table, and this answers "nobody" rather
+     * than raising. A filter nobody can satisfy resolving to an empty audience is the safe
+     * direction: the other one sends to everybody.
+     *
+     * @param  list<int> $organizations
+     * @return list<int>
+     */
+    protected function membersOfOrganizations(array $organizations): array
+    {
+        $ids = [];
+
+        try {
+            $result = $this->database->queryBuilder()
+                ->table(static::organizationMembershipTable())
+                ->select(['user_id'])
+                ->whereIn(static::organizationColumn(), $organizations)
+                ->get();
+
+            while (($row = $result->fetch()) !== null) {
+                $id = (int) ($row['user_id'] ?? 0);
+
+                if ($id > 0) {
+                    $ids[$id] = true;
+                }
+            }
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_keys($ids);
+    }
+
+    /** Where organization membership lives — the same setting the organizations screen reads. */
+    public static function organizationMembershipTable(): string
+    {
+        $setting = trim((string) \Pramnos\Application\Settings::getSetting(
+            'authserver_organization_table',
+            ''
+        ));
+
+        return 'authserver.' . ($setting !== '' ? $setting : 'user_organizations');
+    }
+
+    /** The organization foreign key on that table. */
+    public static function organizationColumn(): string
+    {
+        return (string) \Pramnos\Application\Settings::getSetting(
+            'authserver_organization_column',
+            'organization_id'
+        );
     }
 
     /**

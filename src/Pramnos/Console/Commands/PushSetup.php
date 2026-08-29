@@ -43,6 +43,17 @@ class PushSetup extends Command
      */
     public const PACKAGE = 'minishlink/web-push:^11.0';
 
+    /**
+     * What a current browser script has to handle.
+     *
+     * Identifiers rather than a version number, because a version number is a thing to forget
+     * to bump — and because these are exactly what a page written against the current script
+     * puts in its markup. A script missing one renders that markup and does nothing with it.
+     *
+     * @var list<string>
+     */
+    public const MARKERS = ['data-push-subscribe', 'data-push-invite', 'data-push-later'];
+
     protected function configure(): void
     {
         $this->setName('push:setup')
@@ -142,8 +153,11 @@ class PushSetup extends Command
             ],
             [
                 'name' => 'Browser script',
-                'what' => 'nothing asks for permission, so nothing ever subscribes',
-                'done' => $this->hasBrowserScript(),
+                'what' => $this->hasBrowserScript()
+                    ? 'the script here predates ' . implode(', ', static::MARKERS)
+                        . ', so that part of it does nothing'
+                    : 'nothing asks for permission, so nothing ever subscribes',
+                'done' => $this->hasBrowserScript() && $this->browserScriptIsCurrent(),
                 'do'   => fn ($in, $out): mixed => $this->writeBrowserScript($out),
             ],
         ];
@@ -273,7 +287,41 @@ class PushSetup extends Command
 
     protected function hasBrowserScript(): bool
     {
-        return is_file($this->root() . '/www/assets/js/push.js');
+        return is_file($this->browserScriptPath());
+    }
+
+    /**
+     * Is the script that is there the one this framework ships?
+     *
+     * A file that exists is not the same as a file that works. This one is generated
+     * boilerplate, so a project usually has whatever version was current when `push:setup` last
+     * ran — and a copy written before the soft prompt existed renders the invitation markup and
+     * never unhides it. Nothing fails; the invitation is simply never shown, which is the exact
+     * failure this command was written to end.
+     *
+     * Checked by the identifiers the current script must handle rather than by a version
+     * number, because a version number is a thing to forget to bump.
+     */
+    protected function browserScriptIsCurrent(): bool
+    {
+        $source = @file_get_contents($this->browserScriptPath());
+
+        if ($source === false) {
+            return false;
+        }
+
+        foreach (static::MARKERS as $marker) {
+            if (!str_contains($source, $marker)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function browserScriptPath(): string
+    {
+        return $this->root() . '/www/assets/js/push.js';
     }
 
     protected function writeBrowserScript(OutputInterface $output): mixed
@@ -286,13 +334,15 @@ class PushSetup extends Command
 
         $name = (string) (\Pramnos\Application\Application::currentInstance()
             ?->applicationInfo['name'] ?? 'this application');
-        $path = $this->root() . '/www/assets/js/push.js';
+        $path = $this->browserScriptPath();
 
         if (!is_dir(dirname($path)) && !@mkdir(dirname($path), 0755, true) && !is_dir(dirname($path))) {
             return 'could not create ' . dirname($path);
         }
 
-        $output->writeln('  writing ' . $path);
+        $output->writeln(
+            (is_file($path) ? '  replacing the out-of-date ' : '  writing ') . $path
+        );
 
         return @file_put_contents($path, str_replace('{{APP_NAME}}', $name, $source)) !== false
             ? true

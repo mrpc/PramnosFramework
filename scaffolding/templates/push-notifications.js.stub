@@ -25,13 +25,30 @@
 (function () {
     'use strict';
 
-    var button = document.querySelector('[data-push-subscribe]');
-    var state  = document.querySelector('[data-push-state]');
+    /*
+     * Every control on the page, not the first one.
+     *
+     * A page can offer this twice and the settings screen does: the soft prompt lives in the
+     * footer on every signed-in page, and the privacy screen has a permanent switch of its own.
+     * With `querySelector` the two were on the same page and only one of them was wired — the
+     * one earlier in the document — so the invitation's button did nothing when pressed, which
+     * is worse than not offering it.
+     */
+    var buttons = Array.prototype.slice.call(
+        document.querySelectorAll('[data-push-subscribe]')
+    );
+    var states = Array.prototype.slice.call(document.querySelectorAll('[data-push-state]'));
     var invite = document.querySelector('[data-push-invite]');
     var later  = document.querySelector('[data-push-later]');
 
-    if (!button) {
+    if (buttons.length === 0) {
         return;
+    }
+
+    function show() {
+        buttons.forEach(function (button) {
+            button.hidden = false;
+        });
     }
 
     /*
@@ -101,17 +118,19 @@
     }
 
     function say(message, disabled) {
-        if (state) {
+        states.forEach(function (state) {
             state.textContent = message;
-        }
+        });
 
-        button.disabled = Boolean(disabled);
+        buttons.forEach(function (button) {
+            button.disabled = Boolean(disabled);
+        });
     }
 
     var reason = unsupported();
 
     if (reason) {
-        button.hidden = false;
+        show();
         say(reason, true);
 
         return;
@@ -125,7 +144,7 @@
          * themselves — so the honest thing is to say so rather than leave a button that does
          * nothing when pressed.
          */
-        button.hidden = false;
+        show();
         say('Notifications are blocked for this site. Turn them back on in your browser\'s site '
             + 'settings.', true);
 
@@ -231,8 +250,10 @@
             });
     }
 
-    button.hidden = false;
-    button.addEventListener('click', subscribe);
+    show();
+    buttons.forEach(function (button) {
+        button.addEventListener('click', subscribe);
+    });
 
     /*
      * The invitation, and the four conditions on showing it.
