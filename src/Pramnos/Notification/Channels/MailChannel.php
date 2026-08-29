@@ -102,7 +102,43 @@ class MailChannel implements ChannelInterface
             $email->offerUnsubscribe($list, $address);
         }
 
+        $this->applyOptions($email, $notification);
+
         $email->send();
+    }
+
+    /**
+     * The optional declarations a notification may make about its mail.
+     *
+     * The same shape as `unsubscribeList()` above and for the same reason: a notification that
+     * wants none of this declares nothing and gets the transactional defaults. Declared, they
+     * are the capabilities `Email` already has — a wrapper, tracking, a Gmail action — reachable
+     * from a notification without the caller having to abandon `notify()` and build an `Email`
+     * by hand, which is what everybody did instead.
+     *
+     * `trackingRequested()` is a *request*: `Tracking` still refuses unless the installation has
+     * it on and the message belongs to a list somebody agreed to receive.
+     */
+    protected function applyOptions(Email $email, NotificationInterface $notification): void
+    {
+        if (method_exists($notification, 'mailTemplate')) {
+            // `null` is "the installation's default" and `''` is "no wrapper at all" — two
+            // different answers, so the value is passed through rather than tested for empty.
+            $template = $notification->mailTemplate();
+            $email->setTemplate($template === null ? null : (string) $template);
+        }
+
+        if (method_exists($notification, 'trackingRequested') && $notification->trackingRequested()) {
+            $email->enableTracking();
+        }
+
+        if (method_exists($notification, 'mailStructuredData')) {
+            foreach ((array) $notification->mailStructuredData() as $block) {
+                if (is_array($block)) {
+                    $email->addStructuredData($block);
+                }
+            }
+        }
     }
 
     /**

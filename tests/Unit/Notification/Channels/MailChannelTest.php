@@ -154,6 +154,129 @@ class MailChannelTest extends TestCase
         $this->assertSame(1, $spy->sendCount, 'Must fall back to $notifiable->email property');
         $this->assertSame('eve@example.com', $spy->to);
     }
+    // ─────────────────────────────────────────────────────────────────────────
+    // The optional mail declarations
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * A notification that declares nothing gets the transactional defaults.
+     *
+     * No wrapper choice, no tracking, no structured data. This is the important half of the
+     * feature: a password reset must not acquire a tracking pixel because somebody added the
+     * capability to the channel.
+     */
+    public function testANotificationThatDeclaresNothingGetsNothing(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('alice@example.com'),
+            new SimpleMailNotification(['subject' => 'S', 'body' => 'B'])
+        );
+
+        // Assert
+        $this->assertFalse($spy->templateSet);
+        $this->assertSame(0, $spy->trackingCalls);
+        $this->assertSame([], $spy->structured);
+    }
+
+    /**
+     * A declared wrapper reaches the message.
+     */
+    public function testADeclaredWrapperReachesTheMessage(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('alice@example.com'),
+            new FullyDressedNotification('receipt', false, [])
+        );
+
+        // Assert
+        $this->assertTrue($spy->templateSet);
+        $this->assertSame('receipt', $spy->templateGiven);
+    }
+
+    /**
+     * `''` is passed through as `''` — "no wrapper", which is not "the default".
+     *
+     * Two answers that both look empty. Conflated, an installation that wraps everything can
+     * never send one bare body — a machine-readable mail, or one whose body is already a whole
+     * document.
+     */
+    public function testNoWrapperIsNotTheSameAsTheDefault(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('alice@example.com'),
+            new FullyDressedNotification('', false, [])
+        );
+
+        // Assert
+        $this->assertSame('', $spy->templateGiven, 'an empty wrapper name is a real answer');
+    }
+
+    /**
+     * Tracking is asked for once when it is declared, and not at all when it is not.
+     */
+    public function testTrackingIsAskedForOnlyWhenDeclared(): void
+    {
+        // Arrange
+        $wanted   = new SpyEmail();
+        $unwanted = new SpyEmail();
+
+        // Act
+        (new MailChannel($wanted))->send(
+            new MailNotifiable('a@example.com'),
+            new FullyDressedNotification(null, true, [])
+        );
+        (new MailChannel($unwanted))->send(
+            new MailNotifiable('a@example.com'),
+            new FullyDressedNotification(null, false, [])
+        );
+
+        // Assert
+        $this->assertSame(1, $wanted->trackingCalls);
+        $this->assertSame(0, $unwanted->trackingCalls);
+    }
+
+    /**
+     * Structured data blocks are handed over, and rubbish among them is dropped.
+     *
+     * The declaration is an application's array. A non-array entry reaching
+     * `addStructuredData()` would be a type error at send time — on the password reset, in
+     * production, at the moment somebody is locked out.
+     */
+    public function testStructuredDataIsHandedOverAndRubbishIsDropped(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('a@example.com'),
+            new FullyDressedNotification(null, false, [
+                ['@type' => 'EmailMessage'],
+                'not an array',
+                [],
+                ['@type' => 'ConfirmAction'],
+            ])
+        );
+
+        // Assert
+        $this->assertSame(
+            [['@type' => 'EmailMessage'], ['@type' => 'ConfirmAction']],
+            $spy->structured
+        );
+    }
+
 }
 
 // =============================================================================
@@ -171,11 +294,61 @@ class SpyEmail extends Email
 {
     public int $sendCount = 0;
 
+    public int $trackingCalls = 0;
+
+    public bool $templateSet = false;
+
+    public mixed $templateGiven = false;
+
+    /** @var list<array<string, mixed>> */
+    public array $structured = [];
+
     public function setSubject($subject)    { $this->subject = $subject; return $this; }
     public function setBody($body)          { $this->body    = $body;    return $this; }
     public function setTo($to)              { $this->to      = $to;      return $this; }
     public function setFrom($from)          { $this->from    = $from;    return $this; }
     public function send()                  { $this->sendCount++;        return true;  }
+
+    public function setTemplate(?string $template)
+    {
+        $this->templateSet   = true;
+        $this->templateGiven = $template;
+
+        return $this;
+    }
+
+    public function enableTracking($trackingId = null)
+    {
+        $this->trackingCalls++;
+
+        return $this;
+    }
+
+    public function addStructuredData(array $data)
+    {
+        if ($data !== []) {
+            $this->structured[] = $data;
+        }
+
+        return $this;
+    }
+}
+
+/** A notification that declares every optional mail option. */
+class FullyDressedNotification implements NotificationInterface
+{
+    public function __construct(
+        private ?string $template,
+        private bool $tracking,
+        private array $blocks
+    ) {}
+
+    public function via(mixed $notifiable): array    { return ['mail']; }
+    public function toMail(mixed $notifiable): array { return ['subject' => 'S', 'body' => 'B']; }
+
+    public function mailTemplate(): ?string          { return $this->template; }
+    public function trackingRequested(): bool        { return $this->tracking; }
+    public function mailStructuredData(): array      { return $this->blocks; }
 }
 
 /** Notification that has a toMail() method. */

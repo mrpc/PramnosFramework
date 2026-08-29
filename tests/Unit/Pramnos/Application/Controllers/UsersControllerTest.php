@@ -1237,6 +1237,283 @@ class UsersControllerTest extends TestCase
             $this->assertStringContainsString($capability, $output);
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The Send screen
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The screen only offers channels this account can actually receive.
+     *
+     * An operator who presses Send and is told "sent" is entitled to believe it. A channel
+     * that silently delivers nothing — no address, no key pair, no subscribed browser — is the
+     * exact failure this screen exists to prevent, and it is invisible from the outside:
+     * nothing errors, the message simply never arrives.
+     */
+    public function testTheSendScreenOnlyOffersChannelsThatCanReachTheAccount(): void
+    {
+        // Arrange — an ordinary account with an address, and no push subscriptions anywhere
+        $user           = new \Pramnos\User\User();
+        $user->userid   = 2;
+        $user->email    = 'someone@example.com';
+
+        // Act
+        $channels = (new UsersProbe())->exposeSendChannels($user);
+
+        // Assert
+        $this->assertTrue($channels['mail']['available']);
+        $this->assertTrue($channels['database']['available'],
+            'the in-app record is the one channel that always works');
+        $this->assertFalse($channels['push']['available'],
+            'nothing has subscribed, so push would deliver nowhere');
+        $this->assertNotSame('', $channels['push']['reason'],
+            'and a disabled option without a reason is a support ticket');
+    }
+
+    /**
+     * An account with no usable address cannot be emailed, and the screen says so.
+     */
+    public function testAnAccountWithoutAnAddressCannotBeEmailed(): void
+    {
+        // Arrange
+        $user         = new \Pramnos\User\User();
+        $user->userid = 2;
+        $user->email  = 'not an address';
+
+        // Act
+        $channels = (new UsersProbe())->exposeSendChannels($user);
+
+        // Assert
+        $this->assertFalse($channels['mail']['available']);
+        $this->assertStringContainsString('email address', $channels['mail']['reason']);
+    }
+
+    /**
+     * The wrapper list is read from the directories, so the bundled default is always there.
+     *
+     * A configured list would be wrong the first time somebody dropped a file into
+     * `app/emails`, which is the only way wrappers are ever added.
+     */
+    public function testTheWrapperListComesFromTheDirectories(): void
+    {
+        // Act
+        $templates = (new UsersProbe())->exposeMailTemplates();
+
+        // Assert
+        $this->assertContains('default', $templates,
+            'the bundled wrapper resolves on an installation that has published nothing');
+        $this->assertSame(array_values(array_unique($templates)), $templates,
+            'the same name in two directories is one wrapper, not two');
+    }
+
+    /**
+     * `all` is always a list, whatever the opt-out records say.
+     */
+    public function testAllIsAlwaysAList(): void
+    {
+        // Act
+        $lists = (new UsersProbe())->exposeMailLists();
+
+        // Assert
+        $this->assertContains(\Pramnos\Email\Unsubscribe::LIST_ALL, $lists);
+    }
+
+    /**
+     * The composed message carries the channels, the body and nothing that was not asked for.
+     *
+     * The transactional default is the important half: a form submitted with the options
+     * untouched must not produce a message with a wrapper choice, a list, tracking or an
+     * action. Otherwise "we locked your account" acquires an unsubscribe link.
+     */
+    public function testAnUntouchedFormComposesATransactionalMessage(): void
+    {
+        // Arrange
+        $this->arrangePost([]);
+
+        // Act
+        $message = (new UsersProbe())->exposeCompose('Locked', "First line\nSecond line", ['mail']);
+
+        // Assert
+        $this->assertSame(['mail'], $message->via(null));
+        $this->assertSame('Locked', $message->toMail(null)['subject']);
+        $this->assertStringContainsString('<br', $message->toMail(null)['body'],
+            'line breaks are kept');
+        $this->assertSame('', $message->unsubscribeList());
+        $this->assertFalse($message->trackingRequested());
+        $this->assertSame([], $message->mailStructuredData());
+        $this->assertNull($message->mailTemplate());
+    }
+
+    /**
+     * The body is escaped before the line breaks are added.
+     *
+     * The other order turns `<b>` typed by an operator into working markup in somebody's mail
+     * client — which is the whole reason this field is text rather than HTML.
+     */
+    public function testTheBodyIsEscapedNotRendered(): void
+    {
+        // Arrange
+        $this->arrangePost([]);
+
+        // Act
+        $body = (new UsersProbe())
+            ->exposeCompose('S', '<script>alert(1)</script>', ['mail'])
+            ->toMail(null)['body'];
+
+        // Assert
+        $this->assertStringNotContainsString('<script>', $body);
+        $this->assertStringContainsString('&lt;script&gt;', $body);
+    }
+
+    /**
+     * Every option the form offers reaches the message.
+     */
+    public function testTheFormOptionsReachTheMessage(): void
+    {
+        // Arrange
+        $this->arrangePost([
+            'link'        => 'https://example.com/account',
+            'template'    => 'receipt',
+            'list'        => 'digest',
+            'tracking'    => '1',
+            'action_type' => 'confirm',
+            'action_name' => 'Confirm it',
+            'action_url'  => 'https://example.com/confirm/abc',
+        ]);
+
+        // Act
+        $message = (new UsersProbe())->exposeCompose('S', 'B', ['mail', 'push']);
+
+        // Assert
+        $this->assertSame('https://example.com/account', $message->toPush(null)['url']);
+        $this->assertSame('receipt', $message->mailTemplate());
+        $this->assertSame('digest', $message->unsubscribeList());
+        $this->assertTrue($message->trackingRequested());
+
+        $blocks = $message->mailStructuredData();
+        $this->assertCount(1, $blocks);
+        $this->assertSame('ConfirmAction', $blocks[0]['potentialAction']['@type'] ?? null);
+    }
+
+    /**
+     * "No wrapper" is a real answer and survives as one.
+     *
+     * The default is a sentinel rather than an empty string precisely so that these two can be
+     * told apart: an installation that wraps everything otherwise has no way to send one bare
+     * body.
+     */
+    public function testNoWrapperIsDistinguishableFromTheDefault(): void
+    {
+        // Arrange
+        $this->arrangePost(['template' => '']);
+
+        // Act & Assert
+        $this->assertSame('', (new UsersProbe())->exposeCompose('S', 'B', ['mail'])->mailTemplate());
+
+        $this->arrangePost(['template' => '__default__']);
+        $this->assertNull((new UsersProbe())->exposeCompose('S', 'B', ['mail'])->mailTemplate());
+    }
+
+    /**
+     * A link or action URL that is not a URL is dropped rather than sent.
+     *
+     * A push notification whose `url` is `javascript:…` or a stray word opens nothing, and a
+     * Gmail action pointing at rubbish is a button that fails for every reader at once.
+     */
+    public function testRubbishUrlsAreDropped(): void
+    {
+        // Arrange
+        $this->arrangePost([
+            'link'        => 'not a url',
+            'action_type' => 'view',
+            'action_name' => 'Open',
+            'action_url'  => 'javascript:alert(1)',
+        ]);
+
+        // Act
+        $message = (new UsersProbe())->exposeCompose('S', 'B', ['mail', 'push']);
+
+        // Assert
+        $this->assertArrayNotHasKey('url', $message->toPush(null));
+        $this->assertSame([], $message->mailStructuredData());
+    }
+
+    /**
+     * An action needs all three of its parts, or it is not an action.
+     *
+     * A type with no button text renders as an unlabelled control; a name with no URL is a
+     * button that goes nowhere. Half an action is worse than none.
+     */
+    public function testAnIncompleteActionIsNotAnAction(): void
+    {
+        // Arrange
+        $this->arrangePost(['action_type' => 'view', 'action_url' => 'https://example.com']);
+
+        // Act & Assert
+        $this->assertSame([], (new UsersProbe())->exposeCompose('S', 'B', ['mail'])->mailStructuredData());
+    }
+
+    /**
+     * A form that posts no channels at all still sends the mail.
+     *
+     * The previous version of this screen had one channel and no `channels` field, and an
+     * application that published that view still posts nothing. Read as "chose nothing", every
+     * such form would stop working the day the framework was updated — with an error about
+     * channels nobody had ever seen a field for.
+     */
+    public function testAFormWithNoChannelFieldStillSendsTheMail(): void
+    {
+        // Arrange — exactly what the old view posts
+        $_GET['_option']  = 3;
+        $_POST['subject'] = 'About your account';
+        $_POST['message'] = 'Something an operator typed.';
+        unset($_POST['channels']);
+
+        // Act
+        $this->controller->sendnotification();
+
+        // Assert
+        $this->assertArrayNotHasKey('users_error', $_SESSION,
+            'the old form must not start failing');
+        $this->assertStringContainsString('mail', (string) ($_SESSION['users_success'] ?? ''));
+    }
+
+    /**
+     * Ticking a channel this account cannot receive reports that channel's own reason.
+     *
+     * «Could not send» leaves an operator with nothing to do. "No browser has subscribed" is
+     * the user's problem and "this installation has no key pair" is the installation's — and
+     * they need different people.
+     */
+    public function testAnUnreachableChannelReportsItsOwnReason(): void
+    {
+        // Arrange
+        $_GET['_option']   = 3;
+        $_POST['subject']  = 'Subject';
+        $_POST['message']  = 'Body';
+        $_POST['channels'] = ['push'];
+
+        // Act
+        $this->controller->sendnotification();
+
+        // Assert
+        $error = (string) ($_SESSION['users_error'] ?? '');
+        $this->assertNotSame('', $error);
+        $this->assertMatchesRegularExpression('~subscrib|key pair~i', $error,
+            'the message has to say which of the two problems it is');
+    }
+
+    /**
+     * Arrange a POST body for the composer.
+     *
+     * @param array<string, mixed> $fields
+     */
+    private function arrangePost(array $fields): void
+    {
+        $_POST    = $fields;
+        $_REQUEST = $fields;
+        Request::resetInstance();
+    }
 }
 
 /**
@@ -1254,5 +1531,29 @@ class UsersProbe extends \Pramnos\Application\Controllers\UsersController
     public function exposeUserRecords(int $userId, string $email = ''): array
     {
         return $this->userRecords($userId, $email);
+    }
+
+    /** @return array<string, array{available: bool, reason: string}> */
+    public function exposeSendChannels(\Pramnos\User\User $user): array
+    {
+        return $this->sendChannels($user);
+    }
+
+    /** @return list<string> */
+    public function exposeMailTemplates(): array
+    {
+        return $this->mailTemplates();
+    }
+
+    /** @return list<string> */
+    public function exposeMailLists(): array
+    {
+        return $this->mailLists();
+    }
+
+    /** @param list<string> $channels */
+    public function exposeCompose(string $subject, string $message, array $channels): \Pramnos\Notification\Message
+    {
+        return $this->composeMessage($subject, $message, $channels);
     }
 }

@@ -701,6 +701,17 @@ class UsersController extends Controller
      * Before this the only route was the operator's own mail client, which leaves no
      * record on the account and uses whatever address they happen to type.
      *
+     * Three channels, and the screen only offers the ones this account can actually receive:
+     * mail needs a valid address, the in-app record needs the notifications table, and push
+     * needs a VAPID pair **and** at least one browser subscribed. Offering a channel that
+     * silently delivers nothing is the failure this screen exists to prevent — an operator
+     * pressing Send and being told "sent" is entitled to believe it.
+     *
+     * The mail options are the ones the mail infrastructure has: a wrapper, an unsubscribe
+     * list, open/click tracking, a Gmail action. They are here because this is where they get
+     * *tried*: a template nobody has ever rendered and an action nobody has ever seen arrive
+     * are both things you find out about from a real message, not from a test.
+     *
      * @param string|int|null $id User ID (resolved via Request::staticGetOption)
      */
     public function notify(mixed $id = null): mixed
@@ -730,19 +741,120 @@ class UsersController extends Controller
             'lastname'  => (string) $user->lastname,
         ];
 
+        $view->channels  = $this->sendChannels($user);
+        $view->templates = $this->mailTemplates();
+        $view->lists     = $this->mailLists();
+        $view->tracking  = \Pramnos\Email\Tracking::enabled();
+
         return $view->display('notify');
     }
 
     /**
-     * Send the message from {@see notify()}.
+     * Which channels can actually reach this account, and why the others cannot.
+     *
+     * The reason travels with the answer because an operator who sees a disabled option asks
+     * why, and "no browser has subscribed" and "this installation has no key pair" are two
+     * completely different problems — one is the user's, one is the installation's.
+     *
+     * @return array<string, array{available: bool, reason: string}>
+     */
+    protected function sendChannels(User $user): array
+    {
+        $address = (string) $user->email;
+        $mail    = $address !== '' && filter_var($address, FILTER_VALIDATE_EMAIL) !== false;
+
+        $pushKeys  = \Pramnos\Push\Vapid::configured();
+        $pushRows  = $pushKeys ? \Pramnos\Push\Subscriptions::forUser((int) $user->userid) : [];
+
+        return [
+            'mail' => [
+                'available' => $mail,
+                'reason'    => $mail ? '' : 'This account has no usable email address.',
+            ],
+            'database' => [
+                'available' => true,
+                'reason'    => '',
+            ],
+            'push' => [
+                'available' => $pushKeys && $pushRows !== [],
+                'reason'    => !$pushKeys
+                    ? 'This installation has no VAPID key pair — run `push:vapid-generate`.'
+                    : ($pushRows === []
+                        ? 'No browser has subscribed to notifications for this account.'
+                        : ''),
+            ],
+        ];
+    }
+
+    /**
+     * The mail wrappers this installation can render, by name.
+     *
+     * Read from the directories rather than configured, because a wrapper *is* a file: one
+     * dropped into `app/emails` is available immediately, and a list that had to be maintained
+     * beside it would be wrong the first time somebody added one.
+     *
+     * @return list<string>
+     */
+    protected function mailTemplates(): array
+    {
+        $names = [];
+
+        foreach (\Pramnos\Email\EmailTheme::directories() as $directory) {
+            foreach ((array) @glob($directory . DIRECTORY_SEPARATOR . '*.html.php') as $file) {
+                $names[basename((string) $file, '.html.php')] = true;
+            }
+        }
+
+        ksort($names);
+
+        return array_keys($names);
+    }
+
+    /**
+     * The unsubscribe lists this installation has records for.
+     *
+     * Every list anybody has ever opted out of, plus `all`. There is no registry of lists — a
+     * list is whatever name a sender used — so the opt-out records are the only evidence of
+     * which names are real, and a free-text field beside them is what allows a new one.
+     *
+     * @return list<string>
+     */
+    protected function mailLists(): array
+    {
+        $lists = [\Pramnos\Email\Unsubscribe::LIST_ALL];
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#emailoptouts')
+                ->select('list')
+                ->groupBy('list')
+                ->get();
+
+            while ($result && $result->fetch()) {
+                $name = trim((string) ($result->fields['list'] ?? ''));
+
+                if ($name !== '' && !in_array($name, $lists, true)) {
+                    $lists[] = $name;
+                }
+            }
+        } catch (\Throwable) {
+            // No records yet, or no table. `all` is still a real list.
+        }
+
+        return $lists;
+    }
+
+    /**
+     * Send the message from {@see notify()}, on the channels that were ticked.
      *
      * Recorded in the activity log — what was sent to an account, and by whom, is part of
      * that account's history, and an operator who has to ask "did anybody tell them?" is
-     * asking a question the log should answer.
+     * asking a question the log should answer. The record names the channels, because "we
+     * emailed them" and "we left a note in the app" are different answers to that question.
      *
      * The body is sent as text: an operator writing to one user is writing a sentence, not
      * building a template, and accepting markup here would make every message a place to
-     * paste something that renders in somebody's mail client.
+     * paste something that renders in somebody's mail client. Line breaks survive.
      *
      * @param string|int|null $id User ID (resolved via Request::staticGetOption)
      */
@@ -770,10 +882,55 @@ class UsersController extends Controller
             return;
         }
 
-        $address = (string) $user->email;
-        if ($address === '' || filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
-            $_SESSION['users_error'] = 'This account has no usable email address.';
-            $this->redirect(adminUrl('users/view/') . $id);
+        $available = $this->sendChannels($user);
+        $posted    = \Pramnos\Http\Request::staticGet('channels', null, 'post');
+
+        /*
+         * A form that names no channels at all means mail.
+         *
+         * Not a convenience: the previous version of this screen had one channel and posted no
+         * `channels` field, and an application that published that view still posts nothing.
+         * Read as "chose nothing", every such form would stop working the day the framework was
+         * updated, with a message about channels nobody had ever seen a field for.
+         */
+        $requested = $posted === null ? ['mail'] : (array) $posted;
+        $channels  = [];
+        $refused   = [];
+
+        foreach (['mail', 'database', 'push'] as $channel) {
+            if (!in_array($channel, $requested, true)) {
+                continue;
+            }
+
+            if ($available[$channel]['available'] ?? false) {
+                $channels[] = $channel;
+
+                continue;
+            }
+
+            $reason = trim((string) ($available[$channel]['reason'] ?? ''));
+
+            if ($reason !== '') {
+                $refused[] = $reason;
+            }
+        }
+
+        if ($channels === []) {
+            /*
+             * Refused rather than sent to nothing.
+             *
+             * A tick on a channel this account cannot receive is dropped above, so "everything
+             * I asked for was unavailable" reaches here as an empty list — and reporting that
+             * as a successful send is how an operator concludes somebody was told.
+             *
+             * The channel's own reason is reported, not a summary of it: "no browser has
+             * subscribed" and "this installation has no key pair" need different people to do
+             * different things, and «could not send» tells neither of them which.
+             */
+            $_SESSION['users_error'] = $refused === []
+                ? 'Choose at least one way to reach this account.'
+                : implode(' ', array_unique($refused));
+            $this->redirect(adminUrl($refused === [] ? 'users/notify/' : 'users/view/') . $id);
 
             return;
         }
@@ -781,26 +938,77 @@ class UsersController extends Controller
         $operator = User::getCurrentUser();
 
         try {
-            $sent = \Pramnos\Email\Email::sendMail($subject, nl2br(htmlspecialchars(
-                $message,
-                ENT_QUOTES,
-                'UTF-8'
-            )), $address);
+            $notification = $this->composeMessage($subject, $message, $channels);
+
+            (new \Pramnos\Notification\Notifier())->sendNow($user, $notification);
 
             \Pramnos\Auth\ActivityLog::record($id, 'operator_message_sent', [
-                'subject' => $subject,
-                'by'      => $operator ? (int) $operator->userid : 0,
-                'sent'    => (bool) $sent,
+                'subject'  => $subject,
+                'by'       => $operator ? (int) $operator->userid : 0,
+                'channels' => $channels,
+                'sent'     => true,
             ]);
 
-            $_SESSION[$sent ? 'users_success' : 'users_error'] = $sent
-                ? 'Message sent.'
-                : 'The mailer refused the message — check the mail settings.';
+            $_SESSION['users_success'] = 'Message sent on ' . implode(', ', $channels) . '.';
         } catch (\Throwable $ex) {
             $_SESSION['users_error'] = 'Could not send: ' . $ex->getMessage();
         }
 
         $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * Build the notification from the form, with whichever mail options were asked for.
+     *
+     * `sendNow()` rather than `send()`: an operator who pressed Send is standing in front of
+     * the screen and needs to know whether it worked, and a queued message answers that
+     * question minutes later on a page nobody is looking at.
+     *
+     * @param list<string> $channels
+     */
+    protected function composeMessage(string $subject, string $message, array $channels): \Pramnos\Notification\Message
+    {
+        $body = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+
+        $notification = (new \Pramnos\Notification\Message($subject, $body))->to(...$channels);
+
+        $link = trim((string) \Pramnos\Http\Request::staticGet('link', '', 'post'));
+
+        if ($link !== '' && filter_var($link, FILTER_VALIDATE_URL) !== false) {
+            $notification->link($link);
+        }
+
+        $template = (string) \Pramnos\Http\Request::staticGet('template', '__default__', 'post');
+
+        if ($template !== '__default__') {
+            // `''` is a real answer here — "no wrapper for this one" — so it cannot be
+            // conflated with "not specified", which is why the default is a sentinel.
+            $notification->template($template);
+        }
+
+        $list = trim((string) \Pramnos\Http\Request::staticGet('list', '', 'post'));
+
+        if ($list !== '') {
+            $notification->list($list);
+        }
+
+        if ((string) \Pramnos\Http\Request::staticGet('tracking', '', 'post') !== '') {
+            $notification->track();
+        }
+
+        $action = trim((string) \Pramnos\Http\Request::staticGet('action_type', '', 'post'));
+        $name   = trim((string) \Pramnos\Http\Request::staticGet('action_name', '', 'post'));
+        $url    = trim((string) \Pramnos\Http\Request::staticGet('action_url', '', 'post'));
+
+        if ($action !== '' && $name !== '' && filter_var($url, FILTER_VALIDATE_URL) !== false) {
+            $notification->action(match ($action) {
+                'confirm' => \Pramnos\Email\Actions::confirm($name, $url),
+                'save'    => \Pramnos\Email\Actions::save($name, $url),
+                default   => \Pramnos\Email\Actions::view($name, $url),
+            });
+        }
+
+        return $notification;
     }
 
     /**

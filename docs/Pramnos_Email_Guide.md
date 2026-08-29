@@ -9,6 +9,8 @@ use_cases:
   - Putting a Gmail action button on a message, or finding out why one is not showing
   - Building a one-click action a mail client can perform without a session
   - Deciding whether to track opens, and reading the numbers honestly
+  - Sending one account a message from the administration area
+  - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
 ---
 
 # Pramnos Framework - Email System Guide
@@ -22,7 +24,8 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 3. [Configuration](#configuration)
 4. [Advanced Features](#advanced-features)
 5. [Email Tracking](#email-tracking)
-6. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
+6. [A message to one account](#a-message-to-one-account)
+7. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
 7. [SMTP Configuration](#smtp-configuration)
 7. [Error Handling](#error-handling)
 8. [Best Practices](#best-practices)
@@ -337,6 +340,78 @@ written.
 item from a sent one, an archived one and a deleted one. The listing therefore *names* the states
 it wants (`MessagesController::INBOX_TYPES`) rather than excluding the ones it does not: a state
 added later must not appear in somebody's inbox because a `NOT IN` list was not updated.
+
+## A message to one account
+
+`/admin/Users/notify/<id>` — the **Send** screen on an account. An operator frequently needs to
+*say* something to one person ("your export is ready", "we reset your second factor"), and the
+alternative is their own mail client, which leaves no record on the account and uses whatever
+address they happen to type.
+
+Three channels, ticked independently:
+
+| | |
+| --- | --- |
+| **Email** | to the address on the account |
+| **Notification** | a row in `notifications` — readable next time they sign in |
+| **Push** | on the device, with the browser closed ([guide](Pramnos_Push_Guide.md)) |
+
+**A channel this account cannot receive is disabled, with its reason.** No usable address, no
+VAPID pair, no browser subscribed — each says which. An operator who presses Send and is told
+"sent" is entitled to believe it, and a channel that silently delivers nothing is invisible from
+the outside: nothing errors, the message simply never arrives. "No browser has subscribed" and
+"this installation has no key pair" also need different people to fix them.
+
+Every mail option this guide describes is on that screen, because this is where they get *tried*:
+a wrapper nobody has rendered and a Gmail action nobody has seen arrive are both things you find
+out about from a real message, not from a test.
+
+### `Notification\Message` — the notification with no event
+
+Every other notification is a class per event — `InvoicePaid`, `NewSignIn` — which is the right
+shape when the event is known in advance. This is for when it is not: an operator writing a
+sentence, an administration screen, a test send. There is no event to name, so there is no class
+to write.
+
+```php
+use Pramnos\Notification\Message;
+
+$user->notify(
+    (new Message('Your export is ready', '<p>It is on your downloads page.</p>'))
+        ->to('mail', 'database', 'push')
+        ->link(sURL . 'account/downloads')
+        ->list('exports')          // → a working unsubscribe, and opt-outs are respected
+        ->template('receipt')      // → '' for no wrapper, null for the default
+        ->track()                  // → asked for; Tracking still decides
+        ->action(Actions::view('Open it', sURL . 'account/downloads'))
+);
+```
+
+Each channel gets a shape it can use. The push body is stripped of markup and flattened to one
+line, because a push is two lines on a lock screen — handed HTML it shows the tags, handed a
+paragraph the operating system truncates it at a point nobody chose.
+
+### The mail options are declarations, not calls
+
+`MailChannel` reads four optional methods off a notification — `unsubscribeList()`,
+`mailTemplate()`, `trackingRequested()`, `mailStructuredData()`. A notification that declares
+none of them is **transactional** and gets none of it: no unsubscribe link, no suppression, no
+pixel, no `ld+json`.
+
+That default is the important half. A password reset must arrive even for somebody who
+unsubscribed from everything, an unsubscribe link on it teaches people the link does nothing, and
+a tracking pixel on it tracks somebody who never agreed to be tracked. Any notification can now
+declare these — the capability is not confined to code that builds an `Email` by hand, which is
+what everybody did instead.
+
+```php
+class WeeklyDigest implements NotificationInterface
+{
+    public function unsubscribeList(): string { return 'digest'; }
+    public function trackingRequested(): bool { return true; }
+    public function toMail(mixed $notifiable): array { … }
+}
+```
 
 ## A message to many accounts
 
