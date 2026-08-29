@@ -105,9 +105,16 @@ for every one of its servers.
 | `log-errors` | **What the log lines actually say** — see below |
 | `framework-docs` | **How the framework works** — see below |
 | `pramnos-check` | **Whether this project has broken a documented rule** — see below |
+| `status` | **Is anything broken, and what is waiting** — see below |
+| `schema-drift` | **The schema on disk against the schema in the database** — see below |
+| `request-debug` | **What a request that died actually did** — see below |
 
 `find-symbol` reads source files and needs neither, so it works when nothing boots — which is
 when it is most likely to be wanted.
+
+**Start with `status`.** It answers the four questions a session opens with — is the database
+up, are there migrations to run, is anything stuck, when did something last go wrong — and the
+alternative is finding out from a failure ten minutes in.
 
 The first five are **application introspection**: they answer *what exists in this
 project*. They need a database or an application to answer at all, and two of them are
@@ -115,7 +122,7 @@ skipped when no connection is configured. The two log tools answer *what has bee
 and need only a readable log directory — so they register even when there is no application,
 which is exactly when somebody is asking why.
 
-All nine come from one list, `McpServiceProvider::registerDefaults()`. `mcp:serve` calls it
+They all come from one list, `McpServiceProvider::registerDefaults()`. `mcp:serve` calls it
 when no container has a server, which is the normal case; a second copy of that list is how
 two tools once ended up registered and unreachable at the same time.
 
@@ -141,8 +148,11 @@ project.
 **Calling it.**
 
 ```jsonc
-// The index — every guide and the task each one covers. The cheap first call.
+// The index — one line per guide: its name, and the first task it covers.
 {}
+
+// The same index with every use case of every page — an order of magnitude larger
+{"detail": "full"}
 
 // Find the page for a task
 {"query": "issue an API token for a signed-in browser"}
@@ -153,6 +163,13 @@ project.
 // The dated history of a change, rather than how the thing works now
 {"corpus": "changelog", "query": "session exchange"}
 ```
+
+**The index is brief by default**, and that is a usability fix rather than a saving. Every use
+case of every page came to about 27KB — a page of reading before the question has been asked —
+and the measurable effect was that grepping `docs/` won instead: one line, and you know what
+comes back. An index that fits in a glance gets asked reflexively, which is the only way an
+index earns its place. `{"detail": "full"}` is there for when the brief one did not name what
+you are looking for.
 
 **How pages are ranked.** Every guide carries `use_cases:` frontmatter, and each entry is
 phrased as *the task the reader has in hand* rather than as a description of the page —
@@ -486,6 +503,106 @@ does not exist puts a new test somewhere nobody looks.
 - **The framework's own tests are in scope**, because a framework class is covered there and
   nowhere else, and "no tests" would otherwise be a confident lie.
 
+### `status`
+
+```jsonc
+{}   // it takes no arguments at all
+```
+
+```jsonc
+{
+  "database":   {"connected": true, "type": "postgresql", "prefix": ""},
+  "migrations": {"applied": 91, "pending": 0},
+  "queue":      {"enabled": true, "by_status": {"pending": 3, "failed": 1}},
+  "health":     {"status": "ok", "checks": {"database": {"status": "ok", "message": "Reachable"}}},
+  "errors":     {"at": "29/08/2026 00:07:07", "level": "error",
+                 "message": "column \"userid\" does not exist …",
+                 "request": "62b82d3200a4be93"},
+  "verdict":    "1 failed queue job(s); last error 29/08/2026 00:07:07."
+}
+```
+
+Four questions that were four separate lookups and therefore usually none: a container that is
+not running is discovered by a failure, and a pending migration by a column that does not exist.
+
+- **The verdict is the product.** Five sections of JSON is what somebody skims past; one line
+  is what gets read. It never says everything is fine while something is not, and an unreachable
+  database is the *whole* answer rather than one finding among five — every other section is
+  unanswerable without it, and the usual cause is a container that is not running.
+- **Pending migrations are named, not counted.** "3 pending" is a number; the names say whether
+  they are this afternoon's work or somebody else's from a branch.
+- **The last error carries its request id**, which is the argument to `request-debug`.
+- **It takes no arguments and changes nothing.** A tool called reflexively at the start of a
+  session must not be able to start, migrate, clear or retry anything.
+
+### `schema-drift`
+
+```jsonc
+{}                        // the whole comparison
+{"table": "permissions"}  // one table: what creates it, and has that run here
+```
+
+`list-tables` reads the live database; `migration-status` reads the migrations. The question
+that matters is neither: *does a migration create this table, and has it run here?* The gap
+between those two answers is a whole category of bug and is invisible from either side.
+
+```jsonc
+{
+  "unmanaged": ["deferredwrites", "schemaversion"],
+  "applied_but_missing": [{"table": "pramnos.framework_policies",
+                           "migrations": ["create_framework_policies_table"]}],
+  "not_created_yet": [],
+  "verdict": "2 live table(s) no migration creates, and 1 migration(s) applied without their table."
+}
+```
+
+Three findings, and they are three different problems:
+
+- **A table nothing creates.** It exists, code queries it, and a fresh installation will not
+  have it. The failure is a deploy to a new environment, months later, by somebody who was not
+  there.
+- **A migration that ran without leaving its table.** The history says applied and the table is
+  not there — so every future run considers it done. The alarming one.
+- **A migration that has not run here.** Ordinary, and listed apart so it does not drown the
+  other two.
+
+Two things it does that a simpler implementation would not:
+
+- **It reads raw SQL as well as the schema builder**, and takes the `hasTable()` guard above an
+  interpolated `CREATE TABLE {$t}` as the table's name. Several migrations have to write raw SQL
+  — a hypertable, a schema-qualified table — and reading only `createTable()` reports every one
+  of them as a table nothing creates, which is the loudest possible false alarm about the most
+  carefully written migrations in the project.
+- **It compares names normalised**, because the same table is spelled four ways:
+  `#PREFIX#usersettings` in a migration and `pf_usersettings` in MySQL;
+  `authserver.permissions` on PostgreSQL and `authserver_permissions` on MySQL. What it does
+  *not* flatten is the schema itself — `authserver.permissions` and a bare legacy `permissions`
+  are two different tables, and treating them as one hides the exact bug this was written for.
+
+The migrations are **read, not executed**: `token_get_all()` and a regex over string literals. A
+tool that ran a migration to find out what it creates would be a tool that migrates the database
+by being asked a question.
+
+### `request-debug`
+
+```jsonc
+{}                              // the requests that went wrong, most recent first
+{"request": "62b82d3200a4be93"} // every line that request wrote
+{"level": ""}                   // every request the log knows about
+```
+
+The debug toolbar answers this for a response somebody is looking at. A request that *died*
+carried almost nothing back — an error page is not a JSON payload, and the header that still
+gets through has room for a count and never for a message.
+
+Listing is the default because the id is the part you do not have: it exists only after somebody
+has read an error page and copied it out, which on a request that never rendered one nobody has.
+
+Lines are tagged with a request id **only while the debug toolbar is active for that visitor**,
+which is deliberate — on a live server everybody else is logging into the same seconds, and
+their lines are not a developer's to read. So "no lines for that id" is usually correct, and the
+tool says so rather than looking broken.
+
 ### `coverage`
 
 The rule in these projects is coverage above 95% **on the code you changed**, and it was
@@ -741,13 +858,22 @@ php <cli> mcp:call log-errors --json '{"files": ["mcp.log"]}'
 
 ## The built-in resources
 
-Three, all of them the application's own files, registered only when present:
+The application's own files, registered only when present:
 
 | URI | File |
 |---|---|
 | `file://CLAUDE.md` | `ROOT/CLAUDE.md` |
 | `file://README.md` | `ROOT/README.md` |
 | `file://app/app.php` | `ROOT/app/app.php` |
+| `file://docs/<name>.md` | every markdown file directly inside `ROOT/docs/` |
+
+The last row is **discovered, not listed**, and that is the point of it. A project's own notes —
+a request log, a decisions file, whatever that project calls it — are exactly the documents
+somebody wants in context from the first message, and they were never going to be named in the
+framework. `docs/` is where a project puts them, and a directory scan cannot go out of date.
+
+Top level only, and markdown only: a recursive scan picks up a vendored copy of somebody else's
+manual, and a resource list nobody reads is the same as no resource list.
 
 ## Adding your own
 

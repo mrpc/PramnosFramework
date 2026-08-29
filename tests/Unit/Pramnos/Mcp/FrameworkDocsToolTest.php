@@ -120,8 +120,7 @@ MD);
             $index['count'],
             'The vendored corpus is dozens of pages; a handful means the path is wrong.'
         );
-        $names = array_column($index['pages'], 'page');
-        $this->assertContains('Pramnos_Authentication_Guide', $names);
+        $this->assertArrayHasKey('Pramnos_Authentication_Guide', $index['pages']);
     }
 
     /**
@@ -353,13 +352,77 @@ MD);
     public function testTheIndexCarriesUseCases(): void
     {
         // Act
-        $index = $this->fixtureTool()->execute([]);
+        $index = $this->fixtureTool()->execute(['detail' => 'full']);
 
         // Assert
         $this->assertSame(3, $index['count']);
         $byPage = array_column($index['pages'], 'use_cases', 'page');
         $this->assertCount(2, $byPage['Guide_Widgets']);
         $this->assertSame([], $byPage['frozen-reference'], 'No frontmatter, no use cases.');
+    }
+
+    /**
+     * The default index is one line per page, and it is much smaller.
+     *
+     * Every use case of every page came to about 27KB — a page of reading before the question
+     * has been asked — and the observable effect was that grepping `docs/` won: one line, and
+     * you know what comes back. An index that fits in a glance is one that gets asked
+     * reflexively, which is the only way an index earns its place.
+     *
+     * @return void
+     */
+    public function testTheDefaultIndexIsOneLinePerPage(): void
+    {
+        // Act
+        $brief = $this->fixtureTool()->execute([]);
+        $full  = $this->fixtureTool()->execute(['detail' => 'full']);
+
+        // Assert
+        $this->assertSame('brief', $brief['detail']);
+        $this->assertSame(
+            'Adding a widget to a dashboard',
+            $brief['pages']['Guide_Widgets'],
+            'the page name is the key, and its first use case is the whole entry'
+        );
+        $this->assertLessThan(
+            strlen((string) json_encode($full['pages'])),
+            strlen((string) json_encode($brief['pages']))
+        );
+    }
+
+    /**
+     * A page with no use cases falls back to its title rather than to nothing.
+     *
+     * An entry with an empty value is a page the reader cannot tell apart from a formatting
+     * fault, and it is the pages without frontmatter that most need describing.
+     *
+     * @return void
+     */
+    public function testAPageWithNoUseCasesStillDescribesItself(): void
+    {
+        // Act
+        $brief = $this->fixtureTool()->execute([]);
+
+        // Assert
+        $this->assertNotSame('', $brief['pages']['frozen-reference']);
+    }
+
+    /**
+     * The brief index says how to get the full one.
+     *
+     * Otherwise the first use case is read as the *only* use case, and the page that would
+     * have answered the question is passed over.
+     *
+     * @return void
+     */
+    public function testTheBriefIndexSaysHowToGetTheRest(): void
+    {
+        // Act
+        $hint = $this->fixtureTool()->execute([])['hint'];
+
+        // Assert
+        $this->assertStringContainsString('detail', $hint);
+        $this->assertStringContainsString('full', $hint);
     }
 
     /**
@@ -370,7 +433,7 @@ MD);
     public function testTheIndexIsOrderedByName(): void
     {
         // Act
-        $names = array_column($this->fixtureTool()->execute([])['pages'], 'page');
+        $names = array_keys($this->fixtureTool()->execute([])['pages']);
 
         // Assert
         $sorted = $names;

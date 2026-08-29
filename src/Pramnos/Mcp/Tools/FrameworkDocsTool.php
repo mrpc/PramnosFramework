@@ -159,6 +159,15 @@ class FrameworkDocsTool implements McpToolInterface
                     'description' => 'A page name from the index, to read in full — e.g. '
                         . '"Pramnos_Authentication_Guide". The .md suffix is optional.',
                 ],
+                'detail' => [
+                    'type'        => 'string',
+                    'enum'        => ['brief', 'full'],
+                    'description' => 'How much of the index to return. `brief` (the default) '
+                        . 'is one line per page — the name and its first use case. `full` is '
+                        . 'every use case of every page, which is an order of magnitude larger '
+                        . 'and worth asking for only when the brief index did not name what '
+                        . 'you are looking for.',
+                ],
                 'corpus' => [
                     'type'        => 'string',
                     'enum'        => ['guides', 'changelog'],
@@ -211,20 +220,49 @@ class FrameworkDocsTool implements McpToolInterface
 
         $query = isset($input['query']) ? trim((string) $input['query']) : '';
         if ($query === '') {
+            /*
+             * The index is brief by default, and that is a usability fix rather than a saving.
+             *
+             * Every use case of every page came to about 27KB — which is a page of reading
+             * before the question has been asked, and the observable effect was that grepping
+             * `docs/` won: one line, and you know what comes back. An index that fits in a
+             * glance gets asked reflexively, which is the whole point of it existing.
+             */
+            $full = (string) ($input['detail'] ?? 'brief') === 'full';
+
             return [
                 'corpus'    => $corpus,
                 'docs_path' => $root,
                 'count'     => count($pages),
-                'hint'      => 'Call again with `page` to read one in full, or `query` to '
-                    . 'search. Use cases are phrased as the task the reader has in hand.',
-                'pages'     => array_map(
-                    fn(array $p): array => [
-                        'page'      => $p['page'],
-                        'title'     => $p['title'],
-                        'use_cases' => $p['use_cases'],
-                    ],
-                    $pages
-                ),
+                'detail'    => $full ? 'full' : 'brief',
+                'hint'      => $full
+                    ? 'Call again with `page` to read one in full, or `query` to search.'
+                    : 'One line per page: the name, and the first of its use cases. Call again '
+                        . 'with `page` to read one in full, `query` to search, or '
+                        . '`"detail": "full"` for every use case of every page.',
+                /*
+                 * A map, not a list of objects, in the brief shape.
+                 *
+                 * `{"Pramnos_Push_Guide": "Sending a notification to…"}` against
+                 * `[{"page": …, "for": …}]` is the same information with half the punctuation,
+                 * and at fifty pages the punctuation was most of the index.
+                 */
+                'pages'     => $full
+                    ? array_map(
+                        static fn (array $p): array => [
+                            'page'      => $p['page'],
+                            'title'     => $p['title'],
+                            'use_cases' => $p['use_cases'],
+                        ],
+                        $pages
+                    )
+                    : array_combine(
+                        array_column($pages, 'page'),
+                        array_map(
+                            static fn (array $p): string => $p['use_cases'][0] ?? $p['title'],
+                            $pages
+                        )
+                    ),
             ];
         }
 

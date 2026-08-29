@@ -107,6 +107,120 @@ final class RequestLog
     }
 
     /**
+     * The requests the log knows about, most recent first.
+     *
+     * The other half of {@see forRequest()}, and the half a person actually starts from: the
+     * question is almost never "show me request a1b2c3d4", it is "what blew up". An id is
+     * something you have *after* somebody has read an error page and copied it out — which, on
+     * a request that died before rendering one, never happens.
+     *
+     * @param  int    $limit How many requests to describe
+     * @param  string $level Only requests that logged at this level or worse — `error` to see
+     *                       the ones that went wrong, `''` for everything
+     * @return list<array{request: string, started: string, ended: string, lines: int, worst: string, message: string, files: list<string>}>
+     */
+    public static function recent(int $limit = 20, string $level = ''): array
+    {
+        $limit    = max(1, min($limit, 200));
+        $requests = [];
+        $order    = ['debug' => 0, 'info' => 1, 'notice' => 2, 'warning' => 3, 'error' => 4, 'critical' => 5];
+        $floor    = $order[strtolower(trim($level))] ?? -1;
+
+        foreach (self::logFiles() as $path) {
+            foreach (self::tailLines($path) as $line) {
+                $entry = json_decode($line, true);
+
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $id = (string) ($entry['request'] ?? '');
+
+                if (!self::isValidId($id)) {
+                    continue;
+                }
+
+                $severity  = strtolower((string) ($entry['level'] ?? 'info'));
+                $rank      = $order[$severity] ?? 1;
+                $timestamp = (string) ($entry['timestamp'] ?? '');
+
+                /*
+                 * Compared as a number, never as a string.
+                 *
+                 * The log writes `d/m/Y H:i:s`, and `01/09/2026` sorts before `29/08/2026`
+                 * alphabetically — so "most recent" would flip to "oldest" every time a month
+                 * rolls over, and only then.
+                 */
+                $when = Logger::timestampOf($timestamp);
+
+                if (!isset($requests[$id])) {
+                    $requests[$id] = [
+                        'request' => $id,
+                        'started' => $timestamp,
+                        'ended'   => $timestamp,
+                        'first'   => $when,
+                        'last'    => $when,
+                        'lines'   => 0,
+                        'worst'   => $severity,
+                        'rank'    => $rank,
+                        'message' => '',
+                        'files'   => [],
+                    ];
+                }
+
+                $requests[$id]['lines']++;
+                $requests[$id]['files'][basename($path)] = true;
+
+                if ($when > 0) {
+                    if ($requests[$id]['first'] === 0 || $when < $requests[$id]['first']) {
+                        $requests[$id]['first']   = $when;
+                        $requests[$id]['started'] = $timestamp;
+                    }
+
+                    if ($when > $requests[$id]['last']) {
+                        $requests[$id]['last']  = $when;
+                        $requests[$id]['ended'] = $timestamp;
+                    }
+                }
+
+                if ($rank >= $requests[$id]['rank']) {
+                    /*
+                     * The worst line, and its message.
+                     *
+                     * `>=` rather than `>` so the *last* line at the worst level wins: a
+                     * request that failed twice is usually explained by the second one, and
+                     * the first is what led to it.
+                     */
+                    $requests[$id]['rank']    = $rank;
+                    $requests[$id]['worst']   = $severity;
+                    $requests[$id]['message'] = (string) ($entry['message'] ?? '');
+                }
+            }
+        }
+
+        $requests = array_filter(
+            $requests,
+            static fn (array $request): bool => $request['rank'] >= $floor
+        );
+
+        // Most recent first: the request somebody is asking about is the one that just happened.
+        uasort(
+            $requests,
+            static fn (array $a, array $b): int => $b['last'] <=> $a['last']
+        );
+
+        $out = [];
+
+        foreach (array_slice($requests, 0, $limit) as $request) {
+            unset($request['rank'], $request['first'], $request['last']);
+            $request['files'] = array_keys($request['files']);
+            $out[] = $request;
+        }
+
+        return $out;
+    }
+
+    /**
      * The log files worth reading.
      *
      * Only `*.log` directly inside the log directory, and only real files —

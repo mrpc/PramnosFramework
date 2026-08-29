@@ -212,6 +212,15 @@ class McpServiceProvider extends ServiceProvider
         $server->addTool(new MigrationStatusTool($app));
         $server->addTool(new ModelInspectTool());
         $server->addTool(new RouteListTool($app));
+        // The gap between the two above: does a migration create this table, and has it run
+        // here? Neither the live schema nor the migration history can answer it alone.
+        $server->addTool(new \Pramnos\Mcp\Tools\SchemaDriftTool($app));
+        // "Is anything broken and what is waiting" — the first question of every session,
+        // which was four separate ones and therefore usually none.
+        $server->addTool(new \Pramnos\Mcp\Tools\StatusTool($app));
+        // What a request that died actually did. A response that failed carried almost
+        // nothing back; the lines are on disk.
+        $server->addTool(new \Pramnos\Mcp\Tools\RequestDebugTool());
 
         $root = defined('ROOT') ? ROOT : getcwd();
 
@@ -222,13 +231,41 @@ class McpServiceProvider extends ServiceProvider
         }
     }
 
-    /** @return list<array{string, string, string}> */
+    /**
+     * The files worth having in context without being asked for.
+     *
+     * The three named ones, plus **every markdown file the project keeps in `docs/`**.
+     *
+     * Discovered rather than listed, because the listed version was wrong in the way a listed
+     * version always is: a project's own notes — the request log, the decisions file, whatever
+     * that project calls it — are exactly the documents somebody wants in context from the
+     * start, and they were never going to be named in the framework. `docs/` is where a project
+     * puts them, and a directory scan cannot go out of date.
+     *
+     * Top level only, and markdown only. A recursive scan picks up a vendored copy of some
+     * other project's manual, and a resource list nobody reads is the same as no resource list.
+     *
+     * @return list<array{string, string, string}>
+     */
     private static function defaultResources(string $root): array
     {
-        return [
+        $resources = [
             ['file://CLAUDE.md',     'Claude Code guide',       $root . '/CLAUDE.md'],
             ['file://README.md',     'Project README',          $root . '/README.md'],
             ['file://app/app.php',   'Application config',      $root . '/app/app.php'],
         ];
+
+        foreach ((array) @glob($root . '/docs/*.md') as $path) {
+            $path = (string) $path;
+            $name = basename($path);
+
+            $resources[] = [
+                'file://docs/' . $name,
+                'Project docs: ' . preg_replace('~\.md$~i', '', $name),
+                $path,
+            ];
+        }
+
+        return $resources;
     }
 }

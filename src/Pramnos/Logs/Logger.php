@@ -27,6 +27,36 @@ class Logger
      *
      * @return string Absolute path, no trailing separator
      */
+    /**
+     * A log line's timestamp as a comparable number.
+     *
+     * The format is `d/m/Y H:i:s`, which sorts **wrong** as a string: `01/09/2026` comes before
+     * `29/08/2026` alphabetically, so "the most recent error" flips to the oldest one every
+     * time a month rolls over — and only then, which is why it survives being written and
+     * tested on the same afternoon.
+     *
+     * ISO is accepted too, because a line written by something else is still a line.
+     *
+     * @param  string $value
+     * @return int Unix time, or 0 when the value is not a timestamp at all
+     */
+    public static function timestampOf(string $value): int
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return 0;
+        }
+
+        if (preg_match('~^(\d{2})/(\d{2})/(\d{4})[ T](\d{2}):(\d{2}):(\d{2})~', $value, $m) === 1) {
+            return (int) mktime((int) $m[4], (int) $m[5], (int) $m[6], (int) $m[2], (int) $m[1], (int) $m[3]);
+        }
+
+        $parsed = strtotime($value);
+
+        return $parsed === false ? 0 : $parsed;
+    }
+
     public static function logDirectory(): string
     {
         $base = defined('LOG_PATH') ? \LOG_PATH : sys_get_temp_dir();

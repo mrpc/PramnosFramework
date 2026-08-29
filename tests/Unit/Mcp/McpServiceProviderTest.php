@@ -100,6 +100,9 @@ class McpServiceProviderTest extends TestCase
         $this->assertContains('migration-status', $toolNames);
         $this->assertContains('model-inspect', $toolNames);
         $this->assertContains('route-list', $toolNames);
+        $this->assertContains('schema-drift', $toolNames);
+        $this->assertContains('status', $toolNames);
+        $this->assertContains('request-debug', $toolNames);
 
         // Assert — standard resources are registered if files exist
         $resources = $server->getResources();
@@ -108,6 +111,42 @@ class McpServiceProviderTest extends TestCase
         // CLAUDE.md and README.md always exist in the project root
         $this->assertContains('file://CLAUDE.md', $resourceUris);
         $this->assertContains('file://README.md', $resourceUris);
+    }
+
+    /**
+     * Every markdown file in the project's `docs/` is a resource, without being named.
+     *
+     * The listed version was wrong in the way a listed version always is: a project's own
+     * notes — a request log, a decisions file, whatever that project calls it — are exactly the
+     * documents somebody wants in context from the start, and they were never going to be
+     * named in the framework. A directory scan cannot go out of date.
+     */
+    public function testEveryProjectDocIsAResource(): void
+    {
+        // Arrange
+        $container = new Container();
+        $server    = new McpServer('TestApp', '1.0.0');
+        $container->singleton('mcp.server', fn () => $server);
+
+        $app = $this->createMock(Application::class);
+        $app->method('getContainer')->willReturn($container);
+
+        // Act
+        (new McpServiceProvider($app))->boot();
+
+        // Assert — this repository keeps its guides in docs/
+        $uris = array_map(static fn ($resource) => $resource->uri, $server->getResources());
+
+        $this->assertContains('file://docs/Pramnos_Email_Guide.md', $uris);
+        $this->assertContains('file://docs/Pramnos_Framework_Guide.md', $uris);
+
+        foreach ($uris as $uri) {
+            $this->assertDoesNotMatchRegularExpression(
+                '~^file://docs/.+/~',
+                $uri,
+                'top level only: a recursive scan picks up a vendored copy of somebody else\'s manual'
+            );
+        }
     }
 
     /**
