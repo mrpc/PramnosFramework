@@ -306,6 +306,8 @@ class PushSetupTest extends TestCase
         // Assert
         $this->assertTrue($result);
         $this->assertStringContainsString('composer require minishlink/web-push', $output->fetch());
+        $this->assertStringContainsString(':^', PushSetup::PACKAGE,
+            'with a constraint: unconstrained, a dev-stability project installs dev-master');
     }
 
     /**
@@ -410,7 +412,7 @@ class PushSetupTest extends TestCase
 
         // Assert
         $this->assertSame('composer exited with 2', $result);
-        $this->assertStringContainsString('minishlink/web-push', $command->shelled);
+        $this->assertStringContainsString(PushSetup::PACKAGE, $command->shelled);
     }
 
     /**

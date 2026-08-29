@@ -32,6 +32,17 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class PushSetup extends Command
 {
+    /**
+     * The library, with a constraint.
+     *
+     * Without one, `composer require` in a project whose `minimum-stability` is `dev` — which
+     * every project scaffolded from this framework has, because it depends on the framework's
+     * own `dev-main` — installs `dev-master`: whatever was pushed upstream this morning, into
+     * the code that encrypts every notification. Composer is not wrong to do it and says nothing
+     * about it.
+     */
+    public const PACKAGE = 'minishlink/web-push:^11.0';
+
     protected function configure(): void
     {
         $this->setName('push:setup')
@@ -181,12 +192,12 @@ class PushSetup extends Command
     protected function installLibrary(InputInterface $input, OutputInterface $output): mixed
     {
         if ($input->getOption('no-install')) {
-            $output->writeln('  skipped — run <info>composer require minishlink/web-push</info> yourself');
+            $output->writeln('  skipped — run <info>composer require ' . self::PACKAGE . '</info> yourself');
 
             return true;
         }
 
-        $output->writeln('  composer require minishlink/web-push');
+        $output->writeln('  composer require ' . self::PACKAGE);
 
         /*
          * Reported, never assumed.
@@ -196,7 +207,8 @@ class PushSetup extends Command
          * installation that reports itself ready and silently encrypts nothing.
          */
         $code = $this->shell(
-            'cd ' . escapeshellarg($this->root()) . ' && composer require minishlink/web-push 2>&1'
+            'cd ' . escapeshellarg($this->root())
+                . ' && composer require ' . escapeshellarg(self::PACKAGE) . ' 2>&1'
         );
 
         return $code === 0 ? true : 'composer exited with ' . $code;

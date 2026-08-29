@@ -258,7 +258,7 @@ own* "This site has been updated in the background" instead.
 RFC 8291's payload encryption — ECDH, HKDF, AES-128-GCM — is not written here:
 
 ```bash
-composer require minishlink/web-push
+composer require minishlink/web-push:^11.0
 ```
 
 It is a **suggestion rather than a requirement** so that applications sending no

@@ -92,7 +92,7 @@ class PushChannel implements ChannelInterface
         if (!class_exists($this->libraryClass())) {
             \Pramnos\Logs\Logger::log(
                 'A push notification was not sent: the payload encryption library is not '
-                . 'installed. `composer require minishlink/web-push`. It is suggested rather '
+                . 'installed. `composer require minishlink/web-push:^11.0`. It is suggested rather '
                 . 'than required so that applications which send no notifications do not carry '
                 . 'it.',
                 'push'
