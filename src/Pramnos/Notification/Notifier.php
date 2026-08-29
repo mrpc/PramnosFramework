@@ -8,6 +8,7 @@ use Pramnos\Notification\Channels\BroadcastChannel;
 use Pramnos\Notification\Channels\DatabaseChannel;
 use Pramnos\Notification\Channels\LogChannel;
 use Pramnos\Notification\Channels\MailChannel;
+use Pramnos\Notification\Channels\PushChannel;
 
 /**
  * Dispatches notifications to their declared channels.
@@ -19,6 +20,7 @@ use Pramnos\Notification\Channels\MailChannel;
  *   'mail'      → MailChannel
  *   'database'  → DatabaseChannel
  *   'broadcast' → BroadcastChannel
+ *   'push'      → PushChannel
  *   'log'       → LogChannel
  *
  * Any fully-qualified class name that implements ChannelInterface is also
@@ -44,6 +46,7 @@ class Notifier
         'mail'      => MailChannel::class,
         'database'  => DatabaseChannel::class,
         'broadcast' => BroadcastChannel::class,
+        'push'      => PushChannel::class,
         'log'       => LogChannel::class,
     ];
 

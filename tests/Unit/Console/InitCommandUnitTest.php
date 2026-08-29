@@ -1568,13 +1568,28 @@ class InitCommandUnitTest extends TestCase
             '--db-prefix' => '',
         ], ['interactive' => false]);
 
-        // Assert — .gitignore exists and contains the private key exclusion
+        // Assert — .gitignore exists, and no private key can reach a repository through it
         $gitignorePath = $this->tmpDir . '/.gitignore';
         $this->assertFileExists($gitignorePath, '.gitignore must be created');
 
         $contents = file_get_contents($gitignorePath);
-        $this->assertStringContainsString('/app/keys/private.key', $contents,
-            '.gitignore must exclude the RSA private key');
+
+        /*
+         * The rule is the glob, not a list of filenames.
+         *
+         * Named individually, every key the framework adds later is committed by default
+         * until somebody remembers to extend this file — which is how `vapid_private.key`
+         * was very nearly committed the day web push was written. `*.key` excluded, the two
+         * public keys re-admitted, is the shape that stays correct.
+         */
+        $this->assertStringContainsString('/app/keys/*.key', $contents,
+            'every key is excluded, not a list of the ones that existed when this was written');
+        $this->assertStringContainsString('!/app/keys/public.key', $contents,
+            'the RSA public key is meant to be committed');
+        $this->assertStringContainsString('!/app/keys/vapid_public.key', $contents,
+            'and so is the VAPID one — a browser cannot subscribe without it');
+        $this->assertStringNotContainsString('!/app/keys/private.key', $contents);
+        $this->assertStringNotContainsString('!/app/keys/vapid_private.key', $contents);
     }
 
     /**

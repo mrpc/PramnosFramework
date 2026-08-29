@@ -127,19 +127,34 @@ class CoverageTool implements McpToolInterface
 
         $path = trim((string) ($input['path'] ?? ''));
 
-        $covered   = 0;
-        $uncovered = 0;
-        $files     = [];
+        $covered    = 0;
+        $uncovered  = 0;
+        $files      = [];
+        $unmeasured = [];
+        $roots      = $this->measuredRoots($lines);
 
         foreach ($changes['files'] as $file => $changedLines) {
             if ($path !== '' && !str_starts_with($file, trim($path, '/'))) {
                 continue;
             }
 
-            // Only executable lines can be covered. A blank line, a `}`, a comment and a
-            // property declaration are not in the report at all, and counting them as
-            // uncovered would turn every honest change into a failure.
             if (!isset($lines[$file])) {
+                /*
+                 * A file the report says nothing about at all.
+                 *
+                 * Usually that is correct and uninteresting — a guide, a stub, a test, a
+                 * migration: nothing outside the coverage whitelist is in clover, and counting
+                 * those as uncovered would fail every honest change.
+                 *
+                 * But a **new class under a measured root** is absent for the opposite reason:
+                 * no test ever loaded it, so PHPUnit never saw a line of it. Skipped quietly,
+                 * that file reports as fully covered — the one answer a coverage gate must never
+                 * give, and precisely the case it exists to catch. So it is named instead.
+                 */
+                if ($this->isMeasurable($file, $roots)) {
+                    $unmeasured[] = $file;
+                }
+
                 continue;
             }
 
@@ -177,6 +192,8 @@ class CoverageTool implements McpToolInterface
             ], static fn ($value): bool => $value !== null && $value !== false);
         }
 
+        sort($unmeasured);
+
         $total   = $covered + $uncovered;
         $percent = $total === 0 ? null : round($covered / $total * 100, 1);
 
@@ -192,8 +209,61 @@ class CoverageTool implements McpToolInterface
             'uncovered' => $uncovered,
             'percent'   => $percent,
             'files'     => $files,
-            'verdict'   => $this->verdict($percent, $total, $uncovered),
+            'unmeasured' => $unmeasured === [] ? null : $unmeasured,
+            'unmeasured_note' => $unmeasured === [] ? null
+                : 'These files are under a directory the report measures and are not in it at '
+                . 'all, which means no test loaded them. Treat them as 0% until a test does — '
+                . 'the percentage above is the coverage of everything else.',
+            'verdict'   => $unmeasured === []
+                ? $this->verdict($percent, $total, $uncovered)
+                : count($unmeasured) . ' changed ' . (count($unmeasured) === 1 ? 'file is' : 'files are')
+                    . ' not covered by any test at all. ' . $this->verdict($percent, $total, $uncovered),
         ], static fn ($value): bool => $value !== null);
+    }
+
+    /**
+     * The top-level directories this report actually measures.
+     *
+     * Read from the report rather than configured, because the whitelist lives in
+     * `phpunit.xml` and a tool that guessed `src/` would be wrong for any project that put its
+     * code somewhere else.
+     *
+     * @param  array<string, array<int, int>> $lines
+     * @return list<string>
+     */
+    private function measuredRoots(array $lines): array
+    {
+        $roots = [];
+
+        foreach (array_keys($lines) as $file) {
+            $first = strtok($file, '/');
+
+            if ($first !== false && $first !== $file) {
+                $roots[$first] = true;
+            }
+        }
+
+        return array_keys($roots);
+    }
+
+    /**
+     * Should this file have been in the report?
+     *
+     * @param list<string> $roots
+     */
+    private function isMeasurable(string $file, array $roots): bool
+    {
+        if (!str_ends_with($file, '.php')) {
+            return false;
+        }
+
+        foreach ($roots as $root) {
+            if (str_starts_with($file, $root . '/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

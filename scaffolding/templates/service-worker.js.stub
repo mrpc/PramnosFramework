@@ -179,3 +179,127 @@ self.addEventListener('fetch', (event) => {
         return network;
     })());
 });
+
+/*
+ * ─── Web push ────────────────────────────────────────────────────────────────
+ *
+ * These two handlers are what turn a subscription into something a person sees. Without them a
+ * push arrives, the worker wakes, nothing happens, and — on Chrome — the browser shows its own
+ * "this site has been updated in the background" notification instead, which is worse than
+ * silence because nobody can tell where it came from.
+ */
+
+self.addEventListener('push', (event) => {
+    /*
+     * A push with no readable payload still has to show something.
+     *
+     * The browser has already woken the worker and, in most of them, *will* display a generic
+     * notification if this handler finishes without calling showNotification(). So a malformed
+     * payload falls back to a plain message rather than being dropped.
+     */
+    let payload = {};
+
+    try {
+        payload = event.data ? event.data.json() : {};
+    } catch (e) {
+        payload = {};
+    }
+
+    const title = payload.title || self.registration.scope.replace(/^https?:\/\//, '');
+
+    event.waitUntil(self.registration.showNotification(title, {
+        body: payload.body || '',
+        icon: payload.icon || '/assets/img/icon-192.png',
+        badge: payload.badge || '/assets/img/badge-72.png',
+        // Two notifications with the same tag replace one another instead of stacking. It is the
+        // difference between one "new sign-in to your account" and fourteen.
+        tag: payload.tag || undefined,
+        renotify: Boolean(payload.tag),
+        actions: (payload.actions || []).slice(0, 2),
+        data: { url: payload.url || '/', ...(payload.data || {}) }
+    }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+
+    const data = event.notification.data || {};
+    const action = (event.action || '').trim();
+
+    /*
+     * An action button may carry its own URL — and may carry none at all.
+     *
+     * A button that only needs to tell the server something ("it wasn't me") posts from here and
+     * never opens a window, which is the most useful thing a notification can do: the reader
+     * acts without the browser ever coming to the foreground.
+     */
+    if (action && data.actions && data.actions[action]) {
+        const target = data.actions[action];
+
+        if (target.post) {
+            event.waitUntil(fetch(target.post, { method: 'POST', credentials: 'include' }));
+            return;
+        }
+
+        event.waitUntil(clients.openWindow(target.url || data.url || '/'));
+        return;
+    }
+
+    const url = data.url || '/';
+
+    event.waitUntil((async () => {
+        const open = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+        /*
+         * Focus a tab that is already on this site rather than opening a second one.
+         *
+         * A person with the application already open does not want a duplicate tab; they want
+         * the one they have to go to the right place. The postMessage lets a single-page
+         * application route without a reload.
+         */
+        for (const client of open) {
+            if (new URL(client.url).origin === self.location.origin) {
+                await client.focus();
+
+                if ('postMessage' in client) {
+                    client.postMessage({ type: 'notification-click', url });
+                }
+
+                return;
+            }
+        }
+
+        await clients.openWindow(url);
+    })());
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+    /*
+     * The browser rotated the subscription without asking.
+     *
+     * It happens, it is not an error, and the page that would normally re-subscribe may never be
+     * opened again. Re-subscribing here and telling the server is the only way the account keeps
+     * receiving anything — otherwise every push to the old endpoint returns 410 and the row is
+     * deleted, silently.
+     */
+    event.waitUntil((async () => {
+        try {
+            const response = await fetch('/push/key');
+            const { publicKey } = await response.json();
+
+            const subscription = await self.registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: publicKey
+            });
+
+            await fetch('/push/subscribe', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(subscription.toJSON())
+            });
+        } catch (e) {
+            // Nothing useful to do from a worker with no page: the next visit re-subscribes.
+        }
+    })());
+});

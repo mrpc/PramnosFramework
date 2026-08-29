@@ -157,6 +157,63 @@ class CoverageToolTest extends TestCase
     }
 
     /**
+     * A brand-new class that no test ever loaded is named, not silently passed.
+     *
+     * This is the worst answer a coverage gate can give, and it was the one it gave. A file
+     * absent from the report was skipped as unmeasurable — which is right for a guide or a
+     * stub, and exactly wrong for a new class under `src/`: PHPUnit never saw a line of it
+     * because nothing loaded it, so it is not "no executable lines changed", it is 0%.
+     *
+     * Found by the tool reporting 100% on a change that added an entire untested package.
+     */
+    public function testANewClassNoTestEverLoadedIsNotSilentlyPassed(): void
+    {
+        // Arrange — an existing covered file, plus a new one the report knows nothing about
+        $this->write('src/Thing.php', "<?php\n\$a = 1;\n");
+        $this->git('add -A');
+        $this->git('commit --quiet -m first');
+        $this->write('src/Thing.php', "<?php\n\$a = 1;\nCHANGED;\n");
+        $this->write('src/Untested.php', "<?php\nclass Untested { public function go() { return 1; } }\n");
+        $this->report(['src/Thing.php' => [2 => 5, 3 => 2]], time() + 60);
+
+        // Act
+        $answer = $this->ask();
+
+        // Assert
+        $this->assertSame(['src/Untested.php'], $answer['unmeasured']);
+        $this->assertStringContainsString(
+            'not covered by any test at all',
+            $answer['verdict'],
+            'a change that adds an untested class must not read as a pass'
+        );
+    }
+
+    /**
+     * A guide, a stub and a test are not "untested classes".
+     *
+     * The whitelist is `src/`, so nothing else was ever going to be in the report. Naming
+     * every markdown file as uncovered would make the warning noise, and noise is ignored.
+     */
+    public function testFilesOutsideTheMeasuredRootsAreNotNamed(): void
+    {
+        // Arrange
+        $this->write('src/Thing.php', "<?php\n\$a = 1;\n");
+        $this->git('add -A');
+        $this->git('commit --quiet -m first');
+        $this->write('src/Thing.php', "<?php\n\$a = 1;\nCHANGED;\n");
+        $this->write('docs/Guide.md', "# A guide\n");
+        $this->write('tests/Unit/ThingTest.php', "<?php\nclass ThingTest {}\n");
+        $this->report(['src/Thing.php' => [2 => 5, 3 => 2]], time() + 60);
+
+        // Act
+        $answer = $this->ask();
+
+        // Assert
+        $this->assertArrayNotHasKey('unmeasured', $answer);
+        $this->assertStringContainsString('is covered', $answer['verdict']);
+    }
+
+    /**
      * Fully covered says so plainly.
      */
     public function testAFullyCoveredChangeSaysSo(): void

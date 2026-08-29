@@ -523,6 +523,13 @@ that can fail is the point.
 - **Lines that cannot be executed are not counted against you.** Blank lines, closing braces,
   comments and property declarations are absent from the report entirely, and counting them as
   uncovered would turn every honest change into a failure.
+- **A whole file the report does not mention is a different thing, and is named.** A new class
+  under a measured root is absent because *no test ever loaded it* — PHPUnit never saw a line, so
+  it is not "nothing executable changed", it is 0%. Those appear under `unmeasured` and in the
+  verdict. (Skipped in silence, a change consisting entirely of new untested classes reported
+  100%, which is the worst answer a coverage gate can give.) Files outside the measured roots —
+  guides, stubs, tests — are still skipped quietly, because a warning that fires on every
+  markdown file is a warning nobody reads.
 - **A container's paths are joined to project-relative ones.** Clover records the path the test
   run saw — `/var/www/html/src/…` — and getting that join wrong reports every line as
   unmeasurable, which is a silent pass.

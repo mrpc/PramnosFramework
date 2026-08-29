@@ -6485,10 +6485,19 @@ PHP;
         // API docs got a few thousand untracked files and no rule for them.
         $lines[] = 'node_modules/';
 
-        if (in_array('authserver', $features, true)) {
-            $lines[] = '/app/keys/private.key';
-            $lines[] = '/app/keys/encryption.key';
-        }
+        /*
+         * Every private key, by pattern, and not only for `authserver`.
+         *
+         * This listed `private.key` and `encryption.key` and applied only to an authserver
+         * project. Web push adds a VAPID pair to any application that sends notifications, and
+         * its private key matched neither the names nor the condition — so the next `git add -A`
+         * would have committed the signing identity of every notification that application will
+         * ever send. A list that has to be extended for each new key is a list that will be
+         * forgotten once.
+         */
+        $lines[] = '/app/keys/*.key';
+        $lines[] = '!/app/keys/public.key';
+        $lines[] = '!/app/keys/vapid_public.key';
 
         $content = implode("\n", $lines) . "\n";
 

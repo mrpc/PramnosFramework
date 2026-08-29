@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Caching a site's CSS, JS and images in the browser so repeat visits are cheaper
+  - Adding the handlers a push notification needs to reach a person
   - Adding a service worker to a project that was scaffolded without one
   - Working out why a stylesheet change is not showing up for some visitors
   - Removing a service worker from a site that already has one
@@ -229,8 +230,23 @@ store the application owns, not a copy sitting in somebody's browser, and
 
 ---
 
+## It also receives push notifications
+
+The scaffolded worker carries the three handlers web push needs — `push`,
+`notificationclick` and `pushsubscriptionchange` — because push is delivered *to a
+service worker*, and a site without one cannot receive a notification at all.
+
+They cost nothing on a site that never sends one: `push` fires only when something is
+pushed. If you wrote your own worker, [the push guide](Pramnos_Push_Guide.md) is where
+those handlers are, and `pushsubscriptionchange` is the one worth copying even if you
+skip the others — without it, a browser that rotates its keys stops receiving
+notifications permanently and nobody is told.
+
+---
+
 ## See also
 
+- [Web Push Guide](Pramnos_Push_Guide.md) — notifications, and what the worker does with them
 - [Page Cache Guide](Pramnos_Page_Cache_Guide.md) — the server-side half, including
   [what a hit tells the browser](Pramnos_Page_Cache_Guide.md#what-a-hit-tells-the-browser)
 - [Console Commands](Pramnos_Console_Guide.md) — what `init` writes

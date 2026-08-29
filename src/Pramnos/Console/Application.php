@@ -169,6 +169,9 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\CacheClear());
         $this->add(new \Pramnos\Console\Commands\ThemeBuild());
         $this->add(new \Pramnos\Console\Commands\PageCachePurge());
+        // The VAPID key pair web push needs. Run once — rotating it stops every existing
+        // subscription working, and nobody is told.
+        $this->add(new \Pramnos\Console\Commands\PushVapidGenerate());
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
         // Because `mcp:serve` is not something a person can debug: it speaks JSON-RPC on
