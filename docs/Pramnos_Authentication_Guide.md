@@ -950,6 +950,21 @@ php pramnos auth:token-cleanup --days=90   # be more patient
 `lastused` is updated on every request that presents a token, so "idle for a month" means
 nothing has used it for a month.
 
+**And a login retires what it replaces, immediately** — a token superseded a month ago is
+still a valid bearer credential until the cleanup reaches it, which is not good enough for
+a credential that has been replaced. `createWebSessionToken()` retires two things before it
+writes the new row:
+
+- the token this request arrived with, from `$_SESSION['usertoken']`;
+- every other live `web_session` token from **this same browser**, matched on the device
+  fingerprint inside `deviceinfo`.
+
+The fingerprint and nothing else. `deviceinfo` also carries the address the token was
+issued from, and matching on the whole stored value meant a router reboot between two
+sessions left the older token valid — the dynamic-address problem that
+`SignInFingerprint` exists to avoid, reintroduced one layer down. Tokens from *other*
+devices are left alone: signing in on a laptop must not sign you out on a phone.
+
 > **Added 2026-08-20.** Neither existed: `createWebSessionToken()` set no expiry,
 > `loadByToken()` reads 0 and NULL as "never", and `cleanupAllAuthTokens()` covered only
 > `auth` and `access_token` — and had no caller anywhere in the framework. A two-day-old
@@ -1295,6 +1310,19 @@ the active-sessions list can show a person which of their devices a session belo
 at creation and `Token::save()` afterwards both `json_encode()`. The `unserialize()`
 branch in `Token::load()` is a **reader** for rows written by an older path, not a
 second format anything produces today.
+
+**It is written once, at creation, and never rewritten.** It records the device the token
+was *issued to*, which is what makes it comparable later — and what makes a token used from
+a browser it was not issued to visible as such.
+
+> **Fixed 2026-08-29.** `Token::addAction()` overwrote it on every request with
+> `Helpers::getBrowser()`, a different shape entirely — `{"userAgent": …, "browser": …}`,
+> with no `device` key. So the column held two shapes depending on whether a token had ever
+> been used, and the session retirement below could never match a token that had. Every
+> superseded `web_session` token stayed valid for its full thirty days; reopening a browser
+> looked like it minted a new session each time, because it did, and nothing retired the
+> previous one. It also destroyed the evidence it looked like it was collecting: a token
+> used from a browser it was not issued to had its record rewritten to say the new browser.
 
 **It stores the fingerprint, not the raw user agent**, and that is the same decision as
 in the section below: keeping the agent string would make every session look like a new

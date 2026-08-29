@@ -2181,7 +2181,10 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
      *   - **The same device.** A fresh session in the same browser has no
      *     `$_SESSION['usertoken']` to compare, so the device fingerprint is matched
      *     instead — `deviceinfo` carries it, and it is what distinguishes one browser
-     *     from another on the same address.
+     *     from another on the same address. The **fingerprint** and nothing else: the
+     *     stored value also holds the address the token was issued from, and matching on
+     *     the whole of it meant a router reboot between two sessions left the older token
+     *     valid. See {@see liveWebSessionTokensFromThisDevice()}.
      *
      * Tokens from *other* devices are left alone: signing in on a laptop must not sign
      * you out on a phone, which is the whole point of having more than one.
@@ -2295,14 +2298,12 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             }
 
             // Any other live web-session token from this same device.
-            $device = self::currentDeviceInfo();
-            if ($device !== '') {
+            $superseded = $this->liveWebSessionTokensFromThisDevice();
+
+            if ($superseded !== []) {
                 $database->queryBuilder()
                     ->table('#PREFIX#usertokens')
-                    ->where('userid', (int) $this->userid)
-                    ->where('tokentype', Token::TYPE_WEB_SESSION)
-                    ->where('status', 1)
-                    ->where('deviceinfo', $device)
+                    ->whereIn('tokenid', $superseded)
                     ->update(['status' => 0, 'removedate' => $now]);
             }
         } catch (\Throwable $ex) {
@@ -2312,6 +2313,49 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 'Retiring superseded web-session tokens failed: ' . $ex->getMessage()
             );
         }
+    }
+
+    /**
+     * The account's live `web_session` tokens that belong to the browser making this request.
+     *
+     * Matched on the **fingerprint alone**, decoded out of `deviceinfo`, rather than on the
+     * whole stored value. The stored value also carries the address the token was issued from,
+     * and comparing that is exactly what {@see currentDeviceInfo()} documents itself as not
+     * doing: consumer addresses are dynamic, so a router reboot between two sessions made the
+     * two strings differ and the older token was never retired. The fingerprint is the part
+     * that answers *which browser*, and it is the only part this decision needs.
+     *
+     * Read and compared in PHP rather than matched in SQL, because the value is a JSON
+     * document and a `LIKE '%"device":"…"%'` over it is a substring search that would also
+     * match a label or an address that happened to contain the same text.
+     *
+     * @return list<int> Token ids, empty when there is nothing to retire
+     */
+    private function liveWebSessionTokensFromThisDevice(): array
+    {
+        // Never empty: a request with no user agent gets `unknown|unknown`, which groups those
+        // requests together deliberately — see SignInFingerprint::fromUserAgent().
+        $fingerprint = \Pramnos\Auth\SignInFingerprint::current();
+
+        $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#usertokens')
+            ->select(['tokenid', 'deviceinfo'])
+            ->where('userid', (int) $this->userid)
+            ->where('tokentype', Token::TYPE_WEB_SESSION)
+            ->where('status', 1)
+            ->get();
+
+        $superseded = [];
+
+        foreach (($rows === null ? [] : $rows->fetchAll()) as $row) {
+            $device = json_decode((string) ($row['deviceinfo'] ?? ''), true);
+
+            if (is_array($device) && ($device['device'] ?? null) === $fingerprint) {
+                $superseded[] = (int) $row['tokenid'];
+            }
+        }
+
+        return $superseded;
     }
 
     /**

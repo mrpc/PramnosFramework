@@ -273,11 +273,61 @@ class RecordingCleanupDatabase extends \Pramnos\Database\Database
 
         // Assert — scoped to the session's token and to this device
         $this->assertStringContainsString("where('tokenid'", $body);
-        $this->assertStringContainsString("where('deviceinfo', $device)", $body);
-        // …and to web sessions only: an access token is not superseded by a login
-        $this->assertStringContainsString('Token::TYPE_WEB_SESSION', $body);
+        $this->assertStringContainsString('liveWebSessionTokensFromThisDevice()', $body);
         // …and it marks them inactive rather than deleting the history
         $this->assertStringContainsString("'status' => 0", $body);
         $this->assertStringNotContainsString('->delete()', $body);
+    }
+
+    /**
+     * The device match is the fingerprint, and only the fingerprint.
+     *
+     * `deviceinfo` also carries the address the token was issued from, and this used to
+     * compare the whole stored string. `currentDeviceInfo()` documents the address as
+     * deliberately not deciding anything — consumer addresses are dynamic — and matching on it
+     * meant a router reboot between two sessions left the older token valid for thirty days.
+     */
+    public function testTheDeviceMatchIsTheFingerprintAndNotTheAddress(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/User/User.php'
+        );
+        $start  = (int) strpos($source, 'private function liveWebSessionTokensFromThisDevice');
+        $body   = substr($source, $start, 1800);
+
+        // Assert
+        $this->assertGreaterThan(0, $start, 'the device lookup is its own method');
+        $this->assertStringContainsString('SignInFingerprint::current()', $body);
+        $this->assertStringContainsString("Token::TYPE_WEB_SESSION", $body,
+            'web sessions only: an access token is not superseded by a login');
+        $this->assertStringNotContainsString("where('deviceinfo'", $body,
+            'never an equality match on the whole stored value — the address is in it');
+    }
+
+    /**
+     * Using a token does not rewrite the device it was issued to.
+     *
+     * `Token::addAction()` overwrote `deviceinfo` on every request with `Helpers::getBrowser()` — a
+     * different shape from the one written at issue. Two things followed, both silent: the
+     * column held two shapes depending on whether the token had ever been used, and the
+     * fingerprint the retirement matches on was gone after the token's first request, so every
+     * superseded web-session token stayed valid for its full thirty days.
+     *
+     * It also destroyed the evidence it looked like it was collecting: a token used from a
+     * browser it was not issued to had its record rewritten to say the new browser.
+     */
+    public function testUsingATokenDoesNotRewriteTheDeviceItWasIssuedTo(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/User/Token.php'
+        );
+        $start  = (int) strpos($source, 'public function addAction(');
+        $body   = substr($source, $start, 4000);
+
+        // Assert
+        $this->assertGreaterThan(0, $start);
+        $this->assertStringNotContainsString('$this->deviceinfo =', $body);
     }
 }

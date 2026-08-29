@@ -410,6 +410,190 @@ class UserTest extends TestCase
     }
 
     /**
+     * A second sign-in from the same browser retires the token from the first — even after
+     * the first token has been used.
+     *
+     * The bug this covers: `Token::addAction()` overwrote `deviceinfo` on every request with a
+     * different shape from the one written at issue, so the fingerprint the retirement matches
+     * on was gone after the token's first request. Every old `web_session` token then stayed
+     * Active for its full thirty days, and reopening a browser looked like it was minting a new
+     * session every time — because it was, and nothing was retiring the previous one.
+     *
+     * Nothing failed visibly. The tokens are valid bearer credentials, so the only symptom was
+     * a growing list of sessions the account holder could not account for.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testASecondSignInFromTheSameBrowserRetiresTheUsedTokenFromTheFirst()
+    {
+        // Arrange
+        $agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            . 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+        unset($_SESSION['usertoken']);
+
+        $user = new User();
+        $user->username = 'sessionuser_' . bin2hex(random_bytes(4));
+        $user->email = $user->username . '@example.com';
+        $user->setPassword('sessionpass123');
+        $user->save();
+
+        try {
+            $first = $user->createWebSessionToken('192.0.2.10');
+            $this->assertNotNull($first);
+
+            // The token is used, the way every request after the login uses it. This is what
+            // used to rewrite `deviceinfo` into a shape nothing could match again.
+            $first->addAction();
+            $first->save();
+
+            // Act — the same browser signs in again, in a session of its own
+            unset($_SESSION['usertoken']);
+            $second = $user->createWebSessionToken('192.0.2.10');
+
+            // Assert
+            $live = $this->db->query(
+                "SELECT tokenid, status FROM `usertokens` WHERE userid = "
+                . (int) $user->userid . " AND tokentype = 'web_session'"
+            );
+            $status = [];
+
+            foreach ($live->fetchAll() as $row) {
+                $status[(int) $row['tokenid']] = (int) $row['status'];
+            }
+
+            $this->assertSame(0, $status[(int) $first->tokenid] ?? null,
+                'the used token from the previous sign-in is retired');
+            $this->assertSame(1, $status[(int) $second->tokenid] ?? null,
+                'and the one this sign-in just issued is not');
+        } finally {
+            $user->deleteuser();
+            unset($_SESSION['usertoken']);
+
+            if ($agent === null) {
+                unset($_SERVER['HTTP_USER_AGENT']);
+            } else {
+                $_SERVER['HTTP_USER_AGENT'] = $agent;
+            }
+        }
+    }
+
+    /**
+     * A new address on the same browser still retires the old session.
+     *
+     * `deviceinfo` records the address the token was issued from, and this used to match on the
+     * whole stored value — so a router reboot, a move to mobile data or any of the ordinary ways
+     * a consumer address changes made the two strings differ, and the older token was left valid
+     * for its full thirty days. `currentDeviceInfo()` already documented the address as
+     * deliberately not deciding anything; the retirement was deciding on it anyway.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testANewAddressOnTheSameBrowserStillRetiresTheOldSession()
+    {
+        // Arrange
+        $agent  = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        $remote = $_SERVER['REMOTE_ADDR'] ?? null;
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+            . 'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+        unset($_SESSION['usertoken']);
+
+        $user = new User();
+        $user->username = 'roaming_' . bin2hex(random_bytes(4));
+        $user->email = $user->username . '@example.com';
+        $user->setPassword('roaming123');
+        $user->save();
+
+        try {
+            $_SERVER['REMOTE_ADDR'] = '192.0.2.30';
+            $home = $user->createWebSessionToken('192.0.2.30');
+
+            // Act — same browser, the address the router handed out after a reboot
+            unset($_SESSION['usertoken']);
+            $_SERVER['REMOTE_ADDR'] = '198.51.100.77';
+            $user->createWebSessionToken('198.51.100.77');
+
+            // Assert
+            $row = $this->db->query(
+                "SELECT status FROM `usertokens` WHERE tokenid = " . (int) $home->tokenid
+            );
+
+            $this->assertSame(0, (int) $row->fields['status'],
+                'the browser is the same one; the address it arrived from is not the question');
+        } finally {
+            $user->deleteuser();
+            unset($_SESSION['usertoken']);
+
+            if ($agent === null) {
+                unset($_SERVER['HTTP_USER_AGENT']);
+            } else {
+                $_SERVER['HTTP_USER_AGENT'] = $agent;
+            }
+
+            if ($remote === null) {
+                unset($_SERVER['REMOTE_ADDR']);
+            } else {
+                $_SERVER['REMOTE_ADDR'] = $remote;
+            }
+        }
+    }
+
+    /**
+     * A sign-in on another browser leaves this one's session alone.
+     *
+     * The whole point of having more than one session. A retirement that matched too widely
+     * would sign somebody out of their phone every time they opened their laptop, which is a
+     * worse failure than the one being fixed.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testASignInFromAnotherBrowserLeavesThisOneAlone()
+    {
+        // Arrange
+        $agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        unset($_SESSION['usertoken']);
+
+        $user = new User();
+        $user->username = 'twodevice_' . bin2hex(random_bytes(4));
+        $user->email = $user->username . '@example.com';
+        $user->setPassword('twodevice123');
+        $user->save();
+
+        try {
+            $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) '
+                . 'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1';
+            $phone = $user->createWebSessionToken('192.0.2.20');
+
+            // Act — the same account, a different browser and platform
+            unset($_SESSION['usertoken']);
+            $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                . '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+            $laptop = $user->createWebSessionToken('192.0.2.21');
+
+            // Assert
+            $row = $this->db->query(
+                "SELECT status FROM `usertokens` WHERE tokenid = " . (int) $phone->tokenid
+            );
+
+            $this->assertSame(1, (int) $row->fields['status'],
+                'signing in on a laptop must not sign you out on a phone');
+            $this->assertNotSame((int) $phone->tokenid, (int) $laptop->tokenid);
+        } finally {
+            $user->deleteuser();
+            unset($_SESSION['usertoken']);
+
+            if ($agent === null) {
+                unset($_SERVER['HTTP_USER_AGENT']);
+            } else {
+                $_SERVER['HTTP_USER_AGENT'] = $agent;
+            }
+        }
+    }
+
+    /**
      * Tests user status changes and activity feeds.
      *
      * Adds feeds, changes profile status, lists feed items, and verifies database persistence.

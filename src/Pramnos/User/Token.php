@@ -385,11 +385,26 @@ class Token extends \Pramnos\Framework\Base
         $this->actions += 1;
         $this->lastused = time();
         $remoteip = '';
-        if (isset($_SERVER['HTTP_USER_AGENT'])) {
-            $this->deviceinfo = \Pramnos\General\Helpers::getBrowser(
-                $_SERVER['HTTP_USER_AGENT']
-            );
-        }
+
+        /*
+         * `deviceinfo` is not touched here, and that is the fix rather than the omission.
+         *
+         * This used to overwrite it on every request with `Helpers::getBrowser()` — a different
+         * shape entirely from the one written when the token was issued, which is
+         * `{"device": <fingerprint>, "label": …, "ip": …}`. Two consequences, both silent:
+         *
+         *   - The column held two shapes, and which one a row had depended on whether the
+         *     token had ever been used. Anything reading it had to handle both.
+         *   - `User::retireSupersededWebSessionTokens()` finds the previous session for this
+         *     browser through this column. Once a token had been used it no longer carried a
+         *     `device` key at all, so it could never be matched again — and every old
+         *     `web_session` token stayed valid for its full thirty days. Reported as new
+         *     tokens appearing on every browser restart, with the old ones still Active.
+         *
+         * It also destroyed the evidence it looked like it was collecting: a token used from
+         * a browser it was not issued to had its record rewritten to say the new browser, so
+         * nothing could tell that anything had changed.
+         */
         // Forwarding headers are only honoured from a configured trusted proxy.
         // A token record whose IP any client can dictate is worse than one that
         // records the proxy, because it looks like evidence.
