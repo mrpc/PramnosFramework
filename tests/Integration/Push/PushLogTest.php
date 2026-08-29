@@ -251,4 +251,72 @@ class PushLogTest extends BaseTestCase
         $this->assertContains('recent', $titles);
         $this->assertNotContains('ancient', $titles);
     }
+    /**
+     * With the table gone, every method answers rather than throwing.
+     *
+     * Not hypothetical: it is what a half-run migration looks like, and a push is usually one
+     * line inside something that mattered more — a sign-in, a password change. An exception
+     * here would turn that into a 500 for a notification nobody would have missed.
+     */
+    public function testAMissingTableIsAnAnswerRatherThanAnException(): void
+    {
+        // Arrange
+        $table = $this->db->schema()->resolveTableName('pramnos.pushlog');
+        $this->db->query('DROP TABLE IF EXISTS `' . $table . '`');
+
+        try {
+            // Act & Assert
+            $this->assertFalse(Log::record($this->userId, 'a', ['title' => 'x'], 201));
+            $this->assertFalse(Log::refused($this->userId, Log::NO_KEYS));
+            $this->assertSame([], Log::recent(10, ['userid' => $this->userId]));
+            $this->assertSame(
+                ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0],
+                Log::stats()
+            );
+            $this->assertSame(0, Log::prune(90));
+        } finally {
+            $this->runMigrations([CreatePushLogTable::class], $this->db);
+        }
+    }
+
+    /**
+     * A row's `sent` reads back as a timestamp whatever the driver hands over.
+     *
+     * PostgreSQL returns `2026-08-29 14:49:32.517335+00` and MySQL `2026-08-29 14:49:32`, and a
+     * screen wants neither. One reader, so no view parses a date itself — which is how `d/m/Y`
+     * ended up being sorted as a string elsewhere in this framework.
+     */
+    public function testTheTimestampIsReadBackWhateverShapeItArrivesIn(): void
+    {
+        // Arrange
+        Log::record($this->userId, str_repeat('a', 64), ['title' => 'now'], 201);
+        $row = Log::recent(1, ['userid' => $this->userId])[0];
+
+        // Act & Assert
+        $this->assertGreaterThan(time() - 300, Log::sentAt($row));
+        $this->assertSame(1756000000, Log::sentAt(['sent' => '1756000000']),
+            'a unix integer, for anything that still writes one');
+        $this->assertSame(0, Log::sentAt([]), 'and nothing at all is zero, not a crash');
+    }
+
+    /**
+     * A status filter narrows to exactly that answer.
+     *
+     * "Show me the 410s" is the question somebody asks after seeing the count — the
+     * subscriptions that are gone are the ones worth acting on.
+     */
+    public function testTheStatusFilterIsExact(): void
+    {
+        // Arrange
+        $hash = str_repeat('9', 64);
+        Log::record($this->userId, $hash, ['title' => 'ok'], 201);
+        Log::record($this->userId, $hash, ['title' => 'gone'], 410);
+
+        // Act
+        $rows = Log::recent(20, ['userid' => $this->userId, 'status' => 410]);
+
+        // Assert
+        $this->assertSame(['gone'], array_column($rows, 'title'));
+    }
+
 }

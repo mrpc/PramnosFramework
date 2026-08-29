@@ -699,6 +699,33 @@ The framework's `newsignin` alerts are the one exception, because they have a re
 behind them: the account can already turn them off on its privacy screen, and honouring an
 unsubscribe flips that same checkbox.
 
+### Two records, two jobs
+
+An unsubscribe writes **two** things, and the difference is the whole design:
+
+| | `pramnos.emailoptouts` | `authserver.user_consents` |
+| --- | --- | --- |
+| What it is | the **suppression list** | the **consent trail** |
+| Read by | `isOptedOut()`, before every optional send | somebody answering a GDPR request |
+| Shape | current state — opting back in deletes the row | append-only, one row per grant *and* per withdrawal |
+| Keyed by | the **address** | `userid` |
+| Aged out | never | 7 years, by policy |
+
+Asked directly — *«τα email unsubscribe δεν θα μπορούσαν να είναι στο user_consents;»* — and the
+answer is both. As the lookup it cannot be the consent table: that is append-only, so "may I
+send to this address" becomes "find the latest row for this user and this type and read its
+`revoked_at`", per send; it is keyed by account, and somebody on a list often has none; and its
+seven-year retention would eventually drop a withdrawal and start sending again.
+
+As the **record** it is exactly right — a withdrawal of consent, with a legal basis and an
+address, which is what that table exists for. So the event goes there too, when the address
+belongs to an account and the `auth` feature is present. Best-effort in every direction: a
+consent trail must not be the reason an unsubscribe fails, which is the one failure a mailbox
+provider counts against every future message.
+
+It is the same pairing the framework already uses for a mass message — the inbox row in
+`messages`, the delivery record in `massmessagerecipients`.
+
 ### The token is signed, not stored
 
 ```php

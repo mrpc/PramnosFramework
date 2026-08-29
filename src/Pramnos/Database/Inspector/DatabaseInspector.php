@@ -198,7 +198,22 @@ class DatabaseInspector
                      WHERE {$pid} <> pg_backend_pid()"
                 );
 
-                return $r !== false && $r->numRows > 0;
+                /*
+                 * The **value**, not whether a row came back.
+                 *
+                 * `pg_terminate_backend()` on a pid nothing is using returns `false` and the
+                 * statement succeeds — so a row-count check calls it a kill. That is the
+                 * ordinary case, not an edge one: the process list was rendered a minute ago
+                 * and the backend has finished since, and the screen would say it ended
+                 * something that was already gone.
+                 */
+                if ($r === false || $r->numRows === 0) {
+                    return false;
+                }
+
+                $killed = $r->fields['killed'] ?? false;
+
+                return $killed === true || $killed === 't' || $killed === '1' || $killed === 1;
             }
 
             $this->db->query("KILL {$pid}");

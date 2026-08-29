@@ -364,4 +364,84 @@ class UnsubscribeControllerTest extends TestCase
             'a code you need in order to sign in is not a preference');
     }
 
+    /**
+     * The real page renders, with the preferences inside it.
+     *
+     * Every other test here replaces `page()`, so the thing a person actually sees was never
+     * produced. It is one self-contained document — no theme, no layout, no view file — because
+     * an application whose theme has no view for this would otherwise get a fatal at the worst
+     * possible moment: somebody clicking unsubscribe.
+     */
+    public function testTheRealPageRenders(): void
+    {
+        // Arrange
+        MailTypes::reset();
+        MailTypes::register(new MailType('digest', 'Weekly digest', 'Every Monday.', 'digest'));
+
+        $_GET['u'] = Unsubscribe::token('reader@example.com', 'marketing');
+        $_REQUEST  = $_GET;
+
+        $controller = new class extends UnsubscribeController {
+            public function __construct()
+            {
+            }
+
+            protected function optOut(string $email, string $list, string $source): bool
+            {
+                return true;
+            }
+
+            protected function isOptedOut(string $email, string $list): bool
+            {
+                return false;
+            }
+        };
+
+        // Act
+        ob_start();
+        $controller->display();
+        $html = (string) ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('<!DOCTYPE html>', $html);
+        $this->assertStringContainsString('noindex', $html,
+            'an unsubscribe URL carries a token, and a search engine that indexed one would '
+            . "publish somebody's ability to unsubscribe them");
+        $this->assertStringContainsString('reader@example.com', $html);
+        $this->assertStringContainsString('Weekly digest', $html);
+        $this->assertStringContainsString('prefers-color-scheme: dark', $html,
+            'it is read in a mail client at any hour');
+    }
+
+    /**
+     * And the page a bad token gets is the same page, with a different sentence.
+     *
+     * Answered the same way whether the token was truncated by a mail client, edited by
+     * somebody guessing, or signed before this installation's key changed — a message that said
+     * which would be a message telling an attacker how close they are.
+     */
+    public function testAnInvalidTokenGetsTheSamePage(): void
+    {
+        // Arrange
+        $_GET['u'] = 'not-a-token';
+        $_REQUEST  = $_GET;
+
+        $controller = new class extends UnsubscribeController {
+            public function __construct()
+            {
+            }
+        };
+
+        // Act
+        ob_start();
+        $controller->display();
+        $html = (string) ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('<!DOCTYPE html>', $html);
+        $this->assertStringContainsString('not valid', $html);
+        $this->assertStringContainsString('replying to the message', strtolower($html),
+            'a person who cannot use the link is told what does work');
+    }
+
 }

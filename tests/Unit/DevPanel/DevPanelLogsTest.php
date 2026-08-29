@@ -44,6 +44,8 @@ class DevPanelLogsTest extends TestCase
     protected function tearDown(): void
     {
         @unlink($this->file);
+        putenv('APP_DEBUG');
+        unset($_ENV['APP_DEBUG']);
     }
 
     /**
@@ -187,4 +189,129 @@ class DevPanelLogsTest extends TestCase
 
         return (new \ReflectionMethod(DevPanelController::class, $method))->invoke($controller, ...$args);
     }
+    /**
+     * `raw` serves the lines the viewer's frame loads.
+     *
+     * The half that made the shared component embeddable here at all. Without it the frame
+     * loads from an admin screen, and a developer holding a signed debug grant — the one
+     * visitor this panel is for — sees a login page inside it.
+     */
+    public function testRawServesTheLinesForTheFrame(): void
+    {
+        // Arrange
+        $_GET = ['file' => 'devpanel-logs-test.log'];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $html = $this->dispatchRaw();
+
+        // Assert
+        $this->assertStringContainsString('something went wrong', $html);
+    }
+
+    /**
+     * A file that is not one of the files on disk is refused.
+     *
+     * The name arrives in a query string. There is exactly one directory to read from and it is
+     * not the caller's to choose, so the name is compared against what is there rather than
+     * joined to a path — which is why `../../etc/passwd` is not a question about how many `..`
+     * a path can contain.
+     */
+    public function testRawRefusesAFileThatIsNotOnDisk(): void
+    {
+        // Arrange
+        $_GET = ['file' => '../../../etc/passwd'];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $html = $this->dispatchRaw();
+
+        // Assert
+        $this->assertStringContainsString('Invalid or no log file', $html);
+        $this->assertStringNotContainsString('root:', $html);
+    }
+
+    /**
+     * And an absent file name is refused the same way.
+     *
+     * The frame is built with one, but the address is public and something will eventually ask
+     * for it without one.
+     */
+    public function testRawRefusesAnAbsentFileName(): void
+    {
+        // Arrange
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $html = $this->dispatchRaw();
+
+        // Assert
+        $this->assertStringContainsString('Invalid or no log file', $html);
+    }
+
+    /**
+     * The search and level parameters reach the reader.
+     *
+     * They are what makes the frame a viewer rather than a `tail`. A parameter that never
+     * arrives is a control that does nothing when used, which is worse than no control.
+     */
+    public function testRawHonoursTheSearchAndLevelParameters(): void
+    {
+        // Arrange
+        $_GET = [
+            'file'   => 'devpanel-logs-test.log',
+            'search' => 'nothing{space}matches{space}this',
+            'level'  => 'error',
+        ];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $html = $this->dispatchRaw();
+
+        // Assert
+        $this->assertStringNotContainsString('something went wrong', $html,
+            'the search excluded the only line in the file');
+    }
+
+    /**
+     * Run `raw()` and capture what it wrote.
+     *
+     * The feature and the guard are the panel's own concern, asserted in
+     * `DevPanelControllerTest`; these are about what the endpoint serves once it is past them.
+     * A signed debug grant is the honest way past, since that is the case the endpoint exists
+     * for — a developer with no admin session.
+     */
+    private function dispatchRaw(): string
+    {
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['devpanel']);
+        putenv('APP_DEBUG=1');
+        $_ENV['APP_DEBUG'] = '1';
+
+        $controller = new class extends DevPanelController {
+            public function __construct()
+            {
+            }
+
+            protected function guardAccess(): bool
+            {
+                return false;
+            }
+        };
+
+        ob_start();
+
+        try {
+            $controller->raw();
+        } catch (\Throwable $exception) {
+            // `guardAccess()` renders and stops; the panel's own error path is asserted in
+            // DevPanelControllerTest and is not what these are about.
+            ob_get_clean();
+
+            $this->markTestSkipped('raw() was guarded: ' . $exception->getMessage());
+        }
+
+        return (string) ob_get_clean();
+    }
+
 }

@@ -183,4 +183,75 @@ class UnsubscribeRecordTest extends BaseTestCase
         // Assert
         $this->assertTrue(Unsubscribe::isOptedOut($this->address, 'marketing'));
     }
+    /** A stand-in application for a migration: it only reads `->database`. */
+    private function consentApplication(): object
+    {
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $app->database = $this->db;
+
+        return $app;
+    }
+
+    /**
+     * An unsubscribe by somebody with an account writes a consent withdrawal too.
+     *
+     * The suppression record decides delivery; the consent record is the GDPR trail — one row
+     * per grant *and* per withdrawal, with a legal basis, in the table built for exactly that.
+     * Asked as «τα email unsubscribe δεν θα μπορούσαν να είναι στο user_consents;» and the
+     * answer is both, for the same reason `messages` and `massmessagerecipients` are two tables.
+     */
+    public function testAnUnsubscribeByAnAccountWritesAConsentWithdrawal(): void
+    {
+        // Arrange
+        // Built rather than skipped: a skip that never un-skips is a test that does not exist,
+        // and this is the half the question was about.
+        (new \Pramnos\Framework\Migrations\Auth\CreateUserConsentsTable(
+            $this->consentApplication()
+        ))->up();
+
+        $user = new \Pramnos\User\User();
+        $user->username = 'consent_' . bin2hex(random_bytes(4));
+        $user->email    = $user->username . '@example.com';
+        $user->save();
+
+        try {
+            // Act
+            Unsubscribe::optOut($user->email, 'marketing');
+
+            // Assert
+            $rows = $this->db->queryBuilder()
+                ->table('authserver.user_consents')
+                ->where('userid', (int) $user->userid)
+                ->get()
+                ->fetchAll();
+
+            $this->assertCount(1, $rows);
+            $this->assertSame('email:marketing', $rows[0]['consent_type']);
+            $this->assertSame(0, (int) $rows[0]['granted']);
+            $this->assertNotEmpty($rows[0]['revoked_at'], 'a withdrawal has a revoked_at');
+            $this->assertSame('consent', $rows[0]['legal_basis']);
+        } finally {
+            $this->db->queryBuilder()->table('authserver.user_consents')
+                ->where('userid', (int) $user->userid)->delete();
+            $user->deleteuser();
+        }
+    }
+
+    /**
+     * And an address with no account writes only the suppression record.
+     *
+     * Somebody on a list who never signed up. `user_consents` is keyed by `userid` and there is
+     * none — which is exactly why the suppression list is keyed by address instead.
+     */
+    public function testAnAddressWithNoAccountWritesOnlyTheSuppression(): void
+    {
+        // Act
+        $written = Unsubscribe::optOut('nobody-' . bin2hex(random_bytes(4)) . '@example.com', 'marketing');
+
+        // Assert
+        $this->assertTrue($written, 'the suppression record is what decides delivery');
+    }
+
 }

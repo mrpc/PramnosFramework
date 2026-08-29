@@ -184,6 +184,7 @@ class Unsubscribe
 
         $recorded = static::record($email, $list, $source);
         static::applyOptOut($email, $list);
+        static::recordConsent($email, $list, false);
 
         return $recorded;
     }
@@ -243,6 +244,8 @@ class Unsubscribe
                 ->whereIn('list', [static::normaliseList($list), self::LIST_ALL])
                 ->delete();
 
+            static::recordConsent($email, $list, true);
+
             return true;
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
@@ -251,6 +254,71 @@ class Unsubscribe
             );
 
             return false;
+        }
+    }
+
+    /**
+     * Write the consent event beside the suppression record.
+     *
+     * Asked directly — «τα email unsubscribe δεν θα μπορούσαν να είναι στο user_consents;» — and
+     * the answer is *both*, for the same reason the framework keeps an inbox row in `messages`
+     * and a delivery record in `massmessagerecipients`:
+     *
+     * - **`emailoptouts` is the lookup.** {@see isOptedOut()} runs before every optional send
+     *   and has to be an indexed existence check. It holds current state, so opting back in
+     *   deletes the row; it is keyed by **address**, because somebody on a list often has no
+     *   account at all; and nothing ages it out, because a withdrawal that expired would start
+     *   sending again.
+     * - **`authserver.user_consents` is the record.** Append-only, one row per grant *and* per
+     *   withdrawal, with a legal basis and an address — which is what a GDPR consent trail is,
+     *   and what "they said we could, then they said we could not" needs to be answerable from.
+     *
+     * Best-effort in every direction. The table belongs to the `auth` feature, so an
+     * installation without it has none; an address with no account has no `userid` to record
+     * against; and either way a consent trail must not be the reason an unsubscribe fails. That
+     * is the one thing a mailbox provider counts against every future message.
+     *
+     * @param bool $granted true for an opt-in, false for a withdrawal
+     */
+    protected static function recordConsent(string $email, string $list, bool $granted): void
+    {
+        try {
+            $database = \Pramnos\Framework\Factory::getDatabase();
+
+            $user = $database->queryBuilder()
+                ->table(defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users')
+                ->select(['userid'])
+                ->whereRaw('LOWER(email) = ?', [static::normalise($email)])
+                ->limit(1)
+                ->get();
+
+            $userId = (int) ($user->fields['userid'] ?? 0);
+
+            if ($userId < 1) {
+                // A list subscriber with no account. The suppression record is the whole story
+                // for them, which is why it is keyed by address rather than by user.
+                return;
+            }
+
+            $now = date('Y-m-d H:i:s');
+
+            $database->queryBuilder()
+                ->table('authserver.user_consents')
+                ->insert([
+                    'userid'       => $userId,
+                    'consent_type' => 'email:' . static::normaliseList($list),
+                    'granted'      => $granted ? 1 : 0,
+                    'granted_at'   => $now,
+                    'revoked_at'   => $granted ? null : $now,
+                    'legal_basis'  => 'consent',
+                    'ip_address'   => substr((string) \Pramnos\Http\Request::clientIp(), 0, 45),
+                ]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'Could not record an email consent event (' . $exception->getMessage()
+                . '). The suppression record is what decides delivery, and it was written.',
+                'email'
+            );
         }
     }
 
