@@ -518,6 +518,111 @@ class MassMessageDispatcherTest extends BaseTestCase
     }
 
     /**
+     * An organizations filter reaches the accounts in that organization.
+     *
+     * The membership table belongs to the authserver feature, so it is built here rather than
+     * assumed — an installation without it answers "nobody", which is asserted above, and the
+     * reader that walks the rows had never been run at all.
+     */
+    public function testAnOrganizationFilterReachesItsMembers(): void
+    {
+        // Arrange
+        $table = $this->db->schema()->resolveTableName(
+            \Pramnos\Messaging\MassMessageAudience::organizationMembershipTable()
+        );
+        $column = \Pramnos\Messaging\MassMessageAudience::organizationColumn();
+
+        $this->db->query(
+            'CREATE TABLE IF NOT EXISTS `' . $table . '` ('
+            . '`user_id` bigint NOT NULL, `' . $column . '` bigint NOT NULL, '
+            . '`is_active` tinyint NOT NULL DEFAULT 1, '
+            . 'PRIMARY KEY (`user_id`, `' . $column . '`))'
+        );
+        $organizationId = random_int(700000, 799999);
+        $this->db->queryBuilder()->table($table)->insert([
+            'user_id'  => $this->users[1],
+            $column    => $organizationId,
+            'is_active' => 1,
+        ]);
+
+        try {
+            // Act
+            $ids = (new MassMessageAudience($this->db))
+                ->resolve(['organizations' => [$organizationId]]);
+
+            // Assert
+            $this->assertSame([$this->users[1]], $ids);
+        } finally {
+            $this->db->queryBuilder()->table($table)
+                ->where($column, $organizationId)->delete();
+        }
+    }
+
+    /**
+     * A group filter with members reaches them, and only them.
+     *
+     * The union, not the intersection: "members and volunteers" is a message to both, and an
+     * operator who wants the overlap has a smaller audience they can name outright.
+     */
+    public function testAGroupFilterWithSeveralGroupsIsTheUnion(): void
+    {
+        // Arrange
+        $ids = [];
+
+        foreach (['Members', 'Volunteers'] as $index => $name) {
+            $this->db->queryBuilder()->table('#PREFIX#usergroups')
+                ->insert(['name' => $name . ' ' . bin2hex(random_bytes(3)), 'description' => '']);
+            $groupId = (int) $this->db->getInsertId();
+            $ids[] = $groupId;
+            $this->db->queryBuilder()->table('#PREFIX#userstogroups')
+                ->insert(['userid' => $this->users[$index], 'groupid' => $groupId]);
+        }
+
+        try {
+            // Act
+            $resolved = (new MassMessageAudience($this->db))->resolve(['groups' => $ids]);
+
+            // Assert
+            $this->assertContains($this->users[0], $resolved);
+            $this->assertContains($this->users[1], $resolved);
+            $this->assertNotContains($this->users[2], $resolved, 'and nobody else');
+        } finally {
+            foreach ($ids as $groupId) {
+                $this->db->queryBuilder()->table('#PREFIX#userstogroups')
+                    ->where('groupid', $groupId)->delete();
+                $this->db->queryBuilder()->table('#PREFIX#usergroups')
+                    ->where('groupid', $groupId)->delete();
+            }
+        }
+    }
+
+    /**
+     * A preview whose sample cannot be read still reports the count.
+     *
+     * The count is what an operator decides on; a sample that cannot be rendered is a smaller
+     * failure than a preview that refuses to appear. Forced by asking for a window of accounts
+     * from a table that is not there.
+     */
+    public function testAPreviewWhoseSampleCannotBeReadStillCounts(): void
+    {
+        // Arrange
+        $audience = new class ($this->db) extends MassMessageAudience {
+            protected function sampleTable(): string
+            {
+                return '#PREFIX#no_such_table_here';
+            }
+        };
+
+        // Act
+        $preview = $audience->preview([], 5);
+
+        // Assert
+        $this->assertGreaterThan(0, $preview['total'], 'the count survived');
+        $this->assertSame([], $preview['sample']);
+        $this->assertSame($preview['total'], $preview['truncated']);
+    }
+
+    /**
      * The preview says how many, and shows enough of them to recognise the filter.
      *
      * The screen asked an operator to choose criteria and then pressed send. What those criteria

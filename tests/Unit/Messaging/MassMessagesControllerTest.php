@@ -430,6 +430,82 @@ class MassMessagesControllerTest extends TestCase
         $this->assertNull($controller->view);
     }
 
+    /**
+     * The compose screen is fed the same things the preview is.
+     *
+     * `edit()` and `preview()` render the same view, and a variable present in one and absent in
+     * the other is a control that appears only after somebody presses a button — which is how a
+     * picker "disappears" without anything failing.
+     */
+    public function testTheComposeScreenIsFedTheSameThings(): void
+    {
+        // Arrange
+        $_GET = [];
+        $_POST = [];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = new MassMessagesProbe();
+
+        // Act
+        $controller->edit();
+
+        // Assert
+        $this->assertSame('massmessages', $controller->view->name);
+        $this->assertSame(['3' => 'Volunteers'], $controller->view->groups);
+        $this->assertIsArray($controller->view->organizations);
+        $this->assertIsArray($controller->view->preview);
+        $this->assertSame(0, $controller->view->audienceSize);
+        $this->assertFalse($controller->view->previewed, 'nothing was previewed yet');
+        $this->assertSame('edit', $controller->displayed);
+    }
+
+    /**
+     * The real audience reader is the shared one.
+     *
+     * Every test above supplies the answer. Without this the seam could point anywhere — at a
+     * resolver that does not exist — and the suite would stay green while the compose screen
+     * reported an audience of nobody.
+     */
+    public function testTheRealAudienceReaderIsTheSharedOne(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            (new \ReflectionClass(MassMessagesController::class))->getFileName()
+        );
+        $start = (int) strpos($source, 'protected function audienceFor');
+        $body  = substr($source, $start, 300);
+
+        // Assert
+        $this->assertStringContainsString('new MassMessageAudience()', $body);
+        $this->assertStringContainsString('->preview($criteria)', $body);
+    }
+
+    /**
+     * A groups table that cannot be read is an empty picker, not a broken screen.
+     *
+     * An installation that has never had groups has no table, and the compose screen has to
+     * render either way — an empty picker is not rendered at all, which is the honest answer.
+     */
+    public function testAnUnreadableGroupsTableIsAnEmptyPicker(): void
+    {
+        // Arrange
+        $controller = new class extends MassMessagesController {
+            public function __construct()
+            {
+            }
+
+            public function probeGroups(): array
+            {
+                return $this->userGroups();
+            }
+        };
+
+        // Act — no database is configured in this unit context
+        $groups = $controller->probeGroups();
+
+        // Assert
+        $this->assertIsArray($groups);
+    }
+
     private function post(array $fields): MassMessagesProbe
     {
         $_POST    = $fields;
@@ -461,6 +537,7 @@ class MassMessagesProbe extends MassMessagesController
     {
         return $this->refused;
     }
+
 
     /** The pickers, without a database. */
     protected function userGroups(): array

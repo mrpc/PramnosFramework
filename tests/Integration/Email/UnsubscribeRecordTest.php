@@ -22,6 +22,7 @@ use Pramnos\Framework\Testing\BaseTestCase;
  * user would fail exactly those people.
  */
 #[CoversClass(Unsubscribe::class)]
+#[CoversClass(\Pramnos\Application\Controllers\Unsubscribe::class)]
 class UnsubscribeRecordTest extends BaseTestCase
 {
     private string $address = '';
@@ -252,6 +253,91 @@ class UnsubscribeRecordTest extends BaseTestCase
 
         // Assert
         $this->assertTrue($written, 'the suppression record is what decides delivery');
+    }
+
+    /**
+     * The endpoint's own readers are the service, not a second implementation.
+     *
+     * Every unit test of that controller replaces these three. Without one real call they could
+     * point anywhere — and the failure would be a page that says somebody was unsubscribed while
+     * nothing was written, which is the one promise this endpoint must not break.
+     */
+    public function testTheControllerReadsAndWritesThroughTheService(): void
+    {
+        // Arrange
+        $address = 'endpoint-' . bin2hex(random_bytes(4)) . '@example.com';
+
+        $controller = new class extends \Pramnos\Application\Controllers\Unsubscribe {
+            public function __construct()
+            {
+                // Deliberately not parent::__construct(): it registers actions against an
+                // application this test does not have.
+            }
+
+            public function probeOptOut(string $email, string $list): bool
+            {
+                return $this->optOut($email, $list, 'page');
+            }
+
+            public function probeOptIn(string $email, string $list): bool
+            {
+                return $this->optIn($email, $list);
+            }
+
+            public function probeIsOptedOut(string $email, string $list): bool
+            {
+                return $this->isOptedOut($email, $list);
+            }
+        };
+
+        try {
+            // Act & Assert — off, then on again
+            $this->assertTrue($controller->probeOptOut($address, 'marketing'));
+            $this->assertTrue($controller->probeIsOptedOut($address, 'marketing'));
+
+            $this->assertTrue($controller->probeOptIn($address, 'marketing'));
+            $this->assertFalse($controller->probeIsOptedOut($address, 'marketing'),
+                'opting back in is a deletion — the record is state, not history');
+        } finally {
+            Unsubscribe::optIn($address, 'marketing');
+        }
+    }
+
+    /**
+     * An installation that has registered nothing optional offers no preferences.
+     *
+     * There is no choice to present, and a heading over an empty list reads as a page that
+     * failed to load rather than as an installation with one kind of mail.
+     */
+    public function testNoOptionalTypesMeansNoPreferencesSection(): void
+    {
+        // Arrange
+        \Pramnos\Email\MailTypes::reset();
+
+        $controller = new class extends \Pramnos\Application\Controllers\Unsubscribe {
+            public function __construct()
+            {
+            }
+
+            /** @var array<string, \Pramnos\Email\MailType> */
+            public array $types = [];
+
+            public function probePreferences(string $email): string
+            {
+                return $this->preferences($email);
+            }
+        };
+
+        // Act — the framework's own optional type is `newsignin`, so remove it for this
+        \Pramnos\Email\MailTypes::register(
+            new \Pramnos\Email\MailType('newsignin', 'Sign-in alerts', '', '')
+        );
+        $html = $controller->probePreferences('reader@example.com');
+
+        // Assert
+        $this->assertSame('', $html);
+
+        \Pramnos\Email\MailTypes::reset();
     }
 
 }

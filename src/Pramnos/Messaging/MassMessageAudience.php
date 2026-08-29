@@ -249,7 +249,7 @@ class MassMessageAudience
 
         try {
             $result = $this->database->queryBuilder()
-                ->table('#PREFIX#users')
+                ->table($this->sampleTable())
                 ->select(['userid', 'username', 'email', 'usertype', 'language', 'lastlogin'])
                 ->whereIn('userid', $window)
                 ->orderBy('userid', 'asc')
@@ -276,6 +276,17 @@ class MassMessageAudience
             'sample'    => $rows,
             'truncated' => max(0, $total - count($rows)),
         ];
+    }
+
+    /**
+     * Where the preview's sample is read from, as a seam.
+     *
+     * The count and the sample come from different reads, and only the sample is allowed to
+     * fail: an operator decides on the number. Without a seam that guarantee is untestable.
+     */
+    protected function sampleTable(): string
+    {
+        return '#PREFIX#users';
     }
 
     /**

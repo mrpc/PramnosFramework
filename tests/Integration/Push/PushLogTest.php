@@ -22,6 +22,7 @@ use Pramnos\Push\Log;
  * writes correctly and cannot be filtered is a store nobody can use.
  */
 #[CoversClass(Log::class)]
+#[CoversClass(\Pramnos\Application\Controllers\PushLogController::class)]
 class PushLogTest extends BaseTestCase
 {
     private $db;
@@ -317,6 +318,60 @@ class PushLogTest extends BaseTestCase
 
         // Assert
         $this->assertSame(['gone'], array_column($rows, 'title'));
+    }
+
+    /**
+     * The screen's own readers are the store, not a second query.
+     *
+     * Every unit test of that controller replaces these. Without one real call the seams could
+     * point anywhere — at a method that no longer exists, at a filter shape the store does not
+     * understand — and the suite would stay green while the screen showed nothing.
+     */
+    public function testTheControllerReadsThroughTheStore(): void
+    {
+        // Arrange
+        Log::record($this->userId, str_repeat('c', 64), ['title' => 'through the controller'], 201);
+
+        $controller = new class extends \Pramnos\Application\Controllers\PushLogController {
+            /** @return list<array<string, mixed>> */
+            public function probeRows(int $limit, array $filter): array
+            {
+                return $this->rows($limit, $filter);
+            }
+
+            /** @return array<string, int> */
+            public function probeStats(): array
+            {
+                return $this->stats();
+            }
+        };
+
+        // Act
+        $rows  = $controller->probeRows(10, ['userid' => $this->userId]);
+        $stats = $controller->probeStats();
+
+        // Assert
+        $this->assertSame(['through the controller'], array_column($rows, 'title'));
+        $this->assertGreaterThanOrEqual(1, $stats['delivered']);
+    }
+
+    /**
+     * And the action is registered, or the address is a 404.
+     *
+     * `Controller::exec()` dispatches what `addAuthAction()` was given and nothing else — the
+     * recurring failure in this codebase being a screen that renders correctly at an address
+     * nothing routes to.
+     */
+    public function testTheDisplayActionIsRegistered(): void
+    {
+        // Act
+        $controller = new \Pramnos\Application\Controllers\PushLogController();
+
+        // Assert
+        $this->assertContains(
+            'display',
+            $controller->actions_auth
+        );
     }
 
 }

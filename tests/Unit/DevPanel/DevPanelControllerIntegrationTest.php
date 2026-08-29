@@ -574,6 +574,134 @@ class DevPanelControllerIntegrationTest extends TestCase
     }
 
     /**
+     * Killing a backend says what happened, above the list it happened to.
+     *
+     * The one destructive thing on the tab. It is handled before the page is rendered, so the
+     * list below reflects what just happened rather than what was true a moment ago — and it
+     * says so either way, because a button that appears to do nothing is a button somebody
+     * presses again.
+     */
+    public function testKillingABackendReportsWhatHappened()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector(['kill' => true]);
+        $_POST = ['action' => 'kill', 'pid' => '4211'];
+
+        try {
+            // Act
+            $this->controller->db();
+
+            // Assert
+            $this->assertStringContainsString('Backend 4211 was ended', $this->controller->lastRenderedContent);
+        } finally {
+            $_POST = [];
+        }
+    }
+
+    /**
+     * A backend that could not be ended says so rather than claiming it was.
+     *
+     * The ordinary case: the list was rendered a minute ago and the backend has finished since,
+     * or this role is not allowed to. Reporting a kill that did not happen is how somebody
+     * concludes the button is broken *after* trusting it once.
+     */
+    public function testABackendThatCouldNotBeEndedSaysSo()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector(['kill' => false]);
+        $_POST = ['action' => 'kill', 'pid' => '4211'];
+
+        try {
+            // Act
+            $this->controller->db();
+
+            // Assert
+            $this->assertStringContainsString('could not be ended', $this->controller->lastRenderedContent);
+        } finally {
+            $_POST = [];
+        }
+    }
+
+    /**
+     * A post with no pid does nothing at all.
+     *
+     * A form submitted without its hidden field, or a crawler following the address. Nothing is
+     * asked of the database and nothing is claimed on the page.
+     */
+    public function testAKillWithNoPidDoesNothing()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector(['kill' => true]);
+        $_POST = ['action' => 'kill', 'pid' => '0'];
+
+        try {
+            // Act
+            $this->controller->db();
+
+            // Assert
+            $this->assertStringNotContainsString('was ended', $this->controller->lastRenderedContent);
+            $this->assertStringNotContainsString('could not be ended', $this->controller->lastRenderedContent);
+        } finally {
+            $_POST = [];
+        }
+    }
+
+    /**
+     * A synchronous standby reads "In Sync" rather than a lag of zero.
+     *
+     * With `sync_state = sync` the primary waits for the standby before it commits, so there is
+     * nothing to be behind by. "0s" invites somebody to watch a number that cannot move.
+     */
+    public function testASynchronousStandbyReadsAsInSync()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([
+            'replication' => [['client_addr' => '10.0.0.2', 'state' => 'streaming',
+                               'sync_state' => 'sync', 'lag_sec' => 0]],
+        ]);
+
+        // Act
+        $this->controller->db();
+
+        // Assert
+        $this->assertStringContainsString('In Sync', $this->controller->lastRenderedContent);
+    }
+
+    /**
+     * A hypertable without compression, and a job that has never run, say so.
+     *
+     * Both are the honest state of a fresh installation, and both used to render as an empty
+     * cell — which reads as a rendering fault rather than as "nothing has happened yet".
+     */
+    public function testUncompressedAndNeverRunAreStated()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([]);
+        $this->controller->timescale = [
+            'ts_version' => '2.5.0', 'chunkCount' => 0, 'aggregates' => [], 'jobHistory' => [],
+            'hypertables' => [['hypertable_name' => 'pushlog', 'num_chunks' => 0,
+                               'num_dimensions' => 1, 'compression_enabled' => false,
+                               'tablespaces' => '']],
+            'jobs' => [['proc_name' => 'policy_retention', 'schedule_interval' => '1 day',
+                        'last_run_started_at' => '', 'last_successful_finish' => '',
+                        'next_start' => '', 'last_run_status' => '']],
+        ];
+
+        // Act
+        $this->controller->db();
+        $html = $this->controller->lastRenderedContent;
+
+        // Assert
+        $this->assertStringContainsString('>off<', $html);
+        $this->assertStringContainsString('never run', $html);
+    }
+
+    /**
      * TimescaleDB chunks are not listed as tables.
      *
      * Reported from a real screen: `_hyper_7_15_chunk` and forty like it, crowding out the
@@ -633,6 +761,11 @@ class DevPanelControllerIntegrationTest extends TestCase
             public function getPublicViews(): array
             {
                 return $this->answers['views'] ?? [];
+            }
+
+            public function killProcess(int $pid): bool
+            {
+                return (bool) ($this->answers['kill'] ?? false);
             }
         };
     }
