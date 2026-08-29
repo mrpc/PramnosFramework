@@ -34,17 +34,23 @@ class TestableDevPanelController extends DevPanelController
 }
 
 /**
- * Runs in separate processes because setUp() does `define('DEVELOPMENT', true)`.
+ * The panel's development-mode lock, set through the environment rather than a constant.
  *
- * A constant cannot be undefined, so without isolation this file decided that
- * the whole test run was "developing" — permanently, for every test that
- * happened to come after it. Two middleware tests had quietly grown to depend
- * on it: they asserted that a JWT exception message reaches the client, which
- * is only true while developing, and they passed in a full-suite run and failed
- * whenever their own class was run alone. The tests for the opposite branch —
- * that the detail is withheld in production — could not run at all.
+ * This class used to `define('DEVELOPMENT', true)` in `setUp()`, and a constant cannot be
+ * undefined — so without isolation it decided that the whole run was "developing", permanently,
+ * for every test that came after it. Two middleware tests had quietly grown to depend on that:
+ * they asserted a JWT exception message reaches the client, which is only true while developing,
+ * and they passed in a full-suite run and failed whenever their own class ran alone.
+ *
+ * The answer was `#[RunTestsInSeparateProcesses]`, which fixed the leak by forking a PHP process
+ * per test — twenty-five bootstraps, and the four that build a cache adapter cost 2.4 seconds
+ * each. It was 19 of the suite's seconds for a constant.
+ *
+ * `Application::isDeveloperEnvironment()` — which is what the panel actually asks — already
+ * honours `APP_DEBUG`, and an environment variable **can** be unset. So the lock is opened with
+ * one and closed again in `tearDown()`, the leak is gone for the right reason, and no process is
+ * forked.
  */
-#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class DevPanelControllerTest extends TestCase
 {
     private TestableDevPanelController $controller;
@@ -67,9 +73,11 @@ class DevPanelControllerTest extends TestCase
             session_start();
         }
 
-        if (!defined('DEVELOPMENT')) {
-            define('DEVELOPMENT', true);
-        }
+        // The environment, not a constant: it is what the panel asks, and it can be unset
+        // again — which is the whole reason this class no longer forks a process per test.
+        putenv('APP_DEBUG=1');
+        $_ENV['APP_DEBUG'] = '1';
+
         
         $app = \Pramnos\Application\Application::getInstance();
         if (!$app) {
@@ -91,6 +99,9 @@ class DevPanelControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        putenv('APP_DEBUG');
+        unset($_ENV['APP_DEBUG']);
+
         $_SESSION = [];
         $app = Application::getInstance();
         if ($app) {
