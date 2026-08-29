@@ -21,7 +21,14 @@ $mail = $this->mail ?? [];
  */
 $recipient = (string) ($mail['tomail'] ?? $mail['recipient'] ?? $mail['mailto'] ?? '');
 $toName    = (string) ($mail['toname'] ?? '');
-$body      = (string) ($mail['content'] ?? $mail['body'] ?? $mail['mailbody'] ?? '');
+/*
+ * The body, wherever it is stored.
+ *
+ * Inline in `content`, or a gzipped file the row points at. Read through `BodyStore` so that an
+ * installation which moved its bodies out of the database sees exactly this screen — which is
+ * the entire difference between archiving a body and emptying the column.
+ */
+$body      = \Pramnos\Email\BodyStore::bodyOf($mail);
 
 $rawDate = $mail['date'] ?? $mail['maildate'] ?? '';
 $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0

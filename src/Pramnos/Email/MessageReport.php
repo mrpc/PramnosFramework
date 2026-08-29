@@ -33,10 +33,16 @@ class MessageReport
     ) {
     }
 
-    /** The rendered body as it was sent. */
+    /**
+     * The rendered body as it was sent, wherever it is stored.
+     *
+     * Inline in `content`, or a gzipped file the row points at — {@see BodyStore}. Read through
+     * one place so that moving a body out of the database changes nothing this class reports,
+     * which is the entire difference between archiving a body and emptying the column.
+     */
     public function body(): string
     {
-        return (string) ($this->mail['content'] ?? $this->mail['body'] ?? '');
+        return BodyStore::bodyOf($this->mail);
     }
 
     /**

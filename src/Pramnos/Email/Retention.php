@@ -72,6 +72,50 @@ class Retention
             'newest'     => (int) ($row['newest'] ?? 0),
         ];
 
+        /*
+         * What is already archived, read from the column rather than from the disk.
+         *
+         * `bodybytes` is recorded when the body is stored precisely so this is a `SUM()` and
+         * not a `stat()` per row — the answer to "what is this costing" should not itself cost
+         * a million file lookups.
+         */
+        try {
+            $archive = $db->query(
+                'SELECT COUNT(*) AS archived, SUM(bodybytes) AS archived_bytes FROM '
+                . $db->prefix . 'mails WHERE bodypath <> \'\''
+            );
+
+            $row = (array) ($archive?->fetch() ?? []);
+            $stats['archived']       = (int) ($row['archived'] ?? 0);
+            $stats['archived_bytes'] = (int) ($row['archived_bytes'] ?? 0);
+
+            /*
+             * And what it actually occupies, which is a different number.
+             *
+             * Bodies are stored once per distinct body, so a campaign to forty thousand people
+             * is one file that forty thousand rows point at. Summing `bodybytes` over the rows
+             * counts that file forty thousand times: on this project's first archive run it
+             * reported 3.1 MB for 792 KB of disk, which is a report that overstates the cost by
+             * four times and hides the entire reason to store them this way.
+             */
+            $distinct = $db->query(
+                'SELECT COUNT(*) AS files, SUM(bytes) AS bytes FROM ('
+                . 'SELECT DISTINCT bodypath, bodybytes AS bytes FROM ' . $db->prefix . 'mails '
+                . 'WHERE bodypath <> \'\') AS distinct_bodies'
+            );
+
+            $row = (array) ($distinct?->fetch() ?? []);
+            $stats['archive_files'] = (int) ($row['files'] ?? 0);
+            $stats['archive_bytes'] = (int) ($row['bytes'] ?? 0);
+        } catch (\Throwable) {
+            // The columns arrive with a migration; an installation that has not run it yet has
+            // nothing archived, which is the honest answer rather than an error.
+            $stats['archived']       = 0;
+            $stats['archived_bytes'] = 0;
+            $stats['archive_files']  = 0;
+            $stats['archive_bytes']  = 0;
+        }
+
         if ($stripAfter > 0) {
             $stats['would_strip'] = self::count('content <> \'\' AND date > 0 AND date < ' . (time() - $stripAfter));
         }
@@ -81,6 +125,91 @@ class Retention
         }
 
         return $stats;
+    }
+
+    /**
+     * Move stored bodies out of the database and into the archive, keeping every one of them.
+     *
+     * The alternative to stripping, and the better one: the body is compressed onto disk and the
+     * row keeps a path to it, so `/admin/emails/show` answers exactly what it answered before.
+     * A typical HTML mail gzips to about a tenth of its size, and identical bodies — a campaign
+     * to forty thousand people — are stored once.
+     *
+     * @param  int $olderThan Seconds; 0 archives everything with a body
+     * @param  int $limit     How many rows this pass moves
+     * @return array{moved: int, freed: int, failed: int}
+     */
+    public static function archive(int $olderThan = 0, int $limit = self::BATCH): array
+    {
+        $moved = $freed = $failed = 0;
+
+        if (!BodyStore::enabled()) {
+            return ['moved' => 0, 'freed' => 0, 'failed' => 0];
+        }
+
+        try {
+            $db     = \Pramnos\Framework\Factory::getDatabase();
+            $cutoff = $olderThan > 0 ? ' AND date < ' . (time() - $olderThan) : '';
+            $result = $db->query(
+                'SELECT id, content, date FROM ' . $db->prefix . 'mails '
+                . 'WHERE content <> \'\' AND LENGTH(content) >= ' . BodyStore::MIN_BYTES
+                . ' AND date > 0' . $cutoff . ' ORDER BY id ASC LIMIT ' . max(1, $limit)
+            );
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not read mail bodies to archive: '
+                . $exception->getMessage(), 'email');
+
+            return ['moved' => 0, 'freed' => 0, 'failed' => 0];
+        }
+
+        while ($result && $result->fetch()) {
+            $id      = (int) ($result->fields['id'] ?? 0);
+            $content = (string) ($result->fields['content'] ?? '');
+            $path    = BodyStore::put($content, (int) ($result->fields['date'] ?? 0));
+
+            if ($id < 1 || $path === null) {
+                $failed++;
+
+                continue;
+            }
+
+            /*
+             * The row is updated only after the file is on disk.
+             *
+             * The other order — clear the column, then write the file — loses the body if
+             * anything goes wrong in between, and what it loses is the message somebody will
+             * later ask about.
+             */
+            try {
+                $db->queryBuilder()->table('#PREFIX#mails')->where('id', $id)->update([
+                    'content'   => '',
+                    'bodypath'  => $path,
+                    'bodybytes' => BodyStore::bytes($path),
+                ]);
+
+                $moved++;
+                $freed += strlen($content);
+            } catch (\Throwable $exception) {
+                \Pramnos\Logs\Logger::log('Could not point mail ' . $id . ' at its archived body: '
+                    . $exception->getMessage(), 'email');
+                $failed++;
+            }
+        }
+
+        return ['moved' => $moved, 'freed' => $freed, 'failed' => $failed];
+    }
+
+    /**
+     * How many rows still have their body in the database.
+     */
+    public static function archivable(int $olderThan = 0): int
+    {
+        $cutoff = $olderThan > 0 ? ' AND date < ' . (time() - $olderThan) : '';
+
+        return self::count(
+            'content <> \'\' AND LENGTH(content) >= ' . BodyStore::MIN_BYTES
+            . ' AND date > 0' . $cutoff
+        );
     }
 
     /**
