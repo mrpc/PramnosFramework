@@ -145,6 +145,14 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <div class="p-4 grid gap-2">
                     <?php
                     $action(adminUrl('users/edit/' . $uid), 'edit', 'Edit user', 'btn-primary');
+                    /*
+                     * Send a message. Second, because after "edit this account" it is the
+                     * thing an operator most often came here to do.
+                     *
+                     * `users/notify` existed with nothing linking to it: the screen was
+                     * reachable only by typing the URL, which is the same as not existing.
+                     */
+                    $action(adminUrl('users/notify/' . $uid), 'send', 'Send a message');
                     $action(adminUrl('users/resetpassword/' . $uid), 'password', 'Send password reset', 'btn-outline',
                         'Send a password reset link to this user?');
                     if ($isActive) {

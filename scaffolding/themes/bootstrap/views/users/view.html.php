@@ -101,6 +101,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <div class="card-header fw-semibold small text-uppercase text-muted">Actions</div>
                 <div class="card-body d-grid gap-2">
                     <a href="<?php echo adminUrl('users' . '/edit/' . ($uid)); ?>" class="btn btn-primary btn-sm">Edit User</a>
+                    <?php /* `users/notify` existed with nothing linking to it — reachable only
+                             by typing the URL, which is the same as not existing. */ ?>
+                    <a href="<?php echo adminUrl('users' . '/notify/' . ($uid)); ?>" class="btn btn-outline-primary btn-sm">Send a Message</a>
                     <?php if ($isActive): ?>
                         <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>" class="btn btn-outline-warning btn-sm"
                            data-confirm="Lock this account?">Lock Account</a>

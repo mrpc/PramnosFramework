@@ -87,6 +87,9 @@ $this->activeNav = 'users_view';
                 <div style="padding:8px 14px;background:#f5f5f5;font-size:11px;font-weight:700;text-transform:uppercase;color:#666;letter-spacing:.05em">Actions</div>
                 <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
                     <a href="<?php echo adminUrl('users' . '/edit/' . ($uid)); ?>" class="btn btn-primary" style="text-align:center">Edit User</a>
+                    <?php /* `users/notify` existed with nothing linking to it — reachable only
+                             by typing the URL, which is the same as not existing. */ ?>
+                    <a href="<?php echo adminUrl('users' . '/notify/' . ($uid)); ?>" class="btn btn-outline-primary" style="text-align:center">Send a Message</a>
                     <?php if ($isActive): ?>
                         <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>" class="btn btn-outline-warning" style="text-align:center"
                            data-confirm="Lock this account?">Lock Account</a>
