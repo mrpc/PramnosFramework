@@ -6,6 +6,7 @@ namespace Pramnos\Notification\Channels;
 
 use Pramnos\Notification\ChannelInterface;
 use Pramnos\Notification\NotificationInterface;
+use Pramnos\Push\Log;
 use Pramnos\Push\Subscriptions;
 use Pramnos\Push\Vapid;
 
@@ -71,10 +72,28 @@ class PushChannel implements ChannelInterface
             return;
         }
 
+        /*
+         * The name of the notification, for the log.
+         *
+         * Read before anything can return, because every one of the four refusals below is a
+         * row somebody will later be reading to find out *which* notification never arrived.
+         */
+        $name = $notification::class;
+        $data = $notification->toPush($notifiable);
+
         $subscriptions = $this->subscriptionsFor($userId);
 
         if ($subscriptions === []) {
-            return;   // nothing subscribed; not a failure
+            /*
+             * Not a failure, and not nothing either.
+             *
+             * It is the ordinary case — most accounts have never granted permission — and it is
+             * also the single commonest answer to "why did they not get the notification". A
+             * silent return leaves that question unanswerable from any table.
+             */
+            $this->refuse($userId, Log::NO_SUBSCRIPTION, $data, $name);
+
+            return;
         }
 
         $vapid = $this->vapid();
@@ -85,6 +104,7 @@ class PushChannel implements ChannelInterface
                 . 'Run `push:vapid-generate` once.',
                 'push'
             );
+            $this->refuse($userId, Log::NO_KEYS, $data, $name);
 
             return;
         }
@@ -97,17 +117,20 @@ class PushChannel implements ChannelInterface
                 . 'it.',
                 'push'
             );
+            $this->refuse($userId, Log::NO_LIBRARY, $data, $name);
 
             return;
         }
 
-        $payload = $this->payload($notification->toPush($notifiable));
+        $payload = $this->payload($data);
 
         if ($payload === '') {
+            $this->refuse($userId, Log::NO_PAYLOAD, $data, $name);
+
             return;
         }
 
-        $this->deliver($subscriptions, $payload, $vapid);
+        $this->deliver($subscriptions, $payload, $vapid, $userId, $name);
     }
 
     /**
@@ -160,13 +183,50 @@ class PushChannel implements ChannelInterface
     }
 
     /**
+     * Write one attempt to the push log.
+     *
+     * A seam, and the reason it is one is that this is called from inside a send: a test that
+     * asserts what was delivered must not need a `pushlog` table to do it.
+     *
+     * @param array<string, mixed> $payload
+     */
+    protected function log(
+        int $userId,
+        string $endpoint,
+        array $payload,
+        int $status,
+        string $notification
+    ): void {
+        Log::record($userId, hash('sha256', $endpoint), $payload, $status, $notification);
+    }
+
+    /**
+     * Write the reason a send stopped before it reached anybody.
+     *
+     * @param array<string, mixed> $payload
+     */
+    protected function refuse(
+        int $userId,
+        string $reason,
+        array $payload,
+        string $notification
+    ): void {
+        Log::refused($userId, $reason, $payload, $notification);
+    }
+
+    /**
      * Send one payload to every subscription, and act on each answer.
      *
      * @param list<array<string, mixed>> $subscriptions
      * @param array{publicKey: string, privateKey: string, subject: string} $vapid
      */
-    protected function deliver(array $subscriptions, string $payload, array $vapid): void
-    {
+    protected function deliver(
+        array $subscriptions,
+        string $payload,
+        array $vapid,
+        int $userId = 0,
+        string $notification = ''
+    ): void {
         $library      = $this->libraryClass();
         $subscription = $this->subscriptionClass();
 
@@ -198,8 +258,15 @@ class PushChannel implements ChannelInterface
                 );
             }
 
+            $logged = json_decode($payload, true);
+            $logged = is_array($logged) ? $logged : [];
+
             foreach ($push->flush() as $report) {
-                $this->record((string) $report->getEndpoint(), $this->statusOf($report));
+                $endpoint = (string) $report->getEndpoint();
+                $status   = $this->statusOf($report);
+
+                $this->record($endpoint, $status);
+                $this->log($userId, $endpoint, $logged, $status, $notification);
             }
         } catch (\Throwable $exception) {
             // One failed batch must not take down whatever queued it.

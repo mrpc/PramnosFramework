@@ -680,6 +680,63 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     <?php endif; ?>
                 </div>
 
+                <?php
+                /*
+                 * And what was actually pushed to this account.
+                 *
+                 * The panel above says a browser subscribed and when it was last reached — a
+                 * fact about the browser. This says what was *sent*, which is the question
+                 * somebody is holding when they open this screen: «they say they did not get
+                 * the notification». The rows where nothing was sent are here too, and they are
+                 * usually the answer.
+                 */
+                ?>
+                <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+                    <?php $panel('Recent pushes', count($r('pushes'))); ?>
+                    <?php $pushes = $r('pushes'); ?>
+                    <?php if ($pushes === []): ?>
+                    <div class="p-4 text-sm text-base-content/60">
+                        Nothing has been pushed to this account.
+                    </div>
+                    <?php else: ?>
+                    <ul class="divide-y divide-base-200">
+                        <?php foreach ($pushes as $push): ?>
+                            <?php
+                            $status   = (int) ($push['status'] ?? 0);
+                            $notSent  = (string) ($push['endpoint_hash'] ?? '') === '';
+                            $ok       = $status >= 200 && $status < 300;
+                            $name     = (string) ($push['notification'] ?? '');
+                            $short    = $name === '' ? '' : substr((string) strrchr('\\' . $name, '\\'), 1);
+                            ?>
+                        <li class="px-4 py-2 text-sm">
+                            <div class="flex items-center gap-2">
+                                <span class="truncate">
+                                    <?php echo $esc(($push['title'] ?? '') !== '' ? $push['title'] : $short); ?>
+                                </span>
+                                <span class="ms-auto badge badge-xs <?php
+                                    echo $ok ? 'badge-success' : ($notSent ? 'badge-ghost' : 'badge-error');
+                                ?>">
+                                    <?php echo $ok ? 'delivered' : ($notSent ? 'not sent' : (string) $status); ?>
+                                </span>
+                            </div>
+                            <div class="text-xs text-base-content/50">
+                                <?php echo $esc($when($push['sent'] ?? null)); ?>
+                                <?php if (($push['error'] ?? '') !== ''): ?>
+                                    · <?php echo $esc($push['error']); ?>
+                                <?php endif; ?>
+                            </div>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <div class="px-4 py-2 border-t border-base-200">
+                        <a class="link link-hover text-xs"
+                           href="<?php echo adminUrl('PushLog'); ?>?userid=<?php echo $uid; ?>">
+                            Everything pushed to this account →
+                        </a>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
                 <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
                     <?php $panel('Organizations', count($r('organizations'))); ?>
                     <?php $organizations = $r('organizations'); ?>

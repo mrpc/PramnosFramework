@@ -8339,6 +8339,35 @@ class Emails extends FrameworkEmailsController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Emails.php', $emailsController);
+
+        /*
+         * The push log beside it, for the same reason and in the same step.
+         *
+         * `/admin/Emails` answers "what was sent and what came of it" for email. Push had no
+         * such screen, so the same question about a notification could not be answered from
+         * anywhere — and a controller a project has no wrapper for is a controller that
+         * answers on no address at all.
+         */
+        $pushLogController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Application\\Controllers\\PushLogController as FrameworkPushLogController;
+
+/**
+ * Push notification history controller.
+ *
+ * Delegates all actions to the framework PushLogController.
+ */
+class PushLog extends FrameworkPushLogController
+{
+}
+PHP;
+
+        $this->writeFile('src/Admin/Controllers/PushLog.php', $pushLogController);
     }
 
     private function scaffoldTokenActionsWiring(string $namespace): void

@@ -304,6 +304,20 @@ class UsersController extends Controller
             'pushDeviceCount' => $count(fn ($qb) => $qb->table('#PREFIX#pushsubscriptions')
                 ->where('userid', $userId)->count()),
 
+            /*
+             * And what was actually pushed to this account.
+             *
+             * The devices panel above says a browser subscribed and when it was last reached
+             * successfully — a fact about the browser. This says what was sent, which is the
+             * question somebody is holding when they open this screen: «they say they did not
+             * get the notification». The most useful rows are the ones where nothing was sent
+             * at all, and they are here too.
+             */
+            'pushes' => $rows(fn ($qb) => $qb->table('#PREFIX#pushlog')
+                ->select(['sent', 'notification', 'title', 'status', 'error', 'endpoint_hash'])
+                ->where('userid', $userId)
+                ->orderBy('sent', 'desc')->orderBy('pushid', 'desc')->limit(10)->get()),
+
             // Which organizations the account belongs to.
             'organizations' => $rows(fn ($qb) => $qb->table('authserver.user_organizations uo')
                 ->join('organizations o', 'uo.organization_id', '=', 'o.organization_id')

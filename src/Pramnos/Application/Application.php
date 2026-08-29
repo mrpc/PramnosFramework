@@ -1318,6 +1318,17 @@ class Application extends Base
             NavSection::Admin, 16, requireAuth: true, minUserType: 80,
             icon: 'mail', group: 'System',
         ));
+        /*
+         * Beside the email history, because it answers the same question about the other
+         * channel — and because a screen nothing links to is a screen nobody finds. The email
+         * history had this and push had nothing, so «τα push που στάλθηκαν πού τα βλέπω;» had
+         * no answer at all.
+         */
+        NavRegistry::register(new NavItem(
+            'admin.pushlog', 'Push', $admin('PushLog'),
+            NavSection::Admin, 17, requireAuth: true, minUserType: 80,
+            icon: 'bell', group: 'System',
+        ));
 
         // ── Access — authserver feature ───────────────────────────────────────
         if (in_array('authserver', $features, true)) {

@@ -5,6 +5,7 @@ use_cases:
   - Adding push to a project that already has a service worker
   - Setting up VAPID keys, and understanding what rotating them costs
   - Working out why notifications stopped arriving for some users
+  - Finding out what was pushed, to whom, and whether it arrived
   - Adding action buttons, sounds or a link target to a notification
   - Estimating the server load of notifying many users at once
 ---
@@ -267,6 +268,71 @@ logs once and does nothing, which is a better failure than a message that
 silently never arrives.
 
 ---
+
+## Where the sent notifications are
+
+`/admin/PushLog`, beside `/admin/Emails`, and the two answer the same question about the two
+channels: *what was sent, when, to whom, and what came of it*.
+
+Push had no such screen. `pushsubscriptions` says when a browser was last reached successfully
+and how many failures it has since — a fact about the **browser**, not about a message — and the
+mass-send path writes `massmessagerecipients`, which covers one path out of two. Everything a
+`notify()` sent left no trace at all, so the only way to find out whether a notification had
+gone out was to ask the person it was for.
+
+```php
+use Pramnos\Push\Log;
+
+Log::recent(100);                                   // newest first
+Log::recent(100, ['userid' => 42]);                 // one account
+Log::recent(100, ['failed' => true]);               // everything that did not arrive
+Log::stats(7);                                      // delivered / gone / refused / failed
+Log::prune(90);                                     // it only grows otherwise
+```
+
+### One row per attempt, and one for every refusal
+
+The granularity is one attempt against one subscription, because that is where the answers
+differ: an account with three browsers gets three answers, and «delivered, delivered, 410» is the
+shape of the real question.
+
+**And every reason a push does *not* go out writes a row too** — which is usually the row
+somebody is looking for. Each of these used to be a silent `return`:
+
+| `error` | What happened |
+| --- | --- |
+| `NO_SUBSCRIPTION` | no browser on the account has ever granted permission |
+| `NO_KEYS` | the installation has no VAPID pair |
+| `NO_LIBRARY` | `minishlink/web-push` is not installed |
+| `NO_PAYLOAD` | the notification produced no title, so nothing could be shown |
+
+Without them, an installation with no key pair and one where every notification is arriving look
+identical from every table — and the first one is not rare, because the library is a composer
+*suggestion* and the key pair is a step somebody can stop before.
+
+### What a status means
+
+| | |
+| --- | --- |
+| `200` / `201` | delivered to the push service, which will deliver it to the browser |
+| `404` / `410` | the subscription is gone; the row in `pushsubscriptions` is deleted |
+| `429`, `5xx` | the push service is busy. Kept, and counted as one failure |
+| `0` | the request never reached a server at all — DNS, a timeout. Emphatically not a `410` |
+
+`0` with an empty `endpoint_hash` is a refusal rather than a network failure; the screen
+separates them.
+
+### What it does not store
+
+The endpoint. Whoever holds it can push to that browser, so it is a credential, and a log is the
+last place to copy one to. The sha256 is enough to join a row to its subscription and to
+recognise the same browser twice, which is all this table is asked.
+
+### On the user's card
+
+A **Recent pushes** panel beside **Push devices**, and a link to that account's own history. The
+devices panel says a browser subscribed; this says what was sent — which is the question
+somebody is holding when they open the screen.
 
 ## What a notification can do
 
