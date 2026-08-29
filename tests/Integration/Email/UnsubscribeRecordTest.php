@@ -53,7 +53,7 @@ class UnsubscribeRecordTest extends BaseTestCase
             $this->markTestSkipped('UnsubscribeRecordTest runs on MySQL only.');
         }
 
-        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . 'emailoptouts`');
+        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->schema()->resolveTableName('pramnos.emailoptouts') . '`');
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
         ]);
@@ -66,7 +66,7 @@ class UnsubscribeRecordTest extends BaseTestCase
     {
         try {
             $this->db->queryBuilder()
-                ->table('#PREFIX#emailoptouts')
+                ->table('pramnos.emailoptouts')
                 ->whereRaw('LOWER(email) = ?', [strtolower($this->address)])
                 ->delete();
         } catch (\Throwable) {
@@ -139,7 +139,7 @@ class UnsubscribeRecordTest extends BaseTestCase
 
         // Assert
         $rows = $this->db->queryBuilder()
-            ->table('#PREFIX#emailoptouts')
+            ->table('pramnos.emailoptouts')
             ->whereRaw('LOWER(email) = ?', [strtolower($this->address)])
             ->count();
 

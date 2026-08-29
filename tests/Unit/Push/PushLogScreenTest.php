@@ -117,4 +117,176 @@ class PushLogScreenTest extends TestCase
         $this->assertStringContainsString('?userid=', $view);
         $this->assertStringContainsString('Recent pushes', $view);
     }
+    /**
+     * The action assembles what the screen renders: the rows, the week's shape, the filters.
+     *
+     * Everything above asserts the screen exists and is reachable. This asserts it is *fed* — a
+     * controller whose view variables are wrong renders an empty page that looks like an
+     * installation with no notifications.
+     */
+    public function testTheActionFeedsTheScreen(): void
+    {
+        // Arrange
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $controller->display();
+
+        // Assert
+        $this->assertSame('pushlog', $controller->view->name);
+        $this->assertCount(1, $controller->view->rows);
+        $this->assertSame(4, $controller->view->stats['total']);
+        $this->assertSame(0, $controller->view->userId);
+        $this->assertSame('', $controller->view->only);
+        $this->assertSame(PushLogController::PAGE, $controller->limit);
+        $this->assertSame([], $controller->filter, 'no filter unless one was asked for');
+    }
+
+    /**
+     * `?userid=` narrows to one account.
+     *
+     * The user card links here with one. A filter that did not reach the query would put every
+     * account's notifications on somebody's page — a disclosure rather than a wrong list.
+     */
+    public function testTheAccountFilterReachesTheQuery(): void
+    {
+        // Arrange
+        $_GET = ['userid' => '42'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $controller->display();
+
+        // Assert
+        $this->assertSame(['userid' => 42], $controller->filter);
+        $this->assertSame(42, $controller->view->userId);
+    }
+
+    /**
+     * `?show=failed` asks for everything that did not arrive.
+     *
+     * Not one status: a 410 is a dead subscription, a 429 a busy service and a 0 never reached
+     * one. The reader wants all three, which is why it is a flag rather than a status.
+     */
+    public function testTheFailedFilterReachesTheQuery(): void
+    {
+        // Arrange
+        $_GET = ['show' => 'failed'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $controller->display();
+
+        // Assert
+        $this->assertSame(['failed' => true], $controller->filter);
+        $this->assertSame('failed', $controller->view->only);
+    }
+
+    /**
+     * A `userid` of zero is not a filter.
+     *
+     * `?userid=` with nothing after it, or a crawler following the link without the number.
+     * Filtering on account 0 shows an empty page where the answer is "everything".
+     */
+    public function testAnEmptyAccountParameterIsNotAFilter(): void
+    {
+        // Arrange
+        $_GET = ['userid' => '0'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $controller->display();
+
+        // Assert
+        $this->assertSame([], $controller->filter);
+    }
+
+    /**
+     * A visitor below the floor gets nothing rendered.
+     *
+     * The log names accounts and what was sent to them. `requireMinUserType()` answering true
+     * has to stop the action, not merely colour it.
+     */
+    public function testAVisitorBelowTheFloorSeesNothing(): void
+    {
+        // Arrange
+        $controller = $this->controller(refused: true);
+
+        // Act
+        $result = $controller->display();
+
+        // Assert
+        $this->assertNull($result);
+        $this->assertNull($controller->view);
+    }
+
+    /** A controller whose store, view and usertype check are all given. */
+    private function controller(bool $refused = false): object
+    {
+        return new class ($refused) extends PushLogController {
+            public ?object $view = null;
+
+            public int $limit = 0;
+
+            /** @var array<string, mixed> */
+            public array $filter = [];
+
+            public function __construct(private bool $refused)
+            {
+                // Deliberately not parent::__construct(): it registers actions against an
+                // application this test does not have.
+            }
+
+            protected function requireMinUserType($type): bool
+            {
+                return $this->refused;
+            }
+
+            protected function rows(int $limit, array $filter): array
+            {
+                $this->limit  = $limit;
+                $this->filter = $filter;
+
+                return [['pushid' => 1, 'userid' => 42, 'title' => 'New sign-in',
+                         'status' => 201, 'error' => '', 'endpoint_hash' => 'a',
+                         'notification' => 'X', 'sent' => '2026-08-29 10:00:00']];
+            }
+
+            protected function stats(): array
+            {
+                return ['total' => 4, 'delivered' => 2, 'gone' => 1, 'refused' => 1,
+                        'failed' => 0];
+            }
+
+            public function &getView($name = '', $type = '', $args = [])
+            {
+                $this->view = new class ($name) {
+                    public array $rows = [];
+
+                    public array $stats = [];
+
+                    public int $userId = 0;
+
+                    public string $only = '';
+
+                    public function __construct(public string $name)
+                    {
+                    }
+
+                    public function display($layout = '')
+                    {
+                        return 'rendered';
+                    }
+                };
+
+                return $this->view;
+            }
+        };
+    }
+
 }

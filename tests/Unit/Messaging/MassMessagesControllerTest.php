@@ -335,6 +335,101 @@ class MassMessagesControllerTest extends TestCase
         $this->assertSame([42, 108], $criteria['only_ids']);
     }
 
+    /**
+     * The preview action resolves the posted criteria and renders the compose screen again.
+     *
+     * The loop that was missing: try a filter, look at who it means, change it. Nothing is
+     * written and nothing is sent, so the assertions here are about what reaches the view — a
+     * preview whose numbers come from the *stored* criteria rather than the posted ones would
+     * answer a question nobody asked.
+     */
+    public function testThePreviewResolvesWhatWasPosted(): void
+    {
+        // Arrange
+        $controller = $this->post([
+            'usertype_min' => '50',
+            'only_ids'     => '7, 9',
+            'subject'      => 'Scheduled maintenance',
+            'message'      => '<p>Ten minutes.</p>',
+        ]);
+
+        // Act
+        $controller->preview();
+
+        // Assert
+        $this->assertSame('massmessages', $controller->view->name);
+        $this->assertTrue($controller->view->previewed);
+        $this->assertSame(50, $controller->view->criteria['usertype_min']);
+        $this->assertSame([7, 9], $controller->view->criteria['only_ids']);
+        $this->assertSame(2, $controller->view->preview['total']);
+        $this->assertSame(2, $controller->view->audienceSize);
+        $this->assertSame('edit', $controller->displayed, 'the compose screen, again');
+    }
+
+    /**
+     * The unsaved subject and body are carried through.
+     *
+     * Previewing is something somebody does *while writing*. Rendering the stored message would
+     * throw away what they had typed, which turns one look at the audience into retyping the
+     * message — so nobody would look.
+     */
+    public function testTheUnsavedMessageSurvivesThePreview(): void
+    {
+        // Arrange
+        $controller = $this->post([
+            'subject' => 'Scheduled maintenance',
+            'message' => '<p>Ten minutes.</p>',
+        ]);
+
+        // Act
+        $controller->preview();
+
+        // Assert
+        $this->assertSame('Scheduled maintenance', $controller->view->message['subject']);
+        $this->assertSame('<p>Ten minutes.</p>', $controller->view->message['message']);
+    }
+
+    /**
+     * The pickers reach the screen, and an installation with none is not an error.
+     *
+     * A picker with nothing in it is not rendered at all — reported from a real screen — so the
+     * view needs the arrays either way, and an empty one has to be an empty array rather than a
+     * null the view has to guard against.
+     */
+    public function testThePickersReachTheScreen(): void
+    {
+        // Arrange
+        $controller = $this->post([]);
+
+        // Act
+        $controller->preview();
+
+        // Assert
+        $this->assertIsArray($controller->view->groups);
+        $this->assertIsArray($controller->view->organizations);
+        $this->assertSame(['3' => 'Volunteers'], $controller->view->groups);
+    }
+
+    /**
+     * A visitor below the floor previews nothing.
+     *
+     * This screen mails everybody, and the preview names the accounts it would reach — so the
+     * usertype check has to stop it, not merely colour it.
+     */
+    public function testAVisitorBelowTheFloorPreviewsNothing(): void
+    {
+        // Arrange
+        $controller = $this->post([]);
+        $controller->refused = true;
+
+        // Act
+        $result = $controller->preview();
+
+        // Assert
+        $this->assertNull($result);
+        $this->assertNull($controller->view);
+    }
+
     private function post(array $fields): MassMessagesProbe
     {
         $_POST    = $fields;
@@ -356,6 +451,85 @@ class MassMessagesControllerTest extends TestCase
 /** Exposes the four readers the compose screen depends on. */
 class MassMessagesProbe extends MassMessagesController
 {
+    public ?object $view = null;
+
+    public string $displayed = '';
+
+    public bool $refused = false;
+
+    protected function requireMinUserType($type): bool
+    {
+        return $this->refused;
+    }
+
+    /** The pickers, without a database. */
+    protected function userGroups(): array
+    {
+        return ['3' => 'Volunteers'];
+    }
+
+    protected function organizations(): array
+    {
+        return [];
+    }
+
+    /** The audience, without a database. */
+    protected function audienceFor(array $criteria): array
+    {
+        return [
+            'total'     => count($criteria['only_ids'] ?? []) ?: 0,
+            'sample'    => [],
+            'truncated' => 0,
+        ];
+    }
+
+    protected function audienceLanguages(): array
+    {
+        return [];
+    }
+
+    public function &getView($name = '', $type = '', $args = [])
+    {
+        $this->view = new class ($name, $this) {
+            public array $message = [];
+
+            public array $types = [];
+
+            public array $criteria = [];
+
+            public array $options = [];
+
+            public array $languages = [];
+
+            public array $templates = [];
+
+            public bool $tracking = false;
+
+            public array $groups = [];
+
+            public array $organizations = [];
+
+            public array $preview = [];
+
+            public int $audienceSize = 0;
+
+            public bool $previewed = false;
+
+            public function __construct(public string $name, private MassMessagesProbe $owner)
+            {
+            }
+
+            public function display($layout = '')
+            {
+                $this->owner->displayed = (string) $layout;
+
+                return 'rendered';
+            }
+        };
+
+        return $this->view;
+    }
+
     public function __construct()
     {
         // Deliberately not parent::__construct(): it registers actions against an application

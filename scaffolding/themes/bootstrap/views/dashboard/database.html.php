@@ -397,19 +397,29 @@ $fmtBytes = function (int $bytes): string {
                             <?php echo htmlspecialchars($job['proc_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                         </td>
                         <td class="text-muted"><?php echo htmlspecialchars($job['schedule_interval'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="text-muted small"><?php echo !empty($job['last_run_started_at']) ? htmlspecialchars($job['last_run_started_at'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td class="text-muted small"><?php
+                            $stamp = (string) ($job['last_run_started_at'] ?? '');
+                            $at = $stamp !== '' ? strtotime($stamp) : false;
+                            echo $at !== false
+                                ? htmlspecialchars(localDateTime($at), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($stamp !== '' ? $stamp : '—', ENT_QUOTES, 'UTF-8');
+                            ?></td>
                         <td>
                             <?php $ls = $job['last_run_status'] ?? '—'; ?>
                             <span class="badge bg-<?php echo $ls === 'Success' ? 'success' : ($ls === '—' ? 'secondary' : 'danger'); ?>">
                                 <?php echo htmlspecialchars($ls, ENT_QUOTES, 'UTF-8'); ?>
                             </span>
                         </td>
-                        <td class="text-muted small"><?php echo !empty($job['next_start']) ? htmlspecialchars($job['next_start'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td class="text-muted small"><?php
+                            $stamp = (string) ($job['next_start'] ?? '');
+                            $at = $stamp !== '' ? strtotime($stamp) : false;
+                            echo $at !== false
+                                ? htmlspecialchars(localDateTime($at), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($stamp !== '' ? $stamp : '—', ENT_QUOTES, 'UTF-8');
+                            ?></td>
                         <td>
                             <button type="button" class="btn btn-sm btn-outline-danger py-0"
-                                    data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>">
-                                Error History
-                            </button>
+                                    data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>" style="white-space:nowrap">Errors</button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -463,8 +473,13 @@ $fmtBytes = function (int $bytes): string {
             records.forEach(function(r) {
                 var ok  = r.succeeded === 't' || r.succeeded === 'true' || r.succeeded === true;
                 var tr  = document.createElement('tr');
-                tr.innerHTML = '<td class="small">' + (r.start_time || '—') + '</td>'
-                    + '<td class="small">' + (r.finish_time || '—') + '</td>'
+                // The microseconds and the `+00` are twenty-nine characters that wrap in a
+                // modal column and say nothing a person reads.
+                var shortTime = function (v) {
+                    return v ? String(v).replace(/\.\d+/, '').replace(/\+00$/, '') : '—';
+                };
+                tr.innerHTML = '<td class="small text-nowrap">' + shortTime(r.start_time) + '</td>'
+                    + '<td class="small text-nowrap">' + shortTime(r.finish_time) + '</td>'
                     + '<td><span class="badge bg-' + (ok ? 'success' : 'danger') + '">' + (ok ? 'Success' : 'Failed') + '</span></td>'
                     + '<td class="font-monospace small">' + (r.proc_schema ? r.proc_schema + '.' : '') + (r.proc_name || '—') + '</td>'
                     + '<td class="text-danger small">' + (r.err_message || '') + '</td>';

@@ -405,17 +405,31 @@ $fmtBytes = function (int $bytes): string {
                             <?php echo htmlspecialchars($job['proc_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                         </td>
                         <td class="px-3 py-2 text-base-content/70"><?php echo htmlspecialchars($job['schedule_interval'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 text-base-content/60"><?php echo !empty($job['last_run_started_at']) ? htmlspecialchars($job['last_run_started_at'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php
+                            $stamp = (string) ($job['last_run_started_at'] ?? '');
+                            $at = $stamp !== '' ? strtotime($stamp) : false;
+                            echo $at !== false
+                                ? htmlspecialchars(localDateTime($at), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($stamp !== '' ? $stamp : '—', ENT_QUOTES, 'UTF-8');
+                            ?></td>
                         <td class="px-3 py-2">
                             <?php $ls = $job['last_run_status'] ?? '—';
                             $lsCls = $ls === 'Success' ? 'bg-success/10 text-success' : ($ls === '—' ? 'bg-base-200 text-base-content/80' : 'bg-error/10 text-error'); ?>
                             <span class="inline-flex px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $lsCls; ?>"><?php echo htmlspecialchars($ls, ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
-                        <td class="px-3 py-2 text-base-content/60"><?php echo !empty($job['next_start']) ? htmlspecialchars($job['next_start'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td class="px-3 py-2 text-base-content/60"><?php
+                            $stamp = (string) ($job['next_start'] ?? '');
+                            $at = $stamp !== '' ? strtotime($stamp) : false;
+                            echo $at !== false
+                                ? htmlspecialchars(localDateTime($at), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($stamp !== '' ? $stamp : '—', ENT_QUOTES, 'UTF-8');
+                            ?></td>
                         <td class="px-3 py-2">
-                            <button class="btn btn-outline btn-error btn-xs"
+                            <?php /* `whitespace-nowrap`: "Error History" wrapped to two lines in this column
+                                     and made every row twice as tall. */ ?>
+                            <button class="btn btn-ghost btn-xs whitespace-nowrap"
                                     data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>">
-                                Error History
+                                Errors
                             </button>
                         </td>
                     </tr>
@@ -476,8 +490,18 @@ $fmtBytes = function (int $bytes): string {
                     var badgeStyle = ok ? 'background:#d4edda;color:#155724' : 'background:#f8d7da;color:#721c24';
                     var tr = document.createElement('tr');
                     tr.style.borderBottom = '1px solid #eee';
-                    tr.innerHTML = '<td style="padding:5px 10px">' + (r.start_time||'—') + '</td>'
-                        + '<td style="padding:5px 10px">' + (r.finish_time||'—') + '</td>'
+                    /*
+                     * Trimmed here too.
+                     *
+                     * The rows arrive as PostgreSQL wrote them —
+                     * `2026-08-29 23:13:48.822452+00` — and the microseconds and the offset are
+                     * twenty-nine characters that wrap in a modal column and say nothing.
+                     */
+                    var shortTime = function (v) {
+                        return v ? String(v).replace(/\.\d+/, '').replace(/\+00$/, '') : '—';
+                    };
+                    tr.innerHTML = '<td style="padding:5px 10px;white-space:nowrap">' + shortTime(r.start_time) + '</td>'
+                        + '<td style="padding:5px 10px;white-space:nowrap">' + shortTime(r.finish_time) + '</td>'
                         + '<td style="padding:5px 10px"><span style="' + badgeStyle + ';padding:2px 8px;border-radius:12px;font-size:.78rem">' + (ok?'Success':'Failed') + '</span></td>'
                         + '<td style="padding:5px 10px;font-family:monospace">' + (r.proc_schema?r.proc_schema+'.':'') + (r.proc_name||'—') + '</td>'
                         + '<td style="padding:5px 10px;color:#dc3545">' + (r.err_message||'') + '</td>';

@@ -24,14 +24,23 @@ class CreateEmailTrackingTables extends Migration
     public string $feature     = 'messaging';
     public string $scope       = 'framework';
     public int    $priority    = 11;
+    /*
+     * The schema first — `CREATE TABLE pramnos.x` on PostgreSQL fails outright without it.
+     */
+    public array   $dependencies = ['create_pramnos_schema'];
     public $description = 'Creates the email open/click tracking tables';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('emailtracking')) {
-            $schema->createTable('emailtracking', function ($table) {
+        // Declared as a dependency too, but the runner is not the only caller: an integration
+        // test loads one feature's directory and runs it, and there `create_pramnos_schema` has
+        // not happened. A no-op on MySQL and when the schema is already there.
+        $schema->ensureSchema('pramnos');
+
+        if (!$schema->hasTable('pramnos.emailtracking')) {
+            $schema->createTable('pramnos.emailtracking', function ($table) {
                 $table->comment(
                     'One row per tracked message. `opens` counts what looks like a person; '
                     . '`proxy_opens` counts what a mailbox provider fetched on delivery — they '
@@ -73,11 +82,11 @@ class CreateEmailTrackingTables extends Migration
             });
         }
 
-        if ($schema->hasTable('emailtrackingclicks')) {
+        if ($schema->hasTable('pramnos.emailtrackingclicks')) {
             return;
         }
 
-        $schema->createTable('emailtrackingclicks', function ($table) {
+        $schema->createTable('pramnos.emailtrackingclicks', function ($table) {
             $table->comment('One row per link followed from a tracked message');
 
             $table->increments('id');
@@ -95,7 +104,7 @@ class CreateEmailTrackingTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        $schema->dropTableIfExists('emailtrackingclicks');
-        $schema->dropTableIfExists('emailtracking');
+        $schema->dropTableIfExists('pramnos.emailtrackingclicks');
+        $schema->dropTableIfExists('pramnos.emailtracking');
     }
 }

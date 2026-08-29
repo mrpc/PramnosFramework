@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\DevPanel;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\DevPanel\DevPanelController;
 use Pramnos\Mcp\McpServer;
@@ -21,6 +22,7 @@ use Pramnos\Mcp\McpToolInterface;
  * What is asserted here is what appears on the page and the two ways it must not mislead: a
  * form that cannot express "omit this argument", and a tool that threw looking like output.
  */
+#[CoversClass(DevPanelController::class)]
 class DevPanelMcpTest extends TestCase
 {
     private function controller(): DevPanelController

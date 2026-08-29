@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\DevPanel;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Database\Database;
 use Pramnos\DevPanel\DevPanelController;
@@ -123,6 +124,7 @@ class RecordingDatabase extends Database
  * once it comes back — because "the panel rendered without throwing" was true the whole
  * time it was broken.
  */
+#[CoversClass(DevPanelController::class)]
 class DevPanelPanelContentTest extends TestCase
 {
     /**

@@ -310,17 +310,27 @@ $card = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hid
                             <?php echo htmlspecialchars($job['proc_name'] ?? '—', ENT_QUOTES, 'UTF-8'); ?>
                         </td>
                         <td style="color:#888"><?php echo htmlspecialchars($job['schedule_interval'] ?? '—', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td style="color:#888;font-size:.8rem"><?php echo !empty($job['last_run_started_at']) ? htmlspecialchars($job['last_run_started_at'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td style="color:#888;font-size:.8rem"><?php
+                            $stamp = (string) ($job['last_run_started_at'] ?? '');
+                            $at = $stamp !== '' ? strtotime($stamp) : false;
+                            echo $at !== false
+                                ? htmlspecialchars(localDateTime($at), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($stamp !== '' ? $stamp : '—', ENT_QUOTES, 'UTF-8');
+                            ?></td>
                         <td>
                             <?php $ls = $job['last_run_status'] ?? '—'; ?>
                             <span class="db-badge db-badge-<?php echo $ls === 'Success' ? 'success' : ($ls === '—' ? 'secondary' : 'danger'); ?>"><?php echo htmlspecialchars($ls, ENT_QUOTES, 'UTF-8'); ?></span>
                         </td>
-                        <td style="color:#888;font-size:.8rem"><?php echo !empty($job['next_start']) ? htmlspecialchars($job['next_start'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
+                        <td style="color:#888;font-size:.8rem"><?php
+                            $stamp = (string) ($job['next_start'] ?? '');
+                            $at = $stamp !== '' ? strtotime($stamp) : false;
+                            echo $at !== false
+                                ? htmlspecialchars(localDateTime($at), ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars($stamp !== '' ? $stamp : '—', ENT_QUOTES, 'UTF-8');
+                            ?></td>
                         <td>
                             <button class="db-btn" style="border-color:#dc3545;color:#dc3545"
-                                    data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>">
-                                Error History
-                            </button>
+                                    data-job-history-id="<?php echo (int) ($job['job_id'] ?? 0); ?>" style="white-space:nowrap">Errors</button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -378,8 +388,13 @@ $card = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hid
                 records.forEach(function(r) {
                     var ok = r.succeeded === 't' || r.succeeded === 'true' || r.succeeded === true;
                     var tr = document.createElement('tr');
-                    tr.innerHTML = '<td style="font-size:.8rem">' + (r.start_time || '—') + '</td>'
-                        + '<td style="font-size:.8rem">' + (r.finish_time || '—') + '</td>'
+                    // The microseconds and the `+00` are twenty-nine characters that wrap in
+                    // a modal column and say nothing a person reads.
+                    var shortTime = function (v) {
+                        return v ? String(v).replace(/\.\d+/, '').replace(/\+00$/, '') : '—';
+                    };
+                    tr.innerHTML = '<td style="font-size:.8rem;white-space:nowrap">' + shortTime(r.start_time) + '</td>'
+                        + '<td style="font-size:.8rem;white-space:nowrap">' + shortTime(r.finish_time) + '</td>'
                         + '<td><span class="db-badge db-badge-' + (ok ? 'success' : 'danger') + '">' + (ok ? 'Success' : 'Failed') + '</span></td>'
                         + '<td class="db-mono" style="font-size:.8rem">' + (r.proc_schema ? r.proc_schema + '.' : '') + (r.proc_name || '—') + '</td>'
                         + '<td style="color:#dc3545;font-size:.8rem">' + (r.err_message || '') + '</td>';

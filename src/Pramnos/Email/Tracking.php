@@ -124,7 +124,7 @@ class Tracking
 
         try {
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#emailtracking')
+                ->table('pramnos.emailtracking')
                 ->insert([
                     'tracking_id' => $trackingId,
                     'mailid'      => $mailId,
@@ -242,14 +242,14 @@ class Tracking
             $builder = \Pramnos\Framework\Factory::getDatabase()->queryBuilder();
 
             if ($isProxy) {
-                $builder->table('#PREFIX#emailtracking')
+                $builder->table('pramnos.emailtracking')
                     ->where('tracking_id', $trackingId)
                     ->update(['proxy_opens' => new \Pramnos\Database\Expression('proxy_opens + 1')]);
 
                 return false;
             }
 
-            $builder->table('#PREFIX#emailtracking')
+            $builder->table('pramnos.emailtracking')
                 ->where('tracking_id', $trackingId)
                 ->update([
                     'opens'        => new \Pramnos\Database\Expression('opens + 1'),
@@ -295,7 +295,7 @@ class Tracking
         try {
             $db = \Pramnos\Framework\Factory::getDatabase();
 
-            $db->queryBuilder()->table('#PREFIX#emailtracking')
+            $db->queryBuilder()->table('pramnos.emailtracking')
                 ->where('tracking_id', $trackingId)
                 ->update([
                     'clicks'         => new \Pramnos\Database\Expression('clicks + 1'),
@@ -305,7 +305,7 @@ class Tracking
                     ),
                 ]);
 
-            $db->queryBuilder()->table('#PREFIX#emailtrackingclicks')->insert([
+            $db->queryBuilder()->table('pramnos.emailtrackingclicks')->insert([
                 'tracking_id' => $trackingId,
                 'url'         => substr($destination, 0, 500),
                 'clicked_at'  => $now,

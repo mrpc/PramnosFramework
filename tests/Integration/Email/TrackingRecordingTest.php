@@ -59,8 +59,8 @@ class TrackingRecordingTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
         ], $this->db);
 
-        $this->db->queryBuilder()->table('#PREFIX#emailtracking')->truncate();
-        $this->db->queryBuilder()->table('#PREFIX#emailtrackingclicks')->truncate();
+        $this->db->queryBuilder()->table('pramnos.emailtracking')->truncate();
+        $this->db->queryBuilder()->table('pramnos.emailtrackingclicks')->truncate();
 
         $this->trackingOn(true);
     }
@@ -101,7 +101,7 @@ class TrackingRecordingTest extends BaseTestCase
     private function row(string $trackingId): array
     {
         $result = $this->db->queryBuilder()
-            ->table('#PREFIX#emailtracking')
+            ->table('pramnos.emailtracking')
             ->where('tracking_id', $trackingId)
             ->get();
 
@@ -181,7 +181,7 @@ class TrackingRecordingTest extends BaseTestCase
         $first = (int) $this->row('id-first')['first_open_at'];
 
         // Act — an hour later, as far as the row is concerned
-        $this->db->queryBuilder()->table('#PREFIX#emailtracking')
+        $this->db->queryBuilder()->table('pramnos.emailtracking')
             ->where('tracking_id', 'id-first')
             ->update(['first_open_at' => $first - 3600, 'last_open_at' => $first - 3600]);
 
@@ -237,7 +237,7 @@ class TrackingRecordingTest extends BaseTestCase
         $this->assertGreaterThan(0, (int) $row['first_click_at']);
 
         $clicks = $this->db->queryBuilder()
-            ->table('#PREFIX#emailtrackingclicks')
+            ->table('pramnos.emailtrackingclicks')
             ->where('tracking_id', 'id-click')
             ->get();
 
@@ -265,7 +265,7 @@ class TrackingRecordingTest extends BaseTestCase
         $this->assertSame(2, (int) $this->row('id-two')['clicks']);
 
         $clicks = $this->db->queryBuilder()
-            ->table('#PREFIX#emailtrackingclicks')
+            ->table('pramnos.emailtrackingclicks')
             ->where('tracking_id', 'id-two')
             ->get();
 
@@ -403,7 +403,7 @@ class TrackingRecordingTest extends BaseTestCase
 
         // Assert — a row exists, with an id nobody chose
         $result = $this->db->queryBuilder()
-            ->table('#PREFIX#emailtracking')
+            ->table('pramnos.emailtracking')
             ->where('recipient', 'a@example.com')
             ->get();
 
@@ -427,7 +427,7 @@ class TrackingRecordingTest extends BaseTestCase
             Tracking::link('id-broken', 'https://example.com/offer')
         )[1]);
 
-        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . 'emailtrackingclicks`');
+        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->schema()->resolveTableName('pramnos.emailtrackingclicks') . '`');
 
         try {
             // Act
@@ -451,7 +451,7 @@ class TrackingRecordingTest extends BaseTestCase
     public function testAnOpenSurvivesTheTrackingTableBeingGone(): void
     {
         // Arrange
-        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . 'emailtracking`');
+        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->schema()->resolveTableName('pramnos.emailtracking') . '`');
 
         try {
             // Act & Assert — no exception, and it does not claim to have counted a reader
@@ -471,7 +471,7 @@ class TrackingRecordingTest extends BaseTestCase
     public function testBeginSurvivesTheTrackingTableBeingGone(): void
     {
         // Arrange
-        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . 'emailtracking`');
+        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->schema()->resolveTableName('pramnos.emailtracking') . '`');
 
         try {
             // Act & Assert
@@ -492,7 +492,7 @@ class TrackingRecordingTest extends BaseTestCase
     public function testTheScreenSurvivesTheTablesBeingAbsent(): void
     {
         // Arrange
-        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . 'emailtracking`');
+        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->schema()->resolveTableName('pramnos.emailtracking') . '`');
 
         $screen = new class extends \Pramnos\Application\Controllers\EmailsController {
             public function __construct()

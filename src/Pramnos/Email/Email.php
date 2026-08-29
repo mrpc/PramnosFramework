@@ -906,7 +906,7 @@ class Email extends \Pramnos\Framework\Base
              */
             if ($this->trackingRequested && $this->trackingId !== '') {
                 \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                    ->table('#PREFIX#emailtracking')
+                    ->table('pramnos.emailtracking')
                     ->where('tracking_id', $this->trackingId)
                     ->update(['mailid' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId()]);
             }

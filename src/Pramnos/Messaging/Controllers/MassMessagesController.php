@@ -167,7 +167,7 @@ class MassMessagesController extends Controller
         $view->groups        = $this->userGroups();
         $view->organizations = $this->organizations();
         // Before anybody presses send, not after.
-        $view->preview      = (new MassMessageAudience())->preview($criteria);
+        $view->preview      = $this->audienceFor($criteria);
         $view->audienceSize = (int) $view->preview['total'];
 
         return $view->display('edit');
@@ -228,11 +228,25 @@ class MassMessagesController extends Controller
         $view->tracking      = \Pramnos\Email\Tracking::enabled();
         $view->groups        = $this->userGroups();
         $view->organizations = $this->organizations();
-        $view->preview       = (new MassMessageAudience())->preview($criteria);
+        $view->preview       = $this->audienceFor($criteria);
         $view->audienceSize  = (int) $view->preview['total'];
         $view->previewed     = true;
 
         return $view->display('edit');
+    }
+
+    /**
+     * Who these criteria mean, as a seam.
+     *
+     * `MassMessageAudience` reads `users`, `userstogroups` and the organizations table; a test
+     * that asserts what reaches the compose screen should not need three tables to do it.
+     *
+     * @param  array<string, mixed> $criteria
+     * @return array{total: int, sample: list<array<string, mixed>>, truncated: int}
+     */
+    protected function audienceFor(array $criteria): array
+    {
+        return (new MassMessageAudience())->preview($criteria);
     }
 
     /**

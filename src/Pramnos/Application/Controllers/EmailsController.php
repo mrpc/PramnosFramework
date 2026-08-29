@@ -281,7 +281,7 @@ class EmailsController extends Controller
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#emailtracking')
+                ->table('pramnos.emailtracking')
                 ->where('mailid', $mailId)
                 ->limit(1)
                 ->get();

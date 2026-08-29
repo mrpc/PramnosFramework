@@ -423,7 +423,7 @@ class MassMessageAudience
 
         try {
             $result = $this->database->queryBuilder()
-                ->table('#PREFIX#emailoptouts')
+                ->table('pramnos.emailoptouts')
                 ->select(['email'])
                 ->whereIn('list', [$list, \Pramnos\Email\Unsubscribe::LIST_ALL])
                 ->get();

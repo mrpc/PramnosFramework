@@ -1408,20 +1408,39 @@ class DevPanelController extends Controller
 
         foreach ($history as $run) {
             /*
-             * `succeeded` arrives as text, and PostgreSQL writes a boolean as `t`/`f`.
-             * `(bool) 'f'` is true, which would have hidden every failure — the one thing
-             * this section exists to show.
+             * Only an explicit false is a failure.
+             *
+             * `succeeded` arrives as text, and PostgreSQL writes a boolean as `t`/`f` — so
+             * `(bool) 'f'` is true and a naive cast hides every failure, which is the one thing
+             * this section exists to show. And `null` is a run **still in progress**: listing it
+             * as failed would report every open job as broken, once a minute, for ever.
              */
             $succeeded = strtolower(trim((string) ($run['succeeded'] ?? '')));
 
-            if (in_array($succeeded, ['t', 'true', '1'], true)) {
+            if (!in_array($succeeded, ['f', 'false', '0'], true)) {
                 continue;
             }
 
+            $started = (string) ($run['start_time'] ?? '');
+            $when    = $started !== '' ? strtotime($started) : false;
+
+            /*
+             * A blank cell is not an answer.
+             *
+             * `job_history.err_message` is empty for a run that was killed rather than one that
+             * raised — a restart mid-run, an operator cancelling it — and an empty column reads
+             * as a rendering bug rather than as a fact. Reported exactly that way: «που είναι το
+             * error;».
+             */
+            $message = trim((string) ($run['err_message'] ?? ''));
+
             $rows .= '<tr><td>' . $esc($run['proc_name'] ?? '')
-                . '</td><td>' . $esc($run['start_time'] ?? '')
-                . '</td><td><code>' . $esc(mb_substr((string) ($run['err_message'] ?? ''), 0, 300))
-                . '</code></td></tr>';
+                . '</td><td>' . ($when !== false ? $esc(localDateTime($when)) : $esc($started))
+                . '</td><td>' . ($message !== ''
+                    ? '<code>' . $esc(mb_substr($message, 0, 300)) . '</code>'
+                    : '<span class="hint">No message — the run was stopped rather than raising. '
+                        . 'A restart mid-run, or somebody cancelling it.</span>')
+                . '</td></tr>';
         }
 
         /*

@@ -890,7 +890,7 @@ class UsersController extends Controller
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#emailoptouts')
+                ->table('pramnos.emailoptouts')
                 ->select('list')
                 ->groupBy('list')
                 ->get();

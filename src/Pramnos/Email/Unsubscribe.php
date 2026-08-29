@@ -209,7 +209,7 @@ class Unsubscribe
 
         try {
             return (bool) \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#emailoptouts')
+                ->table('pramnos.emailoptouts')
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->whereIn('list', [static::normaliseList($list), self::LIST_ALL])
                 ->exists();
@@ -238,7 +238,7 @@ class Unsubscribe
 
         try {
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#emailoptouts')
+                ->table('pramnos.emailoptouts')
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->whereIn('list', [static::normaliseList($list), self::LIST_ALL])
                 ->delete();
@@ -313,7 +313,7 @@ class Unsubscribe
             $db = \Pramnos\Framework\Factory::getDatabase();
 
             $exists = $db->queryBuilder()
-                ->table('#PREFIX#emailoptouts')
+                ->table('pramnos.emailoptouts')
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->where('list', $list)
                 ->exists();
@@ -324,7 +324,7 @@ class Unsubscribe
                 return true;
             }
 
-            $db->queryBuilder()->table('#PREFIX#emailoptouts')->insert([
+            $db->queryBuilder()->table('pramnos.emailoptouts')->insert([
                 'email'      => $email,
                 'list'       => $list,
                 'source'     => substr($source, 0, 32),

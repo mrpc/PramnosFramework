@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\DevPanel;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\DevPanel\DevPanelController;
 use Pramnos\Application\Application;
@@ -207,6 +208,7 @@ class FakeDatabase extends \Pramnos\Database\Database
  * that the detail is withheld in production — could not run at all.
  */
 #[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
+#[CoversClass(DevPanelController::class)]
 class DevPanelControllerIntegrationTest extends TestCase
 {
     protected ?TestableDevPanelController $controller = null;

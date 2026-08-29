@@ -681,7 +681,7 @@ class MassMessageDispatcherTest extends BaseTestCase
 
         $address = (string) (new User($this->users[1]))->email;
 
-        $this->db->queryBuilder()->table('#PREFIX#emailoptouts')->insert([
+        $this->db->queryBuilder()->table('pramnos.emailoptouts')->insert([
             'email'    => $address,
             'list'       => 'massmessages',
             'source'     => 'page',
@@ -700,7 +700,7 @@ class MassMessageDispatcherTest extends BaseTestCase
             $this->assertNotContains($this->users[1], $reachable);
             $this->assertContains($this->users[0], $reachable);
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#emailoptouts')
+            $this->db->queryBuilder()->table('pramnos.emailoptouts')
                 ->where('email', $address)->delete();
         }
     }
@@ -718,7 +718,7 @@ class MassMessageDispatcherTest extends BaseTestCase
 
         $address = (string) (new User($this->users[0]))->email;
 
-        $this->db->queryBuilder()->table('#PREFIX#emailoptouts')->insert([
+        $this->db->queryBuilder()->table('pramnos.emailoptouts')->insert([
             'email'    => $address,
             'list'       => \Pramnos\Email\Unsubscribe::LIST_ALL,
             'source'     => 'page',
@@ -732,7 +732,7 @@ class MassMessageDispatcherTest extends BaseTestCase
             // Assert
             $this->assertNotContains($this->users[0], $ids);
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#emailoptouts')
+            $this->db->queryBuilder()->table('pramnos.emailoptouts')
                 ->where('email', $address)->delete();
         }
     }
@@ -1100,7 +1100,7 @@ class MassMessageDispatcherTest extends BaseTestCase
     public function testAMissingOptOutTableLeavesTheAudienceIntact(): void
     {
         // Arrange
-        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . 'emailoptouts`');
+        $this->db->query('DROP TABLE IF EXISTS `' . $this->db->schema()->resolveTableName('pramnos.emailoptouts') . '`');
 
         try {
             // Act
@@ -1229,7 +1229,7 @@ class MassMessageDispatcherTest extends BaseTestCase
         $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class]);
 
         $address = (string) (new User($this->users[0]))->email;
-        $this->db->queryBuilder()->table('#PREFIX#emailoptouts')->insert([
+        $this->db->queryBuilder()->table('pramnos.emailoptouts')->insert([
             'email'      => $address,
             'list'       => MassMessageDispatcher::UNSUBSCRIBE_LIST,
             'source'     => 'page',
@@ -1251,7 +1251,7 @@ class MassMessageDispatcherTest extends BaseTestCase
             $this->assertSame(1, $stats['delivered']);
             $this->assertSame([], $dispatcher->sent, 'and nothing was composed');
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#emailoptouts')
+            $this->db->queryBuilder()->table('pramnos.emailoptouts')
                 ->where('email', $address)->delete();
         }
     }
@@ -1354,7 +1354,7 @@ class MassMessageDispatcherTest extends BaseTestCase
     {
         // Arrange
         $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class]);
-        $this->db->queryBuilder()->table('#PREFIX#emailoptouts')->where('optoutid', '>', 0)->delete();
+        $this->db->queryBuilder()->table('pramnos.emailoptouts')->where('optoutid', '>', 0)->delete();
 
         // Act
         $ids = (new MassMessageAudience($this->db))->resolve(['exclude_optouts' => 'massmessages']);

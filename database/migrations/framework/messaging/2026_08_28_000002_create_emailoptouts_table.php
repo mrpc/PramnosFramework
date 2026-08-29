@@ -27,18 +27,23 @@ class CreateEmailoptoutsTable extends Migration
     public string  $feature      = 'messaging';
     public string  $scope        = 'framework';
     public int     $priority     = 50;
-    public array   $dependencies = [];
+    public array   $dependencies = ['create_pramnos_schema'];
     public $description  = 'Creates the emailoptouts table — unsubscribe records by address and list';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('emailoptouts')) {
+        // Declared as a dependency too, but the runner is not the only caller: an integration
+        // test loads one feature's directory and runs it, and there `create_pramnos_schema` has
+        // not happened. A no-op on MySQL and when the schema is already there.
+        $schema->ensureSchema('pramnos');
+
+        if ($schema->hasTable('pramnos.emailoptouts')) {
             return;
         }
 
-        $schema->createTable('emailoptouts', function ($table) {
+        $schema->createTable('pramnos.emailoptouts', function ($table) {
             $table->comment(
                 'Unsubscribe records — one row per (email address, list). Consulted before any '
                 . 'mail that carries an unsubscribe link; transactional mail is never on a list.'
@@ -63,6 +68,6 @@ class CreateEmailoptoutsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('emailoptouts');
+        $this->application->database->schema()->dropTableIfExists('pramnos.emailoptouts');
     }
 }

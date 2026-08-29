@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\DevPanel;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\DevPanel\DevPanelController;
 use Pramnos\Logs\Logger;
@@ -21,6 +22,7 @@ use Pramnos\Logs\Logger;
  * now, and what these assert is that the panel uses the shared component and points it at its
  * own guarded endpoint rather than at an admin screen.
  */
+#[CoversClass(DevPanelController::class)]
 class DevPanelLogsTest extends TestCase
 {
     private string $file;
