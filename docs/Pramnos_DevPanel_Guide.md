@@ -167,12 +167,15 @@ somebody changing the schema has.
 
 | Section | Answers |
 | --- | --- |
+| This database | version, size, connections, transactions, cache-hit ratio |
 | Tables by size | what is in here and how big, with each name linking into Adminer |
 | Active processes | what the database is doing *right now*, with the query text |
 | Indexes nothing uses | which indexes cost a write on every insert and buy nothing |
 | Read the hard way | which tables are being scanned sequentially, and how many rows that costs |
 | Slowest statements | what the database actually spends its time on |
-| TimescaleDB | hypertables, chunk counts, compression — where the extension is present |
+| Replication | connected standbys and their lag — nothing at all when there are none |
+| Views | the public schema's views and their definitions, collapsed |
+| TimescaleDB | hypertables, chunk counts, compression, **and the jobs** |
 
 All of it comes from the shared `DatabaseInspector`, which the administration screen already
 used. This tab had its own copy of the table-size query — the third in the framework, with its
@@ -195,6 +198,16 @@ rather than showing an empty table: that is a different fact from "no slow queri
 screen for both tells somebody their database is fine when it has never been asked. Installed
 but unreadable — the usual state for an application role without `pg_read_all_stats` — says
 that instead, because it is fixable.
+
+**TimescaleDB chunks are not listed as tables.** A hypertable's storage lives in
+`_timescaledb_internal` as one table per chunk — `_hyper_7_15_chunk` and forty like it — and
+they are not tables anybody put anything in. Listed, they crowd out the tables somebody was
+looking for and double-count storage the hypertable already reports. They are counted in the
+TimescaleDB section instead. (Fixed in the shared inspector, so the administration screen stops
+listing them too.)
+
+**The jobs are on the same screen as the hypertables.** A hypertable whose compression policy
+has been failing for a week looks perfectly healthy from the hypertable list alone.
 
 The index and statement sections are PostgreSQL only. MySQL can say an index exists; it cannot
 say whether anything has ever used it.

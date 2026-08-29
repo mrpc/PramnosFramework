@@ -751,25 +751,39 @@ class DevPanelController extends Controller
         $inspector  = $this->databaseInspector($db);
         $isPostgres = $db->type === 'postgresql';
 
-        $content = $this->renderDbTables($inspector, $isPostgres)
+        $content = $this->renderDbStats($db)
+            . $this->renderDbTables($inspector, $isPostgres)
             . $this->renderDbProcesses($inspector)
             . $this->renderDbIndexes($inspector, $isPostgres)
-            . $this->renderDbStatements($inspector, $isPostgres);
-
-        try {
-            $tsRes = $db->execute("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'");
-
-            if ($tsRes && $tsRes->numRows > 0) {
-                $content .= $this->renderTimescaleDb($db);
-            }
-        } catch (\Throwable $ex) {
-            $this->panelError('TimescaleDB detection', $ex);
-        }
+            . $this->renderDbStatements($inspector, $isPostgres)
+            . $this->renderDbReplication($inspector)
+            . $this->renderDbViews($inspector)
+            . $this->renderTimescaleDb($db);
 
         // No "Open Adminer" line: it is a tab of its own now, immediately beside this one, and
         // a link to the neighbouring tab is furniture. The table names below link into it, which
         // is the useful half.
         return $content;
+    }
+
+    /**
+     * The server's own numbers, as a seam.
+     *
+     * @return array<string, mixed>
+     */
+    protected function databaseStats(\Pramnos\Database\Database $db): array
+    {
+        return (new \Pramnos\Application\Statistics\DatabaseStatsService($db))->getStats();
+    }
+
+    /**
+     * The TimescaleDB picture, as a seam.
+     *
+     * @return array<string, mixed>
+     */
+    protected function timescaleData(\Pramnos\Database\Database $db): array
+    {
+        return (new \Pramnos\Database\Inspector\TimescaleInspector($db))->getData();
     }
 
     /**
@@ -783,6 +797,110 @@ class DevPanelController extends Controller
         \Pramnos\Database\Database $db
     ): \Pramnos\Database\Inspector\DatabaseInspector {
         return new \Pramnos\Database\Inspector\DatabaseInspector($db);
+    }
+
+    /**
+     * The numbers the administration screen leads with, so this tab is a superset of it.
+     *
+     * Version, size, connections, transactions and the cache-hit ratio. They were only on
+     * `/admin/dashboard/database`, so a developer reading this tab had to open an admin screen —
+     * behind an admin session — to answer "how big is this database".
+     */
+    private function renderDbStats(\Pramnos\Database\Database $db): string
+    {
+        $stats = $this->databaseStats($db);
+        $esc   = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $cells = '';
+
+        $ratio = $stats['cache_hit_ratio'] ?? null;
+
+        $facts = [
+            'Version'      => $esc($stats['version'] ?? ''),
+            'Size'         => isset($stats['db_size_bytes'])
+                ? $this->humanBytes((int) $stats['db_size_bytes']) : '—',
+            'Connections'  => isset($stats['connections_active'])
+                ? number_format((int) $stats['connections_active'])
+                    . ' of ' . number_format((int) ($stats['connections_total'] ?? 0))
+                : '—',
+            'Cache hits'   => $ratio === null ? '—' : $esc($ratio) . '%',
+            'Commits'      => isset($stats['xact_commit'])
+                ? number_format((int) $stats['xact_commit']) : '—',
+            'Rollbacks'    => isset($stats['xact_rollback'])
+                ? number_format((int) $stats['xact_rollback']) : '—',
+        ];
+
+        foreach ($facts as $label => $value) {
+            $cells .= '<tr><th>' . $esc($label) . '</th><td>' . $value . '</td></tr>';
+        }
+
+        return <<<HTML
+            <h3>This database</h3>
+            <table class="data-table">{$cells}</table>
+        HTML;
+    }
+
+    /**
+     * Streaming replication, when there is any.
+     *
+     * Nothing at all when no standby is connected — which is most installations — rather than a
+     * heading over an empty table, because "no replication configured" and "replication broken"
+     * would then look identical.
+     */
+    private function renderDbReplication(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector
+    ): string {
+        $rows = $inspector->getReplicationStatus();
+
+        if ($rows === []) {
+            return '';
+        }
+
+        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $html = '';
+
+        foreach ($rows as $standby) {
+            $lag = (int) ($standby['lag_sec'] ?? 0);
+            $html .= '<tr><td>' . $esc($standby['client_addr'] ?? '') . '</td><td>'
+                . $esc($standby['state'] ?? '') . '</td><td>'
+                . $esc($standby['sync_state'] ?? '') . '</td><td class="num">'
+                . $lag . 's</td></tr>';
+        }
+
+        return <<<HTML
+            <h3 style="margin-top:1.5rem">Replication</h3>
+            <table class="data-table">
+                <thead><tr><th>Standby</th><th>State</th><th>Sync</th>
+                <th class="num">Lag</th></tr></thead>
+                <tbody>{$html}</tbody>
+            </table>
+        HTML;
+    }
+
+    /**
+     * The views in the public schema, with their definitions.
+     *
+     * A schema-shape question rather than an operational one, which is why it belongs here.
+     * Collapsed, because a view definition is a page of SQL and six of them is the whole tab.
+     */
+    private function renderDbViews(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector
+    ): string {
+        $views = $inspector->getPublicViews();
+
+        if ($views === []) {
+            return '';
+        }
+
+        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $html = '';
+
+        foreach ($views as $view) {
+            $html .= '<details><summary><code>' . $esc($view['view_name'] ?? '')
+                . '</code></summary><pre style="white-space:pre-wrap;font-size:0.8em">'
+                . $esc(trim((string) ($view['view_definition'] ?? ''))) . '</pre></details>';
+        }
+
+        return '<h3 style="margin-top:1.5rem">Views (' . count($views) . ')</h3>' . $html;
     }
 
     /** Tables by size, from the shared inspector, with each name linking into Adminer. */
@@ -1008,35 +1126,84 @@ class DevPanelController extends Controller
 
         return '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">' . $escaped . '</a>';
     }
-
+    /**
+     * TimescaleDB, from the shared inspector.
+     *
+     * Hypertables with their chunk counts and compression state, plus the **jobs** — the
+     * background policies that compress, retain and refresh, and whether the last run of each
+     * succeeded. A hypertable whose compression policy has been failing for a week looks
+     * perfectly healthy from the hypertable list alone, which is what this tab showed before.
+     *
+     * The chunks themselves are counted here rather than listed as tables: they live in
+     * `_timescaledb_internal` as one table per chunk, named after nothing anybody recognises,
+     * and listing them crowds out the tables somebody was looking for.
+     */
     private function renderTimescaleDb(\Pramnos\Database\Database $db): string
     {
-        try {
-            $res = $db->execute(
-                "SELECT hypertable_name, num_chunks, compression_enabled
-                 FROM timescaledb_information.hypertables ORDER BY hypertable_name"
-            );
-            $hypertables = $res ? $res->fetchAll() : [];
-        } catch (\Throwable $e) {
-            return $this->alert('TimescaleDB query error: ' . htmlspecialchars($e->getMessage()), 'warning');
+        $data = $this->timescaleData($db);
+
+        if ($data['ts_version'] === null) {
+            return '';
         }
 
-        $rows = '';
-        foreach ($hypertables as $h) {
-            $name   = htmlspecialchars($h['hypertable_name'] ?? '');
-            $chunks = (int) ($h['num_chunks'] ?? 0);
-            $comp   = ($h['compression_enabled'] ?? false) ? '<span class="badge ok">on</span>' : '<span class="badge">off</span>';
-            $rows  .= "<tr><td>{$name}</td><td class='num'>{$chunks}</td><td>{$comp}</td></tr>";
+        $esc   = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $rows  = '';
+
+        foreach ($data['hypertables'] as $hypertable) {
+            $compressed = ($hypertable['compression_enabled'] ?? false)
+                ? '<span class="badge ok">on</span>'
+                : '<span class="badge">off</span>';
+
+            $rows .= '<tr><td>' . $esc($hypertable['hypertable_name'] ?? '')
+                . '</td><td class="num">' . (int) ($hypertable['num_chunks'] ?? 0)
+                . '</td><td>' . $compressed . '</td></tr>';
         }
+
+        if ($rows === '') {
+            $rows = '<tr><td colspan="3" class="empty">The extension is installed and nothing '
+                . 'is a hypertable.</td></tr>';
+        }
+
+        $jobs = '';
+
+        foreach ($data['jobs'] as $job) {
+            $last = strtolower((string) ($job['last_run_status'] ?? ''));
+            $badge = $last === 'success'
+                ? '<span class="badge ok">success</span>'
+                : ($last === '' ? '<span class="badge">never run</span>'
+                    : '<span class="badge err">' . $esc($last) . '</span>');
+
+            $jobs .= '<tr><td>' . $esc($job['proc_name'] ?? '')
+                . '</td><td>' . $esc($job['schedule_interval'] ?? '')
+                . '</td><td>' . $esc($job['last_successful_finish'] ?? '')
+                . '</td><td>' . $badge . '</td></tr>';
+        }
+
+        $jobsBlock = $jobs === ''
+            ? ''
+            : '<h3 style="margin-top:1.5rem">TimescaleDB jobs</h3><p class="hint">The policies '
+                . 'that compress, retain and refresh. A hypertable whose compression job has '
+                . 'been failing for a week looks healthy from the list above.</p>'
+                . '<table class="data-table"><thead><tr><th>Job</th><th>Every</th>'
+                . '<th>Last success</th><th>Last run</th></tr></thead><tbody>'
+                . $jobs . '</tbody></table>';
+
+        $chunks = number_format((int) ($data['chunkCount'] ?? 0));
 
         return <<<HTML
-            <h3>TimescaleDB Hypertables</h3>
+            <h3 style="margin-top:1.5rem">TimescaleDB {$esc($data['ts_version'])}</h3>
+            <p class="hint">{$chunks} chunks in total. They are not listed as tables above:
+            they live in <code>_timescaledb_internal</code>, one per chunk, named after nothing
+            anybody recognises.</p>
             <table class="data-table">
-                <thead><tr><th>Hypertable</th><th class="num">Chunks</th><th>Compression</th></tr></thead>
+                <thead><tr><th>Hypertable</th><th class="num">Chunks</th>
+                <th>Compression</th></tr></thead>
                 <tbody>{$rows}</tbody>
             </table>
+            {$jobsBlock}
         HTML;
     }
+
 
     private function renderCache(): string
     {

@@ -210,6 +210,31 @@ class Database extends \Pramnos\Framework\Base
     private bool  $_inMemoryLogEnabled = false;
 
     /**
+     * What the three development-only query logs are allowed to hold.
+     *
+     * All three grew without limit, and only under `DEVELOPMENT` — so the machine that hits it
+     * is a developer's, running a whole test suite in one process. Reported from one: a
+     * 3,123-test suite died at the 2,394th with exit 255 and no message, which is what PHP's
+     * memory limit looks like from the outside.
+     *
+     * - `$_querieslog` held the full SQL of **every** query for the life of the process and was
+     *   written to its file in the destructor, so a process that died wrote nothing at all —
+     *   the log was empty on exactly the run somebody needed it for.
+     * - `$_duplicateQueries` was an array **keyed by the whole SQL string**, so a suite that
+     *   issues fifty thousand distinct statements held fifty thousand of them as array keys.
+     * - `$_inMemoryQueryLog` holds every statement with its timing, for a debug toolbar that
+     *   renders the last few dozen.
+     *
+     * Bounded rather than switched off: the point of these logs is a developer looking at what
+     * a request did, and the useful part is always the recent end.
+     */
+    private const QUERY_LOG_FLUSH_BYTES = 262144;
+
+    private const DUPLICATE_QUERY_KEYS = 5000;
+
+    private const IN_MEMORY_QUERY_LOG_MAX = 2000;
+
+    /**
      * Read connection link
      * @var \mysqli|\PgSql\Connection
      */
@@ -971,6 +996,74 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Add one entry to the in-memory log, keeping only the recent end of it.
+     *
+     * A debug toolbar renders the last few dozen statements. Holding two hundred thousand so
+     * that it can is how a long-running process runs out of memory for a panel nobody has open.
+     *
+     * @param array<string, mixed> $entry
+     */
+    private function rememberQuery(array $entry): void
+    {
+        $this->_inMemoryQueryLog[] = $entry;
+
+        if (count($this->_inMemoryQueryLog) > self::IN_MEMORY_QUERY_LOG_MAX) {
+            /*
+             * Half at a time, not one.
+             *
+             * `array_shift` on every append past the limit is O(n) per query — the log becomes
+             * slower the longer the process runs, which is the opposite of what a bound is for.
+             */
+            $this->_inMemoryQueryLog = array_slice(
+                $this->_inMemoryQueryLog,
+                (int) (self::IN_MEMORY_QUERY_LOG_MAX / 2)
+            );
+        }
+    }
+
+    /**
+     * Remember one statement fingerprint, forgetting the oldest when there are too many.
+     *
+     * The duplicate detector's whole memory. Forgetting the oldest half means a statement seen
+     * once at the start of a very long process and again at the end is no longer reported as a
+     * duplicate — which is the right thing to lose: a duplicate that far apart is two requests,
+     * not one request asking twice, and the second is what this exists to find.
+     */
+    private function rememberFingerprint(string $fingerprint): void
+    {
+        $this->_duplicateQueries[$fingerprint] = true;
+
+        if (count($this->_duplicateQueries) > self::DUPLICATE_QUERY_KEYS) {
+            $this->_duplicateQueries = array_slice(
+                $this->_duplicateQueries,
+                (int) (self::DUPLICATE_QUERY_KEYS / 2),
+                null,
+                true
+            );
+        }
+    }
+
+    /**
+     * Write the accumulated query log out when it has grown enough to be worth a write.
+     *
+     * It used to be written in the destructor and nowhere else, so a process that was killed —
+     * by the memory limit this log was helping to reach — wrote nothing at all. The log was
+     * empty on exactly the run somebody needed it for.
+     */
+    private function flushQueryLog(): void
+    {
+        if (strlen($this->_querieslog) < self::QUERY_LOG_FLUSH_BYTES) {
+            return;
+        }
+
+        if (is_resource($this->_queryLogHandler)) {
+            fwrite($this->_queryLogHandler, $this->_querieslog);
+        }
+
+        $this->_querieslog = '';
+    }
+
+    /**
      * Enable in-memory query logging (used by DebugBar / profiling tools).
      * Has no effect when already enabled.
      */
@@ -1071,14 +1164,14 @@ class Database extends \Pramnos\Framework\Base
     public function logCacheHit(string $sql, array $bindings = []): void
     {
         if ($this->_inMemoryLogEnabled) {
-            $this->_inMemoryQueryLog[] = [
+            $this->rememberQuery([
                 'sql'        => $bindings === []
                     ? $sql
                     : $this->describeStatement($sql, null, $bindings),
                 'time'       => 0.0,
                 'at'         => microtime(true),
                 'from_cache' => true,
-            ];
+            ]);
         }
     }
 
@@ -1168,7 +1261,9 @@ class Database extends \Pramnos\Framework\Base
             
             $time += microtime(true);
             if ($this->_inMemoryLogEnabled) {
-                $this->_inMemoryQueryLog[] = ['sql' => $query, 'time' => $time, 'at' => microtime(true), 'from_cache' => false];
+                $this->rememberQuery(
+                    ['sql' => $query, 'time' => $time, 'at' => microtime(true), 'from_cache' => false]
+                );
             }
             if ($this->_customLogSlowQueries == true
                     && $this->_slowQueryLogHandler !== NULL
@@ -1185,14 +1280,28 @@ class Database extends \Pramnos\Framework\Base
                     . $this->queriesCount . '.: '
                     . date('H:i:s') . ": "
                     . $query . "\nTime: " . number_format($time, 4);
-                if (isset($this->_duplicateQueries[$query])
+
+                $this->flushQueryLog();
+
+                /*
+                 * Keyed by a hash, not by the statement.
+                 *
+                 * The map only ever answers "have I seen this before", and a 32-character key
+                 * answers it as well as a four-kilobyte one. On a suite issuing tens of
+                 * thousands of distinct statements the difference is the whole of the memory
+                 * this feature was costing.
+                 */
+                $fingerprint = md5($query);
+
+                if (isset($this->_duplicateQueries[$fingerprint])
                     && $this->_duplicateQueryLogHandler !== NULL
                     && is_resource($this->_duplicateQueryLogHandler)) {
                     $this->duplicateQueryHeader();
                     $this->_duplicateQueriesCounter++;
                     fwrite($this->_duplicateQueryLogHandler, "\n" . $query);
                 }
-                $this->_duplicateQueries[$query] = true;
+
+                $this->rememberFingerprint($fingerprint);
             }
         }
 
@@ -1684,7 +1793,7 @@ class Database extends \Pramnos\Framework\Base
         // template full of placeholders cannot be read, compared or pasted into
         // a client.
         if ($this->_inMemoryLogEnabled) {
-            $this->_inMemoryQueryLog[] = [
+            $this->rememberQuery([
                 'sql'        => $this->describeStatement($sql, $stmtData ?? null, $arguments),
                 // Seconds, like every other entry in this log. The collector
                 // that reads it multiplies by 1000, so recording milliseconds
@@ -1693,7 +1802,7 @@ class Database extends \Pramnos\Framework\Base
                 'time'       => $queryTime,
                 'at'         => microtime(true),
                 'from_cache' => false,
-            ];
+            ]);
         }
 
         return($obj);

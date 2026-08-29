@@ -83,6 +83,24 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     protected $_isnew = 0;
     protected static $_usercache = NULL;
     protected static $usersCache = array();
+
+    /**
+     * How many accounts the two static caches hold.
+     *
+     * Neither had a limit. `$usersCache` holds a whole `User` object per account and
+     * `$_usercache` holds `(array) $this` — every property, including `otherinfo` — and both
+     * live for the process. A web request touches a handful of accounts and never notices; a
+     * long-running worker, a console command over every user, or a test suite in one process
+     * holds every account it has ever seen.
+     *
+     * Reported from a consuming project: a single test took 235 seconds and was killed by the
+     * OOM killer, and 2.06 seconds after this was bounded.
+     *
+     * A thousand, and the oldest half is dropped when it is passed. The cache exists because
+     * one request loads the same few accounts repeatedly — it was never meant to be a copy of
+     * the users table.
+     */
+    protected const USER_CACHE_MAX = 1000;
     /** @var string|null Plaintext held between setPassword() and first INSERT so _save() can rehash with the real userid. */
     private ?string $_pendingPlainPassword = null;
 
@@ -206,16 +224,57 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         }
         if ($user->userid > 1) {
             self::$usersCache[$userid] = $user;
+            self::trimCache(self::$usersCache);
         }
         return $user;
     }
 
     /**
+     * Cut a cache that has grown past its limit back to half of it.
+     *
+     * Half rather than one: removing a single entry on every insert past the limit is O(n) per
+     * load, which makes the cache slower the longer the process runs — the opposite of what a
+     * bound is for. This way the size oscillates between half the limit and the limit, and the
+     * trim happens once every five hundred loads.
+     *
+     * Counted from the **end**, so the bound holds whatever size it is handed rather than only
+     * for the one-past-the-limit case that inserting produces.
+     *
+     * @param array<int|string, mixed> $cache
+     */
+    protected static function trimCache(array &$cache): void
+    {
+        if (count($cache) <= self::USER_CACHE_MAX) {
+            return;
+        }
+
+        $cache = array_slice($cache, -((int) (self::USER_CACHE_MAX / 2)), null, true);
+    }
+
+    /** Empty both static caches. For a worker between jobs, and for a test. */
+    public static function clearUserCache(): void
+    {
+        self::$usersCache  = array();
+        self::$_usercache  = array();
+    }
+
+    /**
      * Returns an array with all users (altered by the $where filter)
-     * @param string $where
+     *
+     * **This builds one fully-loaded `User` per row**, each with its `otherinfo` read from a
+     * second table, so the cost is two queries and one object per account. On a table of any
+     * size that is a process running out of memory, which is what happened: a consuming project
+     * reported a single test taking 235 seconds before the OOM killer reached it.
+     *
+     * `$limit` is `0` — everything — by default, because changing that silently would truncate
+     * a caller's list without telling it. Pass one. An application that wants *ids* rather than
+     * users should query the table, not call this.
+     *
+     * @param  string $where  Raw where clause, sanitised before use
+     * @param  int    $limit  Maximum accounts to load; 0 for no limit
      * @return User[]
      */
-    static function getUsers($where = '')
+    static function getUsers($where = '', $limit = 0)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $qb = $database->queryBuilder()->table(self::usersTable())->select('userid');
@@ -224,14 +283,21 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             // before being passed to whereRaw to preserve legacy call sites.
             $qb->whereRaw($database->prepareInput($where));
         }
+        if ((int) $limit > 0) {
+            $qb->limit((int) $limit);
+        }
         $users = $qb->get(true, 10, 'userlist');
         $return = array();
         while ($users->fetch()) {
-            $theuser = new User($users->fields['userid']);
-            $theuser->userid = $users->fields['userid'];
-            $theuser->load($users->fields['userid']);
-            $return[$users->fields['userid']] = $theuser;
-            unset($theuser);
+            /*
+             * Loaded once.
+             *
+             * `new User($id)` loads — the constructor's whole `else` branch is `return
+             * $this->load($userid)`. The explicit `load()` after it read the same two tables a
+             * second time, so every account on this list cost four queries instead of two and
+             * every list took twice as long as it needed to.
+             */
+            $return[$users->fields['userid']] = new User($users->fields['userid']);
         }
         return $return;
     }
@@ -794,6 +860,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 self::$_usercache = array();
             }
             self::$_usercache[$uid] = (array) $this;
+            self::trimCache(self::$_usercache);
         }
         return $this;
     }

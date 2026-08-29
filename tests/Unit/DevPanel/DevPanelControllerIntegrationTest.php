@@ -31,10 +31,53 @@ class TestableDevPanelController extends DevPanelController
      */
     public $inspector = null;
 
+    /**
+     * An inspector that answers nothing, unless a test supplied one.
+     *
+     * The real one reads `pg_stat_activity` and four other catalogue views through a connection
+     * these tests do not have. Defaulting to the real one made every test that renders this tab
+     * depend on a database.
+     */
     protected function databaseInspector(
         \Pramnos\Database\Database $db
     ): \Pramnos\Database\Inspector\DatabaseInspector {
-        return $this->inspector ?? parent::databaseInspector($db);
+        return $this->inspector ?? new class extends \Pramnos\Database\Inspector\DatabaseInspector {
+            public function __construct()
+            {
+            }
+
+            public function getTableSizes(): array { return []; }
+
+            public function getProcessList(): array { return []; }
+
+            public function getIndexUsage(): array { return ['unused' => [], 'scanned' => []]; }
+
+            public function getSlowStatements(int $limit = 15): array
+            {
+                return ['available' => false, 'rows' => []];
+            }
+
+            public function getReplicationStatus(): array { return []; }
+
+            public function getPublicViews(): array { return []; }
+        };
+    }
+
+    /** @var array<string, mixed> */
+    public $dbStats = ['type' => 'postgresql', 'version' => 'PostgreSQL 16.2'];
+
+    /** @var array<string, mixed> */
+    public $timescale = ['ts_version' => null, 'hypertables' => [], 'aggregates' => [],
+        'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0];
+
+    protected function databaseStats(\Pramnos\Database\Database $db): array
+    {
+        return $this->dbStats;
+    }
+
+    protected function timescaleData(\Pramnos\Database\Database $db): array
+    {
+        return $this->timescale;
     }
 
     protected function renderLayout(string $activeTab, string $content): void
@@ -364,6 +407,78 @@ class DevPanelControllerIntegrationTest extends TestCase
     }
 
     /**
+     * The tab answers everything the administration screen does, and more.
+     *
+     * Asked for by name — «περισσότερα εργαλεία από το database status του διαχειριστικού» — and
+     * it had fewer. The listed sections are what `/admin/dashboard/database` renders; the ones
+     * after them are what this tab adds. A section quietly dropped from here is a developer
+     * being sent back to an admin screen behind an admin session.
+     */
+    public function testTheTabIsASupersetOfTheAdminScreen()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([
+            'tables'      => [['table_name' => 'users', 'total_bytes' => 1024,
+                               'data_bytes' => 512, 'index_bytes' => 512, 'row_estimate' => 9]],
+            'processes'   => [['pid' => 1, 'usename' => 'app', 'state' => 'active',
+                               'active_sec' => 1, 'query' => 'SELECT 1']],
+            'replication' => [['client_addr' => '10.0.0.2', 'state' => 'streaming',
+                               'sync_state' => 'async', 'lag_sec' => 0]],
+            'views'       => [['view_name' => 'v_active_users',
+                               'view_definition' => 'SELECT * FROM users']],
+            'statements'  => ['available' => true, 'rows' => []],
+            'indexes'     => ['unused' => [], 'scanned' => []],
+        ]);
+        $this->controller->timescale = [
+            'ts_version' => '2.5.0', 'chunkCount' => 41,
+            'hypertables' => [['hypertable_name' => 'metrics', 'num_chunks' => 41,
+                               'compression_enabled' => true]],
+            'jobs' => [['proc_name' => 'policy_compression', 'schedule_interval' => '1 day',
+                        'last_successful_finish' => '2026-08-29', 'last_run_status' => 'Success']],
+            'aggregates' => [], 'jobHistory' => [],
+        ];
+
+        // Act
+        $this->controller->db();
+        $html = $this->controller->lastRenderedContent;
+
+        // Assert — what the administration screen has
+        $this->assertStringContainsString('PostgreSQL 16.2', $html, 'the server version');
+        $this->assertStringContainsString('users', $html, 'table sizes');
+        $this->assertStringContainsString('10.0.0.2', $html, 'replication');
+        $this->assertStringContainsString('v_active_users', $html, 'views');
+        $this->assertStringContainsString('metrics', $html, 'hypertables');
+
+        // …and what only this tab has
+        $this->assertStringContainsString('Active processes', $html);
+        $this->assertStringContainsString('Indexes nothing uses', $html);
+        $this->assertStringContainsString('Slowest statements', $html);
+        $this->assertStringContainsString('policy_compression', $html,
+            'a compression job failing for a week is invisible from the hypertable list');
+    }
+
+    /**
+     * TimescaleDB chunks are not listed as tables.
+     *
+     * Reported from a real screen: `_hyper_7_15_chunk` and forty like it, crowding out the
+     * tables somebody was looking for. They are the extension's own partitioning, named after
+     * nothing a person recognises, and they double-count storage the hypertable already reports.
+     */
+    public function testChunksAreExcludedFromTheTableList()
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Database/Inspector/DatabaseInspector.php'
+        );
+
+        // Assert
+        $this->assertStringContainsString('_timescaledb', $source,
+            'the internal schema must be excluded, or the list is mostly chunks');
+        $this->assertStringContainsString('NOT LIKE', $source);
+    }
+
+    /**
      * An inspector whose four answers are given.
      *
      * @param array<string, mixed> $answers
@@ -394,6 +509,16 @@ class DevPanelControllerIntegrationTest extends TestCase
             {
                 return $this->answers['statements'] ?? ['available' => false, 'rows' => []];
             }
+
+            public function getReplicationStatus(): array
+            {
+                return $this->answers['replication'] ?? [];
+            }
+
+            public function getPublicViews(): array
+            {
+                return $this->answers['views'] ?? [];
+            }
         };
     }
 
@@ -407,16 +532,19 @@ class DevPanelControllerIntegrationTest extends TestCase
                  'index_bytes' => 1048576, 'row_estimate' => 300],
             ],
         ]);
-        $this->dbMock->mockResults['pg_extension'] = new FakeDatabaseResult([], ['extversion' => '2.5.0']);
-        $this->dbMock->mockResults['timescaledb_information'] = new FakeDatabaseResult([], [
-            ['hypertable_name' => 'metrics', 'num_chunks' => 10, 'compression_enabled' => true],
-        ]);
+        $this->controller->timescale = [
+            'ts_version'  => '2.5.0',
+            'hypertables' => [
+                ['hypertable_name' => 'metrics', 'num_chunks' => 10, 'compression_enabled' => true],
+            ],
+            'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 10,
+        ];
 
         $this->controller->db();
 
         $this->assertSame('db', $this->controller->lastRenderedTab);
         $this->assertStringContainsString('pg_users', $this->controller->lastRenderedContent);
-        $this->assertStringContainsString('TimescaleDB Hypertables', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('TimescaleDB 2.5.0', $this->controller->lastRenderedContent);
         $this->assertStringContainsString('metrics', $this->controller->lastRenderedContent);
         $this->assertStringContainsString('ok', $this->controller->lastRenderedContent);
     }

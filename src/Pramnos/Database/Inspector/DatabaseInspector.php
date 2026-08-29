@@ -84,6 +84,13 @@ class DatabaseInspector
     /**
      * Table sizes, largest first.
      *
+     * **TimescaleDB chunks are excluded.** A hypertable's storage lives in `_timescaledb_internal`
+     * as one table per chunk — `_hyper_7_15_chunk` and forty like it — and they are not tables
+     * anybody put anything in: they are the extension's own partitioning, named after nothing a
+     * person recognises. Listed, they crowd out the tables somebody was looking for, and they
+     * double-count the storage the hypertable already reports. The Timescale section is where
+     * chunks belong, counted rather than named.
+     *
      * The PostgreSQL query reads `pg_tables`, not `information_schema.tables`.
      * It selected `schemaname` and `tablename` — which are `pg_tables`' column
      * names — from `information_schema.tables`, which calls them `table_schema`
@@ -114,6 +121,7 @@ class DatabaseInspector
                              WHERE n.nspname = schemaname AND c.relname = tablename) AS row_estimate
                      FROM pg_tables
                      WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                       AND schemaname NOT LIKE '\\_timescaledb\\_%'
                      ORDER BY total_bytes DESC
                      LIMIT 30"
                 );
