@@ -55,6 +55,7 @@ class StatusTool implements McpToolInterface
             'migrations' => $this->migrations(),
             'queue'      => $this->queue(),
             'health'     => $this->health(),
+            'push'       => $this->push(),
             'errors'     => $this->errors(),
         ];
 
@@ -190,6 +191,52 @@ class StatusTool implements McpToolInterface
     }
 
     /**
+     * Whether this installation could deliver a push notification if it tried.
+     *
+     * Three things have to be true and only one of them is visible from the application: a key
+     * pair, the encryption library, and a service worker that is listening. The third fails
+     * silently — the send succeeds, the subscription stays healthy, and nobody ever mentions
+     * receiving anything.
+     *
+     * @return array<string, mixed>
+     */
+    /**
+     * The three facts the push section is built from, as one seam.
+     *
+     * Statics over a key file, a class map and a service worker on disk — none of which a test
+     * can arrange, and all three of which decide what this section says.
+     *
+     * @return array{0: bool, 1: bool, 2: array<string, string>}
+     */
+    protected function pushParts(): array
+    {
+        return [
+            \Pramnos\Push\Vapid::configured(),
+            class_exists(ltrim(\Pramnos\Notification\Channels\PushChannel::LIBRARY, '\\')),
+            \Pramnos\Push\ServiceWorker::missing(),
+        ];
+    }
+
+    protected function push(): array
+    {
+        [$keys, $library, $missing] = $this->pushParts();
+
+        if (!$keys && !$library && $missing === \Pramnos\Push\ServiceWorker::HANDLERS) {
+            // Nothing set up at all: an installation that does not send push, which is most of
+            // them. Not a finding.
+            return ['configured' => false];
+        }
+
+        return array_filter([
+            'configured'      => $keys && $library && $missing === [],
+            'vapid_keys'      => $keys,
+            'library'         => $library,
+            'service_worker'  => \Pramnos\Push\ServiceWorker::path(),
+            'missing_handlers' => $missing === [] ? null : array_keys($missing),
+        ], static fn ($value): bool => $value !== null);
+    }
+
+    /**
      * When something last went wrong, and what it said.
      *
      * The single most useful line at the start of a session: "nothing since Tuesday" and "four
@@ -308,6 +355,13 @@ class StatusTool implements McpToolInterface
             if ($state !== '' && $state !== 'ok' && $state !== 'healthy' && $state !== 'pass') {
                 $parts[] = $name . ' is ' . $state;
             }
+        }
+
+        $handlers = (array) ($status['push']['missing_handlers'] ?? []);
+
+        if ($handlers !== []) {
+            $parts[] = 'the service worker has no ' . implode(' or ', $handlers)
+                . ' handler, so push is discarded silently';
         }
 
         $failed = (int) ($status['queue']['by_status']['failed'] ?? 0);

@@ -98,6 +98,37 @@ cost you a million rows and nothing else.
 
 ## Setting it up
 
+### One command
+
+```
+./yourapp push:setup                # what it would do
+./yourapp push:setup --apply
+./yourapp push:setup --apply --no-install   # no network: report the composer line instead
+```
+
+Push has five parts and four of them are invisible when they are missing: a table, a key pair,
+an encryption library, a service worker that listens, and a page that asks. Miss any one and the
+other four keep working perfectly — no error, no log line, and no notification.
+
+```
+  ok   Migration
+  ok   VAPID key pair
+ todo  Encryption library — minishlink/web-push is not installed, so nothing can be encrypted
+  ok   Service worker
+  ok   Browser script
+```
+
+It says what each absence costs rather than naming a file, does only what is missing, and is
+safe to run again — it is the thing somebody runs when they are not sure. A step that fails
+stops the run: carrying on would report four done and leave the one that mattered.
+
+On a **new** project, answer yes to `Enable web push notifications?` and `init` does all of this
+— including turning the service worker on, because a notification is delivered *to* one and
+offering the two as independent choices offers a combination that cannot work.
+
+The rest of this section is what those steps do, for an installation that wants to do them by
+hand or understand what happened.
+
 ### 1. The key pair, once
 
 ```bash
@@ -148,7 +179,48 @@ to add one to an existing project. The stub handles `push`,
 `notificationclick` and `pushsubscriptionchange` — the last of which is the one
 people forget, and it is covered below.
 
-### 4. The subscribing page
+### 4. The page that asks
+
+`init` writes `www/assets/js/push.js` beside the worker, and the scaffolded themes carry two
+things that use it: a **Turn on notifications** control on the privacy screen, and a **soft
+prompt** on every signed-in page.
+
+```html
+<button data-push-subscribe hidden>Turn on notifications</button>
+<span data-push-state></span>
+```
+
+**Both halves ship, and that is the point.** The worker can receive a notification; nothing in
+it can ask to show one — `Notification.requestPermission()` and `PushManager.subscribe()` exist
+only in a page. An installation with the worker, the key pair, the table and the endpoints and
+no page that asks has no subscriptions, for ever, with nothing anywhere saying why. That is not
+hypothetical: it is how this section came to be written.
+
+#### The soft prompt, and why it is not the real one
+
+```html
+<div data-push-invite hidden>
+    … <button data-push-subscribe>Turn on</button> <button data-push-later>Not now</button>
+</div>
+```
+
+A settings screen reaches only the people who go looking, and the people who would most want to
+know their account was signed in from a new device are not the people browsing their privacy
+preferences. So there is an invitation on every signed-in page.
+
+It is **not** the browser's permission dialogue. The button inside it opens that, from a click.
+A real prompt on page load is denied by most people and — in Chrome — suppressed outright for
+visitors who habitually deny them, so the one chance an application gets is spent before anybody
+has decided anything. A denial is close to permanent: the browser will not ask again, and the
+person has to find the site settings themselves.
+
+The invitation appears only when it can lead somewhere: push is supported, permission has never
+been asked for, this browser is not already subscribed, and there is no "not now" from the last
+thirty days. Answering it — either way — hides it. A soft prompt that returns on the next page
+load is a nag, and a nag is answered with the browser's block button, which is the one answer
+this feature cannot recover from.
+
+### 5. The subscribing page, by hand
 
 ```js
 async function subscribe() {
@@ -181,7 +253,7 @@ settings themselves.
 notification is treated as an abuse of the wake-up, and the browser shows *its
 own* "This site has been updated in the background" instead.
 
-### 5. The library
+### 6. The library
 
 RFC 8291's payload encryption — ECDH, HKDF, AES-128-GCM — is not written here:
 
@@ -274,6 +346,38 @@ A failure with **no response at all** — a DNS failure, a timeout — is not a 
 either. It counts as one bad attempt. After ten consecutive failures with no 410
 among them, the subscription is presumed dead and removed; a single success
 clears the count.
+
+### The worker was scaffolded before push existed
+
+A project generated before web push has a `sw.js` without the three handlers — registered,
+working, caching assets, and discarding every notification. The send succeeds, the subscription
+stays healthy, and the only symptom is that nobody mentions receiving anything.
+
+`push:vapid-generate` says so, and so does the `status` MCP tool:
+
+```
+The service worker cannot receive this yet.
+Found /var/www/html/www/sw.js, without:
+
+  push — receives the notification; without it the browser shows its own
+    "this site was updated in the background" instead
+  notificationclick — makes a notification go somewhere when it is tapped
+  pushsubscriptionchange — survives the browser rotating the subscription
+```
+
+The framework does not rewrite an application's files, so it reads them and reports. The
+handlers are in `scaffolding/templates/service-worker.js.stub`; copy the `Web push` block to
+the end of yours.
+
+### `showNotification()` rejects
+
+Permission can be revoked *after* a browser subscribes. The subscription stays perfectly valid
+as far as the push service is concerned, so the server goes on paying for a delivery that can
+never be shown — for ever, because nothing tells it otherwise.
+
+The shipped worker catches that and unsubscribes, on `NotAllowedError` only: a transient failure
+must not unsubscribe somebody who had a bad moment. Handed to `waitUntil()` without a catch it
+is an unhandled rejection in somebody else's console, which is where this was first seen.
 
 ### `pushsubscriptionchange`
 

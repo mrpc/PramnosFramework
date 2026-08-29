@@ -344,6 +344,67 @@ class StatusToolTest extends TestCase
         $this->assertSame([], $tool->probeTail('/no/such/file.log'));
     }
 
+    /**
+     * A service worker that cannot receive reaches the verdict.
+     *
+     * It is the one push failure that is invisible everywhere else: the send succeeds, the
+     * subscription stays healthy, and nobody mentions receiving anything.
+     */
+    public function testAWorkerThatCannotReceiveReachesTheVerdict(): void
+    {
+        // Act
+        $verdict = $this->verdict([
+            'database' => ['connected' => true],
+            'push'     => ['missing_handlers' => ['push', 'pushsubscriptionchange']],
+            'errors'   => ['last' => null],
+        ]);
+
+        // Assert
+        $this->assertStringContainsString('service worker', $verdict);
+        $this->assertStringContainsString('discarded silently', $verdict);
+    }
+
+    /**
+     * An installation that does not do push at all is not a finding.
+     *
+     * Most of them. No keys, no library, no handlers — nothing set up, which is a decision
+     * rather than a fault, and a status tool that reported it would be reporting on almost
+     * every installation there is.
+     */
+    public function testAnInstallationWithoutPushIsNotAFinding(): void
+    {
+        // Arrange — nothing set up at all
+        $probe = new StatusToolProbe([]);
+        $probe->pushParts = [false, false, \Pramnos\Push\ServiceWorker::HANDLERS];
+
+        // Act
+        $push = $probe->probePush();
+
+        // Assert
+        $this->assertSame(['configured' => false], $push);
+    }
+
+    /**
+     * Half a setup is reported in full, with the half that is missing named.
+     *
+     * The state that matters: keys and a library, and a worker that discards everything. From
+     * the server there is nothing to see — the send succeeds and the subscription stays healthy.
+     */
+    public function testHalfASetupNamesWhatIsMissing(): void
+    {
+        // Arrange
+        $probe = new StatusToolProbe([]);
+        $probe->pushParts = [true, true, ['push' => 'receives the notification']];
+
+        // Act
+        $push = $probe->probePush();
+
+        // Assert
+        $this->assertFalse($push['configured']);
+        $this->assertTrue($push['vapid_keys']);
+        $this->assertSame(['push'], $push['missing_handlers']);
+    }
+
     /** @param array<string, mixed> $status */
     private function verdict(array $status): string
     {
@@ -409,5 +470,19 @@ class StatusToolProbe extends StatusTool
     public function probeErrors(): array
     {
         return parent::errors();
+    }
+
+    /** @var array{0: bool, 1: bool, 2: array<string, string>}|null */
+    public ?array $pushParts = null;
+
+    protected function pushParts(): array
+    {
+        return $this->pushParts ?? parent::pushParts();
+    }
+
+    /** @return array<string, mixed> */
+    public function probePush(): array
+    {
+        return parent::push();
     }
 }

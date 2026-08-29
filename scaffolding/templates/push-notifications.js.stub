@@ -1,0 +1,285 @@
+/*
+ * Turning browser notifications on, from a page.
+ *
+ * The server half of web push — the key pair, the subscription table, the channel, the three
+ * endpoints — is complete and reachable without any of this. What it cannot do is **ask**:
+ * `Notification.requestPermission()` and `PushManager.subscribe()` only exist in a page, and
+ * only mean anything when a person has just clicked something.
+ *
+ * Without this file an installation has every server-side piece working and no subscriptions,
+ * for ever, with nothing anywhere saying why.
+ *
+ * Drop a button on any page and this wires it up:
+ *
+ *     <button data-push-subscribe hidden>Turn on notifications</button>
+ *     <span data-push-state></span>
+ *
+ * And, for the soft prompt that reaches somebody who never opens a settings screen:
+ *
+ *     <div data-push-invite hidden>
+ *         … <button data-push-subscribe>Turn on</button> <button data-push-later>Not now</button>
+ *     </div>
+ *
+ * @app {{APP_NAME}}
+ */
+(function () {
+    'use strict';
+
+    var button = document.querySelector('[data-push-subscribe]');
+    var state  = document.querySelector('[data-push-state]');
+    var invite = document.querySelector('[data-push-invite]');
+    var later  = document.querySelector('[data-push-later]');
+
+    if (!button) {
+        return;
+    }
+
+    /*
+     * How long "not now" lasts.
+     *
+     * A soft prompt that comes back on the next page load is a nag, and a nag is answered with
+     * the browser's own block button — which is the one answer this feature cannot recover
+     * from. Thirty days, and only for the invitation: the settings screen is always there.
+     */
+    var LATER_DAYS = 30;
+    var LATER_KEY  = 'pf.push.later';
+
+    function askedRecently() {
+        try {
+            var until = parseInt(window.localStorage.getItem(LATER_KEY) || '0', 10);
+
+            return until > Date.now();
+        } catch (e) {
+            // Private windows and blocked site data throw on access rather than returning null.
+            return false;
+        }
+    }
+
+    function rememberLater() {
+        try {
+            window.localStorage.setItem(LATER_KEY, String(Date.now() + LATER_DAYS * 86400000));
+        } catch (e) {
+            // Nothing to do: the invitation reappears next time, which is the safe failure.
+        }
+    }
+
+    if (later) {
+        later.addEventListener('click', function () {
+            rememberLater();
+
+            if (invite) {
+                invite.hidden = true;
+            }
+        });
+    }
+
+    /*
+     * Say why, not just "unavailable".
+     *
+     * Every one of these is a different problem for a different person: iOS needs the site on
+     * the home screen, a plain-HTTP host needs a certificate, and a denied permission needs the
+     * visitor to go into their own browser settings — which nothing on this page can do for
+     * them.
+     */
+    function unsupported() {
+        if (!('serviceWorker' in navigator)) {
+            return 'This browser has no service worker, so it cannot receive notifications.';
+        }
+
+        if (!('PushManager' in window)) {
+            // iOS Safari reaches here in a normal tab: it supports push only for a site added
+            // to the home screen, and there is no way to ask for it from the browser.
+            return 'This browser cannot receive push notifications. On iPhone and iPad, add this '
+                + 'site to the home screen first.';
+        }
+
+        if (!window.isSecureContext) {
+            return 'Notifications need a secure connection (https).';
+        }
+
+        return null;
+    }
+
+    function say(message, disabled) {
+        if (state) {
+            state.textContent = message;
+        }
+
+        button.disabled = Boolean(disabled);
+    }
+
+    var reason = unsupported();
+
+    if (reason) {
+        button.hidden = false;
+        say(reason, true);
+
+        return;
+    }
+
+    if (Notification.permission === 'denied') {
+        /*
+         * A denial is close to permanent and this page cannot undo it.
+         *
+         * The browser will not ask again — the visitor has to change it in the site settings
+         * themselves — so the honest thing is to say so rather than leave a button that does
+         * nothing when pressed.
+         */
+        button.hidden = false;
+        say('Notifications are blocked for this site. Turn them back on in your browser\'s site '
+            + 'settings.', true);
+
+        return;
+    }
+
+    function key() {
+        return fetch('/push/key', { credentials: 'include' })
+            .then(function (response) {
+                if (!response.ok) {
+                    // 503: the installation has no VAPID pair. Nothing the visitor can do.
+                    throw new Error('no-key');
+                }
+
+                return response.json();
+            })
+            .then(function (body) {
+                return body.publicKey;
+            });
+    }
+
+    function subscribe() {
+        say('Asking…', true);
+
+        /*
+         * Permission first, and only from this click.
+         *
+         * A prompt that appears on page load is denied by most people and, in Chrome, is
+         * suppressed outright for visitors who habitually deny them — so the one chance an
+         * application gets is spent before anybody has decided anything.
+         */
+        return Notification.requestPermission()
+            .then(function (permission) {
+                if (permission !== 'granted') {
+                    /*
+                     * Asked and refused. The invitation must not come back: the browser will
+                     * not ask again either, and repeating the offer is how a "not now" becomes
+                     * a permanent block.
+                     */
+                    rememberLater();
+
+                    if (invite) {
+                        invite.hidden = true;
+                    }
+
+                    say('Not turned on.', false);
+
+                    return null;
+                }
+
+                return Promise.all([navigator.serviceWorker.ready, key()]);
+            })
+            .then(function (both) {
+                if (!both) {
+                    return null;
+                }
+
+                return both[0].pushManager.subscribe({
+                    // Not optional in Chrome: a push that shows no notification is treated as an
+                    // abuse of the wake-up, and the browser shows its own "this site has been
+                    // updated in the background" instead.
+                    userVisibleOnly: true,
+                    applicationServerKey: both[1]
+                });
+            })
+            .then(function (subscription) {
+                if (!subscription) {
+                    return null;
+                }
+
+                return fetch('/push/subscribe', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(subscription.toJSON())
+                });
+            })
+            .then(function (response) {
+                if (!response) {
+                    return;
+                }
+
+                if (response.ok) {
+                    say('Notifications are on for this browser.', true);
+
+                    if (invite) {
+                        invite.hidden = true;
+                    }
+
+                    return;
+                }
+
+                // 401 is the common one: the endpoint stores a subscription against an account,
+                // and there is nobody to notify without a session.
+                say(response.status === 401
+                    ? 'Sign in first, then turn notifications on.'
+                    : 'That did not work. Try again.', false);
+            })
+            .catch(function (error) {
+                say(error && error.message === 'no-key'
+                    ? 'Notifications are not set up on this server yet.'
+                    : 'That did not work. Try again.', false);
+            });
+    }
+
+    button.hidden = false;
+    button.addEventListener('click', subscribe);
+
+    /*
+     * The invitation, and the four conditions on showing it.
+     *
+     * This is a **soft prompt**: it is not the browser's permission dialogue, it is an offer to
+     * open it. That distinction is the whole design. A real prompt on page load is denied by
+     * most people, and Chrome suppresses it outright for visitors who habitually deny — so an
+     * application gets one chance and spends it before anybody has decided anything.
+     *
+     * Shown only when it can lead somewhere: push is supported, permission has never been
+     * asked for, this browser is not already subscribed, and the visitor has not said "not now"
+     * recently.
+     */
+    function offer(subscription) {
+        if (!invite) {
+            return;
+        }
+
+        invite.hidden = !(
+            Notification.permission === 'default'
+            && !subscription
+            && !askedRecently()
+        );
+    }
+
+    /*
+     * Say what the state already is.
+     *
+     * Permission granted does not mean *this* browser is subscribed — the site data may have
+     * been cleared, or the subscription may have been revoked from the account. The
+     * registration is the only thing that knows.
+     */
+    navigator.serviceWorker.ready
+        .then(function (registration) {
+            return registration.pushManager.getSubscription();
+        })
+        .then(function (subscription) {
+            if (subscription) {
+                say('Notifications are on for this browser.', true);
+            } else {
+                say('', false);
+            }
+
+            offer(subscription);
+        })
+        .catch(function () {
+            say('', false);
+            offer(null);
+        });
+}());

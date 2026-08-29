@@ -83,6 +83,39 @@ $this->activeNav = 'privacy';
                 </form>
             </div>
 
+            <?php
+            /*
+             * Browser notifications, outside the form on purpose.
+             *
+             * The others are a column in a table and a checkbox can express them. This one is
+             * not a preference the server can store: `Notification.requestPermission()` and
+             * `PushManager.subscribe()` exist only in a page, only mean anything from a click,
+             * and the answer lives in the browser rather than in the account. Putting it in the
+             * form would offer a checkbox that ticks and does nothing.
+             *
+             * Hidden until the script says otherwise, so a browser that cannot do this at all
+             * shows nothing rather than a control that fails when pressed.
+             */
+            ?>
+            <div class="card bg-base-100 border border-base-300 shadow-xs">
+                <div class="p-6">
+                    <h3 class="font-semibold text-base-content">Browser notifications</h3>
+                    <p class="text-sm text-base-content/70 mt-1">
+                        Get told on this device when something happens on your account — a new
+                        sign-in, a message — even when this site is not open. It applies to this
+                        browser only: turning it on here does not turn it on on your phone.
+                    </p>
+
+                    <div class="mt-4 flex flex-wrap items-center gap-3">
+                        <button type="button" class="btn btn-outline btn-sm" data-push-subscribe hidden>
+                            Turn on notifications
+                        </button>
+                        <span class="text-sm text-base-content/70" data-push-state></span>
+                    </div>
+                </div>
+            </div>
+            <script src="<?php echo sURL; ?>assets/js/push.js" defer></script>
+
             <div class="text-sm text-base-content/70">
                 <p>
                     Under GDPR you have the right to access, rectify, and erase your data.

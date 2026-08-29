@@ -182,6 +182,9 @@ class Application extends \Symfony\Component\Console\Application
         // The VAPID key pair web push needs. Run once — rotating it stops every existing
         // subscription working, and nobody is told.
         $this->add(new \Pramnos\Console\Commands\PushVapidGenerate());
+        // Push has five parts and four of them are invisible when missing. Five numbered steps
+        // in a guide are five chances to stop after four.
+        $this->add(new \Pramnos\Console\Commands\PushSetup());
         // MCP server + debug status (Phase 13)
         $this->add(new \Pramnos\Console\Commands\McpServe());
         // Because `mcp:serve` is not something a person can debug: it speaks JSON-RPC on

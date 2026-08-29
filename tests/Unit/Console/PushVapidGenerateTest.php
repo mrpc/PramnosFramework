@@ -236,6 +236,73 @@ class PushVapidGenerateTest extends TestCase
         $this->assertNotSame('', $where);
     }
 
+    /**
+     * A worker that exists but is missing handlers names them, one by one with its reason.
+     *
+     * The state of every project scaffolded before push: registered, caching, and discarding
+     * every notification. Three identifiers would tell somebody to go and look them up; the
+     * reason is what makes it actionable where it is read.
+     */
+    public function testAWorkerMissingHandlersNamesEachOne(): void
+    {
+        // Arrange
+        $command = new class ($this->rootPath()) extends PushVapidGenerate {
+            public function __construct(private string $where)
+            {
+                parent::__construct();
+            }
+
+            protected function root(): string { return $this->where; }
+
+            protected function workerPath(): ?string { return '/somewhere/www/sw.js'; }
+
+            protected function workerGaps(): array
+            {
+                return [
+                    'push' => 'receives the notification',
+                    'pushsubscriptionchange' => 'survives the browser rotating the subscription',
+                ];
+            }
+        };
+
+        $application = new Application();
+        $application->add($command);
+        $tester = new \Symfony\Component\Console\Tester\CommandTester($command);
+
+        // Act
+        $tester->execute([], ['interactive' => false]);
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertStringContainsString('/somewhere/www/sw.js', $display);
+        $this->assertStringContainsString('push', $display);
+        $this->assertStringContainsString('rotating the subscription', $display);
+        $this->assertStringContainsString('before web push existed', $display);
+    }
+
+    /**
+     * A worker that cannot receive is reported beside the new key pair.
+     *
+     * This command is where somebody sets push up, and a key pair on an installation whose
+     * worker has no `push` listener is four parts out of five — which fails silently, on every
+     * device, with no error anywhere.
+     */
+    public function testAWorkerThatCannotReceiveIsReported(): void
+    {
+        // Act — this checkout has no service worker of its own
+        $display = $this->generate([])->getDisplay();
+
+        // Assert — this checkout has no worker at all, which is its own answer
+        $this->assertStringContainsString('cannot receive this yet', $display);
+        $this->assertStringContainsString('no service worker', $display);
+        $this->assertStringContainsString('delivered to one', $display);
+    }
+
+    private function rootPath(): string
+    {
+        return $this->root;
+    }
+
     /** @param array<string, mixed> $input */
     private function generate(array $input): CommandTester
     {

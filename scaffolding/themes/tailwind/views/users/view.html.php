@@ -473,13 +473,38 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 <?php else: ?>
                 <table class="table table-sm text-sm">
                     <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
-                        <tr><th>When</th><th>Action</th><th>Token</th></tr>
+                        <?php
+                        /*
+                         * The columns the table actually has.
+                         *
+                         * This read `actiondate` and `action`, and `tokenactions` has neither —
+                         * it has `servertime`, `method` and a `urlid` into the URL registry. The
+                         * panel rendered an em dash and a blank cell for every row, which reads
+                         * as "no data" rather than as "wrong column", and stayed that way
+                         * because the query above was also broken and the panel was always
+                         * empty.
+                         */
+                        ?>
+                        <tr><th>When</th><th>Request</th><th>Token</th></tr>
                     </thead>
                     <tbody>
                     <?php foreach ($tokenActions as $entry): ?>
+                        <?php
+                        $status = (int) ($entry['return_status'] ?? 0);
+                        $badge  = $status === 0 ? '' : ($status < 400 ? 'badge-success' : 'badge-error');
+                        ?>
                         <tr>
-                            <td class="text-xs whitespace-nowrap"><?php echo $esc($when($entry['actiondate'] ?? null)); ?></td>
-                            <td><?php echo $esc($entry['action'] ?? ''); ?></td>
+                            <td class="text-xs whitespace-nowrap"><?php
+                                $at = (int) ($entry['servertime'] ?? 0);
+                                echo $at > 0 ? $esc(date('Y-m-d H:i', $at)) : '—';
+                            ?></td>
+                            <td class="text-xs">
+                                <span class="font-mono"><?php echo $esc((string) ($entry['method'] ?? '')); ?></span>
+                                <span class="break-all"><?php echo $esc((string) ($entry['url'] ?? '')); ?></span>
+                                <?php if ($badge !== ''): ?>
+                                    <span class="badge badge-xs <?php echo $badge; ?>"><?php echo $status; ?></span>
+                                <?php endif; ?>
+                            </td>
                             <td class="text-xs">
                                 <a class="link" href="<?php echo adminUrl('TokenActions?token_id=' . (int) ($entry['tokenid'] ?? 0) . '&from=user&uid=' . $uid); ?>">
                                     #<?php echo (int) ($entry['tokenid'] ?? 0); ?>
@@ -599,6 +624,59 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <?php endforeach; ?>
                         </tbody>
                     </table>
+                    <?php endif; ?>
+                </div>
+
+                <?php
+                /*
+                 * The browsers this account can be pushed to.
+                 *
+                 * Two questions an operator has, answered by one list: "why did they not get
+                 * the notification" — almost always because nothing here is subscribed — and
+                 * "which devices is this account on".
+                 *
+                 * The endpoint is not shown and not read: whoever holds it can push to that
+                 * browser, so it is a credential, and a credential does not go on a screen.
+                 */
+                ?>
+                <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+                    <?php $panel('Push devices', (int) $r('pushDeviceCount', 0)); ?>
+                    <?php $pushDevices = $r('pushDevices'); ?>
+                    <?php if ($pushDevices === []): ?>
+                    <div class="p-4 text-sm text-base-content/60">
+                        No browser has subscribed. A push to this account reaches nobody.
+                    </div>
+                    <?php else: ?>
+                    <ul class="divide-y divide-base-200">
+                        <?php foreach ($pushDevices as $device): ?>
+                            <?php
+                            $failures = (int) ($device['failure_count'] ?? 0);
+                            $lastOk   = (int) ($device['last_success_at'] ?? 0);
+                            ?>
+                        <li class="px-4 py-2 text-sm">
+                            <div class="flex items-center gap-2">
+                                <span class="truncate" title="<?php echo $esc($device['user_agent'] ?? ''); ?>">
+                                    <?php echo $esc(($device['user_agent'] ?? '') !== '' ? $device['user_agent'] : 'Unknown browser'); ?>
+                                </span>
+                                <?php if ($failures > 0): ?>
+                                    <?php /* Not an error yet: a busy push service is retried. It
+                                             becomes one at ten, when the row is retired. */ ?>
+                                    <span class="ms-auto badge badge-warning badge-xs">
+                                        <?php echo $failures; ?> failed
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="text-xs text-base-content/50">
+                                subscribed <?php echo $esc($when($device['created_at'] ?? null)); ?>
+                                <?php if ($lastOk > 0): ?>
+                                    · last reached <?php echo $esc($when($lastOk)); ?>
+                                <?php else: ?>
+                                    · never reached
+                                <?php endif; ?>
+                            </div>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
                     <?php endif; ?>
                 </div>
 

@@ -161,6 +161,7 @@ class Init extends Command
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
         $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (OpenAPI + RapiDoc) (y/n)');
         $this->addOption('service-worker', null, InputOption::VALUE_OPTIONAL, 'Cache static assets in the browser with a service worker (y/n)');
+        $this->addOption('push', null, InputOption::VALUE_OPTIONAL, 'Web push notifications (y/n) — implies the service worker');
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
         $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
         $this->addOption('webhook',       null, InputOption::VALUE_OPTIONAL, 'Generate <web-root>/webhook.php git webhook receiver (y/n)');
@@ -243,6 +244,15 @@ class Init extends Command
      * @var bool
      */
     private bool $withServiceWorker = false;
+
+    /**
+     * Web push, which is a superset of the service worker rather than a neighbour of it.
+     *
+     * Saying yes here says yes to the worker too: push is *delivered to* one, and offering the
+     * two as independent choices offers a combination — push without a worker — that cannot
+     * work and would be discovered as silence.
+     */
+    private bool $withPush = false;
 
     /**
      * Leave a file alone when the project already has one.
@@ -461,6 +471,19 @@ class Init extends Command
         }
         // Asked before the theme is written: themeFootAssets() emits the registration.
         $this->withServiceWorker = $this->askServiceWorker($input, $output, $helper);
+
+        /*
+         * And push, which turns the worker on whether it was asked for or not.
+         *
+         * A notification is delivered *to* a service worker. Letting somebody answer yes to
+         * push and no to the worker would produce a project with keys, a table, endpoints and
+         * nothing that can receive — which is exactly the state this question exists to prevent.
+         */
+        $this->withPush = $this->askPush($input, $output, $helper);
+
+        if ($this->withPush) {
+            $this->withServiceWorker = true;
+        }
 
         // A ready-to-use, stable API key for the seed "Development" application,
         // created after migrations. Fixed value (not random) so it is predictable
@@ -712,6 +735,10 @@ class Init extends Command
 
         if ($this->withServiceWorker) {
             $this->scaffoldServiceWorker($appName);
+        }
+
+        if ($this->withPush) {
+            $this->scaffoldPush($appName);
         }
 
         if ($withRestApi) {
@@ -2206,6 +2233,46 @@ CSS;
     }
 
     /**
+     * Web push notifications.
+     *
+     * Asked separately from the asset cache because it is a different decision with different
+     * consequences — a key pair to keep, a table, an extra dependency, and a permission prompt
+     * the visitor sees — and asked *after* it because saying yes here answers that one too.
+     */
+    private function askPush(InputInterface $input, OutputInterface $output, mixed $helper): bool
+    {
+        $option = $input->getOption('push');
+
+        if ($option !== null) {
+            return in_array(strtolower((string) $option), ['y', 'yes', '1', 'true'], true);
+        }
+
+        $output->writeln("\n<comment>Step 2f — Web push notifications</comment>");
+        $output->writeln('  Tell a person on their device even when the site is closed.');
+        $output->writeln('  Adds a VAPID key pair, a subscriptions table, three endpoints, and a');
+        $output->writeln('  prompt on signed-in pages. Turns on the service worker as well: a');
+        $output->writeln('  notification is delivered to one.');
+
+        return (bool) $helper->ask($input, $output, new ConfirmationQuestion(
+            'Enable web push notifications? [y/N] ', false
+        ));
+    }
+
+    /**
+     * Everything push needs beyond the service worker.
+     *
+     * The worker can receive a notification and nothing in it can ask to show one, so the
+     * browser script goes with it — and a project that answered yes to this question and got
+     * four of the five parts would be a project with no subscriptions and no explanation.
+     */
+    private function scaffoldPush(string $appName): void
+    {
+        $this->writeFile($this->webRoot . '/assets/js/push.js', $this->renderStub('push-notifications.js', [
+            'APP_NAME' => $appName,
+        ]));
+    }
+
+    /**
      * Write the service worker and remember to register it.
      *
      * The file goes at the **web root**, not under `assets/`, and it has to: a service
@@ -2228,6 +2295,7 @@ CSS;
             // harmless either way, and hard-coding it keeps the worker readable.
             'SPA_BUILD_DIR_REGEX'  => str_replace('/', '\\/', self::SPA_BUILD_DIR),
         ]));
+
     }
 
     /**

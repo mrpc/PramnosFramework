@@ -667,7 +667,7 @@ class UsersControllerTest extends TestCase
         foreach ([
             'activity', 'activityCount', 'gdpr', 'gdprCount', 'lockouts', 'twofactor',
             'passkeys', 'privacy', 'tokenActions', 'tokenActionCount', 'organizations',
-            'emails', 'emailCount',
+            'emails', 'emailCount', 'pushDevices', 'pushDeviceCount',
         ] as $key) {
             $this->assertArrayHasKey($key, $records, $key . ' must be on the user screen');
         }
@@ -687,6 +687,17 @@ class UsersControllerTest extends TestCase
     public function testTheTokenActionPanelFindsARealAction(): void
     {
         // Arrange
+        /*
+         * The URL registry too: `tokenactions.urlid` is a reference into it, and the panel
+         * joins out so it can show `/api/1.0/account` rather than "7".
+         */
+        $this->db->query(
+            'CREATE TABLE IF NOT EXISTS `urls` ('
+            . '`urlid` bigint NOT NULL AUTO_INCREMENT, `url` varchar(255) NULL, '
+            . 'PRIMARY KEY (`urlid`))'
+        );
+        $this->db->query("INSERT IGNORE INTO `urls` (`urlid`, `url`) VALUES (7, '/api/1.0/account')");
+
         $this->db->query(
             'CREATE TABLE IF NOT EXISTS `tokenactions` ('
             . '`actionid` bigint NOT NULL AUTO_INCREMENT, `tokenid` int NOT NULL, '
@@ -717,12 +728,68 @@ class UsersControllerTest extends TestCase
             $this->assertCount(2, $records['tokenActions']);
             $this->assertSame('POST', $records['tokenActions'][0]['method'],
                 'newest first, ordered by the column that exists');
+            $this->assertSame('/api/1.0/account', $records['tokenActions'][1]['url'],
+                'the endpoint, not the id — `urlid` is a number nobody can read');
 
             // …and another account's tokens are not this account's actions
             $this->assertSame(0, (new UsersProbe())->exposeUserRecords(999999)['tokenActionCount']);
         } finally {
             $this->db->query('DELETE FROM `tokenactions` WHERE tokenid = ' . $tokenId);
             $this->db->query('DELETE FROM `usertokens` WHERE tokenid = ' . $tokenId);
+        }
+    }
+
+    /**
+     * The push panel answers "why did they not get it" before anybody asks.
+     *
+     * Almost always the answer is that nothing is subscribed, and that is invisible from
+     * everywhere else: the send succeeds, the channel reports nothing wrong, and the person
+     * simply never hears anything.
+     */
+    public function testThePushPanelListsTheSubscribedBrowsers(): void
+    {
+        // Arrange
+        $this->db->query(
+            'CREATE TABLE IF NOT EXISTS `pushsubscriptions` ('
+            . '`id` bigint NOT NULL AUTO_INCREMENT, `userid` bigint NOT NULL, '
+            . '`endpoint` text NOT NULL, `endpoint_hash` char(64) NOT NULL, '
+            . '`p256dh` varchar(255) NOT NULL DEFAULT \'\', `auth_secret` varchar(64) NOT NULL DEFAULT \'\', '
+            . '`content_encoding` varchar(16) NOT NULL DEFAULT \'aes128gcm\', '
+            . '`user_agent` varchar(255) NOT NULL DEFAULT \'\', `created_at` int NOT NULL DEFAULT 0, '
+            . '`last_success_at` int NULL, `failure_count` smallint NOT NULL DEFAULT 0, '
+            . 'PRIMARY KEY (`id`))'
+        );
+        $this->db->query('DELETE FROM `pushsubscriptions` WHERE userid = 3');
+
+        $this->db->queryBuilder()->table('#PREFIX#pushsubscriptions')->insert([
+            'userid'        => 3,
+            'endpoint'      => 'https://fcm.googleapis.com/fcm/send/secret-value',
+            'endpoint_hash' => str_repeat('a', 64),
+            'user_agent'    => 'Firefox/143.0',
+            'created_at'    => time() - 3600,
+            'failure_count' => 2,
+        ]);
+
+        try {
+            // Act
+            $records = (new UsersProbe())->exposeUserRecords(3);
+
+            // Assert
+            $this->assertSame(1, $records['pushDeviceCount']);
+            $this->assertSame('Firefox/143.0', $records['pushDevices'][0]['user_agent']);
+            $this->assertSame(2, (int) $records['pushDevices'][0]['failure_count']);
+
+            /*
+             * And not the endpoint. Whoever holds it can push to that browser, so it is a
+             * credential — it does not belong on a screen or in a variable a view can reach.
+             */
+            $this->assertArrayNotHasKey('endpoint', $records['pushDevices'][0]);
+            $this->assertArrayNotHasKey('auth_secret', $records['pushDevices'][0]);
+
+            // …and an account with nothing subscribed is an empty panel, not an error
+            $this->assertSame(0, (new UsersProbe())->exposeUserRecords(999999)['pushDeviceCount']);
+        } finally {
+            $this->db->query('DELETE FROM `pushsubscriptions` WHERE userid = 3');
         }
     }
 

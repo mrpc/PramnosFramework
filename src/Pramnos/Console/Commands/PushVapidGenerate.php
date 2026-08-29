@@ -36,6 +36,24 @@ class PushVapidGenerate extends Command
     }
 
     /**
+     * The service worker's gaps, as a seam.
+     *
+     * Read from a file on disk that a test cannot arrange, and it decides the most useful thing
+     * this command says: that the key pair it just wrote is four parts out of five.
+     *
+     * @return array<string, string>
+     */
+    protected function workerGaps(): array
+    {
+        return \Pramnos\Push\ServiceWorker::missing();
+    }
+
+    protected function workerPath(): ?string
+    {
+        return \Pramnos\Push\ServiceWorker::path();
+    }
+
+    /**
      * Where `app/keys` is.
      *
      * A method rather than the expression inline, so a test can point it at a temporary
@@ -110,6 +128,41 @@ class PushVapidGenerate extends Command
             $output->writeln("<info>'push' => ['subject' => 'mailto:you@example.com']</info> in app.php.");
         } else {
             $output->writeln('  Contact:     ' . $subject);
+        }
+
+        /*
+         * The half that is not a key.
+         *
+         * Push is delivered to a service worker. With a pair on disk, subscriptions in the
+         * table and a `201` from the push service, a worker with no `push` listener discards
+         * every notification — silently, on every device, with no error anywhere.
+         *
+         * Reported here because this command is where somebody sets push up, and because a
+         * project scaffolded before the handlers existed has a worker without them and no way
+         * to find out.
+         */
+        $missing = $this->workerGaps();
+
+        if ($missing !== []) {
+            $output->writeln('');
+            $output->writeln('<comment>The service worker cannot receive this yet.</comment>');
+
+            if ($this->workerPath() === null) {
+                $output->writeln('There is no service worker at <info>www/sw.js</info>. Push is');
+                $output->writeln('delivered to one, so a site without it cannot receive a');
+                $output->writeln('notification at all.');
+            } else {
+                $output->writeln('Found ' . $this->workerPath() . ', without:');
+                $output->writeln('');
+
+                foreach ($missing as $handler => $why) {
+                    $output->writeln('  <info>' . $handler . '</info> — ' . wordwrap($why, 70, "\n    "));
+                }
+
+                $output->writeln('');
+                $output->writeln('The scaffolded worker carries all three. A project generated');
+                $output->writeln('before web push existed has one without them.');
+            }
         }
 
         $output->writeln('');

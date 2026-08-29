@@ -76,6 +76,7 @@ class InitCommandTest extends TestCase
             'n',               // Step 2b: REST API?
             'n',               // Step 2c: webhook?
             'n',               // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',                // Step 3: UI system (Enter = plain-css default)
             'n',               // Step 4: Configure libraries?
             'n',               // Setup Docker? (n)
@@ -130,6 +131,7 @@ class InitCommandTest extends TestCase
             'n',                 // Step 2b: REST API?
             'n',                 // Step 2c: webhook?
             'n',                 // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',                  // Step 3: UI (plain-css)
             'n',                 // Step 4: libraries
             'y',                 // Setup Docker (y)
@@ -183,6 +185,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // No Docker
@@ -231,6 +234,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker
@@ -332,6 +336,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker
@@ -386,6 +391,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // Setup Docker (n)
@@ -450,6 +456,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker (y)
@@ -502,6 +509,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2b: REST API?
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // No Docker
@@ -570,6 +578,7 @@ class InitCommandTest extends TestCase
             'n',                   // REST API?
             'n',                   // webhook?
             'n',                   // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '',                    // UI plain-css
             'n',                   // no libraries
             'y', '8090', '0',      // Docker, port, no cache
@@ -742,6 +751,7 @@ class InitCommandTest extends TestCase
             'n',            // REST API?
             'n',            // webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '', 'n',
             'y', '8091', '0', '0',
             'localhost', 'migratedb', 'root', '', '',
@@ -784,6 +794,7 @@ class InitCommandTest extends TestCase
             'n',            // REST API?
             'n',            // webhook?
             'n',            // Step 2e: service worker? (default N)
+            'n',                  // Step 2f: web push? (default N)
             '', 'n',
             'n', '0',
             'localhost', 'cdndb', 'root', '', '',
@@ -890,4 +901,91 @@ class InitCommandTest extends TestCase
         }
         return rmdir($path);
     }
+    /**
+     * Saying yes to push says yes to the service worker.
+     *
+     * A notification is delivered *to* a worker. Offered as independent choices, push-without-a-
+     * worker is a combination somebody can pick and would discover as silence: keys on disk, a
+     * table, three endpoints, and nothing that can receive.
+     *
+     * Asserted through the option rather than the prompt, because the option is what a scripted
+     * install uses and it is the path that must not diverge from the question.
+     */
+    public function test_push_turns_the_service_worker_on(): void
+    {
+        // Arrange
+        $application = new Application();
+        $application->add(new Init());
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+
+        $commandTester = new CommandTester($command);
+        $commandTester->setInputs([
+            'Push App', 'PushApp', '',
+            'n', 'n', 'n', 'n', 'n',   // features
+            'n',                        // REST API
+            'n',                        // webhook
+            '',                         // UI
+            'n',                        // libraries
+            'n',                        // Docker
+            '1', 'localhost', 'pushdb', 'user', 'pass', '',
+            'Push Author', 'push@example.com',
+        ]);
+
+        // Act — push on, and the service worker deliberately *not* asked for
+        $commandTester->execute([
+            '--push'           => 'y',
+            '--service-worker' => 'n',
+            '--no-install'     => true,
+            '--no-download'    => true,
+        ]);
+
+        // Assert — both halves are there
+        $this->assertFileExists($this->tempDir . '/www/sw.js',
+            'push needs a worker, so answering yes to it turns the worker on');
+        $this->assertFileExists($this->tempDir . '/www/assets/js/push.js',
+            'and the half that asks for permission, without which nothing ever subscribes');
+
+        $worker = (string) file_get_contents($this->tempDir . '/www/sw.js');
+        $this->assertStringContainsString("addEventListener('push'", $worker);
+    }
+
+    /**
+     * Without push, neither the browser script nor a worker is written.
+     *
+     * The default, and the state of every project that does not send notifications: no extra
+     * file, no permission prompt, nothing to explain.
+     */
+    public function test_without_push_nothing_extra_is_written(): void
+    {
+        // Arrange
+        $application = new Application();
+        $application->add(new Init());
+        $command = $application->find('init');
+        $command->targetBaseDir = $this->tempDir;
+        $command->skipDockerRun = true;
+
+        $commandTester = new CommandTester($command);
+        $commandTester->setInputs([
+            'Quiet App', 'QuietApp', '',
+            'n', 'n', 'n', 'n', 'n',
+            'n', 'n', '', 'n', 'n',
+            '1', 'localhost', 'quietdb', 'user', 'pass', '',
+            'Quiet Author', 'quiet@example.com',
+        ]);
+
+        // Act
+        $commandTester->execute([
+            '--push'           => 'n',
+            '--service-worker' => 'n',
+            '--no-install'     => true,
+            '--no-download'    => true,
+        ]);
+
+        // Assert
+        $this->assertFileDoesNotExist($this->tempDir . '/www/assets/js/push.js');
+        $this->assertFileDoesNotExist($this->tempDir . '/www/sw.js');
+    }
+
 }

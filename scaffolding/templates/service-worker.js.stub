@@ -217,6 +217,37 @@ self.addEventListener('push', (event) => {
         renotify: Boolean(payload.tag),
         actions: (payload.actions || []).slice(0, 2),
         data: { url: payload.url || '/', ...(payload.data || {}) }
+    }).catch((error) => {
+        /*
+         * `showNotification()` rejects, and an uncaught rejection here is a console error on
+         * somebody else's browser that nobody will ever see.
+         *
+         * The case that matters is `NotAllowedError`: permission was revoked *after* this
+         * browser subscribed. The subscription stays perfectly valid as far as the push service
+         * is concerned, so the server goes on paying for a delivery that can never be shown —
+         * for ever, because nothing tells it otherwise.
+         *
+         * So this is where it gets told. Only for that error: a transient failure must not
+         * unsubscribe somebody who simply had a bad moment.
+         */
+        if (error && error.name === 'NotAllowedError') {
+            return self.registration.pushManager.getSubscription()
+                .then((subscription) => {
+                    if (!subscription) {
+                        return undefined;
+                    }
+
+                    return fetch('/push/unsubscribe', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ endpoint: subscription.endpoint })
+                    }).then(() => subscription.unsubscribe());
+                })
+                .catch(() => undefined);
+        }
+
+        return undefined;
     }));
 });
 

@@ -268,14 +268,41 @@ class UsersController extends Controller
              * the helper catches, the panel renders empty, and an empty panel is what an account
              * with no API tokens is supposed to look like.
              */
+            /*
+             * Joined out to the URL as well, because `urlid` is a number nobody can read.
+             *
+             * `tokenactions` stores a reference into the deduplicated `urls` registry rather
+             * than the address, so a panel that shows the raw column shows "7" where somebody
+             * wanted "/api/1.0/account". A left join, because a row whose URL was pruned is
+             * still an action that happened.
+             */
             'tokenActions' => $rows(fn ($qb) => $qb->table('#PREFIX#tokenactions ta')
                 ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
-                ->select(['ta.actionid', 'ta.tokenid', 'ta.urlid', 'ta.method', 'ta.servertime',
-                    'ta.return_status', 'ut.notes'])
+                ->leftJoin('#PREFIX#urls u', 'ta.urlid', '=', 'u.urlid')
+                ->select(['ta.actionid', 'ta.tokenid', 'ta.method', 'ta.servertime',
+                    'ta.return_status', 'ut.notes', 'u.url'])
                 ->where('ut.userid', $userId)->orderBy('ta.servertime', 'desc')->limit(10)->get()),
             'tokenActionCount' => $count(fn ($qb) => $qb->table('#PREFIX#tokenactions ta')
                 ->join('#PREFIX#usertokens ut', 'ta.tokenid', '=', 'ut.tokenid')
                 ->where('ut.userid', $userId)->count()),
+
+            /*
+             * The browsers this account has subscribed to notifications.
+             *
+             * On the screen because it is the answer to two different questions an operator
+             * has: "why did they not get the notification" — usually because nothing here is
+             * subscribed — and "which devices is this account on", which is the same list a
+             * person sees on their own privacy screen.
+             *
+             * The endpoint is deliberately not among the columns read: whoever holds it can
+             * push to that browser, so it is a credential, and a credential does not go on a
+             * screen.
+             */
+            'pushDevices' => $rows(fn ($qb) => $qb->table('#PREFIX#pushsubscriptions')
+                ->select(['id', 'user_agent', 'created_at', 'last_success_at', 'failure_count'])
+                ->where('userid', $userId)->orderBy('created_at', 'desc')->limit(10)->get()),
+            'pushDeviceCount' => $count(fn ($qb) => $qb->table('#PREFIX#pushsubscriptions')
+                ->where('userid', $userId)->count()),
 
             // Which organizations the account belongs to.
             'organizations' => $rows(fn ($qb) => $qb->table('authserver.user_organizations uo')

@@ -87,6 +87,26 @@ $this->activeNav = 'privacy';
                         </div>
 
                         <button type="submit" class="btn btn-primary">Save Preferences</button>
+                        <?php
+                        /*
+                         * Browser notifications, outside the form on purpose: this is not a
+                         * preference the server can store. Permission and the subscription live
+                         * in the browser, and a checkbox here would tick and do nothing.
+                         */
+                        ?>
+                        <hr style="margin:18px 0">
+                        <h3 style="margin:0 0 4px;font-size:1em">Browser notifications</h3>
+                        <p style="color:#666;font-size:0.85em;margin:0 0 10px">
+                            Get told on this device when something happens on your account, even
+                            when this site is not open. This browser only.
+                        </p>
+                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+                            <button type="button" class="btn btn-outline-primary" data-push-subscribe hidden>
+                                Turn on notifications
+                            </button>
+                            <span style="color:#666;font-size:0.85em" data-push-state></span>
+                        </div>
+                        <script src="<?php echo sURL; ?>assets/js/push.js" defer></script>
                     </form>
                 </div>
             </div>
