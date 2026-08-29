@@ -173,6 +173,9 @@ class Application extends \Symfony\Component\Console\Application
         // DKIM, DMARC and BIMI are records on a domain, and a perfect message is still filed
         // as spam without them, with nothing in any log to say so.
         $this->add(new \Pramnos\Console\Commands\MailDnsCheck());
+        // `mails` is the table that grows without limit in every installation, because it
+        // stores the rendered body — most of the bytes, and the part nobody reads back.
+        $this->add(new \Pramnos\Console\Commands\MailPrune());
         // The VAPID key pair web push needs. Run once — rotating it stops every existing
         // subscription working, and nobody is told.
         $this->add(new \Pramnos\Console\Commands\PushVapidGenerate());

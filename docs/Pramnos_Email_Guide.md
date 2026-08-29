@@ -12,6 +12,7 @@ use_cases:
   - Choosing the line an inbox shows beside the subject
   - Making a message readable in dark mode, or by a screen reader
   - Checking SPF, DKIM, DMARC and BIMI on the sending domain
+  - Stopping the mail log growing without limit
   - Sending one account a message from the administration area
   - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
 ---
@@ -34,7 +35,8 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 10. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
 11. [Accessibility in the message](#accessibility-in-the-message)
 12. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
-13. [SMTP Configuration](#smtp-configuration)
+13. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
+14. [SMTP Configuration](#smtp-configuration)
 14. [Error Handling](#error-handling)
 15. [Best Practices](#best-practices)
 16. [API Reference](#api-reference)
@@ -1120,6 +1122,60 @@ The logo beside the subject, and the only item here that is worth money.
 
 `mail:dns-check` reports each of these separately, so "we published BIMI and nothing happened" has
 an answer.
+
+## What to keep of a sent message, and for how long
+
+`mails` is the table that grows without limit in every installation of this framework, and it
+grows for a reason that is easy to miss: it stores the **rendered body**. A password-reset mail
+is maybe two hundred bytes of facts — when, to whom, which module, did it send — wrapped around
+forty kilobytes of HTML. At a thousand messages a day that is fifteen gigabytes a year of markup
+nobody will read, and about eighty megabytes of the answers people actually ask.
+
+So the policy has **two stages**:
+
+```php
+// app/app.php
+'mail' => ['retention' => [
+    'strip_after'      => '90d',   // empty the body, keep the row
+    'delete_after'     => '2y',    // remove the row
+    'recipients_after' => '6m',    // recipient rows of finished campaigns
+]],
+```
+
+1. **Strip the body.** The row stays, and with it every question an operator asks months later —
+   "did they ever get the code", "when did we last write to this address", "how many that week".
+   What is lost is [the message report](#a-message-to-one-account): nothing can be read back out
+   of a message whose body is gone.
+2. **Delete the row.** Eventually, because an audit log with no horizon is not a policy.
+
+Deleting alone is the version people write, and it is the wrong shape: it throws away the cheap
+thing to save the expensive one. Stripping alone is also wrong — it leaves a table growing at
+eighty megabytes a year for ever.
+
+```
+./yourapp mail:prune                   # what the policy would do, and nothing else
+./yourapp mail:prune --apply
+./yourapp mail:prune --strip-after=90d --delete-after=2y --apply
+```
+
+**A dry run by default**, which is the opposite of most commands here and deliberate: this one
+deletes, the amount depends on two numbers somebody just typed, and the difference between `90d`
+and `90` is three months of an audit trail. A duration that does not parse is **no policy**
+rather than a small number — a typo that meant "everything" would delete a mail log on a
+scheduled run and nothing would ever say why.
+
+With nothing configured the command reports the table's size and explains the two stages, and
+**assumes no policy**. `mail:prune --apply` is scheduled daily at 04:10 and does nothing until
+somebody has decided; a default here would apply a guess to an audit trail.
+
+Two smaller notes. Deleting runs **before** stripping — the other order strips a body and then
+deletes the row it belonged to, having written every one of those rows twice. And the sweep
+works in batches, because a neglected table is millions of rows and one statement over all of
+them holds a lock long enough to make the maintenance the outage.
+
+`recipients_after` covers `massmessagerecipients`, the other table that grows without limit: one
+row per recipient per campaign, whose only remaining purpose once the campaign is finished is
+the count on its page — and the count is on the campaign row.
 
 ## SMTP Configuration
 

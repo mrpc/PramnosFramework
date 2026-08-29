@@ -223,6 +223,20 @@ class FrameworkSchedule
                 'description' => 'Delete spent and expired second-factor codes and enrolments',
             ],
 
+            /*
+             * The mail log's retention policy — which does nothing until one is configured.
+             *
+             * `mails` is the table that grows without limit in every installation, because it
+             * stores the rendered body: a password reset is two hundred bytes of facts wrapped
+             * around forty kilobytes of markup. Registered here with no default policy, so an
+             * installation that has thought about it gets the sweep for free and one that has
+             * not is never surprised by a deletion nobody asked for.
+             */
+            'mail:prune --apply' => [
+                'cadence'     => [['daily'], ['at', '04:10']],
+                'description' => 'Apply the mail retention policy, if one is configured',
+            ],
+
             // Mass messages: the pending recipients of whatever is due. Not in the
             // request that pressed send — four thousand emails inside a POST is a
             // request that times out halfway, with nobody able to say how far it got.
