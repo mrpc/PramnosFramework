@@ -54,7 +54,12 @@ class SubscriptionsTest extends TestCase
         $app->database = $this->db;
         $this->app     = $app;
 
-        $this->db->query('DROP TABLE IF EXISTS `pushsubscriptions`');
+        // The framework's own tables live in the `pramnos` schema, which MySQL flattens into
+        // a `pramnos_` name prefix — so the table to drop is not the one the class names.
+        $this->db->query(
+            'DROP TABLE IF EXISTS `'
+            . $this->db->schema()->resolveTableName('pramnos.pushsubscriptions') . '`'
+        );
 
         foreach (MigrationLoader::loadFromDirectory(
             dirname(__DIR__, 3) . '/database/migrations/framework/notifications',
@@ -70,7 +75,8 @@ class SubscriptionsTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->db->query('DROP TABLE IF EXISTS `pushsubscriptions`');
+        $this->db->query('DROP TABLE IF EXISTS `'
+            . $this->db->schema()->resolveTableName('pramnos.pushsubscriptions') . '`');
     }
 
     /**
@@ -348,7 +354,8 @@ class SubscriptionsTest extends TestCase
     public function testAMissingTableIsAnAnswerRatherThanAnException(): void
     {
         // Arrange
-        $this->db->query('DROP TABLE IF EXISTS `pushsubscriptions`');
+        $this->db->query('DROP TABLE IF EXISTS `'
+            . $this->db->schema()->resolveTableName('pramnos.pushsubscriptions') . '`');
 
         // Act & Assert
         $this->assertFalse(Subscriptions::store(112, $this->subscription()));
@@ -370,7 +377,8 @@ class SubscriptionsTest extends TestCase
     public function testGoneIsStillGoneEvenIfTheRowCannotBeRemoved(): void
     {
         // Arrange
-        $this->db->query('DROP TABLE IF EXISTS `pushsubscriptions`');
+        $this->db->query('DROP TABLE IF EXISTS `'
+            . $this->db->schema()->resolveTableName('pramnos.pushsubscriptions') . '`');
 
         // Assert
         $this->assertFalse(Subscriptions::recordResult($this->endpoint, 410));

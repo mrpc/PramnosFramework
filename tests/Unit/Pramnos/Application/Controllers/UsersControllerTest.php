@@ -750,7 +750,7 @@ class UsersControllerTest extends TestCase
     {
         // Arrange
         $this->db->query(
-            'CREATE TABLE IF NOT EXISTS `pushsubscriptions` ('
+            'CREATE TABLE IF NOT EXISTS `pramnos_pushsubscriptions` ('
             . '`id` bigint NOT NULL AUTO_INCREMENT, `userid` bigint NOT NULL, '
             . '`endpoint` text NOT NULL, `endpoint_hash` char(64) NOT NULL, '
             . '`p256dh` varchar(255) NOT NULL DEFAULT \'\', `auth_secret` varchar(64) NOT NULL DEFAULT \'\', '
@@ -759,9 +759,9 @@ class UsersControllerTest extends TestCase
             . '`last_success_at` int NULL, `failure_count` smallint NOT NULL DEFAULT 0, '
             . 'PRIMARY KEY (`id`))'
         );
-        $this->db->query('DELETE FROM `pushsubscriptions` WHERE userid = 3');
+        $this->db->query('DELETE FROM `pramnos_pushsubscriptions` WHERE userid = 3');
 
-        $this->db->queryBuilder()->table('#PREFIX#pushsubscriptions')->insert([
+        $this->db->queryBuilder()->table('pramnos.pushsubscriptions')->insert([
             'userid'        => 3,
             'endpoint'      => 'https://fcm.googleapis.com/fcm/send/secret-value',
             'endpoint_hash' => str_repeat('a', 64),
@@ -789,7 +789,7 @@ class UsersControllerTest extends TestCase
             // …and an account with nothing subscribed is an empty panel, not an error
             $this->assertSame(0, (new UsersProbe())->exposeUserRecords(999999)['pushDeviceCount']);
         } finally {
-            $this->db->query('DELETE FROM `pushsubscriptions` WHERE userid = 3');
+            $this->db->query('DELETE FROM `pramnos_pushsubscriptions` WHERE userid = 3');
         }
     }
 

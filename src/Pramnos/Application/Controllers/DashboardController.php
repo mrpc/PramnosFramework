@@ -169,8 +169,17 @@ class DashboardController extends Controller
         $processes   = $dbInspector->getProcessList();
         $tableSizes  = $dbInspector->getTableSizes();
         $replication = $dbInspector->getReplicationStatus();
-        $publicViews = $dbInspector->getPublicViews();
         $tsData      = (new TimescaleInspector($db))->getData();
+
+        /*
+         * The view definitions are not here any more.
+         *
+         * A listing of every view's SQL is a schema-shape question, which is a developer's, and
+         * this screen is an operator's: how big, how busy, how far behind. It is on
+         * `/devpanel` — behind a development-mode lock — beside the index usage and the slow
+         * statements, which are the same kind of question. `DatabaseInspector::getPublicViews()`
+         * is unchanged; only this screen stopped asking.
+         */
 
         $view              = $this->getView('dashboard');
         $view->stats       = $stats;
@@ -178,7 +187,6 @@ class DashboardController extends Controller
         $view->tableSizes  = $tableSizes;
         $view->tsData      = $tsData;
         $view->replication = $replication;
-        $view->publicViews = $publicViews;
 
         /*
          * A link to Adminer for a root account, from the screen that is already about the

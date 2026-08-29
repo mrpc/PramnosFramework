@@ -298,10 +298,10 @@ class UsersController extends Controller
              * push to that browser, so it is a credential, and a credential does not go on a
              * screen.
              */
-            'pushDevices' => $rows(fn ($qb) => $qb->table('#PREFIX#pushsubscriptions')
+            'pushDevices' => $rows(fn ($qb) => $qb->table('pramnos.pushsubscriptions')
                 ->select(['id', 'user_agent', 'created_at', 'last_success_at', 'failure_count'])
                 ->where('userid', $userId)->orderBy('created_at', 'desc')->limit(10)->get()),
-            'pushDeviceCount' => $count(fn ($qb) => $qb->table('#PREFIX#pushsubscriptions')
+            'pushDeviceCount' => $count(fn ($qb) => $qb->table('pramnos.pushsubscriptions')
                 ->where('userid', $userId)->count()),
 
             /*
@@ -313,7 +313,7 @@ class UsersController extends Controller
              * get the notification». The most useful rows are the ones where nothing was sent
              * at all, and they are here too.
              */
-            'pushes' => $rows(fn ($qb) => $qb->table('#PREFIX#pushlog')
+            'pushes' => $rows(fn ($qb) => $qb->table('pramnos.pushlog')
                 ->select(['sent', 'notification', 'title', 'status', 'error', 'endpoint_hash'])
                 ->where('userid', $userId)
                 ->orderBy('sent', 'desc')->orderBy('pushid', 'desc')->limit(10)->get()),

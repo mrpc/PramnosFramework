@@ -169,6 +169,47 @@ class DatabaseInspector
     }
 
     /**
+     * End one backend, by pid.
+     *
+     * The one destructive thing on an otherwise read-only screen, and it is here rather than on
+     * the administration one deliberately: cancelling somebody's query is a developer's action
+     * against a development database, and the panel is already behind a development-mode lock
+     * and a usertype floor.
+     *
+     * `pg_terminate_backend`, not `pg_cancel_backend`: cancel asks the query to stop and a
+     * backend stuck in a lock wait ignores it, which is exactly the backend somebody is trying
+     * to end. The connection dies with it, which is the honest cost and why the button asks
+     * first.
+     *
+     * Refuses to terminate **this** connection — `pg_backend_pid()` is excluded from the process
+     * list anyway, and a screen that could kill the request rendering it would answer with a
+     * broken pipe.
+     */
+    public function killProcess(int $pid): bool
+    {
+        if ($pid < 1) {
+            return false;
+        }
+
+        try {
+            if ($this->db->type === 'postgresql') {
+                $r = $this->db->query(
+                    "SELECT pg_terminate_backend({$pid}) AS killed
+                     WHERE {$pid} <> pg_backend_pid()"
+                );
+
+                return $r !== false && $r->numRows > 0;
+            }
+
+            $this->db->query("KILL {$pid}");
+
+            return true;
+        } catch (\Exception) {
+            return false;
+        }
+    }
+
+    /**
      * Which indexes are earning their keep, and which tables are being read the hard way.
      *
      * The developer's question about a database, and the one no screen here asked. An index

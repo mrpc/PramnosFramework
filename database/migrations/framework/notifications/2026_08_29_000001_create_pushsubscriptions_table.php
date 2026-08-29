@@ -17,17 +17,30 @@ class CreatePushSubscriptionsTable extends Migration
     public string $feature     = 'notifications';
     public string $scope       = 'framework';
     public int    $priority    = 20;
+    /*
+     * The schema first.
+     *
+     * These tables live in `pramnos`, and `CREATE TABLE pramnos.x` on PostgreSQL fails outright
+     * when the schema is not there — which it is not, in a test that runs one feature's
+     * migrations without the core ones. Declared rather than assumed: the runner sorts on it.
+     */
+    public array  $dependencies = ['create_pramnos_schema'];
     public $description = 'Creates the web-push subscriptions table';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('pushsubscriptions')) {
+        // Declared as a dependency too, but the runner is not the only caller: an integration
+        // test loads one feature's directory and runs it, and there `create_pramnos_schema` has
+        // not happened. A no-op on MySQL and when the schema is already there.
+        $schema->ensureSchema('pramnos');
+
+        if ($schema->hasTable('pramnos.pushsubscriptions')) {
             return;
         }
 
-        $schema->createTable('pushsubscriptions', function ($table) {
+        $schema->createTable('pramnos.pushsubscriptions', function ($table) {
             $table->comment(
                 'One row per browser that agreed to receive notifications. The endpoint is a '
                 . 'secret: anybody holding it can push to that browser.'
@@ -67,6 +80,6 @@ class CreatePushSubscriptionsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('pushsubscriptions');
+        $this->application->database->schema()->dropTableIfExists('pramnos.pushsubscriptions');
     }
 }

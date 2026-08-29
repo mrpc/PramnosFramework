@@ -8,14 +8,12 @@
  *   $this->tableSizes  — array of table size rows
  *   $this->tsData      — array: hypertables, aggregates, jobs, jobHistory, chunkCount, ts_version
  *   $this->replication — array of pg_stat_replication rows (PostgreSQL only)
- *   $this->publicViews — array of public-schema view rows (PostgreSQL only)
  */
 $stats       = $this->stats       ?? [];
 $processes   = $this->processes   ?? [];
 $tableSizes  = $this->tableSizes  ?? [];
 $tsData      = $this->tsData      ?? ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0, 'ts_version' => null];
 $replication = $this->replication ?? [];
-$publicViews = $this->publicViews ?? [];
 $dbType      = $stats['type'] ?? 'mysql';
 
 $fmtBytes = function (int $bytes): string {
@@ -278,71 +276,6 @@ $fmtBytes = function (int $bytes): string {
     </div>
     <?php endif; ?>
 
-    <!-- Public Schema Views (PostgreSQL only) -->
-    <?php if ($dbType === 'postgresql' && !empty($publicViews)): ?>
-    <div class="card mb-4">
-        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-            Public Schema Views
-            <span class="badge bg-secondary"><?php echo count($publicViews); ?></span>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0 small">
-                    <thead class="table-light">
-                        <tr><th>View Name</th><th>Definition (truncated)</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($publicViews as $i => $v): ?>
-                        <tr>
-                            <td class="font-monospace fw-semibold"><?php echo htmlspecialchars($v['view_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td class="text-muted small font-monospace" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                                <?php echo htmlspecialchars(substr($v['view_definition'] ?? '', 0, 120), ENT_QUOTES, 'UTF-8'); ?>
-                            </td>
-                            <td>
-                                <?php if (!empty($v['view_definition'])): ?>
-                                <button type="button" class="btn btn-sm btn-outline-info py-0"
-                                        data-view-def-index="<?php echo (int) $i; ?>">View</button>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- View definition modal -->
-    <div class="modal fade" id="viewDefModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="viewDefModalTitle">View Definition</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <pre id="viewDefModalBody" style="white-space:pre-wrap;max-height:420px;overflow-y:auto;font-size:.8rem"></pre>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script>
-    var _publicViews = <?php echo json_encode(array_values($publicViews)); ?>;
-    document.addEventListener('click', function(e) {
-        var btn = e.target.closest('[data-view-def-index]');
-        if (!btn) return;
-        var idx = parseInt(btn.getAttribute('data-view-def-index'), 10);
-        if (_publicViews[idx]) {
-            document.getElementById('viewDefModalTitle').textContent = _publicViews[idx].view_name;
-            document.getElementById('viewDefModalBody').textContent  = _publicViews[idx].view_definition;
-            new bootstrap.Modal(document.getElementById('viewDefModal')).show();
-        }
-    });
-    </script>
-    <?php endif; ?>
 
     <!-- TimescaleDB section (PostgreSQL only) -->
     <?php if (!empty($tsData['ts_version'])): ?>

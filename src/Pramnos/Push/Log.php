@@ -112,7 +112,7 @@ class Log
     {
         try {
             $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#pushlog')
+                ->table('pramnos.pushlog')
                 ->orderBy('sent', 'desc')
                 ->orderBy('pushid', 'desc')
                 ->limit(max(1, $limit));
@@ -162,7 +162,7 @@ class Log
         try {
             $since  = date('Y-m-d H:i:s', time() - max(1, $days) * 86400);
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#pushlog')
+                ->table('pramnos.pushlog')
                 ->select(['status', 'endpoint_hash'])
                 ->where('sent', '>=', $since)
                 ->get();
@@ -207,7 +207,7 @@ class Log
     {
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#pushlog')
+                ->table('pramnos.pushlog')
                 ->where('sent', '<', date('Y-m-d H:i:s', time() - max(1, $days) * 86400))
                 ->delete();
 
@@ -247,7 +247,7 @@ class Log
             $row['sent'] = date('Y-m-d H:i:s');
 
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#pushlog')
+                ->table('pramnos.pushlog')
                 ->insert($row);
 
             return true;

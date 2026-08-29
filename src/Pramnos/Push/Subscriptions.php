@@ -70,7 +70,7 @@ class Subscriptions
             $db = \Pramnos\Framework\Factory::getDatabase();
 
             $existing = $db->queryBuilder()
-                ->table('#PREFIX#pushsubscriptions')
+                ->table('pramnos.pushsubscriptions')
                 ->where('userid', $userId)
                 ->where('endpoint_hash', $row['endpoint_hash'])
                 ->first();
@@ -85,14 +85,14 @@ class Subscriptions
                 unset($row['created_at']);
 
                 $db->queryBuilder()
-                    ->table('#PREFIX#pushsubscriptions')
+                    ->table('pramnos.pushsubscriptions')
                     ->where('id', (int) $existing->fields['id'])
                     ->update($row);
 
                 return true;
             }
 
-            $db->queryBuilder()->table('#PREFIX#pushsubscriptions')->insert($row);
+            $db->queryBuilder()->table('pramnos.pushsubscriptions')->insert($row);
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'Could not store a push subscription: ' . $exception->getMessage(),
@@ -118,7 +118,7 @@ class Subscriptions
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#pushsubscriptions')
+                ->table('pramnos.pushsubscriptions')
                 ->where('userid', $userId)
                 ->get();
         } catch (\Throwable) {
@@ -148,7 +148,7 @@ class Subscriptions
 
         try {
             $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#pushsubscriptions')
+                ->table('pramnos.pushsubscriptions')
                 ->where('endpoint_hash', hash('sha256', trim($endpoint)));
 
             if ($userId !== null) {
@@ -210,7 +210,7 @@ class Subscriptions
 
             if ($success) {
                 $db->queryBuilder()
-                    ->table('#PREFIX#pushsubscriptions')
+                    ->table('pramnos.pushsubscriptions')
                     ->where('endpoint_hash', $hash)
                     ->update(['last_success_at' => time(), 'failure_count' => 0]);
 
@@ -218,14 +218,14 @@ class Subscriptions
             }
 
             $db->queryBuilder()
-                ->table('#PREFIX#pushsubscriptions')
+                ->table('pramnos.pushsubscriptions')
                 ->where('endpoint_hash', $hash)
                 ->update([
                     'failure_count' => new \Pramnos\Database\Expression('failure_count + 1'),
                 ]);
 
             $result = $db->queryBuilder()
-                ->table('#PREFIX#pushsubscriptions')
+                ->table('pramnos.pushsubscriptions')
                 ->where('endpoint_hash', $hash)
                 ->first();
 

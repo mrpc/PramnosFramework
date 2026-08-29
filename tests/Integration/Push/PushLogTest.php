@@ -55,7 +55,7 @@ class PushLogTest extends BaseTestCase
     {
         if ($this->userId > 0) {
             try {
-                $this->db->queryBuilder()->table('#PREFIX#pushlog')
+                $this->db->queryBuilder()->table('pramnos.pushlog')
                     ->where('userid', $this->userId)->delete();
             } catch (\Throwable) {
                 // Nothing to undo.
@@ -156,7 +156,7 @@ class PushLogTest extends BaseTestCase
             // Assert
             $this->assertSame(['mine'], array_column($rows, 'title'));
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#pushlog')
+            $this->db->queryBuilder()->table('pramnos.pushlog')
                 ->where('userid', $this->userId + 1)->delete();
         }
     }
@@ -228,7 +228,7 @@ class PushLogTest extends BaseTestCase
         // Arrange
         Log::record($this->userId, str_repeat('a', 64), ['title' => 'recent'], 201);
 
-        $this->db->queryBuilder()->table('#PREFIX#pushlog')
+        $this->db->queryBuilder()->table('pramnos.pushlog')
             ->insert([
                 'userid' => $this->userId,
                 'endpoint_hash' => str_repeat('a', 64),

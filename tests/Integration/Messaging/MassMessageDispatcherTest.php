@@ -771,7 +771,7 @@ class MassMessageDispatcherTest extends BaseTestCase
                 'a message that was never encrypted has not been delivered to anybody');
             $this->assertSame(3, $stats['failed']);
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#pushsubscriptions')
+            $this->db->queryBuilder()->table('pramnos.pushsubscriptions')
                 ->where('userid', $this->users[0])->delete();
         }
     }
@@ -822,7 +822,7 @@ class MassMessageDispatcherTest extends BaseTestCase
             $this->assertStringNotContainsString('<', $payload['body'],
                 'a push shows markup as markup');
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#pushsubscriptions')
+            $this->db->queryBuilder()->table('pramnos.pushsubscriptions')
                 ->where('userid', $this->users[0])->delete();
         }
     }
@@ -864,7 +864,7 @@ class MassMessageDispatcherTest extends BaseTestCase
                 'and the message still finishes rather than staying "sending" for ever'
             );
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#pushsubscriptions')
+            $this->db->queryBuilder()->table('pramnos.pushsubscriptions')
                 ->where('userid', $this->users[0])->delete();
         }
     }

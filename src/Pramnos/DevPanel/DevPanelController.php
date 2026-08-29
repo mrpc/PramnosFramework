@@ -200,6 +200,14 @@ class DevPanelController extends Controller
             return null;
         }
 
+        /*
+         * The one destructive thing on this tab, handled before it is rendered so the list
+         * below reflects what just happened rather than what was true a moment ago.
+         */
+        if (($_POST['action'] ?? '') === 'kill') {
+            $this->handleProcessKill((int) ($_POST['pid'] ?? 0));
+        }
+
         $this->renderLayout('db', $this->renderDb());
         return null;
     }
@@ -751,14 +759,26 @@ class DevPanelController extends Controller
         $inspector  = $this->databaseInspector($db);
         $isPostgres = $db->type === 'postgresql';
 
-        $content = $this->renderDbStats($db)
-            . $this->renderDbTables($inspector, $isPostgres)
+        /*
+         * The administration screen's order, section for section.
+         *
+         * Overview, processes, replication, tables, views, TimescaleDB — then the three this
+         * panel adds. The two screens are read by the same person, and a section that moves
+         * between them is a section they have to find twice.
+         */
+        $banner = $this->killed !== ''
+            ? $this->alert($this->killed, 'warning')
+            : '';
+
+        $content = $banner
+            . $this->renderDbStats($db)
             . $this->renderDbProcesses($inspector)
-            . $this->renderDbIndexes($inspector, $isPostgres)
-            . $this->renderDbStatements($inspector, $isPostgres)
             . $this->renderDbReplication($inspector)
+            . $this->renderDbTables($inspector, $isPostgres)
             . $this->renderDbViews($inspector)
-            . $this->renderTimescaleDb($db);
+            . $this->renderTimescaleDb($db)
+            . $this->renderDbIndexes($inspector, $isPostgres)
+            . $this->renderDbStatements($inspector, $isPostgres);
 
         // No "Open Adminer" line: it is a tab of its own now, immediately beside this one, and
         // a link to the neighbouring tab is furniture. The table names below link into it, which
@@ -840,70 +860,12 @@ class DevPanelController extends Controller
     }
 
     /**
-     * Streaming replication, when there is any.
+     * Tables by size, from the shared inspector, with each name linking into Adminer.
      *
-     * Nothing at all when no standby is connected — which is most installations — rather than a
-     * heading over an empty table, because "no replication configured" and "replication broken"
-     * would then look identical.
+     * The same columns and the same order as `/admin/dashboard/database` — Table, Rows, Data,
+     * Indexes, Total — because the two screens are read by the same person and a column that
+     * moves between them is a column they have to find twice.
      */
-    private function renderDbReplication(
-        \Pramnos\Database\Inspector\DatabaseInspector $inspector
-    ): string {
-        $rows = $inspector->getReplicationStatus();
-
-        if ($rows === []) {
-            return '';
-        }
-
-        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-        $html = '';
-
-        foreach ($rows as $standby) {
-            $lag = (int) ($standby['lag_sec'] ?? 0);
-            $html .= '<tr><td>' . $esc($standby['client_addr'] ?? '') . '</td><td>'
-                . $esc($standby['state'] ?? '') . '</td><td>'
-                . $esc($standby['sync_state'] ?? '') . '</td><td class="num">'
-                . $lag . 's</td></tr>';
-        }
-
-        return <<<HTML
-            <h3 style="margin-top:1.5rem">Replication</h3>
-            <table class="data-table">
-                <thead><tr><th>Standby</th><th>State</th><th>Sync</th>
-                <th class="num">Lag</th></tr></thead>
-                <tbody>{$html}</tbody>
-            </table>
-        HTML;
-    }
-
-    /**
-     * The views in the public schema, with their definitions.
-     *
-     * A schema-shape question rather than an operational one, which is why it belongs here.
-     * Collapsed, because a view definition is a page of SQL and six of them is the whole tab.
-     */
-    private function renderDbViews(
-        \Pramnos\Database\Inspector\DatabaseInspector $inspector
-    ): string {
-        $views = $inspector->getPublicViews();
-
-        if ($views === []) {
-            return '';
-        }
-
-        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-        $html = '';
-
-        foreach ($views as $view) {
-            $html .= '<details><summary><code>' . $esc($view['view_name'] ?? '')
-                . '</code></summary><pre style="white-space:pre-wrap;font-size:0.8em">'
-                . $esc(trim((string) ($view['view_definition'] ?? ''))) . '</pre></details>';
-        }
-
-        return '<h3 style="margin-top:1.5rem">Views (' . count($views) . ')</h3>' . $html;
-    }
-
-    /** Tables by size, from the shared inspector, with each name linking into Adminer. */
     private function renderDbTables(
         \Pramnos\Database\Inspector\DatabaseInspector $inspector,
         bool $isPostgres
@@ -928,7 +890,7 @@ class DevPanelController extends Controller
         }
 
         return <<<HTML
-            <h3>Tables (top 30 by size)</h3>
+            <h3 style="margin-top:1.5rem">Table Sizes (top 30)</h3>
             <table class="data-table">
                 <thead><tr><th>Table</th><th class="num">Rows</th><th class="num">Data</th>
                 <th class="num">Indexes</th><th class="num">Total</th></tr></thead>
@@ -938,47 +900,233 @@ class DevPanelController extends Controller
     }
 
     /**
-     * What the database is doing right now.
+     * What the database is doing right now — with a way to copy a query and to end one.
      *
-     * The example asked for by name. `active_sec` is the running query's own age and is null
-     * unless the backend is running one — an idle pooled connection is not a stuck query, which
-     * is the reading that makes people stop looking at the column.
+     * The columns are the administration screen's: PID, Connection, Application, IP, Started,
+     * Running/idle, State, Query. Two things are this panel's own — a **Copy** button on the
+     * query, and a **Kill** button on the row, which the administration screen deliberately does
+     * not have. Ending somebody's backend is a developer's action against a development
+     * database, and this panel is already behind a development-mode lock and a usertype floor.
+     *
+     * User and database are in the header rather than in every row when they do not vary: the
+     * query filters on `datname = current_database()`, so those two columns repeated the same
+     * value down the page and pushed the query — the column somebody is reading — off the right
+     * edge.
      */
     private function renderDbProcesses(\Pramnos\Database\Inspector\DatabaseInspector $inspector): string
     {
-        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $esc       = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $processes = $inspector->getProcessList();
+        $nonce     = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
+        $na        = $nonce !== '' ? ' nonce="' . $esc($nonce) . '"' : '';
+
+        $users = array_unique(array_filter(array_map(
+            static fn (array $p): string => (string) ($p['usename'] ?? ($p['User'] ?? '')),
+            $processes
+        )));
+        $databases = array_unique(array_filter(array_map(
+            static fn (array $p): string => (string) ($p['datname'] ?? ($p['db'] ?? '')),
+            $processes
+        )));
+        $oneUser     = count($users) === 1 ? (string) reset($users) : '';
+        $oneDatabase = count($databases) === 1 ? (string) reset($databases) : '';
+        $showConnection = $oneUser === '' || $oneDatabase === '';
+
+        $header = $oneUser !== '' || $oneDatabase !== ''
+            ? ' <span class="hint">' . $esc(trim($oneUser
+                . ($oneDatabase !== '' ? ' @ ' . $oneDatabase : ''))) . '</span>'
+            : '';
+
         $rows = '';
 
-        foreach ($inspector->getProcessList() as $process) {
-            $state  = (string) ($process['state'] ?? ($process['Command'] ?? ''));
-            $active = $process['active_sec'] ?? null;
-            $idle   = $process['idle_sec'] ?? null;
-            $query  = (string) ($process['query'] ?? ($process['Info'] ?? ''));
-            $age    = $active !== null
-                ? '<strong>' . (int) $active . 's</strong>'
-                : ($idle !== null ? 'idle ' . (int) $idle . 's' : '—');
+        foreach ($processes as $process) {
+            $pid      = (int) ($process['pid'] ?? ($process['Id'] ?? 0));
+            $state    = (string) ($process['state'] ?? ($process['Command'] ?? ''));
+            $isActive = $state === 'active';
+            $query    = trim((string) ($process['query'] ?? ($process['Info'] ?? '')));
 
-            $rows .= '<tr><td class="num">' . $esc($process['pid'] ?? ($process['Id'] ?? ''))
-                . '</td><td>' . $esc($process['usename'] ?? ($process['User'] ?? ''))
-                . '</td><td>' . $esc($state)
-                . '</td><td class="num">' . $age
-                . '</td><td><code>' . $esc(mb_substr(trim($query), 0, 200)) . '</code></td></tr>';
+            /*
+             * Two numbers, and `state` says which is true.
+             *
+             * `duration_sec` for every row — idle ones included — measures time since that
+             * connection last ran anything rather than work in progress, so a pooled connection
+             * idle for three hours read as a query running for 194 minutes, in red. Two of those
+             * and nobody looks at the column again.
+             */
+            $seconds = $isActive
+                ? (int) ($process['active_sec'] ?? ($process['duration_sec'] ?? 0))
+                : (int) ($process['idle_sec'] ?? 0);
+            $age = $seconds > 0
+                ? ($seconds >= 60 ? intdiv($seconds, 60) . 'm ' . ($seconds % 60) . 's' : $seconds . 's')
+                : '';
+            $age = $age === '' ? '—' : ($isActive
+                ? '<span class="badge' . ($seconds > 300 ? ' err' : ($seconds > 60 ? ' warn' : ''))
+                    . '">' . $age . '</span>'
+                : '<span class="badge">idle ' . $age . '</span>');
+
+            /*
+             * A wait is only worth showing when it is a *problem*.
+             *
+             * Every idle PostgreSQL backend sits on `Client/ClientRead` — it is waiting for the
+             * application to send the next statement, which is what an idle pooled connection
+             * is *for*. Rendered as a red badge on every row, it says the database is in trouble
+             * when nothing is wrong, and two of those is all it takes for nobody to read the
+             * column again. `Lock`, `LWLock`, `BufferPin` and `IO` are the four that mean
+             * something, and only for a backend that is actually running something.
+             */
+            $waitType = (string) ($process['wait_event_type'] ?? '');
+            $wait = $isActive && in_array($waitType, ['Lock', 'LWLock', 'BufferPin', 'IO'], true)
+                ? trim($waitType . ' ' . (string) ($process['wait_event'] ?? ''))
+                : '';
+
+            $started   = (string) ($process['backend_start'] ?? '');
+            $startedAt = $started !== '' ? strtotime($started) : false;
+
+            $rows .= '<tr><td class="num">' . $pid . '</td>'
+                . ($showConnection
+                    ? '<td>' . $esc(($process['usename'] ?? '—') . ' @ '
+                        . ($process['datname'] ?? '—')) . '</td>'
+                    : '')
+                . '<td>' . $esc($process['application_name'] ?? '—') . '</td>'
+                . '<td>' . $esc($process['client_addr'] ?? ($process['Host'] ?? '—')) . '</td>'
+                . '<td>' . ($startedAt !== false ? $esc(localDateTime($startedAt))
+                    : $esc($started !== '' ? $started : '—')) . '</td>'
+                . '<td>' . $age . '</td>'
+                . '<td><span class="badge' . ($isActive ? ' ok' : '') . '">' . $esc($state)
+                    . '</span>'
+                . ($wait !== '' ? ' <span class="badge warn">' . $esc($wait) . '</span>' : '')
+                . '</td>'
+                . '<td class="query">' . ($query !== ''
+                    ? '<button type="button" class="btn-small" data-copy="' . $esc($query)
+                        . '">Copy</button> <code title="' . $esc($query) . '">'
+                        . $esc(mb_substr($query, 0, 160)) . '</code>'
+                    : '<span class="hint">—</span>') . '</td>'
+                . '<td>' . ($pid > 0
+                    ? '<form method="POST" style="display:inline">'
+                        . '<input type="hidden" name="action" value="kill">'
+                        . '<input type="hidden" name="pid" value="' . $pid . '">'
+                        . '<button type="submit" class="btn-danger" data-confirm="End backend '
+                        . $pid . '? Its connection dies with the query.">Kill</button></form>'
+                    : '') . '</td></tr>';
         }
 
         if ($rows === '') {
-            $rows = '<tr><td colspan="5" class="empty">Nothing but this request. On a quiet '
-                . 'server that is the usual answer.</td></tr>';
+            $rows = '<tr><td colspan="9" class="empty">No active processes.</td></tr>';
+        }
+
+        $connectionHead = $showConnection ? '<th>Connection</th>' : '';
+
+        return <<<HTML
+            <h3>Active Processes <span class="badge">{$this->count($processes)}</span>{$header}</h3>
+            <table class="data-table">
+                <thead><tr><th class="num">PID</th>{$connectionHead}<th>Application</th>
+                <th>IP</th><th>Started</th><th>Running / idle</th><th>State</th>
+                <th>Query</th><th></th></tr></thead>
+                <tbody>{$rows}</tbody>
+            </table>
+            <script{$na}>
+            document.addEventListener('click', function (e) {
+                var b = e.target.closest('[data-copy]');
+                if (!b) { return; }
+                navigator.clipboard.writeText(b.dataset.copy).then(function () {
+                    var t = b.textContent; b.textContent = 'Copied'; 
+                    setTimeout(function () { b.textContent = t; }, 1200);
+                });
+            });
+            </script>
+        HTML;
+    }
+
+    /** `count()` as a method, so it can be interpolated into a heredoc. */
+    private function count(array $items): int
+    {
+        return count($items);
+    }
+
+    /**
+     * Streaming replication.
+     *
+     * Rendered even when there is none, with the administration screen's own words for it: "no
+     * replication configured" and "replication broken" are different facts, and a section that
+     * disappears for the first cannot report the second.
+     */
+    private function renderDbReplication(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector
+    ): string {
+        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $rows = '';
+
+        foreach ($inspector->getReplicationStatus() as $standby) {
+            $lag  = (int) ($standby['lag_sec'] ?? 0);
+            $sync = (string) ($standby['sync_state'] ?? '');
+
+            $lagCell = $sync === 'sync'
+                ? '<span class="badge ok">In Sync</span>'
+                : ($lag > 0
+                    ? '<span class="badge' . ($lag > 300 ? ' err' : ($lag > 60 ? ' warn' : ' ok'))
+                        . '">' . ($lag > 60 ? intdiv($lag, 60) . 'm ' . ($lag % 60) . 's' : $lag . 's')
+                        . '</span>'
+                    : '<span class="badge">N/A</span>');
+
+            $rows .= '<tr><td>' . $esc($standby['client_addr'] ?? '—') . '</td>'
+                . '<td><span class="badge'
+                . (($standby['state'] ?? '') === 'streaming' ? ' ok' : ' warn') . '">'
+                . $esc($standby['state'] ?? '—') . '</span></td>'
+                . '<td>' . $esc($sync !== '' ? $sync : '—') . '</td>'
+                . '<td>' . $lagCell . '</td></tr>';
+        }
+
+        if ($rows === '') {
+            $rows = '<tr><td colspan="4" class="empty">No replication configured. Standalone '
+                . 'instance or replica.</td></tr>';
         }
 
         return <<<HTML
-            <h3 style="margin-top:1.5rem">Active processes</h3>
+            <h3 style="margin-top:1.5rem">Replication Status</h3>
             <table class="data-table">
-                <thead><tr><th class="num">PID</th><th>User</th><th>State</th>
-                <th class="num">Age</th><th>Query</th></tr></thead>
+                <thead><tr><th>Client Address</th><th>State</th><th>Sync State</th>
+                <th>Lag</th></tr></thead>
                 <tbody>{$rows}</tbody>
             </table>
         HTML;
     }
+
+    /**
+     * The views in the public schema, with their definitions and a way to copy one.
+     *
+     * A schema-shape question rather than an operational one. Collapsed, because a view
+     * definition is a page of SQL and six of them is the whole tab.
+     */
+    private function renderDbViews(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector
+    ): string {
+        $esc   = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $views = $inspector->getPublicViews();
+
+        if ($views === []) {
+            return '<h3 style="margin-top:1.5rem">Public Schema Views</h3>'
+                . '<p class="hint">None.</p>';
+        }
+
+        $html = '';
+
+        foreach ($views as $view) {
+            $definition = trim((string) ($view['view_definition'] ?? ''));
+
+            $html .= '<details><summary><code>' . $esc($view['view_name'] ?? '')
+                . '</code> <button type="button" class="btn-small" data-copy="' . $esc($definition)
+                . '">Copy</button></summary><pre style="white-space:pre-wrap;font-size:0.8em">'
+                . $esc($definition) . '</pre></details>';
+        }
+
+        return '<h3 style="margin-top:1.5rem">Public Schema Views <span class="badge">'
+            . count($views) . '</span></h3>' . $html;
+    }
+
+
+
+    /** Tables by size, from the shared inspector, with each name linking into Adminer. */
+
 
     /**
      * Indexes nobody scans, and tables being read the hard way.
@@ -1156,11 +1304,13 @@ class DevPanelController extends Controller
 
             $rows .= '<tr><td>' . $esc($hypertable['hypertable_name'] ?? '')
                 . '</td><td class="num">' . (int) ($hypertable['num_chunks'] ?? 0)
-                . '</td><td>' . $compressed . '</td></tr>';
+                . '</td><td class="num">' . (int) ($hypertable['num_dimensions'] ?? 0)
+                . '</td><td>' . $compressed
+                . '</td><td>' . $esc($hypertable['tablespaces'] ?? '—') . '</td></tr>';
         }
 
         if ($rows === '') {
-            $rows = '<tr><td colspan="3" class="empty">The extension is installed and nothing '
+            $rows = '<tr><td colspan="5" class="empty">The extension is installed and nothing '
                 . 'is a hypertable.</td></tr>';
         }
 
@@ -1175,18 +1325,23 @@ class DevPanelController extends Controller
 
             $jobs .= '<tr><td>' . $esc($job['proc_name'] ?? '')
                 . '</td><td>' . $esc($job['schedule_interval'] ?? '')
+                . '</td><td>' . $esc($job['last_run_started_at'] ?? '')
                 . '</td><td>' . $esc($job['last_successful_finish'] ?? '')
+                . '</td><td>' . $esc($job['next_start'] ?? '')
                 . '</td><td>' . $badge . '</td></tr>';
         }
 
         $jobsBlock = $jobs === ''
-            ? ''
-            : '<h3 style="margin-top:1.5rem">TimescaleDB jobs</h3><p class="hint">The policies '
+            ? '<h3 style="margin-top:1.5rem">Scheduled Jobs</h3><p class="hint">None — no '
+                . 'compression, retention or refresh policy is declared.</p>'
+            : '<h3 style="margin-top:1.5rem">Scheduled Jobs</h3><p class="hint">The policies '
                 . 'that compress, retain and refresh. A hypertable whose compression job has '
                 . 'been failing for a week looks healthy from the list above.</p>'
                 . '<table class="data-table"><thead><tr><th>Job</th><th>Every</th>'
-                . '<th>Last success</th><th>Last run</th></tr></thead><tbody>'
-                . $jobs . '</tbody></table>';
+                . '<th>Last started</th><th>Last success</th><th>Next run</th>'
+                . '<th>Status</th></tr></thead><tbody>' . $jobs . '</tbody></table>';
+
+        $jobsBlock .= $this->renderTimescaleFailures($data);
 
         $chunks = number_format((int) ($data['chunkCount'] ?? 0));
 
@@ -1197,11 +1352,96 @@ class DevPanelController extends Controller
             anybody recognises.</p>
             <table class="data-table">
                 <thead><tr><th>Hypertable</th><th class="num">Chunks</th>
-                <th>Compression</th></tr></thead>
+                <th class="num">Dims</th><th>Compression</th><th>Tablespaces</th></tr></thead>
                 <tbody>{$rows}</tbody>
             </table>
             {$jobsBlock}
+            {$this->renderTimescaleAggregates($data)}
         HTML;
+    }
+
+    /**
+     * Continuous aggregates, which the administration screen lists and this tab did not.
+     *
+     * A materialised rollup that has stopped refreshing serves stale numbers to whatever reads
+     * it, silently — the same failure as a compression policy that has stopped, one layer up.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function renderTimescaleAggregates(array $data): string
+    {
+        $aggregates = $data['aggregates'] ?? [];
+
+        if ($aggregates === []) {
+            return '';
+        }
+
+        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $rows = '';
+
+        foreach ($aggregates as $aggregate) {
+            $rows .= '<tr><td>' . $esc($aggregate['view_name'] ?? '')
+                . '</td><td>' . $esc($aggregate['materialization_name'] ?? '')
+                . '</td><td>' . $esc($aggregate['compression_enabled'] ?? '' ? 'on' : 'off')
+                . '</td></tr>';
+        }
+
+        return '<h3 style="margin-top:1.5rem">Continuous aggregates</h3>'
+            . '<table class="data-table"><thead><tr><th>View</th><th>Materialisation</th>'
+            . '<th>Compression</th></tr></thead><tbody>' . $rows . '</tbody></table>';
+    }
+
+    /**
+     * The last failures of the scheduled jobs, with their messages.
+     *
+     * `Success` in a status column tells you a job ran. It does not tell you that the three runs
+     * before it did not, which is the shape of «it has been failing since Tuesday and nobody
+     * looked». The administration screen keeps this behind a modal; here it is on the page.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function renderTimescaleFailures(array $data): string
+    {
+        $esc     = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $history = $data['jobHistory'] ?? [];
+        $rows    = '';
+
+        foreach ($history as $run) {
+            /*
+             * `succeeded` arrives as text, and PostgreSQL writes a boolean as `t`/`f`.
+             * `(bool) 'f'` is true, which would have hidden every failure — the one thing
+             * this section exists to show.
+             */
+            $succeeded = strtolower(trim((string) ($run['succeeded'] ?? '')));
+
+            if (in_array($succeeded, ['t', 'true', '1'], true)) {
+                continue;
+            }
+
+            $rows .= '<tr><td>' . $esc($run['proc_name'] ?? '')
+                . '</td><td>' . $esc($run['start_time'] ?? '')
+                . '</td><td><code>' . $esc(mb_substr((string) ($run['err_message'] ?? ''), 0, 300))
+                . '</code></td></tr>';
+        }
+
+        /*
+         * Rendered even when nothing has failed.
+         *
+         * Hidden until there is something to show, it is a section nobody can find — and
+         * "no job has failed" is the answer somebody came here for as often as the list is.
+         * The same mistake as a replication panel that disappears on a standalone instance:
+         * absent and healthy look identical, and only one of them is worth trusting.
+         */
+        if ($rows === '') {
+            $rows = '<tr><td colspan="3" class="empty">No scheduled job has failed in the last '
+                . '200 runs.</td></tr>';
+        }
+
+        return '<h3 style="margin-top:1.5rem">Job error history</h3><p class="hint">A green '
+            . 'status above says the last run worked. It says nothing about the three before '
+            . 'it.</p>'
+            . '<table class="data-table"><thead><tr><th>Job</th><th>Started</th>'
+            . '<th>Error</th></tr></thead><tbody>' . $rows . '</tbody></table>';
     }
 
 
@@ -2253,6 +2493,34 @@ class DevPanelController extends Controller
         }
         return getcwd() ?: '/';
     }
+
+    /**
+     * End one backend, and say what happened on the page rather than in a JSON envelope.
+     *
+     * A form post rather than a fetch, like the audience preview and for the same reason: it has
+     * to work with no JavaScript, and the useful motion is kill-then-look, which is a page the
+     * browser reloads anyway.
+     */
+    private function handleProcessKill(int $pid): void
+    {
+        if ($pid < 1) {
+            return;
+        }
+
+        $db = \Pramnos\Framework\Factory::getDatabase();
+
+        if (!$db || !$db->connected) {
+            return;
+        }
+
+        $this->killed = $this->databaseInspector($db)->killProcess($pid)
+            ? 'Backend ' . $pid . ' was ended.'
+            : 'Backend ' . $pid . ' could not be ended — it may have finished already, or this '
+                . 'role may not be allowed to.';
+    }
+
+    /** What the last kill did, for the banner above the process list. */
+    protected string $killed = '';
 
     private function handleCacheFlush(): void
     {
@@ -3334,6 +3602,40 @@ class DevPanelController extends Controller
         .btn-danger { background: var(--red); color: #1e1e2e; border: none; padding: 6px 14px;
                       border-radius: 5px; cursor: pointer; font-size: 13px; margin-top: 10px; }
         .btn-danger:hover { opacity: 0.85; }
+        /*
+         * A button that sits *inside* a table row.
+         *
+         * `.btn-danger` is a page-level control — a slab with a top margin, which is right under
+         * a heading and wrong in a cell: one per row turned the process list into a column of
+         * pink blocks a third of the table wide. These are the same colours at the weight of the
+         * text around them.
+         */
+        table.data-table .btn-danger { margin-top: 0; padding: 2px 8px; font-size: 12px;
+                      background: transparent; color: var(--red);
+                      border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); }
+        table.data-table .btn-danger:hover { background: var(--red); color: #1e1e2e; opacity: 1; }
+        /*
+         * And a quiet button beside a value — Copy, mostly.
+         *
+         * Without a rule it rendered as the browser's own: white on white, in a dark panel,
+         * which is not a button anybody can see.
+         */
+        .btn-small { background: var(--surface2); color: var(--subtext); cursor: pointer;
+                     border: 1px solid var(--surface); border-radius: 4px; padding: 1px 7px;
+                     font-size: 11px; font-family: inherit; vertical-align: middle; }
+        .btn-small:hover { color: var(--text); border-color: var(--subtext); }
+        /*
+         * A query cell stays on one line.
+         *
+         * A statement is long, and wrapped it takes four rows' worth of height each — so eight
+         * processes fill the screen and the columns that say *which* backend scroll out of
+         * reach. The whole statement is in the `title`, and the Copy button is there for when
+         * reading it is the point.
+         */
+        table.data-table td.query { max-width: 40ch; }
+        table.data-table td.query code { display: inline-block; max-width: calc(100% - 4rem);
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                     vertical-align: middle; background: none; padding: 0; }
         ul.ref-list { list-style: none; padding: 0; }
         ul.ref-list li { padding: 4px 0; border-bottom: 1px solid var(--surface2); }
         ul.ref-list li.current code { color: var(--green); }

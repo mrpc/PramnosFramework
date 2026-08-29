@@ -1797,6 +1797,38 @@ class SchemaBuilder
      * Plain table names (no `#PREFIX#`, no dot) are returned as-is so that existing
      * tables are not accidentally renamed by introducing a prefix.
      */
+    /**
+     * Make sure a schema exists, so a table can be created inside it.
+     *
+     * `CREATE TABLE pramnos.x` on PostgreSQL fails outright when the schema is not there, and
+     * "somebody else's migration made it" is an assumption that holds until something runs one
+     * feature's migrations on their own — which every integration test that touches a feature
+     * does. A no-op on MySQL, where a schema is flattened into the table name and there is
+     * nothing to create.
+     */
+    public function ensureSchema(string $name): bool
+    {
+        if (!$this->capabilities->isPostgreSQL()) {
+            return true;
+        }
+
+        $safe = preg_replace('~[^a-z0-9_]~i', '', $name);
+
+        if ($safe === '' || $safe === null) {
+            return false;
+        }
+
+        try {
+            $this->db->query('CREATE SCHEMA IF NOT EXISTS "' . $safe . '"');
+
+            return true;
+        } catch (\Throwable) {
+            // Already there, or this role may not create one. Both leave the caller to find
+            // out from its own CREATE TABLE, which is a better error than this one.
+            return false;
+        }
+    }
+
     protected function resolveTable(string $table): string
     {
         $prefix = $this->db->prefix ?? '';

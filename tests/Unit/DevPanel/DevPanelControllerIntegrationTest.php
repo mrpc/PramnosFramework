@@ -323,10 +323,10 @@ class DevPanelControllerIntegrationTest extends TestCase
 
         $this->controller->db();
 
-        $this->assertStringContainsString('Active processes', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('Active Processes', $this->controller->lastRenderedContent);
         $this->assertStringContainsString('4211', $this->controller->lastRenderedContent);
-        $this->assertStringContainsString('<strong>12s</strong>', $this->controller->lastRenderedContent);
-        $this->assertStringContainsString('idle 900s', $this->controller->lastRenderedContent,
+        $this->assertStringContainsString('>12s<', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('idle 15m 0s', $this->controller->lastRenderedContent,
             'an idle connection is not a stuck query');
     }
 
@@ -451,11 +451,124 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('metrics', $html, 'hypertables');
 
         // …and what only this tab has
-        $this->assertStringContainsString('Active processes', $html);
+        $this->assertStringContainsString('Active Processes', $html);
         $this->assertStringContainsString('Indexes nothing uses', $html);
         $this->assertStringContainsString('Slowest statements', $html);
         $this->assertStringContainsString('policy_compression', $html,
             'a compression job failing for a week is invisible from the hypertable list');
+    }
+
+    /**
+     * Every column the administration screen shows, this tab shows too.
+     *
+     * Asserted as a list of the facts rather than of markup, because it was reported three
+     * times — «δεν έφερε τη λειτουργικότητα του admin», then «ακόμα δε βλέπω ΟΛΑ όσα έχει το
+     * admin» — and each time the gap was a column somebody could see and I could not.
+     */
+    public function testEveryFactTheAdminScreenShowsIsHereToo()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->dbStats = [
+            'type' => 'postgresql', 'version' => 'PostgreSQL 16.2',
+            'db_size_bytes' => 1073741824, 'connections_active' => 3,
+            'connections_total' => 100, 'cache_hit_ratio' => 99.4,
+            'xact_commit' => 512, 'xact_rollback' => 4,
+        ];
+        $this->controller->inspector = $this->inspector([
+            'tables'      => [['schemaname' => 'public', 'table_name' => 'users',
+                               'total_bytes' => 2048, 'data_bytes' => 1024,
+                               'index_bytes' => 1024, 'row_estimate' => 515]],
+            'processes'   => [['pid' => 4211, 'usename' => 'app',
+                               'application_name' => 'myapp', 'client_addr' => '10.0.0.9',
+                               'backend_start' => '2026-08-29 10:00:00', 'state' => 'active',
+                               'wait_event_type' => 'Lock', 'wait_event' => 'transactionid',
+                               'active_sec' => 3, 'query' => 'SELECT 1']],
+            'replication' => [['client_addr' => '10.0.0.2', 'state' => 'streaming',
+                               'sync_state' => 'async', 'lag_sec' => 2]],
+            'views'       => [['view_name' => 'v_active_users',
+                               'view_definition' => 'SELECT 1']],
+        ]);
+        $this->controller->timescale = [
+            'ts_version' => '2.5.0', 'chunkCount' => 41,
+            'hypertables' => [['hypertable_name' => 'pushlog', 'num_chunks' => 41,
+                               'num_dimensions' => 1, 'compression_enabled' => true,
+                               'tablespaces' => 'fast_ssd']],
+            'aggregates'  => [['view_name' => 'daily_pushes',
+                               'materialization_name' => '_materialized_daily',
+                               'compression_enabled' => true]],
+            'jobs'        => [['proc_name' => 'policy_retention',
+                               'schedule_interval' => '1 day',
+                               'last_run_started_at' => '2026-08-29 03:00:00',
+                               'last_successful_finish' => '2026-08-29 03:00:01',
+                               'next_start' => '2026-08-30 03:00:00',
+                               'last_run_status' => 'Success']],
+            'jobHistory'  => [['proc_name' => 'policy_compression',
+                               'start_time' => '2026-08-22 03:00:00',
+                               'succeeded' => 'f',
+                               'err_message' => 'could not compress chunk']],
+        ];
+
+        // Act
+        $this->controller->db();
+        $html = $this->controller->lastRenderedContent;
+
+        // Assert — every one of these is a column the administration screen has
+        foreach ([
+            'PostgreSQL 16.2' => 'the server version',
+            '1 GB'            => 'the database size',
+            '99.4'            => 'the cache-hit ratio',
+            'Copy'            => 'the copy button on a query',
+            'myapp'   => "the process's application name",
+            '10.0.0.9'        => "the process's client address",
+            'Started'         => 'when the backend connected',
+            '10.0.0.2'        => 'the replication standby',
+            'v_active_users'  => 'the public views',
+            'fast_ssd'        => "the hypertable's tablespaces",
+            'daily_pushes'    => 'the continuous aggregates',
+            '2026-08-30 03:00:00' => "a job's next run",
+        ] as $needle => $why) {
+            $this->assertStringContainsString($needle, $html, $why . ' is missing');
+        }
+
+        // …and the two things only this tab has about a job
+        $this->assertStringContainsString('Lock transactionid', $html,
+            'a backend waiting on a lock is a different problem from one that is busy');
+        $this->assertStringContainsString('Kill', $html,
+            'ending a backend is what this panel has that the administration screen does not');
+        $this->assertStringContainsString('could not compress chunk', $html,
+            'a green status says the last run worked, not that the three before it did');
+    }
+
+    /**
+     * A job that succeeded is not listed as a failure.
+     *
+     * `succeeded` arrives as text and PostgreSQL writes a boolean as `t`/`f`. `(bool) \'f\'` is
+     * true, so a naive cast hides every failure — the one thing that section exists to show —
+     * and a naive `!` would list every success as one.
+     */
+    public function testASucceededJobIsNotListedAsAFailure()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([]);
+        $this->controller->timescale = [
+            'ts_version' => '2.5.0', 'chunkCount' => 0, 'hypertables' => [],
+            'aggregates' => [], 'jobs' => [],
+            'jobHistory' => [
+                ['proc_name' => 'policy_retention', 'start_time' => '2026-08-29',
+                 'succeeded' => 't', 'err_message' => ''],
+            ],
+        ];
+
+        // Act
+        $this->controller->db();
+
+        // Assert
+        $this->assertStringNotContainsString(
+            'Jobs that failed',
+            $this->controller->lastRenderedContent
+        );
     }
 
     /**

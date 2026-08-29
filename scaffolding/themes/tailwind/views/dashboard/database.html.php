@@ -8,14 +8,12 @@
  *   $this->tableSizes  — array of table size rows
  *   $this->tsData      — array: hypertables, aggregates, jobs, jobHistory, chunkCount, ts_version
  *   $this->replication — array of pg_stat_replication rows (PostgreSQL only)
- *   $this->publicViews — array of public-schema view rows (PostgreSQL only)
  */
 $stats       = $this->stats       ?? [];
 $processes   = $this->processes   ?? [];
 $tableSizes  = $this->tableSizes  ?? [];
 $tsData      = $this->tsData      ?? ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0, 'ts_version' => null];
 $replication = $this->replication ?? [];
-$publicViews = $this->publicViews ?? [];
 
 $fmtBytes = function (int $bytes): string {
     if ($bytes >= 1073741824) return round($bytes / 1073741824, 2) . ' GB';
@@ -308,54 +306,6 @@ $fmtBytes = function (int $bytes): string {
     </div>
     <?php endif; ?>
 
-    <!-- Public Views -->
-    <?php if (!empty($publicViews)): ?>
-    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
-        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
-            <span>Public Schema Views</span>
-            <span class="badge badge-neutral badge-sm"><?php echo count($publicViews); ?></span>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="table table-sm text-xs">
-                <thead class="bg-base-200 text-base-content/70 uppercase">
-                    <tr><th class="px-3 py-2 text-left">View Name</th><th class="px-3 py-2 text-left">Definition (truncated)</th><th class="px-3 py-2"></th></tr>
-                </thead>
-                <tbody class="divide-y divide-base-300">
-                <?php foreach ($publicViews as $i => $v): ?>
-                    <tr class="hover:bg-base-200">
-                        <td class="px-3 py-2 font-mono font-semibold"><?php echo htmlspecialchars($v['view_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="px-3 py-2 font-mono text-base-content/60 max-w-sm overflow-hidden text-ellipsis whitespace-nowrap">
-                            <?php echo htmlspecialchars(substr($v['view_definition'] ?? '', 0, 120), ENT_QUOTES, 'UTF-8'); ?>
-                        </td>
-                        <td class="px-3 py-2">
-                            <?php if (!empty($v['view_definition'])): ?>
-                            <button class="btn btn-outline btn-primary btn-xs"
-                                    data-view-def-index="<?php echo (int) $i; ?>">View</button>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div id="viewDefOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000">
-        <div style="position:relative;margin:3% auto;background:var(--color-base-100);border-radius:8px;width:820px;max-width:96%;padding:24px;max-height:90vh;overflow-y:auto">
-            <h6 id="viewDefTitle" style="margin:0 0 12px;font-size:1rem;font-weight:600"></h6>
-            <pre id="viewDefBody" style="white-space:pre-wrap;font-size:.8rem;max-height:400px;overflow-y:auto;background:#f8f8f8;padding:12px;border-radius:6px"></pre>
-            <div style="text-align:right;margin-top:12px">
-                <button id="closeViewDefBtn" style="font-size:.8rem;padding:4px 16px;border:1px solid var(--color-base-300);border-radius:4px;background:var(--color-base-100);color:var(--color-base-content);cursor:pointer">Close</button>
-            </div>
-        </div>
-    </div>
-    <script>
-    var _publicViews = <?php echo json_encode(array_values($publicViews)); ?>;
-    document.getElementById('closeViewDefBtn').addEventListener('click', function() {
-        document.getElementById('viewDefOverlay').style.display = 'none';
-    });
-    </script>
-    <?php endif; ?>
 
     <!-- TimescaleDB section -->
     <?php if (!empty($tsData['ts_version'])): ?>
@@ -508,15 +458,6 @@ $fmtBytes = function (int $bytes): string {
                 var o = cBtn.textContent; cBtn.textContent = 'Copied!';
                 setTimeout(function(){ cBtn.textContent = o; }, 1500);
             });
-        }
-        var vBtn = e.target.closest('[data-view-def-index]');
-        if (vBtn && typeof _publicViews !== 'undefined') {
-            var idx = parseInt(vBtn.getAttribute('data-view-def-index'), 10);
-            if (_publicViews[idx]) {
-                document.getElementById('viewDefTitle').textContent = _publicViews[idx].view_name;
-                document.getElementById('viewDefBody').textContent  = _publicViews[idx].view_definition;
-                document.getElementById('viewDefOverlay').style.display = 'block';
-            }
         }
         var jBtn = e.target.closest('[data-job-history-id]');
         if (jBtn && typeof _jobHistory !== 'undefined') {

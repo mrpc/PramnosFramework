@@ -8,14 +8,12 @@
  *   $this->tableSizes  — array of table size rows
  *   $this->tsData      — array: hypertables, aggregates, jobs, jobHistory, chunkCount, ts_version
  *   $this->replication — array of pg_stat_replication rows (PostgreSQL only)
- *   $this->publicViews — array of public-schema view rows (PostgreSQL only)
  */
 $stats       = $this->stats       ?? [];
 $processes   = $this->processes   ?? [];
 $tableSizes  = $this->tableSizes  ?? [];
 $tsData      = $this->tsData      ?? ['hypertables' => [], 'aggregates' => [], 'jobs' => [], 'jobHistory' => [], 'chunkCount' => 0, 'ts_version' => null];
 $replication = $this->replication ?? [];
-$publicViews = $this->publicViews ?? [];
 $dbType      = $stats['type'] ?? 'mysql';
 
 $fmtBytes = function (int $bytes): string {
@@ -222,51 +220,6 @@ $card = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hid
     </div>
     <?php endif; ?>
 
-    <!-- Public Schema Views (PostgreSQL only) -->
-    <?php if ($dbType === 'postgresql' && !empty($publicViews)): ?>
-    <div style="<?php echo $card; ?>">
-        <div style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd;display:flex;justify-content:space-between">
-            <span>Public Schema Views</span>
-            <span class="db-badge db-badge-secondary"><?php echo count($publicViews); ?></span>
-        </div>
-        <div style="overflow-x:auto">
-            <table class="db-table">
-                <thead><tr><th>View Name</th><th>Definition (truncated)</th><th></th></tr></thead>
-                <tbody>
-                <?php foreach ($publicViews as $i => $v): ?>
-                    <tr>
-                        <td class="db-mono" style="font-weight:600"><?php echo htmlspecialchars($v['view_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td class="db-mono" style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#888;font-size:.8rem">
-                            <?php echo htmlspecialchars(substr($v['view_definition'] ?? '', 0, 120), ENT_QUOTES, 'UTF-8'); ?>
-                        </td>
-                        <td>
-                            <?php if (!empty($v['view_definition'])): ?>
-                            <button class="db-btn" data-view-def-index="<?php echo (int) $i; ?>">View</button>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div id="viewDefOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000">
-        <div style="position:relative;margin:3% auto;background:#fff;border-radius:6px;width:820px;max-width:96%;padding:20px;max-height:90vh;overflow-y:auto">
-            <h6 id="viewDefTitle" style="margin:0 0 10px"></h6>
-            <pre id="viewDefBody" style="white-space:pre-wrap;font-size:.8rem;max-height:400px;overflow-y:auto;background:#f8f8f8;padding:12px;border-radius:4px"></pre>
-            <div style="text-align:right;margin-top:10px">
-                <button id="closeViewDefBtn" class="db-btn">Close</button>
-            </div>
-        </div>
-    </div>
-    <script>
-    var _publicViews = <?php echo json_encode(array_values($publicViews)); ?>;
-    document.getElementById('closeViewDefBtn').addEventListener('click', function() {
-        document.getElementById('viewDefOverlay').style.display = 'none';
-    });
-    </script>
-    <?php endif; ?>
 
     <!-- TimescaleDB section -->
     <?php if (!empty($tsData['ts_version'])): ?>
@@ -409,15 +362,6 @@ $card = 'border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hid
                 var o = cBtn.textContent; cBtn.textContent = 'Copied!';
                 setTimeout(function(){ cBtn.textContent = o; }, 1500);
             });
-        }
-        var vBtn = e.target.closest('[data-view-def-index]');
-        if (vBtn && typeof _publicViews !== 'undefined') {
-            var idx = parseInt(vBtn.getAttribute('data-view-def-index'), 10);
-            if (_publicViews[idx]) {
-                document.getElementById('viewDefTitle').textContent = _publicViews[idx].view_name;
-                document.getElementById('viewDefBody').textContent  = _publicViews[idx].view_definition;
-                document.getElementById('viewDefOverlay').style.display = 'block';
-            }
         }
         var jBtn = e.target.closest('[data-job-history-id]');
         if (jBtn && typeof _jobHistory !== 'undefined') {

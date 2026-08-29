@@ -165,21 +165,41 @@ in the spool for ever.
 operator's questions — how big, how busy, how far behind. This one answers the questions
 somebody changing the schema has.
 
+**The administration screen's sections, in its order** — overview, processes, replication,
+tables, views, TimescaleDB — and then the three this tab adds.
+
 | Section | Answers |
 | --- | --- |
 | This database | version, size, connections, transactions, cache-hit ratio |
-| Tables by size | what is in here and how big, with each name linking into Adminer |
-| Active processes | what the database is doing *right now*, with the query text |
+| Active Processes | what it is doing now, with **Copy** on the query and **Kill** on the row |
+| Replication Status | connected standbys and their lag |
+| Table Sizes | what is in here and how big, with each name linking into Adminer |
+| Public Schema Views | the definitions, moved here from the administration screen |
+| TimescaleDB | hypertables, chunks, compression, jobs, aggregates, **and the job error history** |
 | Indexes nothing uses | which indexes cost a write on every insert and buy nothing |
-| Read the hard way | which tables are being scanned sequentially, and how many rows that costs |
+| Read the hard way | which tables are scanned sequentially, and how many rows that costs |
 | Slowest statements | what the database actually spends its time on |
-| Replication | connected standbys and their lag — nothing at all when there are none |
-| Views | the public schema's views and their definitions, collapsed |
-| TimescaleDB | hypertables, chunk counts, compression, **and the jobs** |
 
 All of it comes from the shared `DatabaseInspector`, which the administration screen already
 used. This tab had its own copy of the table-size query — the third in the framework, with its
 own bugs — and it is gone.
+
+**Kill ends a backend** — `pg_terminate_backend`, not `pg_cancel_backend`: cancel asks a query
+to stop and a backend stuck in a lock wait ignores it, which is exactly the backend somebody is
+trying to end. It asks first, because the connection dies with the query. It is here rather than
+on the administration screen deliberately: ending somebody's query is a developer's action
+against a development database, and this panel is already behind a development-mode lock and a
+usertype floor.
+
+**A wait is only shown when it is a problem.** Every idle PostgreSQL backend sits on
+`Client/ClientRead` — waiting for the application to send the next statement, which is what an
+idle pooled connection is *for*. Rendered as a warning on every row it says the database is in
+trouble when nothing is wrong. Only `Lock`, `LWLock`, `BufferPin` and `IO` are shown, and only
+for a backend that is running something.
+
+**The job error history is rendered even when nothing has failed.** Hidden until there is
+something to show, it is a section nobody can find — and "no job has failed" is an answer
+somebody came here for as often as the list is. Same for replication on a standalone instance.
 
 **Active processes distinguishes running from idle.** `active_sec` is the running query's own
 age and is null unless the backend is running one; `idle_sec` is how long a pooled connection

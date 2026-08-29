@@ -51,6 +51,12 @@ use Pramnos\Database\Migration;
  * log row to the subscription it was for, and to say "the same browser again" — which is all
  * this table is asked.
  *
+ * ### In the `pramnos` schema
+ *
+ * `public` is the application's. This is the framework's own bookkeeping — nobody writing an
+ * application queries it, and a `\dt` that lists it beside `users` and `mails` is a `\dt` that
+ * takes longer to read. The rest of the push infrastructure is there for the same reason.
+ *
  * ### A hypertable, compressed and expired
  *
  * This is append-only, timestamped, queried by recency and never updated — the exact shape
@@ -71,18 +77,23 @@ class CreatePushLogTable extends Migration
     public string $feature     = 'notifications';
     public string $scope       = 'framework';
     public int    $priority    = 30;
-    public array  $dependencies = ['create_pushsubscriptions_table'];
+    public array  $dependencies = ['create_pramnos_schema', 'create_pushsubscriptions_table'];
     public $description = 'Creates the push notification audit log';
 
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('pushlog')) {
+        // Declared as a dependency too, but the runner is not the only caller: an integration
+        // test loads one feature's directory and runs it, and there `create_pramnos_schema` has
+        // not happened. A no-op on MySQL and when the schema is already there.
+        $schema->ensureSchema('pramnos');
+
+        if ($schema->hasTable('pramnos.pushlog')) {
             return;
         }
 
-        $schema->createTable('pushlog', function ($table) {
+        $schema->createTable('pramnos.pushlog', function ($table) {
             $table->comment(
                 'One row per push delivery attempt. The equivalent of `mails` for notifications: '
                 . 'what was sent, to whom, and what the push service said about it.'
@@ -137,7 +148,7 @@ class CreatePushLogTable extends Migration
          * Seven-day chunks: a week is the window «why did they not get it» is asked in, so the
          * chunk holding the answer is the one still uncompressed.
          */
-        $schema->createHypertable('pushlog', 'sent', [
+        $schema->createHypertable('pramnos.pushlog', 'sent', [
             'chunk_time_interval' => '7 days',
             'if_not_exists'       => true,
         ]);
@@ -150,12 +161,12 @@ class CreatePushLogTable extends Migration
          * without being decompressed. `userid` is high-cardinality and would produce one
          * segment per account, compressing almost nothing.
          */
-        $schema->enableCompression('pushlog', [
+        $schema->enableCompression('pramnos.pushlog', [
             'segmentby' => 'status',
             'orderby'   => 'sent DESC',
         ]);
 
-        $schema->addCompressionPolicy('pushlog', '7 days');
+        $schema->addCompressionPolicy('pramnos.pushlog', '7 days');
 
         /*
          * And dropped at ninety days, which an audit trail deliberately is not.
@@ -164,11 +175,11 @@ class CreatePushLogTable extends Migration
          * notification a browser acknowledged last spring. Ninety days is long enough to
          * investigate a complaint, which is the only reason anybody opens this.
          */
-        $schema->addRetentionPolicy('pushlog', '90 days', 'sent');
+        $schema->addRetentionPolicy('pramnos.pushlog', '90 days', 'sent');
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('pushlog');
+        $this->application->database->schema()->dropTableIfExists('pramnos.pushlog');
     }
 }
