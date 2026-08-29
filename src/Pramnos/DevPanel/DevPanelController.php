@@ -104,6 +104,7 @@ class DevPanelController extends Controller
          */
         $this->addAuthAction([
             'display', 'db', 'cache', 'users', 'performance', 'git', 'mcp', 'phpinfo', 'logs',
+            'raw',
         ]);
 
         // Register custom panel slugs as auth actions so Controller::exec() dispatches them.
@@ -385,58 +386,35 @@ class DevPanelController extends Controller
     }
 
     /**
-     * The log, as a page rather than as a controller.
+     * The administration area's log viewer, served here.
      *
-     * The administration area has a whole log screen — charts, a datatable, filters, its own
-     * controller — and it is the wrong place to read a log from while developing: it is behind
-     * an admin session, it is styled like the application, and the thing a developer wants is
-     * the last fifty lines and a way to grep them.
+     * This used to be a second, smaller viewer — a table with three filters — written beside
+     * the one the administration area already had. It read the same files and answered fewer
+     * questions: no pagination, no reverse order, no follow, and none of the statistics,
+     * cross-file search, export, rotate or archive `LogController` has had all along.
      *
-     * This is that. It reads the same files, it holds no state, and every filter is a query
-     * parameter so a useful view is a URL somebody can paste.
+     * There was a reason and it was a bad one. `LogViewer` hard-coded `adminUrl('logs')` as the
+     * address of its own `raw` endpoint, so embedding it anywhere else pointed its frame at a
+     * screen behind an admin session — and rather than make that a parameter, a smaller viewer
+     * was written. It is a parameter now, and this panel serves the same component from its own
+     * address behind its own guard: a signed debug grant, which is the whole reason to read a
+     * log from here rather than from the administration area.
+     *
+     * What is kept on top of it is the part the administration screen genuinely does not have:
+     * the requests that failed, which exist only while the debug toolbar is tagging them.
      */
     protected function renderLogViewer(\Pramnos\Http\Request $request): string
     {
-        $level  = strtolower(trim((string) $request->get('level', '', 'get')));
-        $search = trim((string) $request->get('q', '', 'get'));
-        $file   = trim((string) $request->get('file', '', 'get'));
-        $limit  = max(10, min(500, (int) $request->get('limit', 100, 'get', 'int')));
-
-        $lines    = $this->readLogLines($file, $level, $search, $limit);
+        $file     = trim((string) $request->get('file', '', 'get'));
         $files    = $this->logFileNames();
         $requests = \Pramnos\Debug\RequestLog::recent(10, 'error');
         $esc      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
-        $options = '';
-
-        foreach ($files as $name) {
-            $selected = $name === $file ? ' selected' : '';
-            $options .= '<option value="' . $esc($name) . '"' . $selected . '>' . $esc($name) . '</option>';
-        }
-
-        $levels = '';
-
-        foreach (['' => 'Every level', 'error' => 'error and worse', 'warning' => 'warning and worse'] as $value => $label) {
-            $selected = $value === $level ? ' selected' : '';
-            $levels  .= '<option value="' . $esc($value) . '"' . $selected . '>' . $esc($label) . '</option>';
-        }
-
-        $rows = '';
-
-        foreach ($lines as $line) {
-            $requestId = (string) ($line['request'] ?? '');
-            $rows .= '<tr class="lvl-' . $esc(strtolower((string) $line['level'])) . '">'
-                . '<td class="ts">' . $esc($line['timestamp']) . '</td>'
-                . '<td class="lvl">' . $esc($line['level']) . '</td>'
-                . '<td class="msg">' . $esc($line['message']) . '</td>'
-                . '<td class="src">' . $esc($line['file'])
-                . ($requestId !== '' ? ' <span class="req">' . $esc(substr($requestId, 0, 8)) . '</span>' : '')
-                . '</td></tr>';
-        }
-
-        if ($rows === '') {
-            $rows = '<tr><td colspan="4" class="empty">Nothing matches. The filters are in the '
-                . 'URL, so widening one is an edit rather than a form.</td></tr>';
+        // A name from the query string is compared against the ones on disk, never joined to a
+        // path: there is exactly one directory to read from, and it is not the caller's to
+        // choose.
+        if ($file === '' || !in_array($file, $files, true)) {
+            $file = $files[0] ?? 'php_error.log';
         }
 
         $failing = '';
@@ -454,83 +432,101 @@ class DevPanelController extends Controller
                 . 'purpose, and empty on a server nobody is debugging.</p><ul class="failing">'
                 . $failing . '</ul></section>';
 
-        return <<<HTML
-        <h2>Logs</h2>
-        <form method="get" class="log-filters">
-          <select name="file"><option value="">Every file</option>{$options}</select>
-          <select name="level">{$levels}</select>
-          <input type="search" name="q" value="{$esc($search)}" placeholder="contains…">
-          <input type="number" name="limit" value="{$limit}" min="10" max="500" step="10">
-          <button type="submit">Show</button>
-        </form>
-        {$failingBlock}
-        <table class="log-lines">
-          <thead><tr><th>When</th><th>Level</th><th>Message</th><th>Source</th></tr></thead>
-          <tbody>{$rows}</tbody>
-        </table>
-        HTML;
+        $viewer = (new \Pramnos\Logs\LogViewer($files, $this))
+            ->renderViewer($file, $this->logsBase());
+
+        /*
+         * A way across to the screens this panel does not reproduce.
+         *
+         * Statistics, cross-file search, export, rotate and archive are `LogController`'s and
+         * stay there: writing a second copy of each is what produced the viewer this replaced.
+         * They need an admin session, which is the honest difference between reading a log and
+         * administering one.
+         */
+        $links = [];
+
+        foreach (['stats' => 'Statistics', 'search' => 'Search every file',
+                  'filter' => 'Filter', 'export' => 'Export'] as $action => $label) {
+            $links[] = '<a href="' . $esc(rtrim(adminUrl('Logs'), '/') . '/' . $action) . '">'
+                . $esc($label) . '</a>';
+        }
+
+        return '<h2>Logs</h2>' . $failingBlock . $viewer
+            . '<p class="hint">The administration area does the rest, behind an admin session: '
+            . implode(', ', $links) . '.</p>';
+    }
+
+    /** Where this panel serves the viewer's `raw` endpoint from. */
+    protected function logsBase(): string
+    {
+        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+
+        return $base . '/' . trim((string) static::config('mount', 'devpanel'), '/');
     }
 
     /**
-     * The tail of the log files, newest first, filtered.
+     * The lines themselves, for the viewer's frame.
      *
-     * The tail rather than the whole file: a log is hundreds of megabytes on a server that has
-     * been up a while, and the lines somebody is looking for were written a minute ago.
+     * The same delegation `LogController::raw()` does, guarded the way this panel is guarded.
+     * Without it the viewer above would load its frame from an admin screen, and a developer
+     * holding a signed debug grant — the case this panel exists for — would see a login page
+     * inside it.
      *
-     * @return list<array<string, mixed>>
+     * @return mixed Always null — the response is written directly
      */
-    protected function readLogLines(string $file, string $level, string $search, int $limit): array
+    public function raw(): mixed
     {
-        $order = ['debug' => 0, 'info' => 1, 'notice' => 2, 'warning' => 3, 'error' => 4, 'critical' => 5];
-        $floor = $order[$level] ?? -1;
-        $found = [];
-
-        foreach ($this->logFiles() as $path) {
-            $name = basename($path);
-
-            // A name from the query string is compared against the ones on disk, never joined
-            // to a path: there is exactly one directory to read from, and it is not the
-            // caller's to choose.
-            if ($file !== '' && $name !== $file) {
-                continue;
-            }
-
-            foreach ($this->tailLines($path) as $line) {
-                $entry = json_decode($line, true);
-
-                if (!is_array($entry)) {
-                    continue;
-                }
-
-                $severity = strtolower((string) ($entry['level'] ?? 'info'));
-
-                if (($order[$severity] ?? 1) < $floor) {
-                    continue;
-                }
-
-                $message = (string) ($entry['message'] ?? '');
-
-                if ($search !== '' && stripos($message, $search) === false) {
-                    continue;
-                }
-
-                $found[] = [
-                    'when'      => \Pramnos\Logs\Logger::timestampOf((string) ($entry['timestamp'] ?? '')),
-                    'timestamp' => (string) ($entry['timestamp'] ?? ''),
-                    'level'     => $severity,
-                    'message'   => mb_substr($message, 0, 600),
-                    'file'      => $name,
-                    'request'   => (string) ($entry['request'] ?? ''),
-                ];
-            }
+        if (!FeatureRegistry::isEnabled('devpanel')) {
+            $this->renderError(404, 'DevPanel feature is not enabled.');
         }
 
-        // Numerically, because `d/m/Y` sorts wrong as a string — the first days of a month
-        // would put the oldest lines at the top.
-        usort($found, static fn (array $a, array $b): int => $b['when'] <=> $a['when']);
+        if (!\Pramnos\Debug\DebugAccess::isGranted() && $this->guardAccess()) {
+            return null;
+        }
 
-        return array_slice($found, 0, $limit);
+        \Pramnos\Framework\Factory::getDocument('raw');
+
+        $files    = $this->logFileNames();
+        $request  = new \Pramnos\Http\Request();
+        $filename = trim((string) $request->get('file', '', 'get'));
+        $viewer   = new \Pramnos\Logs\LogViewer($files, $this);
+
+        if ($filename === '' || !in_array($filename, $files, true)) {
+            echo $viewer->renderError('Invalid or no log file specified');
+
+            return null;
+        }
+
+        $search = str_replace(
+            '{space}',
+            ' ',
+            trim(urldecode((string) $request->get('search', '', 'get')))
+        );
+        $level = trim((string) $request->get('level', '', 'get'));
+
+        try {
+            $viewer->setFile($filename)->setParameters(
+                (bool) $request->get('reverse', 1, 'get', 'int'),
+                max(1, (int) $request->get('page', 1, 'get', 'int')),
+                max(1, (int) $request->get('maxLines', 20, 'get', 'int')),
+                $search
+            );
+
+            if ($level !== '' && $level !== 'all') {
+                $viewer->setLogLevel($level);
+            }
+
+            echo $viewer->renderHtml($viewer->getLogContent());
+        } catch (\Throwable $exception) {
+            echo $viewer->renderError(
+                'Error reading log file: ' . htmlspecialchars($exception->getMessage())
+            );
+        }
+
+        return null;
     }
+
+
 
     /** @return list<string> */
     protected function logFileNames(): array
@@ -557,38 +553,6 @@ class DevPanelController extends Controller
         ));
     }
 
-    /**
-     * The last 512KB of a file, as lines.
-     *
-     * @return list<string>
-     */
-    protected function tailLines(string $path, int $bytes = 524288): array
-    {
-        $handle = @fopen($path, 'rb');
-
-        if ($handle === false) {
-            return [];
-        }
-
-        if ((int) @filesize($path) > $bytes) {
-            fseek($handle, -$bytes, SEEK_END);
-            fgets($handle);   // the first line of the window is cut in half
-        }
-
-        $lines = [];
-
-        while (($line = fgets($handle)) !== false) {
-            $line = trim($line);
-
-            if ($line !== '') {
-                $lines[] = $line;
-            }
-        }
-
-        fclose($handle);
-
-        return $lines;
-    }
 
     /**
      * Write a JSON reply for the toolbar and stop.

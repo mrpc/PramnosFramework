@@ -269,36 +269,45 @@ started, which is not this one. See the
 
 ### Logs
 
-`/devpanel/logs` — the last lines of every log file, newest first, with a level floor, a
-substring search and a file selector. Every filter is a query parameter, so a useful view is a
-URL somebody can paste into a message.
+`/devpanel/logs` — **the administration area's log viewer**, served here.
 
-The administration area already has a log screen — charts, a datatable, its own controller —
-and it is the wrong thing to reach for while developing: it is behind an admin session, it is
-styled like the application, and what a developer wants is the last fifty lines and a way to
-grep them.
+It used to be a second, smaller one: a table with three filters, written beside a
+`LogController` that already had pagination, reverse order, follow, per-level filtering,
+statistics, cross-file search, export, rotate and archive. Reported as *«γιατί τα logs στο
+devpanel δεν είναι τα ίδια με τον κανονικό controller;»* — and the honest answer was that they
+had no reason not to be.
 
-Three details that matter more than they look:
+The reason they were not was one hard-coded URL. `LogViewer` built the address of its own `raw`
+endpoint from `adminUrl('logs')`, so the component could be embedded in exactly one place, and
+rather than make that a parameter a smaller viewer was written. `renderViewer()` takes a base
+URL now:
 
-- **The tail, not the file.** A log is hundreds of megabytes on a server that has been up a
-  while, and the lines being looked for were written a minute ago.
-- **Ordered by parsed time, not string.** The log writes `d/m/Y H:i:s`, and `01/09` sorts before
-  `29/08` — so a string sort puts the oldest lines at the top for the first days of every month
-  and is right again by the tenth. Which is the shape of a "the log viewer is broken" report
-  that nobody can reproduce.
-- **A file name from the URL is a filter, never a path.** It is compared against the names
-  actually on disk rather than joined to the log directory, so there is nothing to get subtly
-  wrong about how many `..` a path can contain.
+```php
+(new LogViewer($files, $controller))->renderViewer($file, $base);
+```
 
-Above the lines, the requests that failed — from the same log, grouped by request id. That
-section is short on purpose and empty on a server nobody is debugging: lines carry a request id
-only while the debug toolbar is active for that visitor, because on a live server everybody
-else is logging into the same seconds and their lines are not a developer's to read.
+so the panel serves the same component from its own address, behind its own guard — a signed
+debug grant rather than an admin session, which is the whole reason to read a log from here.
+`/devpanel/raw` is this panel's copy of the endpoint the frame loads from, guarded the same way.
+
+**What the panel keeps of its own** is the part the administration screen has nothing like: the
+requests that failed, grouped by request id. That section is short on purpose and empty on a
+server nobody is debugging — lines carry a request id only while the debug toolbar is active for
+that visitor, because on a live server everybody else is logging into the same seconds and their
+lines are not a developer's to read.
+
+**What it does not reproduce** is linked instead: statistics, cross-file search, filter and
+export stay in `/admin/Logs`, and the panel says plainly that they need an admin session.
+Writing a second copy of each is what produced the viewer this replaced.
+
+**A file name from the URL is a choice, never a path.** It is compared against the names
+actually on disk rather than joined to the log directory, so there is nothing to get subtly
+wrong about how many `..` a path can contain.
 
 `/devpanel/logs?request=<id>` still answers JSON, which is what the debug toolbar asks for. The
 same address serves both because the toolbar always passes an id and a person never does — and
-before this, a person who opened `/devpanel/logs` got a 400 about a parameter they had no way
-to know existed.
+before that, a person who opened `/devpanel/logs` got a 400 about a parameter they had no way to
+know existed.
 
 ### Git, PHP Info
 

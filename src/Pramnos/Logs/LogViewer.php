@@ -1624,11 +1624,11 @@ HTML;
      * @return string HTML content
      * @throws \RuntimeException If view object is not set
      */
-    public function renderViewer(string $currentFile): string
+    public function renderViewer(string $currentFile, string $baseUrl = ''): string
     {
         if (!$this->view) {
             throw new \RuntimeException('View object not initialized. Provide a controller in constructor.');
         }
-        return $this->view->render($currentFile, $this->whitelist);
+        return $this->view->render($currentFile, $this->whitelist, $baseUrl);
     }
 }

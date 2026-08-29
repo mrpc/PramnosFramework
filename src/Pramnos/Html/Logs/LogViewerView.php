@@ -31,10 +31,10 @@ class LogViewerView
      * @param array $whitelist List of available log files
      * @return string HTML content
      */
-    public function render(string $currentFile, array $whitelist): string
+    public function render(string $currentFile, array $whitelist, string $baseUrl = ''): string
     {
         $html = $this->getHeader();
-        $html .= $this->getBody($currentFile, $whitelist);
+        $html .= $this->getBody($currentFile, $whitelist, $baseUrl);
         return $html;
     }
 
@@ -55,7 +55,7 @@ class LogViewerView
      * @param array $whitelist List of available log files
      * @return string HTML body content
      */
-    protected function getBody(string $currentFile, array $whitelist): string
+    protected function getBody(string $currentFile, array $whitelist, string $baseUrl = ''): string
     {
         /**
          * Where the viewer's own endpoints live.
@@ -67,8 +67,13 @@ class LogViewerView
          *
          * `adminUrl()` falls back to `sURL` in an application with no area configured,
          * which is where the old form was right.
+         *
+         * A caller may name its own base instead. The DevPanel does: it serves this same
+         * viewer from `/devpanel/logs`, behind a signed grant rather than an admin session,
+         * and its `raw` is its own. Without that this component could only be embedded in one
+         * place — which is why a second, smaller log viewer was written beside it.
          */
-        $logUrl = rtrim(adminUrl('logs'), '/');
+        $logUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : rtrim(adminUrl('logs'), '/');
 
         ob_start();
 ?>
