@@ -161,10 +161,43 @@ in the spool for ever.
 
 ### Database
 
-Tables by size (top 30) with live row counts, and — where the extension is present —
-TimescaleDB hypertables with chunk counts and compression state. The queries are
-driver-specific by necessity: PostgreSQL reads `pg_class` joined to `pg_stat_user_tables`,
-MySQL reads `information_schema.tables`.
+**More than `/admin/dashboard/database`, not a smaller copy of it.** That screen answers an
+operator's questions — how big, how busy, how far behind. This one answers the questions
+somebody changing the schema has.
+
+| Section | Answers |
+| --- | --- |
+| Tables by size | what is in here and how big, with each name linking into Adminer |
+| Active processes | what the database is doing *right now*, with the query text |
+| Indexes nothing uses | which indexes cost a write on every insert and buy nothing |
+| Read the hard way | which tables are being scanned sequentially, and how many rows that costs |
+| Slowest statements | what the database actually spends its time on |
+| TimescaleDB | hypertables, chunk counts, compression — where the extension is present |
+
+All of it comes from the shared `DatabaseInspector`, which the administration screen already
+used. This tab had its own copy of the table-size query — the third in the framework, with its
+own bugs — and it is gone.
+
+**Active processes distinguishes running from idle.** `active_sec` is the running query's own
+age and is null unless the backend is running one; `idle_sec` is how long a pooled connection
+has been sitting there. Reported as one number, an idle connection showed as running for 194
+minutes, in red, and two of those is all it takes for nobody to read the column again.
+
+**Unused indexes exclude primary keys and unique constraints.** They are not there to be
+scanned — they are there to make a duplicate impossible — so listing them as dead weight is
+telling somebody to drop the thing holding their data together.
+
+**The slowest are ordered by total time, not by mean.** A query taking two milliseconds four
+million times is the one to fix, and it never appears in a list ordered by mean.
+
+`pg_stat_statements` is an extension and is usually absent, so the panel says *not installed*
+rather than showing an empty table: that is a different fact from "no slow queries", and one
+screen for both tells somebody their database is fine when it has never been asked. Installed
+but unreadable — the usual state for an application role without `pg_read_all_stats` — says
+that instead, because it is fixable.
+
+The index and statement sections are PostgreSQL only. MySQL can say an index exists; it cannot
+say whether anything has ever used it.
 
 ### Cache
 

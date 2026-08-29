@@ -21,6 +21,22 @@ class TestableDevPanelController extends DevPanelController
     public $lastErrorMessage = '';
     public $bypassGuard = true;
 
+    /**
+     * What the database inspector should answer.
+     *
+     * `pg_stat_activity`, `pg_stat_user_indexes` and `pg_stat_statements` cannot be faked
+     * through a connection, and three of this tab's four sections are made of them.
+     *
+     * @var \Pramnos\Database\Inspector\DatabaseInspector|null
+     */
+    public $inspector = null;
+
+    protected function databaseInspector(
+        \Pramnos\Database\Database $db
+    ): \Pramnos\Database\Inspector\DatabaseInspector {
+        return $this->inspector ?? parent::databaseInspector($db);
+    }
+
     protected function renderLayout(string $activeTab, string $content): void
     {
         $this->lastRenderedTab = $activeTab;
@@ -216,14 +232,23 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('Peak memory', $this->controller->lastRenderedContent);
     }
 
+    /**
+     * The tables come from the shared inspector, not from a query this tab writes itself.
+     *
+     * This tab had its own copy of the table-size query — the third in the framework, with its
+     * own bugs. It is gone, and what is asserted here is that the shared answer reaches the
+     * page.
+     */
     public function testDbActionWithMysqlTables()
     {
         $this->dbMock->type = 'mysql';
-
-        $this->dbMock->mockResults['DATABASE()'] = new FakeDatabaseResult([], ['d' => 'testdb']);
-        $this->dbMock->mockResults['information_schema.tables'] = new FakeDatabaseResult([], [
-            ['tbl' => 'users', 'total' => '2048', 'data' => '1024', 'rows' => 500],
-            ['tbl' => 'posts', 'total' => '4096', 'data' => '2048', 'rows' => 1200],
+        $this->controller->inspector = $this->inspector([
+            'tables' => [
+                ['table_name' => 'users', 'total_bytes' => 2048, 'data_bytes' => 1024,
+                 'index_bytes' => 1024, 'row_estimate' => 500],
+                ['table_name' => 'posts', 'total_bytes' => 4096, 'data_bytes' => 2048,
+                 'index_bytes' => 2048, 'row_estimate' => 1200],
+            ],
         ]);
 
         $this->controller->db();
@@ -234,12 +259,153 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('1,200', $this->controller->lastRenderedContent);
     }
 
+    /**
+     * What the database is doing right now — the tool this tab was asked for by name.
+     *
+     * A running query's age and an idle connection's age are different numbers, and only the
+     * first one means anything: an idle pooled connection reported as running for 194 minutes,
+     * in red, is why people stop reading the column.
+     */
+    public function testDbActionShowsActiveProcesses()
+    {
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([
+            'processes' => [
+                ['pid' => 4211, 'usename' => 'app', 'state' => 'active', 'active_sec' => 12,
+                 'idle_sec' => null, 'query' => 'SELECT * FROM users WHERE email = $1'],
+                ['pid' => 4212, 'usename' => 'app', 'state' => 'idle', 'active_sec' => null,
+                 'idle_sec' => 900, 'query' => 'COMMIT'],
+            ],
+        ]);
+
+        $this->controller->db();
+
+        $this->assertStringContainsString('Active processes', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('4211', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('<strong>12s</strong>', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('idle 900s', $this->controller->lastRenderedContent,
+            'an idle connection is not a stuck query');
+    }
+
+    /**
+     * Indexes nothing scans, and tables read the hard way.
+     *
+     * The developer's question about a database, and the one the administration screen does not
+     * ask. Neither is visible from a list of table sizes.
+     */
+    public function testDbActionShowsIndexUsage()
+    {
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([
+            'indexes' => [
+                'unused'  => [['table_name' => 'mails', 'index_name' => 'idx_mails_hash',
+                               'size_bytes' => 5242880]],
+                'scanned' => [['table_name' => 'usertokens', 'seq_scan' => 8100,
+                               'seq_tup_read' => 91000000, 'idx_scan' => 0,
+                               'row_estimate' => 7255]],
+            ],
+        ]);
+
+        $this->controller->db();
+
+        $html = $this->controller->lastRenderedContent;
+
+        $this->assertStringContainsString('idx_mails_hash', $html);
+        $this->assertStringContainsString('5 MB', $html);
+        $this->assertStringContainsString('usertokens', $html);
+        $this->assertStringContainsString('91,000,000', $html);
+    }
+
+    /**
+     * A missing `pg_stat_statements` says so rather than showing an empty table.
+     *
+     * "The extension is not installed" and "no slow queries" are different facts, and a screen
+     * that renders the same thing for both tells somebody their database is fine when it has
+     * never been asked.
+     */
+    public function testAMissingStatementsExtensionSaysSo()
+    {
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([
+            'statements' => ['available' => false, 'rows' => []],
+        ]);
+
+        $this->controller->db();
+
+        $this->assertStringContainsString(
+            'pg_stat_statements</code> is not installed',
+            $this->controller->lastRenderedContent
+        );
+    }
+
+    /**
+     * And when it is installed, the slowest by total time.
+     *
+     * By total, not by mean: a query taking two milliseconds four million times is the one to
+     * fix, and it never appears in a list ordered by mean.
+     */
+    public function testTheSlowestStatementsAreOrderedByTotalTime()
+    {
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector([
+            'statements' => ['available' => true, 'rows' => [
+                ['calls' => 4000000, 'total_ms' => '812340.0', 'mean_ms' => '0.20',
+                 'query' => 'SELECT 1 FROM usertokens WHERE token = $1'],
+            ]],
+        ]);
+
+        $this->controller->db();
+
+        $html = $this->controller->lastRenderedContent;
+
+        $this->assertStringContainsString('4,000,000', $html);
+        $this->assertStringContainsString('812340.0', $html);
+        $this->assertStringContainsString('By total time, not by mean', $html);
+    }
+
+    /**
+     * An inspector whose four answers are given.
+     *
+     * @param array<string, mixed> $answers
+     */
+    private function inspector(array $answers): \Pramnos\Database\Inspector\DatabaseInspector
+    {
+        return new class ($answers) extends \Pramnos\Database\Inspector\DatabaseInspector {
+            public function __construct(private array $answers)
+            {
+            }
+
+            public function getTableSizes(): array
+            {
+                return $this->answers['tables'] ?? [];
+            }
+
+            public function getProcessList(): array
+            {
+                return $this->answers['processes'] ?? [];
+            }
+
+            public function getIndexUsage(): array
+            {
+                return $this->answers['indexes'] ?? ['unused' => [], 'scanned' => []];
+            }
+
+            public function getSlowStatements(int $limit = 15): array
+            {
+                return $this->answers['statements'] ?? ['available' => false, 'rows' => []];
+            }
+        };
+    }
+
     public function testDbActionWithPostgresTablesAndTimescale()
     {
         $this->dbMock->type = 'postgresql';
 
-        $this->dbMock->mockResults['pg_class'] = new FakeDatabaseResult([], [
-            ['tbl' => 'pg_users', 'total' => '2 MB', 'data' => '1 MB', 'rows' => 300],
+        $this->controller->inspector = $this->inspector([
+            'tables' => [
+                ['table_name' => 'pg_users', 'total_bytes' => 2097152, 'data_bytes' => 1048576,
+                 'index_bytes' => 1048576, 'row_estimate' => 300],
+            ],
         ]);
         $this->dbMock->mockResults['pg_extension'] = new FakeDatabaseResult([], ['extversion' => '2.5.0']);
         $this->dbMock->mockResults['timescaledb_information'] = new FakeDatabaseResult([], [

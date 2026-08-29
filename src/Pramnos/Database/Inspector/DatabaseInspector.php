@@ -161,6 +161,123 @@ class DatabaseInspector
     }
 
     /**
+     * Which indexes are earning their keep, and which tables are being read the hard way.
+     *
+     * The developer's question about a database, and the one no screen here asked. An index
+     * nobody scans costs a write on every insert and update and buys nothing; a table with
+     * millions of sequential scans and no index scans is a query somebody wrote before the data
+     * grew. Both are invisible from table sizes, which is what every screen showed instead.
+     *
+     * PostgreSQL only, because `pg_stat_user_tables` and `pg_stat_user_indexes` have no MySQL
+     * equivalent worth pretending about — `SHOW INDEX` says a index exists, not whether anything
+     * has ever used it.
+     *
+     * Row keys: table_name, index_name, scans, size_bytes, seq_scan, idx_scan.
+     *
+     * @return array{unused: array<int, array<string, mixed>>, scanned: array<int, array<string, mixed>>}
+     */
+    public function getIndexUsage(): array
+    {
+        $empty = ['unused' => [], 'scanned' => []];
+
+        if ($this->db->type !== 'postgresql') {
+            return $empty;
+        }
+
+        try {
+            /*
+             * Primary keys and unique constraints are excluded from "unused".
+             *
+             * They are not there to be scanned — they are there to make a duplicate impossible —
+             * so listing them as dead weight is telling somebody to drop the thing holding their
+             * data together. `indisprimary` and `indisunique` are what separates them.
+             */
+            $unused = $this->db->query(
+                "SELECT s.relname AS table_name, s.indexrelname AS index_name,
+                        s.idx_scan AS scans,
+                        pg_relation_size(s.indexrelid) AS size_bytes
+                 FROM pg_stat_user_indexes s
+                 JOIN pg_index i ON i.indexrelid = s.indexrelid
+                 WHERE s.idx_scan = 0
+                   AND NOT i.indisprimary
+                   AND NOT i.indisunique
+                   AND pg_relation_size(s.indexrelid) > 16384
+                 ORDER BY pg_relation_size(s.indexrelid) DESC
+                 LIMIT 20"
+            );
+
+            $scanned = $this->db->query(
+                "SELECT relname AS table_name, seq_scan, seq_tup_read, idx_scan,
+                        n_live_tup AS row_estimate
+                 FROM pg_stat_user_tables
+                 WHERE seq_scan > 0 AND n_live_tup > 1000
+                 ORDER BY seq_tup_read DESC
+                 LIMIT 20"
+            );
+
+            return [
+                'unused'  => ($unused && $unused->numRows > 0) ? $unused->fetchAll() : [],
+                'scanned' => ($scanned && $scanned->numRows > 0) ? $scanned->fetchAll() : [],
+            ];
+        } catch (\Exception) {
+            return $empty;
+        }
+    }
+
+    /**
+     * The statements this database spends its time on, when it is able to say.
+     *
+     * `pg_stat_statements` is an extension and is usually not installed, so this answers with
+     * `available => false` rather than with nothing: "the extension is not installed" is a
+     * different fact from "no slow queries", and a screen that showed an empty table for both
+     * would be telling somebody their database is fine when it has never been asked.
+     *
+     * @return array{available: bool, rows: array<int, array<string, mixed>>}
+     */
+    public function getSlowStatements(int $limit = 15): array
+    {
+        if ($this->db->type !== 'postgresql') {
+            return ['available' => false, 'rows' => []];
+        }
+
+        try {
+            $extension = $this->db->query(
+                "SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'"
+            );
+
+            if (!$extension || $extension->numRows === 0) {
+                return ['available' => false, 'rows' => []];
+            }
+
+            $rows = $this->db->query(
+                "SELECT calls,
+                        ROUND(total_exec_time::numeric, 1) AS total_ms,
+                        ROUND(mean_exec_time::numeric, 2) AS mean_ms,
+                        rows,
+                        left(query, 300) AS query
+                 FROM pg_stat_statements
+                 ORDER BY total_exec_time DESC
+                 LIMIT " . max(1, min(100, $limit))
+            );
+
+            return [
+                'available' => true,
+                'rows'      => ($rows && $rows->numRows > 0) ? $rows->fetchAll() : [],
+            ];
+        } catch (\Exception) {
+            /*
+             * Installed and unreadable is not the same as absent.
+             *
+             * `pg_stat_statements` requires `pg_read_all_stats` or superuser, and an application
+             * role usually has neither. Reported as available-with-nothing rather than as
+             * unavailable, so the screen says the extension is there and this connection cannot
+             * read it — which is a fixable thing, unlike "not installed".
+             */
+            return ['available' => true, 'rows' => []];
+        }
+    }
+
+    /**
      * Returns view definitions from the public schema (PostgreSQL only).
      *
      * Row keys: view_name, view_definition.

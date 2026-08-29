@@ -728,108 +728,257 @@ class DevPanelController extends Controller
         return $h;
     }
 
+    /**
+     * The database, as a developer needs to see it.
+     *
+     * Deliberately **more** than `/admin/dashboard/database`, not a smaller copy of it. That
+     * screen answers an operator's questions — how big, how busy, how far behind — and this one
+     * answers the questions somebody changing the schema has: what is nobody using, what is
+     * being read the hard way, and what is the database actually spending its time on.
+     *
+     * Three of the four sections come from the shared {@see DatabaseInspector}, which is what
+     * the administration screen already used. This tab had its own copy of the table-size query
+     * — a third implementation, with its own bugs — and it is gone.
+     */
     private function renderDb(): string
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
+
         if (!$db || !$db->connected) {
             return $this->alert('Database not connected.', 'warning');
         }
 
-        $isPostgres    = $db->type === 'postgresql';
-        $isTimescaleDb = false;
-        $tables        = [];
+        $inspector  = $this->databaseInspector($db);
+        $isPostgres = $db->type === 'postgresql';
 
-        // Table sizes
-        try {
-            if ($isPostgres) {
-                // Every `oid` is qualified, and the row count comes from
-                // pg_stat_user_tables. Unqualified, `oid` is ambiguous across the
-                // join — both pg_class and pg_namespace have one — so PostgreSQL
-                // refused the whole statement with "column reference oid is
-                // ambiguous", `execute()` returned false, and the table list has
-                // been empty on every PostgreSQL installation since it was
-                // written. `n_live_tup` is not a pg_class column at all.
-                $res = $db->execute(
-                    "SELECT c.relname AS tbl,
-                            pg_size_pretty(pg_total_relation_size(c.oid)) AS total,
-                            pg_size_pretty(pg_relation_size(c.oid)) AS data,
-                            COALESCE(s.n_live_tup, 0) AS rows
-                     FROM pg_class c
-                     JOIN pg_namespace n ON n.oid = c.relnamespace
-                     LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-                     WHERE c.relkind = 'r' AND n.nspname = 'public'
-                     ORDER BY pg_total_relation_size(c.oid) DESC
-                     LIMIT 30"
-                );
-                $tables = $res ? $res->fetchAll() : [];
-            } else {
-                $dbName = $db->execute('SELECT DATABASE() AS d');
-                $dbName = $dbName ? ($dbName->fields['d'] ?? '') : '';
-                // `%s`, not `?`: the framework's prepared statements use typed
-                // placeholders and count them itself, so a `?` was left in the SQL
-                // as a literal while the argument went to bind_param with an empty
-                // type string.
-                $res    = $db->execute(
-                    "SELECT table_name AS tbl,
-                            ROUND((data_length + index_length) / 1024, 1) AS total,
-                            ROUND(data_length / 1024, 1) AS data,
-                            table_rows AS rows
-                     FROM information_schema.tables
-                     WHERE table_schema = %s
-                     ORDER BY (data_length + index_length) DESC
-                     LIMIT 30",
-                    $dbName
-                );
-                $tables = $res ? $res->fetchAll() : [];
-            }
-        } catch (\Throwable $e) {
-            return $this->alert('Error querying table stats: ' . htmlspecialchars($e->getMessage()), 'error');
-        }
+        $content = $this->renderDbTables($inspector, $isPostgres)
+            . $this->renderDbProcesses($inspector)
+            . $this->renderDbIndexes($inspector, $isPostgres)
+            . $this->renderDbStatements($inspector, $isPostgres);
 
-        // TimescaleDB detection
         try {
             $tsRes = $db->execute("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'");
+
             if ($tsRes && $tsRes->numRows > 0) {
-                $isTimescaleDb = true;
+                $content .= $this->renderTimescaleDb($db);
             }
         } catch (\Throwable $ex) {
             $this->panelError('TimescaleDB detection', $ex);
         }
 
-        // PostgreSQL returns pre-formatted sizes from pg_size_pretty ("552 kB"),
-        // MySQL returns a number of kilobytes. Only the latter needs a unit, and
-        // appending one to both produced "552 kB KB".
-        $unit    = $isPostgres ? '' : ' KB';
+        // No "Open Adminer" line: it is a tab of its own now, immediately beside this one, and
+        // a link to the neighbouring tab is furniture. The table names below link into it, which
+        // is the useful half.
+        return $content;
+    }
 
+    /**
+     * The shared inspector, as a seam.
+     *
+     * It reads `pg_stat_activity`, `pg_stat_user_indexes` and `pg_stat_statements` — three
+     * things a test has no way to fake through a connection, and three things this tab is
+     * mostly made of.
+     */
+    protected function databaseInspector(
+        \Pramnos\Database\Database $db
+    ): \Pramnos\Database\Inspector\DatabaseInspector {
+        return new \Pramnos\Database\Inspector\DatabaseInspector($db);
+    }
+
+    /** Tables by size, from the shared inspector, with each name linking into Adminer. */
+    private function renderDbTables(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector,
+        bool $isPostgres
+    ): string {
         $rows = '';
-        foreach ($tables as $t) {
-            // The name links into Adminer's view of that table, when there is an Adminer to link
-            // to. This list answers "what is in here and how big is it"; the next question is
-            // always about one table, and it used to mean retyping the name somewhere else.
-            $tbl  = static::adminerTableLink((string) ($t['tbl'] ?? ''));
-            $tot  = htmlspecialchars((string) ($t['total'] ?? ''));
-            $data = htmlspecialchars((string) ($t['data']  ?? ''));
-            $rowc = number_format((int) ($t['rows'] ?? 0));
-            $rows .= "<tr><td>{$tbl}</td><td class='num'>{$rowc}</td><td class='num'>{$data}{$unit}</td><td class='num'>{$tot}{$unit}</td></tr>";
+
+        foreach ($inspector->getTableSizes() as $table) {
+            $name  = static::adminerTableLink((string) ($table['table_name'] ?? ''));
+            $total = $this->humanBytes((int) ($table['total_bytes'] ?? 0));
+            $data  = $this->humanBytes((int) ($table['data_bytes'] ?? 0));
+            $index = $this->humanBytes((int) ($table['index_bytes'] ?? 0));
+            $count = number_format((int) ($table['row_estimate'] ?? 0));
+
+            $rows .= "<tr><td>{$name}</td><td class='num'>{$count}</td>"
+                . "<td class='num'>{$data}</td><td class='num'>{$index}</td>"
+                . "<td class='num'>{$total}</td></tr>";
         }
-        $content = <<<HTML
+
+        if ($rows === '') {
+            $rows = '<tr><td colspan="5" class="empty">No tables, or the connection cannot '
+                . 'read the catalogue.</td></tr>';
+        }
+
+        return <<<HTML
             <h3>Tables (top 30 by size)</h3>
             <table class="data-table">
-                <thead><tr><th>Table</th><th class="num">Rows</th><th class="num">Data{$unit}</th><th class="num">Total{$unit}</th></tr></thead>
+                <thead><tr><th>Table</th><th class="num">Rows</th><th class="num">Data</th>
+                <th class="num">Indexes</th><th class="num">Total</th></tr></thead>
                 <tbody>{$rows}</tbody>
             </table>
         HTML;
+    }
 
-        if ($isTimescaleDb) {
-            $content .= $this->renderTimescaleDb($db);
+    /**
+     * What the database is doing right now.
+     *
+     * The example asked for by name. `active_sec` is the running query's own age and is null
+     * unless the backend is running one — an idle pooled connection is not a stuck query, which
+     * is the reading that makes people stop looking at the column.
+     */
+    private function renderDbProcesses(\Pramnos\Database\Inspector\DatabaseInspector $inspector): string
+    {
+        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $rows = '';
+
+        foreach ($inspector->getProcessList() as $process) {
+            $state  = (string) ($process['state'] ?? ($process['Command'] ?? ''));
+            $active = $process['active_sec'] ?? null;
+            $idle   = $process['idle_sec'] ?? null;
+            $query  = (string) ($process['query'] ?? ($process['Info'] ?? ''));
+            $age    = $active !== null
+                ? '<strong>' . (int) $active . 's</strong>'
+                : ($idle !== null ? 'idle ' . (int) $idle . 's' : '—');
+
+            $rows .= '<tr><td class="num">' . $esc($process['pid'] ?? ($process['Id'] ?? ''))
+                . '</td><td>' . $esc($process['usename'] ?? ($process['User'] ?? ''))
+                . '</td><td>' . $esc($state)
+                . '</td><td class="num">' . $age
+                . '</td><td><code>' . $esc(mb_substr(trim($query), 0, 200)) . '</code></td></tr>';
         }
 
-        // No "Open Adminer" line: it is a tab of its own now, immediately beside this one, and
-        // a link to the neighbouring tab is furniture. The table names below link into it, which
-        // is the useful half — this tab answers "what is in here and how big is it", and the
-        // next question is always about one specific table.
-        return $content;
+        if ($rows === '') {
+            $rows = '<tr><td colspan="5" class="empty">Nothing but this request. On a quiet '
+                . 'server that is the usual answer.</td></tr>';
+        }
+
+        return <<<HTML
+            <h3 style="margin-top:1.5rem">Active processes</h3>
+            <table class="data-table">
+                <thead><tr><th class="num">PID</th><th>User</th><th>State</th>
+                <th class="num">Age</th><th>Query</th></tr></thead>
+                <tbody>{$rows}</tbody>
+            </table>
+        HTML;
     }
+
+    /**
+     * Indexes nobody scans, and tables being read the hard way.
+     *
+     * The developer's question, and the one no screen here asked. An index nothing scans costs
+     * a write on every insert and update and buys nothing; a table with millions of sequential
+     * reads and no index scans is a query written before the data grew. Neither is visible from
+     * a list of table sizes, which is what every screen showed instead.
+     */
+    private function renderDbIndexes(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector,
+        bool $isPostgres
+    ): string {
+        if (!$isPostgres) {
+            return '<h3 style="margin-top:1.5rem">Index usage</h3><p class="hint">PostgreSQL '
+                . 'only. MySQL can say an index exists; it cannot say whether anything has ever '
+                . 'used it.</p>';
+        }
+
+        $esc   = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $usage = $inspector->getIndexUsage();
+        $dead  = '';
+
+        foreach ($usage['unused'] as $index) {
+            $dead .= '<tr><td>' . $esc($index['table_name'] ?? '') . '</td><td><code>'
+                . $esc($index['index_name'] ?? '') . '</code></td><td class="num">'
+                . $this->humanBytes((int) ($index['size_bytes'] ?? 0)) . '</td></tr>';
+        }
+
+        if ($dead === '') {
+            $dead = '<tr><td colspan="3" class="empty">Every index is being scanned — or the '
+                . 'statistics were reset recently, which looks the same.</td></tr>';
+        }
+
+        $scans = '';
+
+        foreach ($usage['scanned'] as $table) {
+            $seq = (int) ($table['seq_scan'] ?? 0);
+            $idx = (int) ($table['idx_scan'] ?? 0);
+            $scans .= '<tr><td>' . $esc($table['table_name'] ?? '') . '</td>'
+                . '<td class="num">' . number_format($seq) . '</td>'
+                . '<td class="num">' . number_format($idx) . '</td>'
+                . '<td class="num">' . number_format((int) ($table['seq_tup_read'] ?? 0)) . '</td>'
+                . '<td class="num">' . number_format((int) ($table['row_estimate'] ?? 0)) . '</td></tr>';
+        }
+
+        if ($scans === '') {
+            $scans = '<tr><td colspan="5" class="empty">No table over a thousand rows is being '
+                . 'scanned sequentially.</td></tr>';
+        }
+
+        return <<<HTML
+            <h3 style="margin-top:1.5rem">Indexes nothing uses</h3>
+            <p class="hint">Primary keys and unique constraints are excluded: they are not there
+            to be scanned, they are there to make a duplicate impossible.</p>
+            <table class="data-table">
+                <thead><tr><th>Table</th><th>Index</th><th class="num">Size</th></tr></thead>
+                <tbody>{$dead}</tbody>
+            </table>
+
+            <h3 style="margin-top:1.5rem">Read the hard way</h3>
+            <p class="hint">Sequential scans against tables big enough for it to matter. Rows
+            read is the number that hurts, not the scan count.</p>
+            <table class="data-table">
+                <thead><tr><th>Table</th><th class="num">Seq scans</th><th class="num">Index scans</th>
+                <th class="num">Rows read</th><th class="num">Rows</th></tr></thead>
+                <tbody>{$scans}</tbody>
+            </table>
+        HTML;
+    }
+
+    /** What the database spends its time on, when `pg_stat_statements` lets it say. */
+    private function renderDbStatements(
+        \Pramnos\Database\Inspector\DatabaseInspector $inspector,
+        bool $isPostgres
+    ): string {
+        if (!$isPostgres) {
+            return '';
+        }
+
+        $statements = $inspector->getSlowStatements();
+
+        if (!$statements['available']) {
+            return '<h3 style="margin-top:1.5rem">Slowest statements</h3><p class="hint">'
+                . '<code>pg_stat_statements</code> is not installed. It is the one extension '
+                . 'worth adding to a database you are developing against — without it, "what is '
+                . 'slow" is a guess. <code>CREATE EXTENSION pg_stat_statements;</code> and add it '
+                . 'to <code>shared_preload_libraries</code>.</p>';
+        }
+
+        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $rows = '';
+
+        foreach ($statements['rows'] as $statement) {
+            $rows .= '<tr><td class="num">' . number_format((int) ($statement['calls'] ?? 0))
+                . '</td><td class="num">' . $esc($statement['total_ms'] ?? '')
+                . '</td><td class="num">' . $esc($statement['mean_ms'] ?? '')
+                . '</td><td><code>' . $esc(mb_substr((string) ($statement['query'] ?? ''), 0, 300))
+                . '</code></td></tr>';
+        }
+
+        if ($rows === '') {
+            $rows = '<tr><td colspan="4" class="empty">The extension is installed and this '
+                . 'connection cannot read it — it needs <code>pg_read_all_stats</code>.</td></tr>';
+        }
+
+        return <<<HTML
+            <h3 style="margin-top:1.5rem">Slowest statements</h3>
+            <p class="hint">By total time, not by mean: a query taking two milliseconds four
+            million times is the one to fix.</p>
+            <table class="data-table">
+                <thead><tr><th class="num">Calls</th><th class="num">Total ms</th>
+                <th class="num">Mean ms</th><th>Statement</th></tr></thead>
+                <tbody>{$rows}</tbody>
+            </table>
+        HTML;
+    }
+
 
     /**
      * A link into Adminer for one table, or the plain name when there is no Adminer.
