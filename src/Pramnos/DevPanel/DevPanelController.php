@@ -2832,7 +2832,17 @@ class DevPanelController extends Controller
         ul.ref-list li { padding: 4px 0; border-bottom: 1px solid var(--surface2); }
         ul.ref-list li.current code { color: var(--green); }
         ul.ref-list li:last-child { border-bottom: none; }
-        .range-bar { display: flex; gap: 6px; margin-bottom: 12px; }
+        /*
+         * `flex-wrap`, because this bar holds a list nobody chose the length of.
+         *
+         * It was written for a timespan selector — four fixed chips — and is reused for the
+         * cache's namespace filter, which has one chip per namespace an installation happens to
+         * have. On a real one that is twenty, several of them named after a table, and the row
+         * ran off the side of the panel: the chips past the edge were unreachable, and the page
+         * scrolled sideways under everything else.
+         */
+        .range-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .range-bar a { white-space: nowrap; }
         .range-bar a { padding: 4px 12px; border-radius: 4px; background: var(--surface);
                        color: var(--subtext); text-decoration: none; font-size: 12px; }
         .range-bar a.active { background: var(--blue); color: #1e1e2e; }

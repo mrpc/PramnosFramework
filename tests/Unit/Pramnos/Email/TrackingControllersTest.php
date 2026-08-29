@@ -276,4 +276,35 @@ class TrackingControllersTest extends TestCase
         $this->assertStringContainsString('tracked', $cell);
         $this->assertStringNotContainsString('not tracked', $cell);
     }
+
+    /**
+     * Every column on the emails screen is visible.
+     *
+     * `addColumn`'s second argument is `bVisible`, and it goes straight into DataTables' column
+     * config. Two columns on this screen had it `false`: the new Opens column, which was added
+     * and never appeared, and the actions column beside it — the view and resend icons — which
+     * had been invisible since it was written. Nothing about the code reads as "hidden"; the
+     * argument is a bare `false` in a row of them.
+     */
+    public function testEveryColumnOnTheEmailsScreenIsVisible(): void
+    {
+        // Arrange
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 4) . '/src/Pramnos/Application/Controllers/EmailsController.php'
+        );
+
+        $calls = [];
+        preg_match_all("~addColumn\(\s*'([^']*)'\s*,\s*(true|false)~", $source, $calls, PREG_SET_ORDER);
+
+        // Assert
+        $this->assertNotEmpty($calls, 'the columns are declared with literal arguments');
+
+        foreach ($calls as [, $label, $visible]) {
+            $this->assertSame(
+                'true',
+                $visible,
+                'the "' . $label . '" column is declared hidden'
+            );
+        }
+    }
 }

@@ -426,6 +426,27 @@ class DevPanelMcpTest extends TestCase
     }
 
     /**
+     * A row of chips wraps instead of running off the panel.
+     *
+     * `.range-bar` was written for a timespan selector — four fixed chips — and is reused for
+     * the cache's namespace filter, which has one chip per namespace the installation happens to
+     * have. On a real one that is twenty, and the row ran past the edge: the chips beyond it were
+     * unreachable and the page scrolled sideways under everything else.
+     */
+    public function testAChipRowWrapsRatherThanOverflowing(): void
+    {
+        // Act
+        $css = (string) $this->call($this->controller(), 'panelCss');
+
+        // Assert
+        $this->assertMatchesRegularExpression(
+            '~\.range-bar\s*\{[^}]*flex-wrap:\s*wrap~',
+            $css,
+            'a list nobody chose the length of has to wrap'
+        );
+    }
+
+    /**
      * The script sends the CSRF token it was given, and posts to this panel.
      *
      * A POST that *executes* whatever a project registered gets a token even behind the

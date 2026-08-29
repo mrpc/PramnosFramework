@@ -101,8 +101,17 @@ class EmailsController extends Controller
                'dt-emails-status',
                (string) \Pramnos\Http\Request::staticGet('status_filter', '', 'get')
            )
-           ->addColumn('Opens', false, false, false, 'html', '', false, 'left', false)
-           ->addColumn('', false, false, false, 'html', '', false, 'right', false);
+           /*
+            * `true` is the second argument, and it is `bVisible`.
+            *
+            * Both of these were `false`, which goes straight into DataTables' column config and
+            * hides the column outright. The Opens column was added and never appeared; the
+            * actions column beside it — the view and resend icons — had been invisible since it
+            * was written. The rest of this framework's screens declare an actions column as
+            * `('Actions', true, false, false, 'html')`: visible, unsortable, unsearchable.
+            */
+           ->addColumn('Opens', true, false, false, 'html', '', true, 'left', false)
+           ->addColumn('Actions', true, false, false, 'html', '', false, 'right', false);
 
         $view            = $this->getView('emails');
         $view->datatable = $dt;
