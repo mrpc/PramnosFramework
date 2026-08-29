@@ -5,6 +5,7 @@ use_cases:
   - Seeing who is signed in and from where
   - Diagnosing an empty or wrong panel in the developer dashboard
   - Adding an application-specific panel to the developer dashboard
+  - Reading the log while developing, without opening the administration area
 ---
 
 # DevPanel Guide
@@ -265,6 +266,39 @@ The traffic log row says whether `mcp:serve --log` has ever run, and links `mcp.
 log viewer. The panel cannot switch it on: that log belongs to the server process the client
 started, which is not this one. See the
 [MCP guide](Pramnos_MCP_Guide.md) for `mcp:call` and `--log`.
+
+### Logs
+
+`/devpanel/logs` — the last lines of every log file, newest first, with a level floor, a
+substring search and a file selector. Every filter is a query parameter, so a useful view is a
+URL somebody can paste into a message.
+
+The administration area already has a log screen — charts, a datatable, its own controller —
+and it is the wrong thing to reach for while developing: it is behind an admin session, it is
+styled like the application, and what a developer wants is the last fifty lines and a way to
+grep them.
+
+Three details that matter more than they look:
+
+- **The tail, not the file.** A log is hundreds of megabytes on a server that has been up a
+  while, and the lines being looked for were written a minute ago.
+- **Ordered by parsed time, not string.** The log writes `d/m/Y H:i:s`, and `01/09` sorts before
+  `29/08` — so a string sort puts the oldest lines at the top for the first days of every month
+  and is right again by the tenth. Which is the shape of a "the log viewer is broken" report
+  that nobody can reproduce.
+- **A file name from the URL is a filter, never a path.** It is compared against the names
+  actually on disk rather than joined to the log directory, so there is nothing to get subtly
+  wrong about how many `..` a path can contain.
+
+Above the lines, the requests that failed — from the same log, grouped by request id. That
+section is short on purpose and empty on a server nobody is debugging: lines carry a request id
+only while the debug toolbar is active for that visitor, because on a live server everybody
+else is logging into the same seconds and their lines are not a developer's to read.
+
+`/devpanel/logs?request=<id>` still answers JSON, which is what the debug toolbar asks for. The
+same address serves both because the toolbar always passes an id and a person never does — and
+before this, a person who opened `/devpanel/logs` got a 400 about a parameter they had no way
+to know existed.
 
 ### Git, PHP Info
 

@@ -596,9 +596,14 @@ class DevPanelControllerTest extends TestCase
     }
 
     /**
-     * A missing id is the same refusal: there is no "everything" to ask for.
+     * A missing id is a person, and a person gets the viewer.
+     *
+     * The toolbar always passes `?request=<id>`; a person never does. This used to answer a
+     * 400 about a parameter they had no way to know existed, on the one screen somebody would
+     * look for when something is in the log — so the same address now serves both callers, and
+     * nothing the toolbar sends changed shape.
      */
-    public function testAnAbsentRequestIdIsRefused(): void
+    public function testAnAbsentRequestIdRendersTheViewer(): void
     {
         // Arrange
         $this->setMockUser(95);
@@ -606,11 +611,12 @@ class DevPanelControllerTest extends TestCase
         // Act
         ob_start();
         $this->controller->logs();
-        $output = ob_get_clean();
+        $output = (string) ob_get_clean();
 
         // Assert
-        $decoded = json_decode($output, true);
-        $this->assertArrayHasKey('error', $decoded);
+        $this->assertNull(json_decode($output, true), 'a page, not a JSON refusal');
+        $this->assertStringContainsString('log-filters', $output);
+        $this->assertStringContainsString('DevPanel', $output);
     }
 
     /**

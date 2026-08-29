@@ -351,6 +351,23 @@ class DevPanelController extends Controller
         $request = new \Pramnos\Http\Request();
         $id      = (string) $request->get('request', '', 'get');
 
+        /*
+         * Two callers, one address.
+         *
+         * The toolbar always passes `?request=<id>` and wants JSON. A person opening
+         * `/devpanel/logs` passes nothing and used to get a 400 with «a valid request id is
+         * required» — an error page about a parameter they had no way to know existed, on the
+         * one screen a developer would look for when something is in the log.
+         *
+         * So: an id means the toolbar, and no id means a viewer. Nothing the toolbar sends
+         * changes shape, which is what keeps this safe to do to a published endpoint.
+         */
+        if ($id === '' && !$request->get('format', '', 'get')) {
+            $this->renderLayout('logs', $this->renderLogViewer($request));
+
+            return null;
+        }
+
         if (!\Pramnos\Debug\RequestLog::isValidId($id)) {
             return $this->sendJson(
                 ['error' => 'A valid request id is required.'],
@@ -365,6 +382,212 @@ class DevPanelController extends Controller
             'count'   => count($lines),
             'lines'   => $lines,
         ]);
+    }
+
+    /**
+     * The log, as a page rather than as a controller.
+     *
+     * The administration area has a whole log screen — charts, a datatable, filters, its own
+     * controller — and it is the wrong place to read a log from while developing: it is behind
+     * an admin session, it is styled like the application, and the thing a developer wants is
+     * the last fifty lines and a way to grep them.
+     *
+     * This is that. It reads the same files, it holds no state, and every filter is a query
+     * parameter so a useful view is a URL somebody can paste.
+     */
+    protected function renderLogViewer(\Pramnos\Http\Request $request): string
+    {
+        $level  = strtolower(trim((string) $request->get('level', '', 'get')));
+        $search = trim((string) $request->get('q', '', 'get'));
+        $file   = trim((string) $request->get('file', '', 'get'));
+        $limit  = max(10, min(500, (int) $request->get('limit', 100, 'get', 'int')));
+
+        $lines    = $this->readLogLines($file, $level, $search, $limit);
+        $files    = $this->logFileNames();
+        $requests = \Pramnos\Debug\RequestLog::recent(10, 'error');
+        $esc      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+
+        $options = '';
+
+        foreach ($files as $name) {
+            $selected = $name === $file ? ' selected' : '';
+            $options .= '<option value="' . $esc($name) . '"' . $selected . '>' . $esc($name) . '</option>';
+        }
+
+        $levels = '';
+
+        foreach (['' => 'Every level', 'error' => 'error and worse', 'warning' => 'warning and worse'] as $value => $label) {
+            $selected = $value === $level ? ' selected' : '';
+            $levels  .= '<option value="' . $esc($value) . '"' . $selected . '>' . $esc($label) . '</option>';
+        }
+
+        $rows = '';
+
+        foreach ($lines as $line) {
+            $requestId = (string) ($line['request'] ?? '');
+            $rows .= '<tr class="lvl-' . $esc(strtolower((string) $line['level'])) . '">'
+                . '<td class="ts">' . $esc($line['timestamp']) . '</td>'
+                . '<td class="lvl">' . $esc($line['level']) . '</td>'
+                . '<td class="msg">' . $esc($line['message']) . '</td>'
+                . '<td class="src">' . $esc($line['file'])
+                . ($requestId !== '' ? ' <span class="req">' . $esc(substr($requestId, 0, 8)) . '</span>' : '')
+                . '</td></tr>';
+        }
+
+        if ($rows === '') {
+            $rows = '<tr><td colspan="4" class="empty">Nothing matches. The filters are in the '
+                . 'URL, so widening one is an edit rather than a form.</td></tr>';
+        }
+
+        $failing = '';
+
+        foreach ($requests as $failed) {
+            $failing .= '<li><code>' . $esc($failed['request']) . '</code> — '
+                . $esc($failed['ended']) . ' — ' . $esc(mb_substr((string) $failed['message'], 0, 160))
+                . '</li>';
+        }
+
+        $failingBlock = $failing === ''
+            ? ''
+            : '<section class="card"><h3>Requests that failed</h3><p class="hint">Tagged only '
+                . 'while the debug toolbar is active for that visitor — so this is short on '
+                . 'purpose, and empty on a server nobody is debugging.</p><ul class="failing">'
+                . $failing . '</ul></section>';
+
+        return <<<HTML
+        <h2>Logs</h2>
+        <form method="get" class="log-filters">
+          <select name="file"><option value="">Every file</option>{$options}</select>
+          <select name="level">{$levels}</select>
+          <input type="search" name="q" value="{$esc($search)}" placeholder="contains…">
+          <input type="number" name="limit" value="{$limit}" min="10" max="500" step="10">
+          <button type="submit">Show</button>
+        </form>
+        {$failingBlock}
+        <table class="log-lines">
+          <thead><tr><th>When</th><th>Level</th><th>Message</th><th>Source</th></tr></thead>
+          <tbody>{$rows}</tbody>
+        </table>
+        HTML;
+    }
+
+    /**
+     * The tail of the log files, newest first, filtered.
+     *
+     * The tail rather than the whole file: a log is hundreds of megabytes on a server that has
+     * been up a while, and the lines somebody is looking for were written a minute ago.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function readLogLines(string $file, string $level, string $search, int $limit): array
+    {
+        $order = ['debug' => 0, 'info' => 1, 'notice' => 2, 'warning' => 3, 'error' => 4, 'critical' => 5];
+        $floor = $order[$level] ?? -1;
+        $found = [];
+
+        foreach ($this->logFiles() as $path) {
+            $name = basename($path);
+
+            // A name from the query string is compared against the ones on disk, never joined
+            // to a path: there is exactly one directory to read from, and it is not the
+            // caller's to choose.
+            if ($file !== '' && $name !== $file) {
+                continue;
+            }
+
+            foreach ($this->tailLines($path) as $line) {
+                $entry = json_decode($line, true);
+
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $severity = strtolower((string) ($entry['level'] ?? 'info'));
+
+                if (($order[$severity] ?? 1) < $floor) {
+                    continue;
+                }
+
+                $message = (string) ($entry['message'] ?? '');
+
+                if ($search !== '' && stripos($message, $search) === false) {
+                    continue;
+                }
+
+                $found[] = [
+                    'when'      => \Pramnos\Logs\Logger::timestampOf((string) ($entry['timestamp'] ?? '')),
+                    'timestamp' => (string) ($entry['timestamp'] ?? ''),
+                    'level'     => $severity,
+                    'message'   => mb_substr($message, 0, 600),
+                    'file'      => $name,
+                    'request'   => (string) ($entry['request'] ?? ''),
+                ];
+            }
+        }
+
+        // Numerically, because `d/m/Y` sorts wrong as a string — the first days of a month
+        // would put the oldest lines at the top.
+        usort($found, static fn (array $a, array $b): int => $b['when'] <=> $a['when']);
+
+        return array_slice($found, 0, $limit);
+    }
+
+    /** @return list<string> */
+    protected function logFileNames(): array
+    {
+        return array_map('basename', $this->logFiles());
+    }
+
+    /**
+     * The log files, and only those.
+     *
+     * @return list<string>
+     */
+    protected function logFiles(): array
+    {
+        $directory = \Pramnos\Logs\Logger::logDirectory();
+
+        if (!is_dir($directory)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            (array) glob($directory . DIRECTORY_SEPARATOR . '*.log'),
+            static fn ($path): bool => is_file((string) $path) && !is_link((string) $path)
+        ));
+    }
+
+    /**
+     * The last 512KB of a file, as lines.
+     *
+     * @return list<string>
+     */
+    protected function tailLines(string $path, int $bytes = 524288): array
+    {
+        $handle = @fopen($path, 'rb');
+
+        if ($handle === false) {
+            return [];
+        }
+
+        if ((int) @filesize($path) > $bytes) {
+            fseek($handle, -$bytes, SEEK_END);
+            fgets($handle);   // the first line of the window is cut in half
+        }
+
+        $lines = [];
+
+        while (($line = fgets($handle)) !== false) {
+            $line = trim($line);
+
+            if ($line !== '') {
+                $lines[] = $line;
+            }
+        }
+
+        fclose($handle);
+
+        return $lines;
     }
 
     /**
@@ -2285,6 +2508,9 @@ class DevPanelController extends Controller
             'git'         => 'Git',
             // Between Git and PHP Info: a developer tool, beside the other developer tools.
             'mcp'         => 'MCP',
+            // Beside MCP rather than at the end: both are things a developer opens while
+            // something is wrong, and the log is the first of them.
+            'logs'        => 'Logs',
             'phpinfo'     => 'PHP Info',
         ];
 
@@ -2886,6 +3112,32 @@ class DevPanelController extends Controller
             font-size: 12px; line-height: 1.5; max-height: 420px; overflow-y: auto;
             white-space: pre-wrap; word-break: break-word; border-left: 3px solid var(--surface2); }
         pre.mcp-result.failed { border-left-color: var(--red); color: var(--red); }
+
+        /* The log viewer. Monospace for the message, because a log line is a log line. */
+        .log-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+        .log-filters select, .log-filters input, .log-filters button {
+            background: var(--surface); color: var(--text); border: 1px solid var(--surface2);
+            border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit;
+        }
+        .log-filters input[type=search] { flex: 1; min-width: 180px; }
+        .log-filters button { background: var(--blue); color: var(--bg2); font-weight: 600; cursor: pointer; }
+        .log-lines { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .log-lines th { text-align: left; font-size: 12px; color: var(--subtext);
+                        border-bottom: 1px solid var(--surface2); padding: 6px 8px; }
+        .log-lines td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid var(--bg2); }
+        .log-lines .ts, .log-lines .src { white-space: nowrap; color: var(--subtext); font-size: 12px; }
+        .log-lines .lvl { text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+        .log-lines .msg { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+                          word-break: break-word; }
+        .log-lines tr.lvl-error .lvl, .log-lines tr.lvl-critical .lvl { color: var(--red); }
+        .log-lines tr.lvl-warning .lvl { color: var(--yellow); }
+        .log-lines tr.lvl-info .lvl, .log-lines tr.lvl-notice .lvl { color: var(--blue); }
+        .log-lines .empty { color: var(--subtext); padding: 20px 8px; }
+        .log-lines .req { color: var(--mauve); font-family: ui-monospace, monospace; }
+        .failing { list-style: none; padding: 12px 16px; }
+        .failing li { padding: 4px 0; font-size: 12px; color: var(--subtext); }
+        .failing code { color: var(--mauve); }
+        .hint { color: var(--subtext); font-size: 12px; padding: 0 16px; }
         CSS;
     }
 }
