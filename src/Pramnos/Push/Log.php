@@ -160,7 +160,7 @@ class Log
         $empty = ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0];
 
         try {
-            $since  = time() - max(1, $days) * 86400;
+            $since  = date('Y-m-d H:i:s', time() - max(1, $days) * 86400);
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#pushlog')
                 ->select(['status', 'endpoint_hash'])
@@ -193,9 +193,13 @@ class Log
     /**
      * Drop rows older than `$days`.
      *
-     * A log of every notification to every browser grows faster than the mail log does — a
-     * notification is cheap to send, so applications send many — and none of it is worth keeping
-     * for a year. Ninety days by default, which is long enough to investigate a complaint.
+     * **For an installation without TimescaleDB.** With it, the retention policy declared in the
+     * migration does this — and does it by dropping whole chunks, which is why a hypertable is
+     * the right shape here: a `DELETE` over a large append-only table rewrites index pages and
+     * leaves bloat only a `VACUUM FULL` reclaims.
+     *
+     * Ninety days by default either way. A notification is cheap to send so applications send
+     * many, and nobody needs to know which one a browser acknowledged last spring.
      *
      * @return int rows removed, or 0 when nothing could be read
      */
@@ -204,7 +208,7 @@ class Log
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#pushlog')
-                ->where('sent', '<', time() - max(1, $days) * 86400)
+                ->where('sent', '<', date('Y-m-d H:i:s', time() - max(1, $days) * 86400))
                 ->delete();
 
             return $result instanceof \Pramnos\Database\Result
@@ -215,11 +219,32 @@ class Log
         }
     }
 
+    /**
+     * A row's `sent` as a unix timestamp, whatever the driver handed back.
+     *
+     * PostgreSQL returns `2026-08-29 14:49:32.517335+00`, MySQL returns `2026-08-29 14:49:32`,
+     * and a screen wants neither. One reader, so a view never parses a date itself — which is
+     * how `d/m/Y` ended up being sorted as a string elsewhere in this framework.
+     */
+    public static function sentAt(array $row): int
+    {
+        $value = (string) ($row['sent'] ?? '');
+
+        if ($value === '') {
+            return 0;
+        }
+
+        return is_numeric($value) ? (int) $value : (int) strtotime($value);
+    }
+
     /** @param array<string, mixed> $row */
     private static function write(array $row): bool
     {
         try {
-            $row['sent'] = time();
+            // A timestamp string: `sent` is a `timestamptz` — it is the hypertable's partition
+            // column, and the compression and retention policies take interval strings that only
+            // mean anything against one.
+            $row['sent'] = date('Y-m-d H:i:s');
 
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#pushlog')

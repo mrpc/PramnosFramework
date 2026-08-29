@@ -50,6 +50,21 @@ use Pramnos\Database\Migration;
  * It is a credential: whoever holds it can push to that browser. The hash is enough to join a
  * log row to the subscription it was for, and to say "the same browser again" — which is all
  * this table is asked.
+ *
+ * ### A hypertable, compressed and expired
+ *
+ * This is append-only, timestamped, queried by recency and never updated — the exact shape
+ * TimescaleDB exists for, and the exact shape that makes a plain table with a `DELETE` sweep
+ * the wrong answer: a delete on a large table rewrites index pages and leaves bloat behind
+ * that only a `VACUUM FULL` reclaims.
+ *
+ * A push is cheap to send, so applications send many, and this grows faster than the mail log
+ * does. Compressed after 7 days — a week is how long "why did they not get it" stays a live
+ * question — and **dropped after 90**, because unlike an audit trail nobody needs to know which
+ * notification a browser acknowledged last spring.
+ *
+ * All three calls are documented no-ops without TimescaleDB, so MySQL and plain PostgreSQL get
+ * the ordinary table and `Log::prune()`, which is why that method still exists.
  */
 class CreatePushLogTable extends Migration
 {
@@ -92,14 +107,64 @@ class CreatePushLogTable extends Migration
                     . 'subscription is gone, 429/5xx busy, 0 it never reached a server.');
             $table->string('error', 255)->default('')
                 ->comment('Why nothing was sent, when nothing was');
-            $table->integer('sent')->default(0)
-                ->comment('Unix timestamp');
+            /*
+             * A timestamp, not a unix integer.
+             *
+             * The partition column of a hypertable, and the two policies below take interval
+             * strings — `'7 days'`, `'90 days'` — which only mean anything against a timestamp.
+             * An integer column needs an `integer_now_func` registered and integer intervals
+             * everywhere, which is a lot of machinery to keep a column narrower. The framework's
+             * other hypertables are `timestampTz` for the same reason.
+             */
+            $table->timestampTz('sent')->useCurrent()
+                ->comment('When the attempt was made — the hypertable partition column');
+
+            /*
+             * Composite primary key, because a hypertable's partition key has to be part of
+             * every unique constraint. On MySQL and plain PostgreSQL it is simply a composite
+             * key — correct either way, and the same shape `tokenactions` and the audit log
+             * have used since they were written.
+             */
+            $table->primary(['pushid', 'sent']);
 
             // The three questions this table is asked, in the order they are asked.
             $table->index(['sent'], 'idx_pushlog_sent');
             $table->index(['userid', 'sent'], 'idx_pushlog_user');
             $table->index(['status'], 'idx_pushlog_status');
         });
+
+        /*
+         * Seven-day chunks: a week is the window «why did they not get it» is asked in, so the
+         * chunk holding the answer is the one still uncompressed.
+         */
+        $schema->createHypertable('pushlog', 'sent', [
+            'chunk_time_interval' => '7 days',
+            'if_not_exists'       => true,
+        ]);
+
+        /*
+         * `segmentby` on `status`, not on `userid`.
+         *
+         * A handful of distinct values — 201, 410, 429, 0 — and the column the useful query
+         * filters on: «show me what did not arrive». A batch that cannot match is skipped
+         * without being decompressed. `userid` is high-cardinality and would produce one
+         * segment per account, compressing almost nothing.
+         */
+        $schema->enableCompression('pushlog', [
+            'segmentby' => 'status',
+            'orderby'   => 'sent DESC',
+        ]);
+
+        $schema->addCompressionPolicy('pushlog', '7 days');
+
+        /*
+         * And dropped at ninety days, which an audit trail deliberately is not.
+         *
+         * A push is cheap to send so applications send many, and nobody needs to know which
+         * notification a browser acknowledged last spring. Ninety days is long enough to
+         * investigate a complaint, which is the only reason anybody opens this.
+         */
+        $schema->addRetentionPolicy('pushlog', '90 days', 'sent');
     }
 
     public function down(): void

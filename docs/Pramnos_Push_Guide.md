@@ -322,6 +322,31 @@ identical from every table — and the first one is not rare, because the librar
 `0` with an empty `endpoint_hash` is a refusal rather than a network failure; the screen
 separates them.
 
+### It is a hypertable, compressed and expired
+
+Append-only, timestamped, queried by recency, never updated — the shape TimescaleDB exists for,
+and the shape that makes a plain table with a `DELETE` sweep the wrong answer: a delete over a
+large table rewrites index pages and leaves bloat only a `VACUUM FULL` reclaims.
+
+| | |
+| --- | --- |
+| Partitioned on | `sent`, in 7-day chunks — a week is how long *why did they not get it* stays a live question |
+| Compressed after | 7 days, segmented by `status` |
+| Dropped after | **90 days** |
+
+`segmentby` is `status`, not `userid`: a handful of distinct values — 201, 410, 429, 0 — and the
+column the useful query filters on, so a batch that cannot match is skipped without being
+decompressed. `userid` is high-cardinality and would produce one segment per account,
+compressing almost nothing.
+
+**Dropped, which an audit trail deliberately is not.** A push is cheap to send so applications
+send many, and nobody needs to know which notification a browser acknowledged last spring.
+Ninety days is long enough to investigate a complaint, which is the only reason anybody opens
+this.
+
+All three declarations are documented no-ops without TimescaleDB, so MySQL and plain PostgreSQL
+get the ordinary table and `Log::prune()` — which is why that method still exists.
+
 ### What it does not store
 
 The endpoint. Whoever holds it can push to that browser, so it is a credential, and a log is the

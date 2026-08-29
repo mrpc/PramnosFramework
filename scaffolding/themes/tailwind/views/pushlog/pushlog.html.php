@@ -20,8 +20,15 @@ $stats  = is_array($this->stats ?? null) ? $this->stats : [];
 $userId = (int) ($this->userId ?? 0);
 $only   = (string) ($this->only ?? '');
 $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-$when   = static function ($value): string {
-    $time = (int) $value;
+/*
+ * One reader for the timestamp.
+ *
+ * `sent` is a `timestamptz`, so PostgreSQL hands back `2026-08-29 14:49:32.517335+00` and MySQL
+ * `2026-08-29 14:49:32`. `Log::sentAt()` is the one place that knows, so no view parses a date
+ * itself — which is how `d/m/Y` ended up being sorted as a string elsewhere in this framework.
+ */
+$when   = static function (array $row): string {
+    $time = \Pramnos\Push\Log::sentAt($row);
 
     return $time > 0 ? localDateTime($time) : '—';
 };
@@ -124,7 +131,7 @@ $outcome = static function (array $row): array {
                     <?php foreach ($rows as $row): ?>
                         <?php [$class, $label] = $outcome($row); ?>
                         <tr>
-                            <td class="whitespace-nowrap"><?php echo $e($when($row['sent'] ?? 0)); ?></td>
+                            <td class="whitespace-nowrap"><?php echo $e($when($row)); ?></td>
                             <td>
                                 <?php if ((int) ($row['userid'] ?? 0) > 0): ?>
                                     <a class="link link-hover"

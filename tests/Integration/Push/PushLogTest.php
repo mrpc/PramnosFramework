@@ -239,7 +239,7 @@ class PushLogTest extends BaseTestCase
                 'tag' => '',
                 'status' => 201,
                 'error' => '',
-                'sent' => time() - 200 * 86400,
+                'sent' => date('Y-m-d H:i:s', time() - 200 * 86400),
             ]);
 
         // Act
