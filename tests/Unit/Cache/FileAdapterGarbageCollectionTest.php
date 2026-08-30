@@ -191,4 +191,68 @@ class FileAdapterGarbageCollectionTest extends TestCase
             sprintf('clear() took %.1f ms per call — it is walking the tree again', $perCall)
         );
     }
+    /**
+     * Flushing the whole cache removes the directories too, not only the files.
+     *
+     * `clear('')` passes the cache root as its path, and `cleanEmptyDirectories()` — which walks
+     * *upward* — refuses to touch the root on its first line. So a full flush emptied every file
+     * and left every directory, for ever.
+     *
+     * Nothing looked wrong: the entries were gone, every read missed, every count was right.
+     * What was left was one empty directory per category the installation had ever cached
+     * under — and the schema-column cache makes one **per table**, so a database that creates
+     * and drops tables accumulates them without limit. Found at 8,589 of them in a checkout,
+     * holding zero files, each one walked again by every `getStats()`, `getAllItems()` and
+     * `clear()`: 1.2 seconds a call over a bind mount.
+     */
+    public function testAFullFlushRemovesTheEmptyDirectoriesToo(): void
+    {
+        // Arrange — three categories, the shape a schema-column cache leaves behind
+        $adapter = new FileAdapter($this->dir);
+        $adapter->connect();
+
+        foreach (['schema_columns_users', 'schema_columns_mails', 'userlist'] as $category) {
+            $adapter->setCategory($category);
+            $adapter->save('entry', ['a' => 1], 3600);
+        }
+
+        $this->assertCount(3, glob($this->dir . '/*', GLOB_ONLYDIR), 'a directory each');
+
+        // Act
+        $adapter->setCategory('');
+        $adapter->clear('');
+
+        // Assert
+        $this->assertSame([], glob($this->dir . '/*', GLOB_ONLYDIR),
+            'a flush that leaves the directories makes the next one slower than the last');
+        $this->assertTrue(is_dir($this->dir), 'and the cache root itself survives');
+    }
+
+    /**
+     * Clearing one category leaves the others standing.
+     *
+     * The downward sweep is for a full flush. A targeted clear keeps the cheap upward walk —
+     * and must not take its neighbours with it.
+     */
+    public function testClearingOneCategoryLeavesTheOthers(): void
+    {
+        // Arrange
+        $adapter = new FileAdapter($this->dir);
+        $adapter->connect();
+
+        foreach (['alpha', 'beta'] as $category) {
+            $adapter->setCategory($category);
+            $adapter->save('entry', ['a' => 1], 3600);
+        }
+
+        // Act
+        $adapter->setCategory('alpha');
+        $adapter->clear('alpha');
+
+        // Assert
+        $remaining = array_map('basename', glob($this->dir . '/*', GLOB_ONLYDIR));
+
+        $this->assertSame(['beta'], $remaining);
+    }
+
 }

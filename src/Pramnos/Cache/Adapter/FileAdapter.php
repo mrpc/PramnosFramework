@@ -333,7 +333,32 @@ class FileAdapter extends AbstractAdapter
             foreach ($this->listDirectoryFiles($path) as $file) {
                 $this->deleteIfStillThere($file);
             }
-            $this->cleanEmptyDirectories($path);
+
+            /*
+             * Which pruner, and why it matters which.
+             *
+             * `cleanEmptyDirectories()` walks *upward* from the directory it is given and its
+             * first line refuses to touch the cache root — correctly, the root is ours to keep.
+             * But a flush of everything passes the root as its path, so the guard fired
+             * immediately and **a full flush never removed a single directory**.
+             *
+             * Nothing looked wrong. The entries were gone, every read missed, every count was
+             * right. What was left was one empty directory per category the installation had
+             * ever cached under — and {@see \Pramnos\Database\Database::columnCacheCategory()}
+             * makes one per table, so a database that creates and drops tables accumulates them
+             * for ever. Found at **8,589 empty directories holding zero files** in a checkout,
+             * where every `getStats()`, `getAllItems()` and `clear()` walks the lot: 1.2 seconds
+             * a call over a bind mount, and about a thousand new ones per day of running a test
+             * suite.
+             *
+             * So: the downward sweep when the whole cache was flushed, and the cheap upward walk
+             * when one category was.
+             */
+            if ($category === '') {
+                $this->pruneEmptyDirectories();
+            } else {
+                $this->cleanEmptyDirectories($path);
+            }
         }
 
         // Entries written by the old layout, which put a category with an
