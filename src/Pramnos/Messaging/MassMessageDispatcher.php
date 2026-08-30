@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Messaging;
 
 use Pramnos\Database\Database;
-use Pramnos\Storage\BodyStore;
 
 /**
  * Turns a mass message into deliveries, a batch at a time.
@@ -57,13 +56,6 @@ class MassMessageDispatcher
     public const DEFAULT_BATCH = 100;
 
     private Database $database;
-
-    /**
-     * One body per campaign, worked out once.
-     *
-     * @var array<int, array<string, mixed>>
-     */
-    protected array $bodies = [];
 
     public function __construct(?Database $database = null)
     {
@@ -433,49 +425,6 @@ class MassMessageDispatcher
     }
 
     /**
-     * The body columns for one recipient's row: either inline, or a path into the store.
-     *
-     * Worked out **once per campaign**, not once per recipient. This method's caller runs for
-     * every person on the list, and the body is the same string every time — hashing forty
-     * kilobytes forty thousand times to arrive at the same digest is the kind of cost that only
-     * shows up on the send that matters.
-     *
-     * The saving on the other side is the reason the store is worth using here at all. Forty
-     * thousand rows carrying their own copy of one body become forty thousand path strings and
-     * one file, because the store is content-addressed and the second write finds the first one
-     * already there.
-     *
-     * @param  array<string, mixed> $message The campaign row
-     * @return array<string, mixed> Columns to merge into the insert
-     */
-    protected function bodyOf(array $message): array
-    {
-        $key = (int) ($message['messageid'] ?? 0);
-
-        if (isset($this->bodies[$key])) {
-            return $this->bodies[$key];
-        }
-
-        $body    = (string) ($message['message'] ?? '');
-        $columns = ['text' => $body, 'bodypath' => '', 'bodybytes' => 0,
-                    'excerpt' => BodyStore::excerpt($body)];
-
-        if (BodyStore::enabled() && trim($body) !== '') {
-            $path = BodyStore::put($body);
-
-            if ($path !== null) {
-                // A failure to store falls back to the column. A body that could not be written
-                // to a disk is not a body worth losing — the row is what the recipient opens.
-                $columns = ['text' => '', 'bodypath' => $path,
-                            'bodybytes' => BodyStore::bytes($path),
-                            'excerpt'   => BodyStore::excerpt($body)];
-            }
-        }
-
-        return $this->bodies[$key] = $columns;
-    }
-
-    /**
      * Put it in the account's own inbox.
      */
     protected function deliverAsMessage(array $message, int $userId): bool
@@ -487,6 +436,7 @@ class MassMessageDispatcher
                     'massid'     => (int) $message['messageid'],
                     'type'       => Message::TYPE_NEW,
                     'subject'    => (string) ($message['subject'] ?? ''),
+                    'text'       => (string) ($message['message'] ?? ''),
                     'fromuserid' => (int) ($message['sender'] ?? 0) ?: null,
                     'touserid'   => $userId,
                     'date'       => time(),
@@ -496,7 +446,7 @@ class MassMessageDispatcher
                     // the insert fail, and the failure is caught here — so every recipient
                     // would be recorded as failed with the reason only in a log.
                     'attachmenttext' => '',
-                ] + $this->bodyOf($message));
+                ]);
 
             return true;
         } catch (\Throwable $exception) {

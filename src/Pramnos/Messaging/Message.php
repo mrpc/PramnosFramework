@@ -84,23 +84,6 @@ class Message extends \Pramnos\Application\Model
     public $urlcaption;
     /** @var string */
     public $attachmenttext;
-
-    /**
-     * Relative path of the body in the store, empty when the body is inline in `text`.
-     *
-     * @var string
-     */
-    public $bodypath = '';
-
-    /** @var int */
-    public $bodybytes = 0;
-
-    /**
-     * Plain-text opening of the body, so a listing never opens a stored file.
-     *
-     * @var string
-     */
-    public $excerpt = '';
     /** @var string */
     public $image;
     /** @var string */
@@ -142,23 +125,7 @@ class Message extends \Pramnos\Application\Model
      */
     public function load($messageid, $key = null, $debug = false)
     {
-        $loaded = parent::_load($messageid, null, $key, $debug);
-
-        /*
-         * The body comes back from wherever it was put.
-         *
-         * Every caller reads `$message->text`, and none of them should have to know that a body
-         * can live in a file. That is the whole contract of the store: the column is an
-         * implementation detail of one row, not of the model.
-         */
-        if ((string) $this->text === '' && (string) $this->bodypath !== '') {
-            $this->text = \Pramnos\Storage\BodyStore::bodyOf([
-                'text'     => '',
-                'bodypath' => (string) $this->bodypath,
-            ]);
-        }
-
-        return $loaded;
+        return parent::_load($messageid, null, $key, $debug);
     }
 
     /**
@@ -170,36 +137,6 @@ class Message extends \Pramnos\Application\Model
      */
     public function save($autoGetValues = false, $debug = false)
     {
-        $body = (string) $this->text;
-
-        if (\Pramnos\Storage\BodyStore::enabled() && trim($body) !== '') {
-            $path = \Pramnos\Storage\BodyStore::put($body, (int) ($this->date ?: time()));
-
-            if ($path !== null) {
-                $this->excerpt = \Pramnos\Storage\BodyStore::excerpt($body);
-                /*
-                 * The column is emptied only for the write.
-                 *
-                 * A caller that saves and then reads `$message->text` — which is most callers,
-                 * because saving is rarely the last thing anybody does with an object — would
-                 * otherwise find it blank, and the body would look lost when it had just been
-                 * stored. So the object is put back the way it was found.
-                 *
-                 * A failure to store falls back to writing inline. A body that could not be put
-                 * on a disk is not a body worth losing: the row is what the recipient opens.
-                 */
-                $this->bodypath  = $path;
-                $this->bodybytes = \Pramnos\Storage\BodyStore::bytes($path);
-                $this->text      = '';
-
-                try {
-                    return parent::_save(null, null, $autoGetValues, $debug);
-                } finally {
-                    $this->text = $body;
-                }
-            }
-        }
-
         return parent::_save(null, null, $autoGetValues, $debug);
     }
 

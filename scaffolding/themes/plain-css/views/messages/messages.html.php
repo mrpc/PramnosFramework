@@ -6,8 +6,6 @@ $messages = is_array($this->messages ?? null) ? $this->messages : [];
 $unread   = (int) ($this->unread ?? 0);
 $e        = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $when     = static fn ($v): string => ((int) $v) > 0 ? localDateTime( (int) $v) : '—';
-// `excerpt` is written at send time so this listing never opens a stored body.
-// The fallback to `text` is for rows written before the store existed.
 $excerpt  = static function ($text): string {
     $plain = trim(preg_replace('/\s+/', ' ', strip_tags((string) $text)) ?? '');
 
@@ -36,7 +34,7 @@ $excerpt  = static function ($text): string {
                 <span style="margin-top:6px;width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:<?php echo !empty($message['isUnread']) ? '#2563eb' : '#ddd'; ?>"></span>
                 <span style="flex:1;min-width:0">
                     <span style="display:block;<?php echo !empty($message['isUnread']) ? 'font-weight:600' : ''; ?>"><?php echo $e($message['subject'] ?? ''); ?></span>
-                    <span style="display:block;font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo $e($excerpt(($message['excerpt'] ?? '') ?: ($message['text'] ?? ''))); ?></span>
+                    <span style="display:block;font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo $e($excerpt($message['text'] ?? '')); ?></span>
                 </span>
                 <span style="font-size:12px;color:#888;white-space:nowrap"><?php echo $e($when($message['date'] ?? 0)); ?></span>
             </a>

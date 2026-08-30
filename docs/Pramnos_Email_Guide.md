@@ -1291,38 +1291,16 @@ password-reset mail is maybe two hundred bytes of facts — when, to whom, which
 send — wrapped around forty kilobytes of HTML. The facts are what anybody queries. The HTML is
 read by one screen, occasionally, and is never joined, filtered or aggregated on.
 
-So it does not live there. The body is gzipped into `var/mails/` and the row keeps a path to
-it. **Nothing is lost**: `BodyStore::bodyOf()` is the single reader, so the preview screen, the
-message report and anything an application wrote keep working. That is the difference from
-[emptying the column](#what-to-keep-of-a-sent-message-and-for-how-long), which makes the table
-just as small and costs every question that screen can answer.
-
-**This is the default.** It was opt-in until 31/08/2026, on the reasoning that moving an audit
-trail onto a disk nobody has decided to back up should be a decision somebody makes. That had the
-default backwards: the installations that never make the decision are exactly the ones whose
-`mails` grows unwatched, and the body is the whole of that growth.
-
-Nothing is at risk in the default. A body that cannot be written falls back to the column it used
-to live in, so an installation with no writable `var/mails` behaves as it always did, and rows
-written before and after are read the same way. To keep bodies in the database, say so:
-
 ```php
 // app/app.php
-'mail' => ['body_store' => ['enabled' => false]],   // or ['path' => '/elsewhere/mails']
+'mail' => ['body_store' => ['enabled' => true]],
 ```
 
-### There is no size threshold
-
-There was, and it was 512 bytes: below that a body costs more in a file — a 4 KB block and an
-inode for two hundred bytes — than it does in the row. The arithmetic was right and the trade was
-wrong, because it bought a little disk at the price of the only invariant that makes this store
-worth having: *the body is not in the database*. With a threshold that sentence has an **unless**
-in it, and so does every answer that rests on it — what a GDPR erasure has to clear, how large
-`mails` can get, whether `var/mails` is the backup that matters. One rule that always holds is
-worth more than a block per short message.
-
-`BodyStore::MIN_BYTES` remains, at `0` and deprecated, because it is public and something outside
-the framework may name it.
+Switched on, the body is gzipped into `var/mails/` and the row keeps a path to it. **Nothing is
+lost**: `BodyStore::bodyOf()` is the single reader, so the preview screen, the message report and
+anything an application wrote keep working. That is the difference from
+[emptying the column](#what-to-keep-of-a-sent-message-and-for-how-long), which makes the table
+just as small and costs every question that screen can answer.
 
 Measured on one installation: **7.2 MB of bodies in the database became 212 KB on disk.**
 
@@ -1332,108 +1310,14 @@ Measured on one installation: **7.2 MB of bodies in the database became 212 KB o
 ./yourapp mail:archive --gc --apply # …and collect files no row names any more
 ```
 
-### `messages` uses the same store
-
-The account's own inbox has the same problem in a worse shape. `mails` grows a row per message;
-`messages` grows a row per **recipient**, so a campaign to forty thousand people writes forty
-thousand rows, each carrying its own copy of one identical body.
-
-The store is content-addressed, so those forty thousand copies become forty thousand path strings
-and **one file**. Here, deduplication is not a bonus — it is the reason to use it at all.
-
-```
-./yourapp messages:archive            # what it would move, and nothing else
-./yourapp messages:archive --apply
-```
-
-New messages write to the store on their own, through `Message::save()` and through the mass-send
-dispatcher; `messages:archive` is the migration for rows that were already there. `Message::load()`
-brings the body back, so `$message->text` means what it always meant.
-
-**One extra column, and it is the one that makes the rest usable.** The inbox listing draws a
-preview line under every subject. With the body in a file that would be one decompression per row —
-two hundred to paint one page — so `excerpt` is written at send time and stays on the row. A
-listing wants a summary, not a body, and a summary is metadata.
-
-**And the garbage collection had to learn about it.** `BodyStore::orphans()` deletes files no row
-names. It was written when `mails` was the only table naming one; sharing the store without telling
-it about `messages` would have made every message body look unreferenced, and `mail:archive --gc`
-would have deleted all of them. `BodyStore::REFERENCED_BY` is the list, and adding a table to it is
-not bookkeeping — it is the whole safety of the sweep.
-
-A missing table is two different events, and the sweep tells them apart. `messages` belongs to a
-feature an installation can switch off: if it is absent no row ever pointed into the store from it,
-so it is skipped. `BodyStore::REQUIRED_TABLE` — `mails` — is different: the store was built for it,
-every file is presumed to have come from it, and reading "nothing is referenced" out of its absence
-hands the caller the whole archive to delete. So its absence stops the sweep.
-
-### The class moved, the old name did not
-
-The implementation is `Pramnos\Storage\BodyStore`, because a message body has nothing to do with
-email. `Pramnos\Email\BodyStore` still resolves and still means what it meant — an application
-that calls it keeps working. New code should use the one in `Storage`.
-
-The configuration key is still `mail.body_store`. Renaming it would break every installation that
-has set it, to buy tidiness in a config file nobody reads twice.
-
 ### Content-addressed, inside a dated partition
 
-`mails/2026/08/29/09/3f8a…c1.html.gz` — year, month, day, hour, then the digest of the body. Two
-decisions pulling in opposite directions, and both worth having:
+`mails/2026/08/3f/3f8a…c1.html.gz` — the year and month, two characters of the digest, then the
+digest. Two decisions pulling in opposite directions, and both worth having:
 
-- **The digest** means one file per distinct body. On the installation above, 2,916 archived
-  bodies are **198 files**.
-
-  **Read that as "per *distinct* body", not "per campaign".** A mailed campaign is personalised:
-  `offerUnsubscribe()` puts a per-recipient token in the wrapper, tracking gives each recipient
-  its own pixel id, and `Email::send()` logs the *rendered* body on purpose — the mailer sends
-  that string and the audit log records it, so they have to be the same one. Forty thousand
-  recipients are therefore forty thousand distinct bodies and forty thousand files.
-
-  Where the deduplication does pay is the **inbox** copies of a mass message: those are the
-  campaign body verbatim, identical for everyone, and they collapse to one file. Compression
-  applies to every stored body either way; deduplication only reaches the identical ones.
-
-  And only within the hour — see the partition below. A send writes its copies in minutes, so
-  that is where it matters; the same body sent again next week is stored twice.
-
-### Why down to the hour
-
-A directory holds an hour of mail. That is what lets anything walking this store walk an hour of
-it rather than all of it — and at ten million messages a month, a flat month is forty thousand
-files per bucket with no way to work through them a piece at a time. It also means an operator can
-look at, back up or remove a period without consulting the database.
-
-**This layout is not new and it is not this framework's invention.** Applications built on it have
-stored bodies exactly this way for years, recorded in `mails.path`. Adopting it is what lets one of
-them point the store at the tree it already has, instead of migrating out of it.
-
-### Two conventions, one reader
-
-`BodyStore::bodyOf($row)` takes a row and returns its body from wherever that body is:
-
-1. inline, in `content` / `text`;
-2. `bodypath` — relative to the store root;
-3. `path` — relative to `ROOT`, which is where applications recorded a gzipped body long before
-   this class existed.
-
-So an application with years of history in `path` gets a working reader without rewriting a row,
-and rows written under the store's own earlier layout (`Y/m/<bucket>/`) keep reading too. Nothing
-recomputes a directory name — a body is read from the path recorded on its row — which is why the
-layout could change at all.
-
-**`mails.path` is on the list the garbage collection consults.** If an installation points the
-store at the directory those files are already in — which is the point of making the root
-configurable — a sweep that only knew `bodypath` would see every one of them as unreferenced and
-delete years of history in a single run. `BodyStore::REFERENCED_BY` names both columns.
-
-### `hash` means what the schema always said it meant
-
-`mails.hash` is documented in the schema as "MD5 hash of the email content", and applications read
-it that way — one compares it against `md5($content)` to decide whether a body needs storing
-again. `Email::send()` used to write an identity of the *message* there instead — recipient,
-subject and time — which nothing in the framework ever read, and which quietly meant something
-different to everybody who did. It now writes the md5 of the rendered body.
+- **The digest** means one file per distinct body. A campaign to forty thousand people is one
+  body written once, not forty thousand copies — and that is the send that makes this table
+  large in the first place. On the installation above, 2,916 archived bodies are **198 files**.
 - **The date** means an operator can look at, back up or remove a period without consulting the
   database. It costs the dedup across months: the same body sent in August and in October is two
   files. That is the right way round — a campaign is one moment, and "remove 2023" is a thing

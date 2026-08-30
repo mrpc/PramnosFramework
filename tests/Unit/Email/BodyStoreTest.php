@@ -75,81 +75,15 @@ class BodyStoreTest extends TestCase
     {
         // Arrange
         $html = str_repeat('<p>Newsletter</p>', 100);
-        $when = mktime(9, 0, 0, 8, 29, 2026);
-
-        // Act — a mass send: many identical bodies, minutes apart
-        $first  = BodyStore::put($html, $when);
-        $second = BodyStore::put($html, $when + 600);
-
-        // Assert
-        $this->assertSame($first, $second);
-        $this->assertCount(1, $this->files());
-    }
-
-    /**
-     * An hour later is a second file, and that is the cost of the hourly partition.
-     *
-     * The partition is dated rather than hashed so that a directory holds an hour of mail: it is
-     * what lets anything that has to walk the store walk an hour of it instead of all of it, and
-     * at ten million messages a month that is the difference between a job that finishes and one
-     * that does not.
-     *
-     * It costs deduplication across the boundary. The case that matters keeps working — a
-     * campaign writes its identical copies within minutes, so they land in one directory and
-     * become one file — and the same body sent again next week is stored twice. That is the right
-     * way round: the burst is what makes the store large, and a week apart is two events.
-     */
-    public function testDeduplicationDoesNotReachAcrossTheHour(): void
-    {
-        // Arrange
-        $html = str_repeat('<p>Newsletter</p>', 100);
-        $when = mktime(9, 0, 0, 8, 29, 2026);
+        $when = mktime(0, 0, 0, 8, 29, 2026);
 
         // Act
         $first  = BodyStore::put($html, $when);
         $second = BodyStore::put($html, $when + 3600);
 
         // Assert
-        $this->assertNotSame($first, $second);
-        $this->assertCount(2, $this->files());
-    }
-
-    /**
-     * A personalised body is a different file, and that is the limit of the deduplication.
-     *
-     * The claim worth being precise about, because it is easy to state too broadly. The store is
-     * content-addressed, so *identical* bodies are stored once — and the inbox copies of a mass
-     * message genuinely are identical, which is where that property pays.
-     *
-     * A **mailed** campaign is not. `offerUnsubscribe()` puts a per-recipient token in the
-     * wrapper and tracking gives each recipient its own pixel id, and `Email::send()` logs the
-     * rendered body precisely because "the mailer sends this and the audit log records it, so
-     * they have to be the same string". So forty thousand recipients are forty thousand distinct
-     * bodies and forty thousand files.
-     *
-     * That is not a defect to fix here — it is what an honest audit trail costs. Compression
-     * still applies to every one of them; deduplication does not. Anything that reads "a campaign
-     * is one file" without saying *inbox* copies is wrong.
-     */
-    public function testAPersonalisedBodyIsNotDeduplicated(): void
-    {
-        // Arrange — one campaign, three recipients, differing only in their tokens
-        $wrapper = '<html><body><h1>Προσφορά</h1>' . str_repeat('<p>Κείμενο</p>', 40);
-        $paths   = [];
-
-        foreach (['alpha', 'beta', 'gamma'] as $token) {
-            // Act
-            $paths[] = BodyStore::put(
-                $wrapper . '<a href="https://example.gr/u/' . $token . '">Διαγραφή</a>'
-                . '</body></html>',
-                mktime(0, 0, 0, 8, 31, 2026)
-            );
-        }
-
-        // Assert
-        $this->assertCount(3, array_unique($paths),
-            'a per-recipient token makes a per-recipient file — the deduplication does not reach '
-            . 'a mailed campaign, only the identical inbox copies of one');
+        $this->assertSame($first, $second);
+        $this->assertCount(1, $this->files());
     }
 
     /**
@@ -217,7 +151,7 @@ class BodyStoreTest extends TestCase
         BodyStore::put('<p>' . str_repeat('a', 5000) . '</p>', time());
 
         // Assert
-        $this->assertSame([], glob($this->root . '/*/*/*/*/*.tmp') ?: []);
+        $this->assertSame([], glob($this->root . '/*/*/*/*.tmp') ?: []);
 
         foreach ($this->files() as $file) {
             $this->assertStringEndsWith('.html.gz', $file);
@@ -251,78 +185,6 @@ class BodyStoreTest extends TestCase
         $this->assertSame('', BodyStore::bodyOf(['content' => '', 'bodypath' => '']));
         $this->assertSame('', BodyStore::bodyOf([]));
     }
-
-    /**
-     * A body stored under the previous layout still reads back.
-     *
-     * The assertion that decides whether the layout change was safe to make. Every row written
-     * before it carries a `Y/m/<bucket>/` path, and nothing rewrites those rows — a reader that
-     * only understood the current shape would make the body of every older message unreadable
-     * without a single row changing. That is the worst kind of breakage: invisible until somebody
-     * opens an old message, and by then the deploy is a week old.
-     */
-    public function testABodyStoredUnderThePreviousLayoutStillReads(): void
-    {
-        // Arrange — a file exactly where the old put() would have left it
-        $html   = '<html><body><p>παλιά γραμμή</p></body></html>';
-        $digest = hash('sha256', $html);
-        $legacy = '2026/08/' . substr($digest, 0, 2) . '/' . $digest . '.html.gz';
-        $full   = $this->root . '/' . $legacy;
-
-        mkdir(dirname($full), 0775, true);
-        file_put_contents($full, gzencode($html));
-
-        // Act & Assert
-        $this->assertSame($html, BodyStore::get($legacy), 'read directly');
-        $this->assertSame($html, BodyStore::bodyOf(['content' => '', 'bodypath' => $legacy]),
-            'and through the reader every screen uses');
-    }
-
-    /**
-     * And the body of a row that predates this class entirely.
-     *
-     * `mails.path` is where applications on this framework recorded a gzipped body long before
-     * the store existed — relative to `ROOT`, not to the store, and in their own tree. A reader
-     * that knows only its own column returns nothing for those rows, and the screens go blank on
-     * exactly the installations with the most history to show.
-     */
-    public function testABodyInTheLegacyPathColumnIsRead(): void
-    {
-        // Arrange
-        $html     = '<html><body><p>προηγούμενη γενιά</p></body></html>';
-        $relative = '_history/emails/2026/08/29/09/' . md5($html) . '.html.gz';
-        $full     = rtrim((string) ROOT, '/') . '/' . $relative;
-
-        if (!is_dir(dirname($full))) {
-            mkdir(dirname($full), 0775, true);
-        }
-
-        file_put_contents($full, gzencode($html));
-
-        try {
-            // Act & Assert — no bodypath, no content: only `path` can find this body
-            $this->assertSame($html, BodyStore::bodyOf([
-                'content' => '', 'bodypath' => '', 'path' => $relative,
-            ]));
-        } finally {
-            @unlink($full);
-        }
-    }
-
-    /**
-     * A legacy path that climbs out of ROOT is not read.
-     *
-     * `path` is a column, and a column holds whatever was put in it. The store's own paths are
-     * checked against a narrow pattern; this one cannot be, because its shape belongs to whichever
-     * application wrote it — so it is checked against where it lands instead.
-     */
-    public function testALegacyPathCannotClimbOutOfRoot(): void
-    {
-        // Assert
-        $this->assertNull(BodyStore::getLegacy('../../../../etc/passwd'));
-        $this->assertNull(BodyStore::getLegacy(''));
-    }
-
 
     /**
      * A path that is not one of ours is not read.
@@ -365,70 +227,25 @@ class BodyStoreTest extends TestCase
     }
 
     /**
-     * It is on unless an installation says otherwise.
+     * It is off unless an installation says otherwise.
      *
-     * The invariant everything else rests on — *the body is not in the database* — is only worth
-     * having if it holds without anybody opting in. The installations that never make the
-     * decision are the ones whose `mails` grows unwatched, and the body is the whole of that
-     * growth.
-     *
-     * Only a literal `false` turns it off. Not `0`, not `'no'`: a config value that is not the
-     * one written here is a typo, and a typo that silently moves an audit trail back into the
-     * database is the failure this direction is meant to avoid.
+     * Turning this on silently would move an audit trail onto a disk nobody has decided to back
+     * up. Only `true` counts — not a truthy string somebody left in a config.
      */
-    public function testItIsOnUnlessSwitchedOff(): void
+    public function testItIsOffUnlessSwitchedOn(): void
     {
         // Arrange
         $app = Application::getInstance();
 
-        foreach ([null, true, 0, '1', 'yes', ''] as $value) {
+        foreach ([null, false, 0, '1', 'yes'] as $value) {
             $app->applicationInfo['mail'] = ['body_store' => ['enabled' => $value]];
 
             // Assert
-            $this->assertTrue(BodyStore::enabled(), var_export($value, true));
+            $this->assertFalse(BodyStore::enabled(), var_export($value, true));
         }
 
-        $app->applicationInfo['mail'] = ['body_store' => ['enabled' => false]];
-        $this->assertFalse(BodyStore::enabled());
-    }
-
-    /**
-     * With nothing configured at all, it is on.
-     *
-     * Not the same test as the one above: that one sets `enabled` to something. This is the
-     * installation that has never heard of the setting, which is the case the default exists for.
-     */
-    public function testAnInstallationThatConfiguredNothingGetsTheStore(): void
-    {
-        // Arrange
-        $app = Application::getInstance();
-        unset($app->applicationInfo['mail']);
-
-        // Assert
+        $app->applicationInfo['mail'] = ['body_store' => ['enabled' => true]];
         $this->assertTrue(BodyStore::enabled());
-    }
-
-    /**
-     * No size threshold: a short body goes to the store like any other.
-     *
-     * It was 512 bytes, and the arithmetic behind it was right — a 4 KB block and an inode for
-     * two hundred bytes is a bad trade on disk. It was still the wrong call, because it put an
-     * "unless" into the one sentence this store exists to make true, and every answer resting on
-     * that sentence inherited it: what a GDPR erasure must clear, how large `mails` can get,
-     * whether `var/mails` is the backup that matters.
-     */
-    public function testAShortBodyIsStoredToo(): void
-    {
-        // Arrange
-        $body = 'Hi.';
-
-        // Act
-        $path = BodyStore::put($body, mktime(0, 0, 0, 8, 31, 2026));
-
-        // Assert
-        $this->assertNotNull($path, 'a three-byte body must still leave the database');
-        $this->assertSame($body, BodyStore::bodyOf(['content' => '', 'bodypath' => $path]));
-        $this->assertSame(0, BodyStore::MIN_BYTES, 'the threshold is retired, not re-tuned');
     }
 
     /**
@@ -500,8 +317,7 @@ class BodyStoreTest extends TestCase
     /**
      * With nothing configured, the store still has a home under `var/`.
      *
-     * Nothing has to be decided: neither `enabled` nor `path` is a setting an installation
-     * must write before its bodies have somewhere to go.
+     * The path is optional; only `enabled` is a decision somebody has to make.
      */
     public function testThePathIsOptional(): void
     {
@@ -580,7 +396,7 @@ class BodyStoreTest extends TestCase
     private function files(): array
     {
         return array_values(array_filter(
-            (array) glob($this->root . '/*/*/*/*/*'),
+            (array) glob($this->root . '/*/*/*/*'),
             static fn ($path): bool => is_file((string) $path)
         ));
     }

@@ -149,15 +149,12 @@ class ArchiveTest extends TestCase
     }
 
     /**
-     * A body too small to be worth a file leaves the row anyway.
+     * A body too small to be worth a file stays in the row.
      *
-     * It used not to: below a few hundred bytes a file costs more than the column does — an
-     * inode, a directory entry and a seek, to save nothing — so anything under 512 bytes stayed
-     * behind. The arithmetic was right and the answer was wrong, because it left an "unless" in
-     * *the body is not in the database*, and a GDPR erasure, a table-size estimate and a backup
-     * plan all had to carry that "unless" with them. The invariant is worth more than the block.
+     * Below a few hundred bytes a file costs more than the column does — an inode, a directory
+     * entry and a seek, to save nothing.
      */
-    public function testATinyBodyIsArchivedToo(): void
+    public function testATinyBodyStaysInTheRow(): void
     {
         // Arrange
         $id = $this->insert('<p>ok</p>', time() - 86400);
@@ -166,12 +163,8 @@ class ArchiveTest extends TestCase
         $result = Retention::archive();
 
         // Assert
-        $this->assertSame(1, $result['moved']);
-        $row = $this->row($id);
-        $this->assertSame('', (string) $row['content'], 'nothing of it is left in the database');
-        $this->assertNotSame('', (string) $row['bodypath']);
-        $this->assertSame('<p>ok</p>', \Pramnos\Email\BodyStore::bodyOf($row),
-            'and it reads back unchanged');
+        $this->assertSame(0, $result['moved']);
+        $this->assertSame('<p>ok</p>', $this->row($id)['content']);
     }
 
     /**
@@ -254,59 +247,9 @@ class ArchiveTest extends TestCase
         // Assert
         $this->assertSame([], BodyStore::orphans(), 'the other row still names it');
 
-        // …and once both are gone, it is collectable — once it is older than the sweep, which
-        // never collects a file younger than itself in case it is a send still in flight.
+        // …and once both are gone, it is collectable
         $this->db->query('DELETE FROM ' . $this->db->prefix . 'mails');
-        touch($this->files()[0], time() - 3600);
         $this->assertCount(1, BodyStore::orphans());
-    }
-
-    /**
-     * A body written while the sweep is running is not collected.
-     *
-     * `orphans()` cannot read the rows and the directory in the same instant — it reads the rows
-     * first. A message sent in between writes a file that no row named *at the time the rows were
-     * read*, so it looks exactly like an orphan, and it is the body of something somebody just
-     * received. On an installation that sends all day this is not a theoretical window, and the
-     * damage is silent: the row keeps its `bodypath` and the file behind it is gone.
-     *
-     * A file newer than the sweep is therefore never a candidate. A real orphan is still there
-     * on the next run; a body deleted a second after it was written is not recoverable.
-     */
-    public function testABodyWrittenDuringTheSweepIsNotCollected(): void
-    {
-        // Arrange — a file on disk that no row references, written just now
-        $path = BodyStore::put('<html><body>' . str_repeat('<p>μόλις τώρα</p>', 60)
-            . '</body></html>', time());
-        $this->assertNotNull($path);
-        $this->assertCount(1, $this->files());
-
-        // Act
-        $orphans = BodyStore::orphans();
-
-        // Assert
-        $this->assertSame([], $orphans,
-            'a file younger than the sweep is a send in progress, not an orphan');
-    }
-
-    /**
-     * An old body that nothing references is still collected.
-     *
-     * The counterpart, so the guard above cannot be satisfied by never collecting anything.
-     */
-    public function testAnOldUnreferencedBodyIsStillCollected(): void
-    {
-        // Arrange
-        $path = BodyStore::put('<html><body>' . str_repeat('<p>παλιό</p>', 60) . '</body></html>',
-            time() - 86400 * 30);
-        $full = $this->root . '/' . $path;
-        touch($full, time() - 3600);
-
-        // Act
-        $orphans = BodyStore::orphans();
-
-        // Assert
-        $this->assertSame([$path], $orphans);
     }
 
     /**
@@ -407,8 +350,8 @@ class ArchiveTest extends TestCase
         $this->insert('<p>tiny</p>', time() - 86400 * 60);
 
         // Assert
-        $this->assertSame(3, Retention::archivable(), 'the tiny one goes to a file as well');
-        $this->assertSame(2, Retention::archivable(86400 * 30), 'and two are old enough');
+        $this->assertSame(2, Retention::archivable(), 'the tiny one is not worth a file');
+        $this->assertSame(1, Retention::archivable(86400 * 30), 'and only one is old enough');
     }
 
     /**
@@ -479,7 +422,7 @@ class ArchiveTest extends TestCase
     private function files(): array
     {
         return array_values(array_filter(
-            (array) glob($this->root . '/*/*/*/*/*'),
+            (array) glob($this->root . '/*/*/*/*'),
             static fn ($path): bool => is_file((string) $path)
         ));
     }
