@@ -86,7 +86,12 @@ class BodyStoreExcerptTest extends TestCase
         // Assert
         $this->assertArrayHasKey('#PREFIX#mails', BodyStore::REFERENCED_BY);
         $this->assertArrayHasKey('#PREFIX#messages', BodyStore::REFERENCED_BY);
-        $this->assertSame('bodypath', BodyStore::REFERENCED_BY['#PREFIX#messages']);
+        $this->assertSame(['bodypath'], BodyStore::REFERENCED_BY['#PREFIX#messages']);
+
+        // `path` is the column applications used before this store existed. An installation that
+        // points the store at that same directory — which is why the root is configurable — gets
+        // years of history deleted in one sweep if it is not on this list.
+        $this->assertContains('path', BodyStore::REFERENCED_BY['#PREFIX#mails']);
     }
 
     /**

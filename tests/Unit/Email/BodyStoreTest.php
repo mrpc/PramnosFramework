@@ -75,15 +75,43 @@ class BodyStoreTest extends TestCase
     {
         // Arrange
         $html = str_repeat('<p>Newsletter</p>', 100);
-        $when = mktime(0, 0, 0, 8, 29, 2026);
+        $when = mktime(9, 0, 0, 8, 29, 2026);
+
+        // Act — a mass send: many identical bodies, minutes apart
+        $first  = BodyStore::put($html, $when);
+        $second = BodyStore::put($html, $when + 600);
+
+        // Assert
+        $this->assertSame($first, $second);
+        $this->assertCount(1, $this->files());
+    }
+
+    /**
+     * An hour later is a second file, and that is the cost of the hourly partition.
+     *
+     * The partition is dated rather than hashed so that a directory holds an hour of mail: it is
+     * what lets anything that has to walk the store walk an hour of it instead of all of it, and
+     * at ten million messages a month that is the difference between a job that finishes and one
+     * that does not.
+     *
+     * It costs deduplication across the boundary. The case that matters keeps working — a
+     * campaign writes its identical copies within minutes, so they land in one directory and
+     * become one file — and the same body sent again next week is stored twice. That is the right
+     * way round: the burst is what makes the store large, and a week apart is two events.
+     */
+    public function testDeduplicationDoesNotReachAcrossTheHour(): void
+    {
+        // Arrange
+        $html = str_repeat('<p>Newsletter</p>', 100);
+        $when = mktime(9, 0, 0, 8, 29, 2026);
 
         // Act
         $first  = BodyStore::put($html, $when);
         $second = BodyStore::put($html, $when + 3600);
 
         // Assert
-        $this->assertSame($first, $second);
-        $this->assertCount(1, $this->files());
+        $this->assertNotSame($first, $second);
+        $this->assertCount(2, $this->files());
     }
 
     /**
@@ -189,7 +217,7 @@ class BodyStoreTest extends TestCase
         BodyStore::put('<p>' . str_repeat('a', 5000) . '</p>', time());
 
         // Assert
-        $this->assertSame([], glob($this->root . '/*/*/*/*.tmp') ?: []);
+        $this->assertSame([], glob($this->root . '/*/*/*/*/*.tmp') ?: []);
 
         foreach ($this->files() as $file) {
             $this->assertStringEndsWith('.html.gz', $file);
@@ -223,6 +251,78 @@ class BodyStoreTest extends TestCase
         $this->assertSame('', BodyStore::bodyOf(['content' => '', 'bodypath' => '']));
         $this->assertSame('', BodyStore::bodyOf([]));
     }
+
+    /**
+     * A body stored under the previous layout still reads back.
+     *
+     * The assertion that decides whether the layout change was safe to make. Every row written
+     * before it carries a `Y/m/<bucket>/` path, and nothing rewrites those rows — a reader that
+     * only understood the current shape would make the body of every older message unreadable
+     * without a single row changing. That is the worst kind of breakage: invisible until somebody
+     * opens an old message, and by then the deploy is a week old.
+     */
+    public function testABodyStoredUnderThePreviousLayoutStillReads(): void
+    {
+        // Arrange — a file exactly where the old put() would have left it
+        $html   = '<html><body><p>παλιά γραμμή</p></body></html>';
+        $digest = hash('sha256', $html);
+        $legacy = '2026/08/' . substr($digest, 0, 2) . '/' . $digest . '.html.gz';
+        $full   = $this->root . '/' . $legacy;
+
+        mkdir(dirname($full), 0775, true);
+        file_put_contents($full, gzencode($html));
+
+        // Act & Assert
+        $this->assertSame($html, BodyStore::get($legacy), 'read directly');
+        $this->assertSame($html, BodyStore::bodyOf(['content' => '', 'bodypath' => $legacy]),
+            'and through the reader every screen uses');
+    }
+
+    /**
+     * And the body of a row that predates this class entirely.
+     *
+     * `mails.path` is where applications on this framework recorded a gzipped body long before
+     * the store existed — relative to `ROOT`, not to the store, and in their own tree. A reader
+     * that knows only its own column returns nothing for those rows, and the screens go blank on
+     * exactly the installations with the most history to show.
+     */
+    public function testABodyInTheLegacyPathColumnIsRead(): void
+    {
+        // Arrange
+        $html     = '<html><body><p>προηγούμενη γενιά</p></body></html>';
+        $relative = '_history/emails/2026/08/29/09/' . md5($html) . '.html.gz';
+        $full     = rtrim((string) ROOT, '/') . '/' . $relative;
+
+        if (!is_dir(dirname($full))) {
+            mkdir(dirname($full), 0775, true);
+        }
+
+        file_put_contents($full, gzencode($html));
+
+        try {
+            // Act & Assert — no bodypath, no content: only `path` can find this body
+            $this->assertSame($html, BodyStore::bodyOf([
+                'content' => '', 'bodypath' => '', 'path' => $relative,
+            ]));
+        } finally {
+            @unlink($full);
+        }
+    }
+
+    /**
+     * A legacy path that climbs out of ROOT is not read.
+     *
+     * `path` is a column, and a column holds whatever was put in it. The store's own paths are
+     * checked against a narrow pattern; this one cannot be, because its shape belongs to whichever
+     * application wrote it — so it is checked against where it lands instead.
+     */
+    public function testALegacyPathCannotClimbOutOfRoot(): void
+    {
+        // Assert
+        $this->assertNull(BodyStore::getLegacy('../../../../etc/passwd'));
+        $this->assertNull(BodyStore::getLegacy(''));
+    }
+
 
     /**
      * A path that is not one of ours is not read.
@@ -480,7 +580,7 @@ class BodyStoreTest extends TestCase
     private function files(): array
     {
         return array_values(array_filter(
-            (array) glob($this->root . '/*/*/*/*'),
+            (array) glob($this->root . '/*/*/*/*/*'),
             static fn ($path): bool => is_file((string) $path)
         ));
     }

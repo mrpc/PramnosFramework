@@ -263,7 +263,7 @@ class MessageBodyStoreTest extends TestCase
     private function files(): array
     {
         return array_values(array_filter(
-            (array) glob($this->root . '/*/*/*/*'),
+            (array) glob($this->root . '/*/*/*/*/*'),
             static fn ($path): bool => is_file((string) $path)
         ));
     }

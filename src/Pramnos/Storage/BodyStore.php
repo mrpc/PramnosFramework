@@ -37,16 +37,25 @@ namespace Pramnos\Storage;
  *
  * ### Content-addressed, inside a dated partition
  *
- * `mails/2026/08/3f/3f8a…c1.html.gz` — the year and month, two characters of the digest, then
- * the digest. Two decisions, pulling in opposite directions, and both worth having:
+ * `mails/2026/08/29/09/3f8a…c1.html.gz` — year, month, day, hour, then the digest of the body.
+ * Two decisions pulling in opposite directions, and both worth having:
  *
- * - **The digest** means one file per distinct body. A campaign to forty thousand people is one
- *   body written once, not forty thousand copies of it — and that is the send that makes this
- *   table large in the first place.
- * - **The date** means an operator can look at, back up or remove a period without consulting
- *   the database. It costs the dedup across months: the same body sent in August and in October
- *   is two files. That is the right way round — a campaign is one moment, and "delete 2023" is
- *   a thing people actually need to do.
+ * - **The digest** means one file per distinct body *in that hour*. A mass send writes its
+ *   identical copies within minutes, so forty thousand of them are one file — and that is the
+ *   send that makes this table large in the first place.
+ * - **The dated partition, down to the hour**, means a directory holds an hour of mail. That is
+ *   what lets anything walking this store walk an hour of it rather than all of it: at ten
+ *   million messages a month, a single flat month is forty thousand files per bucket and no way
+ *   to work through them a piece at a time. It also means an operator can look at, back up or
+ *   remove a period without consulting the database.
+ *
+ * It costs deduplication across the boundary — the same body sent again next week is stored
+ * twice. That is the right way round: the burst is what makes the store large, and a week apart
+ * is two events.
+ *
+ * The layout is not this class's invention. Applications on this framework have stored bodies
+ * this way for years, in `mails.path`, and adopting it is what lets one of them point this store
+ * at the tree it already has instead of migrating out of it.
  *
  * A file that is already there is not written again. That is the deduplication: no index, no
  * reference count, no bookkeeping that can drift out of step with the rows.
@@ -68,11 +77,19 @@ class BodyStore
      * bodies look unreferenced, and a garbage collection removes messages people can still open.
      * Adding a table here is not optional bookkeeping — it is the whole safety of the sweep.
      *
-     * @var array<string, string> table => column holding the relative path
+     * Two columns on `mails`, not one, and the second is the dangerous one to forget.
+     *
+     * `path` predates this store: applications on this framework have been gzipping bodies to
+     * disk and recording them there for years, under their own root and their own layout. If an
+     * installation points this store at that same directory — which is the whole point of making
+     * the root configurable — then a sweep that only knows `bodypath` sees every one of those
+     * files as unreferenced and deletes years of history in one run.
+     *
+     * @var array<string, list<string>> table => columns holding a path to a stored body
      */
     public const REFERENCED_BY = [
-        '#PREFIX#mails'    => 'bodypath',
-        '#PREFIX#messages' => 'bodypath',
+        '#PREFIX#mails'    => ['bodypath', 'path'],
+        '#PREFIX#messages' => ['bodypath'],
     ];
 
     /**
@@ -189,8 +206,26 @@ class BodyStore
 
         $when   = $when > 0 ? $when : time();
         $digest = hash('sha256', $html);
-        $path   = date('Y', $when) . '/' . date('m', $when) . '/' . substr($digest, 0, 2)
-            . '/' . $digest . '.html.gz';
+
+        /*
+         * Year, month, day, **hour** — not a hash bucket.
+         *
+         * This layout is not ours. Applications on this framework have been storing bodies this
+         * way for years, and the reason is the one that only shows up at scale: a directory holds
+         * an hour of mail, so anything that has to walk the store walks an hour of it. The bucket
+         * this used to use put a whole month in 256 directories, which at ten million messages a
+         * month is forty thousand files each and no way to work through it a piece at a time.
+         *
+         * `H`, not `h`: the older convention used 12-hour format, so one in the morning and one
+         * in the afternoon shared a directory. Nothing recomputes a directory name — a body is
+         * read from the path recorded on its row — so the two can differ without anything
+         * breaking, and there is no reason to reproduce that.
+         *
+         * Existing rows are untouched by this. They carry their own path, in whatever layout was
+         * current when they were written, and {@see get()} reads a path rather than deriving one.
+         */
+        $path = date('Y', $when) . '/' . date('m', $when) . '/' . date('d', $when)
+            . '/' . date('H', $when) . '/' . $digest . '.html.gz';
         $full   = self::root() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $path);
 
         if (is_file($full)) {
@@ -278,7 +313,98 @@ class BodyStore
 
         $path = (string) ($row['bodypath'] ?? '');
 
-        return $path === '' ? '' : (string) (self::get($path) ?? '');
+        if ($path !== '') {
+            return (string) (self::get($path) ?? '');
+        }
+
+        /*
+         * And then the column that was here first.
+         *
+         * `mails.path` is where applications on this framework have recorded a gzipped body since
+         * long before this class existed — relative to `ROOT`, not to the store. A reader that
+         * knows only its own column returns an empty string for every one of those rows, and the
+         * screens go blank on exactly the installations with the most history to show.
+         *
+         * One reader, two conventions. That is what makes this store something an existing
+         * application can adopt rather than migrate to.
+         */
+        return (string) (self::getLegacy((string) ($row['path'] ?? '')) ?? '');
+    }
+
+    /**
+     * Read a body recorded in `mails.path`, which is relative to `ROOT`.
+     *
+     * Separate from {@see get()} because the two columns measure from different places, and
+     * guessing which one a string meant is how a path traversal gets in.
+     */
+    public static function getLegacy(string $path): ?string
+    {
+        $path = trim($path);
+
+        if ($path === '' || !defined('ROOT')) {
+            return null;
+        }
+
+        $full = self::underRoot($path);
+
+        if ($full === null || !is_file($full)) {
+            return null;
+        }
+
+        $raw = @file_get_contents($full);
+
+        if ($raw === false) {
+            return null;
+        }
+
+        $body = @gzdecode($raw);
+
+        return $body === false ? null : $body;
+    }
+
+    /**
+     * A stored path, wherever it was measured from, as one absolute path.
+     *
+     * The sweep compares what the rows say against what the directory holds, and the two columns
+     * spell the same file differently — `bodypath` from the store, `path` from `ROOT`. Absolute
+     * is the only form they agree on, and disagreeing here means deleting a file something still
+     * references.
+     */
+    private static function absolute(string $path, string $column): string
+    {
+        $full = $column === 'path'
+            ? self::underRoot($path)
+            : self::root() . DIRECTORY_SEPARATOR
+                . str_replace('/', DIRECTORY_SEPARATOR, trim($path));
+
+        if ($full === null) {
+            return '';
+        }
+
+        return (string) (realpath($full) ?: $full);
+    }
+
+    /**
+     * Resolve a `ROOT`-relative path, refusing anything that climbs out of it.
+     */
+    private static function underRoot(string $path): ?string
+    {
+        if (!defined('ROOT')) {
+            return null;
+        }
+
+        $root = rtrim((string) ROOT, DIRECTORY_SEPARATOR);
+        $full = $root . DIRECTORY_SEPARATOR
+            . ltrim(str_replace('/', DIRECTORY_SEPARATOR, trim($path)), DIRECTORY_SEPARATOR);
+
+        $real = realpath($full);
+
+        if ($real === false) {
+            // Not there yet, or gone. Still has to be inside ROOT to be worth naming.
+            return str_contains($path, '..') ? null : $full;
+        }
+
+        return str_starts_with($real, $root . DIRECTORY_SEPARATOR) ? $real : null;
     }
 
     /**
@@ -330,7 +456,7 @@ class BodyStore
          */
         $startedAt = time() - 60;
 
-        foreach (self::REFERENCED_BY as $table => $column) {
+        foreach (self::REFERENCED_BY as $table => $columns) {
             try {
                 /*
                  * An absent table is not a failed query.
@@ -357,17 +483,34 @@ class BodyStore
                     continue;
                 }
 
-                $result = $database->queryBuilder()
-                    ->table($table)
-                    ->select([$column])
-                    ->where($column, '!=', '')
-                    ->get();
+                foreach ($columns as $column) {
+                    if (!$database->schema()->hasColumn($table, $column)) {
+                        // `path` is on `mails` in every schema this framework ships, but an
+                        // application's table is its own; a column that is not there references
+                        // nothing, which is different from a table that is not there.
+                        continue;
+                    }
 
-                while ($result && $result->fetch()) {
-                    $path = (string) ($result->fields[$column] ?? '');
+                    $result = $database->queryBuilder()
+                        ->table($table)
+                        ->select([$column])
+                        ->where($column, '!=', '')
+                        ->get();
 
-                    if ($path !== '') {
-                        $referenced[$path] = true;
+                    while ($result && $result->fetch()) {
+                        $path = (string) ($result->fields[$column] ?? '');
+
+                        if ($path !== '') {
+                            /*
+                             * Resolved to an absolute path before it is recorded.
+                             *
+                             * `bodypath` is relative to the store; `path` is relative to ROOT.
+                             * The same file has two spellings, and a sweep that compared strings
+                             * would find the legacy one unreferenced and delete it. Absolute is
+                             * the one form both conventions agree on.
+                             */
+                            $referenced[self::absolute($path, $column)] = true;
+                        }
                     }
                 }
             } catch (\Throwable $exception) {
@@ -412,7 +555,7 @@ class BodyStore
                 substr($file->getPathname(), strlen($root) + 1)
             );
 
-            if (isset($referenced[$relative])) {
+            if (isset($referenced[(string) realpath($file->getPathname())])) {
                 continue;
             }
 
@@ -456,6 +599,21 @@ class BodyStore
      */
     private static function isSafe(string $path): bool
     {
-        return preg_match('~^\d{4}/\d{2}/[0-9a-f]{2}/[0-9a-f]{64}\.html\.gz$~', trim($path)) === 1;
+        /*
+         * Both layouts, because both are on rows right now.
+         *
+         * `Y/m/d/H/` is what {@see put()} writes today. `Y/m/<bucket>/` is what it wrote before,
+         * and those paths are on every row stored until then — a validator that knows only the
+         * current shape rejects them, and the body of every older message becomes unreadable
+         * without a single row changing.
+         *
+         * This is a guard against a path climbing out of the store, not a schema: it stays
+         * narrow — four hex-and-digit segments and a sha256 name — and it never grows a case for
+         * a shape this class does not write.
+         */
+        $path = trim($path);
+
+        return preg_match('~^\d{4}/\d{2}/\d{2}/\d{2}/[0-9a-f]{64}\.html\.gz$~', $path) === 1
+            || preg_match('~^\d{4}/\d{2}/[0-9a-f]{2}/[0-9a-f]{64}\.html\.gz$~', $path) === 1;
     }
 }

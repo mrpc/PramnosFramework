@@ -893,7 +893,18 @@ class Email extends \Pramnos\Framework\Base
                     'moduleinfo' => '',
                     'extrainfo'  => $success ? '' : (string) $this->lastError,
                     'path'       => '',
-                    'hash'       => md5($tomail . '|' . (string) $this->subject . '|' . $date),
+                    /*
+                     * md5 of the body, which is what the column has always said it is.
+                     *
+                     * The schema documents `hash` as "MD5 hash of the email content — used for
+                     * deduplication of identical emails", and applications on this framework
+                     * read it that way: one compares it against `md5($content)` to decide
+                     * whether a body needs storing again. This class wrote an identity of the
+                     * message instead — recipient, subject and time — which nothing in the
+                     * framework ever read, and which quietly meant something else to everybody
+                     * who did read it.
+                     */
+                    'hash'       => md5($body !== '' ? $body : (string) $this->body),
                 ]);
 
             /*

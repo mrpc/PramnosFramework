@@ -1378,8 +1378,8 @@ has set it, to buy tidiness in a config file nobody reads twice.
 
 ### Content-addressed, inside a dated partition
 
-`mails/2026/08/3f/3f8a…c1.html.gz` — the year and month, two characters of the digest, then the
-digest. Two decisions pulling in opposite directions, and both worth having:
+`mails/2026/08/29/09/3f8a…c1.html.gz` — year, month, day, hour, then the digest of the body. Two
+decisions pulling in opposite directions, and both worth having:
 
 - **The digest** means one file per distinct body. On the installation above, 2,916 archived
   bodies are **198 files**.
@@ -1393,6 +1393,47 @@ digest. Two decisions pulling in opposite directions, and both worth having:
   Where the deduplication does pay is the **inbox** copies of a mass message: those are the
   campaign body verbatim, identical for everyone, and they collapse to one file. Compression
   applies to every stored body either way; deduplication only reaches the identical ones.
+
+  And only within the hour — see the partition below. A send writes its copies in minutes, so
+  that is where it matters; the same body sent again next week is stored twice.
+
+### Why down to the hour
+
+A directory holds an hour of mail. That is what lets anything walking this store walk an hour of
+it rather than all of it — and at ten million messages a month, a flat month is forty thousand
+files per bucket with no way to work through them a piece at a time. It also means an operator can
+look at, back up or remove a period without consulting the database.
+
+**This layout is not new and it is not this framework's invention.** Applications built on it have
+stored bodies exactly this way for years, recorded in `mails.path`. Adopting it is what lets one of
+them point the store at the tree it already has, instead of migrating out of it.
+
+### Two conventions, one reader
+
+`BodyStore::bodyOf($row)` takes a row and returns its body from wherever that body is:
+
+1. inline, in `content` / `text`;
+2. `bodypath` — relative to the store root;
+3. `path` — relative to `ROOT`, which is where applications recorded a gzipped body long before
+   this class existed.
+
+So an application with years of history in `path` gets a working reader without rewriting a row,
+and rows written under the store's own earlier layout (`Y/m/<bucket>/`) keep reading too. Nothing
+recomputes a directory name — a body is read from the path recorded on its row — which is why the
+layout could change at all.
+
+**`mails.path` is on the list the garbage collection consults.** If an installation points the
+store at the directory those files are already in — which is the point of making the root
+configurable — a sweep that only knew `bodypath` would see every one of them as unreferenced and
+delete years of history in a single run. `BodyStore::REFERENCED_BY` names both columns.
+
+### `hash` means what the schema always said it meant
+
+`mails.hash` is documented in the schema as "MD5 hash of the email content", and applications read
+it that way — one compares it against `md5($content)` to decide whether a body needs storing
+again. `Email::send()` used to write an identity of the *message* there instead — recipient,
+subject and time — which nothing in the framework ever read, and which quietly meant something
+different to everybody who did. It now writes the md5 of the rendered body.
 - **The date** means an operator can look at, back up or remove a period without consulting the
   database. It costs the dedup across months: the same body sent in August and in October is two
   files. That is the right way round — a campaign is one moment, and "remove 2023" is a thing
