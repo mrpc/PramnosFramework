@@ -32,19 +32,38 @@ class PermissionStoreMigrationLocationTest extends TestCase
     }
 
     /**
-     * The files that make up the permission store, by filename.
+     * The files that make up the permission store, **by slug**.
+     *
+     * Not by filename: the timestamp prefix is metadata — it decides ordering and whether a
+     * `migration_cutoff` skips the file — and it changes when a migration is found to have been
+     * misdated. Twenty-five of them were, and this test broke on a rename that changed nothing
+     * it was testing.
      *
      * @return list<array{0: string}>
      */
     public static function storeMigrations(): array
     {
         return [
-            ['2020_01_01_000020_create_authserver_schema.php'],
-            ['2020_01_01_000021_create_authserver_roles_table.php'],
-            ['2020_01_01_000022_create_authserver_permissions_table.php'],
-            ['2020_01_01_000023_create_authserver_user_roles_table.php'],
-            ['2026_07_15_000003_add_audience_and_conditions_to_permissions.php'],
+            ['create_authserver_schema'],
+            ['create_authserver_roles_table'],
+            ['create_authserver_permissions_table'],
+            ['create_authserver_user_roles_table'],
+            ['add_audience_and_conditions_to_permissions'],
         ];
+    }
+
+    /**
+     * The file for a slug, whatever timestamp it currently carries.
+     *
+     * @param string $slug
+     */
+    private function pathOf(string $slug): string
+    {
+        $found = glob($this->base . '/auth/*_' . $slug . '.php');
+
+        $this->assertNotEmpty($found, $slug . ' is not under auth/');
+
+        return $found[0];
     }
 
     /**
@@ -56,8 +75,8 @@ class PermissionStoreMigrationLocationTest extends TestCase
     public function testTheStoreMigrationsLiveUnderAuth(string $file): void
     {
         // Act + Assert
-        $this->assertFileExists(
-            $this->base . '/auth/' . $file,
+        $this->assertNotEmpty(
+            glob($this->base . '/auth/*_' . $file . '.php'),
             'the permission store must be created by the auth feature'
         );
     }
@@ -90,7 +109,7 @@ class PermissionStoreMigrationLocationTest extends TestCase
     public function testEachDeclaresTheAuthFeature(string $file): void
     {
         // Arrange
-        $source = (string) file_get_contents($this->base . '/auth/' . $file);
+        $source = (string) file_get_contents($this->pathOf($file));
 
         // Act + Assert
         $this->assertMatchesRegularExpression(
@@ -115,7 +134,7 @@ class PermissionStoreMigrationLocationTest extends TestCase
     public function testDependenciesResolveWithinTheAuthDirectory(string $file): void
     {
         // Arrange
-        $source = (string) file_get_contents($this->base . '/auth/' . $file);
+        $source = (string) file_get_contents($this->pathOf($file));
 
         if (!preg_match('/\$dependencies\s*=\s*\[([^\]]*)\]/', $source, $match)) {
             // No declared dependencies is trivially self-contained.

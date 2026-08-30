@@ -71,8 +71,22 @@ class DelayedQueueDatabaseMySQLTest extends TestCase
      */
     protected function migrate(): void
     {
-        require_once ROOT . \DS . 'database' . \DS . 'migrations' . \DS . 'framework'
-            . \DS . 'queue' . \DS . '2020_01_01_000041_create_delayed_jobs_table.php';
+        /*
+         * Found by its slug, not by its timestamped filename.
+         *
+         * The timestamp prefix is metadata — it decides ordering and whether a `migration_cutoff`
+         * skips the file — and it changes when a migration is found to have been misdated. A
+         * test that hard-codes it breaks on a rename that changed nothing it was testing, which
+         * is exactly what happened.
+         */
+        $found = glob(
+            ROOT . \DS . 'database' . \DS . 'migrations' . \DS . 'framework'
+            . \DS . 'queue' . \DS . '*_create_delayed_jobs_table.php'
+        );
+
+        $this->assertNotEmpty($found, 'the delayed jobs migration is missing');
+
+        require_once $found[0];
         (new CreateDelayedJobsTable($this->app))->up();
     }
 
