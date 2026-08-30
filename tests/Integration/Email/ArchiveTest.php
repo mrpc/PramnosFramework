@@ -149,12 +149,15 @@ class ArchiveTest extends TestCase
     }
 
     /**
-     * A body too small to be worth a file stays in the row.
+     * A body too small to be worth a file leaves the row anyway.
      *
-     * Below a few hundred bytes a file costs more than the column does — an inode, a directory
-     * entry and a seek, to save nothing.
+     * It used not to: below a few hundred bytes a file costs more than the column does — an
+     * inode, a directory entry and a seek, to save nothing — so anything under 512 bytes stayed
+     * behind. The arithmetic was right and the answer was wrong, because it left an "unless" in
+     * *the body is not in the database*, and a GDPR erasure, a table-size estimate and a backup
+     * plan all had to carry that "unless" with them. The invariant is worth more than the block.
      */
-    public function testATinyBodyStaysInTheRow(): void
+    public function testATinyBodyIsArchivedToo(): void
     {
         // Arrange
         $id = $this->insert('<p>ok</p>', time() - 86400);
@@ -163,8 +166,12 @@ class ArchiveTest extends TestCase
         $result = Retention::archive();
 
         // Assert
-        $this->assertSame(0, $result['moved']);
-        $this->assertSame('<p>ok</p>', $this->row($id)['content']);
+        $this->assertSame(1, $result['moved']);
+        $row = $this->row($id);
+        $this->assertSame('', (string) $row['content'], 'nothing of it is left in the database');
+        $this->assertNotSame('', (string) $row['bodypath']);
+        $this->assertSame('<p>ok</p>', \Pramnos\Email\BodyStore::bodyOf($row),
+            'and it reads back unchanged');
     }
 
     /**
@@ -350,8 +357,8 @@ class ArchiveTest extends TestCase
         $this->insert('<p>tiny</p>', time() - 86400 * 60);
 
         // Assert
-        $this->assertSame(2, Retention::archivable(), 'the tiny one is not worth a file');
-        $this->assertSame(1, Retention::archivable(86400 * 30), 'and only one is old enough');
+        $this->assertSame(3, Retention::archivable(), 'the tiny one goes to a file as well');
+        $this->assertSame(2, Retention::archivable(86400 * 30), 'and two are old enough');
     }
 
     /**

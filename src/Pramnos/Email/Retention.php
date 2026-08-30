@@ -152,8 +152,7 @@ class Retention
             $cutoff = $olderThan > 0 ? ' AND date < ' . (time() - $olderThan) : '';
             $result = $db->query(
                 'SELECT id, content, date FROM ' . $db->prefix . 'mails '
-                . 'WHERE content <> \'\' AND LENGTH(content) >= ' . BodyStore::MIN_BYTES
-                . ' AND date > 0' . $cutoff . ' ORDER BY id ASC LIMIT ' . max(1, $limit)
+                . 'WHERE content <> \'\' AND date > 0' . $cutoff . ' ORDER BY id ASC LIMIT ' . max(1, $limit)
             );
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log('Could not read mail bodies to archive: '
@@ -207,8 +206,7 @@ class Retention
         $cutoff = $olderThan > 0 ? ' AND date < ' . (time() - $olderThan) : '';
 
         return self::count(
-            'content <> \'\' AND LENGTH(content) >= ' . BodyStore::MIN_BYTES
-            . ' AND date > 0' . $cutoff
+            'content <> \'\' AND date > 0' . $cutoff
         );
     }
 

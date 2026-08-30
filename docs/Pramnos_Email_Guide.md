@@ -1291,16 +1291,38 @@ password-reset mail is maybe two hundred bytes of facts — when, to whom, which
 send — wrapped around forty kilobytes of HTML. The facts are what anybody queries. The HTML is
 read by one screen, occasionally, and is never joined, filtered or aggregated on.
 
-```php
-// app/app.php
-'mail' => ['body_store' => ['enabled' => true]],
-```
-
-Switched on, the body is gzipped into `var/mails/` and the row keeps a path to it. **Nothing is
-lost**: `BodyStore::bodyOf()` is the single reader, so the preview screen, the message report and
-anything an application wrote keep working. That is the difference from
+So it does not live there. The body is gzipped into `var/mails/` and the row keeps a path to
+it. **Nothing is lost**: `BodyStore::bodyOf()` is the single reader, so the preview screen, the
+message report and anything an application wrote keep working. That is the difference from
 [emptying the column](#what-to-keep-of-a-sent-message-and-for-how-long), which makes the table
 just as small and costs every question that screen can answer.
+
+**This is the default.** It was opt-in until 31/08/2026, on the reasoning that moving an audit
+trail onto a disk nobody has decided to back up should be a decision somebody makes. That had the
+default backwards: the installations that never make the decision are exactly the ones whose
+`mails` grows unwatched, and the body is the whole of that growth.
+
+Nothing is at risk in the default. A body that cannot be written falls back to the column it used
+to live in, so an installation with no writable `var/mails` behaves as it always did, and rows
+written before and after are read the same way. To keep bodies in the database, say so:
+
+```php
+// app/app.php
+'mail' => ['body_store' => ['enabled' => false]],   // or ['path' => '/elsewhere/mails']
+```
+
+### There is no size threshold
+
+There was, and it was 512 bytes: below that a body costs more in a file — a 4 KB block and an
+inode for two hundred bytes — than it does in the row. The arithmetic was right and the trade was
+wrong, because it bought a little disk at the price of the only invariant that makes this store
+worth having: *the body is not in the database*. With a threshold that sentence has an **unless**
+in it, and so does every answer that rests on it — what a GDPR erasure has to clear, how large
+`mails` can get, whether `var/mails` is the backup that matters. One rule that always holds is
+worth more than a block per short message.
+
+`BodyStore::MIN_BYTES` remains, at `0` and deprecated, because it is public and something outside
+the framework may name it.
 
 Measured on one installation: **7.2 MB of bodies in the database became 212 KB on disk.**
 

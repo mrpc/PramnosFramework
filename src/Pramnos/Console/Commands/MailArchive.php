@@ -49,7 +49,8 @@ class MailArchive extends Command
         if (!BodyStore::enabled()) {
             $output->writeln('<comment>The mail body store is off.</comment> Nothing is moved.');
             $output->writeln('');
-            $output->writeln('Switch it on in app.php:');
+            $output->writeln('It is on by default, so this installation has turned it off. Remove');
+            $output->writeln('the setting from app.php, or set it back:');
             $output->writeln('');
             $output->writeln("  'mail' => ['body_store' => ['enabled' => true]],");
             $output->writeln('');

@@ -227,25 +227,70 @@ class BodyStoreTest extends TestCase
     }
 
     /**
-     * It is off unless an installation says otherwise.
+     * It is on unless an installation says otherwise.
      *
-     * Turning this on silently would move an audit trail onto a disk nobody has decided to back
-     * up. Only `true` counts — not a truthy string somebody left in a config.
+     * The invariant everything else rests on — *the body is not in the database* — is only worth
+     * having if it holds without anybody opting in. The installations that never make the
+     * decision are the ones whose `mails` grows unwatched, and the body is the whole of that
+     * growth.
+     *
+     * Only a literal `false` turns it off. Not `0`, not `'no'`: a config value that is not the
+     * one written here is a typo, and a typo that silently moves an audit trail back into the
+     * database is the failure this direction is meant to avoid.
      */
-    public function testItIsOffUnlessSwitchedOn(): void
+    public function testItIsOnUnlessSwitchedOff(): void
     {
         // Arrange
         $app = Application::getInstance();
 
-        foreach ([null, false, 0, '1', 'yes'] as $value) {
+        foreach ([null, true, 0, '1', 'yes', ''] as $value) {
             $app->applicationInfo['mail'] = ['body_store' => ['enabled' => $value]];
 
             // Assert
-            $this->assertFalse(BodyStore::enabled(), var_export($value, true));
+            $this->assertTrue(BodyStore::enabled(), var_export($value, true));
         }
 
-        $app->applicationInfo['mail'] = ['body_store' => ['enabled' => true]];
+        $app->applicationInfo['mail'] = ['body_store' => ['enabled' => false]];
+        $this->assertFalse(BodyStore::enabled());
+    }
+
+    /**
+     * With nothing configured at all, it is on.
+     *
+     * Not the same test as the one above: that one sets `enabled` to something. This is the
+     * installation that has never heard of the setting, which is the case the default exists for.
+     */
+    public function testAnInstallationThatConfiguredNothingGetsTheStore(): void
+    {
+        // Arrange
+        $app = Application::getInstance();
+        unset($app->applicationInfo['mail']);
+
+        // Assert
         $this->assertTrue(BodyStore::enabled());
+    }
+
+    /**
+     * No size threshold: a short body goes to the store like any other.
+     *
+     * It was 512 bytes, and the arithmetic behind it was right — a 4 KB block and an inode for
+     * two hundred bytes is a bad trade on disk. It was still the wrong call, because it put an
+     * "unless" into the one sentence this store exists to make true, and every answer resting on
+     * that sentence inherited it: what a GDPR erasure must clear, how large `mails` can get,
+     * whether `var/mails` is the backup that matters.
+     */
+    public function testAShortBodyIsStoredToo(): void
+    {
+        // Arrange
+        $body = 'Hi.';
+
+        // Act
+        $path = BodyStore::put($body, mktime(0, 0, 0, 8, 31, 2026));
+
+        // Assert
+        $this->assertNotNull($path, 'a three-byte body must still leave the database');
+        $this->assertSame($body, BodyStore::bodyOf(['content' => '', 'bodypath' => $path]));
+        $this->assertSame(0, BodyStore::MIN_BYTES, 'the threshold is retired, not re-tuned');
     }
 
     /**
@@ -317,7 +362,8 @@ class BodyStoreTest extends TestCase
     /**
      * With nothing configured, the store still has a home under `var/`.
      *
-     * The path is optional; only `enabled` is a decision somebody has to make.
+     * Nothing has to be decided: neither `enabled` nor `path` is a setting an installation
+     * must write before its bodies have somewhere to go.
      */
     public function testThePathIsOptional(): void
     {

@@ -865,7 +865,7 @@ class Email extends \Pramnos\Framework\Base
             $bodypath  = '';
             $bodybytes = 0;
 
-            if (BodyStore::enabled() && strlen($body) >= BodyStore::MIN_BYTES) {
+            if (BodyStore::enabled() && trim($body) !== '') {
                 $stored = BodyStore::put($body, $date);
 
                 if ($stored !== null) {

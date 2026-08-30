@@ -46,22 +46,45 @@ namespace Pramnos\Email;
  */
 class BodyStore
 {
-    /** Below this, a body costs more in a file than in the row. */
-    public const MIN_BYTES = 512;
+    /**
+     * No longer a threshold.
+     *
+     * It was 512: below that, a body costs more in a file — a 4KB block and an inode for two
+     * hundred bytes — than it does in the row. That trade was real and it was the wrong one to
+     * take, because it bought a little disk at the price of the only invariant that makes this
+     * store worth having: *the body is not in the database*. With a threshold that sentence has
+     * an "unless" in it, and every answer that depends on it — what a GDPR erasure has to clear,
+     * how large `mails` can get, whether `var/mails` is the backup that matters — has the same
+     * "unless". One rule that always holds is worth more than a block per short message.
+     *
+     * Kept at zero rather than removed: it is public, and something outside this framework may
+     * name it.
+     *
+     * @deprecated Every non-empty body goes to the store now, whatever its size.
+     */
+    public const MIN_BYTES = 0;
 
     /**
      * Is the store switched on?
      *
-     * Off by default. An installation that has not thought about where its mail bodies live
-     * should keep them where they have always been — turning this on silently would move an
-     * audit trail onto a disk nobody has decided to back up.
+     * **On unless an installation says otherwise.** It was opt-in, on the reasoning that moving
+     * an audit trail onto a disk nobody has decided to back up should be somebody's decision.
+     * That reasoning had the default backwards: the installations that never made the decision
+     * are exactly the ones whose `mails` table grows without anybody watching it, and the body
+     * is the whole of that growth. An installation that has not thought about this is better
+     * served by the arrangement it would have chosen had it thought about it.
+     *
+     * Nothing is at risk in the switch. A body that cannot be written falls back to the column
+     * it used to live in, so an installation with no writable `var/mails` behaves exactly as it
+     * did; {@see bodyOf()} reads a row from wherever its body is, so rows written before and
+     * after the change are read the same way; and `'enabled' => false` still turns it off.
      */
     public static function enabled(): bool
     {
         $configured = \Pramnos\Application\Application::currentInstance()
             ?->applicationInfo['mail']['body_store']['enabled'] ?? null;
 
-        return $configured === true;
+        return $configured !== false;
     }
 
     /**
