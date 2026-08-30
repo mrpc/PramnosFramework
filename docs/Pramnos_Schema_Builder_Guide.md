@@ -308,6 +308,33 @@ $schema->alterTable('#PREFIX#users', function ($table) {
 | PostgreSQL | Up to 3 separate `ALTER COLUMN` statements: `TYPE`, `SET/DROP NOT NULL`, `SET/DROP DEFAULT` |
 | TimescaleDB | Same as PostgreSQL |
 
+### Moving a table into a schema
+
+```php
+$schema->moveToSchema('deferredwrites', 'pramnos');   // → pramnos.deferredwrites
+```
+
+**Not `renameTable()`.** PostgreSQL's `ALTER TABLE … RENAME TO` takes a *bare* name — it cannot
+move a table between schemas, and handing it a qualified one is a syntax error rather than a
+move. The statement for that is `SET SCHEMA`, and it is a catalogue update: no row is copied,
+whatever the table holds. On MySQL a schema is flattened into the table name, so the same
+intention compiles to a rename — also a catalogue update.
+
+It answers `false` rather than raising in the three states a migration meets:
+
+| State | Answer |
+| --- | --- |
+| the table is not there | `false` — an installation that never had it |
+| it is already in the target schema | `false` — an installation that has already migrated |
+| something is already at the destination | `false`, **and the source is untouched** |
+
+The third one is why it checks: a half-finished manual move leaves a table of the same name in
+both schemas, and overwriting the destination would destroy the rows somebody had already moved.
+
+This is what a migration uses when a table turns out to be in the wrong place *after* it has
+been deployed. Where nothing has been deployed yet, correct the migration that creates it
+instead — a move is a step every installation then has to run for ever.
+
 ## View Operations
 
 ```php

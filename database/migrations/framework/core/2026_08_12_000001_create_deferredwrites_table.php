@@ -37,6 +37,9 @@ class CreateDeferredwritesTable extends Migration
     /** @var int Runs after the core tables it does not depend on */
     public int $priority = 220;
 
+    /** @var array<int, string> The schema has to exist before a table can go into it */
+    public array $dependencies = ['create_pramnos_schema'];
+
     /** @var string What this migration does */
     public $description = 'Creates the deferredwrites queue for late writes into compressed chunks';
 
@@ -48,6 +51,10 @@ class CreateDeferredwritesTable extends Migration
     public function up(): void
     {
         $schema = $this->schema();
+
+        // Declared as a dependency too, but a test that loads one feature's directory and runs
+        // it does not go through the runner. A no-op on MySQL and when it is already there.
+        $schema->ensureSchema('pramnos');
 
         if ($schema->hasTable(DeferredWriteQueue::TABLE)) {
             return;

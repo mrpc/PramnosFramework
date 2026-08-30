@@ -74,7 +74,15 @@ namespace Pramnos\Database;
 class DeferredWriteQueue
 {
     /** @var string The queue table */
-    public const TABLE = 'deferredwrites';
+    /**
+     * Where the queue lives.
+     *
+     * In `pramnos`, not `public`: this is the framework's own bookkeeping — nobody writing an
+     * application queries it — and `public` is the application's schema. On MySQL the name is
+     * flattened to a `pramnos_` prefix, which is the same intention in a database that has no
+     * schemas.
+     */
+    public const TABLE = 'pramnos.deferredwrites';
 
     /** @var int Waiting to be written */
     public const STATUS_PENDING = 0;

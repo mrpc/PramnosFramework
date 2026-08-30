@@ -437,8 +437,17 @@ $queue->retryFailed('readings');          // put failures back in the queue
 $queue->process('readings');              // drain, returns per-table stats
 ```
 
-The queue lives in `deferredwrites`, created by a framework core migration on
-every backend.
+The queue lives in **`pramnos.deferredwrites`**, created by a framework core migration on every
+backend. In the `pramnos` schema because it is the framework's own bookkeeping — nobody writing
+an application queries it, `DeferredWriteQueue` does, and `public` is the application's. On
+MySQL, which has no schemas, the name flattens to a `pramnos_` prefix.
+
+> **Moved on 2026-08-30.** It was created in `public` on 12 August, so unlike the tables that
+> moved the same week this one had been deployed — the move is its own migration
+> (`move_deferredwrites_to_pramnos`) rather than an edit to the one that created it. `ALTER
+> TABLE … SET SCHEMA` is a catalogue update: no row is copied, nothing is locked beyond the
+> statement, and the migration is a no-op where the table is already in place. Address the table
+> through `DeferredWriteQueue::TABLE` and none of this matters to a caller.
 
 ## Checking state from code
 

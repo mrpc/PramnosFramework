@@ -254,6 +254,61 @@ class SchemaBuilder
     }
 
     /**
+     * Move an existing table into a schema, keeping its rows.
+     *
+     * Not `renameTable()`. PostgreSQL's `ALTER TABLE … RENAME TO` takes a **bare** name — it
+     * cannot move a table between schemas, and handing it a qualified one is a syntax error.
+     * The statement for that is `SET SCHEMA`, which is a catalogue update: instant, whatever the
+     * table holds.
+     *
+     * On MySQL a schema is flattened into the table's name (see {@see resolveTable()}), so the
+     * same intention is a rename — and that one does copy nothing either, it is a catalogue
+     * update as well.
+     *
+     * Answers `false` rather than raising when there is nothing to move: a migration that moves
+     * a table runs on installations that already have it in the right place, and on ones that
+     * never had it at all.
+     *
+     * @param  string $table  The table's current name, qualified or not
+     * @param  string $schema The schema to move it into
+     * @return bool           True when the table was moved
+     */
+    public function moveToSchema(string $table, string $schema): bool
+    {
+        $bare   = str_contains($table, '.') ? substr($table, strpos($table, '.') + 1) : $table;
+        $target = $schema . '.' . $bare;
+
+        if (!$this->hasTable($table) || $this->hasTable($target)) {
+            return false;
+        }
+
+        try {
+            if ($this->capabilities->isPostgreSQL()) {
+                $this->ensureSchema($schema);
+
+                $this->db->query(
+                    'ALTER TABLE ' . $this->getGrammar()->quoteTable($this->resolveTable($table))
+                    . ' SET SCHEMA "' . preg_replace('~[^a-z0-9_]~i', '', $schema) . '"'
+                );
+            } else {
+                $this->db->query(
+                    $this->getGrammar()->compileRename(
+                        $this->resolveTable($table),
+                        $this->resolveTable($target)
+                    )
+                );
+            }
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $this->forgetCachedSchema($table);
+        $this->forgetCachedSchema($target);
+
+        return true;
+    }
+
+    /**
      * Tell the connection that a table's schema has changed.
      *
      * `Database::getColumns()` caches an introspection for an hour on the
