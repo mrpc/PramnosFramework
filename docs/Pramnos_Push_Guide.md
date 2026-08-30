@@ -359,6 +359,39 @@ A **Recent pushes** panel beside **Push devices**, and a link to that account's 
 devices panel says a browser subscribed; this says what was sent — which is the question
 somebody is holding when they open the screen.
 
+## The security alerts that send one
+
+Two of the framework's own notifications go out on push as well as mail:
+
+| | Push | Why |
+| --- | --- | --- |
+| **New sign-in** from an unfamiliar device | yes | the mail is read when the mailbox is next opened; by then whoever had the password has been inside that long |
+| **Security change** — password, address, factor, passkey | yes | if the address is what changed, the mail goes to the new one, which an attacker who changed it controls |
+| Sign-in code | **no** | a credential |
+| New-device auth link | **no** | a credential |
+
+**The line is between an alert and a credential**, and it is the point rather than a detail. A
+code delivered to a subscribed browser is delivered to whoever holds that device — the person
+the second factor exists to stop. Mail is the deliberate second channel for those and stays the
+only one.
+
+**Never the database channel.** An in-app notification is seen by whoever is currently signed
+in, who in the case worth warning about is the wrong person. Push passes that test where the
+database channel does not: a browser receives a push only because somebody granted permission
+in it earlier, so the subscriptions on an account are the *owner's* devices, not the one the
+sign-in just happened on.
+
+**Not instead of mail.** A browser can be closed, unsubscribed, or have its site data cleared;
+the mail is the copy that survives all three and is still there tomorrow as a record.
+
+The channel is added only when the account has a subscription —
+`Subscriptions::exist($userId)`, an indexed existence check. Without it every account that never
+subscribed would write a "nothing subscribed" row to the push log on every alert.
+
+An address change sends two mails, to the old address and the new; only the copy to the new
+address carries the push, because both are the same account and the devices would otherwise get
+the same warning twice.
+
 ## What a notification can do
 
 ```php

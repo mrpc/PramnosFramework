@@ -152,6 +152,44 @@ class SettingsController extends Controller
     /**
      * POST handler for the rich categorized settings form.
      */
+    /**
+     * Save one choice from a fixed list — and leave it alone when the form did not send it.
+     *
+     * The absent-field case is the whole reason this exists. `$request->get($key, $default)`
+     * answers the default for a field the form never rendered, and writing *that* silently
+     * replaced an installation's choice on every unrelated save: an operator changing an SMTP
+     * password reset the sign-in policy without touching it.
+     *
+     * Not hypothetical, and not once. `devpanel.mount` and `devpanel.min_usertype` were lost
+     * this way — PHP turns the `.` in a POST field name into `_`, so the controller asked for a
+     * key that could not arrive and wrote the default back every time. And the new-sign-in
+     * *action* had a field in the tailwind theme and in neither of the other two, so on those a
+     * settings save reset `require_2fa` to `notify` — the strict reading quietly becoming the
+     * permissive one, which is the direction that matters.
+     *
+     * `__KEEP__` cannot collide with a real value: every caller passes a closed list, and the
+     * sentinel is not in any of them. The neighbouring lockout-rules field has used the same
+     * one since it was written; this is that idea, as a method.
+     *
+     * @param string        $key     The setting name, which is also the field name
+     * @param array<string> $allowed The values that mean something
+     * @param string        $default What an unrecognised value falls back to
+     */
+    protected function saveChoice(
+        \Pramnos\Http\Request $request,
+        string $key,
+        array $allowed,
+        string $default
+    ): void {
+        $value = (string) $request->get($key, '__KEEP__', 'post');
+
+        if ($value === '__KEEP__') {
+            return;
+        }
+
+        Settings::setSetting($key, in_array($value, $allowed, true) ? $value : $default);
+    }
+
     public function saveSystem(): void
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
@@ -200,14 +238,30 @@ class SettingsController extends Controller
          * of sign-ins. Unknown values fall back to `optin`, which is the behaviour every
          * installation had before this setting existed.
          */
-        $policy = (string) $request->get(
+        $this->saveChoice(
+            $request,
             \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
-            'optin',
-            'post'
+            ['optin', 'optout', 'always', 'off'],
+            'optin'
         );
-        Settings::setSetting(
-            \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
-            in_array($policy, ['optin', 'optout', 'always', 'off'], true) ? $policy : 'optin'
+
+        /*
+         * *When* the alert applies, which is a different question from what it is.
+         *
+         *   - `new_device` — any browser this account has not been used from (the default)
+         *   - `suspicious` — only when {@see \Pramnos\Auth\SignInRisk} finds something harder
+         *     to explain innocently: a country the account has never been used from, two
+         *     countries at once, a sign-in straight after a burst of failed guesses.
+         *
+         * The engine has been there and wired since it was written, and **nothing on any screen
+         * turned it on** — so the only way to reach it was a hand-written settings row. Which is
+         * the same as not having it: a rule nobody can enable is a rule nobody has.
+         */
+        $this->saveChoice(
+            $request,
+            \Pramnos\Auth\NewSignInAlert::TRIGGER_SETTING,
+            \Pramnos\Auth\NewSignInAlert::TRIGGERS,
+            'new_device'
         );
 
         /**
@@ -218,14 +272,11 @@ class SettingsController extends Controller
          * strict readings are the ones that can lock out a whole user base, so a typo in
          * this field must not be the thing that does it.
          */
-        $action = (string) $request->get(
+        $this->saveChoice(
+            $request,
             \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
-            'notify',
-            'post'
-        );
-        Settings::setSetting(
-            \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
-            in_array($action, \Pramnos\Auth\NewSignInAlert::ACTIONS, true) ? $action : 'notify'
+            \Pramnos\Auth\NewSignInAlert::ACTIONS,
+            'notify'
         );
 
         // Security

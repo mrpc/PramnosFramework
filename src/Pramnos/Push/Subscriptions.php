@@ -140,6 +140,34 @@ class Subscriptions
      * The endpoint rather than an id, because that is what both callers have: the browser
      * unsubscribing knows its own endpoint, and the push service's rejection names it.
      */
+    /**
+     * Has this account any browser that could receive a notification?
+     *
+     * A cheap indexed existence check, for a caller deciding whether `push` belongs in a
+     * notification's `via()`. `forUser()` would answer the same question by fetching every
+     * subscription with its keys — a credential each — to count them.
+     *
+     * Answers **false** when it cannot tell. The alternative is an attempted send that the
+     * channel refuses anyway, and a row in the push log for every account that has never
+     * subscribed, on every alert. "Nothing is subscribed" is a fact about the account, and the
+     * user screen already shows it; it does not need restating once per message.
+     */
+    public static function exist(int $userId): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+
+        try {
+            return (bool) \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('pramnos.pushsubscriptions')
+                ->where('userid', $userId)
+                ->exists();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     public static function forget(string $endpoint, ?int $userId = null): bool
     {
         if (trim($endpoint) === '') {

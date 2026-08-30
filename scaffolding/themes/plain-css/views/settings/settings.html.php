@@ -194,6 +194,53 @@ ksort($initialSteps, SORT_NUMERIC);
                         signed in from before.
                     </small>
                 </div>
+
+                <div>
+                    <?php
+                    /*
+                     * *When* to act, and *what* to do — neither had a field in this theme.
+                     *
+                     * The action did not, and the controller wrote it on every save, so a
+                     * settings save from this theme silently reset `require_2fa` to `notify`:
+                     * the strict reading quietly becoming the permissive one. The trigger had
+                     * no field in any theme, so the whole `SignInRisk` engine could only be
+                     * reached by hand-writing a settings row.
+                     */
+                    $triggerKey   = \Pramnos\Auth\NewSignInAlert::TRIGGER_SETTING;
+                    $triggerValue = (string) ($s[$triggerKey] ?? '') ?: 'new_device';
+                    $actionKey    = \Pramnos\Auth\NewSignInAlert::ACTION_SETTING;
+                    $actionValue  = (string) ($s[$actionKey] ?? '') ?: 'notify';
+                    // The labels name the fallback: "require a passkey" on a user base with
+                    // none is not a policy, and a dropdown that hides that is one an operator
+                    // chooses wrongly.
+                    $actionLabels = [
+                        'notify'          => 'Only notify (default)',
+                        'authlink'        => 'Require a link sent by email — works for every account',
+                        'require_2fa'     => 'Require a second factor — a mailed code if the account has none',
+                        'require_passkey' => 'Require a passkey — falls back to a factor, then a mailed code',
+                    ];
+                    ?>
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo $triggerKey; ?>">When to act</label>
+                    <select id="<?php echo $triggerKey; ?>" name="<?php echo $triggerKey; ?>" style="width:100%;padding:6px 8px">
+                        <option value="new_device" <?php echo $triggerValue === 'new_device' ? 'selected' : ''; ?>>Any device this account has not used (default)</option>
+                        <option value="suspicious" <?php echo $triggerValue === 'suspicious' ? 'selected' : ''; ?>>Only when something looks wrong — new country, two places at once, after failed guesses</option>
+                    </select>
+                    <small style="color:#888;font-size:11px">
+                        <strong>Only when something looks wrong</strong> fires rarely, so people read it. The
+                        country signals need a country header and do not fire without one.
+                    </small>
+
+                    <label style="display:block;font-weight:600;margin:12px 0 4px" for="<?php echo $actionKey; ?>">On such a sign-in</label>
+                    <select id="<?php echo $actionKey; ?>" name="<?php echo $actionKey; ?>" style="width:100%;padding:6px 8px">
+                        <?php foreach ($actionLabels as $value => $text): ?>
+                        <option value="<?php echo $value; ?>" <?php echo $actionValue === $value ? 'selected' : ''; ?>><?php echo $text; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="color:#888;font-size:11px">
+                        Nothing here can lock an account out: a demand it cannot satisfy becomes the strongest
+                        factor it does have, and a mailed code as a last resort.
+                    </small>
+                </div>
             </div>
         </div>
 

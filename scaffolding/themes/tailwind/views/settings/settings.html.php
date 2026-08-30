@@ -215,6 +215,45 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                     <div>
                         <?php
                         /**
+                         * *When* the action below applies — a different question from what it is.
+                         *
+                         * "A device this account has not used" is a weak signal on its own.
+                         * People buy phones, clear cookies and borrow a laptop, so on a large
+                         * site it fires constantly, and a demand attached to it becomes a tax
+                         * everybody pays and nobody reads.
+                         *
+                         * `SignInRisk` collects the signals that are hard to explain innocently
+                         * instead. It has been written and wired since the alert existed, and
+                         * nothing on any screen turned it on — a rule nobody can enable is a
+                         * rule nobody has.
+                         */
+                        $triggerKey   = \Pramnos\Auth\NewSignInAlert::TRIGGER_SETTING;
+                        $triggerValue = (string) ($s[$triggerKey] ?? '') ?: 'new_device';
+                        ?>
+                        <label class="<?php echo $label; ?>" for="<?php echo $triggerKey; ?>">
+                            When to act
+                        </label>
+                        <select class="select select-sm w-full" id="<?php echo $triggerKey; ?>"
+                                name="<?php echo $triggerKey; ?>">
+                            <option value="new_device" <?php echo $triggerValue === 'new_device' ? 'selected' : ''; ?>>
+                                Any device this account has not used (default)
+                            </option>
+                            <option value="suspicious" <?php echo $triggerValue === 'suspicious' ? 'selected' : ''; ?>>
+                                Only when something looks wrong — new country, two places at once,
+                                straight after failed guesses
+                            </option>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            <strong>Only when something looks wrong</strong> is the setting that
+                            makes a demand bearable: it fires rarely, so people read it. The
+                            country signals need a country header — Cloudflare's, or one the
+                            application supplies — and simply do not fire without it rather than
+                            guessing from the address.
+                        </p>
+                    </div>
+                    <div>
+                        <?php
+                        /**
                          * And what such a sign-in has to *satisfy*.
                          *
                          * Telling somebody afterwards is the weakest useful response —

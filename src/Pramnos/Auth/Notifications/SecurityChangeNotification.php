@@ -52,9 +52,86 @@ class SecurityChangeNotification implements NotificationInterface
      * @param mixed $notifiable
      * @return string[]
      */
+    /**
+     * Mail always; push as well, except on the copy sent to a former address.
+     *
+     * The change itself is what a push is for: a password, an email address or a second factor
+     * has just been altered, and if it was not the owner who did it, the minutes between the
+     * mail being sent and the mailbox being opened are the minutes that matter. Worse — when
+     * the address is what changed, the mail goes to the new one, which an attacker who changed
+     * it now controls. A push reaches a browser they never subscribed in.
+     *
+     * **Not on the former-address copy.** An address change sends two mails, to the old address
+     * and the new one, and both are the same account — so pushing on both would deliver the
+     * same warning to the same devices twice. The copy to the new address carries the push; the
+     * one to the former address is mail alone, which is its whole purpose.
+     *
+     * Never the database channel, for the reason `NewSignInNotification` gives: an in-app
+     * warning is seen by whoever is currently signed in, and in the case worth warning about
+     * that is the wrong person.
+     *
+     * @param  mixed $notifiable
+     * @return string[]
+     */
     public function via(mixed $notifiable): array
     {
-        return array('mail');
+        $channels = array('mail');
+
+        if (!$this->toFormerAddress
+            && \Pramnos\Push\Subscriptions::exist(self::accountOf($notifiable))
+        ) {
+            $channels[] = 'push';
+        }
+
+        return $channels;
+    }
+
+    /**
+     * The change, in the length a lock screen has.
+     *
+     * No link, deliberately — the mail carries those. A notification that appears unprompted
+     * and offers a button to "secure your account" is the shape of the attack this warns about,
+     * and teaching people to tap one is worse than the warning is good.
+     *
+     * The `tag` is per kind of change, so a password change and a factor being removed do not
+     * collapse into one another — they are different facts, and somebody who did one but not
+     * the other needs to see the one they did not do.
+     *
+     * @param  mixed $notifiable
+     * @return array<string, mixed>
+     */
+    public function toPush(mixed $notifiable): array
+    {
+        return array(
+            'title' => t('Security change on your account'),
+            'body'  => trim($this->headline() . ' ' . t('If this was not you, act now.')),
+            'tag'   => 'securitychange-' . $this->what,
+        );
+    }
+
+    /**
+     * Which account a notifiable is, in the order every channel resolves it.
+     *
+     * `routeNotificationFor('push')`, then `userid`, then `id` — the same order `PushChannel`
+     * uses, so an object that works for one channel works for all of them.
+     */
+    private static function accountOf(mixed $notifiable): int
+    {
+        if (is_object($notifiable) && method_exists($notifiable, 'routeNotificationFor')) {
+            $routed = $notifiable->routeNotificationFor('push');
+
+            if (is_numeric($routed)) {
+                return (int) $routed;
+            }
+        }
+
+        foreach (array('userid', 'id') as $property) {
+            if (is_object($notifiable) && isset($notifiable->$property)) {
+                return (int) $notifiable->$property;
+            }
+        }
+
+        return 0;
     }
 
     /**
