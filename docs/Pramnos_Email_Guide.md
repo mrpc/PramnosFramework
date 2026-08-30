@@ -1381,9 +1381,18 @@ has set it, to buy tidiness in a config file nobody reads twice.
 `mails/2026/08/3f/3f8a…c1.html.gz` — the year and month, two characters of the digest, then the
 digest. Two decisions pulling in opposite directions, and both worth having:
 
-- **The digest** means one file per distinct body. A campaign to forty thousand people is one
-  body written once, not forty thousand copies — and that is the send that makes this table
-  large in the first place. On the installation above, 2,916 archived bodies are **198 files**.
+- **The digest** means one file per distinct body. On the installation above, 2,916 archived
+  bodies are **198 files**.
+
+  **Read that as "per *distinct* body", not "per campaign".** A mailed campaign is personalised:
+  `offerUnsubscribe()` puts a per-recipient token in the wrapper, tracking gives each recipient
+  its own pixel id, and `Email::send()` logs the *rendered* body on purpose — the mailer sends
+  that string and the audit log records it, so they have to be the same one. Forty thousand
+  recipients are therefore forty thousand distinct bodies and forty thousand files.
+
+  Where the deduplication does pay is the **inbox** copies of a mass message: those are the
+  campaign body verbatim, identical for everyone, and they collapse to one file. Compression
+  applies to every stored body either way; deduplication only reaches the identical ones.
 - **The date** means an operator can look at, back up or remove a period without consulting the
   database. It costs the dedup across months: the same body sent in August and in October is two
   files. That is the right way round — a campaign is one moment, and "remove 2023" is a thing

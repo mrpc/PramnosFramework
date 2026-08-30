@@ -313,6 +313,23 @@ class BodyStore
         $referenced = [];
         $database   = \Pramnos\Framework\Factory::getDatabase();
 
+        /*
+         * Taken before the tables are read, and it is what stops this deleting live bodies.
+         *
+         * The two halves of this method cannot be one instant: the rows are read first, the
+         * files second. A message sent in between writes a file that no row named *at the time
+         * the rows were read* — so it looks exactly like an orphan, and it is the body of a
+         * message somebody received a second ago.
+         *
+         * On an installation that sends all day the window is not theoretical, and the damage is
+         * silent: the row keeps its `bodypath` and the file behind it is gone.
+         *
+         * So a file is only ever a candidate if it already existed when the sweep began, less a
+         * minute of margin for clock skew between the database host and this one. Nothing is
+         * lost by waiting — a genuine orphan is still an orphan on the next run.
+         */
+        $startedAt = time() - 60;
+
         foreach (self::REFERENCED_BY as $table => $column) {
             try {
                 /*
@@ -395,9 +412,17 @@ class BodyStore
                 substr($file->getPathname(), strlen($root) + 1)
             );
 
-            if (!isset($referenced[$relative])) {
-                $orphans[] = $relative;
+            if (isset($referenced[$relative])) {
+                continue;
             }
+
+            // Newer than the sweep: written after the rows were read, so its row was never in
+            // the list. Not evidence of an orphan — evidence of a send.
+            if ((int) $file->getMTime() >= $startedAt) {
+                continue;
+            }
+
+            $orphans[] = $relative;
         }
 
         sort($orphans);

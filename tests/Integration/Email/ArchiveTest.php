@@ -254,9 +254,59 @@ class ArchiveTest extends TestCase
         // Assert
         $this->assertSame([], BodyStore::orphans(), 'the other row still names it');
 
-        // …and once both are gone, it is collectable
+        // …and once both are gone, it is collectable — once it is older than the sweep, which
+        // never collects a file younger than itself in case it is a send still in flight.
         $this->db->query('DELETE FROM ' . $this->db->prefix . 'mails');
+        touch($this->files()[0], time() - 3600);
         $this->assertCount(1, BodyStore::orphans());
+    }
+
+    /**
+     * A body written while the sweep is running is not collected.
+     *
+     * `orphans()` cannot read the rows and the directory in the same instant — it reads the rows
+     * first. A message sent in between writes a file that no row named *at the time the rows were
+     * read*, so it looks exactly like an orphan, and it is the body of something somebody just
+     * received. On an installation that sends all day this is not a theoretical window, and the
+     * damage is silent: the row keeps its `bodypath` and the file behind it is gone.
+     *
+     * A file newer than the sweep is therefore never a candidate. A real orphan is still there
+     * on the next run; a body deleted a second after it was written is not recoverable.
+     */
+    public function testABodyWrittenDuringTheSweepIsNotCollected(): void
+    {
+        // Arrange — a file on disk that no row references, written just now
+        $path = BodyStore::put('<html><body>' . str_repeat('<p>μόλις τώρα</p>', 60)
+            . '</body></html>', time());
+        $this->assertNotNull($path);
+        $this->assertCount(1, $this->files());
+
+        // Act
+        $orphans = BodyStore::orphans();
+
+        // Assert
+        $this->assertSame([], $orphans,
+            'a file younger than the sweep is a send in progress, not an orphan');
+    }
+
+    /**
+     * An old body that nothing references is still collected.
+     *
+     * The counterpart, so the guard above cannot be satisfied by never collecting anything.
+     */
+    public function testAnOldUnreferencedBodyIsStillCollected(): void
+    {
+        // Arrange
+        $path = BodyStore::put('<html><body>' . str_repeat('<p>παλιό</p>', 60) . '</body></html>',
+            time() - 86400 * 30);
+        $full = $this->root . '/' . $path;
+        touch($full, time() - 3600);
+
+        // Act
+        $orphans = BodyStore::orphans();
+
+        // Assert
+        $this->assertSame([$path], $orphans);
     }
 
     /**

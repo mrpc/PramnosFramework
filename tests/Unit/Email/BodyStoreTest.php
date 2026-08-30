@@ -87,6 +87,44 @@ class BodyStoreTest extends TestCase
     }
 
     /**
+     * A personalised body is a different file, and that is the limit of the deduplication.
+     *
+     * The claim worth being precise about, because it is easy to state too broadly. The store is
+     * content-addressed, so *identical* bodies are stored once — and the inbox copies of a mass
+     * message genuinely are identical, which is where that property pays.
+     *
+     * A **mailed** campaign is not. `offerUnsubscribe()` puts a per-recipient token in the
+     * wrapper and tracking gives each recipient its own pixel id, and `Email::send()` logs the
+     * rendered body precisely because "the mailer sends this and the audit log records it, so
+     * they have to be the same string". So forty thousand recipients are forty thousand distinct
+     * bodies and forty thousand files.
+     *
+     * That is not a defect to fix here — it is what an honest audit trail costs. Compression
+     * still applies to every one of them; deduplication does not. Anything that reads "a campaign
+     * is one file" without saying *inbox* copies is wrong.
+     */
+    public function testAPersonalisedBodyIsNotDeduplicated(): void
+    {
+        // Arrange — one campaign, three recipients, differing only in their tokens
+        $wrapper = '<html><body><h1>Προσφορά</h1>' . str_repeat('<p>Κείμενο</p>', 40);
+        $paths   = [];
+
+        foreach (['alpha', 'beta', 'gamma'] as $token) {
+            // Act
+            $paths[] = BodyStore::put(
+                $wrapper . '<a href="https://example.gr/u/' . $token . '">Διαγραφή</a>'
+                . '</body></html>',
+                mktime(0, 0, 0, 8, 31, 2026)
+            );
+        }
+
+        // Assert
+        $this->assertCount(3, array_unique($paths),
+            'a per-recipient token makes a per-recipient file — the deduplication does not reach '
+            . 'a mailed campaign, only the identical inbox copies of one');
+    }
+
+    /**
      * A different body is a different file.
      */
     public function testADifferentBodyIsADifferentFile(): void
