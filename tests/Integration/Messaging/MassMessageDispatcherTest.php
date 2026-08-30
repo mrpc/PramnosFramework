@@ -120,6 +120,10 @@ class MassMessageDispatcherTest extends BaseTestCase
 
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Messaging\CreateMessagesTable::class,
+            // The dispatcher writes `bodypath`/`excerpt`, so the schema this runs against has to
+            // be the one an installation actually has after migrating — without it every
+            // recipient is recorded as failed and the reason is only in a log.
+            \Pramnos\Framework\Migrations\Messaging\AddBodypathToMessages::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMassmessagesTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMassmessagerecepientsTable::class,
         ]);

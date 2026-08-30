@@ -179,6 +179,7 @@ class Application extends \Symfony\Component\Console\Application
         // The body is the whole size of `mails`, and it is the part that compresses. Moving it
         // to a gzipped file keeps every message readable, which stripping does not.
         $this->add(new \Pramnos\Console\Commands\MailArchive());
+        $this->add(new \Pramnos\Console\Commands\MessageArchiveCommand());
         // The VAPID key pair web push needs. Run once — rotating it stops every existing
         // subscription working, and nobody is told.
         $this->add(new \Pramnos\Console\Commands\PushVapidGenerate());

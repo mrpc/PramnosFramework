@@ -200,7 +200,10 @@ class MessagesController extends Controller
         try {
             $result = $this->database()->queryBuilder()
                 ->table('#PREFIX#messages')
-                ->select(['messageid', 'subject', 'text', 'type', 'date', 'fromuserid', 'html'])
+                // `excerpt`, not `text`: the body may be in a file, and a listing that
+                // opened one per row would decompress two hundred to draw one page.
+                ->select(['messageid', 'subject', 'excerpt', 'text', 'type', 'date',
+                          'fromuserid', 'html'])
                 ->where('touserid', $userId)
                 ->whereIn('type', self::INBOX_TYPES)
                 ->orderBy('date', 'desc')
@@ -252,7 +255,17 @@ class MessagesController extends Controller
 
         $row = $result->fetch();
 
-        return $row === null ? null : (array) $row;
+        if ($row === null) {
+            return null;
+        }
+
+        $row = (array) $row;
+
+        // Here the body *is* wanted — this is the screen that shows it — so it comes back from
+        // wherever it was put. One read, for one message somebody asked to open.
+        $row['text'] = \Pramnos\Storage\BodyStore::bodyOf($row);
+
+        return $row;
     }
 
     /**

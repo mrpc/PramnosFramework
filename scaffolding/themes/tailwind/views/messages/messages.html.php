@@ -19,6 +19,8 @@ $when     = static function ($value): string {
 
     return $time > 0 ? localDateTime( $time) : '—';
 };
+// `excerpt` is written at send time so this listing never opens a stored body.
+// The fallback to `text` is for rows written before the store existed.
 $excerpt  = static function ($text): string {
     // Tags stripped before truncating: a message may be HTML, and cutting markup in half
     // leaves an unclosed tag that takes the rest of the page with it.
@@ -55,7 +57,7 @@ $excerpt  = static function ($text): string {
                         <?php echo $e($message['subject'] ?? ''); ?>
                     </span>
                     <span class="block text-sm text-base-content/60 truncate">
-                        <?php echo $e($excerpt($message['text'] ?? '')); ?>
+                        <?php echo $e($excerpt(($message['excerpt'] ?? '') ?: ($message['text'] ?? ''))); ?>
                     </span>
                 </span>
                 <span class="text-xs text-base-content/50 whitespace-nowrap">

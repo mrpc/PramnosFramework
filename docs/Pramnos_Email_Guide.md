@@ -1332,6 +1332,50 @@ Measured on one installation: **7.2 MB of bodies in the database became 212 KB o
 ./yourapp mail:archive --gc --apply # …and collect files no row names any more
 ```
 
+### `messages` uses the same store
+
+The account's own inbox has the same problem in a worse shape. `mails` grows a row per message;
+`messages` grows a row per **recipient**, so a campaign to forty thousand people writes forty
+thousand rows, each carrying its own copy of one identical body.
+
+The store is content-addressed, so those forty thousand copies become forty thousand path strings
+and **one file**. Here, deduplication is not a bonus — it is the reason to use it at all.
+
+```
+./yourapp messages:archive            # what it would move, and nothing else
+./yourapp messages:archive --apply
+```
+
+New messages write to the store on their own, through `Message::save()` and through the mass-send
+dispatcher; `messages:archive` is the migration for rows that were already there. `Message::load()`
+brings the body back, so `$message->text` means what it always meant.
+
+**One extra column, and it is the one that makes the rest usable.** The inbox listing draws a
+preview line under every subject. With the body in a file that would be one decompression per row —
+two hundred to paint one page — so `excerpt` is written at send time and stays on the row. A
+listing wants a summary, not a body, and a summary is metadata.
+
+**And the garbage collection had to learn about it.** `BodyStore::orphans()` deletes files no row
+names. It was written when `mails` was the only table naming one; sharing the store without telling
+it about `messages` would have made every message body look unreferenced, and `mail:archive --gc`
+would have deleted all of them. `BodyStore::REFERENCED_BY` is the list, and adding a table to it is
+not bookkeeping — it is the whole safety of the sweep.
+
+A missing table is two different events, and the sweep tells them apart. `messages` belongs to a
+feature an installation can switch off: if it is absent no row ever pointed into the store from it,
+so it is skipped. `BodyStore::REQUIRED_TABLE` — `mails` — is different: the store was built for it,
+every file is presumed to have come from it, and reading "nothing is referenced" out of its absence
+hands the caller the whole archive to delete. So its absence stops the sweep.
+
+### The class moved, the old name did not
+
+The implementation is `Pramnos\Storage\BodyStore`, because a message body has nothing to do with
+email. `Pramnos\Email\BodyStore` still resolves and still means what it meant — an application
+that calls it keeps working. New code should use the one in `Storage`.
+
+The configuration key is still `mail.body_store`. Renaming it would break every installation that
+has set it, to buy tidiness in a config file nobody reads twice.
+
 ### Content-addressed, inside a dated partition
 
 `mails/2026/08/3f/3f8a…c1.html.gz` — the year and month, two characters of the digest, then the
