@@ -1531,8 +1531,19 @@ audit log, for an administrator investigating an incident — the right audience
 It offers one action — *if this was not you, change your password* — and no link. A link
 in an unexpected security email is the shape of the attack it warns about.
 
-Mail only. A database notification would put the warning in the panel of the session
-that triggered it, which in the case worth warning about is the wrong person.
+Mail, and a push where the account has a subscribed browser. **Not** a database
+notification: that would put the warning in the panel of the session that triggered it,
+which in the case worth warning about is the wrong person. Push passes the same test — a
+browser receives one only because somebody granted permission in it earlier, so the
+subscriptions on an account are the owner's devices rather than the one the sign-in just
+happened on. See the [Web Push Guide](Pramnos_Push_Guide.md) for the channel itself.
+
+It is also the one notification the framework sends with an unsubscribe list
+(`unsubscribeList()` returns `newsignin`), because it is the one that belongs to a list:
+the account can already turn these alerts off on its privacy screen, so honouring an
+unsubscribe flips that same checkbox. Everything else — a password reset, a security
+change — is transactional, and offering to unsubscribe from a password reset is offering
+to disable the only way back into the account.
 
 ## Authentication Addons
 
