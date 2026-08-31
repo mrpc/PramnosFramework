@@ -62,6 +62,15 @@ class Application extends \Pramnos\Application\Model
     /** @var int Trusted first-party client: 1 skips the OAuth2 consent screen, 0 = untrusted (default) */
     public int $trusted = 0;
 
+    /**
+     * @var int OAuth2 client type: 1 = confidential (holds a secret), 0 = public.
+     *
+     * Not `$public` above, which is about being listed in a directory. Defaults to
+     * confidential, so a registration that never says otherwise behaves as every
+     * registration did before the column existed.
+     */
+    public int $is_confidential = 1;
+
     /** @var string|null Comma-separated or JSON-array of allowed redirect URIs */
     public ?string $callback = null;
 
@@ -191,8 +200,75 @@ class Application extends \Pramnos\Application\Model
             return $clientSecret === null || $clientSecret === '';
         }
 
-        return $clientSecret !== null
-            && hash_equals($stored, $clientSecret);
+        if ($clientSecret === null || $clientSecret === '') {
+            return false;
+        }
+
+        // Hashed, the way a password is: the server only ever verifies this value,
+        // so nothing should be able to read it back — not a DBA, not a leaked
+        // backup, not an SQL injection somewhere else in the application.
+        // Encryption would have been the weaker choice here, since APP_KEY sits in
+        // .env beside the database credentials.
+        if (self::secretIsHashed($stored)) {
+            // verify() answers with the scheme that matched, or null. No user id:
+            // the pepper is bound to an account and a client is not one, and a
+            // 256-bit random secret does not need the protection a human-chosen
+            // password does.
+            return \Pramnos\Auth\PasswordHash::verify($clientSecret, $stored) !== null;
+        }
+
+        // A secret written before hashing existed. Compared in constant time as
+        // before, and then re-hashed in place, so an installation converts itself
+        // one successful authentication at a time — no rotation, no downtime, and no
+        // window where a client cannot connect.
+        if (!hash_equals($stored, $clientSecret)) {
+            return false;
+        }
+
+        $this->rehashSecret($clientId, $clientSecret);
+
+        return true;
+    }
+
+    /**
+     * Is this stored value a hash rather than a secret?
+     *
+     * `password_get_info()` rather than a `$2y$` prefix check, so it recognises
+     * whatever algorithm {@see PasswordHash} is configured for rather than only
+     * today's default.
+     *
+     * @param string $stored The `apisecret` column.
+     * @return bool
+     */
+    protected static function secretIsHashed(string $stored): bool
+    {
+        return (password_get_info($stored)['algo'] ?? null) !== null;
+    }
+
+    /**
+     * Replace a plaintext secret with its hash, after it has been verified.
+     *
+     * Best-effort. A failure here — a read-only replica, a lock — must not turn a
+     * successful authentication into a failed one: the client presented the right
+     * secret, and the row can be converted on the next attempt.
+     *
+     * @param string $clientId The apikey identifying the row.
+     * @param string $plain    The verified plaintext.
+     */
+    protected function rehashSecret(string $clientId, string $plain): void
+    {
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#applications')
+                ->where('apikey', $clientId)
+                ->update(['apisecret' => \Pramnos\Auth\PasswordHash::make($plain)]);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log(
+                'Could not re-hash the client secret for ' . $clientId . ': '
+                . $e->getMessage(),
+                'auth'
+            );
+        }
     }
 
     /**
@@ -353,10 +429,30 @@ class Application extends \Pramnos\Application\Model
         return array_map('trim', explode(',', $this->callback));
     }
 
-    /** Confidential clients require a secret; public clients do not. */
+    /**
+     * Can this client keep a secret?
+     *
+     * A **confidential** client runs somewhere its operator controls — a server —
+     * and can hold a `client_secret`. A **public** one is a single-page app or a
+     * mobile binary: whatever secret you ship inside it, every user of it has, so it
+     * holds none and authenticates the authorization code with PKCE instead.
+     *
+     * This returned a hardcoded `true`, so the two were indistinguishable and there
+     * was nowhere to record the difference. It matters for exactly one grant:
+     * `client_credentials` authenticates the *application*, with nothing but the
+     * secret, so a public client using it authenticates with nothing.
+     * league/oauth2-server refuses that grant to a non-confidential client, and this
+     * is the answer it asks for.
+     *
+     * Read from `is_confidential`, not from `$public` — that column means *publicly
+     * listed*, and tying "appears in a directory" to "needs no client secret" would
+     * turn off a client's authentication the first time somebody ticked the wrong
+     * box. It defaults to confidential, so nothing changes for an installation that
+     * never marks a client public.
+     */
     public function isConfidential(): bool
     {
-        return true;
+        return (int) $this->is_confidential === 1;
     }
 
     /** Return allowed scopes as an array. */

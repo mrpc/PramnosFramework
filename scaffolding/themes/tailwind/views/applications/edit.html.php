@@ -95,6 +95,17 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
                                 <?php echo ((int)($app['public'] ?? 0) === 1) ? 'checked' : ''; ?>>
                             <span class="text-sm text-base-content/80">Listed publicly</span>
                         </label></div>
+                    <div><label class="<?php echo $lbl; ?>">Client Type</label>
+                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
+                            <input type="checkbox" name="is_confidential" value="1" class="w-4 h-4"
+                                <?php echo ((int)($app['is_confidential'] ?? 1) === 1) ? 'checked' : ''; ?>>
+                            <span class="text-sm text-base-content/80">Confidential — can hold a client secret</span>
+                        </label>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            Untick for a single-page app or a mobile binary: whatever secret
+                            it ships with, every user of it has. A public client uses PKCE
+                            and cannot use the client-credentials grant.
+                        </p></div>
                 </div>
             </div>
         </div>

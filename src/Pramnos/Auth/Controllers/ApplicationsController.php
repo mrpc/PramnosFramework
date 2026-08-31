@@ -327,6 +327,10 @@ class ApplicationsController extends Controller
             'apiversion'      => $apiversion !== '' ? $apiversion : 'v1',
             'appversion'      => $appversion,
             'public'          => $public,
+            // Unchecked means public — a client that cannot hold a secret. Read from
+            // its own field rather than from `public` above, which is about being
+            // listed in a directory and has nothing to do with client authentication.
+            'is_confidential' => isset($_POST['is_confidential']) ? 1 : 0,
             'organization'    => $organization !== '' ? $organization : null,
             'organizationurl' => $organizationurl !== '' ? $organizationurl : null,
             'url'             => $url !== '' ? $url : null,
@@ -343,15 +347,35 @@ class ApplicationsController extends Controller
                 ->where('appid', $id)
                 ->update($fields);
         } else {
+            // The secret is generated once, hashed for storage, and shown to the
+            // operator in the flash message below — after this it cannot be read
+            // back, which is the point of hashing it.
+            $plainSecret = bin2hex(random_bytes(32));
+
             $fields['apikey']    = bin2hex(random_bytes(16));
-            $fields['apisecret'] = bin2hex(random_bytes(32));
+            $fields['apisecret'] = \Pramnos\Auth\PasswordHash::make($plainSecret);
             $fields['added']     = time();
+
+            // A separate realtime key, encrypted rather than hashed: unlike the
+            // client secret it has to be read back to sign a channel with.
+            $broadcastSecret = bin2hex(random_bytes(32));
+            $fields['broadcast_secret'] = \Pramnos\Security\Encrypter::isAvailable()
+                ? \Pramnos\Security\Encrypter::encrypt($broadcastSecret)
+                : $broadcastSecret;
             $db->queryBuilder()
                 ->table('#PREFIX#applications')
                 ->insert($fields);
         }
 
-        $this->addMessage('Saved.');
+        if ($id === 0) {
+            $this->addMessage(
+                'Saved. The client secret is ' . $plainSecret . ' — copy it now, '
+                . 'it is stored hashed and cannot be shown again.'
+            );
+        } else {
+            $this->addMessage('Saved.');
+        }
+
         $this->redirect(adminUrl('applications'));
     }
 
@@ -463,9 +487,15 @@ class ApplicationsController extends Controller
             ->queryBuilder()
             ->table('#PREFIX#applications')
             ->where('appid', $id)
-            ->update(['apisecret' => $newSecret]);
+            ->update(['apisecret' => \Pramnos\Auth\PasswordHash::make($newSecret)]);
 
-        $this->addMessage('A new secret has been generated.');
+        // Shown once, here. The column holds a hash from now on, so this message is
+        // the only place the value exists in readable form — rotating without
+        // copying it means rotating again.
+        $this->addMessage(
+            'The new client secret is ' . $newSecret . ' — copy it now, it is stored '
+            . 'hashed and cannot be shown again.'
+        );
         $this->redirect(adminUrl('applications/edit/') . $id);
     }
 

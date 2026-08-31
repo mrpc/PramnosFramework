@@ -51,15 +51,24 @@ $accessTypeLabel = function (int $t): string {
                         </div>
                     </div>
                     <div>
+<?php
+/*
+ * The client secret is not shown. It is stored hashed, exactly as a password is,
+ * so there is nothing here to display — and that is the point: a screen that can
+ * show a credential is a screen that can leak one. The value exists in readable
+ * form once, in the flash message that follows creating or rotating it.
+ *
+ * A row written before hashing still holds a plaintext secret and converts itself
+ * on the client's next successful authentication, so this stays true either way.
+ */
+?>
                         <div style="font-size:11px;color:#888;margin-bottom:4px">Client Secret</div>
-                        <div style="display:flex;gap:6px">
-                            <input type="password" readonly id="pcAppSecret<?php echo $appId; ?>"
-                                   style="flex:1;font-family:monospace;font-size:11px;border:1px solid #ddd;border-radius:3px;padding:5px 8px;background:#f9f9f9"
-                                   value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
-                            <button style="border:1px solid #ddd;background:#f9f9f9;border-radius:3px;padding:5px 8px;cursor:pointer"
-                                    data-toggle-type="pcAppSecret<?php echo $appId; ?>"
-                                    title="Toggle">&#128065;</button>
+                        <div style="font-size:11px;color:#888;font-style:italic;margin-bottom:4px">
+                            Stored hashed and not recoverable.
                         </div>
+                        <a href="<?php echo adminUrl('applications/rotate/') . $appId; ?>"
+                           class="btn btn-outline-secondary"
+                           data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</a>
                     </div>
                 </div>
             </div>

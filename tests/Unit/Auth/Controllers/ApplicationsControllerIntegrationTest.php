@@ -249,10 +249,16 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
-        $this->assertContains(
-            'Saved.',
-            $_SESSION['_messages'] ?? []
+
+        // The message carries the generated secret, because it is the only place the
+        // value will ever be readable: the column holds a hash. It is asserted by
+        // shape rather than by value — 64 hex characters — since the secret is
+        // random by definition.
+        $messages = $_SESSION['_messages'] ?? [];
+        $this->assertNotEmpty($messages);
+        $this->assertMatchesRegularExpression(
+            '/^Saved\. The client secret is [0-9a-f]{64} — copy it now/u',
+            (string) $messages[0]
         );
     }
 
@@ -336,10 +342,15 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
-        $this->assertContains(
-            'A new secret has been generated.',
-            $_SESSION['_messages'] ?? []
+
+        // Rotation used to say only that a secret had been generated, which was
+        // enough while the value could be read back off the view screen. It cannot:
+        // the column is hashed, so the message is where the operator gets it, once.
+        $messages = $_SESSION['_messages'] ?? [];
+        $this->assertNotEmpty($messages);
+        $this->assertMatchesRegularExpression(
+            '/^The new client secret is [0-9a-f]{64} — copy it now/u',
+            (string) $messages[0]
         );
     }
 }

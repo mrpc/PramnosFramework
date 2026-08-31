@@ -105,6 +105,19 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                             <span style="font-size:13px">Listed publicly</span>
                         </label>
                     </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Client Type</label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px">
+                            <input type="checkbox" name="is_confidential" value="1"
+                                <?php echo ((int)($app['is_confidential'] ?? 1) === 1) ? 'checked' : ''; ?>>
+                            <span style="font-size:13px">Confidential — can hold a client secret</span>
+                        </label>
+                        <p style="font-size:11px;color:#888;margin-top:4px">
+                            Untick for a single-page app or a mobile binary: whatever secret
+                            it ships with, every user of it has. A public client uses PKCE
+                            and cannot use the client-credentials grant.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>

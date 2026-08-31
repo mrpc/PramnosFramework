@@ -19,13 +19,18 @@ namespace Pramnos\Broadcasting\Apps;
  *
  * ## Two deliberate decisions
  *
- * **`broadcast_secret` is preferred over `apisecret`.** A long-running WebSocket
+ * **`broadcast_secret` is the only source.** A long-running WebSocket
  * daemon holds every app's secret in memory for the life of the process, which is
  * a different exposure profile from an OAuth2 token exchange that reads one and
  * returns. Sharing one secret between them means a core dump or a crash log from
  * the daemon leaks OAuth2 client credentials too. The dedicated column keeps the
- * blast radii separate; it is nullable, and `apisecret` is the fallback, so an
- * installation that has not run the migration keeps working.
+ * blast radii separate — and it is now the only source, because `apisecret` is
+ * hashed and a password digest cannot serve as an HMAC key. The
+ * split_broadcast_secret_from_apisecret migration fills the column for
+ * installations that were relying on the old fallback, keeping the value they had.
+ *
+ * The column is encrypted at rest ({@see \Pramnos\Security\Encrypter}), because
+ * unlike the client secret it has to be read back.
  *
  * **Lookups are cached with a TTL.** The daemon is a single-threaded
  * `stream_select()` loop: a query per handshake blocks every other connection for
@@ -108,15 +113,30 @@ class AuthServerAppRegistry implements AppRegistryInterface
             return null;
         }
 
-        // Prefer the dedicated column; fall back to the OAuth2 secret so this
-        // works before the migration has run. array_key_exists rather than ??
-        // because a NULL column and an absent one mean the same thing here but
-        // read differently from a driver returning either.
+        // `broadcast_secret` only. There used to be a fallback to `apisecret` for
+        // installations predating the column, and it had to go when the OAuth2
+        // client secret started being hashed: a bcrypt digest is not an HMAC key,
+        // so the fallback would have signed every channel with a value the
+        // subscriber cannot derive — authorization failing everywhere, for a reason
+        // visible nowhere. The split_broadcast_secret_from_apisecret migration
+        // fills the column in for those installations.
+        //
+        // array_key_exists rather than ?? because a NULL column and an absent one
+        // mean the same thing here but read differently from a driver returning
+        // either.
         $secret = '';
-        foreach (['broadcast_secret', 'apisecret'] as $column) {
-            if (array_key_exists($column, $row) && (string) $row[$column] !== '') {
-                $secret = (string) $row[$column];
-                break;
+        if (array_key_exists('broadcast_secret', $row)
+            && (string) $row['broadcast_secret'] !== ''
+        ) {
+            try {
+                $secret = \Pramnos\Security\Encrypter::maybeDecrypt(
+                    (string) $row['broadcast_secret']
+                );
+            } catch (\RuntimeException) {
+                // APP_KEY rotated or the column truncated. An unusable key is worse
+                // than none: signing with ciphertext produces authorizations the
+                // subscriber rejects, and the operator would look at the daemon.
+                $secret = '';
             }
         }
 

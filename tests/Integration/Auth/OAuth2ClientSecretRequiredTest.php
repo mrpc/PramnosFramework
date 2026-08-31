@@ -294,4 +294,115 @@ class OAuth2ClientSecretRequiredTest extends BaseTestCase
         // Act + Assert
         $this->assertFalse($this->model()->validateCredentials($apikeyB, 'secret-of-client-a'));
     }
+
+    // ── The secret at rest ────────────────────────────────────────────────────
+
+    /**
+     * A secret registered through the admin screen is stored hashed.
+     *
+     * Hashed rather than encrypted, deliberately: the server only ever *verifies*
+     * this value, so nothing should be able to read it back. Encryption would have
+     * handed it to anyone with the database and `.env`, and `.env` sits beside the
+     * database credentials.
+     */
+    public function testANewlyHashedSecretVerifies(): void
+    {
+        // Arrange — the shape ApplicationsController now writes.
+        $plain  = bin2hex(random_bytes(32));
+        $apikey = $this->seedApplication(\Pramnos\Auth\PasswordHash::make($plain));
+
+        // Act + Assert
+        $this->assertTrue($this->model()->validateCredentials($apikey, $plain));
+        $this->assertFalse($this->model()->validateCredentials($apikey, 'wrong'));
+        $this->assertFalse($this->model()->validateCredentials($apikey, null));
+    }
+
+    /**
+     * A plaintext secret still authenticates, and converts itself in the process.
+     *
+     * The migration path, and the reason there is no rotation step: an installation
+     * upgrades, every client keeps working, and each row becomes a hash the first
+     * time its client authenticates. No downtime, no window where a client cannot
+     * connect, nothing for an operator to run.
+     */
+    public function testALegacyPlaintextSecretVerifiesAndIsRehashed(): void
+    {
+        // Arrange — a row as an installation upgrading today has it.
+        $plain  = 'legacy-plaintext-secret';
+        $apikey = $this->seedApplication($plain);
+
+        // Act
+        $this->assertTrue($this->model()->validateCredentials($apikey, $plain));
+
+        // Assert — the column is a hash now, and the same secret still works.
+        $stored = (string) $this->db->queryBuilder()
+            ->table('applications')
+            ->select(['apisecret'])
+            ->where('apikey', $apikey)
+            ->first()->fields['apisecret'];
+
+        $this->assertNotSame($plain, $stored, 'The row was not converted.');
+        $this->assertNotNull(password_get_info($stored)['algo'] ?? null);
+        $this->assertTrue($this->model()->validateCredentials($apikey, $plain));
+    }
+
+    /** A wrong secret against a plaintext row is refused and converts nothing. */
+    public function testAWrongSecretAgainstAPlaintextRowConvertsNothing(): void
+    {
+        // Arrange
+        $plain  = 'legacy-plaintext-secret';
+        $apikey = $this->seedApplication($plain);
+
+        // Act
+        $this->assertFalse($this->model()->validateCredentials($apikey, 'wrong'));
+
+        // Assert — still plaintext: only a verified secret may be re-hashed, or a
+        // failed guess would overwrite the row with a hash of itself.
+        $stored = (string) $this->db->queryBuilder()
+            ->table('applications')
+            ->select(['apisecret'])
+            ->where('apikey', $apikey)
+            ->first()->fields['apisecret'];
+
+        $this->assertSame($plain, $stored);
+    }
+
+    // ── Public vs confidential ────────────────────────────────────────────────
+
+    /**
+     * A registration is confidential unless it says otherwise.
+     *
+     * `isConfidential()` returned a hardcoded `true`, so the distinction did not
+     * exist. The default keeps every existing registration behaving as it did.
+     */
+    public function testAClientIsConfidentialByDefault(): void
+    {
+        // Arrange
+        $model = $this->model();
+
+        // Act + Assert
+        $this->assertTrue($model->isConfidential());
+    }
+
+    /**
+     * A client marked public is not confidential — and it is `is_confidential` that
+     * decides, not `public`.
+     *
+     * `public` means *listed in a directory*. If that column drove this answer,
+     * ticking "list this app" would turn off its client authentication.
+     */
+    public function testTheDirectoryFlagDoesNotDecideClientType(): void
+    {
+        // Arrange
+        $model                  = $this->model();
+        $model->public          = 1;
+        $model->is_confidential = 1;
+
+        // Act + Assert — listed, and still confidential.
+        $this->assertTrue($model->isConfidential());
+
+        // Act + Assert — and the field that does decide.
+        $model->is_confidential = 0;
+        $this->assertFalse($model->isConfidential());
+    }
 }

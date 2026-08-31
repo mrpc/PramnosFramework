@@ -252,26 +252,34 @@ class AppRegistryTest extends TestCase
      * With no broadcast_secret, apisecret is used — so the registry works before
      * the migration has run.
      */
-    public function testFallsBackToApiSecret(): void
+    public function testDoesNotFallBackToApiSecret(): void
     {
-        // Arrange
+        // Arrange — a row from before broadcast_secret was filled in.
         $registry = $this->authServerRegistry([
             'apikey'    => 'live-key',
             'apisecret' => 'oauth-secret',
         ]);
 
-        // Act & Assert
-        $this->assertSame('oauth-secret', $registry->findByKey('live-key')?->secret);
+        // Act & Assert — no secret, so the app cannot sign.
+        //
+        // This asserted the opposite until `apisecret` began being hashed. A
+        // password digest is not an HMAC key: falling back to it would sign every
+        // channel with a value no subscriber can derive, so authorization would
+        // fail everywhere and the reason would be visible nowhere. Refusing to sign
+        // is the honest failure, and the
+        // split_broadcast_secret_from_apisecret migration is what stops any real
+        // installation reaching it.
+        $this->assertSame('', $registry->findByKey('live-key')?->secret);
     }
 
     /**
      * A NULL broadcast_secret is treated as absent rather than as an empty secret.
      *
-     * A driver may return either a missing key or a null value for the same
-     * column, and an empty secret would make canSign() false on a perfectly
-     * configured app.
+     * A driver may return either a missing key or a null value for the same column,
+     * and the two have to be read the same way. Neither yields a signing key now
+     * that there is nothing to fall back to.
      */
-    public function testNullBroadcastSecretFallsBack(): void
+    public function testNullBroadcastSecretYieldsNoSecret(): void
     {
         // Arrange
         $registry = $this->authServerRegistry([
@@ -281,7 +289,82 @@ class AppRegistryTest extends TestCase
         ]);
 
         // Act & Assert
-        $this->assertSame('oauth-secret', $registry->findByKey('live-key')?->secret);
+        $this->assertSame('', $registry->findByKey('live-key')?->secret);
+    }
+
+    /**
+     * An encrypted broadcast_secret is decrypted before it is used to sign.
+     *
+     * The column is encrypted at rest — unlike the client secret it has to be read
+     * back — so what reaches `BroadcastApp` must be the key itself, not the
+     * ciphertext. Signing with the ciphertext would produce authorizations no
+     * subscriber can verify.
+     */
+    public function testAnEncryptedBroadcastSecretIsDecrypted(): void
+    {
+        // Arrange
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+
+        try {
+            $registry = $this->authServerRegistry([
+                'apikey'           => 'live-key',
+                'broadcast_secret' => \Pramnos\Security\Encrypter::encrypt('realtime-key'),
+            ]);
+
+            // Act & Assert
+            $this->assertSame('realtime-key', $registry->findByKey('live-key')?->secret);
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
+    }
+
+    /**
+     * A broadcast_secret that will not decrypt yields no key rather than the
+     * ciphertext.
+     *
+     * After an APP_KEY rotation the value is gone either way. Handing back
+     * `enc:v1:…` would sign with it, and the operator would be reading the
+     * WebSocket daemon's logs to find a key problem on the application's side.
+     */
+    public function testAnUndecryptableBroadcastSecretYieldsNoSecret(): void
+    {
+        // Arrange
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+        $sealed = \Pramnos\Security\Encrypter::encrypt('realtime-key');
+
+        $rotated = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $rotated);
+        $_ENV['APP_KEY'] = $rotated;
+
+        try {
+            $registry = $this->authServerRegistry([
+                'apikey'           => 'live-key',
+                'broadcast_secret' => $sealed,
+            ]);
+
+            // Act & Assert
+            $this->assertSame('', $registry->findByKey('live-key')?->secret);
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
     }
 
     /**

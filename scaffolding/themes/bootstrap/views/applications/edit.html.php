@@ -118,6 +118,19 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                                 <label class="form-check-label" for="chk_public">Listed publicly</label>
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold d-block">Client Type</label>
+                            <div class="form-check form-switch mt-1">
+                                <input class="form-check-input" type="checkbox" name="is_confidential" value="1" id="chk_confidential"
+                                    <?php echo ((int)($app['is_confidential'] ?? 1) === 1) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="chk_confidential">Confidential — can hold a client secret</label>
+                            </div>
+                            <div class="form-text">
+                                Untick for a single-page app or a mobile binary: whatever secret
+                                it ships with, every user of it has. A public client uses PKCE
+                                and cannot use the client-credentials grant.
+                            </div>
+                        </div>
                     </div>
                 </div></div>
             </div>

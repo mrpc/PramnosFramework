@@ -297,10 +297,26 @@ redirect URLs and ships inside every SPA bundle and mobile binary, so anything
 it could unlock on its own would be unlocked for everybody who has ever seen a
 login link.
 
-A client registered with no secret at all is a different case — it has none to
-present, and the server does not ask for one. Such a client must not be given
-`client_credentials`, which authenticates the application itself and therefore
-has nothing but the secret to authenticate with.
+### Copy it when you are given it
+
+The secret is shown once — on the screen that creates the registration, and again
+if you rotate it. It is stored hashed, the same way a password is, so nobody can
+read it back to you afterwards: not the operator, not a support request, not a
+database query. Lose it and the only route forward is rotating to a new one.
+
+### Public clients
+
+A **public** client is one that cannot keep a secret: a single-page app or a mobile
+binary, where whatever you ship inside it every user of it has. Register it with
+**Client Type** unticked and it is issued no secret and asked for none.
+
+A public client authenticates its authorization code with **PKCE** instead, which is
+why the `code_challenge` above is not optional advice. It cannot use
+`client_credentials`, which authenticates the application itself and has nothing
+but a secret to do it with — the token endpoint refuses that combination.
+
+If your client runs on a server you control, leave it confidential. The secret is
+worth having.
 
 ### Lightweight tokens
 

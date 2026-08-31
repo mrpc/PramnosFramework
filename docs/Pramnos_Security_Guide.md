@@ -392,9 +392,20 @@ from you, and all three are recoverable secrets rather than verifiable ones:
 | `smtp_pass` | `settings` | SMTP AUTH needs the password |
 | Webhook signing secret | `oauth2_webhook_endpoints.secret_key` | it is the HMAC key each delivery is signed with |
 | TOTP seed | `user_twofactor.secret`, `twofactor_setup.temp_secret` | every code is derived from it |
+| Realtime channel key | `applications.broadcast_secret` | it signs channel authorizations |
 
-2FA backup codes are *not* on this list: they are checked and never reused, so
-they are hashed with `PasswordHash::make()`, which is stronger.
+And two that are **hashed**, because the server only ever verifies them:
+
+| Value | Where |
+|---|---|
+| OAuth2 client secret | `applications.apisecret` |
+| 2FA backup codes | `user_twofactor.backup_codes` |
+
+The client secret is shown once, when it is created or rotated, and cannot be read
+back afterwards — that is what hashing buys. A row written before hashing still
+holds a plaintext secret and converts itself the first time that client
+authenticates successfully, so there is no migration to run and no window where a
+client cannot connect.
 
 Nothing about using these changes — `getSecret()` returns a base32 seed, a
 delivery signs with the real key, `getSetting('smtp_pass')` returns a password.

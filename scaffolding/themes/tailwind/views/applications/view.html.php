@@ -53,15 +53,24 @@ $accessTypeLabel = function (int $t): string {
                         </div>
                     </div>
                     <div>
+<?php
+/*
+ * The client secret is not shown. It is stored hashed, exactly as a password is,
+ * so there is nothing here to display — and that is the point: a screen that can
+ * show a credential is a screen that can leak one. The value exists in readable
+ * form once, in the flash message that follows creating or rotating it.
+ *
+ * A row written before hashing still holds a plaintext secret and converts itself
+ * on the client's next successful authentication, so this stays true either way.
+ */
+?>
                         <div class="text-xs text-base-content/60 mb-1">Client Secret</div>
-                        <div class="flex gap-1">
-                            <input type="password" readonly id="twAppSecret<?php echo $appId; ?>"
-                                   class="input input-xs flex-1 font-mono"
-                                   value="<?php echo htmlspecialchars($app['apisecret'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
-                            <button class="btn btn-outline btn-xs"
-                                    data-toggle-type="twAppSecret<?php echo $appId; ?>"
-                                    title="Toggle">&#128065;</button>
+                        <div class="text-xs text-base-content/60 italic mb-1">
+                            Stored hashed and not recoverable.
                         </div>
+                        <a href="<?php echo adminUrl('applications/rotate/') . $appId; ?>"
+                           class="btn btn-outline btn-xs"
+                           data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</a>
                     </div>
                 </div>
             </div>
