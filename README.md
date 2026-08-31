@@ -132,10 +132,17 @@ No local Python or pip installation is required — everything runs inside Docke
 ## Requirements
 
 - Docker and Docker Compose (Recommended for development)
-- PHP 7.4 or higher (if running natively)
-- ext-mbstring extension
-- ext-pdo extension (for database support)
+- PHP 8.1 or higher (if running natively). Development and CI run PHP 8.5.
+- ext-mbstring
+- ext-mysqli (MySQL) and/or ext-pgsql (PostgreSQL / TimescaleDB)
+- ext-sodium, for encrypting stored credentials (bundled with PHP 8 and enabled by
+  default)
 - Optional: Redis/Memcached for caching
+
+The database layer talks to `mysqli` and `pgsql` **directly — not through PDO**.
+`ext-pdo` is neither used nor required, and `prepareInput()` now refuses to escape a
+value rather than fall back to something charset-unaware, so a missing driver
+extension fails loudly instead of half-working.
 
 ## Installation
 
@@ -554,7 +561,7 @@ The framework includes a fully containerized development and testing environment
    ```bash
    docker-compose up -d
    ```
-   This will start PHP 8.4 (for testing), MySQL, PostgreSQL/TimescaleDB, and Redis.
+   This will start PHP 8.5 (for testing), MySQL, PostgreSQL/TimescaleDB, and Redis.
 
 3. Install dependencies and initialize:
    ```bash
@@ -572,8 +579,9 @@ The framework includes a fully containerized development and testing environment
 
 ### Guidelines
 
-- Core framework code (`src/Pramnos/`) must remain **PHP 7.4 compatible**.
-- Tests (`tests/`) run on **PHP 8.4** and can use modern PHP features.
+- Core framework code (`src/Pramnos/`) targets **PHP 8.1** (`composer.json`'s floor)
+  and is developed and tested on **PHP 8.5**.
+- Tests (`tests/`) run on the same **PHP 8.5** and use modern PHP features freely.
 - Follow PSR-4 autoloading standards.
 - Write tests for new features using PHPUnit 11 with native attributes.
 - Update documentation when adding features.
