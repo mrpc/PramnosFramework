@@ -55,6 +55,61 @@ class AdminerRouteTest extends TestCase
                 $this->serveAsset($directory, $path);
             }
 
+            public function probeChrome(): string
+            {
+                return $this->chrome();
+            }
+
+            public function probeInject(string $html): string
+            {
+                return $this->injectChrome($html);
+            }
+
+            public function probeRoutePath(): string
+            {
+                return $this->routePath();
+            }
+
+            public function probeRouteUrl(): string
+            {
+                return $this->routeUrl();
+            }
+
+            public function probeLocate(): ?string
+            {
+                return $this->locate();
+            }
+
+            /**
+             * The line `audit()` writes, read back from an in-memory stream.
+             *
+             * `audit()` composes and logs in one step, so the only way to assert *what it says* is
+             * to read what it wrote. `Logger` has a stream mode for exactly this; pointing it at
+             * `php://memory` keeps the assertion honest — it is the real line, not a copy of the
+             * composition — and touches no log file.
+             */
+            public function probeAuditLine(string $outcome): string
+            {
+                $stream = fopen('php://memory', 'r+');
+
+                $mode = \Pramnos\Logs\Logger::getOutputMode();
+                \Pramnos\Logs\Logger::setStreamTarget($stream);
+                \Pramnos\Logs\Logger::setOutputMode(\Pramnos\Logs\Logger::OUTPUT_STREAM);
+
+                try {
+                    $this->audit($outcome);
+                } finally {
+                    \Pramnos\Logs\Logger::setOutputMode($mode);
+                    \Pramnos\Logs\Logger::setStreamTarget(null);
+                }
+
+                rewind($stream);
+                $written = (string) stream_get_contents($stream);
+                fclose($stream);
+
+                return $written;
+            }
+
             protected function notFound(): void
             {
                 $this->notFounds[] = 'notFound';
@@ -341,5 +396,172 @@ class AdminerRouteTest extends TestCase
     {
         // Assert
         $this->assertSame(99, Adminer::ROOT_USERTYPE);
+    }
+
+    // ── The bar above Adminer's page ──────────────────────────────────────────
+
+    /**
+     * The chrome carries the site's name, the panel's tabs and a way back.
+     *
+     * Adminer is a whole application and every link it draws stays inside itself — it has no idea
+     * this route exists. Without a Back link, a visitor who opened it directly has the browser
+     * button and nothing else, and one who opened it from the DevPanel has left the panel with no
+     * way to see that.
+     */
+    public function testTheChromeNamesTheSiteAndOffersAWayBack(): void
+    {
+        // Arrange
+        $probe = $this->probe();
+
+        // Act
+        $bar = $probe->probeChrome();
+
+        // Assert
+        if ($bar === '') {
+            $this->markTestSkipped('The devpanel feature is not installed in this checkout.');
+        }
+
+        $this->assertStringContainsString('id="pf-adminer-bar"', $bar);
+        $this->assertStringContainsString('Back', $bar);
+        $this->assertStringContainsString('<nav>', $bar, 'the tab strip is missing');
+    }
+
+    /**
+     * The site name is escaped, because it is operator-supplied text.
+     *
+     * A setting somebody typed reaches a page that renders above a database browser. An
+     * apostrophe in a company name would break the attribute; a `<script>` would not be a
+     * cosmetic problem.
+     */
+    public function testTheSiteNameIsEscapedInTheChrome(): void
+    {
+        // Arrange
+        $previous = \Pramnos\Application\Settings::getSetting('sitename');
+        \Pramnos\Application\Settings::setSetting('sitename', '<script>x</script> & "Co"', false);
+
+        try {
+            // Act
+            $bar = $this->probe()->probeChrome();
+
+            if ($bar === '') {
+                $this->markTestSkipped('The devpanel feature is not installed in this checkout.');
+            }
+
+            // Assert
+            $this->assertStringNotContainsString('<script>x</script>', $bar);
+            $this->assertStringContainsString('&lt;script&gt;', $bar);
+        } finally {
+            \Pramnos\Application\Settings::setSetting('sitename', $previous, false);
+        }
+    }
+
+    /**
+     * The bar goes immediately after `<body>`, and only when there is one.
+     *
+     * Adminer answers things that are not pages — a redirect, a download, a fragment for its own
+     * JavaScript. Injecting a `<div>` and a stylesheet into any of those corrupts the response,
+     * so anything without a `<body>` is returned untouched rather than guessed at.
+     */
+    public function testTheBarIsInjectedAfterBodyAndOnlyWhenThereIsOne(): void
+    {
+        // Arrange
+        $probe = $this->probe();
+
+        // Act
+        $page     = $probe->probeInject('<html><head></head><body class="x">rows</body></html>');
+        $fragment = $probe->probeInject('{"json":true}');
+        $redirect = $probe->probeInject('');
+
+        // Assert
+        if ($probe->probeChrome() === '') {
+            $this->markTestSkipped('The devpanel feature is not installed in this checkout.');
+        }
+
+        $this->assertStringContainsString('<body class="x">', $page, 'the body tag was rewritten');
+        $this->assertLessThan(
+            strpos($page, 'rows'),
+            strpos($page, 'pf-adminer-bar'),
+            'the bar is after the content rather than at the top of the body'
+        );
+        $this->assertSame('{"json":true}', $fragment, 'a JSON response was given a stylesheet');
+        $this->assertSame('', $redirect, 'an empty response was given a body');
+    }
+
+    // ── Where the route lives ─────────────────────────────────────────────────
+
+    /**
+     * The route path is the application's own path plus `/adminer`, with no host.
+     *
+     * It is what Adminer is told its request URI is, so it has to be a path: a value with a
+     * scheme and host in it makes every self-link Adminer builds absolute to the wrong thing.
+     */
+    public function testTheRoutePathIsAPathAndNotAUrl(): void
+    {
+        // Act
+        $path = $this->probe()->probeRoutePath();
+
+        // Assert
+        $this->assertStringEndsWith('/adminer', $path);
+        $this->assertStringNotContainsString('http', $path);
+        $this->assertStringNotContainsString('//', $path, 'a doubled separator, so sURL had a trailing slash');
+    }
+
+    /** And the URL is the absolute form of the same thing. */
+    public function testTheRouteUrlIsTheAbsoluteForm(): void
+    {
+        // Act
+        $url = $this->probe()->probeRouteUrl();
+
+        // Assert
+        $this->assertStringEndsWith('/adminer', $url);
+        $this->assertStringStartsWith(rtrim((string) sURL, '/'), $url);
+    }
+
+    // ── The package ───────────────────────────────────────────────────────────
+
+    /**
+     * With no package installed, there is no entry point — and that is not an error.
+     *
+     * `vrana/adminer` is a `suggest`, not a `require`: a framework that shipped a database
+     * browser into every application's vendor directory would enlarge the attack surface of
+     * applications that never asked for one, including the ones that do not read what a release
+     * added.
+     */
+    public function testWithNoPackageThereIsNoEntryPoint(): void
+    {
+        // Act & Assert — this checkout has neither layout installed.
+        $this->assertNull(
+            $this->probe()->probeLocate(),
+            'an Adminer package is installed in this checkout, so this test proves nothing'
+        );
+    }
+
+    // ── The audit line ────────────────────────────────────────────────────────
+
+    /**
+     * A refusal names the visitor, the address and the URL.
+     *
+     * The page says nothing on purpose, so this line is the only trace. It has to answer *who,
+     * from where, for what* — a run of them from one address is the shape of somebody trying the
+     * door, and that pattern is invisible if the line says only "refused".
+     */
+    public function testTheAuditLineNamesWhoFromWhereAndForWhat(): void
+    {
+        // Arrange
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.7';
+        $_SERVER['REQUEST_URI'] = '/adminer?db=production';
+
+        // Act
+        $line = $this->probe()->probeAuditLine('refused');
+
+        // Assert
+        $this->assertStringContainsString('refused', $line);
+        $this->assertStringContainsString('203.0.113.7', $line);
+        $this->assertStringContainsString('/adminer?db=production', $line);
+        $this->assertStringContainsString(
+            'no session',
+            $line,
+            'an anonymous attempt is not described as such'
+        );
     }
 }

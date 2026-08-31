@@ -127,6 +127,25 @@ independent questions, and this route needs yes to each. So an API-authenticated
 sealed identity with no session — is refused, deliberately: this is a browser tool, and a bearer
 token is not the credential it asks for.
 
+### The bar above Adminer's page
+
+Adminer is a whole application and every link it draws stays inside itself — it has no idea this
+route exists. So the chrome is injected: the panel's tab strip with Adminer marked active, the
+site's name, and a Back link, because a visitor who opened it directly otherwise has the browser
+button and nothing else.
+
+Two details that are decisions rather than styling:
+
+- **`position: fixed`, not `sticky`.** Adminer's pages are wider than the viewport whenever a table
+  has many columns, so the page scrolls sideways — and `sticky` pins only the vertical axis, taking
+  Back off the screen exactly when somebody is lost in a wide table.
+- **Anything without a `<body>` is returned untouched.** Adminer answers things that are not pages:
+  a redirect, a download, a fragment for its own JavaScript. Injecting a `div` and a stylesheet into
+  any of those corrupts the response, so the injection is guarded on finding a body tag rather than
+  guessing.
+
+The site name comes from a setting an operator typed and is escaped on the way in.
+
 ### What locks it, on a public server
 
 The gate on the URL *is* the authorisation — the connection is supplied, so reaching the page is
