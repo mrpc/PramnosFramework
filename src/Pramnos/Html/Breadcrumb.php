@@ -19,6 +19,34 @@ class Breadcrumb extends \Pramnos\Framework\Base
      */
     public $extraStyle = '';
 
+    /**
+     * The class on the `<ol>`, and why it is a property rather than a literal.
+     *
+     * It was `class="breadcrumb"` — Bootstrap's own name, hardcoded into framework markup. It
+     * reads as neutral and is not: a project on Tailwind got an element carrying a name nothing
+     * in its stylesheet defines, and one on Bootstrap got styling it never asked this component
+     * for.
+     *
+     * `pf-breadcrumb` instead, which is the convention the rest of the components follow: emit a
+     * neutral hook and let each scaffolded theme's stylesheet marry it to that theme's look —
+     * `pf-omnibox`, `pf-skip-link`, `pf-visually-hidden` and twenty others already work that way.
+     *
+     * A caller who wants Bootstrap's class back sets this to `breadcrumb`.
+     *
+     * @var string
+     */
+    public string $listClass = 'pf-breadcrumb';
+
+    /**
+     * What the navigation landmark is called.
+     *
+     * A page can hold more than one — this and a pager — and a reader listing the regions hears
+     * the labels, not the markup.
+     *
+     * @var string
+     */
+    public string $navigationLabel = 'breadcrumb';
+
 
     /**
      * Add a breadcrumb item
@@ -48,8 +76,9 @@ class Breadcrumb extends \Pramnos\Framework\Base
      */
     public function render()
     {
-        $text = '<nav aria-label="breadcrumb" role="navigation">'
-            . '<ol class="breadcrumb">'
+        $text = '<nav aria-label="' . htmlspecialchars($this->navigationLabel, ENT_QUOTES, 'UTF-8')
+            . '" role="navigation">'
+            . '<ol class="' . htmlspecialchars($this->listClass, ENT_QUOTES, 'UTF-8') . '">'
             . "\n";
         /*
          * The structured data is built as an array and encoded, not concatenated.

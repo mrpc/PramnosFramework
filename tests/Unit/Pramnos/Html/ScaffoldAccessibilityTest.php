@@ -87,6 +87,31 @@ class ScaffoldAccessibilityTest extends TestCase
     }
 
     /**
+     * Every themeable hook a component emits is styled by every theme.
+     *
+     * The convention is that a component emits a neutral `pf-*` class and each theme's stylesheet
+     * marries it to that theme's look. A hook with no rule anywhere is the failure that convention
+     * exists to avoid — and it is invisible, because the markup is correct and the page merely
+     * looks wrong in a way somebody blames on their own CSS.
+     *
+     * `Breadcrumb` emitted Bootstrap's `breadcrumb` and `Pagination` emitted nothing at all, so
+     * neither could be reached from here. Asserted for both, in all three themes.
+     */
+    public function testEveryThemeStylesTheComponentHooks(): void
+    {
+        foreach (self::THEMES as $theme) {
+            // Act
+            $css = $this->style($theme);
+
+            // Assert
+            foreach (['.pf-breadcrumb', '.pf-pagination'] as $hook) {
+                $this->assertStringContainsString($hook, $css,
+                    $theme . ' has no rule for ' . $hook);
+            }
+        }
+    }
+
+    /**
      * The consent screen sends nothing about the person to a third party.
      *
      * It fell back to Gravatar, which means `md5(email)` of somebody signing in went to another

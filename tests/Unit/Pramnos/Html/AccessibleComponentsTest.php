@@ -163,6 +163,60 @@ class AccessibleComponentsTest extends TestCase
     }
 
     /**
+     * The number row can be turned off, leaving previous and next.
+     *
+     * Not a niche case: in search results the page count is large and moves with the filters, so
+     * a reader on page 7 of 40 cannot say what page 7 is — and after narrowing the query it is a
+     * different page 7. Two links are the whole meaningful interface there.
+     *
+     * Requested by an application whose own 421-line pager was kept alive by the absence of this
+     * one switch (FW-048).
+     */
+    public function testThePageNumbersCanBeTurnedOff(): void
+    {
+        // Arrange
+        $pagination = new Pagination(20, 7, '/list');
+        $pagination->displayPageNumbers = false;
+
+        // Act
+        $html = $pagination->render();
+
+        // Assert
+        /*
+         * Asserted on the link *text*, not on `aria-label`.
+         *
+         * The next button legitimately carries `aria-label="Page 8"` — it goes to page 8 and says
+         * so, which is the accessible name it should have. What must be gone is the row of links
+         * whose text is a bare number.
+         */
+        $this->assertStringNotContainsString('>8</a>', $html, 'the number row must be gone');
+        $this->assertStringNotContainsString('>7</', $html, 'including the current page');
+        $this->assertStringContainsString('&laquo;', $html,
+            'and the previous/next buttons must remain — that is the point of the switch');
+        $this->assertStringContainsString('<nav aria-label="Pagination">', $html,
+            'still a landmark, because there is still something in it');
+    }
+
+    /**
+     * With nothing left to show, nothing is rendered — landmark included.
+     *
+     * Turn the numbers off and both button pairs off and every branch is skipped, leaving an
+     * empty `<nav>`. An empty landmark is worse than none: it appears in a reader's list of
+     * regions and leads nowhere. The same rule as a single page, arrived at differently.
+     */
+    public function testAPagerWithNothingToShowRendersNothing(): void
+    {
+        // Arrange
+        $pagination = new Pagination(20, 7, '/list');
+        $pagination->displayPageNumbers  = false;
+        $pagination->displayNextPrevious = false;
+        $pagination->displayFirstLast    = false;
+
+        // Assert
+        $this->assertSame('', $pagination->render());
+    }
+
+    /**
      * One page renders nothing, landmark included.
      *
      * An empty landmark is worse than none: it appears in the region list and leads nowhere.
