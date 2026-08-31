@@ -336,6 +336,47 @@ $router->group(['middleware' => ['api', 'auth:api']], function ($router) {
 });
 ```
 
+### `POST /account/login` — a password for a bearer token
+
+The framework's own API login, in `Pramnos\Auth\Controllers\ApiAccount`. It runs the same
+login flow the HTML form does — lockout, credentials, second factor — and swaps the last step
+for a token:
+
+```
+POST /account/login          {"username": "...", "password": "..."}
+  → 200 {"status":"success","access_token":"<jwt>","token_type":"Bearer","user":{…}}
+  → 401 {"error":"two_factor_required","methods":[…]}   then POST /account/login2fa {"code":"…"}
+  → 401 {"error":"invalid_credentials"}
+  → 429 {"error":"too_many_attempts","retry_after": <seconds>}
+
+POST /account/logout         accessToken: <jwt>   (or Authorization: Bearer <jwt>)
+```
+
+Either header is read, and the body may be JSON or a form post.
+
+**Tokens do not expire by default.** `auth.token_ttl` in `app.php` is the opt-in, in seconds:
+
+```php
+'auth' => ['token_ttl' => 3600],
+```
+
+Left unset — or set to `0`, or to a negative number — the token never expires, which is the
+behaviour every installation had before the setting existed. Giving them an expiry by default
+would sign every client out at once on the day the framework was upgraded, so it is a decision
+an installation makes.
+
+A TTL is stamped in **two** places, because two different pieces of code end a token: the JWT's
+`exp` claim, which `JWT::decode()` refuses once past, and the `usertokens.expires` column, which
+`loadByToken()` refuses. They are always the same number.
+
+The `nbf` claim is backdated twelve hours on purpose. A "not before" of exactly now makes the
+token invalid on any client whose clock runs a few seconds behind the server's, which is a login
+that fails for some users some of the time; `exp` is what actually bounds the token.
+
+With no expiry, **revocation is the only thing that ends an API session** — which is what
+`/account/logout` does, and why a client that discards the token without calling it leaves a
+credential valid for ever.
+
 ### OAuth2
 
 ```php
