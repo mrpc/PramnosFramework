@@ -909,6 +909,40 @@ own endpoints — should use `UnifiedAuthMiddleware`, which accepts a Bearer tok
 optional there: a cookie is sent by the browser automatically, so without it any
 site could make authenticated calls on the user's behalf.
 
+## The data export, section by section
+
+`buildExportData()` reads eleven tables, several belonging to features an installation may not
+have enabled. Each section is resolved on its own:
+
+```php
+foreach ([...'privacy_settings' => fn () => $this->getPrivacySettings($userId)...] as $section => $read) {
+    try {
+        $export[$section] = $read();
+    } catch (\Throwable $unreadable) {
+        $export[$section] = [];
+        Logger::log('Data export: the ' . $section . ' section could not be read …', 'auth');
+    }
+}
+```
+
+Composed as one array literal — which is what it was — a single unreadable table aborted the
+**whole export**. Somebody exercising a data-subject request got an error, and the ten sections
+that were perfectly readable went with it. For a document an installation is legally obliged to
+produce, that is the wrong failure: partial is worth more than nothing.
+
+Two details of the recovery are deliberate:
+
+- **The section stays, empty.** A missing key reads as *this framework has no such concept*; an
+  empty one reads as *you have none of it*. Only the second is something the installation is
+  entitled to say.
+- **The failure is logged.** In the file, "you have none" and "we could not tell" are
+  indistinguishable — so they have to be distinguishable to the operator, who is the only person
+  who can do anything about it.
+
+A listener contributes its own sections through `account.data_export`, and cannot overwrite a
+core one: `array_key_exists` before writing, so an export's `profile` always came from the
+framework.
+
 ## The password-reset token
 
 `Auth\Controllers\Account` stores it in `userdetails` rather than in a table of its own — the

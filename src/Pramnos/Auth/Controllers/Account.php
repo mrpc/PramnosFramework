@@ -1990,21 +1990,51 @@ class Account extends Controller
         // Remove sensitive fields
         unset($userData['password'], $userData['salt']);
 
+        /*
+         * Each section resolved on its own, so one that cannot be read does not take the rest
+         * with it.
+         *
+         * This document is a legal obligation, and it reads eleven tables — several of them
+         * optional, belonging to features an installation may not have enabled. Composed as one
+         * array literal, a single unreadable table aborted the **whole export**: somebody
+         * exercising a data-subject request got an error, and the eleven sections that were
+         * perfectly readable went with it.
+         *
+         * A failure leaves the section present and empty, and says so in the log. Present,
+         * because a missing key reads as "this framework has no such concept" while an empty one
+         * reads as "you have none of it" — and only one of those is a thing the installation is
+         * entitled to tell somebody. Logged, because "you have none" and "we could not tell"
+         * must be distinguishable *to the operator* even when the file cannot express it.
+         */
         $export = [
-            'export_date'      => date('c'),
-            'userid'           => $userId,
-            'profile'          => $userData,
-            'authorized_apps'  => $this->getAuthorizedApplications($userId),
-            'oauth_consents'   => $this->exportOauthConsents($userId),
-            'passkeys'         => $this->exportPasskeys($userId),
-            'two_factor'       => $this->exportTwoFactorStatus($userId),
-            'active_sessions'  => $this->getActiveSessions($userId),
-            'tokens'           => $this->exportTokens($userId),
-            'token_actions'    => $this->exportTokenActions($userId),
-            'account_details'  => $this->exportUserDetails($userId),
-            'privacy_settings' => $this->getPrivacySettings($userId),
-            'activity_log'     => $this->getActivityLog($userId, 1000),
+            'export_date' => date('c'),
+            'userid'      => $userId,
+            'profile'     => $userData,
         ];
+
+        foreach ([
+            'authorized_apps'  => fn (): array => $this->getAuthorizedApplications($userId),
+            'oauth_consents'   => fn (): array => $this->exportOauthConsents($userId),
+            'passkeys'         => fn (): array => $this->exportPasskeys($userId),
+            'two_factor'       => fn (): array => $this->exportTwoFactorStatus($userId),
+            'active_sessions'  => fn (): array => $this->getActiveSessions($userId),
+            'tokens'           => fn (): array => $this->exportTokens($userId),
+            'token_actions'    => fn (): array => $this->exportTokenActions($userId),
+            'account_details'  => fn (): array => $this->exportUserDetails($userId),
+            'privacy_settings' => fn (): array => $this->getPrivacySettings($userId),
+            'activity_log'     => fn (): array => $this->getActivityLog($userId, 1000),
+        ] as $section => $read) {
+            try {
+                $export[$section] = $read();
+            } catch (\Throwable $unreadable) {
+                $export[$section] = [];
+                \Pramnos\Logs\Logger::log(
+                    'Data export: the ' . $section . ' section could not be read for user '
+                    . $userId . ' — ' . $unreadable->getMessage(),
+                    'auth'
+                );
+            }
+        }
 
         // Extensibility: applications built on the framework contribute their
         // own sections by listening for 'account.data_export' and returning an

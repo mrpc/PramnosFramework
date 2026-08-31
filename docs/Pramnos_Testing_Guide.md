@@ -490,6 +490,37 @@ If a class genuinely asserts on the sequence, override `resetAutoIncrement()` to
 When the DDL **is** the subject. The framework's migration and schema-builder tests keep
 building their schema per test, because that is the behaviour they are asserting.
 
+## Two tests, one framework table, two shapes
+
+The trap that costs an afternoon, and it is not exotic: several tests need `usertokens`,
+`tokenactions`, `applications` or `sessions`, and each creates the shape *it* needs with
+
+```php
+$this->db->query('CREATE TABLE IF NOT EXISTS `tokenactions` (…)');   // a minimal shape
+```
+
+`IF NOT EXISTS` means **whichever test runs first decides the columns**, and the loser fails on
+an insert naming one the winner did not create. In isolation both pass. Together, one fails, and
+which one depends on the filter you happened to use.
+
+Three rules, in order of preference:
+
+1. **Do not create a table you do not read.** The cheapest fix by far. A test whose subject is
+   session revocation needs `sessions` and nothing else — creating the other four to satisfy a
+   constructor is how the conflict gets introduced.
+2. **Drop before you create**, when you do need one:
+
+   ```php
+   $this->db->query('DROP TABLE IF EXISTS ' . $this->db->schema()->quoteTable('#PREFIX#sessions'));
+   $this->runMigrations([CreateSessionsTable::class], $this->db);   // from database/migrations/
+   ```
+
+   Then the shape is yours whatever ran before, and `runMigrations()` — which returns early when
+   the table exists — actually runs.
+3. **Build from the real migration, not from a hand-written `CREATE TABLE`.** A hand-rolled shape
+   drifts from what production ships, and two hand-rolled shapes drift from each other. The
+   framework's own migration is the one definition both tests can agree on.
+
 ## Asserting that something was broadcast
 
 `NullDriver` discards silently and `LogDriver` writes a file a test then has to
