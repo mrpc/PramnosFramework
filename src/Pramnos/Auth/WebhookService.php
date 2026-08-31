@@ -57,6 +57,13 @@ class WebhookService
      * Widening the parameter is additive: every caller passing an int still
      * type-checks.
      *
+     * `$onlyEndpoint` narrows the fan-out to one registered endpoint. Fanning out is right for a
+     * real event — `token_revoked` concerns every application holding a token — but wrong for an
+     * event one application asked to have sent: a test ping named a webhook, and every other
+     * subscriber to that type received one too, so any client could generate traffic against
+     * another client's URL by subscribing to the same event. The endpoint id is still matched
+     * against `$eventType` and `is_active`, so passing one that does not subscribe queues nothing.
+     *
      * Returns the number of event rows inserted (one per matching endpoint).
      */
     public function queueEvent(
@@ -64,14 +71,20 @@ class WebhookService
         ?int    $userId,
         array   $payload,
         ?string $deviceCode = null,
-        ?int    $tokenId    = null
+        ?int    $tokenId    = null,
+        ?int    $onlyEndpoint = null
     ): int {
-        $endpoints = $this->database->queryBuilder()
+        $query = $this->database->queryBuilder()
             ->table(self::TABLE_ENDPOINTS)
             ->select(['webhook_id', 'retry_count'])
             ->where('webhook_type', $eventType)
-            ->where('is_active', 1)
-            ->get();
+            ->where('is_active', 1);
+
+        if ($onlyEndpoint !== null) {
+            $query->where('webhook_id', $onlyEndpoint);
+        }
+
+        $endpoints = $query->get();
 
         if ($endpoints->numRows === 0) {
             return 0;

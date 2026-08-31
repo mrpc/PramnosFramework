@@ -223,12 +223,21 @@ class Webhook extends Controller
             return Response::json(['error' => 'not_found'], 404);
         }
 
-        // No user: this event is about the endpoint, not about a person. NULL is
-        // what the column holds for that — 0 would violate its foreign key.
+        /*
+         * No user: this event is about the endpoint, not about a person. NULL is what the column
+         * holds for that — 0 would violate its foreign key.
+         *
+         * Scoped to the endpoint that was named. Without the last argument the queue fans the
+         * event out to every endpoint subscribed to that type, so testing one's own webhook sent a
+         * ping to every other application subscribed to the same event.
+         */
         $this->service()->queueEvent(
             (string) $endpoint['webhook_type'],
             null,
-            ['test' => true, 'queued_at' => date('c')]
+            ['test' => true, 'queued_at' => date('c')],
+            null,
+            null,
+            (int) $endpoint['webhook_id']
         );
 
         return Response::json([

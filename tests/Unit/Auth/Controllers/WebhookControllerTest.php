@@ -347,7 +347,8 @@ class StubbedWebhook extends Webhook
                 ?int $userId,
                 array $payload,
                 ?string $deviceCode = null,
-                ?int $tokenId = null
+                ?int $tokenId = null,
+                ?int $onlyEndpoint = null
             ): int {
                 $this->controller->queued[] = $eventType;
 

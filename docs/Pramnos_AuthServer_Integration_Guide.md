@@ -549,8 +549,27 @@ with a shared secret; over plaintext both are readable by anything on the path,
 which makes the signature decorative.
 
 Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
-`user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`.
-One endpoint per type per application.
+`user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`,
+`permissions_changed`. One endpoint per type per application.
+
+`POST /Webhook/test` queues an event for **the endpoint you named and no other**.
+That matters because a real event does the opposite: `token_revoked` concerns
+every application holding a token for that user, so the queue fans it out to
+every endpoint subscribed to the type. A test ping is not a real event — it is
+traffic you asked to have sent — so it stops at your own URL. If you need the
+fan-out behaviour from your own code, call `queueEvent()` without the last
+argument:
+
+```php
+$service = new \Pramnos\Auth\WebhookService($db);
+
+$service->queueEvent('token_revoked', $userid, ['token_id' => 42]);       // every subscriber
+$service->queueEvent('token_revoked', $userid, [...], null, null, $id);   // one endpoint
+```
+
+The endpoint id is still matched against the event type and `is_active`, so
+naming one that does not subscribe queues nothing rather than queueing the wrong
+event.
 
 ### Verifying a delivery
 
