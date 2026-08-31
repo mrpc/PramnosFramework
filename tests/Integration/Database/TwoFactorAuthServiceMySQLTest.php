@@ -772,4 +772,28 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
             }
         }
     }
+
+    /**
+     * A user who never enrolled has no seed, from either source.
+     *
+     * The "nothing there" answer, which both readers have to give before they reach
+     * any decryption at all: `getSecret()` for a user with no `user_twofactor` row,
+     * and the panel's pending lookup for one with no setup session. Untested, they
+     * are the branches that would start returning a decrypt attempt on an empty
+     * string the first time somebody reorganised the guard.
+     */
+    public function testAUserWithNoEnrolmentHasNoSeedAnywhere(): void
+    {
+        // Act + Assert — the confirmed seed.
+        $this->assertNull($this->service->getSecret(94));
+
+        // Act + Assert — the pending one.
+        $method = new \ReflectionMethod(
+            \Pramnos\Debug\Collectors\AuthCollector::class,
+            'pendingSetupSecret'
+        );
+        $this->assertNull(
+            $method->invoke(new \Pramnos\Debug\Collectors\AuthCollector(), 94)
+        );
+    }
 }
