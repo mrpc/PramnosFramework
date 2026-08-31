@@ -34,6 +34,27 @@ addon's `onAuthCheck()`.
 *Done when:* remember-me login persistence is verified across new requests /
 browser restarts in a real application.
 
+## Email
+
+### Where a sent message's body is stored
+
+Under design, written up separately in **[Mail body storage — design](Mail-Body-Storage-Design.md)**.
+
+The short version: `mails.path` is where applications on this framework have kept gzipped bodies
+for years, and this framework has never written to it or read from it. `BodyStore` was added
+without looking at that, so there are now two conventions, `BodyStore::bodyOf()` returns nothing
+for a row that uses the older one, and `mails.hash` means one thing in the schema comment and
+another in `Email::send()`.
+
+A first attempt to reconcile them was reverted whole (`03e944cc`) because it was written while the
+design was still being argued and carried decisions nobody had agreed to.
+
+**Done requires:** finishing the survey of what installations actually have; deciding whether the
+archived body may stop being byte-identical to what was sent; and settling how deduplication and
+orphan collection work at ten million rows. The design page has the measurements, the traps found
+by prototyping, and four real bugs that are still open — including one where the garbage
+collection deletes the body of a message that was just sent.
+
 ## Debug toolbar
 
 Everything the toolbar was planned to do, it does: one renderer
