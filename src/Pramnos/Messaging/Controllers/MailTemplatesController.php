@@ -274,7 +274,7 @@ class MailTemplatesController extends Controller
             // In the wrapper this template names, which is the point of a test send: what
             // arrives has to be what a recipient would get, and until now the field on the
             // edit form was written to the database and read by nothing.
-            $email = new \Pramnos\Email\Email();
+            $email = $this->mailer();
             $email->setSubject(
                 '[test] ' . ($template->defaultsubject !== '' ? $template->defaultsubject : $template->title)
             );
@@ -291,6 +291,19 @@ class MailTemplatesController extends Controller
         }
 
         $this->redirect(adminUrl('MailTemplates/view/') . $id);
+    }
+
+    /**
+     * The mailer a test send goes through.
+     *
+     * A thin, overridable seam — the same idiom as `Auth\Controllers\Me::resolveUser()`. Without
+     * it the only reachable parts of `test()` are its refusals, because the mailer is built
+     * inline: a test either needs a live SMTP server or never runs the substitution and the
+     * wrapper lookup, which are the two things a test send exists to prove.
+     */
+    protected function mailer(): \Pramnos\Email\Email
+    {
+        return new \Pramnos\Email\Email();
     }
 
     /**

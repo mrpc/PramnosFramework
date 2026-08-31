@@ -232,6 +232,26 @@ The body is stored as written: an email template *is* markup, and a screen that 
 it would make the feature useless. It is escaped where it is displayed — into a
 `<textarea>` and a `<pre>` — which is the correct half to do it in.
 
+The category and the title *are* stripped, and the asymmetry is deliberate: they are labels,
+printed where markup is a defect rather than the point.
+
+**Testing a test send.** `MailTemplatesController::mailer()` is a protected seam returning the
+`Email` a test send goes through, so the substitution and the wrapper lookup can be asserted
+without an SMTP server. Override it and read what was handed over:
+
+```php
+protected function mailer(): \Pramnos\Email\Email
+{
+    return new class extends \Pramnos\Email\Email {
+        public function send() { return true; }
+        // …record setBody()/setTemplate()/setTo()
+    };
+}
+```
+
+Without the seam the only reachable part of `test()` is its refusals — the mailer is built
+inline — so the two things the action exists to prove could not be tested at all.
+
 ## Which language a message is written in
 
 `Notifier::sendNow()` renders every notification in the **recipient's** language — the
