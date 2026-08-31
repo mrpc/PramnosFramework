@@ -702,6 +702,52 @@ Backend support is layered exactly like the counters: `AbstractAdapter` keeps th
 whole structure under one key via load/save (non-atomic default), `RedisAdapter`
 overrides with native `HSET`/`LPUSH`/`SCAN`, and `AdapterInterface` is unchanged.
 
+### Two TTLs, and which one decides
+
+`save($key, $data, $timeout)` records the TTL with the entry. `load($key, $timeout)`
+takes a timeout too, and it means something different: the **maximum age this
+particular reader will accept**, which is what `Cache::load($id, $category, $timeout)`
+has always passed down.
+
+The entry's own TTL decides whether it is still valid. The reader's is an additional
+limit on top:
+
+```php
+$cache->save('report', $rows, 86400);      // good for a day
+
+$adapter->load('report', 0);               // whatever is stored, if it has not expired
+$adapter->load('report', 60);              // …only if it is under a minute old
+```
+
+Both directions of that used to be wrong on the File adapter, which decided expiry
+from the reader's argument alone and ignored the TTL it had stored:
+
+- a structure saved with **no** expiry vanished an hour after it was written, because
+  `hashGet()` and `listRange()` read with `load()`'s 3600 default and meant nothing by
+  it;
+- a counter written with a **one-second** TTL never expired, because `counter()` reads
+  with `0` and the check was `$timeout > 0` — so a rate-limit window never closed.
+
+Structured and counter reads pass `0` now: they want what is stored, and have no
+opinion about its age.
+
+### Keys become paths on the File adapter
+
+`generateKey()` cleans the prefix, the category and the extension; the **id is passed
+through as given**, on purpose — on a server-backed adapter any byte is a legal key.
+`FileAdapter` sanitises the whole key where it builds the path, because there a `/` is
+a directory separator and `..` is a parent:
+
+```php
+$cache->load('user_' . $somethingFromTheRequest);   // an id can be anything
+```
+
+Without that, `a/b` wrote outside its own category directory — where
+`clear('a')` would never find it again — and `../../x` wrote outside the cache
+directory altogether. One consequence worth knowing about: a key whose shape changes
+under sanitisation misses once against entries written by an earlier version, and is
+then rewritten.
+
 ## Integration Examples
 
 ### Model-Level Caching

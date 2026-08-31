@@ -159,7 +159,23 @@ class FileAdapter extends AbstractAdapter
             }
         }
 
-        return $path . DIRECTORY_SEPARATOR . $key;
+        /*
+         * Sanitised here, because this is the one place a cache key becomes a path.
+         *
+         * `generateKey()` cleans the prefix, the category and the extension and leaves the id
+         * alone, so a key of `../../config` or `a/b` was concatenated onto the cache directory
+         * unchanged: the first writes outside the cache, the second silently outside its category
+         * directory, where `clear($category)` will never find it again. On a server-backed
+         * adapter a slash in a key is just a character; here it is a directory separator, so the
+         * check belongs to this adapter rather than to the shared key builder.
+         *
+         * `sanitizeName()` collapses runs of dots to one and drops anything outside
+         * `[\w_.-]`, which removes both the traversal and the separator. Every operation —
+         * `save()`, `load()`, `delete()`, `getRemainingTtl()` — resolves its path through this
+         * method, so they all agree on the resulting filename. A key that changes shape under
+         * sanitisation misses once against entries written before this and is then rewritten.
+         */
+        return $path . DIRECTORY_SEPARATOR . $this->sanitizeName($key);
     }
 
     /**
@@ -210,12 +226,6 @@ class FileAdapter extends AbstractAdapter
         }
 
         try {
-            // Check if file is expired
-            if ($timeout > 0 && filemtime($filePath) < (time() - $timeout)) {
-                $this->delete($key);
-                return false;
-            }
-
             $filedata = file_get_contents($filePath);
             if (!$filedata) {
                 return false;
@@ -223,6 +233,11 @@ class FileAdapter extends AbstractAdapter
 
             $entry = unserialize($filedata);
             if (!isset($entry['data'])) {
+                return false;
+            }
+
+            if ($this->hasExpired($filePath, $entry, (int) $timeout)) {
+                $this->delete($key);
                 return false;
             }
 
@@ -521,6 +536,59 @@ class FileAdapter extends AbstractAdapter
         // not one it may delete. Never-expiring (-1) is not expired either — see
         // remainingTtl().
         return $remaining !== null && $remaining !== -1 && $remaining <= 0;
+    }
+
+    /**
+     * Whether an entry on disk has expired.
+     *
+     * Two limits, and the entry's own was the one being ignored. `save()` records the TTL it was
+     * given; expiry was decided entirely from the `$timeout` the *reader* passed, which every
+     * other adapter treats as advisory because the server holds the real TTL. Two consequences,
+     * in opposite directions, and both were live:
+     *
+     *   - a value saved to live **forever** (`$timeout <= 0`) was deleted an hour after it was
+     *     written, because `load()` defaults to 3600 and the structured helpers in
+     *     {@see AbstractAdapter} — `hashGet()`, `listRange()`, `expire()` — took that default
+     *     without meaning anything by it. A permanent hash was readable for one hour;
+     *   - a counter written with a **one-second** TTL stayed readable indefinitely, because
+     *     `counter()` reads with `$timeout = 0` and `0 > 0` is false, so nothing was checked at
+     *     all. A rate-limit window never closed.
+     *
+     * So the stored TTL decides whether the entry is still valid, and the caller's `$timeout`
+     * keeps the meaning `Cache::load($id, $category, $timeout)` has always given it: an
+     * *additional* maximum age this particular reader will accept. Either limit exceeded expires
+     * the entry.
+     *
+     * An entry with no recorded TTL was written before `save()` stored one. Those fall back to
+     * the caller's argument — the previous behaviour, for the cache files already on disk.
+     *
+     * @param  string              $filePath Where the entry lives, for its mtime
+     * @param  array<string,mixed> $entry    The unserialised entry
+     * @param  int                 $maxAge   The reader's own limit; 0 or less means no limit
+     * @return bool
+     */
+    protected function hasExpired(string $filePath, array $entry, int $maxAge): bool
+    {
+        /*
+         * The file's mtime, not the `time` recorded inside the entry.
+         *
+         * The two are the same value at every write, and mtime is what
+         * {@see getRemainingTtl()} and therefore `cleanup()` already measure from — so a sweep
+         * and a read agree about which entries are stale. It is also the one a test or an
+         * operator can move.
+         */
+        $writtenAt = (int) (filemtime($filePath) ?: ($entry['time'] ?? time()));
+        $age       = time() - $writtenAt;
+
+        if (array_key_exists('timeout', $entry)) {
+            $stored = (int) $entry['timeout'];
+
+            if ($stored > 0 && $age > $stored) {
+                return true;
+            }
+        }
+
+        return $maxAge > 0 && $age > $maxAge;
     }
 
     /**

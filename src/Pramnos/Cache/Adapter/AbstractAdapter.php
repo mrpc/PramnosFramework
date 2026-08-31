@@ -312,13 +312,19 @@ abstract class AbstractAdapter implements AdapterInterface
     // load()/save(). Backends with native structures (e.g. RedisAdapter via
     // HSET/LPUSH/SCAN) override these; a bare AdapterInterface without them is
     // handled by FlatCache's own fallback.
+    //
+    // Every read below passes `0` as the timeout, and that argument is the reason: it is a
+    // *maximum age the reader will accept*, not the entry's TTL, and these helpers have no
+    // opinion about age — they want whatever is stored, if it has not expired. Taking `load()`'s
+    // 3600 default instead meant a hash saved with no expiry became unreadable one hour after it
+    // was written, on any adapter that honours the argument.
 
     /**
      * Set a field on a hash. Optionally (re)sets the key TTL.
      */
     public function hashSet($key, $field, $value, $ttl = null)
     {
-        $hash = $this->load($key);
+        $hash = $this->load($key, 0);
         if (!is_array($hash)) {
             $hash = [];
         }
@@ -331,7 +337,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function hashGet($key, $field, $default = null)
     {
-        $hash = $this->load($key);
+        $hash = $this->load($key, 0);
         return (is_array($hash) && array_key_exists($field, $hash)) ? $hash[$field] : $default;
     }
 
@@ -340,7 +346,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function hashDelete($key, $field)
     {
-        $hash = $this->load($key);
+        $hash = $this->load($key, 0);
         if (is_array($hash) && array_key_exists($field, $hash)) {
             unset($hash[$field]);
             $this->save($key, $hash, 0);
@@ -352,7 +358,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function hashGetAll($key)
     {
-        $hash = $this->load($key);
+        $hash = $this->load($key, 0);
         return is_array($hash) ? $hash : [];
     }
 
@@ -361,7 +367,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function listPush($key, $value)
     {
-        $list = $this->load($key);
+        $list = $this->load($key, 0);
         if (!is_array($list)) {
             $list = [];
         }
@@ -376,7 +382,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function listTrim($key, $start, $stop)
     {
-        $list = $this->load($key);
+        $list = $this->load($key, 0);
         if (is_array($list)) {
             $this->save($key, $this->rangeSlice($list, (int) $start, (int) $stop), 0);
         }
@@ -387,7 +393,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function listRange($key, $start, $stop)
     {
-        $list = $this->load($key);
+        $list = $this->load($key, 0);
         return is_array($list) ? $this->rangeSlice($list, (int) $start, (int) $stop) : [];
     }
 
@@ -396,7 +402,7 @@ abstract class AbstractAdapter implements AdapterInterface
      */
     public function expire($key, $ttl)
     {
-        $value = $this->load($key);
+        $value = $this->load($key, 0);
         if ($value !== null && $value !== false) {
             $this->save($key, $value, (int) $ttl);
         }
