@@ -242,6 +242,25 @@ define('PRAMNOS_BIN', '/usr/local/bin/php /srv/app/console');
 **A non-zero exit fails the task.** `schedule:run` prints `✗ Failed` and returns non-zero;
 `work` counts it and carries on with the rest of the pass. Both write it to `schedule.log`.
 
+Which puts a burden on every scheduled command: **exit non-zero only for something a person
+should look at.** `spool:drain` is the worked example, since it runs every minute:
+
+| | |
+| --- | --- |
+| nothing buffered | exit 0, and silent |
+| rows written | exit 0 |
+| a row kept for the next run | exit **0** — the retry budget being spent is the spool working |
+| a row parked as unwritable | exit **1** — data set aside, no further attempt, somebody must look |
+
+The kept case used to exit non-zero, and the scheduler recorded a failure every minute until the
+budget ran out. One deployment read *"3 errors in 200 seconds"* as three tasks failing when it was
+one task failing three times — which is the ambiguity that costs an afternoon, and the reason the
+parked case is a usable signal now: it is the only one that fires.
+
+The same argument makes the empty case **silent** rather than logging a line a minute. A log
+nobody reads is where the one line that mattered goes unnoticed; `-v` says it for somebody who is
+watching on purpose.
+
 > **Corrected 2026-08-20.** The default used to be the literal `php pramnos`, and the exit
 > status was discarded. In a scaffolded application every `command` task therefore answered
 > `Could not open input file: pramnos` while reporting `✓ Done` — including `spool:drain`,
