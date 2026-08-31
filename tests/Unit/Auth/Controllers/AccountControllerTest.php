@@ -73,7 +73,7 @@ class AccountControllerTest extends TestCase
         $out = $this->c->login();
 
         $this->assertNull($out);
-        $this->assertSame(['Account'], $this->c->redirects); // routeBase, no return url
+        $this->assertSame([sURL . 'Account'], $this->c->redirects); // routeBase, no return url
     }
 
     // ── login(): POST credential leg ────────────────────────────────────────────
@@ -115,7 +115,7 @@ class AccountControllerTest extends TestCase
         $out = $this->c->login();
 
         $this->assertNull($out);
-        $this->assertSame(['Account'], $this->c->redirects);
+        $this->assertSame([sURL . 'Account'], $this->c->redirects);
         // The plaintext password reached the flow untrimmed; remember flag parsed.
         $this->assertSame(['alice', 'secret', true], $this->c->flow->attemptArgs);
     }
@@ -225,7 +225,7 @@ class AccountControllerTest extends TestCase
 
         $this->assertNull($out);
         $this->assertSame('123456', $this->c->flow->completedCode);
-        $this->assertSame(['Account'], $this->c->redirects);
+        $this->assertSame([sURL . 'Account'], $this->c->redirects);
     }
 
     /** A wrong code re-renders the step-up form (pending kept by the flow). */
@@ -250,7 +250,7 @@ class AccountControllerTest extends TestCase
         $out = $this->c->verify();
 
         $this->assertNull($out);
-        $this->assertSame(['Account'], $this->c->redirects);
+        $this->assertSame([sURL . 'Account'], $this->c->redirects);
     }
 
     // ── passkey step-up (passkeyOptions / passkeyVerify) ─────────────────────────
@@ -348,7 +348,7 @@ class AccountControllerTest extends TestCase
 
         $this->assertTrue($this->c->flow->cancelled, 'pending step-up dropped');
         $this->assertTrue($this->c->auth->loggedOut, 'session torn down');
-        $this->assertSame(['login'], $this->c->redirects);
+        $this->assertSame([sURL . 'login'], $this->c->redirects);
     }
 
     // ── return-url sanitisation (open-redirect guard) ────────────────────────────
@@ -398,7 +398,9 @@ class AccountControllerTest extends TestCase
         $this->assertInstanceOf(LoginFlow::class, $flow->flowPublic());
         $this->assertInstanceOf(Auth::class, $flow->authPublic());
         $this->assertIsBool($flow->checkCsrfPublic());
-        $this->assertSame('', $flow->baseUrlPublic(), 'sURL is empty in the test bootstrap');
+        // Asserted against `sURL` rather than a literal: the base is what the installation's
+        // own is, and a test that hardcoded a host would pass on a value no server emits.
+        $this->assertSame((string) sURL, $flow->baseUrlPublic());
         $this->assertIsObject($flow->documentPublic());
         // post() trims by default, leaves the value verbatim when asked.
         $_POST = ['x' => '  hi  '];

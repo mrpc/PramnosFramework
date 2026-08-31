@@ -20,8 +20,24 @@ if (!defined('PRAMNOS_TESTING')) {
 * Define Paths if paths are not defined.
 * It auto-defines based on where this file is placed.
 */
+/*
+ * The site's base URL, and the administration area's.
+ *
+ * The convention: **`sURL` is the front end, `URL` is the admin panel.** An installation with no
+ * separate admin area has them coincide, which is what happens below — `AdminArea::url()` derives
+ * `URL` from `sURL` and the `admin` config in a real request, and there is no config here.
+ *
+ * `sURL` was `''`, and that quietly cost the suite a whole class of assertion. Every absolute URL
+ * the framework builds is `sURL . 'something'`, so with an empty base a test could not tell a
+ * correct absolute URL from a relative one — and code that must emit an absolute URL or nothing
+ * (`Sitemap:` in robots.txt, `resource` in the RFC 9728 document, `hreflang` alternates) took the
+ * "or nothing" branch in every test that touched it.
+ *
+ * With a trailing slash, because that is what production gives: `sURL . 'oauth/authorize'` is how
+ * the framework composes throughout, and a base without one produces `…testoauth/authorize`.
+ */
 if (!defined('sURL')) {
-    define('sURL', ''); //URL (in case of secondary applications)
+    define('sURL', 'https://pramnosframework.test/');
 }
 
 // URL is the administration area's base, what sURL is to the site. Defined by

@@ -622,18 +622,26 @@ class SessionExchangeMintTest extends TestCase
      */
     public function testWithNoKeyAndNoSiteUrlNothingIsIssued(): void
     {
-        // Arrange — `sURL` is not defined under the test bootstrap, which is what makes
-        // this reachable without touching a constant that cannot be unset
-        if (defined('sURL') && (string) sURL !== '') {
-            $this->markTestSkipped('sURL is defined; the derivation is site-specific here.');
-        }
+        /*
+         * Arrange — through a subclass, because `sURL` is a constant.
+         *
+         * This test used to depend on the bootstrap leaving `sURL` undefined, and skipped itself
+         * when it was set. So it stopped running the moment the environment became more realistic
+         * — which is the moment the branch it guards stops being exercised and starts being
+         * assumed.
+         *
+         * `SessionExchange::siteUrl()` is a seam for exactly this. The property is worth keeping
+         * alive: with no site URL the key derivation reduces to `md5('edge')`, so every
+         * installation in that state signs with the same publicly computable constant, and a
+         * token from any of them verifies against all of them.
+         */
 
         $this->setApplication(null);
         $this->seedUser(usertype: 99);
         $this->sealSession(sessionUsertype: 99);
 
         // Act
-        $token = SessionExchange::issue();
+        $token = SessionExchangeWithNoSiteUrl::issue();
 
         // Assert
         $this->assertNull($token);
@@ -752,5 +760,19 @@ class SessionExchangeMintTest extends TestCase
         // Assert
         $claims = JWT::decode($token, self::KEY, ['HS256']);
         $this->assertSame('the-api-key-of-this-application', $claims->aud);
+    }
+}
+
+/**
+ * `SessionExchange` with no site URL, which a constant cannot be made to give.
+ *
+ * Declared at file scope rather than inline, because `issue()` is static and a static call on an
+ * anonymous class expression is not valid PHP.
+ */
+class SessionExchangeWithNoSiteUrl extends \Pramnos\Auth\SessionExchange
+{
+    protected static function siteUrl(): string
+    {
+        return '';
     }
 }

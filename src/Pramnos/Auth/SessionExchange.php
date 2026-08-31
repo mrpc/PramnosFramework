@@ -211,7 +211,7 @@ class SessionExchange
      */
     private static function mint(object $user, int $ttl, string $notes): ?string
     {
-        $key = self::signingKey();
+        $key = static::signingKey();
         if ($key === '') {
             \Pramnos\Logs\Logger::log(
                 'SessionExchange: no usable signing key — the application declares no '
@@ -266,7 +266,25 @@ class SessionExchange
      *
      * @return string
      */
-    private static function signingKey(): string
+    /**
+     * The site's base URL, read through a seam.
+     *
+     * `sURL` is a constant, so a test cannot unset it — and the guard below refuses to mint a
+     * credential when there is none. Without a seam that refusal is untestable the moment a test
+     * environment defines the constant, which is exactly when it stops being exercised and starts
+     * being assumed.
+     *
+     * The property it protects is worth a test: with no site URL the key derivation reduces to
+     * `md5($version)` with `$version` defaulting to `edge`, so every installation in that state
+     * would sign with the same publicly computable constant and a token from any of them would
+     * verify against all of them.
+     */
+    protected static function siteUrl(): string
+    {
+        return defined('sURL') ? (string) sURL : '';
+    }
+
+    protected static function signingKey(): string
     {
         $app = \Pramnos\Application\Application::currentInstance();
         if (is_object($app) && isset($app->authenticationKey) && $app->authenticationKey !== '') {
@@ -285,7 +303,7 @@ class SessionExchange
         // from any of them would verify against all of them. `Api` has always derived it
         // that way and changing that is not this method's business; refusing to *mint* a
         // credential under a world-known key is.
-        if (!defined('sURL') || (string) sURL === '') {
+        if (static::siteUrl() === '') {
             return '';
         }
 

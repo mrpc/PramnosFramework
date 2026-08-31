@@ -49,7 +49,16 @@ class HeadIsHonestTest extends TestCase
          * has a real default of `website`. Those are values the framework *has*, not claims it
          * invents. The four below are the ones that were being emitted empty.
          */
-        foreach (['name="description"', 'property="og:url"',
+        /*
+         * `og:url` is not on this list any more.
+         *
+         * It defaults to `sURL` — the site's own base — which is a value the framework *has*, not
+         * a claim it invents, so emitting it is right. It only looked like an empty tag while the
+         * test bootstrap defined `sURL` as `''`, and that emptiness was itself the bug: every
+         * absolute URL the framework builds is `sURL . something`, so with no base a test could
+         * not tell a correct absolute URL from a relative one.
+         */
+        foreach (['name="description"',
                   'property="og:image"', 'property="og:description"'] as $tag) {
             $this->assertStringNotContainsString($tag, $html, $tag . ' was emitted empty');
         }

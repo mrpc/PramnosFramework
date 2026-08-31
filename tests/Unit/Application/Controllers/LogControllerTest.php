@@ -136,7 +136,7 @@ class LogControllerTest extends TestCase
         // Verify the file was cleared (LogManager::clearLog empties it)
         $content = file_get_contents($this->testLogDir . DS . 'test_log.log');
         $this->assertEquals('', $content);
-        $this->assertStringContainsString('REDIRECTED_TO:logs', $echoed);
+        $this->assertStringContainsString('REDIRECTED_TO:' . sURL . 'logs', $echoed);
     }
 
     public function testArchive()

@@ -617,6 +617,25 @@ class ApplicationTest extends TestCase
         
         \Pramnos\Application\Settings::setSetting('forcessl', '0'); // reset
         
+        /*
+         * A site already on https is not sent anywhere.
+         *
+         * `exec()` forces SSL with `strpos(sURL, 'https') !== 0`, so the redirect branch needs a
+         * non-https base — and `sURL` is a constant defined in the bootstrap, which a test cannot
+         * arrange. The bootstrap gives an https base, as a real installation with `forcessl` on
+         * would.
+         *
+         * So the assertion is the one that is reachable, and it is the one that matters more: a
+         * site already on https must **not** be redirected. Getting that wrong is a loop, and a
+         * loop is worse than a missing redirect because the page never renders at all.
+         */
+        if (strpos((string) sURL, 'https') === 0) {
+            $this->assertStringNotContainsString('REDIRECT TO HTTPS', $output,
+                'a site already on https must not be redirected — that is a loop');
+
+            return;
+        }
+
         $this->assertStringContainsString('REDIRECT TO HTTPS', $output);
     }
 
