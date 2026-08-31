@@ -61,11 +61,19 @@ class PaginationTest extends TestCase
     public function testTheOpeningTagIsWellFormedWithoutAClass(): void
     {
         // Act
-        $html = (new Pagination(3, 1, '/x/:page'))->render();
+        $pagination = new Pagination(3, 1, '/x/:page');
+        $pagination->containerElementClass = '';
+
+        $html = $pagination->render();
 
         // Assert
         // The container is inside a navigation landmark now: the links each said which page
         // they were, but region navigation passed straight over the whole run of them.
+        //
+        // And the class is emptied deliberately — this test is about the shape of the tag when
+        // nothing is configured, and the default is `pf-pagination` so that a scaffolded theme
+        // has something to style. Without emptying it here, the test would be asserting the
+        // default rather than the absence it is named for.
         $this->assertStringStartsWith('<nav aria-label="Pagination"><div>', $html);
         $this->assertStringNotContainsString('<div"', $html);
     }

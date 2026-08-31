@@ -12,7 +12,7 @@ use Pramnos\Html\Breadcrumb;
  * Unit tests for Pramnos\Html\Breadcrumb.
  *
  * Breadcrumb renders:
- *  - A Bootstrap-compatible <nav><ol class="breadcrumb"> structure
+ *  - A Bootstrap-compatible <nav><ol class="pf-breadcrumb"> structure
  *  - Schema.org BreadcrumbList JSON-LD script block
  *  - <a> links for items with a URL; <span> for items without
  *  - Heading levels that decrement from (count+1) down to 2 for each item
@@ -76,7 +76,7 @@ class BreadcrumbTest extends TestCase
 
         // Assert – wrapper present
         $this->assertStringContainsString('<nav aria-label="breadcrumb"', $html);
-        $this->assertStringContainsString('<ol class="breadcrumb">', $html);
+        $this->assertStringContainsString('<ol class="pf-breadcrumb">', $html);
         $this->assertStringContainsString('</ol></nav>', $html);
         // No list items
         $this->assertStringNotContainsString('<li', $html);

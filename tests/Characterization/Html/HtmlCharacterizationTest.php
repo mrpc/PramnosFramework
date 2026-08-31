@@ -69,9 +69,22 @@ class HtmlCharacterizationTest extends TestCase
     }
 
     /**
-     * render() produces a <nav> containing an <ol class="breadcrumb">.
+     * `render()` produces a `<nav>` containing an `<ol>` with a themeable hook.
+     *
+     * This test was called `testRenderContainsBootstrapBreadcrumbStructure` and asserted
+     * `class="breadcrumb"` — Bootstrap's own name, which the component emitted as a literal. The
+     * name was the finding: a characterization test had recorded a coupling to one CSS framework
+     * as though it were the component's structure.
+     *
+     * The class is `pf-breadcrumb` now, which is the convention the rest of the components follow
+     * — a neutral hook each scaffolded theme's stylesheet marries to that theme's look, as
+     * `pf-omnibox` and twenty others already do. A caller who wants Bootstrap's name back sets
+     * `$listClass`.
+     *
+     * The structure this was really guarding — a landmark, a list, closed properly — is asserted
+     * as before.
      */
-    public function testRenderContainsBootstrapBreadcrumbStructure(): void
+    public function testRenderContainsAThemeableBreadcrumbStructure(): void
     {
         // Arrange
         $bc = new Breadcrumb();
@@ -82,9 +95,28 @@ class HtmlCharacterizationTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('<nav ', $html);
-        $this->assertStringContainsString('class="breadcrumb"', $html);
+        $this->assertStringContainsString('class="pf-breadcrumb"', $html);
         $this->assertStringContainsString('<ol', $html);
         $this->assertStringContainsString('</nav>', $html);
+
+        // And the framework's markup names no CSS framework of its own accord.
+        $this->assertStringNotContainsString('class="breadcrumb"', $html);
+    }
+
+    /**
+     * A caller can still ask for a framework's own class.
+     *
+     * The point of moving to a neutral default is not to take the choice away.
+     */
+    public function testTheBreadcrumbClassIsConfigurable(): void
+    {
+        // Arrange
+        $bc = new Breadcrumb();
+        $bc->listClass = 'breadcrumb';
+        $bc->addItem('Home', '/');
+
+        // Assert
+        $this->assertStringContainsString('class="breadcrumb"', $bc->render());
     }
 
     /**

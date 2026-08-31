@@ -71,7 +71,23 @@ class Pagination extends \Pramnos\Framework\Base
     public string $containerElement = 'div';
 
     /** Class on that element. */
-    public string $containerElementClass = '';
+    /**
+     * The class on the container, and why it has a default now.
+     *
+     * It was `''`. So the pager rendered with **no class at all** — which means no scaffolded
+     * theme could style it, and every project that wanted it to look like anything had to set
+     * this at every call site or write a selector against `nav > div > a`.
+     *
+     * `pf-pagination` is the same convention the rest of the components follow: emit a neutral
+     * hook and let each theme's stylesheet marry it to that theme's look. `pf-omnibox`,
+     * `pf-skip-link` and twenty others already work that way.
+     *
+     * Set it to `''` for the previous behaviour, or to a framework's own name — `pagination` for
+     * Bootstrap — to opt into that instead.
+     *
+     * @var string
+     */
+    public string $containerElementClass = 'pf-pagination';
 
     /**
      * What the navigation landmark is called.
