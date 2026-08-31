@@ -6,6 +6,8 @@ use_cases:
   - Building pagination links for a listing page
   - Choosing between Html\Select and a form field
   - Finding out which reusable HTML components the framework already ships
+  - Changing how a component looks in a theme, or adding a theme
+  - Attaching a validation message to the field it belongs to
 ---
 
 # HTML Components Guide
@@ -31,6 +33,111 @@ each one constructed, configured with public properties, and turned into a strin
 Every one of them also renders when cast to a string, so `echo $component` works.
 
 ---
+
+## Overriding a component's class names
+
+Four routes, in the order you should reach for them.
+
+### 1. Write CSS — for any `pf-*` hook
+
+The commonest case, and it needs no PHP at all. A component emits a neutral hook; your stylesheet
+decides what it means:
+
+```css
+.pf-pagination { gap: 1rem; }
+.pf-pagination .current { background: var(--brand); }
+```
+
+Twenty-three hooks work this way, and all three scaffolded themes already carry rules for every one
+of them — so you are overriding a rule, not inventing one:
+
+```
+pf-action · pf-action-danger · pf-breadcrumb · pf-footsearch · pf-home · pf-icon · pf-muted
+pf-omnibox (+ 9 pf-omnibox-* children) · pf-pagination · pf-skip-link · pf-state (+ -on/-off)
+pf-visually-hidden
+```
+
+### 2. Replace the class — where a property exists
+
+Use this when the class **itself** has to differ: adopting a CSS framework's own name, or emitting
+none. This is the complete list; there is no property for anything not on it.
+
+| Component | Property | Default | Controls |
+|---|---|---|---|
+| `Pagination` | `$containerElementClass` | `pf-pagination` | the container |
+| | `$currentPageClass` | `current` | the current page's link |
+| | `$containerElement` | `div` | the element itself, not just its class |
+| `Breadcrumb` | `$listClass` | `pf-breadcrumb` | the `<ol>` |
+| | `$extraStyle` | `''` | inline style on the container |
+| `Datatable` | `$tableClass` | `display` | the `<table>` |
+
+```php
+$breadcrumb->listClass = 'breadcrumb';        // Bootstrap's own name
+$pagination->containerElementClass = '';      // no class at all
+$pagination->containerElement = 'ul';         // and a different element
+```
+
+### 3. Add alongside — `$extraAttributes`
+
+`SearchBox`, `Select` and `Input` take a raw attribute string, so you can add classes without
+replacing what is there:
+
+```php
+$select->extraAttributes = 'class="my-select" data-role="filter"';
+```
+
+It is **not escaped** — it exists to carry markup, so never build it from user input.
+
+### 4. Form fields — `FieldStyles`
+
+`Field` takes no class properties. Its classes come from a per-theme preset, passed at render:
+
+```php
+echo $field->render(FieldStyles::for('tailwind'));
+```
+
+Add a theme by adding an entry to that array; `group`, `label`, `input`, `select`, `area`, `check`
+and `help` are the keys.
+
+### What you cannot replace, and why it does not matter
+
+`Icon` emits `pf-icon` and `SearchBox` emits four `pf-omnibox-*` names, with no property for any of
+them. **Restyle them with CSS (route 1)** — they are neutral hooks, so a rule is the whole answer
+and a property would only be a second way to do the same thing.
+
+The real exception is `Datatable`. Nine of its classes are a CSS framework's own —
+`btn btn-default dropdown-toggle`, `form-control`, `ui-buttonset` — chosen by `$jui`:
+
+```php
+$datatable->jui = true;    // jQuery UI markup instead of Bootstrap 3
+```
+
+Two looks, and no route to a third. It is the one component you cannot bring onto a different CSS
+framework without editing the class, and the only one where route 1 does not save you.
+
+## Why there are two mechanisms
+
+Routes 1 and 4 above look like opposites — one hides the theme's classes behind a neutral name, the
+other puts them in the markup. Both are right, for different kinds of class.
+
+Tailwind's entire model is utilities in the markup. Hiding ten of them behind a `pf-input` and
+re-applying them with `@apply` fights the framework it is meant to serve, and leaves a stylesheet
+nobody on a Tailwind project expects to have to read. That is why `Field` uses a preset.
+
+A breadcrumb's `<ol>`, on the other hand, is one element with one meaning. It wants one hook.
+
+> A **structural** class — one per element, standing for *what this is* — is `pf-*`, and the theme
+> dresses it.
+>
+> A **utility-dense** set the theme wants visible in the markup is a keyed preset.
+
+Getting this backwards is how `Breadcrumb` came to emit `class="breadcrumb"` — Bootstrap's own name,
+as a literal, in framework markup. It reads as neutral and is not: a Tailwind project got an element
+carrying a name nothing in its stylesheet defines.
+
+**Every hook has a rule in every scaffolded theme, and a test asserts it.** A hook with no rule
+anywhere is the failure this convention exists to prevent, and it is invisible — the markup is
+correct and the page merely looks wrong, in a way people blame on their own stylesheet.
 
 ## Select
 
@@ -641,6 +748,41 @@ dots there would hide the fact that page 1 exists at all.
 
 ---
 
+### It is a navigation landmark
+
+Every link already carried `aria-label="Page 7"` and the current one `aria-current="page"` — all of
+which help once you are inside the pager. Getting inside was the part that did not work: with no
+`<nav>` this was an anonymous run of anchors, and somebody moving through a page by its regions
+passed straight over it.
+
+```html
+<nav aria-label="Pagination"><div class="pf-pagination"> … </div></nav>
+```
+
+`$navigationLabel` names the region — a page can hold more than one, and a reader listing the
+regions hears the labels, not the markup. A caller who sets `containerElement` to `nav` themselves
+gets the label on their own element rather than a second region wrapped around it; two nested
+navigation landmarks announce the region twice and neither is the answer.
+
+### Turning the numbers off
+
+```php
+$pagination->displayPageNumbers = false;   // leaves only « ‹ › »
+```
+
+Not a preference. In search results the page count is large and **moves with the filters**: a
+reader on page 7 of 40 cannot say what page 7 is, and after narrowing the query it is a different
+page 7. Two links are the entire meaningful interface there, and a row of twelve numbers is noise
+that changes width as you read it.
+
+It is distinct from `$displayEdgePages`, which only decides whether `1` and the last page are
+pinned *inside* that row. This removes the row.
+
+**With the numbers off and neither button pair enabled, `render()` returns an empty string.** Every
+branch would be skipped and what was left was an empty `<nav>` — and an empty landmark is worse
+than none: it appears in a reader's list of regions and leads nowhere. Same rule as a single page,
+reached a different way.
+
 ## Form\Field
 
 The one that belongs to a form. It is not an alternative to `Input` and `Select` — it is
@@ -696,6 +838,46 @@ nothing ever rendered a picker for it). Passing them to `Input` directly would g
 plain text box.
 
 ---
+
+### A validation message that belongs to its field
+
+`aria-describedby` and `aria-invalid` did not exist anywhere in `Pramnos\Html` until now. A
+`<small>` under an input is not attached to it — it is a sentence that happens to sit nearby, which
+is a relationship only a sighted reader can see. Somebody using a screen reader heard the label and
+the control and never the explanation, so the field that needed the most explanation gave none.
+
+```php
+$field        = new Field('email', 'email', 'Email', null, 'Your work address');
+$field->error = 'That address is already registered.';
+
+echo $field->render(FieldStyles::for('tailwind'));
+```
+
+```html
+<input type="email" name="email" id="email"
+       aria-describedby="email-error email-description" aria-invalid="true" …>
+<small id="email-error" role="alert">That address is already registered.</small>
+<small id="email-description">Your work address</small>
+```
+
+`$error` is the **rendering** end of validation, not a second validator: `Validation\FormRequest`
+and `View::$errors` still own that. Set it and the field is marked invalid *and says why, to
+everybody*.
+
+Three details are deliberate:
+
+- **The error id comes first.** `aria-describedby` is read in the order the ids are listed, and a
+  field that is wrong should say so before it explains what it wanted. The other way round, the
+  correction arrives after the instruction it corrects.
+- **`role="alert"` is on the message, not the field.** A message that appears after a failed submit
+  has to interrupt to be heard. On the field it would re-announce the whole field every time
+  anything about it changed.
+- **A field with neither text gets no attribute at all.** An `aria-describedby` pointing at an id
+  that is not on the page is worse than its absence: the reader announces the field and then
+  nothing, and the silence reads as a bug in the reader.
+
+Selects render down a different path in that class and get the same treatment — which is exactly
+how one of two paths otherwise ends up accessible and the other does not.
 
 ## Seo
 
@@ -758,6 +940,54 @@ opposite of nothing.
 [Breadcrumb](#breadcrumb).
 
 ---
+
+### `SiteIdentity`
+
+`Organization` and `WebSite`, on every page, from settings the installation already has.
+
+Until now the only `@type` the framework emitted anywhere was `BreadcrumbList` — the shape of a
+page's position in a hierarchy that was never named. `Document::addStructuredData()` existed the
+whole time and the framework called it from nowhere.
+
+```php
+Html\SiteIdentity::jsonLd();    // called for you, from Document::seoHeadMarkup()
+Html\SiteIdentity::graph();     // the same thing as data, to extend before rendering
+```
+
+It reads `sitename`, `sitelogo` and `social_profiles` from settings, and **asserts only what is
+configured**, for the same reason the meta tags do:
+
+- An unset logo is **absent**, not `"logo": ""`. An empty field is not a blank — it is a claim that
+  the thing does not exist.
+- A malformed entry in `sameAs` is dropped rather than published. It does not fail loudly; it
+  quietly stops the organisation matching the entity it names.
+- A `SearchAction` appears only where `Search\Registry` has sources. One that leads to a page
+  returning nothing is offered to a reader, tried once, and teaches them the site is broken.
+
+Empty when the site has no configured name, because a name is the one field both objects need to be
+worth asserting.
+
+### Absent is not empty
+
+The rule `jsonLd()` has documented from the start, now enforced by the head renderer too.
+
+`<meta name="description" content="">` is **not** the absence of a description. It is a claim that
+this page has none — and a crawler records the claim rather than falling back to the page text. An
+application that never set the property said nothing of the sort.
+
+So `description`, `og:title`, `og:url`, `og:image` and `og:description` are emitted only when they
+have a value. `og:title` and `og:site_name` still fall back to the page title and the `sitename`
+setting, because those are values the framework *has*, not claims it invents.
+
+Two more in the same pass. **`viewport` moved onto the document** — it lived in the scaffolded
+themes and nowhere else, so a theme that omitted it produced a page Google labels not
+mobile-friendly with no signal that anything was missing. And **`twitter:card` is emitted only when
+there is an image for it**: X reads the OpenGraph tags for everything else, and a
+`summary_large_image` card promising an image the page does not have renders worse than no card.
+
+The `xmlns:og` and `xmlns:fb` attributes are gone — RDFa declarations from 2010, parsed by nothing
+since Facebook moved to `<meta property>`, occupying the first hundred bytes of every page the
+framework rendered.
 
 ## See also
 

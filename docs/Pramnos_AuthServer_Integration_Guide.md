@@ -37,7 +37,41 @@ Fetch the server's metadata:
 ```
 GET /.well-known/openid-configuration
 GET /.well-known/oauth-authorization-server
+GET /.well-known/oauth-protected-resource
 ```
+
+### The two halves of discovery
+
+The first two say where the **authorization server** is. The third — RFC 9728, Protected Resource
+Metadata — says where the **resource** is and which authorization servers it trusts:
+
+```json
+{
+  "resource": "https://example.com",
+  "authorization_servers": ["https://example.com"],
+  "scopes_supported": ["profile", "email", "phone", "address", "user", "openid", "offline_access"],
+  "bearer_methods_supported": ["header"],
+  "resource_documentation": "https://example.com/docs"
+}
+```
+
+Both halves exist so a client can start from either end and find the other. With only the first, a
+client has to be told the rest out of band — configuration somebody types into a file, gets wrong,
+and has no way to verify.
+
+**It is also where an MCP client starts.** The Model Context Protocol's authorization flow is: call
+a protected endpoint, be refused with `401` and a `WWW-Authenticate` header naming this document,
+read it, find the authorization server, then run the ordinary authorization-code-with-PKCE exchange
+in §3. See the [MCP guide](Pramnos_MCP_Guide.md).
+
+Three things about that document are deliberate. `scopes_supported` is read from the server's own
+scope table rather than written out, so it cannot drift from what the server will actually grant.
+`bearer_methods_supported` is `["header"]` and only that — RFC 6750 also permits a token in a form
+body and a query string, and the query form puts a credential in every access log and `Referer`
+between you and here. And the identifiers carry **no trailing slash**, because `resource` is
+compared as a string when a token's audience is checked, and `https://example.com` and
+`https://example.com/` are the same address and different strings.
+
 
 The document lists the real endpoints, e.g.:
 
@@ -245,6 +279,24 @@ screen; untrusted (third-party) applications always show consent and receive
 only the scopes the user approves.
 
 ---
+
+### Deleting a client revokes its tokens
+
+`applications.appid` cascades to `usertokens.applicationid`. Delete an OAuth client and every token
+it issued goes with it.
+
+It used to be `ON DELETE SET NULL`, which left the tokens in place with a null `applicationid` —
+indistinguishable from a token that was never issued through OAuth at all. Each one silently changed
+category and carried on authenticating. On one installation, 507 of 522 tokens had a null
+`applicationid` and thirteen of those were still active and unexpired: thirteen live credentials
+belonging to clients that had been deleted.
+
+Deleting a client is the one action an operator takes precisely to stop it having access, so that is
+what it does now.
+
+**Tokens already detached are left alone.** The old rule destroyed the reference rather than
+recording it anywhere, so nothing separates "issued by a client that is gone" from "never an OAuth
+token" — and a sweep would have to guess, which here means revoking working credentials.
 
 ## 3. Logging a user in — Authorization Code + PKCE
 
@@ -549,6 +601,53 @@ The server returns the RBAC∩ABAC set; any licensing/entitlement gate is applie
 by your application on top.
 
 ---
+
+## What the site tells a machine that arrives uninvited
+
+Two generated files, alongside the `.well-known` documents above.
+
+### `/robots.txt`
+
+Generated rather than shipped as a file, because the line that matters is derived from the
+installation's own URL — a static file in a scaffold is a static file with somebody else's domain
+in it.
+
+It names **twelve AI crawlers one by one**: `GPTBot`, `ChatGPT-User`, `OAI-SearchBot`, `ClaudeBot`,
+`Claude-User`, `Claude-SearchBot`, `PerplexityBot`, `Perplexity-User`, `Google-Extended`,
+`Applebot-Extended`, `CCBot`, `meta-externalagent`. Every one reads `robots.txt` and honours it.
+
+Absence is not neutrality. With nothing said each crawler decides for itself, and they decide
+differently — `Google-Extended` opts a site out of model training while leaving Search untouched,
+which is a distinction a site cannot express by staying silent.
+
+```php
+// app/settings.php — one setting flips all twelve
+'ai_crawler_policy' => 'disallow',   // default: allow
+```
+
+The default is `allow`, because a framework must not choose a site's licensing posture. What it must
+do is make the choice **visible and settable**.
+
+The side-effect paths — `/admin/`, `/oauth/`, `/account/`, `/devpanel/`, `/adminer` — are
+`Disallow`ed rather than left to `noindex`. `noindex` keeps a page out of an index *after* it has
+been fetched; on an authentication server every one of those either costs a session, sends mail, or
+answers differently per visitor.
+
+### `/llms.txt`
+
+The GEO counterpart of a sitemap: a short markdown document saying what this site is and where the
+things worth reading are. A crawler follows links; a model arriving cold guesses, and guessing is
+how a site gets described wrongly and confidently.
+
+It is deliberately short — the format's premise is that it fits in a context window beside the
+question somebody actually asked.
+
+**And it is where the MCP endpoint is announced.** A model reading it learns the site has tools it
+can call and where to authenticate for them. Without it the endpoint is a service nobody discovers.
+It appears only once something has actually been offered through `PublicRegistry`, because an
+endpoint serving an empty list is not worth pointing anybody at.
+
+Both paths are scaffolded into a generated project's rewrite rules alongside the `.well-known` ones.
 
 ## Related guides
 

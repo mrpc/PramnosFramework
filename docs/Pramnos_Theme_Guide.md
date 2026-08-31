@@ -122,6 +122,55 @@ echo $theme->thumbnail;    // Screenshot URL
 
 ## Theme Structure
 
+### Two things every theme owes its readers
+
+Both are one line of markup and a few of CSS, and both are the first items on any accessibility
+audit. The scaffolded themes carry them; a hand-written theme has to.
+
+**A skip link, as the first focusable thing on the page.**
+
+```html
+<body>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+…
+<main id="main-content">
+```
+
+The `<main>` landmark has been in these themes all along — only the link to it was missing, so
+reaching a page's content meant tabbing through the whole navigation, on every page.
+
+Style it **off-screen, not hidden**: `display: none` takes it out of the tab order, which removes
+the one thing it exists to provide.
+
+```css
+.pf-skip-link { position: absolute; left: -9999px; }
+.pf-skip-link:focus { left: 0; }
+```
+
+**And a `viewport` you do not have to remember.** It is on the `Html` document type now, so a theme
+that omits it still gets one. It used to live only here, and a theme that forgot produced a page
+Google labels not mobile-friendly with no signal anywhere that anything was missing.
+
+### Nothing about the visitor leaves the page
+
+The scaffolded consent screen used to fall back to Gravatar when an account had no avatar of its
+own:
+
+```php
+$this->user->avatar ?? 'https://www.gravatar.com/avatar/' . md5(strtolower($this->user->email))
+```
+
+So every render of `/oauth/authorize` sent `md5(email)` of the person signing in to another
+company — from the one page in the whole flow where they are deciding what to disclose, and to a
+party they were never asked about.
+
+An md5 of an address is not anonymous. It is the address, hashed: the set of email addresses that
+matter is small enough to enumerate, and that lookup is Gravatar's entire product.
+
+The avatar renders when the account has one and is omitted when it does not. **If you write your own
+consent screen, do not reintroduce it** — nor any other third-party asset on an authentication page.
+A remote image is a request that carries a `Referer`, a timestamp and an IP to somebody else.
+
 ### Main Template File (theme.html.php)
 
 The main template file defines the overall page structure:

@@ -160,6 +160,30 @@ Logger::debug('Database query executed', [
 ]);
 ```
 
+### The entry's `type`, and the JSON sniff
+
+`log()` takes a `$context` array, and `type` is the field a log viewer filters on:
+
+```php
+Logger::log('Could not reach the push service', 'push', context: ['type' => 'error']);
+```
+
+When you do **not** set it, the message is sniffed: if it parses as JSON, `type` becomes `json`.
+When you **do** set it, the sniff is skipped and your value survives.
+
+That second half did not work until 31 August 2026. The guard read a variable that does not exist
+in that scope, so it was always true and the sniff always ran — and a type you supplied was
+overwritten with `json` whenever the message happened to parse as JSON. A bare number parses. So
+do `true`, `null`, and any quoted string:
+
+```php
+Logger::log('42', 'push', context: ['type' => 'error']);   // was filed as json
+```
+
+An error logged as `'42'` was filed as JSON, and anybody filtering the log by type never saw it.
+Worth knowing if you are reading logs written before that date: a `json` entry may be an error
+whose message was numeric.
+
 ## Log Levels and PSR-3 Compliance
 
 The logging system follows PSR-3 standards with eight severity levels:
