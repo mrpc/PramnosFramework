@@ -110,6 +110,85 @@ class MachineReadableTest extends TestCase
     }
 
     /**
+     * The `Sitemap:` line is absolute or absent.
+     *
+     * It is the one line in the file derived from the installation's own URL — the reason this is
+     * generated rather than shipped, since a static robots.txt in a scaffold carries somebody
+     * else's domain.
+     *
+     * And the protocol requires an **absolute** URL there. With no site URL configured the line is
+     * omitted rather than emitted relative: `Sitemap: /sitemap.xml` is not a smaller version of
+     * the right answer, it is an invalid directive a crawler discards along with any trust in the
+     * rest of the file.
+     */
+    public function testTheSitemapLineIsAbsoluteOrAbsent(): void
+    {
+        // Act
+        $robots = $this->render('robots');
+        $url    = rtrim(defined('sURL') ? (string) sURL : '', '/');
+
+        // Assert
+        if ($url === '') {
+            $this->assertStringNotContainsString('Sitemap:', $robots,
+                'a relative Sitemap directive is invalid — omit it instead');
+
+            return;
+        }
+
+        $this->assertStringContainsString('Sitemap: ' . $url . '/sitemap.xml', $robots);
+    }
+
+    /**
+     * `llms.txt` carries the site's description when there is one.
+     *
+     * And omits the line entirely when there is not — the same absent-is-not-empty rule the head
+     * renderer follows. A blockquote with nothing in it reads as a site with nothing to say.
+     */
+    public function testTheDescriptionAppearsOnlyWhenSet(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting('sitename', 'Example');
+        \Pramnos\Application\Settings::setSetting('sitedescription', '');
+        $without = $this->render('llms');
+
+        \Pramnos\Application\Settings::setSetting('sitedescription', 'Single sign-on for everything.');
+        Document::reset();
+        $with = $this->render('llms');
+
+        \Pramnos\Application\Settings::setSetting('sitedescription', '');
+
+        // Assert
+        $this->assertStringNotContainsString('> ', $without);
+        $this->assertStringContainsString('> Single sign-on for everything.', $with);
+    }
+
+    /**
+     * And it lists what is searchable, when anything is.
+     *
+     * A model reading this learns what the site holds without guessing from the URL structure.
+     */
+    public function testTheSearchableSourcesAreListedWhenThereAreAny(): void
+    {
+        // Arrange
+        \Pramnos\Search\Registry::reset();
+        $without = $this->render('llms');
+
+        \Pramnos\Search\Registry::register('Users', \Pramnos\User\User::class, [
+            'display' => ['username'],
+            'url'     => '/admin/users/:id',
+        ]);
+        Document::reset();
+        $with = $this->render('llms');
+
+        \Pramnos\Search\Registry::reset();
+
+        // Assert
+        $this->assertStringNotContainsString('## Search', $without);
+        $this->assertStringContainsString('## Search', $with);
+        $this->assertStringContainsString('Users', $with);
+    }
+
+    /**
      * The MCP endpoint is announced there, or nowhere.
      *
      * The one honest link between the two halves of this work: a model reading this learns the

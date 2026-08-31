@@ -140,6 +140,110 @@ class SiteIdentityTest extends TestCase
     }
 
     /**
+     * An absolute logo URL is left as it is.
+     *
+     * The counterpart of making a relative one absolute: a configured `https://cdn…/logo.png` must
+     * not have the site root prepended to it.
+     */
+    public function testAnAbsoluteLogoIsNotRewritten(): void
+    {
+        // Arrange
+        Settings::setSetting('sitelogo', 'https://cdn.example.com/logo.png');
+
+        // Assert
+        $this->assertSame(
+            'https://cdn.example.com/logo.png',
+            SiteIdentity::graph()['@graph'][0]['logo']
+        );
+    }
+
+    /**
+     * Social profiles are read from the newline- or comma-separated text a settings field gives.
+     *
+     * Asserted in that form only, because that is the form this actually arrives in: `setSetting`
+     * writes a value to the database when it is a string, and a settings screen gives a textarea.
+     * The array branch in `sameAs()` is defensive — it costs two lines and covers a value handed
+     * in from a config file rather than the settings table — and is deliberately not asserted
+     * here, because a test for a path I cannot demonstrate is a test that only looks like one.
+     */
+    public function testProfilesAreReadFromSeparatedText(): void
+    {
+        // Arrange
+        Settings::setSetting(
+            'social_profiles',
+            "https://example.com/a\nhttps://example.com/b, https://example.com/c"
+        );
+
+        // Act
+        $sameAs = SiteIdentity::graph()['@graph'][0]['sameAs'] ?? [];
+
+        // Assert
+        $this->assertSame(
+            ['https://example.com/a', 'https://example.com/b', 'https://example.com/c'],
+            $sameAs
+        );
+    }
+
+    /**
+     * A profiles setting that is neither text nor a list yields nothing.
+     *
+     * It is read from configuration, so it can be anything a config file contains. The answer to
+     * "I cannot read this" is no `sameAs`, not a malformed one — a broken entry does not fail
+     * loudly, it quietly stops the organisation matching the entity it names.
+     */
+    public function testAnUnreadableProfilesSettingYieldsNothing(): void
+    {
+        // Arrange
+        Settings::setSetting('social_profiles', 42);
+
+        // Assert
+        $this->assertArrayNotHasKey('sameAs', SiteIdentity::graph()['@graph'][0]);
+    }
+
+    /**
+     * No profiles configured means no `sameAs` at all.
+     *
+     * An empty `sameAs` asserts that this organisation appears nowhere else, which is not what an
+     * unset setting meant.
+     */
+    public function testNoProfilesMeansNoSameAsKey(): void
+    {
+        // Assert
+        $this->assertArrayNotHasKey('sameAs', SiteIdentity::graph()['@graph'][0]);
+    }
+
+    /**
+     * A `SearchAction` appears once the registry has a source.
+     *
+     * The other half of the existing test: it asserts absence with no sources, and absence is easy
+     * to achieve by never emitting anything.
+     */
+    public function testTheSearchActionAppearsWhenThereIsSomethingToSearch(): void
+    {
+        // Arrange
+        \Pramnos\Search\Registry::reset();
+        \Pramnos\Search\Registry::register('Users', \Pramnos\User\User::class, [
+            'display' => ['username'],
+            'url'     => '/admin/users/:id',
+        ]);
+
+        try {
+            // Act
+            $website = SiteIdentity::graph()['@graph'][1];
+
+            // Assert
+            $this->assertArrayHasKey('potentialAction', $website);
+            $this->assertSame('SearchAction', $website['potentialAction']['@type']);
+            $this->assertStringContainsString(
+                '{search_term_string}',
+                $website['potentialAction']['target']['urlTemplate']
+            );
+        } finally {
+            \Pramnos\Search\Registry::reset();
+        }
+    }
+
+    /**
      * The rendered block is a script tag with the framework's own escaping.
      */
     public function testItRendersThroughTheEscapingHelper(): void

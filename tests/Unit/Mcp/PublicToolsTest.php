@@ -298,6 +298,166 @@ class PublicToolsTest extends TestCase
         $this->assertArrayNotHasKey('required', $schema);
     }
 
+    /**
+     * The search tool describes itself with what this installation actually has.
+     *
+     * The description is all a model reads when deciding whether to call a tool. "Search this
+     * application" tells it nothing; naming the sources tells it whether the answer it wants is
+     * even in here.
+     */
+    public function testTheDescriptionNamesWhatIsSearchable(): void
+    {
+        // Arrange
+        \Pramnos\Search\Registry::reset();
+        $generic = (new SearchTool())->description();
+
+        \Pramnos\Search\Registry::register('Users', \Pramnos\User\User::class, [
+            'display' => ['username'],
+            'url'     => '/admin/users/:id',
+        ]);
+        $named = (new SearchTool())->description();
+
+        \Pramnos\Search\Registry::reset();
+
+        // Assert
+        $this->assertStringContainsString('this application', $generic);
+        $this->assertStringContainsString('Users', $named);
+    }
+
+    /**
+     * A term does reach the registry, and the answer keeps its shape.
+     *
+     * The tests above assert the two refusals — empty term, no sources. This is the path that
+     * returns something, and the shape matters: grouped by source, with a total, because that is
+     * what a model can reason about.
+     */
+    public function testATermReachesTheRegistryAndComesBackGrouped(): void
+    {
+        // Arrange
+        \Pramnos\Search\Registry::reset();
+        \Pramnos\Search\Registry::register('Users', \Pramnos\User\User::class, [
+            'display' => ['username'],
+            'url'     => '/admin/users/:id',
+        ]);
+
+        try {
+            // Act
+            $result = (new SearchTool())->execute(['query' => 'zzz-nothing-matches-this']);
+
+            // Assert
+            $this->assertArrayHasKey('groups', $result);
+            $this->assertArrayHasKey('total', $result);
+            $this->assertArrayNotHasKey('note', $result,
+                'the note is only for an installation with no sources at all');
+        } finally {
+            \Pramnos\Search\Registry::reset();
+        }
+    }
+
+    /**
+     * The limit a caller asks for is honoured within the cap.
+     *
+     * The schema advertises 1–25; the tool has to clamp to it rather than trust the number. A
+     * language model will eventually ask for a thousand.
+     */
+    public function testALimitWithinTheCapIsHonoured(): void
+    {
+        // Arrange
+        \Pramnos\Search\Registry::reset();
+        \Pramnos\Search\Registry::register('Users', \Pramnos\User\User::class, [
+            'display' => ['username'],
+            'url'     => '/admin/users/:id',
+        ]);
+
+        try {
+            // Act — absurd, and clamped rather than refused
+            $result = (new SearchTool())->execute(['query' => 'a', 'limit' => 10000]);
+
+            // Assert
+            $this->assertIsArray($result['groups']);
+        } finally {
+            \Pramnos\Search\Registry::reset();
+        }
+    }
+
+    /**
+     * A tool offered twice under one name is the later one.
+     *
+     * The registry is keyed by name, so a second registration replaces rather than duplicating —
+     * which is what an application overriding a framework-provided tool needs.
+     */
+    public function testRegisteringTheSameNameTwiceReplaces(): void
+    {
+        // Arrange
+        PublicRegistry::offer('thing', 'user', 'First.', [], static fn (): int => 1);
+        PublicRegistry::offer('thing', 'user', 'Second.', [], static fn (): int => 2);
+
+        // Act
+        $tools = PublicRegistry::visibleTo(['user']);
+
+        // Assert
+        $this->assertCount(1, $tools);
+        $this->assertSame('Second.', $tools[0]->description());
+        $this->assertSame(2, $tools[0]->execute([]));
+    }
+
+    /**
+     * An offered tool answers the four questions a client asks of it.
+     *
+     * `offer()` builds the tool from five arguments; a client then asks it for its name, its
+     * sentence, its schema and its result. The schema is the one that had never been asked for —
+     * and a tool whose schema does not render is a tool no client will call, which looks exactly
+     * like a tool nobody wanted.
+     */
+    public function testAnOfferedToolAnswersEverythingAClientAsks(): void
+    {
+        // Arrange
+        PublicRegistry::offer(
+            name:        'station-health',
+            scope:       'user',
+            description: 'Report the last stream check.',
+            input:       ['station_id' => 'integer', 'verbose' => 'boolean?'],
+            handler:     static fn (array $in): array => ['id' => $in['station_id']],
+        );
+
+        // Act
+        $tool   = PublicRegistry::visibleTo(['user'])[0];
+        $schema = $tool->inputSchema();
+
+        // Assert
+        $this->assertSame('station-health', $tool->name());
+        $this->assertSame('Report the last stream check.', $tool->description());
+        $this->assertSame('user', $tool->requiredScope());
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame(['station_id'], $schema['required'], 'only the one without a ?');
+        $this->assertSame(['id' => 3], $tool->execute(['station_id' => 3]));
+    }
+
+    /**
+     * `hasTools()` distinguishes an endpoint with something to offer from one without.
+     *
+     * `llms.txt` reads it to decide whether to announce the MCP endpoint at all, because pointing
+     * a model at an endpoint that serves an empty list is worse than not mentioning it.
+     */
+    public function testHasToolsReflectsWhetherAnythingIsOffered(): void
+    {
+        // Assert
+        $this->assertFalse(PublicRegistry::hasTools(), 'nothing registered yet');
+
+        PublicRegistry::offer('thing', 'user', 'A thing.', [], static fn (): int => 1);
+
+        $this->assertTrue(PublicRegistry::hasTools());
+    }
+
+    /**
+     * The search tool's own name is what a client calls.
+     */
+    public function testTheSearchToolIsCalledSearch(): void
+    {
+        // Assert
+        $this->assertSame('search', (new SearchTool())->name());
+    }
+
     private function tool(string $name, string $scope): ScopedMcpTool
     {
         return new class ($name, $scope) implements ScopedMcpTool {

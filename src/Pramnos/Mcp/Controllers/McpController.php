@@ -62,7 +62,7 @@ class McpController extends Controller
              * the streaming transport this does not implement. Both are better served by being
              * told what this is than by a stack trace or an empty page.
              */
-            return Response::json([
+            return $this->json([
                 'error'    => 'method_not_allowed',
                 'detail'   => 'This endpoint speaks JSON-RPC over POST.',
                 'resource' => rtrim(sURL, '/') . '/.well-known/oauth-protected-resource',
@@ -75,12 +75,12 @@ class McpController extends Controller
             return $this->unauthenticated();
         }
 
-        $message = json_decode((string) file_get_contents('php://input'), true);
+        $message = json_decode($this->requestBody(), true);
 
         if (!is_array($message)) {
             // -32700 is JSON-RPC's parse error, and the id is null because there is no message to
             // read one from.
-            return Response::json([
+            return $this->json([
                 'jsonrpc' => '2.0',
                 'id'      => null,
                 'error'   => ['code' => -32700, 'message' => 'Parse error'],
@@ -92,8 +92,32 @@ class McpController extends Controller
         // A notification — a message with no id — gets no reply by specification. `202` says it
         // arrived without inventing a body the client would try to parse.
         return $answer === null
-            ? Response::json(null, 202)
-            : Response::json($answer);
+            ? $this->json(null, 202)
+            : $this->json($answer);
+    }
+
+    /**
+     * Write a JSON response.
+     *
+     * The other overridable seam, for the same reason as {@see requestBody()}: a test can capture
+     * what the action decided instead of watching it be written to a stream it cannot read.
+     */
+    protected function json(mixed $body, int $status = 200): mixed
+    {
+        return Response::json($body, $status);
+    }
+
+    /**
+     * The raw request body.
+     *
+     * A thin, overridable seam around the stream, so `display()` can be exercised without a live
+     * request — the same reason `Auth\Controllers\Me::resolveUser()` exists. Without it the only
+     * testable parts of this class are the ones that do not handle a request, which is the half
+     * that matters least.
+     */
+    protected function requestBody(): string
+    {
+        return (string) file_get_contents('php://input');
     }
 
     /**
@@ -176,7 +200,7 @@ class McpController extends Controller
 
         header('WWW-Authenticate: Bearer resource_metadata="' . $metadata . '"');
 
-        return Response::json([
+        return $this->json([
             'jsonrpc' => '2.0',
             'id'      => null,
             'error'   => [
