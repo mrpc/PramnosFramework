@@ -687,15 +687,60 @@ class QueryBuilder
      */
     public function join($table, $first, $operator = null, $second = null, $type = 'inner')
     {
-        if (is_string($table)
-            && strpos($table, '.') !== false
-            && strpos($table, ' ') === false
-            && $this->db->type !== 'postgresql'
-        ) {
-            $table = $this->db->schema()->resolveTableName($table);
+        $table = $this->resolveJoinTable($table);
+
+        // A closure means the join has more than one condition — two columns of a
+        // composite key, a membership row matched on both the user and the
+        // organisation. `$first op $second` cannot say that.
+        if ($first instanceof \Closure) {
+            $clause = new JoinClause();
+            $first($clause);
+
+            $this->joins[] = [
+                'table'      => $table,
+                'type'       => $type,
+                'conditions' => $clause->getConditions(),
+            ];
+
+            return $this;
         }
+
         $this->joins[] = compact('table', 'first', 'operator', 'second', 'type');
         return $this;
+    }
+
+    /**
+     * Resolve a join target, alias and all.
+     *
+     * `authserver.user_roles` has to become the physical name — a schema on
+     * PostgreSQL, a prefixed table on MySQL — and that resolution used to be
+     * skipped for anything containing a space. Which meant the moment a join was
+     * given an alias, the qualified name went to the driver untranslated and MySQL
+     * was asked for a schema it does not have. Aliases are exactly what a join with
+     * two conditions needs, so the two limitations arrived together.
+     *
+     * The alias is split off, the table resolved, and the alias put back.
+     *
+     * @param mixed $table Table name, optionally `schema.table alias`.
+     * @return mixed The resolved name, or the input unchanged when there is
+     *               nothing to resolve.
+     */
+    protected function resolveJoinTable($table)
+    {
+        if (!is_string($table)
+            || strpos($table, '.') === false
+            || $this->db->type === 'postgresql'
+        ) {
+            return $table;
+        }
+
+        $parts = preg_split('/\s+/', trim($table), 2);
+        $name  = $parts[0];
+        $alias = $parts[1] ?? '';
+
+        $resolved = $this->db->schema()->resolveTableName($name);
+
+        return $alias === '' ? $resolved : $resolved . ' ' . $alias;
     }
 
     /**
@@ -716,10 +761,11 @@ class QueryBuilder
     /**
      * Add a left join clause.
      *
-     * @param string $table
-     * @param string $first
-     * @param string $operator
-     * @param string $second
+     * @param string          $table    Table, optionally `schema.table alias`.
+     * @param string|\Closure $first    Column reference, or a closure receiving a
+     *                                  {@see JoinClause} for a multi-condition join.
+     * @param string|null     $operator
+     * @param string|null     $second
      * @return $this
      */
     public function leftJoin($table, $first, $operator = null, $second = null)

@@ -457,11 +457,49 @@ $qb->rightJoin('categories c', 'c.id', '=', 'p.category_id');
 $qb->crossJoin('colors');  // CROSS JOIN (no ON clause)
 ```
 
+#### Joining on more than one column
+
+Pass a closure instead of the column arguments. It receives a `JoinClause`, and
+every condition you add to it lands in the same `ON`:
+
+```php
+use Pramnos\Database\JoinClause;
+
+$qb->leftJoin('authserver.user_organizations uo', function (JoinClause $join) {
+    $join->on('uo.userid', '=', 'ur.userid')
+         ->on('uo.organization_id', '=', 'rd.organization_id');
+});
+// → LEFT JOIN authserver_user_organizations uo
+//      ON uo.userid = ur.userid AND uo.organization_id = rd.organization_id
+```
+
+`on()` ANDs, `orOn()` ORs, and `on('a.x', 'b.x')` means equality. Both sides of a
+condition are **column references**: there is no `where()` on a `JoinClause`,
+because a comparison against a value belongs in the query's `WHERE`, where it is
+bound as a parameter rather than pasted into the `ON`.
+
+#### Aliases on qualified names
+
+`authserver.roles rd` resolves the same way `authserver.roles` does — a schema on
+PostgreSQL, a prefixed table on MySQL — and keeps the alias:
+
+```php
+$qb->table('authserver.user_roles ur')
+   ->join('authserver.roles rd', 'rd.roleid', '=', 'ur.roleid');
+// MySQL → FROM authserver_user_roles ur INNER JOIN authserver_roles rd ON …
+```
+
 #### `joinRaw(string $sql): static`
+
+For a join the builder cannot express. Note that a multi-condition `ON` no longer
+needs one:
 
 ```php
 $qb->joinRaw("LEFT JOIN permissions p ON p.userid = u.userid AND p.active = 1");
 ```
+
+`joinRaw()` takes the SQL as given — the table name is not resolved and nothing is
+bound, so never build one out of user input.
 
 ### Ordering & Grouping
 

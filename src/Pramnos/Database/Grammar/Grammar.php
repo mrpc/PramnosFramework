@@ -167,6 +167,12 @@ abstract class Grammar implements GrammarInterface
                 $sql .= ' ' . $join['sql'];
             } elseif (strtolower($join['type']) === 'cross') {
                 $sql .= ' CROSS JOIN ' . $join['table'];
+            } elseif (isset($join['conditions'])) {
+                // A multi-condition join, built through a JoinClause. Both sides of
+                // every condition are column references by construction — the clause
+                // has no way to carry a value — so there is nothing here to bind.
+                $sql .= ' ' . strtoupper($join['type']) . ' JOIN '
+                    . $join['table'] . ' ON ' . $this->compileJoinConditions($join['conditions']);
             } else {
                 $sql .= ' ' . strtoupper($join['type']) . ' JOIN '
                     . $join['table'] . ' ON '
@@ -538,5 +544,27 @@ abstract class Grammar implements GrammarInterface
         ];
 
         return $map[$unit] ?? null;
+    }
+
+    /**
+     * Render the ON clause of a multi-condition join.
+     *
+     * The first condition carries no boolean — `ON AND a = b` is a syntax error —
+     * and the rest are joined by their own.
+     *
+     * @param list<array{first:string,operator:string,second:string,boolean:string}> $conditions
+     * @return string
+     */
+    protected function compileJoinConditions(array $conditions): string
+    {
+        $sql = '';
+        foreach ($conditions as $index => $condition) {
+            if ($index > 0) {
+                $sql .= ' ' . strtoupper($condition['boolean']) . ' ';
+            }
+            $sql .= $condition['first'] . ' ' . $condition['operator'] . ' ' . $condition['second'];
+        }
+
+        return $sql;
     }
 }
