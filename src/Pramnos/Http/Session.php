@@ -156,6 +156,23 @@ class Session extends Base
 
     /**
      * Check if a given token value matches the session fingerprint.
+     *
+     * `hash_equals()` rather than `===`, so the comparison takes the same time
+     * whatever the submitted value is. The token itself is sound — an HMAC-SHA256
+     * keyed by the session's own 256-bit random token, so it cannot be predicted —
+     * but `===` returns as soon as two bytes differ, and a comparison that leaks how
+     * far it got is not something to leave in a security check on the argument that
+     * exploiting it would be difficult.
+     *
+     * This is the legacy CSRF path, still used by the account controllers, the
+     * settings form and the scaffolded templates. The synchronizer-token path
+     * ({@see verifyCsrfToken()}) has always been constant-time; the two are now
+     * equivalent in that respect, so neither is the weaker choice.
+     *
+     * A non-string value is refused rather than coerced: `hash_equals()` requires
+     * strings, and a request that sent an array where a token belongs has not
+     * submitted a token.
+     *
      * @param mixed $value The token value to verify
      * @param bool $useIpHash Whether to verify the IP fingerprint (IP pinning)
      * @return bool
@@ -163,7 +180,12 @@ class Session extends Base
     public function checkTokenValue($value, $useIpHash = false): bool
     {
         $this->ensureStarted();
-        return $value === $this->getFingerprint($useIpHash);
+
+        if (!is_string($value)) {
+            return false;
+        }
+
+        return hash_equals($this->getFingerprint($useIpHash), $value);
     }
 
     /**
@@ -451,14 +473,50 @@ class Session extends Base
     }
 
     /**
-     * Returns true when the current request was made over HTTPS.
-     * Checks HTTPS server variable accepting both 'on' and '1' values
-     * (different web servers use different representations).
+     * Returns true when the current request reached the client over HTTPS.
+     *
+     * `$_SERVER['HTTPS']` answers for the connection this process received, which
+     * behind a TLS-terminating proxy is the plaintext hop between the proxy and PHP.
+     * The user's browser is on HTTPS; this variable is empty. Everything keyed off
+     * this answer then behaves as though the site were plaintext — and the one that
+     * matters is the session cookie, which loses its `secure` flag and starts
+     * travelling on any http:// request to the domain.
+     *
+     * So `X-Forwarded-Proto` is consulted too, but **only when the peer is a declared
+     * trusted proxy** ({@see \Pramnos\Http\ClientIpResolver}, `trusted_proxies` in
+     * the application config). The header is client-supplied: trusting it
+     * unconditionally would let any visitor assert `https` and hand themselves a
+     * secure cookie over a plaintext connection, which is the opposite of the fix.
+     *
+     * With no `trusted_proxies` configured the answer is `$_SERVER['HTTPS']` alone,
+     * exactly as before.
+     *
+     * Both `on` and `1` are accepted for HTTPS, and `X-Forwarded-Proto` may carry a
+     * list — `https, http` — when a request crossed more than one proxy, in which
+     * case the first entry is the one the client spoke.
      */
     public static function isHttps(): bool
     {
         $https = $_SERVER['HTTPS'] ?? '';
-        return $https === 'on' || $https === '1';
+        if ($https === 'on' || $https === '1') {
+            return true;
+        }
+
+        $forwarded = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
+        if ($forwarded === '') {
+            return false;
+        }
+
+        $peer = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        if ($peer === ''
+            || !\Pramnos\Http\ClientIpResolver::fromApplication()->isTrusted($peer)
+        ) {
+            return false;
+        }
+
+        $first = trim(explode(',', (string) $forwarded)[0]);
+
+        return strtolower($first) === 'https';
     }
 
 

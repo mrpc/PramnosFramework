@@ -14,6 +14,12 @@ Security is a core concern in Pramnos Framework v1.2. This guide covers built-in
 
 ## CSRF Protection
 
+Both CSRF paths verify with `hash_equals()`. The synchronizer token
+(`verifyCsrfToken()`) always did; the legacy fingerprint check (`checkTokenValue()`,
+which the account controllers, the settings form and the scaffolded templates still
+use) compared with `===` until 2026-08-31. Neither is now the weaker choice, so a
+project on the legacy path is not on a worse one.
+
 ### Session Token Hardening (v1.2)
 
 | Change | Before | After |
@@ -617,7 +623,23 @@ Use `Request::clientIp()` rather than reading `REMOTE_ADDR` directly:
 $ip = \Pramnos\Http\Request::clientIp();
 ```
 
-### Configure the proxies, or nothing changes
+#
+### It also decides whether the request was HTTPS
+
+`Session::isHttps()` answers for the connection the *browser* made, not the one PHP
+received. Behind a proxy that terminates TLS those differ: `$_SERVER['HTTPS']` is
+empty on the plaintext hop, and the session cookie was issued without its `secure`
+flag — so it then travelled on any `http://` request to the domain.
+
+`X-Forwarded-Proto` is consulted, but only when the peer is in `trusted_proxies`. The
+header is client-supplied, so believing it unconditionally would let any visitor
+assert `https` and be handed a secure cookie over a plaintext connection. With no
+proxies declared the answer is `$_SERVER['HTTPS']` alone, exactly as before.
+
+One more reason the list is worth configuring even when per-IP rate limiting is not
+in play.
+
+## Configure the proxies, or nothing changes
 
 ```php
 // app.php
