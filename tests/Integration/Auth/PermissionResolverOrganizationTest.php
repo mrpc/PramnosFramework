@@ -106,39 +106,26 @@ class PermissionResolverOrganizationTest extends BaseTestCase
     {
         $p = $this->db->prefix;
 
-        $this->db->query("CREATE TABLE IF NOT EXISTS `{$this->tRoles}` (
-            `roleid` INT NOT NULL PRIMARY KEY,
-            `role_name` VARCHAR(100) NOT NULL DEFAULT '',
-            `organization_id` INT NULL,
-            `is_active` TINYINT NOT NULL DEFAULT 1
-        ) ENGINE=InnoDB");
-        $this->db->query("CREATE TABLE IF NOT EXISTS `{$this->tUserRoles}` (
-            `userid` BIGINT NOT NULL,
-            `roleid` INT NOT NULL,
-            `is_active` TINYINT NOT NULL DEFAULT 1,
-            `expires_at` TIMESTAMP NULL,
-            PRIMARY KEY (`userid`,`roleid`)
-        ) ENGINE=InnoDB");
-        // Built from its migration rather than by hand, and dropped first: the test
-        // database carried a copy with a `user_id` column, which is not what this
-        // framework writes anywhere — the migration and OrganizationsController both
-        // say `userid`. A stale shape left in place would have this test asserting
-        // against a table no installation actually has.
-        // `organizations` first: the membership table takes a foreign key to it, and
-        // a missing FK target fails the CREATE rather than being skipped.
-        $this->db->query("DROP TABLE IF EXISTS `{$this->tMembers}`");
+        // Every table here is built from its own migration: three of them are shared
+        // with other suites, and two hand-rolled copies that disagreed about whether
+        // `granted_by` exists is exactly the confusion that produces.
+        foreach ([$this->tUserRoles, $this->tRoles, $this->tMembers] as $t) {
+            $this->db->query("DROP TABLE IF EXISTS `{$t}`");
+        }
         $this->runMigrations([
             \Pramnos\Framework\Migrations\AuthServer\CreateOrganizationsTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverUserRolesTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverUserOrganizationsTable::class,
         ], $this->db);
 
-        // The organisations the tests refer to have to exist, for the same FK.
         foreach ([3, 5, 99] as $orgId) {
             $this->db->query(
                 "INSERT IGNORE INTO `{$p}organizations` (organization_id, name) "
                 . "VALUES ({$orgId}, 'Org {$orgId}')"
             );
         }
+
         $this->db->query("CREATE TABLE IF NOT EXISTS `{$this->tPerms}` (
             `permissionid` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `subject_type` VARCHAR(20) NOT NULL,
