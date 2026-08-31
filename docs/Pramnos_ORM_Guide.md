@@ -374,6 +374,29 @@ class User extends Model
 
 The model automatically sets `created_at` on insert and `updated_at` on every change.
 
+### A legacy `Model` leaves a NOT NULL date to the column
+
+`Pramnos\Application\Model` — the older base, without `$timestamps` — writes every column it
+finds, and a `NOT NULL` column the model has nothing to say about used to be written as `''`.
+Fine for a string; impossible for a date.
+
+So a table declaring
+
+```sql
+created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+```
+
+could not be inserted into by a model that never set `created_at`: strict MySQL and PostgreSQL
+both refuse `''` as a datetime, and the intent — *use the column's own default* — became a
+request for timestamp zero.
+
+A `NOT NULL` date, time or timestamp holding `null` is now **omitted from the write** instead:
+on an insert the default fills it, and on an update the stored value stays. Everything else
+still coerces to `''`, because models have relied on that since long before this.
+
+Set the column and it is written as given — the omission applies only when there is nothing to
+say about it.
+
 ## Model Events
 
 Hook into model lifecycle events:

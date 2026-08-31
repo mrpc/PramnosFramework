@@ -322,6 +322,25 @@ prefix-flattened `prefix_authserver_roles` on MySQL, which has no schemas. This
 is one of the reasons hand-written SQL against those tables silently matches
 nothing — see [rule 12 in the project rules](Pramnos_Framework_Guide.md).
 
+**A `Model` over one resolves the same way.** `Model::getFullTableName()` sends a `_dbtable`
+containing a dot through the same resolver, so
+
+```php
+class Role extends \Pramnos\Application\Model
+{
+    protected $_dbtable    = 'authserver.roles';
+    protected $_primaryKey = 'roleid';
+}
+```
+
+reads and writes the schema on PostgreSQL and `prefix_authserver_roles` on MySQL. It did not
+always: the Model's own SQL is not built by the QueryBuilder, so on MySQL every `_load()` and
+`_save()` asked for `yourdb.authserver.roles` — a cross-database reference — and threw. A model
+over a `pramnos.*` or `authserver.*` table needs nothing but the name now.
+
+`#PREFIX#` still wins over the dot: `#PREFIX#some.thing` has already said where the prefix goes,
+and resolving the dot on top of that would rename the table twice.
+
 ### WHERE Conditions
 
 #### `where(string $column, mixed $operator = null, mixed $value = null): static`

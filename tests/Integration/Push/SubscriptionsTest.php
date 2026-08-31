@@ -368,6 +368,40 @@ class SubscriptionsTest extends TestCase
     }
 
     /**
+     * `exist()` answers the question `via()` asks, without reading a credential.
+     *
+     * Every security alert calls it to decide whether to add the push channel, and the reason it
+     * is not `forUser() !== []` is that `forUser()` returns each endpoint with its keys — a
+     * credential per row, fetched only to be counted.
+     */
+    public function testExistAnswersWhetherAnythingIsSubscribed(): void
+    {
+        // Arrange
+        Subscriptions::store(114, $this->subscription());
+
+        // Assert
+        $this->assertTrue(Subscriptions::exist(114));
+        $this->assertFalse(Subscriptions::exist(115), 'no browser on that account');
+        $this->assertFalse(Subscriptions::exist(0), 'account 0 is not an account');
+    }
+
+    /**
+     * And with no table it answers false rather than throwing.
+     *
+     * False is the deliberate answer to "cannot tell": the alternative is a send the channel
+     * refuses anyway, and a push-log row for every account that never subscribed, on every alert.
+     */
+    public function testExistIsFalseWhenItCannotTell(): void
+    {
+        // Arrange
+        $this->db->query('DROP TABLE IF EXISTS `'
+            . $this->db->schema()->resolveTableName('pramnos.pushsubscriptions') . '`');
+
+        // Assert
+        $this->assertFalse(Subscriptions::exist(114));
+    }
+
+    /**
      * A 410 against a missing table still reports the subscription as gone.
      *
      * The push service has spoken; whether we managed to write the deletion down is a separate

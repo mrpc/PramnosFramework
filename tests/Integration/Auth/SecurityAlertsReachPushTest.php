@@ -193,6 +193,91 @@ class SecurityAlertsReachPushTest extends BaseTestCase
         ], 'Firefox/143.0');
     }
 
+    /**
+     * A notifiable that routes push itself is asked, before its properties are read.
+     *
+     * `routeNotificationFor('push')` is how an object says "send mine to this account instead" —
+     * a shared mailbox notifying its owner, a service account notifying an operator. Reading
+     * `userid` first would push to the object rather than to whoever it named, and both channels
+     * resolve it in this order, so an object that works for the database channel has to work here.
+     */
+    public function testANotifiableThatRoutesPushIsAskedFirst(): void
+    {
+        // Arrange — the routed account is the subscribed one; the object's own id is not.
+        $this->subscribe();
+        $routed = new class ($this->userId) {
+            public int $userid = 999999;
+
+            public function __construct(private int $account)
+            {
+            }
+
+            public function routeNotificationFor(string $channel): mixed
+            {
+                return $channel === 'push' ? $this->account : null;
+            }
+        };
+
+        // Act
+        $channels = (new NewSignInNotification('fp'))->via($routed);
+
+        // Assert
+        $this->assertContains('push', $channels, 'the routed account was not the one checked');
+    }
+
+    /**
+     * The same resolution, in the security-change alert.
+     *
+     * Two notifications with a private copy of `accountOf()` each — so a fix to one is not a fix
+     * to the other, and only a test of both notices.
+     */
+    public function testASecurityChangeResolvesTheAccountTheSameWay(): void
+    {
+        // Arrange
+        $this->subscribe();
+        $routed = new class ($this->userId) {
+            public int $userid = 999999;
+
+            public function __construct(private int $account)
+            {
+            }
+
+            public function routeNotificationFor(string $channel): mixed
+            {
+                return $channel === 'push' ? $this->account : null;
+            }
+        };
+
+        // Act
+        $routedChannels   = (new SecurityChangeNotification('password'))->via($routed);
+        $anonymousChannels = (new SecurityChangeNotification('password'))->via(new class () {
+        });
+
+        // Assert
+        $this->assertContains('push', $routedChannels);
+        $this->assertSame(['mail'], $anonymousChannels);
+    }
+
+    /**
+     * A notifiable that is none of those gets mail, not an error.
+     *
+     * `via()` runs before anything is sent, so an object the framework cannot identify has to
+     * degrade to the channel that does not need an account id. Throwing here would lose the
+     * email as well as the push.
+     */
+    public function testANotifiableWithNoAccountStillGetsMail(): void
+    {
+        // Arrange
+        $anonymous = new class () {
+        };
+
+        // Act
+        $channels = (new NewSignInNotification('fp'))->via($anonymous);
+
+        // Assert
+        $this->assertSame(['mail'], $channels);
+    }
+
     /** The account, as `notify()` would hand it over. */
     private function notifiable(): object
     {

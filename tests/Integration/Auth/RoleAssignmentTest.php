@@ -410,4 +410,94 @@ class RoleAssignmentTest extends BaseTestCase
         $this->assertFalse($role->assignTo(0));
         $this->assertFalse($role->revokeFrom(0));
     }
+
+    /**
+     * With no membership table, the rule is no restriction rather than a blanket refusal.
+     *
+     * An installation that never adopted organisations has no such table, and reading its absence
+     * as "not a member" would refuse **every** assignment there — including the system-wide roles
+     * that have nothing to do with organisations. The resolver falls back the same way.
+     */
+    public function testWithNoMembershipTableTheRuleDoesNotApply(): void
+    {
+        // Arrange — the setting points at a table this installation does not have, which is
+        // what an installation that never adopted organisations looks like. Dropping the real
+        // one would take it away from every test after this, and the migration runner will not
+        // put back a migration it has already recorded.
+        $previous = Settings::getSetting('authserver_organization_table', '');
+        Settings::setSetting('authserver_organization_table', 'no_such_memberships', false);
+        $role = $this->role(1, 5);
+
+        // Act
+        $assigned = $role->assignTo(self::UID);
+
+        // Assert
+        $this->assertTrue($assigned, $role->getLastError());
+
+        // Cleanup
+        Settings::setSetting('authserver_organization_table', (string) $previous, false);
+    }
+
+    /**
+     * Deleting a role takes its assignments with it.
+     *
+     * Unlike a membership ending — where the role still exists and the person may come back to
+     * it — a `user_roles` row naming a deleted role is not history anybody can read, and
+     * `holders()` would count it against a role that is gone.
+     */
+    public function testDeletingARoleRemovesItsAssignments(): void
+    {
+        // Arrange
+        $role = $this->role(1, null);
+        $role->assignTo(self::UID);
+        $this->assertNotNull($this->assignmentRow(1));
+
+        // Act
+        $deleted = $role->delete();
+
+        // Assert
+        $this->assertTrue($deleted);
+        $this->assertNull($this->assignmentRow(1));
+        $this->assertSame(0, (int) $this->db->query(
+            "SELECT COUNT(*) AS c FROM `{$this->tRoles}` WHERE roleid = 1"
+        )->fields['c']);
+    }
+
+    /** And a role with no id is refused, rather than deleting every assignment there is. */
+    public function testDeletingAnUnsavedRoleIsRefused(): void
+    {
+        // Arrange
+        $role = $this->role(1, null);
+        $role->assignTo(self::UID);
+        $unsaved = new Role($this->controller());
+
+        // Act
+        $deleted = $unsaved->delete();
+
+        // Assert
+        $this->assertFalse($deleted);
+        $this->assertStringContainsString('required', $unsaved->getLastError());
+        $this->assertNotNull($this->assignmentRow(1), 'the other role kept its holders');
+    }
+
+    /**
+     * The membership table follows `authserver_organization_table`.
+     *
+     * Applications with their own naming point the setting at their table; the framework's
+     * default is only a default, and a hardcoded name here would make the setting a lie.
+     */
+    public function testTheMembershipTableFollowsTheSetting(): void
+    {
+        // Arrange
+        $previous = Settings::getSetting('authserver_organization_table', '');
+
+        // Act + Assert
+        $this->assertSame('authserver.user_organizations', Role::membershipTable());
+
+        Settings::setSetting('authserver_organization_table', 'memberships', false);
+        $this->assertSame('authserver.memberships', Role::membershipTable());
+
+        // Cleanup
+        Settings::setSetting('authserver_organization_table', (string) $previous, false);
+    }
 }

@@ -387,6 +387,13 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                         $field = $fields['Field'];
                         if ($fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
+                                // The cached half of the same rule — see the uncached branch
+                                // below for why a NOT NULL date is omitted rather than emptied.
+                                // Two loops, so the fix has to be in both: with a warm column
+                                // cache the write took the other path and threw again.
+                                if ($this->isTemporalType($fields['Type'])) {
+                                    continue;
+                                }
                                 $this->$field = "";
                             }
                         }
@@ -454,6 +461,24 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                         $field = $result->fields['Field'];
                         if ($result->fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
+                                /*
+                                 * A NOT NULL column with nothing in it becomes `''` — which is a
+                                 * fine empty string and an impossible date.
+                                 *
+                                 * `authserver.roles.created_at` is `NOT NULL DEFAULT
+                                 * CURRENT_TIMESTAMP`, so a model that never sets it is asking the
+                                 * column's own default to apply. Coercing to `''` asked for the
+                                 * timestamp *zero* instead, which strict MySQL and PostgreSQL both
+                                 * refuse — so creating a role through its own admin screen threw
+                                 * rather than saved, on either backend.
+                                 *
+                                 * Omitted from the write instead: on an insert the default fills
+                                 * it, and on an update the stored value stays, which is what a
+                                 * model with no opinion about a column should do.
+                                 */
+                                if ($this->isTemporalType($result->fields['Type'])) {
+                                    continue;
+                                }
                                 $this->$field = "";
                             }
                         }
@@ -1260,6 +1285,24 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      * @param string $type
      * @return string
      */
+    /**
+     * Is this column a date or a time?
+     *
+     * Read off the declared type rather than {@see fieldtype()}, which folds `date` and
+     * `datetime` into `string` — the two that matter most here.
+     */
+    private function isTemporalType(string $rawType): bool
+    {
+        $base = strtolower(trim(explode('(', $rawType)[0]));
+
+        return in_array($base, [
+            'date', 'datetime', 'time', 'timestamp', 'timetz', 'timestamptz',
+            'year',
+        ], true)
+            || str_starts_with($base, 'timestamp ')
+            || str_starts_with($base, 'time ');
+    }
+
     private function fieldtype($type)
     {
         $type = explode("(", $type);
@@ -1819,6 +1862,24 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             );
         }
         
+        /*
+         * A `schema.table` name, on a backend that has no schemas.
+         *
+         * `Role` declares `authserver.roles`, which PostgreSQL reads as a schema and MySQL reads
+         * as **another database** — so every `_load()` and `_save()` asked for
+         * `pramnos_test.authserver.roles` and threw. The QueryBuilder has resolved this since
+         * `from()` was taught to (`authserver.roles` → `prefix_authserver_roles`); the Model's raw
+         * SQL never asked, so a model over a schema table worked on one backend and could not
+         * read a row on the other.
+         *
+         * Delegated rather than repeated: the flattening rule — and the prefix guard that keeps
+         * `pramnos_pramnos_x` from happening — lives in `SchemaBuilder::resolveTable()`, and two
+         * copies of it would eventually disagree.
+         */
+        if (strpos($tableName, '.') !== false && strpos($tableName, '#PREFIX#') === false) {
+            return $database->schema()->resolveTableName($tableName);
+        }
+
         return str_replace(
             '#PREFIX#', $database->prefix, $tableName
         );

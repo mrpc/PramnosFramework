@@ -2,7 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\AuthServer;
 
-use Pramnos\Application\Settings;
+use Pramnos\Auth\Role;
 use Pramnos\Database\Migration;
 
 /**
@@ -56,10 +56,16 @@ class CreateAuthserverUserOrganizationsTable extends Migration
         $db     = $this->application->database;
         $caps   = $db->schema()->getCapabilities();
 
-        $orgTable  = Settings::getSetting('authserver_organization_table', 'user_organizations');
-        $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
-
-        $qualifiedTable = 'authserver.' . $orgTable;
+        /*
+         * The name comes from `Role`, not from the setting directly.
+         *
+         * Both read `authserver_organization_table`, and they read it with **different
+         * defaults** — `''` there, `'user_organizations'` here — so an installation holding the
+         * setting as an empty string got `authserver.user_organizations` from the model and
+         * `authserver.` from this migration. One reader, and the two cannot drift.
+         */
+        $qualifiedTable = Role::membershipTable();
+        $orgColumn      = Role::organizationColumn();
 
         if ($schema->hasTable($qualifiedTable)) {
             return;
@@ -90,7 +96,9 @@ class CreateAuthserverUserOrganizationsTable extends Migration
         // Add FK to organizations table when using framework defaults.
         // When using Settings overrides (e.g. the reference application: user_deyas/deyaid),
         // the FK target is the app's own organisations table — add it in an app migration.
-        if ($orgTable === 'user_organizations' && $orgColumn === 'organization_id') {
+        if ($qualifiedTable === 'authserver.user_organizations'
+            && $orgColumn === 'organization_id'
+        ) {
             if ($caps->isPostgreSQL()) {
                 $db->query(
                     "ALTER TABLE authserver.user_organizations
@@ -113,7 +121,6 @@ class CreateAuthserverUserOrganizationsTable extends Migration
 
     public function down(): void
     {
-        $orgTable = Settings::getSetting('authserver_organization_table', 'user_organizations');
-        $this->application->database->schema()->dropTableIfExists('authserver.' . $orgTable);
+        $this->application->database->schema()->dropTableIfExists(Role::membershipTable());
     }
 }

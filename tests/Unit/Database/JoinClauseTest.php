@@ -6,7 +6,9 @@ namespace Pramnos\Tests\Unit\Database;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Database\Grammar\Grammar;
 use Pramnos\Database\JoinClause;
+use Pramnos\Database\QueryBuilder;
 use Pramnos\Framework\Factory;
 
 /**
@@ -24,7 +26,14 @@ use Pramnos\Framework\Factory;
  * Aliases are exactly what a multi-condition join needs, so either one alone
  * would have been half a feature.
  */
+// The clause is the smallest of the three classes this exercises, and the two others are where
+// the defects were: `QueryBuilder::resolveJoinTable()` dropped the schema when an alias followed
+// it, and `Grammar` had no branch for a multi-condition join at all. Named here so the coverage
+// report credits the lines these tests actually run — without them PHPUnit records the clause
+// alone, and twenty-one exercised lines read as untested.
 #[CoversClass(JoinClause::class)]
+#[CoversClass(QueryBuilder::class)]
+#[CoversClass(Grammar::class)]
 class JoinClauseTest extends TestCase
 {
     /** The SQL a builder produces, for assertions about its shape. */
