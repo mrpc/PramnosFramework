@@ -173,6 +173,32 @@ Two spellings of the same duration are not drift. PostgreSQL hands intervals bac
 `@ 90 days` while a declaration says `90 days`, and treating that as a change would
 rewrite every policy on every run, for ever, over a leading `@`.
 
+An interval the comparison cannot parse — a composite like `1 mon 15 days`, or whatever a
+future server version prints — is treated as **equal**, so nothing is reconfigured. That is
+the safe direction: reading an unfamiliar spelling as drift would rewrite the policy on every
+run, which is the failure this whole comparison exists to avoid. Also not normalised across
+units: `24 months` and `2 years` are reported as different, because they are different in
+PostgreSQL and guessing otherwise would be the comparison inventing a policy nobody declared.
+
+### On a backend without TimescaleDB
+
+The command still runs, and it does something: **continuous aggregates are refreshed on every
+backend**, because the defect there belongs to the backend *without* the extension — four
+migrations registered the refresh only inside their TimescaleDB branch, so on plain PostgreSQL
+the materialized view was created and never updated again.
+
+Only then does the hypertable half bow out, and it says where retention actually comes from:
+
+```
+TimescaleDB is not available on this connection (mysql).
+No hypertable was touched. On this backend both compression and retention are the
+policy engine's job (service:policy-engine).
+```
+
+Exit 0, deliberately — including for "nothing to do" and "no extension". A repair command that
+exited non-zero because a database is already correct would fail every deployment pipeline it
+was added to.
+
 An interval that cannot be parsed — `1 year 6 mons 3 days` — is **left alone**. The
 bias is deliberate: a false positive is permanent churn against the scheduler, while
 a false negative costs one changed number not taking effect, which is the situation

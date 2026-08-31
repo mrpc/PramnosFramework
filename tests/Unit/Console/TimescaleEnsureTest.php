@@ -136,6 +136,22 @@ class TimescaleEnsureProbe extends TimescaleEnsure
     {
         return $this->report($output, $plan);
     }
+
+    /** Compare two policy intervals. */
+    public function compare(string $actual, string $declared): bool
+    {
+        return $this->sameInterval($actual, $declared);
+    }
+
+    /**
+     * Execute a plan for real.
+     *
+     * @param array<string, array<string, mixed>> $plan
+     */
+    public function fix(BufferedOutput $output, $schema, array $plan): int
+    {
+        return $this->repair($output, $schema, $plan);
+    }
 }
 
 /**
@@ -393,5 +409,174 @@ class TimescaleEnsureTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('cannot be converted', $text);
+    }
+
+    // ── Comparing intervals, which is why a changed declaration reaches the DB ──
+
+    /**
+     * The same interval written two ways is the same interval.
+     *
+     * This method exists because the command used to compare a policy's **presence**: a
+     * declaration changed from 30 days to 7 left the old policy in place for ever, silently,
+     * and the only symptom was a disk bill. PostgreSQL reports intervals in its own spelling
+     * (`@ 30 days`, `30 days`, `1 mon`), so string equality would have reported every table as
+     * needing a change and reconfigured all of them on every run.
+     */
+    public function testEquivalentSpellingsAreTheSameInterval(): void
+    {
+        // Arrange
+        $command = new TimescaleEnsureProbe();
+
+        // Assert
+        $this->assertTrue($command->compare('30 days', '30 days'));
+        $this->assertTrue($command->compare('@ 30 days', '30 days'), 'the PostgreSQL @ prefix');
+        $this->assertTrue($command->compare('30 DAYS', '30 days'), 'case');
+        $this->assertTrue($command->compare('30  days', '30 days'), 'doubled whitespace');
+        $this->assertTrue($command->compare('30 day', '30 days'), 'singular and plural');
+        $this->assertTrue($command->compare('  7 days  ', '7 days'));
+    }
+
+    /** A genuinely different interval is different, which is the whole point. */
+    public function testADifferentIntervalIsDetected(): void
+    {
+        // Arrange
+        $command = new TimescaleEnsureProbe();
+
+        // Assert
+        $this->assertFalse($command->compare('30 days', '7 days'));
+        $this->assertFalse($command->compare('1 day', '1 hour'), 'the unit matters');
+        $this->assertFalse($command->compare('24 months', '2 years'),
+            'not normalised across units — months and years are not interchangeable in Postgres');
+    }
+
+    /**
+     * An interval neither side can parse is treated as **equal**, so nothing is reconfigured.
+     *
+     * The safe direction, deliberately. A spelling this does not recognise — a composite like
+     * `1 mon 15 days`, or whatever a future server version prints — must not be read as "this
+     * differs from the declaration" and trigger a policy rewrite on every single run.
+     */
+    public function testAnUnparsableIntervalIsLeftAlone(): void
+    {
+        // Arrange
+        $command = new TimescaleEnsureProbe();
+
+        // Assert
+        $this->assertTrue($command->compare('1 mon 15 days', '30 days'));
+        $this->assertTrue($command->compare('', '30 days'));
+        $this->assertTrue($command->compare('30 days', 'whenever'));
+        $this->assertTrue($command->compare('nonsense', 'also nonsense'));
+    }
+
+    // ── Repairing ─────────────────────────────────────────────────────────────
+
+    /**
+     * A table needing nothing is skipped, and a run that changes nothing says so.
+     *
+     * "Nothing to do" is the answer an operator needs to hear from a repair command, and it has
+     * to be distinguishable from "I could not tell".
+     */
+    public function testARepairWithNothingToDoSaysSo(): void
+    {
+        // Arrange
+        $command = new TimescaleEnsureProbe();
+        $output  = new BufferedOutput();
+        $plan    = [
+            'authserver.done'    => ['exists' => true,  'missing' => [], 'blocker' => null, 'rows' => 0],
+            'authserver.absent'  => ['exists' => false, 'missing' => ['convert'], 'blocker' => null, 'rows' => null],
+        ];
+
+        // Act
+        $code = $command->fix($output, new InspectableSchema(), $plan);
+
+        // Assert
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('Nothing to do', $output->fetch());
+    }
+
+    /**
+     * A blocked table is reported and counted as a failure, and does not stop the others.
+     *
+     * One table whose primary key cannot carry the partition column must not abandon the run —
+     * the remaining tables are the ones still growing without bound.
+     */
+    public function testABlockedTableFailsWithoutStoppingTheRun(): void
+    {
+        // Arrange
+        $command = new TimescaleEnsureProbe();
+        $output  = new BufferedOutput();
+        $plan    = [
+            'authserver.blocked' => [
+                'exists'  => true,
+                'missing' => ['convert'],
+                'blocker' => 'the primary key does not include created_at',
+                'rows'    => 10,
+            ],
+        ];
+
+        // Act
+        $code = $command->fix($output, new InspectableSchema(), $plan);
+        $text = $output->fetch();
+
+        // Assert
+        $this->assertSame(1, $code, 'a blocked table must not report success');
+        $this->assertStringContainsString('does not include created_at', $text);
+        $this->assertStringContainsString('1 table(s) failed', $text);
+    }
+
+    /**
+     * Before converting, the operator is told the row count and that it locks.
+     *
+     * The conversion holds an exclusive lock for its duration, and the tables this repairs are
+     * audit logs with millions of rows. Somebody running this at 10am on a Monday deserves to
+     * read that sentence before it starts, not after.
+     */
+    public function testAConversionAnnouncesTheLockAndTheSize(): void
+    {
+        // Arrange
+        HypertableRegistry::reset();
+        $command = new TimescaleEnsureProbe();
+        $output  = new BufferedOutput();
+        $plan    = [
+            'authserver.big' => [
+                'exists'  => true,
+                'missing' => ['convert'],
+                'blocker' => null,
+                'rows'    => 4200000,
+            ],
+        ];
+
+        // Act
+        $command->fix($output, new InspectableSchema(), $plan);
+        $text = $output->fetch();
+
+        // Assert
+        $this->assertStringContainsString('4,200,000 rows', $text, 'the size is not stated');
+        $this->assertStringContainsString('exclusive lock', $text, 'the lock is not stated');
+    }
+
+    /** With no row count available the announcement omits it rather than saying zero. */
+    public function testAnUnknownSizeIsOmittedRatherThanReportedAsZero(): void
+    {
+        // Arrange
+        HypertableRegistry::reset();
+        $command = new TimescaleEnsureProbe();
+        $output  = new BufferedOutput();
+        $plan    = [
+            'authserver.unknown' => [
+                'exists'  => true,
+                'missing' => ['convert'],
+                'blocker' => null,
+                'rows'    => null,
+            ],
+        ];
+
+        // Act
+        $command->fix($output, new InspectableSchema(), $plan);
+        $text = $output->fetch();
+
+        // Assert
+        $this->assertStringContainsString('Converting', $text);
+        $this->assertStringNotContainsString('(0 rows)', $text);
     }
 }
