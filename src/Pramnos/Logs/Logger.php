@@ -230,8 +230,24 @@ class Logger
         $writeFile   = $mode === self::OUTPUT_FILE || $mode === self::OUTPUT_BOTH;
         $writeStream = $mode === self::OUTPUT_STREAM || $mode === self::OUTPUT_BOTH;
 
-        // Check if the message is a valid JSON string
-        if (!isset($content['type'])) {
+        /*
+         * Detect JSON, but only when the caller has not already said what this is.
+         *
+         * The guard read `$content` — a variable that does not exist here. It is assigned
+         * further down, inside the `startoffile` branch, and holds a **file's contents as a
+         * string**; at this point it is undefined, so `isset()` was false and the guard passed
+         * on every single call. `isset()` never warns about an undeclared variable, which is why
+         * it survived: the line looks like a check and behaves like nothing.
+         *
+         * Two consequences, and the second is the one that mattered. The detection ran on every
+         * call, including the ones that had already declared a type. And a type the caller
+         * supplied was **overwritten** with `'json'` whenever the message happened to parse as
+         * JSON — which a bare number does, and `true`, and `null`, and a quoted string. So
+         * `Logger::log('42', 'push', context: ['type' => 'error'])` filed an error as JSON.
+         *
+         * Reported from an application migrating onto this framework (FW-047).
+         */
+        if (!isset($context['type'])) {
             @json_decode($message);
             if (json_last_error() === JSON_ERROR_NONE) {
                 $context['type'] = 'json';
