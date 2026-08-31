@@ -8,6 +8,7 @@ use_cases:
   - Checking a change against the framework's rules before calling it finished
   - Letting an assistant read this installation's error logs instead of being handed a paste
   - Working out what an MCP tool actually returns, or why a client says it is broken
+  - Offering a capability to an assistant outside this machine, authenticated with OAuth
   - Finding out who calls a method, or where a class is defined, without grepping
   - Finding out whether a generator already exists for the class you are about to write
   - Reading the design tokens, or checking whether the compiled stylesheet is stale
@@ -966,6 +967,94 @@ $server->addResource(new McpResource(
 
 `read()` returns `null` for a missing or unreadable file rather than throwing, so a
 resource that disappears degrades to absent instead of breaking the session.
+
+## Serving it over HTTP, to somebody else's assistant
+
+Everything above is the **internal** server: `mcp:serve` over stdio, nineteen tools that read
+coverage reports and run the style checker, for an assistant working alongside you on this
+machine. None of it should ever answer a stranger.
+
+The public endpoint is a separate thing that happens to speak the same protocol.
+
+```php
+// A ServiceProvider, or app/providers.php
+use Pramnos\Mcp\PublicRegistry;
+use Pramnos\Mcp\Tools\SearchTool;
+
+PublicRegistry::add(new SearchTool());
+```
+
+That is the whole of it. `init` scaffolds `POST /mcp` when the `authserver` feature is on, and the
+endpoint answers with an empty tool list until an application registers something.
+
+### Why two registries and not one list with a flag
+
+A shared collection with an "expose this" flag means every tool written from then on is public
+until somebody remembers to mark it otherwise. The failure is silent and remote: a twentieth
+development tool is added, and it is answering over HTTP before anybody notices it is reachable.
+
+So public exposure is **a type, not a flag**. A tool must implement `ScopedMcpTool`, which adds one
+method:
+
+```php
+public function requiredScope(): string;
+```
+
+A tool that does not implement it cannot be added to `PublicRegistry`, and no configuration file
+can override that. A tool that implements it but returns an empty scope is refused at registration
+with an exception rather than skipped — a tool quietly dropped at boot is absent at run time for a
+reason nobody can see.
+
+### Authentication is the one this server already does
+
+The endpoint sits behind `UnifiedAuthMiddleware`, which validates the bearer token, loads its
+scopes from `usertokens` and resolves the user. Nothing about OAuth is reimplemented here.
+
+An unauthenticated call gets `401` and a header:
+
+```
+WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"
+```
+
+That header **is** the discovery mechanism. An MCP client is expected to call blind, be refused,
+read the document it is pointed at, find the authorization server and come back with a token. A
+bare `401` ends the conversation — the client has nowhere to go and a person has to configure it
+by hand.
+
+### Only what the token reaches, and the guarantee is structural
+
+The server is built **per request**, holding only the tools the caller's scopes reach. A tool the
+caller may not use is not in that server at all, so naming it directly answers *unknown tool*.
+
+That is stronger than filtering the list and checking again on the call: there is one decision
+rather than two that can disagree, a client that never read the list gains nothing by guessing,
+and the refusal does not confirm that the tool exists.
+
+Scopes resolve through `Scopes::resolveInheritedScopes()`, so a parent scope satisfies a tool
+asking for a child — the same rule the router applies, rather than a second one that drifts from
+it. A same-origin session's wildcard `*` reaches everything, exactly as it does elsewhere. A token
+whose scopes cannot be read reaches **nothing**: an unreadable scope list means "I do not know what
+this caller may do", and the safe reading of that is not "everything".
+
+### `SearchTool`, and why it is the one worth shipping
+
+It needs no code from the application beyond the `Registry::register()` calls it already makes for
+its own search box — see the [Search guide](Pramnos_Search_Guide.md).
+
+That works because `Search\Registry` was built for a box that several kinds of user share. Each
+source declares a `permission`; each row is scoped by a `filter` callable that receives the current
+user; **both fail closed**, and a dropped source leaves no trace rather than an empty group, because
+an empty group named "Invoices" tells somebody who may not see invoices that invoices exist. An MCP
+caller is a signed-in person with a token, so the question is the one the search box already asks
+and the answer is scoped by the same code.
+
+Its grouped-not-ranked shape carries through, and suits a language model better than a flat list:
+"5 users, 3 orders" is a fact it can reason about, where a merged ranking invites it to treat
+position as meaning.
+
+Two returns are deliberately distinguishable. An empty term gives `total: 0` and no groups — never
+the first page of everything. An installation with **no registered sources** says so in a `note`,
+because a model told "0 results" concludes the thing does not exist and tells the person so.
 
 ## Protocol methods handled
 

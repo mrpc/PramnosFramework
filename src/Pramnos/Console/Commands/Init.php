@@ -3009,6 +3009,34 @@ PHP;
             $lines[] = "";
         }
 
+        if (in_array('authserver', $features, true)) {
+            /*
+             * The Model Context Protocol endpoint.
+             *
+             * Scaffolded with `authserver` rather than with `auth`, because it is only reachable
+             * with an access token this installation issued — an application that authenticates
+             * people but issues nobody a token has no caller for it.
+             *
+             * It serves nothing until the application registers a tool:
+             * `PublicRegistry::add(new \Pramnos\Mcp\Tools\SearchTool())`. An address that
+             * exists and offers an empty list is the right default — enabling an endpoint should
+             * not also decide what it exposes.
+             */
+            $this->writeApiWrapper(
+                $namespace,
+                'Mcp',
+                '\\Pramnos\\Mcp\\Controllers\\McpController',
+                'Model Context Protocol endpoint — JSON-RPC over POST, authenticated with an '
+                . 'access token, serving the tools this application has offered publicly.'
+            );
+
+            $lines[] = "        // Model Context Protocol — JSON-RPC in, JSON-RPC out";
+            $lines[] = "        \$r->post('/mcp', function () {";
+            $lines[] = "            return (new " . $fqcn('Mcp') . "(\$this))->display();";
+            $lines[] = "        });";
+            $lines[] = "";
+        }
+
         if (in_array('auth', $features, true)) {
             $this->writeApiWrapper(
                 $namespace,
