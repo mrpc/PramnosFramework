@@ -1361,6 +1361,15 @@ class Application extends Base
                 NavSection::Admin, 24, requireAuth: true, minUserType: 90,
                 feature: 'authserver', icon: 'shield', group: 'Access',
             ));
+            // Roles sit next to permissions because that is the order the work is
+            // done in: define the role, then grant it something. Until this screen
+            // existed the first half had no home at all — the tables shipped and
+            // nothing could write to them.
+            NavRegistry::register(new NavItem(
+                'admin.roles', 'Roles', $admin('Roles'),
+                NavSection::Admin, 23, requireAuth: true, minUserType: 90,
+                feature: 'authserver', icon: 'users', group: 'Access',
+            ));
         }
 
         // Token Actions audit log — auth feature, nested under Users because

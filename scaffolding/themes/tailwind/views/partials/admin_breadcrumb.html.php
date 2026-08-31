@@ -44,6 +44,15 @@ $orgId       = (int) ($org['organization_id'] ?? 0);
 $orgName     = htmlspecialchars((string) ($org['name'] ?? ''), ENT_QUOTES, 'UTF-8');
 $orgLabel    = $orgName !== '' ? $orgName : ($orgId > 0 ? '#' . $orgId : 'Organization');
 $orgsUrl     = $base . 'Organizations';
+
+// Roles. `$this->role` is the model the roles screens assign, so the label is a
+// property read rather than an array key like the organisation above it.
+$roleId      = (int) ($this->role->roleid ?? 0);
+$roleName    = trim((string) ($this->role->role_name ?? ''));
+$roleLabel   = $roleName !== '' ? htmlspecialchars($roleName, ENT_QUOTES, 'UTF-8')
+    : ($roleId > 0 ? '#' . $roleId : 'Role');
+$rolesUrl    = $base . 'Roles';
+$roleViewUrl = $roleId > 0 ? $base . 'Roles/view/' . $roleId : $rolesUrl;
 $orgViewUrl  = $orgId > 0 ? $base . 'Organizations/view/' . $orgId : $orgsUrl;
 
 /**
@@ -180,6 +189,10 @@ $trails = [
     'users_activity'    => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Activity', '']],
     'users_notify'      => [['Users', $usersUrl], [$userLabel, $userViewUrl], ['Message', '']],
     'users_types'       => [['Users', $usersUrl], ['User types', '']],
+    'roles'                  => [['Roles', '']],
+    'roles_view'             => [['Roles', $rolesUrl], [$roleLabel, '']],
+    'roles_edit'             => [['Roles', $rolesUrl], [$roleId > 0 ? $roleLabel : 'New Role', '']],
+    'roles_members'          => [['Roles', $rolesUrl], [$roleLabel, $roleViewUrl], ['Holders', '']],
     'organizations'          => [['Organizations', '']],
     'organizations_view'     => [['Organizations', $orgsUrl], [$orgLabel, '']],
     'organizations_edit'     => [['Organizations', $orgsUrl], [$orgId > 0 ? $orgLabel : 'New Organization', '']],

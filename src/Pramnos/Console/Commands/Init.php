@@ -2006,7 +2006,7 @@ class Init extends Command
             array_push($prefixes, 'login', 'logout', 'register', 'account', 'token');
         }
         if (in_array('authserver', $features, true)) {
-            array_push($prefixes, 'oauth', 'permissions');
+            array_push($prefixes, 'oauth', 'permissions', 'roles');
         }
         if (in_array('queue', $features, true)) {
             $prefixes[] = 'queue';

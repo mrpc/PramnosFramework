@@ -54,6 +54,17 @@ class AuthCharacterizationTest extends TestCase
         if (!$db->connected) {
             $db->connect();
         }
+
+        // And the table `setaccess()` writes to has to exist. Depending on some other
+        // suite having created it is what made this class order-sensitive in the
+        // first place; it builds its own from the migration now.
+        if (!$db->schema()->hasTable('authserver.permissions')) {
+            $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+                ->disableOriginalConstructor()
+                ->getMock();
+            $app->database = $db;
+            (new \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPermissionsTable($app))->up();
+        }
     }
 
     protected function tearDown(): void

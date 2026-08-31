@@ -6,6 +6,7 @@ use_cases:
   - Working out why a permission check returned what it did
   - Choosing between a usertype capability, a gate and a permission row
   - Isolating one organisation's or tenant's data from another's
+  - Creating a role and giving it to somebody
 ---
 
 # Authorization
@@ -260,6 +261,74 @@ is deliberate. An application that wants named permission checks implements it, 
 back to their own defaults.
 
 ---
+
+## Roles: naming a set of permissions
+
+A permission row's subject can be a `user` or a `role`. Granting to a role and then
+giving people the role is the point of RBAC — you change what "operator" means once,
+rather than editing every operator's grants.
+
+### The screens
+
+`Admin → Access → Roles`, or `Roles` from the console-scaffolded routes:
+
+| Screen | What it does |
+| --- | --- |
+| `roles` | every role, with its organisation and whether it is active |
+| `roles/view/{id}` | the role, the permissions granted to it, and who holds it |
+| `roles/edit/{id}` | name, description, owning organisation, active |
+| `roles/members/{id}` | add and remove holders |
+
+Requires usertype ≥ 90, the same as Permissions: deciding what a role *is* is the
+same order of privilege as deciding what it may do.
+
+### System-wide or an organisation's
+
+The one field worth understanding on the form. A role with no organisation is
+**system-wide** and valid everywhere. A role that names one may only be held by a
+member of that organisation, and counts only within it — see
+[Multi-tenancy](#multi-tenancy-scoping-to-an-organisation) below.
+
+Assigning an organisation's role to somebody who is not a member is refused, with a
+message saying to add them to the organisation first. The check is in
+`Role::assignTo()`, not in the controller, so an API caller reaching the model
+directly gets the same answer.
+
+A role's organisation cannot be changed once anybody holds it. The holders who are
+not members of the new organisation would silently stop having it — create a separate
+role for that organisation instead.
+
+### In code
+
+```php
+use Pramnos\Auth\Role;
+
+$role = new Role($controller);
+$role->role_name       = 'operator';
+$role->description     = 'Handles day-to-day invoicing';
+$role->organization_id = 5;        // null for a system-wide role
+$role->save();
+
+if (!$role->assignTo($userId, grantedBy: $adminId)) {
+    echo $role->getLastError();    // says why, in words for an operator
+}
+
+$role->revokeFrom($userId);
+$role->holders();                  // [userid => granted_at]
+```
+
+`assignTo()` is idempotent — "add" pressed twice is not an error — and re-activates a
+previously revoked assignment rather than leaving it inactive.
+
+### What deactivating and revoking do
+
+Neither deletes. Revoking a role sets the assignment's `is_active = 0`; deactivating a
+role sets the role's. Both are readable afterwards, and the resolver ignores both.
+Deleting the *role* does remove its assignments, because a row naming a role that no
+longer exists is not history anybody can read.
+
+Removing somebody from an **organisation** touches none of this: their assignments
+stay, stop counting while they are out, and count again if they return.
 
 ## Multi-tenancy: scoping to an organisation
 

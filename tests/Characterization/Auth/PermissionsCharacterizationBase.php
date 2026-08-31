@@ -77,12 +77,28 @@ abstract class PermissionsCharacterizationBase extends TestCase
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * Returns a fresh Permissions instance (bypasses the singleton so each
-     * test starts with a clean in-memory cache).
+     * A fresh Permissions instance, pinned to the legacy store.
+     *
+     * Fresh, so each test starts with a clean in-memory cache. Pinned, because
+     * these assertions are about the legacy `<prefix>permissions` table and its
+     * string subjects (`allow('editors', …)`) — `activeStore()` prefers
+     * `authserver.permissions` whenever it exists, and the modern store addresses
+     * subjects by numeric user id, so "editors" resolves to nothing there.
+     *
+     * Until this was pinned, the class passed only while some other suite happened
+     * to have dropped `authserver.permissions` and failed when one happened to have
+     * created it — two suites in this repo do each, in tearDown. That is not a
+     * property of the code under test, and a characterization test that depends on
+     * it is characterizing the run order.
      */
     private function makePerm(): Permissions
     {
-        return new Permissions('database');
+        $permissions = new Permissions('database');
+
+        $store = new \ReflectionProperty(Permissions::class, '_store');
+        $store->setValue($permissions, 'legacy');
+
+        return $permissions;
     }
 
     // ── Tests — allow / deny / remove cycle ──────────────────────────────────
