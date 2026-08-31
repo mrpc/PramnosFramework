@@ -685,6 +685,42 @@ Key points:
   everywhere. With `throwOnError = false` the two drivers keep their (different) historical
   signals; the framework does not force them to match, precisely to preserve BC.
 
+#### Turning it on from settings — and why a test suite should
+
+```php
+// app/config/settings.php
+'database' => [
+    // …
+    'throwOnError' => true,
+],
+```
+
+Read on construction, so it survives the singleton being reset — which a test suite does
+constantly, and which is why setting the property once at bootstrap did not work.
+
+**The framework's own fixtures set it, and finding out why is the argument for yours doing the
+same.** A suite that runs one backend cannot see this asymmetry at all: on MySQL every failure
+throws whatever the flag says, so the tests look thorough. Point the same tests at PostgreSQL
+with the flag off and they still pass — while silently exercising the `false` branch nobody
+handles.
+
+Switching it on in this framework's lanes, with no other change, immediately surfaced:
+
+- an inbox listing that **crashed on PostgreSQL and reported the error politely on MySQL**, from
+  the same `try`/`catch` — the `catch` is what made it look handled;
+- two second-factor tests that had been passing **against a missing accounts table**, asserting a
+  refusal that was happening because the query failed rather than because the password was wrong;
+- a characterization test that pinned the lenient path and had to be taught that the message can
+  arrive as an exception.
+
+None of those was a new bug. All three were invisible because the lenient answer to a failed
+query — `false`, or `0` from `count()` — is a value a screen will happily print. *You have no
+messages* is a sentence; a missing table is not.
+
+**Where to put it.** In a test environment, always. In production, wherever a silently dropped
+write would be a correctness bug — and know that turning it on converts existing silent wrong
+answers into exceptions, which is the point and also a deployment risk worth taking deliberately.
+
 ### `error_text` is the last error, not the first
 
 `$db->error_text` (and `getError()`, which falls back to it) describes **the statement

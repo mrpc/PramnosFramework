@@ -197,16 +197,30 @@ class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
         );
 
         // Act — use a genuinely bad INSERT (invalid table) to verify the full chain.
-        $val = 'x';
-        $this->db->execute('INSERT INTO nonexistent_table (col) VALUES (%s)', $val);
-        $err = $this->db->getError();
+        //
+        // Written when a failed prepare returned false and left the message in getError(). With
+        // `throwOnError` on — which the test fixtures now set, so a PostgreSQL failure is as loud
+        // as a MySQL one — the same message arrives as a QueryException instead. Both are
+        // accepted, because what this test is about is that the message survives at all: the
+        // defect it was written for was `prepare()` calling DEALLOCATE, which cleared
+        // `pg_last_error` before anything could read it, so callers got an empty string.
+        $val     = 'x';
+        $message = '';
+        try {
+            $this->db->execute('INSERT INTO nonexistent_table (col) VALUES (%s)', $val);
+            $message = (string) ($this->db->getError()['message'] ?? '');
+        } catch (\Pramnos\Database\QueryException $exception) {
+            $message = $exception->getMessage();
+        }
 
-        // Assert — error message must be non-empty after a failed execute()
+        // Assert — the message must survive, by whichever route it travels
         $this->assertNotEmpty(
-            $err['message'],
-            'Database::getError() must return a non-empty message after a failed prepare()/execute(). '
-            . 'Got empty string — the pg_last_error propagation chain is broken.'
+            $message,
+            'A failed prepare()/execute() must carry a non-empty message, as an exception under '
+            . 'throwOnError or through getError() without it. Got empty — the pg_last_error '
+            . 'propagation chain is broken.'
         );
+        $this->assertStringContainsString('nonexistent_table', $message);
     }
 
     /**

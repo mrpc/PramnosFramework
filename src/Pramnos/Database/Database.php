@@ -597,6 +597,23 @@ class Database extends \Pramnos\Framework\Base
                 $this->password = $dbSettings->password;
             }
 
+            /*
+             * Strict mode, from settings — because a test suite wants it and production may not.
+             *
+             * The per-driver asymmetry documented on the property is real and measured: mysqli
+             * has thrown by default since PHP 8.1, while `pg_*` answers `false`. So the same
+             * `try`/`catch` is complete on MySQL and half the handling on PostgreSQL, and a
+             * suite that runs only one of them cannot tell.
+             *
+             * A settings key rather than a new default: turning it on globally would convert
+             * every silently-empty answer in every existing application into an exception, which
+             * is a BC break dressed up as a fix. The framework's own test fixtures set it, so
+             * this suite fails where an installation would merely be wrong.
+             */
+            if (isset($dbSettings->throwOnError)) {
+                $this->throwOnError = (bool) $dbSettings->throwOnError;
+            }
+
             $this->collation = isset($dbSettings->collation) ? $dbSettings->collation : false;
             $this->timezone = isset($dbSettings->timezone) && $dbSettings->timezone !== ''
                 ? (string) $dbSettings->timezone

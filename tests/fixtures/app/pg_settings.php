@@ -14,6 +14,11 @@ return [
         'password' => 'secret',
         'database' => 'pramnos_test',
         'type'     => 'postgresql',
+        // Strict mode, so a failed query is an exception on **every** backend.
+        // mysqli throws by default; pg_* returns false. Without this the PostgreSQL
+        // lane silently tolerates failures the MySQL lane surfaces, and a test that
+        // passes on one engine proves nothing about the other.
+        'throwOnError' => true,
         'port'     => 5432,
         'prefix'   => '',
         'schema'   => 'public',

@@ -65,6 +65,20 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
 
         $this->dropTables();
         $this->createTables();
+
+        /*
+         * And a `users` table, because two tests here mean "no matching row" and were getting
+         * "no such table".
+         *
+         * `PermissionsPostgreSQLTest::setUp()` drops `public.users` on this same connection, so
+         * whether it exists depends on test order. While a failed PostgreSQL query answered
+         * `false`, that difference was invisible: `User::load()` found nothing either way, no
+         * password matched, and the refusal these tests assert happened for the wrong reason —
+         * they passed against a schema with no accounts table at all.
+         *
+         * An empty table is all they need: the id is deliberately absent from it.
+         */
+        \Pramnos\User\User::setupDb();
     }
 
     protected function tearDown(): void
@@ -364,9 +378,10 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
      */
     public function testDisablingWithAWrongPasswordIsRefused(): void
     {
-        // Arrange — an enrolled account. No `users` row exists for this id in
-        // this schema, so no password can match, which is the point: a caller
-        // that supplies one must be refused rather than waved through.
+        // Arrange — an enrolled account with no `users` row for this id, so no password can
+        // match. That is the point: a caller that supplies one must be refused rather than
+        // waved through. The table itself exists (see setUp) — without it the refusal would
+        // happen because the query failed, which is a different test passing by accident.
         $this->setupUser(70);
         $this->assertTrue($this->service->isEnabled(70));
 
