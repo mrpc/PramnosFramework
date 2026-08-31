@@ -6372,12 +6372,21 @@ PHP;
         $firstName     = $nameParts[0] ?? '';
         $lastName      = $nameParts[1] ?? '';
 
-        // Escape values for safe injection into the single-quoted PHP string
-        $safeUsername  = addslashes($adminUsername);
-        $safeEmail     = addslashes($adminEmail);
-        $safePassword  = addslashes($adminPassword);
-        $safeFirstName = addslashes($firstName);
-        $safeLastName  = addslashes($lastName);
+        // These are embedded in a PHP snippet, not in SQL, so they have to come out as
+        // PHP literals — which is what var_export() produces and addslashes() does
+        // not. addslashes() escapes the double quote as well, and inside a
+        // single-quoted PHP string `\"` stays a literal backslash followed by a quote:
+        // an admin password containing `"` was written to the database with a
+        // backslash in front of it, and the operator could not log in with the
+        // password the installer had just printed to their terminal.
+        //
+        // var_export() emits the surrounding quotes too, so the placeholders in the
+        // snippet below are no longer quoted.
+        $safeUsername  = var_export($adminUsername, true);
+        $safeEmail     = var_export($adminEmail, true);
+        $safePassword  = var_export($adminPassword, true);
+        $safeFirstName = var_export($firstName, true);
+        $safeLastName  = var_export($lastName, true);
 
         $phpSnippet = <<<PHP
 ob_start();
@@ -6389,19 +6398,19 @@ require ROOT . '/vendor/autoload.php';
 ob_end_clean();
 try {
     \$user = new \Pramnos\User\User(0);
-    \$user->username  = '$safeUsername';
-    \$user->email     = '$safeEmail';
-    \$user->firstname = '$safeFirstName';
-    \$user->lastname  = '$safeLastName';
+    \$user->username  = $safeUsername;
+    \$user->email     = $safeEmail;
+    \$user->firstname = $safeFirstName;
+    \$user->lastname  = $safeLastName;
     \$user->usertype  = 90;
     \$user->active    = 1;
     \$user->validated = 1;
     \$user->regdate   = time();
     \$user->maingroup = 1;
-    \$user->setPassword('$safePassword');
+    \$user->setPassword($safePassword);
     \$user->save();
     if (\$user->userid > 1 && empty(\$user->_errors)) {
-        \$user->setPassword('$safePassword');
+        \$user->setPassword($safePassword);
         \$user->save();
     }
     if (empty(\$user->_errors)) {
@@ -6467,8 +6476,12 @@ PHP;
         // @codeCoverageIgnoreStart
         // Only reached on the Docker + migrations success path; all tests set
         // skipDockerRun = true, so this is never exercised in the unit suite.
-        $safeKey    = addslashes($apiKey);
-        $safeSecret = addslashes(bin2hex(random_bytes(32)));
+        // PHP literals, not SQL — see createAdminAccount() for why addslashes() is the
+        // wrong tool for embedding into a single-quoted PHP string. Both values here
+        // are hex and neither can contain a quote, but the next value somebody adds to
+        // this snippet will not be.
+        $safeKey    = var_export($apiKey, true);
+        $safeSecret = var_export(bin2hex(random_bytes(32)), true);
 
         $phpSnippet = <<<PHP
 ob_start();
@@ -6480,14 +6493,14 @@ require ROOT . '/vendor/autoload.php';
 ob_end_clean();
 try {
     \$db = \Pramnos\Framework\Factory::getDatabase();
-    \$existing = \$db->queryBuilder()->table('#PREFIX#applications')->where('apikey', '$safeKey')->count();
+    \$existing = \$db->queryBuilder()->table('#PREFIX#applications')->where('apikey', $safeKey)->count();
     if (\$existing > 0) {
         echo 'EXISTS';
     } else {
         \$db->queryBuilder()->table('#PREFIX#applications')->insert([
             'name'      => 'Development',
-            'apikey'    => '$safeKey',
-            'apisecret' => '$safeSecret',
+            'apikey'    => $safeKey,
+            'apisecret' => $safeSecret,
             'status'    => 1,
             'added'     => time(),
         ]);

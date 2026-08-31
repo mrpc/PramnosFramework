@@ -1030,10 +1030,23 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             }
         }
 
+        // Both values are put into the SQL as integers rather than interpolated as
+        // they arrive. `$friendid` comes from the query above and is already a
+        // userid, but `$limit` is this method's own parameter — whatever a caller
+        // passes reaches the LIMIT clause, and a controller forwarding a request
+        // value would have handed a visitor the end of the statement. An external
+        // audit flagged the IN list, which was safe, and missed this, which was not.
         $in = '0';
         foreach ($friends as $friendid) {
-            $in .= ', ' . $friendid;
+            $in .= ', ' . (int) $friendid;
         }
+        $limit = max(1, (int) $limit);
+
+        // Left as prepareQuery rather than converted to the query builder: rule 2
+        // wants characterization tests over User first, and getFeed() is the one
+        // method deliberately excluded from them — see
+        // UserSocialFeaturesCharacterizationTest, which says why. Converting it
+        // blind is how the behaviour nobody pinned down gets changed by accident.
         $secondSql = $database->prepareQuery(
                 "select * from `#PREFIX#feed` "
                 . "where `userid` in (" . $in . ") "

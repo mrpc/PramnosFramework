@@ -2265,21 +2265,52 @@ class Database extends \Pramnos\Framework\Base
 
     /**
      * Prepare user input for SQL insert / select
+     *
+     * Escaping is done by the driver, because only the driver knows the connection's
+     * character set. There used to be an `addslashes()` fallback for the case where
+     * neither extension was loaded, and it was the wrong shape of answer twice over:
+     * `addslashes()` is unaware of the charset — in GBK and other multibyte encodings
+     * that is the well-known `%bf%27` bypass — and it failed open, quietly producing
+     * a string that looks escaped and is not.
+     *
+     * A missing extension is a broken installation, not a case to degrade into. There
+     * is no connection to escape against either, so the honest answer is to refuse.
+     *
+     * The old third branch was a bug of its own: on PostgreSQL without
+     * `pg_escape_string` it called `mysqli_real_escape_string()` with a PostgreSQL
+     * connection handle, which is a TypeError rather than an escape.
+     *
      * @param string $string
      * @return string
+     * @throws \Exception When the driver extension for this connection is unavailable.
      */
     public function prepareInput($string)
     {
         $connection = $this->_dbConnection ?: $this->getConnection(true);
-        if (function_exists('mysqli_real_escape_string') && $this->type == 'mysql') {
-            return mysqli_real_escape_string($connection, $string);
-        } elseif (function_exists('pg_escape_string') && $this->type == 'postgresql') {
+        $string     = $string ?? '';
+
+        if ($this->type == 'postgresql') {
+            if (!function_exists('pg_escape_string')) {
+                throw new \Exception(
+                    'Cannot escape input for PostgreSQL: the pgsql extension is not '
+                    . 'loaded. Escaping without it cannot respect the connection '
+                    . 'character set, so the value is refused rather than passed '
+                    . 'through half-escaped.'
+                );
+            }
+
             return pg_escape_string($connection, $string);
-        } elseif (function_exists('mysqli_escape_string')) {
-            return mysqli_real_escape_string($connection, $string);
-        } else {
-            return addslashes($string ?? '');
         }
+
+        if (!function_exists('mysqli_real_escape_string')) {
+            throw new \Exception(
+                'Cannot escape input for MySQL: the mysqli extension is not loaded. '
+                . 'Escaping without it cannot respect the connection character set, '
+                . 'so the value is refused rather than passed through half-escaped.'
+            );
+        }
+
+        return mysqli_real_escape_string($connection, $string);
     }
 
     /**
