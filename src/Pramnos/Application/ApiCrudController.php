@@ -287,10 +287,85 @@ class ApiCrudController extends Controller
      */
     protected function askPermissionResolver(int $userId, string $action): ?bool
     {
+        return $this->resolverVerdict($userId, $action, null);
+    }
+
+    /**
+     * The permission store's opinion about one action on one specific record.
+     *
+     * `authorize()` asks about the endpoint — "may this user update invoices" —
+     * because that is all it is given. It is not the same question as "may this user
+     * update invoice 42", and only the caller holding the id can ask the second one.
+     *
+     * Use it in a generated controller that has row-level grants:
+     *
+     * ```php
+     * // In a generated controller, where the action already has the id.
+     * public function read($id): mixed
+     * {
+     *     if (($denied = $this->guard('read')) !== null) {
+     *         return Response::json($denied, $denied['status']);
+     *     }
+     *     if ($this->permissionForObject('read', (string) $id) === false) {
+     *         return Response::json(['error' => 'forbidden'], 403);
+     *     }
+     *     // …
+     * }
+     * ```
+     *
+     * Same three outcomes as everywhere else in this class: true allow, false deny,
+     * null no rule — and null must not be read as a refusal, or a project that has
+     * granted nothing stops working.
+     *
+     * @param string $action   list|read|create|update|delete
+     * @param string $objectId The record's identifier.
+     * @return bool|null
+     */
+    protected function permissionForObject(string $action, string $objectId): ?bool
+    {
+        $user = $this->requestUser();
+        if (!is_object($user)) {
+            return null;
+        }
+
+        return $this->resolverVerdict((int) $user->userid, $action, $objectId);
+    }
+
+    /**
+     * Read a verdict out of the permission store for one action, optionally against
+     * one specific record.
+     *
+     * ## Why `$objectId` exists
+     *
+     * `object_id` is the store's only per-record mechanism, and this loop used to
+     * ignore it: every grant matching (object_type, action) counted, whatever record
+     * it named. So a grant written as "read invoice 42" — the careful, narrow thing
+     * an administrator reaches for — was read by the generated endpoints as "read
+     * invoices", and the list action returned all of them.
+     *
+     * Now a grant applies only where it was meant to:
+     *
+     *   - `$objectId === null` — the endpoint-level question. Only grants that name
+     *     no object (`object_id` NULL or `*`) answer it. A grant for one record has
+     *     nothing to say about the whole collection, in either direction: it cannot
+     *     open it, and a deny on one row cannot close it.
+     *   - `$objectId` given — the record-level question. Grants naming that record
+     *     answer it, and so do the blanket ones, since a grant over every invoice
+     *     covers invoice 42.
+     *
+     * A grant carrying ABAC `conditions` is still skipped: the resolver passes those
+     * through for the application to evaluate against its own request context, and
+     * this class has none of that context.
+     *
+     * @param int         $userId   Whose permissions to read.
+     * @param string      $action   list|read|create|update|delete
+     * @param string|null $objectId The record, or null for the endpoint-level question.
+     * @return bool|null true allow, false deny, null nothing to say
+     */
+    private function resolverVerdict(int $userId, string $action, ?string $objectId): ?bool
+    {
         try {
-            $database = \Pramnos\Database\Database::getInstance();
-            $resolver = new \Pramnos\Auth\PermissionResolver($database);
-            $result   = $resolver->resolve($userId, null);
+            $result = $this->permissionResolver()->resolve($userId, null);
         } catch (\Throwable) {
             // No authserver schema, or an unreadable one: not a decision.
             return null;
@@ -310,6 +385,9 @@ class ApiCrudController extends Controller
             if (($grant['conditions'] ?? null) !== null) {
                 continue;
             }
+            if (!$this->grantCoversObject($grant, $objectId)) {
+                continue;
+            }
 
             // A deny anywhere in the matching set settles it; the resolver has
             // already applied deny-over-allow within each (object, action).
@@ -320,6 +398,45 @@ class ApiCrudController extends Controller
         }
 
         return $verdict;
+    }
+
+    /**
+     * The resolver to read grants from.
+     *
+     * Its own method so a test can substitute a resolver over canned grants: the
+     * object-matching rules below are the whole point of this class's permission
+     * handling, and reaching them through a live authserver schema would test the
+     * schema instead. Same seam, and the same reason, as
+     * {@see \Pramnos\Auth\OAuth2\Repositories\ClientRepository::makeApplication()}.
+     */
+    protected function permissionResolver(): \Pramnos\Auth\PermissionResolverInterface
+    {
+        return new \Pramnos\Auth\PermissionResolver(
+            \Pramnos\Database\Database::getInstance()
+        );
+    }
+
+    /**
+     * Does this grant speak to the object being asked about?
+     *
+     * @param array<string, mixed> $grant    One resolved grant.
+     * @param string|null          $objectId The record, or null for the whole type.
+     */
+    private function grantCoversObject(array $grant, ?string $objectId): bool
+    {
+        $grantObject = $grant['object_id'] ?? null;
+
+        // NULL and '*' both mean "every object of this type" — the column is
+        // nullable and also documented as accepting the wildcard.
+        $isBlanket = $grantObject === null
+            || $grantObject === ''
+            || (string) $grantObject === '*';
+
+        if ($isBlanket) {
+            return true;
+        }
+
+        return $objectId !== null && (string) $grantObject === $objectId;
     }
 
     /**

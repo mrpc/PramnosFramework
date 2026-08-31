@@ -395,6 +395,50 @@ protected function authorize(string $action): bool
 }
 ```
 
+### The endpoint question and the record question are different
+
+`authorize()` asks whether a user may `update` **invoices**. It is not given an id, so
+it cannot ask whether they may update **invoice 42** — and those are two questions
+with two answers.
+
+A grant answers one of them. Which one depends on its `object_id`:
+
+| Grant | `authorize('read')` | invoice 42 | invoice 43 |
+| --- | --- | --- | --- |
+| `object_id` NULL or `*` | allow | allow | allow |
+| `object_id` = `42` | *no rule* | allow | *no rule* |
+| `object_id` = `42`, deny | *no rule* | deny | *no rule* |
+
+The middle rows are the important ones, in both directions: a grant on one record does
+not open the collection, and a deny on one record does not close it. A row-scoped
+grant read as a resource-wide one would hand back every invoice in the table to
+somebody who had been given exactly one.
+
+To honour record-level grants, ask the second question where the id is — in the action
+itself, which is the only place the base class never sees:
+
+```php
+// In a generated controller, where the action already has the id.
+public function read($id): mixed
+{
+    if (($denied = $this->guard('read')) !== null) {
+        return \Pramnos\Http\Response::json($denied, $denied['status']);
+    }
+
+    if ($this->permissionForObject('read', (string) $id) === false) {
+        return \Pramnos\Http\Response::json(
+            ['error' => 'forbidden'], 403
+        );
+    }
+
+    // …
+}
+```
+
+`permissionForObject()` is three-valued like everything else here, so compare against
+`false` rather than treating `null` as a refusal. Reading `null` as "no" would refuse
+every request in a project that has written no grants at all.
+
 ---
 
 ## Routes
