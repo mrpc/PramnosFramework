@@ -8121,6 +8121,35 @@ class Applications extends FrameworkApplicationsController
 PHP;
         $this->writeFile('src/Admin/Controllers/Applications.php', $applicationsController);
 
+        /*
+         * Roles, because the navigation offers the link whether or not this exists.
+         *
+         * `Application::registerAdminNav()` registers `admin.roles` unconditionally, and the
+         * administration area resolves `src/Admin/Controllers` before the framework's own — so
+         * without a class here every generated project has a menu entry that answers 404. It is
+         * the failure mode this framework keeps producing: a screen that is complete and
+         * unreachable, and reachable only for whoever reads the source.
+         */
+        $rolesController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\RolesController as FrameworkRolesController;
+
+/**
+ * Role management.
+ *
+ * Delegates all actions to the framework RolesController.
+ */
+class Roles extends FrameworkRolesController
+{
+}
+PHP;
+        $this->writeFile('src/Admin/Controllers/Roles.php', $rolesController);
+
         $tokensController = <<<PHP
 <?php
 
