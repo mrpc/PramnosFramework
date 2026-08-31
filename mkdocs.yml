@@ -74,6 +74,7 @@ nav:
     - Legacy Permissions Migration: Pramnos_Legacy_Permissions_Migration.md
     - Roadmap & Open Items: Roadmap.md
     - Mail Body Storage (design): Mail-Body-Storage-Design.md
+    - hreflang and Sitemaps (design): Hreflang-And-Sitemap-Design.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md
     - Application Styles (MVC / SPA / hybrid): Pramnos_Application_Styles_Guide.md
