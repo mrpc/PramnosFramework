@@ -80,6 +80,15 @@ class OauthControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('orderBy')->willReturnSelf();
         $this->queryBuilderMock->method('where')->willReturnSelf();
         $this->queryBuilderMock->method('join')->willReturnSelf();
+        $this->queryBuilderMock->method('leftJoin')->willReturnSelf();
+
+        /*
+         * A mocked builder answers whatever it is asked, which is why these two tests were green
+         * while introspection and revocation matched the wrong column for a whole day: the mock
+         * returned the prepared row no matter what the WHERE said. Kept as they are — they cover
+         * the controller's decisions, not its SQL — with the column itself pinned by
+         * `TokenAtRestTest::testNoLookupMatchesOnTheTokenColumn()`, which reads the source.
+         */
 
         // Mock Database
         $this->dbMock = $this->createMock(Database::class);

@@ -123,7 +123,7 @@ class OAuth2Middleware
             ->table('usertokens ut')
             ->leftJoin('applications a', 'ut.applicationid = a.appid')
             ->select('ut.*, a.name AS client_name')
-            ->where('ut.token', $token)
+            ->where('ut.token_lookup', \Pramnos\User\Token::lookup($token))
             ->where('ut.tokentype', 'access_token')
             ->where('ut.status', 1)
             ->first();

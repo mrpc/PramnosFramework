@@ -313,4 +313,51 @@ class TokenAtRestTest extends BaseTestCase
             (int) (new User())->loadByToken($token, 'auth', false)->userid
         );
     }
+
+    /**
+     * No lookup anywhere still matches on the token column.
+     *
+     * The whole point of splitting the column is that `token` no longer holds anything a
+     * presented value can be compared to, so a query that still compares it matches **nothing**
+     * — and every caller in this framework treats "no row" as "not a valid token". A missed
+     * lookup therefore fails closed, silently, on a path that was working the day before.
+     *
+     * Two were missed, both written as `where('ut.token', …)` — the aliased form, which a grep
+     * for `where('token'` does not see. `Oauth::selectTokenRow()` made introspection answer
+     * `{"active": false}` for every token this server had issued, and
+     * `OAuth2Middleware::loadTokenFromDatabase()` refused every Bearer request. Neither had a
+     * test, and the suite was green through both.
+     *
+     * So this asserts the *absence* by reading the source: cheaper than fifteen functional
+     * tests, and it catches the sixteenth lookup somebody adds.
+     */
+    public function testNoLookupMatchesOnTheTokenColumn(): void
+    {
+        // Arrange
+        $root  = dirname(__DIR__, 3) . '/src';
+        $found = [];
+
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $source = (string) file_get_contents($file->getPathname());
+
+            // `where('token', …)` and `where('ut.token', …)` — any alias, single or double
+            // quoted. `token_lookup` is excluded by the closing quote right after `token`.
+            if (preg_match_all(
+                '~->\s*(?:or)?[Ww]here\s*\(\s*([\x27"])(?:[A-Za-z0-9_]+\.)?token\1~',
+                $source,
+                $matches
+            )) {
+                $found[] = str_replace($root . '/', '', $file->getPathname())
+                    . ' (' . count($matches[0]) . ')';
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $found, "These compare the encrypted column:\n" . implode("\n", $found));
+    }
 }

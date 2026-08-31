@@ -380,10 +380,20 @@ class Oauth extends Controller
     {
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
             ->table('usertokens ut')
-            ->join('users u', 'ut.userid = u.userid')
-            ->join('applications a', 'ut.applicationid = a.appid')
+            /*
+             * Left joins, because neither row is what is being asked about.
+             *
+             * `username` and `client_id` are decoration on the answer; the token's own row is the
+             * authority on whether it is active. An inner join made a token whose client row had
+             * been removed — or one issued to a system user this installation does not have —
+             * introspect as **inactive** while `OAuth2Middleware` (which left-joins) went on
+             * accepting it. Two components disagreeing about a live credential, and the
+             * disagreement invisible from either side.
+             */
+            ->leftJoin('users u', 'ut.userid = u.userid')
+            ->leftJoin('applications a', 'ut.applicationid = a.appid')
             ->select('ut.*, u.username, u.email, a.apikey AS client_id')
-            ->where('ut.token', $stored)
+            ->where('ut.token_lookup', \Pramnos\User\Token::lookup((string) $stored))
             ->first();
 
         if (!$result || $result->numRows == 0) {

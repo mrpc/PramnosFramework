@@ -436,6 +436,27 @@ holds a plaintext secret and converts itself the first time that client
 authenticates successfully, so there is no migration to run and no window where a
 client cannot connect.
 
+**Every lookup matches `token_lookup`, and there is a test that says so.**
+
+```php
+->where('token_lookup', \Pramnos\User\Token::lookup($presented))   // right
+->where('token', $presented)                                        // matches nothing
+```
+
+Comparing `token` cannot match a presented value any more, and every caller in this framework
+reads "no row" as "not a valid token" — so a missed lookup **fails closed, silently**, on a path
+that worked the day before. Two were missed when the column was split, both written as
+`where('ut.token', …)`: the aliased form, which a grep for `where('token'` does not see.
+`Oauth::selectTokenRow()` made introspection answer `{"active": false}` for every token the
+server had issued, and `OAuth2Middleware::loadTokenFromDatabase()` refused every Bearer request.
+
+`TokenAtRestTest::testNoLookupMatchesOnTheTokenColumn()` reads `src/` and fails on any surviving
+comparison, alias or not. Add a sixteenth lookup and it will tell you.
+
+The mocked unit tests over `introspect()` and `revoke()` stayed green through both, which is the
+other half of the lesson: a mocked query builder returns the prepared row whatever the `WHERE`
+says, so it cannot answer a question about a column.
+
 Nothing about using these changes — `getSecret()` returns a base32 seed, a
 delivery signs with the real key, `getSetting('smtp_pass')` returns a password.
 Only the rows are different, and rows written before the change keep working
