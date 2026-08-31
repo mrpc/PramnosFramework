@@ -109,6 +109,25 @@ class OauthControllerIntegrationTest extends TestCase
         $this->restoreAppKeys();
     }
 
+    /**
+     * One row of the applications table, as validateCredentials() reads it.
+     *
+     * @param string $secret Value of the `apisecret` column.
+     */
+    private function applicationRow(string $secret): \stdClass
+    {
+        $row          = new \stdClass();
+        $row->numRows = 1;
+        $row->fields  = [
+            'appid'     => 1,
+            'apikey'    => '123',
+            'apisecret' => $secret,
+            'status'    => 1,
+        ];
+
+        return $row;
+    }
+
     public function testDisplay()
     {
         $mockResult = new class {
@@ -305,8 +324,11 @@ class OauthControllerIntegrationTest extends TestCase
             'client_id' => '123',
             'client_secret' => 'secret'
         ];
-        
-        $this->queryBuilderMock->method('count')->willReturn(1);
+
+        // Client authentication reads the application row and compares the stored
+        // secret, so the row is what has to be mocked. It used to be satisfied by
+        // count() alone, back when a missing secret skipped the comparison.
+        $this->queryBuilderMock->method('first')->willReturn($this->applicationRow('secret'));
 
         $response = $this->controller->introspect();
         $this->assertInstanceOf(\Pramnos\Http\Response::class, $response);
@@ -323,16 +345,17 @@ class OauthControllerIntegrationTest extends TestCase
             'token' => 'valid-token'
         ];
         
-        // Mock validateCredentials count()
-        $this->queryBuilderMock->method('count')->willReturn(1);
-        
         // Mock token fetch
         $mockResult = new \stdClass();
         $mockResult->numRows = 1;
         $mockResult->fields = ['token' => 'valid-token', 'client_id' => '123', 'status' => 1, 'expires' => time() + 3600, 'scope' => 'read', 'userid' => 1, 'username' => 'testuser'];
-        
-        // We override first() to return the token data
-        $this->queryBuilderMock->method('first')->willReturn($mockResult);
+
+        // Two rows are read in order: the application, so the presented secret can
+        // be compared against the stored one, and then the token being introspected.
+        $this->queryBuilderMock->method('first')->willReturnOnConsecutiveCalls(
+            $this->applicationRow('secret'),
+            $mockResult
+        );
 
         $response = $this->controller->introspect();
         $this->assertInstanceOf(\Pramnos\Http\Response::class, $response);

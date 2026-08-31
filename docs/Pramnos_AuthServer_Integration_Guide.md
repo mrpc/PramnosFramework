@@ -284,6 +284,24 @@ grant_type=authorization_code
 You receive an `access_token` (and an `id_token` when `openid` was requested).
 Fetch profile claims from `GET /oauth/userinfo` with the access token.
 
+### Your client secret is required, on every grant
+
+If a secret is registered for your client, the token endpoint will not
+authenticate you without it. This holds for every grant — `authorization_code`,
+`refresh_token`, `password` and `client_credentials` — and for both ways of
+presenting it, HTTP Basic or form field. An empty `client_secret=` counts as
+absent.
+
+The `client_id` alone is never enough. It is a public identifier: it travels in
+redirect URLs and ships inside every SPA bundle and mobile binary, so anything
+it could unlock on its own would be unlocked for everybody who has ever seen a
+login link.
+
+A client registered with no secret at all is a different case — it has none to
+present, and the server does not ask for one. Such a client must not be given
+`client_credentials`, which authenticates the application itself and therefore
+has nothing but the secret to authenticate with.
+
 ### Lightweight tokens
 
 Access/ID tokens carry **identity claims only** — user id, basic attributes,

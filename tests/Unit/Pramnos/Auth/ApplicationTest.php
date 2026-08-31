@@ -113,7 +113,17 @@ class ApplicationTest extends TestCase
         
         // validateCredentials
         $this->assertTrue($app->validateCredentials('test_key', 'test_secret'));
-        $this->assertTrue($app->validateCredentials('test_key', null));
+
+        // A registered secret must be presented. This line asserted `true` until the
+        // behaviour it described was found to be an authentication bypass: the
+        // `apisecret` condition was appended only when a secret arrived, so omitting
+        // it matched on `apikey` + `status` alone. league/oauth2-server passes `null`
+        // here whenever `client_secret` is absent from the request, which made every
+        // active application reachable with its public client_id and nothing else.
+        // Full coverage of the contract lives in
+        // tests/Integration/Auth/OAuth2ClientSecretRequiredTest.php.
+        $this->assertFalse($app->validateCredentials('test_key', null));
+
         $this->assertFalse($app->validateCredentials('test_key', 'wrong_secret'));
         $this->assertFalse($app->validateCredentials('bad_key', 'bad_secret'));
     }

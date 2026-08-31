@@ -145,23 +145,54 @@ class Application extends \Pramnos\Application\Model
     /**
      * Validate client_id + client_secret combination.
      *
+     * A registered secret must be presented. The previous version appended the
+     * `apisecret` condition only when a secret arrived, so a request that simply
+     * omitted `client_secret` matched on `apikey` + `status` alone and every
+     * active application authenticated without one.
+     *
+     * That was reachable: `league/oauth2-server` 8.5 reads the secret as `null`
+     * when the parameter is absent and `AbstractGrant::validateClient()` hands the
+     * decision to this method unexamined, so a token request carrying nothing but
+     * a `client_id` — a public identifier, shipped in every SPA and mobile app —
+     * was granted a token.
+     *
+     * A client whose stored `apisecret` is empty is left as it was: nothing was
+     * registered for it, so there is nothing to present. Whether such a client
+     * should exist at all is the public/confidential question, which
+     * {@see isConfidential()} still answers `true` to unconditionally.
+     *
+     * The comparison is `hash_equals()` rather than a SQL `=`, so the secret is
+     * matched in constant time and never travels into a WHERE clause.
+     *
      * @param string      $clientId     OAuth2 client_id
-     * @param string|null $clientSecret OAuth2 client_secret (null for public clients)
+     * @param string|null $clientSecret OAuth2 client_secret (null when absent)
      * @return bool
      */
     public function validateCredentials(string $clientId, ?string $clientSecret): bool
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $qb       = $database->queryBuilder()
+        $result   = $database->queryBuilder()
             ->table('#PREFIX#applications')
             ->where('apikey', $clientId)
-            ->where('status', 1);
+            ->where('status', 1)
+            ->first();
 
-        if ($clientSecret !== null) {
-            $qb->where('apisecret', $clientSecret);
+        if (!$result || $result->numRows == 0) {
+            return false;
         }
 
-        return $qb->count() > 0;
+        $stored = (string) ($result->fields['apisecret'] ?? '');
+
+        // No secret registered: the client has none to give, so accept only a
+        // request that presents none either. Accepting any string here would have
+        // been looser than the version this replaces, where a non-empty secret
+        // simply failed to match the empty column.
+        if ($stored === '') {
+            return $clientSecret === null || $clientSecret === '';
+        }
+
+        return $clientSecret !== null
+            && hash_equals($stored, $clientSecret);
     }
 
     /**
