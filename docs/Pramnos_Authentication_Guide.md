@@ -909,6 +909,75 @@ own endpoints — should use `UnifiedAuthMiddleware`, which accepts a Bearer tok
 optional there: a cookie is sent by the browser automatically, so without it any
 site could make authenticated calls on the user's behalf.
 
+## The password-reset token
+
+`Auth\Controllers\Account` stores it in `userdetails` rather than in a table of its own — the
+same shape the new-device auth link uses, and for the same reason: it is the same kind of thing
+with the same lifetime, and a second mechanism would be a second place to get the expiry check
+wrong.
+
+| | |
+| --- | --- |
+| Stored | `password_reset_hash` = `sha256(token)`, `password_reset_expires` = a unix time |
+| Lifetime | one hour |
+| Live tokens per account | **one** — `upsert` on `(userid, fieldname)`, so "send it again" replaces the previous link rather than adding a second |
+| Cleared | when the password is actually changed, and when an expired one is resolved |
+
+**Only the hash is stored.** A leaked `userdetails` row hands out no working links, which matters
+more here than for most tokens: this one lets the holder *choose a new password*.
+
+### Resolving a token does not spend it
+
+Easy to assume otherwise, and the assumption would be the wrong design:
+
+```php
+$userId = $this->consumeResetToken($token);   // resolves — does not clear
+// … validate the new password …
+$this->updatePassword($userId, $new);
+$this->clearResetToken($userId);              // spent here, after the change
+```
+
+`resetpassword` needs to know *whose* link it is before it can validate anything. Burning the
+token at that point would mean somebody who mistypes their confirmation loses their only link and
+has to start again from the forgot-password form — and the order matters the other way too: the
+token is cleared **after** the password is written, so a failed write does not leave an account
+with neither a password change nor a live link.
+
+The single-use property is real. It lives in the flow, not in the lookup.
+
+### The mail is in the recipient's language
+
+Not the language of the request. The forgot-password form can be submitted by anybody from any
+page — a Greek visitor asking for an English speaker's reset — and the person who reads the mail
+is the account holder.
+
+```php
+\Pramnos\Translator\Language::using($account->language, fn () => $this->composeAndSend(…));
+```
+
+`Notifier` does this for every notification; this mail is composed by hand, so it asks for the
+same thing itself. A language the installation has no catalogue for is not switched to and the
+mail still goes: there being nothing to switch to is not a reason to withhold somebody's reset
+link.
+
+**A catalogue defines `$lang`; it does not `return` an array.**
+
+```php
+<?php
+$lang['Password reset'] = 'Αλλαγή κωδικού';
+```
+
+`Language::load()` includes the file and then checks `isset($lang)` — so a `return [...]` file
+loads without error, defines nothing, and `load()` answers false. Nothing raises, nothing is
+logged, and every string renders as itself, which looks like a site written in English rather
+than a catalogue that was never loaded.
+
+### Who cannot be sent one
+
+`findUserIdByEmail()` answers null at or below userid 1 — 0 is anonymous and 1 is the system
+user, which exists to own rows rather than to be signed into. A reset link for it would be a
+password-choosing link for the account the framework itself acts as.
+
 ## Token Management
 
 ### User Tokens

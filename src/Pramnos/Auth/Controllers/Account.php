@@ -983,8 +983,14 @@ class Account extends Controller
         $this->composeAndSendResetEmail($email, $token);
     }
 
-    /** The mail itself, in whatever language is current. */
-    private function composeAndSendResetEmail(string $email, string $token): void
+    /**
+     * The mail itself, in whatever language is current.
+     *
+     * Protected rather than private so the language decision above is testable: which language
+     * is active when this runs is the whole point of `sendResetEmail()`, and a private method
+     * makes that unobservable without a mail server.
+     */
+    protected function composeAndSendResetEmail(string $email, string $token): void
     {
         $brand = $this->brand();
         $link  = $this->resetLink($token);
