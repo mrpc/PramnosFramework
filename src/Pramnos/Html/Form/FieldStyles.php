@@ -77,6 +77,36 @@ class FieldStyles
      * @param  string $theme `plain`, `bootstrap` or `tailwind`
      * @return array<string, string>
      */
+    /**
+     * The UI framework this application declared, or `plain`.
+     *
+     * `app/app.php` carries `scaffold_theme` — the framework a project was generated against, and
+     * the same vocabulary this class is keyed by: `plain`, `bootstrap`, `tailwind`. It was already
+     * read by `Controller` to resolve views and by `ScaffoldingHelper`; nothing connected it to
+     * the presets, so a caller had to name the theme again at every call site and the default when
+     * they forgot was `plain`.
+     *
+     * A Tailwind project that omitted the argument therefore rendered forms with inline styles
+     * instead of utilities — a wrong look with no error, on a page nobody thinks to check because
+     * the form works.
+     *
+     * A derived default, overridable by passing one — the same shape as `og_title` falling back to
+     * the page title and `Breadcrumb::$listClass` defaulting to a hook.
+     */
+    public static function configured(): string
+    {
+        try {
+            $declared = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme(
+                \Pramnos\Application\Application::currentInstance()?->applicationInfo ?? []
+            );
+        } catch (\Throwable) {
+            // No application, or one that cannot be read. `plain` renders everywhere.
+            return 'plain';
+        }
+
+        return ($declared !== null && isset(self::PRESETS[$declared])) ? $declared : 'plain';
+    }
+
     public static function for(string $theme): array
     {
         return self::PRESETS[strtolower($theme)] ?? self::PRESETS['plain'];

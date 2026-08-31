@@ -97,10 +97,18 @@ class SettingsForm
      * @param string $name  Form name; also the id and the field-name prefix
      * @param string $theme `plain`, `bootstrap` or `tailwind`
      */
-    public function __construct(string $name = 'settings', string $theme = 'plain')
+    public function __construct(string $name = 'settings', ?string $theme = null)
     {
         $this->name  = $name;
-        $this->theme = $theme;
+        /*
+         * The application's declared framework when the caller names none.
+         *
+         * `app/app.php` records `scaffold_theme`, and it is the same vocabulary this takes. The
+         * default used to be the literal `plain`, so a Tailwind project that omitted the argument
+         * rendered forms with inline styles instead of utilities — a wrong look with no error, on
+         * a page nobody rechecks because the form works.
+         */
+        $this->theme = $theme ?? FieldStyles::configured();
     }
 
     /**

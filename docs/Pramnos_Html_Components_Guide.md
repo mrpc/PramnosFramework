@@ -88,16 +88,45 @@ $select->extraAttributes = 'class="my-select" data-role="filter"';
 
 It is **not escaped** — it exists to carry markup, so never build it from user input.
 
-### 4. Form fields — `FieldStyles`
+### 4. Form fields — `FieldStyles`, keyed by what the application declared
 
-`Field` takes no class properties. Its classes come from a per-theme preset, passed at render:
+`Field` takes no class properties. Its classes come from a per-theme preset:
 
 ```php
 echo $field->render(FieldStyles::for('tailwind'));
 ```
 
-Add a theme by adding an entry to that array; `group`, `label`, `input`, `select`, `area`, `check`
-and `help` are the keys.
+You rarely need to name the theme. `app/app.php` already carries `scaffold_theme` — the UI
+framework the project was generated against, in this same vocabulary — and it is the default:
+
+```php
+new SettingsForm('settings');                 // uses scaffold_theme
+new SettingsForm('settings', 'bootstrap');    // unless you say otherwise
+FieldStyles::configured();                    // what that resolves to
+```
+
+Add a theme by adding an entry to the preset array; `group`, `label`, `input`, `select`, `area`,
+`check` and `help` are the keys. Keep it in step with the scaffolding directories — a project on a
+framework with no preset silently renders as `plain`, and a test asserts the two lists match.
+
+### And colours come from one file, not from any of this
+
+None of the four routes is where a palette lives. `app/themes/theme.css` holds every colour and
+radius for the project, in daisyUI's theme-generator format, and `pramnos theme:build` propagates
+it to `www/assets/css/theme-tokens.css`, `www/assets/theme-tokens.json` and
+`ThemeTokens::token()` for PHP. See the [Theme guide](Pramnos_Theme_Guide.md#one-palette-every-ui-system).
+
+So a `pf-*` rule should be written in those tokens rather than in literals:
+
+```css
+.pf-pagination .current {
+    background: var(--primary-color, #2563eb);
+    color: var(--white, #fff);
+}
+```
+
+A rule with a hardcoded colour is a rule the palette cannot reach, and the failure shows up as one
+component that did not change when everything else did.
 
 ### What you cannot replace, and why it does not matter
 
