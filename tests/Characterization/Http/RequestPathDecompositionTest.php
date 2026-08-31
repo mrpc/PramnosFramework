@@ -11,11 +11,14 @@ use Pramnos\Http\Request;
 /**
  * What `calcParams()` actually does to a path — measured, not claimed.
  *
- * A **characterization** test: it records present behaviour rather than asserting desired
- * behaviour, and two of the things it records are anomalies. It exists because an application
- * migrating off its own legacy request class asked a fair question — *if the decomposition
- * differs, document it so we know what we are migrating to* — and the only honest answer to that
- * is a table somebody can diff against, produced by running the code.
+ * A **characterization** test: it records behaviour rather than arguing for it, and it exists
+ * because an application migrating off its own legacy request class asked a fair question — *if
+ * the decomposition differs, document it so we know what we are migrating to* — and the only
+ * honest answer to that is a table somebody can diff against, produced by running the code.
+ *
+ * Writing it down found two anomalies, and both have since been fixed. The record of what they
+ * were is kept in the methods below, because the value of a characterization test is not only
+ * what the code does now.
  *
  * ## The rules, as they are
  *
@@ -28,21 +31,24 @@ use Pramnos\Http\Request;
  * | `module/action/x` | `module` | `action` | `x` |
  * | `a/b/c/d` | `a` | `b` | — (`c => d` becomes a `$_GET` pair) |
  *
- * ## Two anomalies, recorded rather than fixed
+ * ## The two anomalies it found, now fixed
  *
- * **1. Leftover path segments become `$_GET` keys.** `module/action/x` sets `_option = x` *and*
- * `$_GET['module'] = 'action'`, because parts 0 and 1 stay in the array that the key/value
- * pairing loop then walks. A controller reading `$_GET['jobposts']` on `/jobposts/view/479`
- * gets `'view'`.
+ * **1. Leftover path segments became `$_GET` keys.** `module/action/x` set `_option = x` *and*
+ * `$_GET['module'] = 'action'`, because only `$parts[2]` was removed before the key/value
+ * pairing loop walked what was left. A controller reading `$_GET['jobposts']` on
+ * `/jobposts/view/479` got `'view'`, from a key nobody put there. The other two branches
+ * already removed the controller and the action; that one was the outlier.
  *
- * **2. Slashes inside the query string change the path decomposition.** `$slashes` is recounted
- * *after* the query string is appended to the path, so `?return=/account/settings` makes the
- * same path take a different branch — and the leftover key changes from `jobposts => view` to
- * `479 => null`.
+ * **2. Slashes inside the query string changed the path decomposition.** `$slashes` was
+ * recounted *after* the query string had been appended to `$request`, and `$slashes` is what
+ * chooses the branch. So `?return=/account/settings` moved the same path: the leftover key
+ * changed from `jobposts => view` to `479 => null`. The append had no other effect —
+ * `explode('?', …)` threw the query string away immediately, `$mainString[1]` is never read,
+ * and `$request` is not used past that line.
  *
- * Neither is fixed here. Both decide **which page is served** for URLs already in use, so
- * changing them is a routing change for every installation and belongs in a deliberate release,
- * not in a test. What this file does is make them visible and make a change to them fail loudly.
+ * Both were routing changes, so they were made deliberately rather than in passing. The blast
+ * radius, measured: **the four tests in this file and nothing else in 13,294** depended on
+ * either behaviour.
  */
 #[CoversClass(Request::class)]
 class RequestPathDecompositionTest extends TestCase
@@ -107,29 +113,26 @@ class RequestPathDecompositionTest extends TestCase
     }
 
     /**
-     * Three segments put the third in `_option` — **and leave a junk key behind**.
+     * Three segments put the third in `_option`, and nothing else.
      *
-     * The first anomaly, recorded. `_option` is right and expected; `jobposts => view` is
-     * neither, and a controller reading `$_GET['jobposts']` on `/jobposts/view/479` gets
-     * `'view'`. Parts 0 and 1 are not removed before the key/value pairing loop walks what is
-     * left.
+     * The first anomaly, fixed. It used to also set `$_GET['jobposts'] = 'view'` — only
+     * `$parts[2]` was removed before the key/value pairing loop walked the rest, so the
+     * controller and the action were paired into a `$_GET` entry. Code reading
+     * `$_GET['jobposts']` on `/jobposts/view/479` got `'view'`, from a key nobody put there.
      */
-    public function testThreeSegmentsSetOptionAndAlsoLeaveAJunkKey(): void
+    public function testThreeSegmentsSetOptionAndNothingElse(): void
     {
         // Act
         $result = $this->decompose('jobposts/view/479');
 
-        // Assert — what a caller relies on
+        // Assert
         $this->assertSame('jobposts', $result['controller']);
         $this->assertSame('view', $result['action']);
         $this->assertSame('479', $result['get']['_option'] ?? null);
-
-        // Assert — and what it also gets, which nobody asked for
         $this->assertSame(
-            'view',
-            $result['get']['jobposts'] ?? null,
-            'the junk key is gone — which is an improvement, and a routing change: update this '
-            . 'test deliberately rather than to make it pass'
+            ['_option' => '479'],
+            $result['get'],
+            'a path segment leaked into $_GET as a key of its own again'
         );
     }
 
@@ -179,52 +182,53 @@ class RequestPathDecompositionTest extends TestCase
         $this->assertSame($plain['action'], $withQuery['action']);
         $this->assertSame($plain['get']['_option'], $withQuery['get']['_option']);
         $this->assertSame('en', $withQuery['get']['lang'] ?? null);
-        $this->assertSame('view', $withQuery['get']['jobposts'] ?? null, 'the same junk key');
+        $this->assertArrayNotHasKey('jobposts', $withQuery['get']);
     }
 
     /**
-     * A **slash inside the query string** changes which branch the path takes.
+     * A slash inside the query string changes nothing about the path.
      *
-     * The second anomaly, and the one with teeth. `$slashes` is recounted after the query string
-     * is appended to the path, so a `?return=/account/settings` — an ordinary return-url
-     * parameter — makes the same path decompose differently. Here the leftover key changes from
-     * `jobposts => view` to `479 => null`.
+     * The second anomaly, fixed, and it was the one with teeth. `$slashes` — which chooses the
+     * branch — was recounted *after* the query string had been appended to `$request`, so an
+     * ordinary `?return=/account/settings` decomposed the same path differently: the leftover
+     * key changed from `jobposts => view` to `479 => null`.
      *
-     * `_option` survives in this shape, which is why it is not visible in most applications. It
-     * is the leftover keys that move, and code reading one of them by name reads something else.
+     * `_option` survived either way, which is exactly why it went unnoticed. It was the leftover
+     * keys that moved, and code reading one of them by name read something else — a plausible
+     * mechanism for a page that serves differently once a return-url parameter is added to it.
      */
-    public function testASlashInTheQueryStringChangesTheDecomposition(): void
+    public function testASlashInTheQueryStringDoesNotChangeTheDecomposition(): void
     {
         // Act
         $plain  = $this->decompose('jobposts/view/479');
         $sliced = $this->decompose('jobposts/view/479', '/index.php?return=/account/settings');
 
-        // Assert — the useful part is stable
-        $this->assertSame('jobposts', $sliced['controller']);
-        $this->assertSame('view', $sliced['action']);
-        $this->assertSame('479', $sliced['get']['_option'] ?? null);
+        // Assert — the path decomposes identically
+        $this->assertSame($plain['controller'], $sliced['controller']);
+        $this->assertSame($plain['action'], $sliced['action']);
+        $this->assertSame($plain['get']['_option'], $sliced['get']['_option']);
 
-        // Assert — and the leftovers are not the same leftovers
-        $this->assertArrayHasKey('jobposts', $plain['get']);
-        $this->assertArrayNotHasKey(
-            'jobposts',
-            $sliced['get'],
-            'the decomposition no longer depends on slashes in the query string — an improvement, '
-            . 'and a routing change: update this test deliberately'
-        );
-        $this->assertArrayHasKey('479', $sliced['get']);
+        // Assert — and the only extra key is the parameter itself
         $this->assertSame('/account/settings', $sliced['get']['return'] ?? null);
+        $this->assertArrayNotHasKey('jobposts', $sliced['get']);
+        $this->assertArrayNotHasKey('479', $sliced['get'], 'a segment became a key of its own');
     }
 
-    /** One slash is enough to move it, so this is not a rare shape. */
-    public function testEvenOneSlashInTheQueryStringIsEnough(): void
+    /**
+     * One slash used to be enough, so this shape is not rare.
+     *
+     * `?u=/a` — a single slash in a single parameter. Pinned separately from the case above
+     * because the count was cumulative: the failure did not need a long return path, only one.
+     */
+    public function testOneSlashInTheQueryStringIsAlsoHarmless(): void
     {
         // Act
         $result = $this->decompose('jobposts/view/479', '/index.php?u=/a');
 
         // Assert
-        $this->assertArrayNotHasKey('jobposts', $result['get']);
-        $this->assertArrayHasKey('479', $result['get']);
+        $this->assertSame('479', $result['get']['_option'] ?? null);
+        $this->assertSame('/a', $result['get']['u'] ?? null);
+        $this->assertSame(['u', '_option'], array_keys($result['get']));
     }
 
     /**

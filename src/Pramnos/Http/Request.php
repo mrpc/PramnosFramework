@@ -482,19 +482,28 @@ class Request extends Base
             $_GET = array_merge($_GET, $fromQuery);
         }
         unset($parsedUrl);
-        $slashes = substr_count($request, '/');
-        if (isset($_SERVER['REQUEST_URI'])
-            && strpos($_SERVER['REQUEST_URI'], '?') !== false) {
-            $request = $request . substr(
-                $_SERVER['REQUEST_URI'],
-                strpos($_SERVER['REQUEST_URI'], '?')
-            );
-            $slashes = substr_count($request, '/');
-
-            $request = str_replace('//', '/', $request);
-        }
+        /*
+         * The slash count comes from the **path**, and only the path.
+         *
+         * It used to be recounted after the query string had been appended to `$request` — and
+         * `$slashes` is what decides how the path is decomposed below. So an ordinary
+         * `?return=/account/settings` added two to the count and moved the same path to a
+         * different branch: `/jobposts/view/479` produced `_option=479, jobposts=view` on its
+         * own and `_option=479, 479=null` with that parameter present.
+         *
+         * The append had no other effect. `explode('?', …)` immediately threw the query string
+         * away again, `$mainString[1]` is never read, and `$request` is not used past this
+         * point — so the only thing those four lines did was corrupt the count. An accident,
+         * not a design.
+         *
+         * One slash in a query string was enough, and `_option` survived either way, which is
+         * why it went unnoticed for so long: it is the leftover keys that moved, and code
+         * reading one of them by name read something else.
+         */
         $mainString = explode('?', $request);
-        $parts = explode("/", $mainString[0]);
+        $path       = str_replace('//', '/', $mainString[0]);
+        $slashes    = substr_count($path, '/');
+        $parts      = explode('/', $path);
         if (isset($parts[0]) && $parts[0] !== '') {
             self::$_controller = $parts[0];
         }
@@ -504,8 +513,18 @@ class Request extends Base
 
         if (count($parts) > 2) {
             if ($slashes == 2) {
+                /*
+                 * The controller and the action go too.
+                 *
+                 * Only `$parts[2]` was removed, so the loop below still walked parts 0 and 1 and
+                 * paired them into `$_GET` — `/jobposts/view/479` set `_option = 479` **and**
+                 * `$_GET['jobposts'] = 'view'`. Code reading `$_GET['jobposts']` on that URL got
+                 * `'view'`, from a key nobody put there.
+                 *
+                 * The two branches below already remove them; this one was the outlier.
+                 */
                 $_GET['_option'] = $parts[2];
-                unset($parts[2]);
+                unset($parts[0], $parts[1], $parts[2]);
             } elseif ($slashes > 0) {
                 unset($parts[0], $parts[1]);
             } else {
