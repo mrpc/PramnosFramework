@@ -87,7 +87,7 @@ class OAuth2Middleware
         $db = \Pramnos\Framework\Factory::getDatabase();
         return (bool) $db->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $token)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $token))
             ->where('tokentype', 'access_token')
             ->update(['status' => 0]);
     }

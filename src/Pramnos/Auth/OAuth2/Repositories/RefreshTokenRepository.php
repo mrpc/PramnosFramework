@@ -56,7 +56,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
             ->insert([
                 'userid'        => (int) ($parentRow['userid'] ?? 0),
                 'tokentype'     => 'refresh_token',
-                'token'         => $refreshTokenEntity->getIdentifier(),
+                ...\Pramnos\User\Token::storageFor((string) $refreshTokenEntity->getIdentifier()),
                 'created'       => $now,
                 'status'        => 1,
                 'applicationid' => (int) ($parentRow['applicationid'] ?? 0),
@@ -74,7 +74,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $tokenId)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $tokenId))
             ->where('tokentype', 'refresh_token')
             ->update(['status' => 0]);
     }
@@ -88,7 +88,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         $result = $db->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select('status')
-            ->where('token', $tokenId)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $tokenId))
             ->where('tokentype', 'refresh_token')
             ->first();
 
@@ -104,7 +104,7 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         $result = $db->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select('tokenid')
-            ->where('token', $identifier)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $identifier))
             ->where('tokentype', 'access_token')
             ->first();
         return ($result && $result->numRows > 0) ? (int)$result->fields['tokenid'] : 0;

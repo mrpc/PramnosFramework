@@ -114,6 +114,7 @@ class OauthTest extends TestCase
                 `applicationid` int(11) NOT NULL,
                 `tokentype` varchar(50) NOT NULL,
                 `token` text NOT NULL,
+                `token_lookup` varchar(64) DEFAULT NULL,
                 `parentToken` int(11) DEFAULT NULL,
                 `scope` text,
                 `sid` varchar(255) DEFAULT NULL,
@@ -390,7 +391,7 @@ class OauthTest extends TestCase
         $this->db->queryBuilder()->table('users')->insert(['userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'some_token', 'expires' => time() + 3600, 'status' => 1, 'created' => time()
+            ...\Pramnos\User\Token::storageFor((string) 'some_token'), 'expires' => time() + 3600, 'status' => 1, 'created' => time()
         ]);
         
         $response = $this->controller->revoke();
@@ -400,7 +401,7 @@ class OauthTest extends TestCase
         $this->assertTrue($data['success']);
         
         // Check DB that it was revoked
-        $res = $this->db->queryBuilder()->table('usertokens')->where('token', 'some_token')->first();
+        $res = $this->db->queryBuilder()->table('usertokens')->where('token_lookup', \Pramnos\User\Token::lookup((string) 'some_token'))->first();
         $this->assertEquals(0, $res->fields['status']);
     }
     
@@ -604,7 +605,7 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'introspect_tok', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'introspect_tok'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time(), 'scope' => 'profile'
         ]);
 
@@ -633,7 +634,7 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'expired_tok', 'expires' => time() - 100, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'expired_tok'), 'expires' => time() - 100, 'status' => 1,
             'created' => time() - 200
         ]);
 
@@ -688,7 +689,7 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'ui_tok', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'ui_tok'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time(), 'scope' => 'profile'
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ui_tok';
@@ -707,7 +708,7 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'oidc_tok', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'oidc_tok'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time(), 'scope' => 'openid profile email phone'
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer oidc_tok';
@@ -728,7 +729,7 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            'token' => 'logout_tok', 'expires' => time() + 3600, 'status' => 1, 'created' => time()
+            ...\Pramnos\User\Token::storageFor((string) 'logout_tok'), 'expires' => time() + 3600, 'status' => 1, 'created' => time()
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer logout_tok';
         $response = $this->controller->logout();

@@ -493,6 +493,94 @@ class Token extends \Pramnos\Framework\Base
      * @param  array<string, mixed> $row
      * @return array<string, mixed>
      */
+    /**
+     * The value authentication matches on, for a token as presented.
+     *
+     * `usertokens.token` holds the token encrypted, and an encrypted value cannot be
+     * looked up: {@see \Pramnos\Security\Encrypter} uses a fresh nonce per call, so
+     * the same token produces different ciphertext every time. `token_lookup` is the
+     * deterministic half — `WHERE token_lookup = Token::lookup($presented)`.
+     *
+     * Unkeyed on purpose. A keyed HMAC is the reflex and would be right for a secret
+     * somebody could guess; every value here is 256 bits from `random_bytes()` or a
+     * signed JWT, so there is no dictionary to attack. Keying it would instead make
+     * `APP_KEY` load-bearing for authentication, and rotating the key would sign
+     * everybody out at once. This way a rotation costs the ability to
+     * {@see reveal()} a token and leaves authentication working.
+     *
+     * @param string $token The token as the client presented it.
+     * @return string 64 hex characters.
+     */
+    public static function lookup(string $token): string
+    {
+        return hash('sha256', $token);
+    }
+
+    /**
+     * The two columns a token is stored as.
+     *
+     * Spread into an insert so that every writer encodes a token the same way:
+     *
+     * ```php
+     * $db->queryBuilder()->table('#PREFIX#usertokens')->insert([
+     *     'userid' => $userId,
+     *     ...Token::storageFor($token),
+     * ]);
+     * ```
+     *
+     * Without an `APP_KEY` the value is stored as it was and only the lookup is
+     * written. Authentication works either way, and the row converts itself once a
+     * key exists — the same degradation the other encrypted columns use, and the
+     * reason an installation that never ran `key:generate` is not locked out.
+     *
+     * @param string $token The token as issued.
+     * @return array{token:string,token_lookup:string}
+     */
+    public static function storageFor(string $token): array
+    {
+        return [
+            'token'        => \Pramnos\Security\Encrypter::isAvailable()
+                ? \Pramnos\Security\Encrypter::encrypt($token)
+                : $token,
+            'token_lookup' => self::lookup($token),
+        ];
+    }
+
+    /**
+     * The token itself, for a screen that offers it to an administrator.
+     *
+     * The value is encrypted at rest, so this is the only way back to it. It is
+     * deliberately a named method rather than a property read: handing somebody a
+     * working credential is a thing a caller should have to ask for, and the call
+     * site is then greppable.
+     *
+     * What it does **not** do is make that safe. Anyone given a token can act as its
+     * owner, and the resulting requests are indistinguishable from the owner's own —
+     * `tokenactions` will record them as theirs. Offer it where an administrator
+     * genuinely needs to reproduce a request, and log the fact if that matters to you.
+     *
+     * @param string|null $stored The stored column value; defaults to this token's.
+     * @return string The token, or '' when there is nothing readable — no value, or a
+     *                value this installation's `APP_KEY` cannot open.
+     */
+    public function reveal(?string $stored = null): string
+    {
+        $stored = $stored ?? (string) ($this->token ?? '');
+
+        if ($stored === '') {
+            return '';
+        }
+
+        try {
+            return \Pramnos\Security\Encrypter::maybeDecrypt($stored);
+        } catch (\RuntimeException) {
+            // Encrypted under a key this installation no longer has. Returning the
+            // ciphertext would put `enc:v1:…` behind a copy button and somebody would
+            // paste it into a request and spend an afternoon on the 401.
+            return '';
+        }
+    }
+
     public static function resolveActionRow(array $row): array
     {
         if (!array_key_exists('url', $row)) {

@@ -254,7 +254,7 @@ class Oauth extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $stored)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $stored))
             ->where('status', 1)
             ->update(['status' => 0]);
 
@@ -442,7 +442,7 @@ class Oauth extends Controller
         $result = $db->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select('userid, scope, expires, status')
-            ->where('token', $token)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $token))
             ->where('tokentype', 'access_token')
             ->first();
 
@@ -582,7 +582,7 @@ class Oauth extends Controller
             ->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select(['tokenid', 'userid', 'parentToken'])
-            ->where('token', $stored)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $stored))
             ->where('status', 1)
             ->first();
 

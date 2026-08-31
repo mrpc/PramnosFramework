@@ -63,6 +63,7 @@ class SessionTest extends TestCase
                 `applicationid` int(11) NOT NULL,
                 `tokentype` varchar(50) NOT NULL,
                 `token` text NOT NULL,
+                `token_lookup` varchar(64) DEFAULT NULL,
                 `expires` bigint(20) NOT NULL,
                 `status` tinyint(1) NOT NULL DEFAULT 1,
                 `created` bigint(20) NOT NULL,
@@ -254,7 +255,8 @@ class SessionTest extends TestCase
         }
         
         $expires = time() + 3600;
-        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `expires`, `status`, `created`) VALUES (55, 1, 'access_token', '{$tokenStr}', {$expires}, 1, " . time() . ")");
+        $lookup = \Pramnos\User\Token::lookup($tokenStr);
+        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`) VALUES (55, 1, 'access_token', '{$tokenStr}', '{$lookup}', {$expires}, 1, " . time() . ")");
         
         // Mock Bearer Header
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $tokenStr;
@@ -320,7 +322,8 @@ class SessionTest extends TestCase
         $this->db->query("DELETE FROM `usertokens` WHERE `userid` = 55 AND `applicationid` = 2");
         $this->db->query("INSERT IGNORE INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
         $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (2, 'App2', 'key', '')");
-        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `expires`, `status`, `created`) VALUES (55, 2, 'access_token', 'bad_token', " . (time()+3600) . ", 1, " . time() . ")");
+        $badLookup = \Pramnos\User\Token::lookup('bad_token');
+        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`) VALUES (55, 2, 'access_token', 'bad_token', '{$badLookup}', " . (time()+3600) . ", 1, " . time() . ")");
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer bad_token';
         $controller = $this->getController();
         $response = $controller->check();

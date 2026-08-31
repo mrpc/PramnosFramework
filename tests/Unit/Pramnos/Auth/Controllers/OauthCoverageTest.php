@@ -208,6 +208,7 @@ class OauthCoverageTest extends TestCase
                 `applicationid` int(11) NOT NULL,
                 `tokentype`  varchar(50) NOT NULL,
                 `token`      text NOT NULL,
+                `token_lookup` varchar(64) DEFAULT NULL,
                 `scope`      text,
                 -- parentToken links a refresh token to the access token it was
                 -- issued with; the logout, revoke and introspect paths read it.
@@ -352,16 +353,16 @@ class OauthCoverageTest extends TestCase
         // The access token we will present.
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
-            'token' => 'family_access', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'family_access'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time()
         ]);
         $accessId = (int) $this->db->queryBuilder()->table('usertokens')
-            ->select(['tokenid'])->where('token', 'family_access')->first()->fields['tokenid'];
+            ->select(['tokenid'])->where('token_lookup', \Pramnos\User\Token::lookup((string) 'family_access'))->first()->fields['tokenid'];
 
         // Its refresh token — same family, so it must go too.
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 77, 'applicationid' => 3, 'tokentype' => 'refresh_token',
-            'token' => 'family_refresh', 'expires' => time() + 86400, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'family_refresh'), 'expires' => time() + 86400, 'status' => 1,
             'created' => time(), 'parentToken' => $accessId
         ]);
 
@@ -369,7 +370,7 @@ class OauthCoverageTest extends TestCase
         // family: it must survive.
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
-            'token' => 'other_device', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'other_device'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time()
         ]);
 
@@ -388,14 +389,14 @@ class OauthCoverageTest extends TestCase
         // Assert — the family is gone
         foreach (['family_access', 'family_refresh'] as $token) {
             $row = $this->db->queryBuilder()->table('usertokens')
-                ->where('token', $token)->first();
+                ->where('token_lookup', \Pramnos\User\Token::lookup((string) $token))->first();
             $this->assertEquals(0, (int) $row->fields['status'], $token . ' must be revoked');
         }
 
         // Assert — the other device is untouched. The assertion that keeps this
         // from quietly becoming "sign out of everything".
         $other = $this->db->queryBuilder()->table('usertokens')
-            ->where('token', 'other_device')->first();
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) 'other_device'))->first();
         $this->assertEquals(1, (int) $other->fields['status'],
             'a token from another sign-in must survive');
     }
@@ -417,14 +418,14 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 78, 'applicationid' => 4, 'tokentype' => 'access_token',
-            'token' => 'parent_access', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'parent_access'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time()
         ]);
         $accessId = (int) $this->db->queryBuilder()->table('usertokens')
-            ->select(['tokenid'])->where('token', 'parent_access')->first()->fields['tokenid'];
+            ->select(['tokenid'])->where('token_lookup', \Pramnos\User\Token::lookup((string) 'parent_access'))->first()->fields['tokenid'];
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 78, 'applicationid' => 4, 'tokentype' => 'refresh_token',
-            'token' => 'child_refresh', 'expires' => time() + 86400, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'child_refresh'), 'expires' => time() + 86400, 'status' => 1,
             'created' => time(), 'parentToken' => $accessId
         ]);
 
@@ -435,7 +436,7 @@ class OauthCoverageTest extends TestCase
 
         // Assert — the parent went with it
         $parent = $this->db->queryBuilder()->table('usertokens')
-            ->where('token', 'parent_access')->first();
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) 'parent_access'))->first();
         $this->assertEquals(0, (int) $parent->fields['status'],
             'the access token the refresh token belongs to must be revoked');
     }
@@ -806,7 +807,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 110, 'applicationid' => 7, 'tokentype' => 'access_token',
-            'token' => 'revoked_ui_tok', 'expires' => time() + 3600, 'status' => 0,
+            ...\Pramnos\User\Token::storageFor((string) 'revoked_ui_tok'), 'expires' => time() + 3600, 'status' => 0,
             'created' => time(), 'scope' => 'openid'
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer revoked_ui_tok';
@@ -836,7 +837,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 111, 'applicationid' => 8, 'tokentype' => 'access_token',
-            'token' => 'expired_ui_tok', 'expires' => time() - 100, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'expired_ui_tok'), 'expires' => time() - 100, 'status' => 1,
             'created' => time() - 7200, 'scope' => 'openid'
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer expired_ui_tok';
@@ -873,7 +874,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 120, 'applicationid' => 9, 'tokentype' => 'access_token',
-            'token' => 'revoked_tok_intr', 'expires' => time() + 3600, 'status' => 0,
+            ...\Pramnos\User\Token::storageFor((string) 'revoked_tok_intr'), 'expires' => time() + 3600, 'status' => 0,
             'created' => time(), 'scope' => 'profile'
         ]);
 
@@ -910,7 +911,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 121, 'applicationid' => 10, 'tokentype' => 'access_token',
-            'token' => 'never_expires_tok', 'expires' => 0, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'never_expires_tok'), 'expires' => 0, 'status' => 1,
             'created' => time(), 'scope' => 'read'
         ]);
 
@@ -1401,7 +1402,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 140, 'applicationid' => 18, 'tokentype' => 'access_token',
-            'token' => 'ba_token', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'ba_token'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time(), 'scope' => 'profile'
         ]);
 
@@ -1442,7 +1443,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 160, 'applicationid' => 19, 'tokentype' => 'access_token',
-            'token' => 'valid_oidc_tok', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'valid_oidc_tok'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time(), 'scope' => 'openid profile'
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer valid_oidc_tok';
@@ -1473,7 +1474,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 161, 'applicationid' => 20, 'tokentype' => 'access_token',
-            'token' => 'no_openid_tok', 'expires' => time() + 3600, 'status' => 1,
+            ...\Pramnos\User\Token::storageFor((string) 'no_openid_tok'), 'expires' => time() + 3600, 'status' => 1,
             'created' => time(), 'scope' => 'read write'   // no openid
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer no_openid_tok';

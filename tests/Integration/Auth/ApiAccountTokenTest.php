@@ -146,7 +146,7 @@ class ApiAccountTokenTest extends TestCase
     {
         $this->db->queryBuilder()
             ->table('usertokens')
-            ->where('token', self::TOKEN)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) self::TOKEN))
             ->delete();
     }
 
@@ -155,7 +155,7 @@ class ApiAccountTokenTest extends TestCase
     {
         $row = $this->db->queryBuilder()
             ->table('usertokens')
-            ->where('token', self::TOKEN)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) self::TOKEN))
             ->first();
 
         if (!$row || $row->numRows == 0) {
@@ -178,7 +178,7 @@ class ApiAccountTokenTest extends TestCase
         // Arrange
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid'    => $this->userId,
-            'token'     => self::TOKEN,
+            ...\Pramnos\User\Token::storageFor(self::TOKEN),
             'tokentype' => 'auth',
             'status'    => 1,
             'created'   => time(),
@@ -205,7 +205,7 @@ class ApiAccountTokenTest extends TestCase
         // Arrange
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid'    => $this->userId,
-            'token'     => self::TOKEN,
+            ...\Pramnos\User\Token::storageFor(self::TOKEN),
             'tokentype' => 'auth',
             'status'    => 1,
             'created'   => time(),

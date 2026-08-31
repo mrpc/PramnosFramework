@@ -531,10 +531,12 @@ class UnifiedAuthMiddlewareTest extends TestCase
              VALUES (661, 'jwtuser', 'jwt@test.com', 1)"
         );
         $db->query($db->prepareQuery(
+            // token_lookup as well: authentication matches on the digest now, and a
+            // fixture that writes only the value seeds a row nothing can find.
             "INSERT INTO `usertokens`
-             (`userid`, `tokentype`, `token`, `created`, `status`, `expires`)
-             VALUES (661, 'auth', %s, %d, 1, 0)",
-            $jwt, time()
+             (`userid`, `tokentype`, `token`, `token_lookup`, `created`, `status`, `expires`)
+             VALUES (661, 'auth', %s, %s, %d, 1, 0)",
+            $jwt, \Pramnos\User\Token::lookup($jwt), time()
         ));
         $db->query("SET FOREIGN_KEY_CHECKS=1");
 

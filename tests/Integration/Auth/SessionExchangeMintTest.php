@@ -195,6 +195,10 @@ class SessionExchangeMintTest extends TestCase
         foreach ([
             '2020_01_01_000010_create_users_table.php',
             '2020_01_01_000014_create_usertokens_table.php',
+            // The create migration is the table as it was; token_lookup arrives by
+            // ALTER, the way an existing installation gets it. A test that runs only
+            // the first half builds a table no installation has.
+            '2026_08_31_000004_add_token_lookup_to_usertokens.php',
         ] as $file) {
             $path = $authDir . '/' . $file;
             require_once $path;

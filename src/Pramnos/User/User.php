@@ -1529,7 +1529,9 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $data = [
             'userid'      => $this->userid,
             'tokentype'   => $tokentype,
-            'token'       => $token,
+            // Two columns, from one place: the value encrypted, and the sha256 that
+            // authentication matches on. See Token::storageFor().
+            ...Token::storageFor((string) $token),
             'created'     => $now,
             'notes'       => $notes,
             'status'      => 1,
@@ -1790,7 +1792,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $now = time();
         $qb = $database->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $token)
+            ->where('token_lookup', Token::lookup((string) $token))
             ->where('status', 1)
             ->where(function ($q) use ($now) {
                 $q->where('expires', 0)
@@ -2484,7 +2486,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
         $database   = \Pramnos\Framework\Factory::getDatabase();
         $result     = $database->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $rawToken)
+            ->where('token_lookup', Token::lookup((string) $rawToken))
             ->where('userid', $this->userid)
             ->first();
 
@@ -2829,11 +2831,13 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                     expires integer DEFAULT NULL,
                     ipaddress varchar(45) DEFAULT NULL,
                     code_challenge varchar(128) DEFAULT NULL,
-                    code_challenge_method varchar(10) DEFAULT NULL
+                    code_challenge_method varchar(10) DEFAULT NULL,
+                    token_lookup varchar(64) DEFAULT NULL
                 );",
                 "CREATE INDEX IF NOT EXISTS idx_usertokens_userid_status ON #PREFIX#usertokens (userid, status);",
                 "CREATE INDEX IF NOT EXISTS idx_usertokens_type_status ON #PREFIX#usertokens (tokentype, status);",
                 "CREATE INDEX IF NOT EXISTS idx_usertokens_applicationid ON #PREFIX#usertokens (applicationid);",
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_usertokens_token_lookup ON #PREFIX#usertokens (token_lookup);",
                 "INSERT INTO #PREFIX#users (userid, username, active) VALUES (1, 'Guest', 1) ON CONFLICT (userid) DO NOTHING;",
                 // Advance the bigserial sequence past the explicitly-inserted Guest row (id=1).
                 // Without this, the next auto-generated userid would collide with the Guest user.
@@ -2908,7 +2912,9 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                   `ipaddress` varchar(45) DEFAULT NULL,
                   `code_challenge` varchar(128) DEFAULT NULL,
                   `code_challenge_method` varchar(10) DEFAULT NULL,
+                  `token_lookup` varchar(64) DEFAULT NULL,
                   PRIMARY KEY (`tokenid`),
+                  UNIQUE KEY `idx_usertokens_token_lookup` (`token_lookup`),
                   KEY `idx_usertokens_userid_status` (`userid`,`status`),
                   KEY `idx_usertokens_type_status` (`tokentype`,`status`),
                   KEY `idx_usertokens_applicationid` (`applicationid`),
@@ -2920,6 +2926,45 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
 
         foreach ($statements as $sql) {
             $database->query($database->prepareQuery($sql));
+        }
+
+        static::bringUsertokensUpToDate($database);
+    }
+
+    /**
+     * Add what a pre-existing `usertokens` table is missing.
+     *
+     * The statements above are `CREATE TABLE IF NOT EXISTS`, which does nothing at
+     * all to a table that already exists — so a column added to those definitions
+     * reaches a fresh install and no other. Every installation whose table predates
+     * the column, and every test database carried between runs, keeps the old shape
+     * and fails on the first query that names the new column.
+     *
+     * The migration handles a real installation. This is for everything that calls
+     * `setupDb()` instead of migrating: it exists to make the schema current, and it
+     * was only doing so for tables that did not exist yet.
+     *
+     * @param \Pramnos\Database\Database $database
+     */
+    protected static function bringUsertokensUpToDate($database): void
+    {
+        $schema = $database->schema();
+
+        if (!$schema->hasTable('usertokens')) {
+            return;
+        }
+
+        if (!$schema->hasColumn('usertokens', 'token_lookup')) {
+            $schema->alterTable('usertokens', function ($table) {
+                $table->string('token_lookup', 64)->nullable()
+                    ->comment('sha256 of the token — what authentication matches on');
+            });
+        }
+
+        if (!$schema->hasIndex('usertokens', 'idx_usertokens_token_lookup')) {
+            $schema->alterTable('usertokens', function ($table) {
+                $table->unique(['token_lookup'], 'idx_usertokens_token_lookup');
+            });
         }
     }
 }

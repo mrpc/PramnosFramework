@@ -318,11 +318,11 @@ class Session extends Controller
                 "SELECT ut.*, a.apikey
                    FROM usertokens ut
                    JOIN applications a ON ut.applicationid = a.appid
-                  WHERE ut.token = %s
+                  WHERE ut.token_lookup = %s
                     AND ut.tokentype = 'access_token'
                     AND ut.status = 1
                     AND ut.expires > %d",
-                $token,
+                \Pramnos\User\Token::lookup((string) $token),
                 time()
             );
 

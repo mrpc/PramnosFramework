@@ -56,7 +56,7 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
             ->insert([
                 'userid'        => (int) ($authCodeEntity->getUserIdentifier() ?? 0),
                 'tokentype'     => 'auth_code',
-                'token'         => $authCodeEntity->getIdentifier(),
+                ...\Pramnos\User\Token::storageFor((string) $authCodeEntity->getIdentifier()),
                 'created'       => $now,
                 'status'        => 1,
                 'applicationid' => $appId,
@@ -75,7 +75,7 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $codeId)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $codeId))
             ->where('tokentype', 'auth_code')
             ->update(['status' => 0]);
     }
@@ -89,7 +89,7 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
         $result = $db->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select('status')
-            ->where('token', $codeId)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $codeId))
             ->where('tokentype', 'auth_code')
             ->first();
 

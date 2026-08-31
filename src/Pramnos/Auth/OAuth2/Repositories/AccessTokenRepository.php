@@ -88,7 +88,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
             ->insert([
                 'userid'        => $userId,
                 'tokentype'     => 'access_token',
-                'token'         => $accessTokenEntity->getIdentifier(),
+                ...\Pramnos\User\Token::storageFor((string) $accessTokenEntity->getIdentifier()),
                 'created'       => $now,
                 'status'        => 1,
                 'applicationid' => $appId,
@@ -106,7 +106,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $tokenId)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $tokenId))
             ->where('tokentype', 'access_token')
             ->update(['status' => 0]);
     }
@@ -120,7 +120,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         $result = $db->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select('status')
-            ->where('token', $tokenId)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $tokenId))
             ->where('tokentype', 'access_token')
             ->first();
 

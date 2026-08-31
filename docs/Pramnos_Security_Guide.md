@@ -393,6 +393,7 @@ from you, and all three are recoverable secrets rather than verifiable ones:
 | Webhook signing secret | `oauth2_webhook_endpoints.secret_key` | it is the HMAC key each delivery is signed with |
 | TOTP seed | `user_twofactor.secret`, `twofactor_setup.temp_secret` | every code is derived from it |
 | Realtime channel key | `applications.broadcast_secret` | it signs channel authorizations |
+| Access/refresh tokens, auth codes | `usertokens.token` | an administrator screen offers them for copying |
 
 And two that are **hashed**, because the server only ever verifies them:
 
@@ -402,7 +403,35 @@ And two that are **hashed**, because the server only ever verifies them:
 | 2FA backup codes | `user_twofactor.backup_codes` |
 
 The client secret is shown once, when it is created or rotated, and cannot be read
-back afterwards — that is what hashing buys. A row written before hashing still
+back afterwards — that is what hashing buys.
+
+### Tokens are encrypted rather than hashed, on purpose
+
+A token is verified and never re-read, so hashing is the reflex — and it is what a
+`usertokens.token` column would get if nothing else were true. Something else is:
+administrators reproduce a failing integration by copying a token into `curl`, and
+that is a real tool, not a leftover.
+
+So the column is split. `token_lookup` holds `sha256(token)` and is what all fifteen
+authentication lookups match on; `token` holds the value encrypted, and
+`Token::reveal()` is the only way back to it.
+
+```php
+$plain = (new Token())->reveal($row['token']);   // '' when APP_KEY cannot open it
+```
+
+Two consequences worth stating.
+
+**The digest is unkeyed.** A keyed HMAC would be right for a secret somebody could
+guess; every value here is 256 bits from `random_bytes()` or a signed JWT, so there is
+no dictionary to attack. Keying it would instead make `APP_KEY` load-bearing for
+authentication — rotating the key would sign everybody out. Unkeyed, a rotation costs
+the ability to reveal a token and leaves authentication working.
+
+**`reveal()` does not make handing a token out safe.** Whoever receives one can act as
+its owner, and the resulting requests are indistinguishable from the owner's — the
+action log will record them as theirs. Offer it where an administrator genuinely needs
+it, and log the fact if that matters to you. A row written before hashing still
 holds a plaintext secret and converts itself the first time that client
 authenticates successfully, so there is no migration to run and no window where a
 client cannot connect.

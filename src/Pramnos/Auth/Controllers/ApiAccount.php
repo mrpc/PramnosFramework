@@ -366,7 +366,7 @@ class ApiAccount extends Controller
     {
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
             ->table('#PREFIX#usertokens')
-            ->where('token', $token)
+            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $token))
             ->update(['status' => 2]);
     }
 
