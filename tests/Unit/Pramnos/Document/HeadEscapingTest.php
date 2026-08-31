@@ -282,7 +282,10 @@ class HeadEscapingTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('<title></title>', $output);
-        $this->assertStringContainsString('name="description" content=""', $output);
+        // No description tag at all now, rather than one claiming to be empty. An array here is
+        // a bug upstream; the page should not turn it into a statement that this page has no
+        // description — that is a claim, and it is not the one the application made.
+        $this->assertStringNotContainsString('name="description"', $output);
     }
 
     /**

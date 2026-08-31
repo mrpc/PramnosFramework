@@ -133,16 +133,36 @@ class Html extends \Pramnos\Document\Document
         // attribute values and element text, and they routinely hold database
         // content. headContent / extraHtmlTag / header are deliberately left raw —
         // they exist to carry markup.
+        /*
+         * The `xmlns:og` and `xmlns:fb` attributes are gone.
+         *
+         * RDFa namespace declarations from 2010. No parser has needed them since Facebook moved
+         * to `<meta property>`, nothing reads them, and they were the first hundred bytes of
+         * every page this framework has ever rendered.
+         */
         $content = '<!doctype html>
-<html class="no-js" ' . $this->extraHtmlTag . ' lang="' . $this->escapeHeadValue($langShort) . '" xmlns:og="http://ogp.me/ns#"
-    xmlns:fb="https://www.facebook.com/2008/fbml">
+<html class="no-js" ' . $this->extraHtmlTag . ' lang="' . $this->escapeHeadValue($langShort) . '">
     <head ' . $this->headContent . '>' . $this->noJsFlipScript() . '
         <meta charset="' . $this->escapeHeadValue($charset) . '">
-        <title>' . $this->escapeHeadValue($this->title) . '</title>
-        <meta name="description" content="' . $this->escapeHeadValue($this->description) . '" />
-        <meta property="og:title" content="' . $this->escapeHeadValue($this->og_title) . '" />
-        <meta property="og:type" content="' . $this->escapeHeadValue($this->og_type) . '" />
-        <meta property="og:url" content="' . $this->escapeHeadValue($this->og_url) . '" />' . "\n";
+        <meta name="viewport" content="' . $this->escapeHeadValue($this->viewport) . '">
+        <title>' . $this->escapeHeadValue($this->title) . '</title>' . "\n";
+
+        /*
+         * Absent, rather than present and empty.
+         *
+         * `<meta name="description" content="">` is not the same as no description tag: it is a
+         * statement that this page has no description, which is the one thing an application
+         * that simply never set the property did not mean to say. The same is true of every
+         * `og:` tag below — an empty `og:url` is a declaration that the page has no canonical
+         * address.
+         *
+         * It is the rule `Seo::jsonLd()` documents as "absent is not empty" and this renderer
+         * has been breaking on every page since it was written.
+         */
+        $content .= $this->metaTag('name', 'description', $this->description)
+            . $this->metaTag('property', 'og:title', $this->og_title)
+            . $this->metaTag('property', 'og:type', $this->og_type)
+            . $this->metaTag('property', 'og:url', $this->og_url);
         foreach ($this->meta as $meta=>$metavalue) {
             $content .= '        <meta property="'
                 . $this->escapeHeadValue($meta)
@@ -159,14 +179,21 @@ class Html extends \Pramnos\Document\Document
                 . '" />'
                 . "\n";
         }
-        if ($this->og_image != "") {
-            $content .= '<meta property="og:image" content="'
-                . $this->escapeHeadValue($this->og_image) . '"/>';
+        $content .= $this->metaTag('property', 'og:image', $this->og_image)
+            . $this->metaTag('property', 'og:site_name', $this->og_site_name)
+            . $this->metaTag('property', 'og:description', $this->og_description);
+
+        /*
+         * X/Twitter reads the OpenGraph tags for everything except this one.
+         *
+         * Without a card type it renders a small thumbnail beside the text; with
+         * `summary_large_image` it renders the image the page already declared. Two tags, and
+         * only when there is an image to show — a large-image card promising an image it does
+         * not have renders worse than no card at all.
+         */
+        if (trim((string) $this->og_image) !== '') {
+            $content .= $this->metaTag('name', 'twitter:card', $this->twitterCard);
         }
-        $content .= '
-        <meta property="og:site_name" content="' . $this->escapeHeadValue($this->og_site_name) . '" />
-        <meta property="og:description" content="'
-            . $this->escapeHeadValue($this->og_description) . '" />';
 
         // Canonical and structured data, from setCanonical() / addStructuredData().
         // Emitted here rather than left to addHeadContent(), which was the only route

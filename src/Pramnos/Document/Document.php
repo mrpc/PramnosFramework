@@ -72,6 +72,28 @@ class Document extends \Pramnos\Framework\Base
     public $og_type = "website";
     public $og_url = "";
     public $og_image = "";
+
+    /**
+     * The viewport, on the document rather than on each theme.
+     *
+     * It lived in the scaffolded themes and nowhere else, so a theme that omitted it — or a page
+     * rendered without one — produced a document Google labels not mobile-friendly, with no
+     * signal anywhere that anything was missing. It is a property of an HTML document, not of a
+     * decoration around one.
+     *
+     * @var string
+     */
+    public $viewport = 'width=device-width, initial-scale=1';
+
+    /**
+     * The X/Twitter card type, emitted only when there is an image to put in it.
+     *
+     * X reads the OpenGraph tags for everything else. Without this one it renders a small
+     * thumbnail beside the text; with it, the image the page already declared.
+     *
+     * @var string
+     */
+    public $twitterCard = 'summary_large_image';
     public $og_site_name = "";
     public $og_description = "";
     /**
@@ -855,11 +877,56 @@ class Document extends \Pramnos\Framework\Base
             $parts[] = $canonical;
         }
 
+        /*
+         * The site's own identity, once per page, before anything a page adds.
+         *
+         * `Organization` and `WebSite` describe the publisher and the site; a page's own blocks
+         * describe the page. Emitting the site first is the order a reader of the source expects
+         * and the order a graph is built in — and it means an application never has to remember
+         * to add it, which is why it was missing everywhere until now.
+         *
+         * Empty when the site has no configured name, because a name is the one field both
+         * objects need to be worth asserting.
+         */
+        $identity = \Pramnos\Html\SiteIdentity::jsonLd();
+
+        if ($identity !== '') {
+            $parts[] = $identity;
+        }
+
         foreach ($this->structuredDataBlocks() as $block) {
             $parts[] = $block;
         }
 
         return $parts === array() ? '' : "\n        " . implode("\n        ", $parts);
+    }
+
+    /**
+     * One meta tag, or nothing at all.
+     *
+     * The distinction a whole class of SEO bug rests on. `content=""` is a claim — that the page
+     * has no description, no canonical address, no title for sharing — and it is a claim no
+     * application makes by leaving a property unset. A crawler reading an empty description does
+     * not fall back to the page text; it records that there is none.
+     */
+    protected function metaTag(string $attribute, string $name, mixed $value): string
+    {
+        /*
+         * Escaped first, and emptiness judged on the result.
+         *
+         * `escapeHeadValue()` already refuses anything that is not a scalar — an array reaching
+         * a meta tag is a bug upstream, and it answers with an empty string rather than the word
+         * "Array". Casting here before asking would turn that safe answer into a page claiming
+         * its description is "Array", which is worse than either the bug or the blank.
+         */
+        $escaped = trim((string) $this->escapeHeadValue($value));
+
+        if ($escaped === '') {
+            return '';
+        }
+
+        return '        <meta ' . $attribute . '="' . $this->escapeHeadValue($name)
+            . '" content="' . $escaped . '" />' . "\n";
     }
 
     /**
