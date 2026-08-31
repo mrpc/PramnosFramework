@@ -89,13 +89,75 @@ class LogViewer
      */
     public function setFile(string $filename, bool $checkWhitelist = true): self
     {
-        if ($checkWhitelist && !empty($this->whitelist) && !in_array($filename, $this->whitelist)) {
+        /*
+         * A name, never a path — checked whatever the whitelist says.
+         *
+         * `getLogFilePath()` concatenates this onto the log directory, so a value containing a
+         * separator escapes it. `?file=../../../../etc/passwd` on the SPA administration endpoint
+         * returned `/etc/passwd` as JSON with **HTTP 200**, to any caller the permission store
+         * allowed to read logs — a grant of "may read the log file" turned into "may read any
+         * file this process can".
+         *
+         * Unconditional, and not part of the whitelist check, because a caller passing
+         * `$checkWhitelist = false` is asking to skip a *list*, not to be handed a path.
+         */
+        if ($filename === ''
+            || basename($filename) !== $filename
+            || str_contains($filename, '..')
+            || str_contains($filename, DIRECTORY_SEPARATOR)
+            || str_contains($filename, '/')
+        ) {
+            throw new \InvalidArgumentException('Invalid log file specified');
+        }
+
+        if ($checkWhitelist && !in_array($filename, $this->allowedFiles(), true)) {
             throw new \InvalidArgumentException('Invalid log file specified');
         }
 
         $this->filename = $filename;
         $this->filePath = $this->getLogFilePath($filename);
         return $this;
+    }
+
+    /**
+     * The log files this viewer will open.
+     *
+     * The configured whitelist when there is one — every caller in this framework passes its
+     * own — and otherwise **the log directory's own contents**, which is the part that was
+     * missing. The check used to read
+     *
+     *     if ($checkWhitelist && !empty($this->whitelist) && !in_array(…))
+     *
+     * so an empty whitelist skipped it altogether: "nothing is configured" was read as
+     * "everything is allowed", which is the fail-open shape. A viewer constructed with no
+     * arguments is asking to read this installation's logs, not any file on the disk, so that is
+     * what it gets.
+     *
+     * @return list<string>
+     */
+    private function allowedFiles(): array
+    {
+        if ($this->whitelist !== []) {
+            return array_values($this->whitelist);
+        }
+
+        // The two names `getLogFilePath()` maps outside the log directory, which an enumeration
+        // of that directory cannot find.
+        $allowed = ['GitDeploy', 'GitWebhookDebug'];
+
+        $directory = \Pramnos\Logs\Logger::logDirectory();
+
+        if (is_dir($directory)) {
+            foreach ((array) scandir($directory) as $entry) {
+                if ($entry !== '.' && $entry !== '..'
+                    && is_file($directory . DS . $entry)
+                ) {
+                    $allowed[] = $entry;
+                }
+            }
+        }
+
+        return $allowed;
     }
 
     /**

@@ -101,7 +101,11 @@ class ApiAdmin extends ApiCrudController
         }
 
         $viewer = new \Pramnos\Logs\LogViewer();
-        $file   = (string) Request::staticGet('file', 'pramnosframework', 'get');
+        // `pramnosframework.log`, with the extension: log names carry it — `LogController`'s
+        // whitelist is `['pramnosframework.log', 'php_error.log']` and `getLogFilePath()` maps a
+        // name to the directory unchanged. The default was the name without it, so it resolved to
+        // a file that does not exist and this endpoint threw on its own default parameter.
+        $file   = (string) Request::staticGet('file', 'pramnosframework.log', 'get');
 
         try {
             // setFile() validates against the whitelist; the exception is the
@@ -118,7 +122,24 @@ class ApiAdmin extends ApiCrudController
             (string) Request::staticGet('search', '', 'get')
         );
 
-        return Response::json($viewer->getLogContent());
+        try {
+            return Response::json($viewer->getLogContent());
+        } catch (\Throwable) {
+            /*
+             * A log on the whitelist that has never been written to.
+             *
+             * `setFile()` above answers "may I read this?" and the 404 is right for a name that
+             * is not on the list. This is the other question — *is there anything in it* — and
+             * `processFile()` throws for a file that does not exist on disk, which is the normal
+             * state of a log nothing has logged to yet. Uncaught, that made the panel answer
+             * **500** on a fresh installation, for the endpoint somebody opens precisely because
+             * they are trying to find out what went wrong.
+             *
+             * An empty page, in the shape the reader already handles, so "nothing has been
+             * logged" renders as an empty list rather than as a broken screen.
+             */
+            return Response::json(['lines' => [], 'total' => 0, 'matched_total' => 0]);
+        }
     }
 
     /**

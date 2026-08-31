@@ -130,17 +130,79 @@ class LogViewerTest extends TestCase
     }
 
     /**
-     * setFile() with an empty whitelist always accepts any filename.
+     * With no whitelist configured, the log directory's own contents are the whitelist.
      *
-     * This covers the `!empty($this->whitelist)` short-circuit in setFile() (line ~94).
+     * This test used to assert the opposite — *"setFile() with an empty whitelist always accepts
+     * any filename"*, covering "the `!empty($this->whitelist)` short-circuit". Its own words give
+     * away what it was: a test written to **execute a line**, which ended up protecting what that
+     * line did. Nothing about an empty whitelist means every file on the disk is a log.
+     *
+     * The consequence was live. `Auth\Controllers\ApiAdmin::logs()` constructs a viewer with no
+     * arguments, so the check was skipped and `getLogFilePath()` concatenated the raw parameter
+     * onto the log directory: `?file=../../../../etc/passwd` answered **200** with the file's
+     * contents, to any caller the permission store allowed to read logs.
      */
-    public function testSetFileAcceptsAnyFilenameWithEmptyWhitelist(): void
+    public function testWithNoWhitelistTheLogDirectoryIsTheWhitelist(): void
     {
-        // Arrange — viewer with empty whitelist (default)
-        $result = $this->viewer->setFile('some.log');
+        // Arrange — a real file in the log directory, and a name that is not one.
+        $directory = \Pramnos\Logs\Logger::logDirectory();
+        @mkdir($directory, 0777, true);
+        $name = 'logviewer-probe-' . bin2hex(random_bytes(4)) . '.log';
+        file_put_contents($directory . DIRECTORY_SEPARATOR . $name, "a line\n");
 
-        // Assert – no exception, fluent return
-        $this->assertSame($this->viewer, $result);
+        try {
+            // Assert — a file that is there is readable …
+            $this->assertSame($this->viewer, $this->viewer->setFile($name));
+
+            // … and one that is not is refused, rather than resolved and read.
+            $this->expectException(\InvalidArgumentException::class);
+            $this->viewer->setFile('not-a-log-in-this-directory.log');
+        } finally {
+            @unlink($directory . DIRECTORY_SEPARATOR . $name);
+        }
+    }
+
+    /**
+     * A filename is a name, never a path — whatever the whitelist says.
+     *
+     * Checked before the list, and unconditionally, because a caller passing
+     * `$checkWhitelist = false` is asking to skip a *list* and not to be handed a path. Each of
+     * these resolved and was read before 2026-08-31.
+     */
+    public function testAPathIsRefusedWhereverItAppears(): void
+    {
+        // Arrange
+        $viewer = new LogViewer(['pramnosframework.log']);
+
+        // Act & Assert
+        foreach ([
+            '../../../../etc/passwd',
+            'subdir/pramnosframework.log',
+            '/etc/passwd',
+            '..',
+            '',
+            'a/../../b.log',
+        ] as $attempt) {
+            $refused = false;
+            try {
+                $viewer->setFile($attempt);
+            } catch (\InvalidArgumentException) {
+                $refused = true;
+            }
+            $this->assertTrue($refused, 'this reached the filesystem: ' . $attempt);
+
+            // And with the list explicitly bypassed, which is the caller asking to skip a list.
+            $refused = false;
+            try {
+                $viewer->setFile($attempt, false);
+            } catch (\InvalidArgumentException) {
+                $refused = true;
+            }
+            $this->assertTrue(
+                $refused,
+                'bypassing the whitelist also bypassed containment: ' . $attempt
+            );
+        }
     }
 
     /**

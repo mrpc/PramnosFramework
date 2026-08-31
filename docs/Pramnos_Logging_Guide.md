@@ -357,6 +357,40 @@ The same service backs the `log-analytics` and `log-errors` MCP tools; see the
 [MCP guide](Pramnos_MCP_Guide.md). One implementation on purpose — two copies of an aggregation
 drift, and the day they disagree each caller looks right on its own.
 
+### What a log viewer will open, and what it refuses
+
+`setFile()` answers two separate questions, and both are refusals with the same exception:
+
+1. **Is this a name?** A value containing a separator or `..` is refused **unconditionally** —
+   before the whitelist, and even when a caller passes `$checkWhitelist = false`, because that
+   argument asks to skip a *list* rather than to be handed a path. `getLogFilePath()` concatenates
+   the name onto the log directory, so a path escapes it.
+2. **Is it a log?** The configured whitelist when there is one, and otherwise **the log
+   directory's own contents** plus the two names that map outside it (`GitDeploy`,
+   `GitWebhookDebug`).
+
+```php
+new LogViewer(['pramnosframework.log'])->setFile('pramnosframework.log');   // fine
+new LogViewer()->setFile('pramnosframework.log');                          // fine: it is there
+new LogViewer()->setFile('../../../../etc/passwd');                        // InvalidArgumentException
+```
+
+**Names carry their extension.** `LogController`'s whitelist is
+`['pramnosframework.log', 'php_error.log']`, and `getLogFilePath()` maps a name to the directory
+unchanged — so `'pramnosframework'` is a different, non-existent file.
+
+**A whitelisted log that has never been written is not an error.** `processFile()` throws for a
+file that does not exist, which is the normal state of a log nothing has logged to yet, so a
+reader should answer an empty page rather than propagate it — `ApiAdmin::logs()` does.
+
+> **This was a vulnerability until 2026-08-31.** The check read
+> `if ($checkWhitelist && !empty($this->whitelist) && !in_array(…))`, so an **empty** whitelist
+> skipped it entirely: "nothing is configured" was read as "everything is allowed". Every caller
+> in the framework passed a whitelist except `ApiAdmin::logs()`, which constructs a viewer with no
+> arguments — so `GET /admin/logs?file=../../../../etc/passwd` answered **200** with the file's
+> contents to any caller the permission store allowed to read logs. A grant of *may read the log
+> file* was a grant of *may read any file this process can*.
+
 ### Real-time Log Viewing
 
 ```php
