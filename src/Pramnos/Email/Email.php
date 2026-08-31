@@ -848,33 +848,6 @@ class Email extends \Pramnos\Framework\Base
         try {
             $tomail  = $this->emailToString($this->to);
             $date    = time();
-            $body    = (string) ($this->renderedBody ?? $this->body);
-
-            /*
-             * The body goes to a file when this installation has asked for that.
-             *
-             * `content` is the whole size of this table — a password reset is two hundred bytes
-             * of facts wrapped around forty kilobytes of HTML — and the HTML is read by one
-             * screen, occasionally, and never joined or filtered on.
-             *
-             * A failure to store falls back to writing it inline. A body that could not be
-             * written to a disk is not a body worth losing: the audit row is the point, and the
-             * only thing worse than a large table is a table missing the message somebody is
-             * asking about.
-             */
-            $bodypath  = '';
-            $bodybytes = 0;
-
-            if (BodyStore::enabled() && strlen($body) >= BodyStore::MIN_BYTES) {
-                $stored = BodyStore::put($body, $date);
-
-                if ($stored !== null) {
-                    $bodypath  = $stored;
-                    $bodybytes = BodyStore::bytes($stored);
-                    $body      = '';
-                }
-            }
-
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#mails')
                 ->insert([
@@ -885,9 +858,7 @@ class Email extends \Pramnos\Framework\Base
                     'tomail'     => $tomail,
                     'toname'     => '',
                     'subject'    => (string) $this->subject,
-                    'content'    => $body,
-                    'bodypath'   => $bodypath,
-                    'bodybytes'  => $bodybytes,
+                    'content'    => (string) ($this->renderedBody ?? $this->body),
                     'date'       => $date,
                     'module'     => (string) $this->module,
                     'moduleinfo' => '',

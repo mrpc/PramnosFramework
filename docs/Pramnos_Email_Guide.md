@@ -14,7 +14,6 @@ use_cases:
   - Making a message readable in dark mode, or by a screen reader
   - Checking SPF, DKIM, DMARC and BIMI on the sending domain
   - Stopping the mail log growing without limit
-  - Moving mail bodies out of the database without losing them
   - Sending one account a message from the administration area
   - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
 ---
@@ -38,8 +37,7 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 10. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
 11. [Accessibility in the message](#accessibility-in-the-message)
 12. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
-13. [Where the body lives](#where-a-sent-messages-body-lives)
-14. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
+13. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
 14. [SMTP Configuration](#smtp-configuration)
 14. [Error Handling](#error-handling)
 15. [Best Practices](#best-practices)
@@ -1283,73 +1281,6 @@ The logo beside the subject, and the only item here that is worth money.
 
 `mail:dns-check` reports each of these separately, so "we published BIMI and nothing happened" has
 an answer.
-
-## Where a sent message's body lives
-
-`mails` stores the rendered body, and the body is the whole size of that table: a
-password-reset mail is maybe two hundred bytes of facts — when, to whom, which module, did it
-send — wrapped around forty kilobytes of HTML. The facts are what anybody queries. The HTML is
-read by one screen, occasionally, and is never joined, filtered or aggregated on.
-
-```php
-// app/app.php
-'mail' => ['body_store' => ['enabled' => true]],
-```
-
-Switched on, the body is gzipped into `var/mails/` and the row keeps a path to it. **Nothing is
-lost**: `BodyStore::bodyOf()` is the single reader, so the preview screen, the message report and
-anything an application wrote keep working. That is the difference from
-[emptying the column](#what-to-keep-of-a-sent-message-and-for-how-long), which makes the table
-just as small and costs every question that screen can answer.
-
-Measured on one installation: **7.2 MB of bodies in the database became 212 KB on disk.**
-
-```
-./yourapp mail:archive              # what it would move, and nothing else
-./yourapp mail:archive --apply
-./yourapp mail:archive --gc --apply # …and collect files no row names any more
-```
-
-### Content-addressed, inside a dated partition
-
-`mails/2026/08/3f/3f8a…c1.html.gz` — the year and month, two characters of the digest, then the
-digest. Two decisions pulling in opposite directions, and both worth having:
-
-- **The digest** means one file per distinct body. A campaign to forty thousand people is one
-  body written once, not forty thousand copies — and that is the send that makes this table
-  large in the first place. On the installation above, 2,916 archived bodies are **198 files**.
-- **The date** means an operator can look at, back up or remove a period without consulting the
-  database. It costs the dedup across months: the same body sent in August and in October is two
-  files. That is the right way round — a campaign is one moment, and "remove 2023" is a thing
-  people actually need to do.
-
-A file that is already there is not written again. That is the deduplication: no index, no
-reference count, nothing that can drift out of step with the rows.
-
-### Three things it will not do
-
-- **Lose a body.** A store that refuses the write leaves the row exactly as it was — the only
-  thing worse than a large table is a table missing the message somebody is asking about. The
-  row is updated only after the file is on disk, never before.
-- **Store a tiny body.** Below about half a kilobyte a file costs more than the column does: an
-  inode, a directory entry and a seek, to save nothing.
-- **Delete a shared file.** Two rows can name the same file, so there is no per-row delete.
-  Files are collected against the rows that remain, by `--gc`, and a failed lookup collects
-  **nothing** rather than everything.
-
-### Reading the numbers
-
-`mail:archive` reports what the archive occupies and, separately, what it would have occupied
-per row:
-
-```
-Archived:   2,916 bodies in 198 file(s), 212 KB on disk
-            3.1 MB if each had been stored separately — identical bodies are stored once
-```
-
-The first version of that report printed only the second number, by summing a per-row column —
-which counts one file once per row that points at it, and overstated the disk by four times
-while hiding the entire reason to store bodies this way.
 
 ## What to keep of a sent message, and for how long
 

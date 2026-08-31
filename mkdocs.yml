@@ -73,6 +73,7 @@ nav:
     - Upgrade Guide: Pramnos_Upgrade_Guide.md
     - Legacy Permissions Migration: Pramnos_Legacy_Permissions_Migration.md
     - Roadmap & Open Items: Roadmap.md
+    - Mail Body Storage (design): Mail-Body-Storage-Design.md
   - Core Framework:
     - Framework Overview: Pramnos_Framework_Guide.md
     - Application Styles (MVC / SPA / hybrid): Pramnos_Application_Styles_Guide.md
