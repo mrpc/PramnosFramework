@@ -951,6 +951,35 @@ class UserController extends \Pramnos\Application\Controller
 }
 ```
 
+## A flush must never break the operation that triggered it
+
+`FileAdapter::listDirectoryFiles()` guarded its walk with `is_dir()`, which is a check followed
+by a use — and the directory can go between the two. Another request flushing the same group, or
+this adapter's own `cleanEmptyDirectories()` from a concurrent call, and the iterator raises:
+
+```
+UnexpectedValueException: RecursiveDirectoryIterator::__construct(…/var/cache/userlist):
+    Failed to open directory: No such file or directory
+  FileAdapter.php → Cache.php → Database.php → User.php ← User::activate()
+```
+
+The last line is the whole lesson. The throw did not break a cache flush; it broke a **user
+activation**. `save()` flushes the user list, the flush raised, and the operation somebody asked
+for failed because of housekeeping that had already *succeeded* — the directory was gone, which
+is the state the flush wanted.
+
+Caught now, around the loop rather than the constructor alone, since a subdirectory can vanish
+mid-walk with the same result. Whatever was collected before it went is returned, because those
+files are the ones still there to delete. Six call sites in the adapter go through that one walk.
+
+The `is_dir()` guard stays: it is the common case, and paying for an exception on every flush of
+a group nothing ever wrote to would be a cost for a condition that is normal.
+
+**If you write an adapter, take the same view.** A cache is an optimisation, and the caller is
+almost always in the middle of something that matters more. `directoryIterator()` is a protected
+seam precisely so this can be tested — a race cannot be reproduced by arranging files, so the
+only honest way to cover the `catch` is to make the walk fail on purpose.
+
 ## Troubleshooting
 
 ### Common Issues

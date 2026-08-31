@@ -110,6 +110,8 @@ reaching the database. That makes the list of what holds it worth reading in ful
 | **Audit** | every open **and every refusal** is logged to `auth` with the account, the address and the URL |
 | **Headers** | own CSP with `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex` |
 | **Session** | ours is closed and emptied before Adminer runs; Adminer gets its own `adminer_sid` namespace |
+| **Which files it will send** | only `static/…` or `externals/…` ending in `.css`, `.js`, `.png`, `.gif`, `.svg`, `.woff`, `.woff2` — matched against the whitelist **before** any filesystem call, then resolved with `realpath()` and required to be inside the package. A `.php` under `static/` is refused, which is the case worth naming: nothing here would execute it, but it would be read out verbatim |
+| **What its links carry** | the connection is stripped from every `href` and `action` the page contains — `server`, `pgsql`, `sqlite`, `mssql`, `oracle`, `mongo`, `elastic`, `username`, `db`. Left in, every link on the page would name this installation's database host and account, in the address bar, in the browser history, and in a `Referer` on the way to adminer.org. Absolute URLs are untouched: those are Adminer's own outbound links |
 | **No package** | 404, like any other unknown address |
 
 Two of those were holes and are worth naming rather than listing. **Removing the login form did

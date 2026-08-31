@@ -595,7 +595,7 @@ class FileAdapter extends AbstractAdapter
         }
     }
 
-    private function listDirectoryFiles($path)
+    protected function listDirectoryFiles($path)
     {
         $files = [];
         // A cache group directory only exists once something has been written
@@ -606,15 +606,56 @@ class FileAdapter extends AbstractAdapter
         if (!is_dir($path)) {
             return $files;
         }
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)
-        );
 
-        foreach ($iterator as $file) {
-            $files[] = $file->getPathname();
+        /*
+         * And the guard above cannot be enough, because it is a check followed by a use.
+         *
+         * The directory can go between the two — another request flushing the same group, or
+         * this adapter's own `cleanEmptyDirectories()` from a concurrent call — and then the
+         * iterator throws `UnexpectedValueException: Failed to open directory`. Observed, not
+         * imagined:
+         *
+         *     UnexpectedValueException: RecursiveDirectoryIterator::__construct(
+         *         …/var/cache/userlist): Failed to open directory: No such file or directory
+         *       FileAdapter.php:610 → Cache.php:728 → Database.php:2673 → User.php:755
+         *       ← User::activate()
+         *
+         * Which is the part that matters: the throw did not break a cache flush, it broke a
+         * **user activation**. `save()` flushes the user list, the flush raised, and the
+         * operation the visitor asked for failed because of housekeeping that had already
+         * succeeded — the directory was gone, which is the state the flush wanted.
+         *
+         * Caught, and caught around the loop rather than the constructor alone: a subdirectory
+         * can vanish mid-walk with the same result. Whatever was collected before it went is
+         * returned, because those files are the ones still there to delete.
+         */
+        try {
+            foreach ($this->directoryIterator($path) as $file) {
+                $files[] = $file->getPathname();
+            }
+        } catch (\UnexpectedValueException $vanished) {
+            // A directory that disappeared while being listed has nothing left to remove.
         }
 
         return $files;
+    }
+
+    /**
+     * The recursive iterator over one cache directory.
+     *
+     * A thin, overridable seam — the same idiom as `Auth\NewDeviceAuthLink::notifier()`. The
+     * failure it exists for is a race, so it cannot be reproduced by arranging files: a test
+     * makes this throw and asserts that the flush survives, which is the only honest way to
+     * cover a `catch` for something that happens between two statements.
+     *
+     * @param  string $path
+     * @return iterable<\SplFileInfo>
+     */
+    protected function directoryIterator($path)
+    {
+        return new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)
+        );
     }
 
     /**
