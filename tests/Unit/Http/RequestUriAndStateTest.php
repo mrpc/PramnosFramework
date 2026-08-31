@@ -345,4 +345,74 @@ class RequestUriAndStateTest extends TestCase
         $this->assertSame('', $request->getController());
         $this->assertSame('', $request->getAction());
     }
+
+    /**
+     * `$originalRequestNoChange` holds the request as it arrived.
+     *
+     * Declared and cleared since the class was written, and never assigned — so every read
+     * answered `''`. The property's own docblock states the contract: *the original `$_GET`
+     * request that should never change*, as against `$originalRequest`, which `calcParams()` may
+     * rewrite.
+     *
+     * An empty string is the worst kind of wrong answer, because it is plausible. An application
+     * building a page's canonical URL from it gets `sURL` alone, compares that with the real
+     * address, finds them different and redirects the page **to itself** — an infinite loop that
+     * `curl -L` abandons at ten hops, with no error and no log line.
+     */
+    public function testTheUntouchedRequestIsKept(): void
+    {
+        // Arrange
+        Request::resetInstance();
+        $_GET = ['r' => 'jobposts/view/479'];
+        $_SERVER['REQUEST_URI'] = '/index.php?r=jobposts/view/479';
+
+        // Act
+        new Request();
+
+        // Assert
+        $this->assertSame('jobposts/view/479', Request::$originalRequestNoChange);
+    }
+
+    /**
+     * And it is not what `calcParams()` leaves behind.
+     *
+     * The distinction the property exists for: a second route rewrites `$originalRequest`, and
+     * the untouched copy has to keep answering for the request that actually arrived.
+     */
+    public function testTheUntouchedRequestSurvivesAReroute(): void
+    {
+        // Arrange
+        Request::resetInstance();
+        $_GET = ['r' => 'jobposts/view/479'];
+        $_SERVER['REQUEST_URI'] = '/index.php?r=jobposts/view/479';
+        $request = new Request();
+
+        // Act — a re-route, which is what calcParams() is for.
+        $request->calcParams('dashboard');
+
+        // Assert
+        $this->assertSame('dashboard', $request->getController(), 'precondition: it re-routed');
+        $this->assertSame(
+            'jobposts/view/479',
+            Request::$originalRequestNoChange,
+            'the untouched copy changed, so it is not the request as it arrived'
+        );
+    }
+
+    /** And `resetInstance()` clears it, so one request does not answer for the next. */
+    public function testTheUntouchedRequestIsClearedBetweenRequests(): void
+    {
+        // Arrange
+        Request::resetInstance();
+        $_GET = ['r' => 'first/route'];
+        $_SERVER['REQUEST_URI'] = '/index.php?r=first/route';
+        new Request();
+        $this->assertSame('first/route', Request::$originalRequestNoChange);
+
+        // Act
+        Request::resetInstance();
+
+        // Assert
+        $this->assertSame('', Request::$originalRequestNoChange);
+    }
 }

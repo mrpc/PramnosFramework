@@ -347,6 +347,26 @@ appearing as its own key — that key is gone. Read `_option` and the named pair
 framework's own suite had **no** dependency on either: measured, the change failed four
 characterization tests written to record it and nothing else in 13,294.
 
+### `$originalRequestNoChange` — the request as it arrived
+
+Two statics, and the difference is the whole point of the second:
+
+| | |
+| --- | --- |
+| `Request::$originalRequest` | the routing parameter, which `calcParams()` may rewrite |
+| `Request::$originalRequestNoChange` | the same value as it arrived, never rewritten |
+
+Assigned when `r` is read, **before** `calcParams()` runs. Use the second when you need the URL
+the visitor actually asked for — building a canonical link, deciding whether to redirect to one —
+and the first when you want whatever the current route resolved to.
+
+It was declared, cleared by `resetInstance()`, and **never assigned** until 2026-08-31, so every
+read answered `''`. Worth stating because of the failure that produces: an application building a
+canonical URL from it gets `sURL` alone, compares that against the real address, finds them
+different, and redirects the page **to itself**. An infinite loop, on a page that looks correct in
+the source, with no error and no log line — `curl -L` gives up at ten hops and reports nothing
+about why.
+
 **The action is cleared on every call**, as of 2026-08-31. It used to be written only when the
 path had a second segment and cleared only by `resetInstance()`, so `calcParams('module')`
 inherited the previous call's action. One request per process hides that; a test suite is one

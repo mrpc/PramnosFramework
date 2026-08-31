@@ -601,7 +601,26 @@ class Request extends Base
         }
         self::$requestUri = str_replace('?{}', '', self::$requestUri);
         if (isset($_GET['r'])) {
-            self::$originalRequest=$_GET['r'];
+            self::$originalRequest = $_GET['r'];
+            /*
+             * The untouched copy, taken before anything can touch it.
+             *
+             * `$originalRequestNoChange` has been declared and cleared by `resetInstance()`
+             * since this class was written, and **nothing ever assigned it** — so every read
+             * answered `''`. Its own docblock states the contract it was not keeping: *the
+             * original $_GET request that should never change*, as against `$originalRequest`,
+             * which `calcParams()` is free to rewrite.
+             *
+             * An empty string is the worst possible wrong answer here, because it is a plausible
+             * one. An application building a canonical URL from it gets `sURL` alone, compares
+             * that against the real address, finds them different, and redirects the page **to
+             * itself** — an infinite loop on a page that a `curl -L` gives up on at ten hops. No
+             * error, no log line, and the code doing it looks correct.
+             *
+             * Assigned here rather than inside `calcParams()`: this is the request as it
+             * arrived, and `calcParams()` is precisely the thing it must not reflect.
+             */
+            self::$originalRequestNoChange = $_GET['r'];
             $this->calcParams();
         }
         unset($_GET['r']);
