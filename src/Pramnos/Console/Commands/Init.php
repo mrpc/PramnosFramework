@@ -5329,7 +5329,12 @@ PHP;
             . "RewriteRule ^\\.well-known/jwks\\.json$ index.php?r=Discovery/jwks [L]\n"
             . "RewriteRule ^\\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]\n"
             . "RewriteRule ^\\.well-known/oauth-protected-resource$ index.php?r=Discovery/oauthProtectedResource [L]\n"
-            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n";
+            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n"
+            . "\n# What a crawler and a language model read when they arrive uninvited.\n"
+            . "# Generated rather than static files: the one line that matters in each is\n"
+            . "# derived from this installation's own URL.\n"
+            . "RewriteRule ^robots\\.txt$ index.php?r=MachineReadable/robots [L]\n"
+            . "RewriteRule ^llms\\.txt$ index.php?r=MachineReadable/llms [L]\n";
     }
 
     private function getIndexTemplate(string $namespace = 'Pramnos'): string
