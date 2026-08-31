@@ -30,7 +30,10 @@ main {
     display: inline-block;
 }
 
-.pf-omnibox-label {
+/* One recipe, two users: the omnibox label and a Datatable's caption are both text that
+   must be read and not seen. */
+.pf-omnibox-label,
+.pf-visually-hidden {
     /* Visually hidden, not display:none — a screen reader must still read it. */
     position: absolute;
     width: 1px;
@@ -215,4 +218,22 @@ main {
 .pf-muted {
     opacity: 0.55;
     font-size: 0.8125rem;
+}
+
+/* The first thing a keyboard reaches, and it must be visible once it has focus.
+   Off-screen rather than hidden: `display:none` takes it out of the tab order, which
+   is the whole of what it is for. */
+.pf-skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 1000;
+    padding: 8px 16px;
+    background: #000;
+    color: #fff;
+    text-decoration: none;
+}
+
+.pf-skip-link:focus {
+    left: 0;
 }

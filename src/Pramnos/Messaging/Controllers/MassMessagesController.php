@@ -250,6 +250,36 @@ class MassMessagesController extends Controller
     }
 
     /**
+     * Does this installation have that table?
+     *
+     * Asked rather than provoked, and the difference is the error log.
+     *
+     * These pickers are **deliberate feature gates**: `usergroups` and the organizations table
+     * belong to features an installation can be built without, and a screen that refused to
+     * render because one optional filter has nothing to offer would be the wrong answer. That
+     * part was always right.
+     *
+     * What was wrong is how the question was asked. Letting the query fail and catching it means
+     * the database layer logs `relation "usergroups" does not exist` at **error** level on every
+     * render — a designed-for condition, reported as a fault. On one installation that filled the
+     * log with entries that were not errors, and the cost is not the disk: it is that the log
+     * stops being usable for finding real problems, because every line has to be investigated to
+     * find out whether it is one.
+     *
+     * `hasTable()` answers the same question without raising anything. The `try` blocks stay —
+     * a table can exist and still be unreadable — but they stop being the normal path.
+     */
+    protected function tableExists(string $table): bool
+    {
+        try {
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable($table);
+        } catch (\Throwable) {
+            // Cannot tell. An optional picker is not worth a second attempt that might raise.
+            return false;
+        }
+    }
+
+    /**
      * The account groups this installation has, for the picker.
      *
      * @return array<int, string> groupid => name
@@ -257,6 +287,10 @@ class MassMessagesController extends Controller
     protected function userGroups(): array
     {
         $groups = [];
+
+        if (!$this->tableExists('#PREFIX#usergroups')) {
+            return [];
+        }
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
@@ -288,6 +322,10 @@ class MassMessagesController extends Controller
     protected function organizations(): array
     {
         $organizations = [];
+
+        if (!$this->tableExists('organizations')) {
+            return [];
+        }
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()

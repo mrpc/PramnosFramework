@@ -3009,6 +3009,34 @@ PHP;
             $lines[] = "";
         }
 
+        if (in_array('authserver', $features, true)) {
+            /*
+             * The Model Context Protocol endpoint.
+             *
+             * Scaffolded with `authserver` rather than with `auth`, because it is only reachable
+             * with an access token this installation issued — an application that authenticates
+             * people but issues nobody a token has no caller for it.
+             *
+             * It serves nothing until the application registers a tool:
+             * `PublicRegistry::add(new \Pramnos\Mcp\Tools\SearchTool())`. An address that
+             * exists and offers an empty list is the right default — enabling an endpoint should
+             * not also decide what it exposes.
+             */
+            $this->writeApiWrapper(
+                $namespace,
+                'Mcp',
+                '\\Pramnos\\Mcp\\Controllers\\McpController',
+                'Model Context Protocol endpoint — JSON-RPC over POST, authenticated with an '
+                . 'access token, serving the tools this application has offered publicly.'
+            );
+
+            $lines[] = "        // Model Context Protocol — JSON-RPC in, JSON-RPC out";
+            $lines[] = "        \$r->post('/mcp', function () {";
+            $lines[] = "            return (new " . $fqcn('Mcp') . "(\$this))->display();";
+            $lines[] = "        });";
+            $lines[] = "";
+        }
+
         if (in_array('auth', $features, true)) {
             $this->writeApiWrapper(
                 $namespace,
@@ -5272,7 +5300,8 @@ PHP;
      * **The well-known paths.** `init` scaffolds a `Discovery` controller
      * whenever the authserver feature is on, and its endpoints are named by
      * specification: `/.well-known/openid-configuration`, `jwks.json`,
-     * `oauth-authorization-server`. None of those fit the controller/action URL
+     * `oauth-authorization-server`, `oauth-protected-resource`. None of those fit
+     * the controller/action URL
      * shape, so without an explicit rule the scaffolded controller answers 404
      * on every documented address it has. The underscore spelling of
      * `openid_configuration` is in no specification and in plenty of clients;
@@ -5299,7 +5328,13 @@ PHP;
             . "RewriteRule ^\\.well-known/openid_configuration$ index.php?r=Discovery/configuration [L]\n"
             . "RewriteRule ^\\.well-known/jwks\\.json$ index.php?r=Discovery/jwks [L]\n"
             . "RewriteRule ^\\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]\n"
-            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n";
+            . "RewriteRule ^\\.well-known/oauth-protected-resource$ index.php?r=Discovery/oauthProtectedResource [L]\n"
+            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n"
+            . "\n# What a crawler and a language model read when they arrive uninvited.\n"
+            . "# Generated rather than static files: the one line that matters in each is\n"
+            . "# derived from this installation's own URL.\n"
+            . "RewriteRule ^robots\\.txt$ index.php?r=MachineReadable/robots [L]\n"
+            . "RewriteRule ^llms\\.txt$ index.php?r=MachineReadable/llms [L]\n";
     }
 
     private function getIndexTemplate(string $namespace = 'Pramnos'): string

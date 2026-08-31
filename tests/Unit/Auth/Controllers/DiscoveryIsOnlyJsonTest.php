@@ -38,6 +38,7 @@ class DiscoveryIsOnlyJsonTest extends TestCase
             ['configuration'],
             ['jwks'],
             ['oauth2Metadata'],
+            ['oauthProtectedResource'],
             ['health'],
             ['serverConfig'],
         ];

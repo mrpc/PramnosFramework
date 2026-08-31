@@ -16,8 +16,10 @@
 <?php $this->getElement('head'); ?>
 </head>
 <body>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+
 <?php $this->get_Header(); ?>
-<main class="py-5">
+<main id="main-content" class="py-5">
     <div class="container">
         [MODULE]
     </div>

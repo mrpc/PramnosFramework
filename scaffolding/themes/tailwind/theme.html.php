@@ -16,8 +16,10 @@
 <?php $this->getElement('head'); ?>
 </head>
 <body>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+
 <?php $this->get_Header(); ?>
-<main class="flex-1 py-10">
+<main id="main-content" class="flex-1 py-10">
     <div class="container mx-auto px-4 max-w-5xl">
         [MODULE]
     </div>

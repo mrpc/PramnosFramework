@@ -24,8 +24,18 @@
         </div>
 
         <div class="flex items-center border border-base-300 rounded-lg p-3 mb-4">
-            <img src="<?php echo htmlspecialchars($this->user->avatar ?? 'https://www.gravatar.com/avatar/' . md5(strtolower(trim($this->user->email ?? '')))); ?>"
+            <?php /*
+                 The account's own avatar, or nothing.
+            
+                 This used to fall back to Gravatar, which sent `md5(email)` of the person signing
+                 in to a third party on every render of the consent screen — from the one page in
+                 the flow where they are deciding what to disclose, and to a party they were never
+                 asked about. An md5 of an address is not anonymous; it is the address, hashed.
+            */ ?>
+            <?php if (!empty($this->user->avatar)): ?>
+            <img src="<?php echo htmlspecialchars($this->user->avatar); ?>"
                  alt="Avatar" class="w-9 h-9 rounded-full mr-3">
+            <?php endif; ?>
             <div>
                 <div class="text-sm font-medium"><?php echo htmlspecialchars($this->user->username ?? ''); ?></div>
                 <div class="text-xs text-base-content/70"><?php echo htmlspecialchars($this->user->email ?? ''); ?></div>

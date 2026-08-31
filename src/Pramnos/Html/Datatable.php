@@ -131,6 +131,17 @@ class Datatable extends Base
     public $tableClass = 'display';
 
     /**
+     * What this table is, for a reader who cannot see the heading above it.
+     *
+     * Rendered as a visually hidden `<caption>`. Empty by default rather than guessed at: a
+     * caption invented from the table's internal name — `dt-emails` — is worse than none, because
+     * a reader hears it and believes it was written for them.
+     *
+     * @var string
+     */
+    public string $caption = '';
+
+    /**
      * @var string
      */
     public $codeEmbed;
@@ -351,8 +362,30 @@ class Datatable extends Base
         if ($this->groupBySelector === true) {
             $return .= $this->renderGroupBySelector($lang);
         }
+        /*
+         * A caption, and a live region for the rows that arrive later.
+         *
+         * Two separate gaps, both invisible to whoever built the screen.
+         *
+         * A table with no caption is announced as "table, 7 columns" and nothing else, so a
+         * reader moving between the several tables an admin screen has cannot tell them apart.
+         * `caption` is the element for that, and it is hidden visually rather than omitted —
+         * the heading above the table serves a sighted reader already.
+         *
+         * And this table's rows are fetched. `aria-live="polite"` makes a reader announce that
+         * the contents changed once the request comes back; without it, sorting or paging is
+         * silence followed by different data under the same heading. Polite rather than assertive
+         * because a result set is not an emergency: it waits for the reader to finish its
+         * sentence.
+         */
+        $caption = $this->caption === ''
+            ? ''
+            : "\n" . '<caption class="pf-visually-hidden">'
+                . htmlspecialchars($this->caption, ENT_QUOTES, 'UTF-8') . '</caption>';
+
         $return .= '<table id="' . $this->name . '" class="'
-            . $this->tableClass . '" cellspacing="0" width="100%">
+            . $this->tableClass . '" cellspacing="0" width="100%"'
+            . ' aria-live="polite" aria-relevant="additions text">' . $caption . '
         <thead>
             <tr>';
         foreach ($this->aoColumns as $column) {

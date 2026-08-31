@@ -73,6 +73,15 @@ class Pagination extends \Pramnos\Framework\Base
     /** Class on that element. */
     public string $containerElementClass = '';
 
+    /**
+     * What the navigation landmark is called.
+     *
+     * A page can hold more than one — a breadcrumb and this — and a reader listing the regions
+     * hears the labels, not the markup. "Navigation, navigation" is a list nobody can choose
+     * from.
+     */
+    public string $navigationLabel = 'Pagination';
+
     /** Element wrapping each link, or '' for none. */
     public string $pageContainerElement = '';
 
@@ -155,7 +164,26 @@ class Pagination extends \Pramnos\Framework\Base
             ? ''
             : ' class="' . $this->attr($this->containerElementClass) . '"';
 
-        $out = '<' . $this->containerElement . $class . '>';
+        /*
+         * A landmark, so the pages can be reached by region navigation.
+         *
+         * Every link here already carried `aria-label="Page 3"` and the current one
+         * `aria-current="page"`, which is what a reader hears once they are inside. Getting
+         * inside was the part that did not work: without a `<nav>` this is an anonymous run of
+         * links, and somebody moving through a page by its regions passes straight over it.
+         *
+         * `Breadcrumb` next door has done this since it was written; the difference between the
+         * two was an inconsistency rather than a decision.
+         *
+         * A caller who has set `containerElement` to `nav` themselves gets the label on their own
+         * element instead of a second one wrapped around it — two nested navigation landmarks
+         * announce the region twice.
+         */
+        $isNav = strtolower($this->containerElement) === 'nav';
+        $label = ' aria-label="' . $this->attr($this->navigationLabel) . '"';
+
+        $out = $isNav ? '' : '<nav' . $label . '>';
+        $out .= '<' . $this->containerElement . $class . ($isNav ? $label : '') . '>';
 
         if ($this->displayFirstLast && $this->page > 1) {
             $out .= $this->link(1, $this->firstButtonText);
@@ -173,7 +201,7 @@ class Pagination extends \Pramnos\Framework\Base
             $out .= $this->link($this->pages, $this->lastButtonText);
         }
 
-        return $out . '</' . $this->containerElement . '>';
+        return $out . '</' . $this->containerElement . '>' . ($isNav ? '' : '</nav>');
     }
 
     /** `echo $pagination;` renders it. */
