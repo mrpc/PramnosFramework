@@ -257,7 +257,20 @@ class WebhookService
     protected function deliverEvent(array $event): bool
     {
         $body      = is_string($event['payload']) ? $event['payload'] : json_encode($event['payload']);
-        $secret    = (string) $event['secret_key'];
+        // Stored encrypted since the signing keys were moved off plaintext; rows
+        // written before that carry no marker and come back unchanged.
+        try {
+            $secret = \Pramnos\Security\Encrypter::maybeDecrypt(
+                (string) $event['secret_key']
+            );
+        } catch (\RuntimeException $e) {
+            // APP_KEY missing or rotated. Signing with the ciphertext would send a
+            // delivery the receiver rejects as forged, and the operator would be
+            // reading the receiver's logs to find a key problem on this side. Fail
+            // the attempt here, where the reason can be said plainly.
+            $this->lastError = 'Webhook signing key could not be read: ' . $e->getMessage();
+            return false;
+        }
         $url       = (string) $event['endpoint_url'];
         $eventType = (string) $event['event_type'];
         $timestamp = time();

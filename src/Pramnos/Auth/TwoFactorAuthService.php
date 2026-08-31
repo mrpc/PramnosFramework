@@ -57,6 +57,24 @@ class TwoFactorAuthService
     }
 
     /**
+     * A TOTP seed as it should be written to the database.
+     *
+     * Encryption is skipped when APP_KEY is not configured: enrolling a second
+     * factor must not fail because a key was never generated, and the row converts
+     * itself the next time it is written. Every read goes through
+     * {@see \Pramnos\Security\Encrypter::maybeDecrypt()}, so both forms work.
+     *
+     * @param string $secret The base32 seed.
+     * @return string The value to store.
+     */
+    private static function protectSecret(string $secret): string
+    {
+        return \Pramnos\Security\Encrypter::isAvailable()
+            ? \Pramnos\Security\Encrypter::encrypt($secret)
+            : $secret;
+    }
+
+    /**
      * Return the user's stored base32 TOTP secret, or null when not configured.
      *
      * @param int $userId
@@ -69,7 +87,17 @@ class TwoFactorAuthService
             ->where('userid', $userId)
             ->first();
 
-        return $result->numRows > 0 ? ($result->fields['secret'] ?: null) : null;
+        if ($result->numRows === 0 || !$result->fields['secret']) {
+            return null;
+        }
+
+        // Encrypted at rest. The seed is the shared key TOTP codes are derived
+        // from, so it has to come back exactly as enrolled — hashing it would make
+        // every code unverifiable. Rows written before this carry no marker and
+        // come back unchanged.
+        return \Pramnos\Security\Encrypter::maybeDecrypt(
+            (string) $result->fields['secret']
+        );
     }
 
     /**
@@ -163,7 +191,7 @@ class TwoFactorAuthService
             ->table('authserver.twofactor_setup')
             ->insert([
                 'userid'     => $userId,
-                'temp_secret'=> $secret,
+                'temp_secret'=> self::protectSecret($secret),
                 'used'       => 0,
                 'expires_at' => $expires,
                 'created_at' => time(),
@@ -208,7 +236,9 @@ class TwoFactorAuthService
         }
 
         $setupId    = (int) $result->fields['id'];
-        $tempSecret = (string) $result->fields['temp_secret'];
+        $tempSecret = \Pramnos\Security\Encrypter::maybeDecrypt(
+            (string) $result->fields['temp_secret']
+        );
 
         if (!TOTPHelper::verifyCode($tempSecret, $verificationCode)) {
             return false;
@@ -234,7 +264,7 @@ class TwoFactorAuthService
                 ->where('userid', $userId)
                 ->update([
                     'enabled'            => 1,
-                    'secret'             => $tempSecret,
+                    'secret'             => self::protectSecret($tempSecret),
                     'backup_codes'       => json_encode($hashedCodes),
                     'setup_completed_at' => $now,
                     'updated_at'         => $now,
@@ -245,7 +275,7 @@ class TwoFactorAuthService
                 ->insert([
                     'userid'             => $userId,
                     'enabled'            => 1,
-                    'secret'             => $tempSecret,
+                    'secret'             => self::protectSecret($tempSecret),
                     'backup_codes'       => json_encode($hashedCodes),
                     'last_used'          => 0,
                     'setup_completed_at' => $now,

@@ -7,6 +7,7 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Auth\TOTPHelper;
+use Pramnos\Security\Encrypter;
 use Pramnos\Auth\TwoFactorAuthService;
 use Pramnos\Database\Database;
 use Pramnos\Database\MigrationLoader;
@@ -97,7 +98,13 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $migrations = MigrationLoader::loadFromDirectory($dir, $app);
         usort($migrations, fn($a, $b) => $a->priority <=> $b->priority);
 
-        $targets = ['CreateUserTwofactorTable', 'CreateTwofactorSetupTable', 'CreateTwofactorAttemptsTable'];
+        $targets = [
+            'CreateUserTwofactorTable',
+            'CreateTwofactorSetupTable',
+            'CreateTwofactorAttemptsTable',
+            // Widens the seed columns to fit an encrypted value.
+            'WidenTotpSecretColumns',
+        ];
         foreach ($migrations as $m) {
             foreach ($targets as $target) {
                 if (strpos(get_class($m), $target) !== false) {
@@ -577,5 +584,127 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $remaining = $this->db->query("SELECT userid FROM authserver.twofactor_setup ORDER BY userid");
         $this->assertSame(1, $remaining->numRows);
         $this->assertSame(72, (int) $remaining->fields['userid']);
+    }
+
+    // -------------------------------------------------------------------------
+    // The seed at rest
+    // -------------------------------------------------------------------------
+
+    /**
+     * With an APP_KEY configured, the TOTP seed is ciphertext in both tables that
+     * hold it — and the lifecycle still works end to end.
+     *
+     * The seed is the shared key every code is derived from, so a copy of it is a
+     * permanent bypass of the second factor for that account: no expiry, and no
+     * sign to the user that it happened. Anyone who could read `user_twofactor`
+     * could generate valid codes indefinitely.
+     *
+     * The assertions are on the columns, read with SQL that does not pass through
+     * the service. An implementation that stored plaintext and returned plaintext
+     * would satisfy every other test in this file.
+     *
+     * Run on PostgreSQL as well as MySQL because the part that can differ per driver
+     * is the widening migration the encrypted value needs: at the original
+     * VARCHAR(64) MySQL refuses the write outright, and PostgreSQL does too.
+     */
+    public function testTotpSeedIsEncryptedInBothTables(): void
+    {
+        // Arrange — a key, for the duration of this test only.
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+
+        try {
+            // Act — enrolment writes twofactor_setup...
+            $info   = $this->service->startSetup(90, 'dave@example.com');
+            $secret = $info['secret'];
+
+            // Assert — the seed handed to the authenticator is still base32, and the
+            // column is not.
+            $this->assertTrue(TOTPHelper::isValidSecret($secret));
+
+            $setupRow = $this->db->query(
+                'SELECT temp_secret FROM authserver.twofactor_setup WHERE userid = 90'
+            );
+            $storedTemp = (string) $setupRow->fields['temp_secret'];
+            $this->assertStringNotContainsString($secret, $storedTemp);
+            $this->assertTrue(
+                Encrypter::isEncrypted($storedTemp),
+                'temp_secret was stored unencrypted: ' . $storedTemp
+            );
+
+            // Act — ...and completing it writes user_twofactor.
+            $this->assertTrue(
+                $this->service->completeSetup(90, TOTPHelper::generateCode($secret, time())),
+                'The enrolment code must still verify against an encrypted temp_secret.'
+            );
+
+            // Assert — the confirmed seed is encrypted too.
+            $userRow = $this->db->query(
+                'SELECT secret FROM authserver.user_twofactor WHERE userid = 90'
+            );
+            $storedSecret = (string) $userRow->fields['secret'];
+            $this->assertStringNotContainsString($secret, $storedSecret);
+            $this->assertTrue(
+                Encrypter::isEncrypted($storedSecret),
+                'user_twofactor.secret was stored unencrypted: ' . $storedSecret
+            );
+
+            // Assert — and the factor works: getSecret() returns the seed as
+            // enrolled, and a live code verifies against it.
+            $this->assertSame($secret, $this->service->getSecret(90));
+            $this->assertTrue(
+                $this->service->verifyCode(90, TOTPHelper::generateCode($secret, time()))
+            );
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
+    }
+
+    /**
+     * A seed enrolled before encryption existed keeps working afterwards.
+     *
+     * The migration path for an installation that already has users with 2FA: their
+     * rows carry no marker, `maybeDecrypt()` hands them back unchanged, and nobody
+     * is locked out of their own account by an upgrade. Getting this wrong locks
+     * every 2FA user out at once, which is why it is asserted rather than assumed.
+     */
+    public function testPlaintextSeedStillVerifiesAfterEncryptionIsEnabled(): void
+    {
+        // Arrange — a row exactly as an older installation wrote it.
+        $secret = TOTPHelper::generateSecret();
+        $now    = time();
+        $this->db->query(
+            "INSERT INTO authserver.user_twofactor (userid, enabled, secret, created_at, updated_at)
+             VALUES (91, 1, '{$secret}', {$now}, {$now})"
+        );
+
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+
+        try {
+            // Act + Assert — the plaintext row is read as itself, and codes verify.
+            $this->assertSame($secret, $this->service->getSecret(91));
+            $this->assertTrue(
+                $this->service->verifyCode(91, TOTPHelper::generateCode($secret, time()))
+            );
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
     }
 }

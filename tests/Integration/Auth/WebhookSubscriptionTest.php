@@ -33,6 +33,23 @@ use Pramnos\Framework\Testing\BaseTestCase;
  * and a CHECK constraint was the bug.
  */
 #[CoversClass(WebhookService::class)]
+/**
+ * The webhook controller with its two storage seams opened up.
+ *
+ * `storeEndpoint()` is protected — it is called from `register()`, which wants an
+ * authenticated OAuth2 client and an HTTP request. The credential handling under
+ * test is entirely in the storage method, so it is reached directly rather than
+ * standing up a token exchange to get to it.
+ */
+class TestableWebhookController extends \Pramnos\Auth\Controllers\Webhook
+{
+    /** @param string $secret Plaintext signing secret, as register() generates it. */
+    public function storeEndpointForTest(int $appId, string $url, string $type, string $secret): void
+    {
+        $this->storeEndpoint($appId, $url, $type, $secret);
+    }
+}
+
 class WebhookSubscriptionTest extends BaseTestCase
 {
     private \Pramnos\Database\Database $db;
@@ -295,5 +312,112 @@ class WebhookSubscriptionTest extends BaseTestCase
 
         // Assert
         $this->assertSame(0, $queued);
+    }
+
+    // -------------------------------------------------------------------------
+    // The signing secret at rest
+    // -------------------------------------------------------------------------
+
+    /**
+     * The webhook signing secret is ciphertext in the column.
+     *
+     * It is the HMAC key every delivery is signed with, so a copy of it forges a
+     * webhook the receiver accepts as ours — "this user's permissions changed",
+     * "this token was revoked" — with a valid signature. Anyone able to read the
+     * endpoints table could do that.
+     *
+     * It cannot be hashed the way a password is: the sender needs the actual key to
+     * compute the HMAC, so encryption is the only option available.
+     */
+    public function testSigningSecretIsEncryptedInTheColumn(): void
+    {
+        // Arrange
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+
+        $secret     = bin2hex(random_bytes(32));
+        $controller = new TestableWebhookController(null);
+
+        try {
+            // Act
+            $controller->storeEndpointForTest(
+                $this->appId,
+                'https://app.example.com/hooks/at-rest',
+                'token_revoked',
+                $secret
+            );
+
+            // Assert — the column, read without going through the controller.
+            $row = $this->db->queryBuilder()
+                ->table('applications.oauth2_webhook_endpoints')
+                ->select(['secret_key'])
+                ->where('appid', $this->appId)
+                ->where('webhook_type', 'token_revoked')
+                ->first();
+
+            $stored = (string) $row->fields['secret_key'];
+
+            $this->assertStringNotContainsString($secret, $stored);
+            $this->assertTrue(
+                \Pramnos\Security\Encrypter::isEncrypted($stored),
+                'The signing secret was stored unencrypted: ' . $stored
+            );
+
+            // Assert — and it is the same key, so deliveries still sign correctly.
+            $this->assertSame($secret, \Pramnos\Security\Encrypter::maybeDecrypt($stored));
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
+    }
+
+    /**
+     * Without an APP_KEY the secret is stored as before.
+     *
+     * Registering a webhook must not fail because a key was never generated. The row
+     * converts itself on the next write, and the delivery path reads through
+     * `maybeDecrypt()`, so both forms sign correctly in the meantime.
+     */
+    public function testSigningSecretIsStoredPlainWhenNoAppKeyIsConfigured(): void
+    {
+        // Arrange
+        $originalKey = getenv('APP_KEY');
+        putenv('APP_KEY');
+        unset($_ENV['APP_KEY']);
+
+        $secret     = bin2hex(random_bytes(32));
+        $controller = new TestableWebhookController(null);
+
+        try {
+            // Act
+            $controller->storeEndpointForTest(
+                $this->appId,
+                'https://app.example.com/hooks/no-key',
+                'token_revoked',
+                $secret
+            );
+
+            // Assert
+            $row = $this->db->queryBuilder()
+                ->table('applications.oauth2_webhook_endpoints')
+                ->select(['secret_key'])
+                ->where('appid', $this->appId)
+                ->where('webhook_type', 'token_revoked')
+                ->first();
+
+            $this->assertSame($secret, (string) $row->fields['secret_key']);
+        } finally {
+            if ($originalKey !== false) {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
     }
 }

@@ -344,6 +344,19 @@ class Webhook extends Controller
     /** Insert or replace this application's endpoint for one event type. */
     protected function storeEndpoint(int $appId, string $url, string $type, string $secret): void
     {
+        // Encrypted at rest. The signing key has to be recoverable — it is the HMAC
+        // key {@see \Pramnos\Auth\WebhookService::deliverEvent()} signs each
+        // delivery with — so hashing is not an option here the way it is for a
+        // password. Anyone who could read this column could forge a webhook the
+        // receiver would accept as ours.
+        //
+        // Left as-is when APP_KEY is unset: an installation without a key must still
+        // be able to register an endpoint, and the row converts itself on the next
+        // write. WebhookService reads through maybeDecrypt(), so both forms work.
+        if (\Pramnos\Security\Encrypter::isAvailable()) {
+            $secret = \Pramnos\Security\Encrypter::encrypt($secret);
+        }
+
         $builder = $this->database()->queryBuilder();
 
         $existing = $builder->table(self::TABLE_ENDPOINTS)

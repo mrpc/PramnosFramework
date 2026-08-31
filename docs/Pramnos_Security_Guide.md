@@ -376,6 +376,25 @@ Everything encrypted under the old key becomes unreadable, loudly:
 `decrypt()` throws rather than returning nonsense. Re-encrypt before rotating,
 or accept that those credentials have to be entered again.
 
+### What the framework already encrypts
+
+Three credentials the framework stores on your behalf are encrypted with no work
+from you, and all three are recoverable secrets rather than verifiable ones:
+
+| Value | Where | Why it cannot be hashed |
+|---|---|---|
+| `smtp_pass` | `settings` | SMTP AUTH needs the password |
+| Webhook signing secret | `oauth2_webhook_endpoints.secret_key` | it is the HMAC key each delivery is signed with |
+| TOTP seed | `user_twofactor.secret`, `twofactor_setup.temp_secret` | every code is derived from it |
+
+2FA backup codes are *not* on this list: they are checked and never reused, so
+they are hashed with `PasswordHash::make()`, which is stronger.
+
+Nothing about using these changes — `getSecret()` returns a base32 seed, a
+delivery signs with the real key, `getSetting('smtp_pass')` returns a password.
+Only the rows are different, and rows written before the change keep working
+until something rewrites them.
+
 ### Settings that are encrypted automatically
 
 `Settings` encrypts the values it knows are credentials, listed in

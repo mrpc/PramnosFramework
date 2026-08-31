@@ -245,7 +245,18 @@ class AuthCollector implements CollectorInterface
 
         $row = $result === false || $result === null ? null : $result->fetch();
 
-        return is_array($row) && ($row['temp_secret'] ?? '') !== '' ? (string) $row['temp_secret'] : null;
+        if (!is_array($row) || ($row['temp_secret'] ?? '') === '') {
+            return null;
+        }
+
+        // The column is encrypted at rest; the panel wants the seed a developer can
+        // type into an authenticator, not the ciphertext. A value that will not open
+        // is reported as no pending enrolment rather than as a string of noise.
+        try {
+            return \Pramnos\Security\Encrypter::maybeDecrypt((string) $row['temp_secret']);
+        } catch (\RuntimeException) {
+            return null;
+        }
     }
 
     /**
