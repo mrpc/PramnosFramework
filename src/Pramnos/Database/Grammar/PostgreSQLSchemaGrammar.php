@@ -349,6 +349,30 @@ class PostgreSQLSchemaGrammar extends SchemaGrammar
             . $schemaFilter . " LIMIT 1";
     }
 
+    /**
+     * PostgreSQL exposes indexes through `pg_indexes`, which names them per index
+     * rather than per column — no LIMIT needed for correctness, kept for symmetry.
+     *
+     * A constraint-backed index (a UNIQUE constraint, a primary key) appears here
+     * too, which is what a caller asking "does this index exist" means: the question
+     * is whether creating it would collide.
+     */
+    public function compileHasIndex(string $table, string $index, string $schema): string
+    {
+        if (strpos($table, '.') !== false) {
+            [$schema, $table] = explode('.', $table, 2);
+        }
+
+        $schemaFilter = $schema !== ''
+            ? " AND schemaname = '" . addslashes($schema) . "'"
+            : " AND schemaname NOT IN ('pg_catalog','information_schema')";
+
+        return "SELECT 1 FROM pg_indexes"
+            . " WHERE tablename = '" . addslashes($table) . "'"
+            . " AND indexname = '" . addslashes($index) . "'"
+            . $schemaFilter . " LIMIT 1";
+    }
+
     // =========================================================================
     // Materialized views (PostgreSQL full support)
     // =========================================================================

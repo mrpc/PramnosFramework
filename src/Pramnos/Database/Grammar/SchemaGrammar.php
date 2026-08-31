@@ -583,6 +583,25 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
             . addslashes($table) . "' AND column_name = '" . addslashes($column) . "'";
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * The ANSI-ish default. `information_schema` has no index view — indexes are not
+     * part of the standard — so this uses the MySQL-shaped `statistics` table, which
+     * is what an unknown driver is most likely to resemble. A driver that differs
+     * overrides it, as PostgreSQL does.
+     */
+    public function compileHasIndex(string $table, string $index, string $schema): string
+    {
+        $where = "table_name = '" . addslashes($table) . "'"
+            . " AND index_name = '" . addslashes($index) . "'";
+        if ($schema !== '') {
+            $where .= " AND table_schema = '" . addslashes($schema) . "'";
+        }
+
+        return "SELECT 1 FROM information_schema.statistics WHERE {$where} LIMIT 1";
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================

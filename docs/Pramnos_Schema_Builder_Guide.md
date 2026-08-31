@@ -362,7 +362,31 @@ if ($schema->hasTable('users')) {
 if ($schema->hasColumn('users', 'email')) {
     // column exists
 }
+
+if ($schema->hasIndex('users', 'idx_users_email')) {
+    // index exists
+}
 ```
+
+`hasIndex()` matches on the index **name**, not on its columns. Two indexes over the
+same columns are legal, so a guard asking "is there an index on this column" would
+skip creating the one a migration needs because an unrelated one happens to cover the
+same ground. A constraint-backed index — a UNIQUE constraint, a primary key — counts
+as existing, because what a caller is really asking is whether creating it would
+collide.
+
+It is what makes an index idempotent in a migration:
+
+```php
+if (!$schema->hasIndex('usertokens', 'idx_usertokens_token_lookup')) {
+    $schema->alterTable('usertokens', function ($table) {
+        $table->unique(['token_lookup'], 'idx_usertokens_token_lookup');
+    });
+}
+```
+
+Before it existed the alternatives were catching the driver's duplicate-index error
+or leaving the guard out, which are two ways of writing "I could not ask".
 
 ## TimescaleDB Operations
 

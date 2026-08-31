@@ -65,6 +65,21 @@ interface SchemaGrammarInterface
     public function compileHasTable(string $table, string $schema): string;
     public function compileHasColumn(string $table, string $column, string $schema): string;
 
+    /**
+     * SQL that returns a row when the named index exists on the table.
+     *
+     * The name is what identifies an index, not the columns: two indexes over the
+     * same columns are legal, and a migration that guards on "is there an index on
+     * this column" would skip creating the one it needs because an unrelated one
+     * happens to be there.
+     *
+     * @param string $table  Physical table name.
+     * @param string $index  Index name.
+     * @param string $schema Schema/database, or '' for the connection's default.
+     * @return string
+     */
+    public function compileHasIndex(string $table, string $index, string $schema): string;
+
     // -------------------------------------------------------------------------
     // Trigger DDL
     // -------------------------------------------------------------------------

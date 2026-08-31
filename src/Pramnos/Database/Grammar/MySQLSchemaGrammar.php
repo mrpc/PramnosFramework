@@ -271,6 +271,21 @@ class MySQLSchemaGrammar extends SchemaGrammar
         return "SELECT 1 FROM information_schema.columns WHERE {$where} LIMIT 1";
     }
 
+    /**
+     * MySQL keeps indexes in `information_schema.statistics`, one row per column of
+     * the index, so `LIMIT 1` is what makes a multi-column index answer once.
+     */
+    public function compileHasIndex(string $table, string $index, string $schema): string
+    {
+        $where = "table_name = '" . addslashes($table) . "'"
+            . " AND index_name = '" . addslashes($index) . "'";
+        if ($schema !== '') {
+            $where .= " AND table_schema = '" . addslashes($schema) . "'";
+        }
+
+        return "SELECT 1 FROM information_schema.statistics WHERE {$where} LIMIT 1";
+    }
+
     // =========================================================================
     // Materialized views — not supported; fall back to regular VIEW
     // =========================================================================

@@ -386,6 +386,33 @@ class SchemaBuilder
         return $result && $result->numRows > 0;
     }
 
+    /**
+     * Returns true if the named index exists on the given table.
+     *
+     * Keyed on the index **name**, not on its columns. Two indexes over the same
+     * columns are legal, so "is there an index on this column" would have a migration
+     * skip creating the one it needs because an unrelated index happens to cover the
+     * same ground.
+     *
+     * A constraint-backed index — a UNIQUE constraint, a primary key — counts as
+     * existing, because the question a caller is really asking is whether creating it
+     * would collide.
+     *
+     * @param  string      $table
+     * @param  string      $index
+     * @param  string|null $schema
+     * @return bool
+     */
+    public function hasIndex(string $table, string $index, ?string $schema = null): bool
+    {
+        $resolved = $this->resolveTable($table);
+        $schema   = $schema ?? $this->resolveSchema();
+        $sql      = $this->getGrammar()->compileHasIndex($resolved, $index, $schema);
+        $result   = $this->db->query($sql);
+
+        return $result && $result->numRows > 0;
+    }
+
     // =========================================================================
     // Index DDL
     // =========================================================================
