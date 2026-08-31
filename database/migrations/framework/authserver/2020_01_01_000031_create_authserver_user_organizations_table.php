@@ -8,9 +8,21 @@ use Pramnos\Database\Migration;
 /**
  * Creates the authserver user_organizations table — user membership in organisations.
  *
- * A user must be a member of an organisation before they can be assigned any
- * organisation-scoped role (roles where organization_id IS NOT NULL). This mirrors
- * the GitHub organisation membership model: join first, then receive roles.
+ * Membership is **recorded here and enforced nowhere**. Nothing in the framework
+ * checks it: not a foreign key, not {@see \Pramnos\Auth\PermissionResolver}, which
+ * has no organisation dimension and returns every active role a user holds whatever
+ * organisation that role names. A role scoped to organisation A therefore grants its
+ * permissions everywhere.
+ *
+ * This docblock used to describe the GitHub model — join the organisation first, then
+ * receive its roles — as though the framework implemented it. It does not, and
+ * building a multi-tenant application on the assumption that it does produces exactly
+ * the isolation failure the assumption was meant to prevent.
+ *
+ * What the table is good for: a place to record membership that an application's own
+ * checks can read — an ABAC condition evaluated against the request context, or a
+ * global scope on the models
+ * ({@see \Pramnos\Application\Orm\Concerns\HasScopes}).
  *
  * The table name and organisation column name are configurable via Settings so
  * that applications can use domain-specific naming:

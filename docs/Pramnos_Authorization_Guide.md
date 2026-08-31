@@ -5,6 +5,7 @@ use_cases:
   - Restricting a controller action, an API endpoint, a route or a menu item
   - Working out why a permission check returned what it did
   - Choosing between a usertype capability, a gate and a permission row
+  - Isolating one organisation's or tenant's data from another's
 ---
 
 # Authorization
@@ -259,6 +260,59 @@ is deliberate. An application that wants named permission checks implements it, 
 back to their own defaults.
 
 ---
+
+## Multi-tenancy: what the framework does not do for you
+
+The schema has `organizations`, `user_organizations`, and an organisation column on
+`authserver.roles` where NULL means "system-wide". It reads like tenant isolation. It
+is not, and this section exists because the names are more confident than the code.
+
+**`PermissionResolver` has no organisation dimension.** It scopes by *application*
+(`permissions.app_id`) and returns every active role the user holds, whatever
+organisation that role names. `authserver.user_roles` has no organisation column at
+all. Membership in `user_organizations` is recorded and never checked — no foreign
+key enforces it and no code consults it.
+
+So a role scoped to organisation A grants its permissions everywhere.
+
+### Which means isolation is yours to enforce, in one of two places
+
+**A global scope on the models** — the one that covers reads, and the one to reach
+for first:
+
+```php
+Invoice::addGlobalScope('tenant', fn(string $f): string =>
+    ($f === '' ? '' : "({$f}) AND ") . 'organization_id = ' . $currentOrgId
+);
+```
+
+It applies to every list path the model has, `_getApiList()` included, so the REST
+endpoints and datatables are covered by the same line as the admin screens. See
+[the ORM guide](Pramnos_ORM_Guide.md#scopes).
+
+**An ABAC condition on the grant**, for authorization rather than retrieval. The
+resolver returns `conditions` unevaluated, with the grant, precisely because only the
+application knows what to evaluate them against:
+
+```php
+foreach ($resolved['permissions'] as $grant) {
+    if ($grant['conditions'] !== null && !$this->conditionsHold($grant['conditions'])) {
+        continue;
+    }
+    // …
+}
+```
+
+### And a warning about the default
+
+`ApiCrudController::authorize()` treats "no rule at all" as **allowed**, deliberately,
+so that a project which has granted nothing keeps working. Combined with the above,
+that means a scaffolded multi-tenant API is open by default: no grants written, no
+scope registered, every row served to everyone who is signed in.
+
+That is the correct default for a single-tenant application and the wrong one for a
+multi-tenant one. If you are building the second, register the scope before you
+generate the endpoints, not after.
 
 ## Usertypes: what a kind of account may reach
 

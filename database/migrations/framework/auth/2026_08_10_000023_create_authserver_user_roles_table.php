@@ -7,9 +7,26 @@ use Pramnos\Database\Migration;
 /**
  * Creates the authserver user_roles table — user-to-role assignments.
  *
- * Maps users to their assigned RBAC roles. A user may hold multiple roles.
- * Assignments can be scoped to an organisation (deyaid) and may carry an
- * expiry timestamp for temporary role grants.
+ * Maps users to their assigned RBAC roles. A user may hold multiple roles, and an
+ * assignment may carry an expiry timestamp for a temporary grant.
+ *
+ * **An assignment is not organisation-scoped.** This docblock and the table comment
+ * used to say it could be, and there is no column for it: the row is (userid, roleid)
+ * and nothing else. Organisation lives one level up, on `authserver.roles.<org
+ * column>`, where NULL means a system-wide role.
+ *
+ * Read the rest of this before designing on it, because the shape is not what the
+ * table names suggest: {@see \Pramnos\Auth\PermissionResolver} has no organisation
+ * dimension at all. It scopes by *application* (`permissions.app_id`) and returns
+ * every active role a user holds, whatever organisation that role names. So a role
+ * scoped to organisation A grants its permissions everywhere, and membership in
+ * `user_organizations` is recorded but never checked.
+ *
+ * Isolating one organisation's data from another's is therefore the application's
+ * job today — through the ABAC `conditions` the resolver passes through unevaluated,
+ * or a global scope on the models
+ * ({@see \Pramnos\Application\Orm\Concerns\HasScopes}). Do not assume the
+ * framework is enforcing it.
  *
  * Lives under the `auth` feature, not `authserver`: an application with users
  * needs somewhere to record who may do what, whether or not it ever runs an
@@ -34,7 +51,12 @@ class CreateAuthserverUserRolesTable extends Migration
         }
 
         $schema->createTable('authserver.user_roles', function ($table) {
-            $table->comment('User-to-role assignments — one row per (user, role) pair; supports temporary and org-scoped grants');
+            // No mention of organisation scoping: there is no column for it, and the
+            // comment saying otherwise was the only thing suggesting there was.
+            // Existing installations keep the old comment — this migration is guarded
+            // by hasTable() and will not re-run — so the docblock above is where the
+            // correction actually reaches a reader.
+            $table->comment('User-to-role assignments — one row per (user, role) pair; may carry an expiry for a temporary grant');
 
             $table->bigInteger('userid')
                 ->comment('FK to users.userid — the user receiving the role');
