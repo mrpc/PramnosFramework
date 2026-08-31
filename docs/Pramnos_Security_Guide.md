@@ -5,6 +5,7 @@ use_cases:
   - Hardening sessions, passwords or security headers
   - Configuring a Content Security Policy or trusted proxies
   - Adding a human check to a public write endpoint
+  - Storing a credential the application has to read back (SMTP, API token, signing key)
 ---
 
 # Pramnos Security Guide
@@ -315,6 +316,77 @@ doing for a reason.
 **What is deliberately not here**: checking passwords against breach corpora. It needs an
 outbound call per password change to a third party, and that is a decision an application
 makes with its own privacy notice, not one a framework makes for it.
+
+## Secrets at rest: hash what you verify, encrypt what you use
+
+Two kinds of secret live in the database, and they want opposite treatment.
+
+A secret you only ever **check** — a user's password, a 2FA backup code — is
+hashed. Nothing ever needs the original back, so nothing should be able to get
+it back. `PasswordHash::make()` and `password_verify()` do this, and
+[the password section above](#password-security) covers it.
+
+A secret you have to **use** — an SMTP password, a webhook signing key, a TOTP
+seed — cannot be hashed, because the application needs the actual bytes to
+authenticate outbound, compute an HMAC, or derive a code. Those are encrypted
+with `Pramnos\Security\Encrypter`.
+
+Reaching for encryption on the first kind is a downgrade, not extra safety: a
+reversible secret plus an `APP_KEY` that sits in `.env` on the same host gives an
+attacker back what a hash never would.
+
+### Using the Encrypter
+
+```php
+use Pramnos\Security\Encrypter;
+
+$stored = Encrypter::encrypt($apiToken);   // "enc:v1:…", safe for any text column
+$token  = Encrypter::decrypt($stored);     // back to the original
+
+// A column that may still hold values written before it was encrypted:
+$token = Encrypter::maybeDecrypt($row['api_token']);
+```
+
+NaCl secretbox (XSalsa20-Poly1305) via libsodium, keyed from `APP_KEY`. It is
+authenticated, so a value altered in the column fails to open instead of
+decrypting to something plausible — `decrypt()` throws rather than guessing.
+
+`maybeDecrypt()` is what makes adoption free. It returns anything without the
+`enc:v1:` marker unchanged, so a column can be read through it from the first
+deploy: old rows come back as they are, new rows come back decrypted, and the
+column converts itself as values are rewritten. No migration, no downtime.
+
+`Encrypter::isAvailable()` reports whether `APP_KEY` is set, for a screen that
+would rather warn than fail.
+
+### What it protects, and what it does not
+
+The key is in `.env`, on the same host as the application. So this defends
+against every way a database is read *without* the filesystem — a leaked backup,
+a dump handed to a contractor, SQL injection in an unrelated endpoint, a hosting
+neighbour, a DBA reading rows they should not. It does not defend against an
+attacker who owns the host: they read `.env` and decrypt at leisure.
+
+Worth having. Worth not overstating — "encrypted at rest" in a compliance answer
+means the first list, never the second.
+
+### Rotating APP_KEY
+
+Everything encrypted under the old key becomes unreadable, loudly:
+`decrypt()` throws rather than returning nonsense. Re-encrypt before rotating,
+or accept that those credentials have to be entered again.
+
+### Settings that are encrypted automatically
+
+`Settings` encrypts the values it knows are credentials, listed in
+`Settings::ENCRYPTED_SETTINGS`. Currently that is `smtp_pass`.
+
+Nothing else changes: `Settings::getSetting('smtp_pass')` returns the plaintext
+it always did, and `setSetting()` takes a plaintext. Only the row is different.
+An existing installation needs no migration — the row converts itself the next
+time the settings screen is saved — and if `APP_KEY` is not set the value is
+stored as before, because a settings screen that refuses to save is worse than
+the problem it would be avoiding.
 
 ## XSS Prevention
 

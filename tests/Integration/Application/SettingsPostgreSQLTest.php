@@ -82,6 +82,14 @@ class SettingsPostgreSQLTest extends TestCase
             . "VALUES ('sitename', 'Integration'), ('timezone', 'Europe/Athens')"
         );
 
+        // The bulk read is cached for Settings::CACHE_TTL under the "settings"
+        // category, keyed on the query — which does not change when setUp drops and
+        // recreates the table. A run that populated that entry made this test read a
+        // stale empty result and fail on the default for the next five minutes, with
+        // nothing in the diff to explain it. Only setSetting() invalidates the
+        // category, and the rows above were inserted around it.
+        $this->db->cacheflush('settings');
+
         // Act — one call, which must bulk-load both
         $sitename = Settings::getSetting('sitename');
 

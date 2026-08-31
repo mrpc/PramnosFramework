@@ -162,7 +162,31 @@ class Settings extends \Pramnos\Framework\Base
     }
 
     /**
+     * Settings whose value is encrypted in the database.
+     *
+     * A credential the application has to *use* — SMTP AUTH needs the password
+     * itself, not a hash of it — so it is encrypted rather than hashed, and this
+     * list is where the two ends of that agree. {@see getSetting()} decrypts on the
+     * way out and {@see setSetting()} encrypts on the way in, so nothing else in
+     * the framework or in an application has to know: the value handed around is
+     * the plaintext it always was.
+     *
+     * Conversion needs no migration. A row written before this existed carries no
+     * marker, {@see \Pramnos\Security\Encrypter::maybeDecrypt()} returns it
+     * unchanged, and the row converts itself the next time it is saved.
+     *
+     * @var string[]
+     */
+    protected const ENCRYPTED_SETTINGS = [
+        'smtp_pass',
+    ];
+
+    /**
      * Get a setting
+     *
+     * Values named in {@see ENCRYPTED_SETTINGS} are decrypted here, so a caller
+     * always receives the plaintext regardless of how the row is stored.
+     *
      * @param string $setting Setting to return
      * @param mixed $defaultValue Default value to return if no setting is set
      * @param bool $force Force reloading the setting from database if database
@@ -170,6 +194,39 @@ class Settings extends \Pramnos\Framework\Base
      * @return mixed Return Value or False if not set
      */
     static function getSetting($setting, $defaultValue = false, $force = false)
+    {
+        $value = self::readSetting($setting, $defaultValue, $force);
+
+        if (!is_string($value)
+            || !in_array($setting, static::ENCRYPTED_SETTINGS, true)
+        ) {
+            return $value;
+        }
+
+        try {
+            return \Pramnos\Security\Encrypter::maybeDecrypt($value);
+        } catch (\RuntimeException) {
+            // A value that will not open — APP_KEY rotated, or the column
+            // truncated. Returning the ciphertext would be worse than returning
+            // nothing: it would be handed to an SMTP server as a password and the
+            // failure would surface as a mail problem, three layers from the cause.
+            return $defaultValue;
+        }
+    }
+
+    /**
+     * Read a setting from the in-memory store, the settings file, or the database.
+     *
+     * The whole of the former getSetting() body. Split out so encryption has one
+     * place to happen: this method has a dozen return points and the public one has
+     * exactly one.
+     *
+     * @param string $setting Setting to return
+     * @param mixed $defaultValue Default value to return if no setting is set
+     * @param bool $force Force reloading the setting from database
+     * @return mixed
+     */
+    protected static function readSetting($setting, $defaultValue = false, $force = false)
     {
         if (isset(self::$settings[$setting]) && $force == false) {
             if (is_array(self::$settings[$setting])) {
@@ -322,7 +379,24 @@ class Settings extends \Pramnos\Framework\Base
      */
     static function setSetting($setting, $value, $writeToDatabase = true)
     {
+        // The in-memory store keeps whatever the caller passed; only the row is
+        // encrypted, and getSetting() decrypts on the way back out. Storing the
+        // ciphertext here too would mean the value read within this same request
+        // depended on whether it had already been written.
         self::$settings[$setting] = $value;
+
+        if (is_string($value)
+            && $value !== ''
+            && in_array($setting, static::ENCRYPTED_SETTINGS, true)
+            && \Pramnos\Security\Encrypter::isAvailable()
+        ) {
+            // Not encrypted when APP_KEY is missing: an installation that never
+            // ran key:generate must still be able to save its mail settings, and
+            // an unreadable credential is a worse outcome than the one this
+            // protects against. The row converts itself once a key exists.
+            $value = \Pramnos\Security\Encrypter::encrypt($value);
+        }
+
         if ($writeToDatabase == true && is_object(self::$database)) {
             // The builder is the only layer that knows the dialect: it resolves
             // the table's prefix, quotes identifiers per driver and binds the
