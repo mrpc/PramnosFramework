@@ -16,8 +16,10 @@
 <?php $this->getElement('head'); ?>
 </head>
 <body>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+
 <?php $this->get_Header(); ?>
-<main class="main-content">
+<main id="main-content" class="main-content">
     <div class="container">
         [MODULE]
     </div>
