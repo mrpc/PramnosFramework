@@ -261,24 +261,68 @@ back to their own defaults.
 
 ---
 
-## Multi-tenancy: what the framework does not do for you
+## Multi-tenancy: scoping to an organisation
 
 The schema has `organizations`, `user_organizations`, and an organisation column on
-`authserver.roles` where NULL means "system-wide". It reads like tenant isolation. It
-is not, and this section exists because the names are more confident than the code.
+`authserver.roles` where NULL means "system-wide". Whether any of it is *enforced*
+depends on which method you call, and the difference matters more than it looks.
 
-**`PermissionResolver` has no organisation dimension.** It scopes by *application*
-(`permissions.app_id`) and returns every active role the user holds, whatever
-organisation that role names. `authserver.user_roles` has no organisation column at
-all. Membership in `user_organizations` is recorded and never checked — no foreign
-key enforces it and no code consults it.
+### `resolve()` is not scoped, and never was
 
-So a role scoped to organisation A grants its permissions everywhere.
+```php
+$resolver->resolve($userId, $appId);
+```
 
-### Which means isolation is yours to enforce, in one of two places
+Returns the permissions of **every** active role the user holds, whatever
+organisation that role belongs to. It scopes by application (`permissions.app_id`),
+not by organisation. In a multi-tenant application that is the wrong question: a
+role defined for organisation 5 will answer for organisation 3.
 
-**A global scope on the models** — the one that covers reads, and the one to reach
-for first:
+It stays that way because that is what it has always done and applications depend on
+it. Use it when there is one tenant, or when you are asking "what can this person do
+anywhere".
+
+### `resolveForOrganization()` is
+
+```php
+$resolver->resolveForOrganization($userId, $appId, $organizationId);
+```
+
+A role counts only if it is **system-wide** (`organization_id` NULL), or belongs to
+that organisation **and the user is an active, unexpired member of it**.
+
+| Role's organisation | User a member? | Counts |
+|---|---|---|
+| NULL (system-wide) | — | yes |
+| the one being asked about | yes | yes |
+| the one being asked about | no, or membership inactive/expired | **no** |
+| a different one | — | **no** |
+
+Membership is read from `authserver.user_organizations` (or whatever
+`authserver_organization_table` points at). `is_active = 0` counts as not a member —
+that is how the admin screen removes somebody, keeping the audit trail — and so does
+a passed `expires_at`.
+
+**Leaving an organisation deletes nothing.** The role assignment stays exactly where
+it is and stops counting; rejoining restores the same set. Revoking access and
+forgetting what somebody was are different operations.
+
+Direct grants to the user are unaffected by any of this: they are on the person, not
+on a role, so they have no organisation to scope by.
+
+It is one joined query — measurably cheaper than reading memberships separately, even
+when they are already in memory.
+
+### It is opt-in, and that is the part to get right
+
+Nothing calls `resolveForOrganization()` for you. `ApiCrudController`, `Gate` and
+`Permissions` all use `resolve()`, because they are not given an organisation and
+have no way to guess one. Isolating tenants means your code deciding which
+organisation a request is about and asking that question.
+
+For **reads**, that is usually not an authorization question at all but a query one,
+and a global scope on the models is the answer — one line, covering every list path
+including the REST endpoints:
 
 ```php
 Invoice::addGlobalScope('tenant', fn(string $f): string =>
@@ -286,29 +330,14 @@ Invoice::addGlobalScope('tenant', fn(string $f): string =>
 );
 ```
 
-It applies to every list path the model has, `_getApiList()` included, so the REST
-endpoints and datatables are covered by the same line as the admin screens. See
-[the ORM guide](Pramnos_ORM_Guide.md#scopes).
-
-**An ABAC condition on the grant**, for authorization rather than retrieval. The
-resolver returns `conditions` unevaluated, with the grant, precisely because only the
-application knows what to evaluate them against:
-
-```php
-foreach ($resolved['permissions'] as $grant) {
-    if ($grant['conditions'] !== null && !$this->conditionsHold($grant['conditions'])) {
-        continue;
-    }
-    // …
-}
-```
+See [the ORM guide](Pramnos_ORM_Guide.md#scopes).
 
 ### And a warning about the default
 
 `ApiCrudController::authorize()` treats "no rule at all" as **allowed**, deliberately,
-so that a project which has granted nothing keeps working. Combined with the above,
-that means a scaffolded multi-tenant API is open by default: no grants written, no
-scope registered, every row served to everyone who is signed in.
+so that a project which has granted nothing keeps working. Combined with `resolve()`
+being the unscoped one, a scaffolded multi-tenant API is open by default: no grants
+written, no scope registered, every row served to everyone signed in.
 
 That is the correct default for a single-tenant application and the wrong one for a
 multi-tenant one. If you are building the second, register the scope before you

@@ -29,6 +29,31 @@ class AuthCharacterizationTest extends TestCase
         $this->originalAddons = $this->getAddonRegistry();
         $this->setAddonRegistry([]);
         $_SESSION = [];
+
+        // One test here reads permissions, which needs a live connection. This class
+        // used to take whatever the previous test left in the Database singleton and
+        // pass or fail depending on what that was — so it failed on its own and
+        // passed in a full run, which is the least useful combination a test can
+        // have.
+        //
+        // The settings have to be loaded for the connection to have credentials, and
+        // the singleton nulled first: a clone restored by some other suite reports
+        // itself connected while holding no handle.
+        if (!defined('CONFIG')) {
+            define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
+        }
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php'
+        );
+        \Pramnos\Application\Application::getInstance();
+
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $dbRef = null;
+
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
     }
 
     protected function tearDown(): void
