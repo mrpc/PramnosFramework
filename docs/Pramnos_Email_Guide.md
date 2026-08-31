@@ -595,6 +595,41 @@ asking to stay on the announcements list.
 
 An application with its own idea of an audience hands `queue()` its own list of ids instead.
 
+#### Two traps in reading a compose form
+
+Both are in `criteriaFrom()`, both are asserted, and both mail the wrong people when got wrong.
+
+**A false boolean is not an empty value.** `array_filter` cannot tell *the operator unticked
+this* from *the operator said nothing*, so the two booleans are written after it:
+
+```php
+$criteria = array_filter([...], fn ($v) => $v !== '' && $v !== 0);
+
+$criteria['validated_only'] = (bool) $request->get('validated_only', 0, 'post', 'int');
+$criteria['active_only']    = (bool) $request->get('active_only', 0, 'post', 'int');
+```
+
+Dropped, `validated_only` reverts to its default — which **excludes** accounts the operator
+chose to include, and makes the count on the screen disagree with the send.
+
+**An empty template is a decision.** "No wrapper for this campaign" is a thing somebody chooses
+and looks exactly like an empty form field, so the form posts `__default__` for *said nothing*
+and `''` for *chose none*. Only the second is stored.
+
+The audit record follows the same rule: no options chosen means **no `options` key**, because an
+empty object in the record reads as a decision, and this record is what somebody months later
+reads to answer "who was this aimed at, and how".
+
+#### Reading it back
+
+`request` is a JSON column on MySQL and text on PostgreSQL, and **MySQL reformats the document**
+— its own key order, spaces after colons. So compare the decoded value, never the serialisation:
+a test that matched `'"language":"el"'` passes on exactly one backend.
+
+`criteriaOf()` decodes defensively for the same reason it exists: an older row, or one written by
+something else, is not a reason to fail rendering the screen — the screen is how somebody finds
+out what happened.
+
 ### The send options travel with the criteria
 
 A campaign can also carry a wrapper, an unsubscribe list, open/click tracking and a Gmail
