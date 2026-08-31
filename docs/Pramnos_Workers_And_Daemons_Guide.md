@@ -195,6 +195,26 @@ php pramnos work --max-runtime=3600 # exit hourly for a supervisor to restart
 `work` holds a single-instance lock and stops cooperatively, so a SIGTERM
 during a task lets that task finish.
 
+Three things about that lock, because each of them is the sort of decision that
+looks like an oversight:
+
+- **`--once` does not take it.** It is the cron equivalent, and a crontab line
+  that refused to run because a `work` process holds the lock would be a cron
+  line that silently does nothing, once a minute, for ever. The cost is the
+  honest one: run a crontab line *and* a `work` daemon on the same installation
+  and a task without `withoutOverlapping()` can run twice. Pick one shape.
+- **A lock taken over stops the worker.** `heartbeat()` answers `false` once
+  another process owns the lock — which is what a deploy looks like from inside,
+  the replacement having started before this one was told to stop. Carrying on
+  is how every job runs twice for the length of a rollout.
+- **`--max-runtime` exits 0.** A supervisor is told to restart on exit, and a
+  planned recycle that reports a non-zero status becomes a crash in whatever
+  reads the unit's history.
+
+`--interval=0` is clamped to one second rather than taken literally; the loop
+sleeps in one-second steps so a SIGTERM is noticed within a second instead of at
+the end of the interval.
+
 **With a daemon orchestrator** — nothing to do. `DaemonOrchestrator` supervises
 `work` alongside the application's own daemons, so a project that has an
 orchestrator already runs the schedule. See
