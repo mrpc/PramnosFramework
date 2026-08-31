@@ -288,4 +288,61 @@ class RequestUriAndStateTest extends TestCase
         Request::resetInstance();
         $_SESSION = [];
     }
+
+    /**
+     * A path with no second segment leaves no action behind from the last one.
+     *
+     * `self::$action` is written only when there **is** a second segment, so a re-route to a
+     * bare module used to inherit the previous call's action — and `getAction()` answered with
+     * it. One request per process hides that in production; a suite is one process for thousands
+     * of requests, which is where it was found.
+     *
+     * The consequence is not cosmetic. A controller that reads the action as an identifying
+     * value — a hash in `/updatemailsettings/<hash>` — terminates with "Invalid User" when it
+     * inherits an unrelated one, so the page fails for a reason that has nothing to do with the
+     * request being made.
+     */
+    public function testARerouteToABareModuleDoesNotInheritTheOldAction(): void
+    {
+        // Arrange — a first route with an action.
+        Request::resetInstance();
+        $_SERVER['REQUEST_URI'] = '/index.php?r=users/edit';
+        $request = new Request();
+        $request->calcParams('users/edit');
+        $this->assertSame('edit', $request->getAction(), 'precondition: the action was read');
+
+        // Act — a second route to a module with no action at all.
+        $request->calcParams('dashboard');
+
+        // Assert
+        $this->assertSame('dashboard', $request->getController());
+        $this->assertSame(
+            '',
+            $request->getAction(),
+            'the previous route\'s action survived, so this module answers as that one'
+        );
+    }
+
+    /**
+     * The controller and the action are cleared together, which is the invariant.
+     *
+     * Stated as one assertion because the bug was the asymmetry: the controller was cleared and
+     * the action was not, inside the same six lines. Anything that clears one and not the other
+     * is the same defect again under a different name.
+     */
+    public function testTheControllerAndTheActionAreClearedTogether(): void
+    {
+        // Arrange
+        Request::resetInstance();
+        $_SERVER['REQUEST_URI'] = '/index.php?r=alpha/beta';
+        $request = new Request();
+        $request->calcParams('alpha/beta');
+
+        // Act — a route that names neither.
+        $request->calcParams('');
+
+        // Assert
+        $this->assertSame('', $request->getController());
+        $this->assertSame('', $request->getAction());
+    }
 }

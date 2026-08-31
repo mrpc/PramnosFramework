@@ -442,6 +442,24 @@ class Request extends Base
             $requestParam=self::$originalRequest;
         }
         self::$_controller = '';
+        /*
+         * And the action, which used to survive.
+         *
+         * `self::$action` is written only when the path has a second segment, and was cleared
+         * only by `resetInstance()`. So `calcParams('module')` — a path with no second segment —
+         * left the **previous** call's action in place, and `getAction()` answered with it.
+         *
+         * The asymmetry inside this one method was the whole tell: if an action were meant to
+         * survive a re-route, the controller beside it would not be cleared either.
+         *
+         * One request per process hides it in production. A test suite is one process for
+         * thousands of requests, and that is where it was found: a controller reading the action
+         * as an identifying hash terminated with «Invalid User» because it inherited the action
+         * of an unrelated earlier test. `Testing\TestClient` documents the same leak for the
+         * controller — "`/` served the previous URL's controller" — and fixes it by resetting
+         * the instance; the action was simply missed.
+         */
+        self::$action = '';
         $request = rtrim($requestParam, '/');
         $parsedUrl = parse_url($_SERVER['REQUEST_URI']);
         if (is_array($parsedUrl) && isset($parsedUrl['query'])) {
