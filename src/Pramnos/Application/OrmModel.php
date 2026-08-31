@@ -262,6 +262,105 @@ abstract class OrmModel extends Model
     }
 
     // -------------------------------------------------------------------------
+    // Soft-delete + scopes, for every list path
+    // -------------------------------------------------------------------------
+
+    /**
+     * Merge the soft-delete filter and the scopes into a caller's filter.
+     *
+     * One helper for the three list entry points below, because they used not to
+     * agree. `_getList()` applied both; `_getPaginated()` and
+     * `_datatablesRecordsTotal()` applied neither — and those two are what
+     * `_getApiList()` calls the moment a page is requested, which is what every REST
+     * endpoint, generated CRUD list and datatable does. So a scope registered as
+     * `addGlobalScope('tenant', …)`, the use this trait's own documentation shows,
+     * held on the unpaginated list and vanished on the paginated one: one tenant's
+     * API returning another's rows, and the reported total counting them.
+     *
+     * The `where` handling is the second half of the same story.
+     * {@see \Pramnos\Application\ApiList\ApiListSqlBuilder::combineFilters()} hands
+     * these methods a filter that already begins with `where`, and wrapping that in
+     * parentheses produced `(where x = 1) AND (deleted_at IS NULL)` — a syntax error,
+     * returned as an empty result set with the message buried in the response
+     * envelope's `error` key. A soft-deleting model listed with any filter at all
+     * came back empty and said nothing about why.
+     *
+     * @param mixed $filter The caller's filter: null, '', a bare condition, or one
+     *                      already prefixed with `where`.
+     * @return string|null The merged filter, keyword-free, or null when empty — the
+     *                     shape the list methods have always accepted.
+     */
+    protected function mergeListConditions($filter): ?string
+    {
+        $filter = is_string($filter) ? trim($filter) : '';
+
+        if (stripos($filter, 'where') === 0) {
+            $filter = trim(substr($filter, 5));
+        }
+
+        $filter = $this->mergeSoftDeleteFilter($filter === '' ? null : $filter);
+        $filter = $this->applyGlobalScopes($filter);
+        $filter = $this->applyPendingScopes($filter);
+
+        return $filter === '' ? null : $filter;
+    }
+
+    /**
+     * The paginated list, with the same conditions {@see _getList()} applies.
+     *
+     * This is the path `_getApiList()` takes whenever a page is requested — every
+     * REST list endpoint, every generated CRUD screen, every datatable. Without this
+     * override it went straight to the base implementation and neither the
+     * soft-delete filter nor a single global scope reached the query.
+     *
+     * The parameter list mirrors {@see \Pramnos\Application\Model::_getPaginated()}
+     * exactly, because that is the contract callers already have.
+     */
+    protected function _getPaginated($items = 10, $page = 1,
+        $filter = null, $order = null, $table = null,
+        $key = null, $debug = false,
+        $join = '',
+        $queryFields = null,
+        $group = '', $returnAsModels = true, $useGetData = false,
+        $customGetListMethod = false, $addedfields = array())
+    {
+        return parent::_getPaginated(
+            $items, $page, $this->mergeListConditions($filter), $order, $table,
+            $key, $debug, $join, $queryFields, $group, $returnAsModels,
+            $useGetData, $customGetListMethod, $addedfields
+        );
+    }
+
+    /**
+     * The row count behind a datatable, with the same conditions applied.
+     *
+     * Without this the count is over the whole table while the page is over one
+     * tenant's rows: a pager offering pages that come back empty, and a disclosure of
+     * how many records the other tenants have.
+     *
+     * It merges, then calls `parent::_getPaginated()` rather than
+     * `parent::_datatablesRecordsTotal()`. The base version would route back through
+     * the override above and merge a second time — harmless for a soft-delete filter,
+     * but it would apply every global scope twice, and a scope that is not a pure
+     * condition (one that appends a join, say) would not survive that.
+     *
+     * Known limit: a *local* scope queued with `applyScope()` is consumed by whichever
+     * of the two calls runs first, so on a datatables request it reaches the page and
+     * not the count. Global scopes and soft deletes — the ones that carry tenant
+     * isolation — are unaffected, being re-derived on each call.
+     */
+    protected function _datatablesRecordsTotal(
+        $baseFilter, $table, $key, $join, $selectFields, $group, $addedfields
+    ): int {
+        $counted = parent::_getPaginated(
+            1, 1, $this->mergeListConditions($baseFilter), '', $table, $key, false,
+            $join, $selectFields, $group, false, false, false, $addedfields
+        );
+
+        return (int) ($counted['total'] ?? 0);
+    }
+
+    // -------------------------------------------------------------------------
     // Override _getList() — add soft-delete + scopes
     // -------------------------------------------------------------------------
 
@@ -280,20 +379,7 @@ abstract class OrmModel extends Model
         $customGetListMethod = false,
         $addedfields         = false
     ) {
-        // Apply soft-delete filter
-        $filter = $this->mergeSoftDeleteFilter(is_string($filter) ? $filter : null);
-
-        // Apply global scopes
-        $filter = $this->applyGlobalScopes($filter ?? '');
-        if ($filter === '') {
-            $filter = null;
-        }
-
-        // Apply local scopes accumulated via applyScope()
-        $filter = $this->applyPendingScopes($filter ?? '');
-        if ($filter === '') {
-            $filter = null;
-        }
+        $filter = $this->mergeListConditions($filter);
 
         $results = parent::_getList(
             $filter, $order, $table, $key, $debug, $join,

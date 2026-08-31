@@ -3,6 +3,7 @@ use_cases:
   - Defining a model, its relationships or its casts
   - Using scopes, accessors, mutators or model events
   - Enabling soft deletes or automatic timestamps
+  - Scoping a model's rows to one tenant, account or organisation
 ---
 
 # Pramnos ORM Guide
@@ -199,33 +200,70 @@ foreach ($users as $user) {
 
 ## Scopes
 
-Query scopes are methods that encapsulate WHERE logic for reuse:
+A scope is a reusable piece of WHERE logic. Scopes work on **filter strings**, not
+on a fluent query object: a scope method receives the filter built so far and
+returns it with its own condition appended.
+
+### Local scopes
+
+Define `scopeXxx(string $filter, ...$args): string` on the model and reach it with
+`applyScope()`. `appendCondition()` does the ANDing and the parenthesising:
 
 ```php
-class User extends Model
+class Post extends OrmModel
 {
-    // Local scope
-    public function scopeActive($query)
+    public function scopePublished(string $filter): string
     {
-        return $query->where('active', 1);
+        return $this->appendCondition($filter, "status = 'published'");
     }
-    
-    public function scopeByEmail($query, $email)
+
+    public function scopeOlderThan(string $filter, int $days): string
     {
-        return $query->where('email', $email);
-    }
-    
-    // Static scope (shorthand)
-    public static function scopeRecent($query)
-    {
-        return $query->orderBy('created_at', 'desc');
+        return $this->appendCondition(
+            $filter,
+            "created_at < DATE_SUB(NOW(), INTERVAL {$days} DAY)"
+        );
     }
 }
 
-// Usage
-$activeUsers = User::active()->recent()->get();
-$user = User::byEmail('john@example.com')->first();
+$posts = $post->applyScope('published')->_getList();
+$stale = $post->applyScope('olderThan', 30)->_getList();
 ```
+
+`applyScope()` queues the scope for the **next query only** and returns `$this`, so
+calls chain.
+
+### Global scopes
+
+Registered once per model class and applied to every query that model makes:
+
+```php
+Post::addGlobalScope('tenant', fn(string $f): string =>
+    ($f === '' ? '' : "({$f}) AND ") . 'tenant_id = ' . Auth::tenantId()
+);
+```
+
+Remove one permanently with `Post::removeGlobalScope('tenant')`, or skip it for a
+single query with `$post->withoutGlobalScope('tenant')->_getList()`.
+
+### Where scopes apply
+
+Global scopes and the soft-delete filter apply to **every** list path a model has:
+`_getList()`, `_getPaginated()`, the datatable row count, and `_getApiList()` — which
+is what the REST endpoints, the generated CRUD controllers and the datatables call.
+
+This matters most when a global scope is what separates one tenant's data from
+another's, which is the use the example above shows. A scope that held on some paths
+and not others would not be a partial feature; it would be a leak, and one that shows
+up only on whichever screen happens to paginate.
+
+A caller's own filter is **combined** with the scopes, never replaced by them, so an
+endpoint that accepts a filter cannot be used to shed the tenant condition.
+
+One limit, stated because it is invisible otherwise: a *local* scope queued with
+`applyScope()` is consumed by the first query it reaches, so on a datatables request
+it applies to the page and not to the total row count. Global scopes and soft deletes
+are re-derived per call and are unaffected. Put tenant isolation in a global scope.
 
 ## Casting
 
