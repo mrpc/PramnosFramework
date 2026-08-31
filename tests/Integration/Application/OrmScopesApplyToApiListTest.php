@@ -351,6 +351,49 @@ class OrmScopesApplyToApiListTest extends TestCase
         $this->assertSame(['ours'], $fromApi);
         $this->assertSame($fromList, $fromApi);
     }
+
+    /**
+     * The datatables grand total is scoped too.
+     *
+     * `recordsTotal` is the count *before* the search box, and it is the one path
+     * that reaches `_datatablesRecordsTotal()` — only when a search is active, since
+     * without one it would equal the filtered count and the extra query is skipped.
+     *
+     * Unscoped, it is the number of rows in the whole table. A datatable then draws
+     * a pager for every tenant's records, shows a footer counting them, and pages
+     * into emptiness — the row count of another organisation, leaked through a
+     * widget nobody thinks of as an endpoint.
+     */
+    public function testTheDatatablesGrandTotalIsScoped(): void
+    {
+        // Arrange
+        $this->seed('ours-one', 1);
+        $this->seed('ours-two', 1);
+        $this->seed('theirs-one', 2);
+        $this->seed('theirs-two', 2);
+        $this->seed('theirs-three', 2);
+
+        ScopedApiListItem::addGlobalScope(
+            'tenant',
+            fn(string $filter): string => ($filter === '' ? '' : "({$filter}) AND ")
+                . 'tenant_id = 1'
+        );
+
+        // Act — a search narrows it further, which is what makes recordsTotal and
+        // recordsFiltered differ and sends the code down the extra-count path.
+        $response = $this->item()->_getApiList(
+            ['id', 'label'], 'ours-one', '', '', '', '', null, null, 1, 10,
+            false, false, false, false, false, 'datatables'
+        );
+
+        // Assert — two rows belong to this tenant, one of them matches the search.
+        $this->assertSame(1, (int) ($response['recordsFiltered'] ?? -1));
+        $this->assertSame(
+            2,
+            (int) ($response['recordsTotal'] ?? -1),
+            'recordsTotal counted rows outside the scope.'
+        );
+    }
 }
 
 /**

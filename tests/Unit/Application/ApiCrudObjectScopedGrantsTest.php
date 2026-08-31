@@ -63,18 +63,22 @@ class ObjectScopedCrudController extends ApiCrudController
         return $this->askPermissionResolver(7, $action);
     }
 
-    /** The record-level question. */
-    public function askObject(string $action, string $objectId): ?bool
+    /**
+     * The signed-in user permissionForObject() resolves for itself.
+     *
+     * Fixed rather than settable: the grants are what each test varies, and the
+     * identity only has to be *some* user for the lookup to proceed. The anonymous
+     * case has its own controller below, because it needs this to return null.
+     */
+    protected function requestUser(): ?object
     {
-        return $this->permissionForObjectAsUser(7, $action, $objectId);
+        return (object) ['userid' => 7];
     }
 
-    /** permissionForObject() without the request-user lookup a unit test cannot do. */
-    private function permissionForObjectAsUser(int $userId, string $action, string $objectId): ?bool
+    /** The record-level question, through the real public path. */
+    public function askObject(string $action, string $objectId): ?bool
     {
-        $method = new \ReflectionMethod(ApiCrudController::class, 'resolverVerdict');
-
-        return $method->invoke($this, $userId, $action, $objectId);
+        return $this->permissionForObject($action, $objectId);
     }
 }
 
@@ -343,5 +347,64 @@ class ApiCrudObjectScopedGrantsTest extends TestCase
 
         // Act + Assert
         $this->assertNull($controller->askEndpoint('read'));
+    }
+
+    /**
+     * An anonymous request has no permissions to read.
+     *
+     * `permissionForObject()` resolves the user itself, so it has to answer for a
+     * request that has none — and "no opinion" is the answer, not a denial, because
+     * a denial here would be a decision made about somebody who was never identified.
+     */
+    public function testAnAnonymousRequestGetsNoOpinion(): void
+    {
+        // Arrange — a request with nobody on it: requestUser() returns null.
+        $anonymous = new class extends ApiCrudController {
+            public function __construct() {}
+
+            protected function requestUser(): ?object
+            {
+                return null;
+            }
+
+            protected function resourceName(): string
+            {
+                return 'invoice';
+            }
+
+            public function askObject(string $action, string $objectId): ?bool
+            {
+                return $this->permissionForObject($action, $objectId);
+            }
+        };
+
+        // Act + Assert
+        $this->assertNull($anonymous->askObject('read', '42'));
+    }
+
+    /**
+     * The default resolver is a real PermissionResolver.
+     *
+     * The seam exists so tests can substitute one; this asserts the production path
+     * still builds the real thing, so overriding it in a test cannot quietly become
+     * the only implementation anybody exercises.
+     */
+    public function testTheDefaultResolverIsTheRealOne(): void
+    {
+        // Arrange
+        $controller = new class extends ApiCrudController {
+            public function __construct() {}
+
+            public function exposeResolver(): PermissionResolverInterface
+            {
+                return $this->permissionResolver();
+            }
+        };
+
+        // Act + Assert
+        $this->assertInstanceOf(
+            \Pramnos\Auth\PermissionResolver::class,
+            $controller->exposeResolver()
+        );
     }
 }

@@ -622,6 +622,74 @@ class WebhookServiceTest extends TestCase
             'lastError must be prefixed with "cURL error:" for connection failures');
     }
 
+    /**
+     * A signing key that will not decrypt fails the delivery, with a reason.
+     *
+     * The key is stored encrypted, so after an `APP_KEY` rotation — or against a
+     * column that was truncated — it cannot be read back. Signing with the ciphertext
+     * would produce a delivery the receiver rejects as forged, and the operator would
+     * go looking for the problem in the receiver's logs, on the other side of the
+     * connection from the cause.
+     *
+     * So the attempt fails here, where the reason can be stated: no HTTP request is
+     * made at all.
+     */
+    public function testDeliverEventFailsWhenTheSigningKeyCannotBeDecrypted(): void
+    {
+        // Arrange — a value carrying the marker, encrypted under a key that is gone.
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+        $sealed = \Pramnos\Security\Encrypter::encrypt('the-real-signing-key');
+
+        $rotated = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $rotated);
+        $_ENV['APP_KEY'] = $rotated;
+
+        $db      = $this->createMock(Database::class);
+        $service = new class($db) extends WebhookService {
+            public function publicDeliverEvent(array $event): bool
+            {
+                return $this->deliverEvent($event);
+            }
+
+            public function publicGetLastError(): string
+            {
+                $ref = new \ReflectionProperty(WebhookService::class, 'lastError');
+                return $ref->getValue($this);
+            }
+        };
+
+        try {
+            // Act — the URL is unreachable on purpose: if the guard failed to fire,
+            // the test would still fail, but on a cURL error rather than this one.
+            $result = $service->publicDeliverEvent([
+                'payload'         => '{"event":"test"}',
+                'secret_key'      => $sealed,
+                'endpoint_url'    => 'http://127.0.0.1:19991/',
+                'event_type'      => 'token_revoked',
+                'timeout_seconds' => 1,
+            ]);
+
+            // Assert
+            $this->assertFalse($result);
+            $this->assertStringContainsString(
+                'Webhook signing key could not be read',
+                $service->publicGetLastError(),
+                'The failure must name the key, not the connection.'
+            );
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
+    }
+
     // ── verifySignature ───────────────────────────────────────────────────────
 
     /**

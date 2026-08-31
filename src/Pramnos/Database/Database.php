@@ -2290,6 +2290,11 @@ class Database extends \Pramnos\Framework\Base
         $string     = $string ?? '';
 
         if ($this->type == 'postgresql') {
+            // @codeCoverageIgnoreStart
+            // Unreachable in the suite: a connection of type postgresql exists only
+            // where ext-pgsql is loaded, so the guard can never fire in the same
+            // process that got one. Kept because the alternative — assuming the
+            // function is there — is what produced the old addslashes fallback.
             if (!function_exists('pg_escape_string')) {
                 throw new \Exception(
                     'Cannot escape input for PostgreSQL: the pgsql extension is not '
@@ -2298,10 +2303,13 @@ class Database extends \Pramnos\Framework\Base
                     . 'through half-escaped.'
                 );
             }
+            // @codeCoverageIgnoreEnd
 
             return pg_escape_string($connection, $string);
         }
 
+        // @codeCoverageIgnoreStart
+        // Same again for mysqli, and unreachable for the same reason.
         if (!function_exists('mysqli_real_escape_string')) {
             throw new \Exception(
                 'Cannot escape input for MySQL: the mysqli extension is not loaded. '
@@ -2309,6 +2317,7 @@ class Database extends \Pramnos\Framework\Base
                 . 'so the value is refused rather than passed through half-escaped.'
             );
         }
+        // @codeCoverageIgnoreEnd
 
         return mysqli_real_escape_string($connection, $string);
     }

@@ -677,4 +677,99 @@ class TwoFactorAuthServiceMySQLTest extends TestCase
             }
         }
     }
+
+    /**
+     * The dev panel reveals a usable enrolment seed, not the ciphertext.
+     *
+     * `AuthCollector` shows the pending seed on purpose — the whole point of
+     * `debug.reveal_factor_codes` is "the setup screen wants six digits and my phone
+     * is on the other desk". Now that the column is encrypted, the panel has to
+     * decrypt it: without that it would print `enc:v1:…` and derive a TOTP code from
+     * the ciphertext, which is a code that never matches and no visible reason why.
+     *
+     * Reached through the private method rather than `collect()`, because the panel's
+     * own path needs a signed-in request identity and a debug grant, neither of which
+     * has anything to do with what is being asserted.
+     */
+    public function testTheDevPanelSeesTheDecryptedEnrolmentSeed(): void
+    {
+        // Arrange
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+
+        try {
+            $info   = $this->service->startSetup(92, 'erin@example.com');
+            $secret = $info['secret'];
+
+            // The column really is encrypted, or the assertion below proves nothing.
+            $row = $this->db->query(
+                'SELECT temp_secret FROM authserver_twofactor_setup WHERE userid = 92'
+            );
+            $this->assertTrue(Encrypter::isEncrypted((string) $row->fields['temp_secret']));
+
+            // Act
+            $method = new \ReflectionMethod(
+                \Pramnos\Debug\Collectors\AuthCollector::class,
+                'pendingSetupSecret'
+            );
+            $seen = $method->invoke(new \Pramnos\Debug\Collectors\AuthCollector(), 92);
+
+            // Assert — the seed as enrolled, and usable as one.
+            $this->assertSame($secret, $seen);
+            $this->assertTrue(TOTPHelper::isValidSecret((string) $seen));
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
+    }
+
+    /**
+     * A seed that will not decrypt reads as no pending enrolment.
+     *
+     * After an `APP_KEY` rotation the panel cannot recover it. Printing the
+     * ciphertext would be worse than printing nothing: a developer would type it into
+     * an authenticator and spend the afternoon on why the codes do not match.
+     */
+    public function testTheDevPanelReportsNoSeedWhenItCannotDecrypt(): void
+    {
+        // Arrange — encrypted under a key that is then replaced.
+        $originalKey = getenv('APP_KEY');
+        $key         = 'base64:' . base64_encode(random_bytes(32));
+        putenv('APP_KEY=' . $key);
+        $_ENV['APP_KEY'] = $key;
+
+        try {
+            $this->service->startSetup(93, 'frank@example.com');
+
+            $rotated = 'base64:' . base64_encode(random_bytes(32));
+            putenv('APP_KEY=' . $rotated);
+            $_ENV['APP_KEY'] = $rotated;
+
+            // Act
+            $method = new \ReflectionMethod(
+                \Pramnos\Debug\Collectors\AuthCollector::class,
+                'pendingSetupSecret'
+            );
+
+            // Assert
+            $this->assertNull(
+                $method->invoke(new \Pramnos\Debug\Collectors\AuthCollector(), 93)
+            );
+        } finally {
+            if ($originalKey === false) {
+                putenv('APP_KEY');
+                unset($_ENV['APP_KEY']);
+            } else {
+                putenv('APP_KEY=' . $originalKey);
+                $_ENV['APP_KEY'] = $originalKey;
+            }
+        }
+    }
 }
