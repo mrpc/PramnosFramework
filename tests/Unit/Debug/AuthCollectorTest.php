@@ -21,6 +21,13 @@ use Pramnos\Debug\Collectors\AuthCollector;
  * never appears in the payload**. That payload is attached to responses and
  * lands in a browser's network log, so a live token in it would hand out the
  * very thing the panel exists to explain.
+ *
+ * All of that is decided from `$_SERVER` before any query runs, which is why it is a unit
+ * test. The second-factor block is the opposite — every line of it is a query, and with no
+ * database it answers `['error' => …]` — so it belongs to
+ * {@see \Pramnos\Tests\Integration\Debug\AuthCollectorRevealTest}. What can be held here
+ * is that the failure is *reported* rather than read as "nothing enrolled", and that no code
+ * reaches the payload on either path.
  */
 #[CoversClass(AuthCollector::class)]
 class AuthCollectorTest extends TestCase
@@ -322,25 +329,5 @@ class AuthCollectorTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/\b\d{6}\b/', (string) $encoded,
             'no six-digit code may reach the payload');
         $this->assertStringNotContainsStringIgnoringCase('secret', (string) $encoded);
-    }
-
-    /**
-     * Codes are absent unless the installation asked for them.
-     *
-     * The default, and the one that matters: this payload rides on responses, sits in a
-     * network log and gets pasted into bug reports. An installation that has not set
-     * `debug.reveal_factor_codes` must never find a live code in there — including one that
-     * arrived because somebody enabled debugging to investigate something else.
-     */
-    public function testCodesAreNotRevealedByDefault(): void
-    {
-        // Arrange — a pending step-up, and no application asking for codes
-        $_SESSION['loginflow_pending_userid'] = 4242;
-
-        // Act
-        $data = (new AuthCollector())->collect();
-
-        // Assert
-        $this->assertArrayNotHasKey('revealed', (array) $data['twofactor']);
     }
 }

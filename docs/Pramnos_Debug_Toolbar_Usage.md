@@ -140,6 +140,24 @@ payload rides on responses, sits in the browser's network log, and gets pasted i
 reports. A live code in a paste is a live code, and a debug flag left on by accident is a
 normal kind of accident.
 
+The switch is compared with `=== true`, so `'1'`, `1` and `'true'` do **not** turn it on. That
+is deliberate: those are what a flag looks like when it arrives from an environment variable or
+a hand-edited config, they are all truthy, and a loose comparison would mean an installation
+that never asked for live credentials in its network log gets them because somebody typed a
+string. Write the boolean.
+
+What it shows, and where each comes from:
+
+| | |
+| --- | --- |
+| `totp_secret` | the live enrolment, or the half-finished one from `authserver.twofactor_setup` if there is no live one. Decrypted; a row that will not open after a key rotation is reported as no pending enrolment rather than as a string of ciphertext |
+| `totp_now` | a code generated from that secret, valid right now |
+| `mailed_code` | the six digits from the **newest** mail to this account that contains any, out of the last five. Not from `twofactor_email_codes`, which holds an HMAC and nothing else — the right design, and the reason the code is unrecoverable from it |
+
+Newest-first matters: a code from last week is worse than no code, because somebody will type
+it and then look for the bug somewhere else. A newer mail with no code in it — a password-change
+confirmation arriving after the step-up mail — does not hide an older one that has.
+
 Almost always **Auth**. It answers four things about the request in view: who the server
 identified, which credential did it (`apiKey`, `accessToken`, cookie), where that
 credential came from, and **how long it has left** — counted from the token's own expiry
