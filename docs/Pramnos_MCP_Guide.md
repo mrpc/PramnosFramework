@@ -987,6 +987,109 @@ PublicRegistry::add(new SearchTool());
 That is the whole of it. `init` scaffolds `POST /mcp` when the `authserver` feature is on, and the
 endpoint answers with an empty tool list until an application registers something.
 
+### Offering a capability: the short way
+
+Most of what an application wants to offer is a name, a sentence and a closure. Writing a class
+for three lines of logic is the reason capabilities do not get offered at all, so there is one
+call that needs no class:
+
+```php
+use Pramnos\Mcp\PublicRegistry;
+
+PublicRegistry::offer(
+    name:        'station-health',
+    scope:       'user',
+    description: 'Report the last successful stream check for a station.',
+    input:       ['station_id' => 'integer', 'verbose' => 'boolean?'],
+    handler:     fn (array $in) => Station::health((int) $in['station_id']),
+);
+```
+
+That is a complete, authenticated, scope-gated MCP tool.
+
+**The five arguments, and what each is really for:**
+
+| | |
+|---|---|
+| `name` | What a model calls. Unique within the endpoint. |
+| `scope` | The OAuth scope a token must hold. There is no default — see below. |
+| `description` | **One sentence, and it is all a model reads when deciding whether to call this.** It is not documentation for a person; it is the entire basis of the decision. "Report the last successful stream check for a station" gets called correctly. "Station tool" does not get called at all, or gets called for everything. |
+| `input` | A compact spec, or full JSON Schema. |
+| `handler` | Anything callable. It receives the decoded input and returns anything JSON-serialisable. |
+
+**The input spec.** `['station_id' => 'integer', 'verbose' => 'boolean?']` is the same document as
+fourteen lines of nested arrays, and the fourteen lines are where people stop. A trailing `?`
+marks a parameter optional; everything else is required — required-by-default is the safer
+mistake, because a model omitting something the tool needs gets a clear refusal, where a tool
+quietly running without it produces a wrong answer nobody questions.
+
+Anything the short form cannot say is written as ordinary JSON Schema, and there is no wall to
+hit at either end:
+
+```php
+// One awkward parameter among the shorthand
+input: [
+    'query' => 'string',
+    'mode'  => ['type' => 'string', 'enum' => ['fast', 'slow']],
+],
+
+// Or the whole thing spelt out — a spec with a top-level `type` passes through untouched
+input: ['type' => 'object', 'properties' => [/* … */], 'required' => ['id']],
+```
+
+### Offering a capability: the long way
+
+Implement `ScopedMcpTool` when the tool has state, needs constructor injection, or is worth unit
+testing on its own:
+
+```php
+use Pramnos\Mcp\ScopedMcpTool;
+
+class StationHealthTool implements ScopedMcpTool
+{
+    public function __construct(private StationRepository $stations)
+    {
+    }
+
+    public function name(): string          { return 'station-health'; }
+    public function description(): string   { return 'Report the last stream check.'; }
+    public function requiredScope(): string { return 'user'; }
+
+    public function inputSchema(): array
+    {
+        return PublicRegistry::schema(['station_id' => 'integer']);
+    }
+
+    public function execute(array $input): mixed
+    {
+        return $this->stations->health((int) $input['station_id']);
+    }
+}
+
+PublicRegistry::add(new StationHealthTool($stations));
+```
+
+`PublicRegistry::schema()` is available to a class too — the compact form is not tied to the short
+door.
+
+Both doors lead to the same registry and obey the same rules. Neither is the "real" one.
+
+### Three things worth getting right
+
+**The scope is not decoration.** It is the only thing standing between a capability and every
+person with a token. Pick the narrowest scope that makes sense, and if none of the existing scopes
+fits, that is a signal the capability needs a scope of its own rather than a borrowed one.
+
+**A tool runs as the person, not as the application.** The token identifies somebody, and
+`User::getCurrentUser()` is that person inside a handler. Scope every query by them. The endpoint
+having authenticated the caller is not the same as the handler having checked that this caller may
+see this row — the first is *who*, the second is *what*.
+
+**Return data, not prose.** A handler returning `"Station 4 was last checked at 14:02"` gives a
+model a sentence to re-read to somebody. Returning `['station' => 4, 'checked_at' => '…']` gives it
+something to reason with, combine with another answer, and phrase itself. Structure survives
+translation, summarising and being asked a follow-up; a sentence does not.
+
 ### Why two registries and not one list with a flag
 
 A shared collection with an "expose this" flag means every tool written from then on is public

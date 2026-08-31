@@ -185,6 +185,119 @@ class PublicToolsTest extends TestCase
         $this->assertSame(1, $schema['properties']['limit']['minimum']);
     }
 
+    /**
+     * A capability can be offered without writing a class.
+     *
+     * The short door exists because a class file for three lines of logic is the reason
+     * capabilities do not get offered at all.
+     */
+    public function testAToolCanBeOfferedWithoutAClass(): void
+    {
+        // Arrange
+        PublicRegistry::offer(
+            name:        'station-health',
+            scope:       'user',
+            description: 'Report the last stream check.',
+            input:       ['station_id' => 'integer'],
+            handler:     static fn (array $in): array => ['id' => $in['station_id']],
+        );
+
+        // Act
+        $tools = PublicRegistry::visibleTo(['user']);
+
+        // Assert
+        $this->assertCount(1, $tools);
+        $this->assertSame('station-health', $tools[0]->name());
+        $this->assertSame(['id' => 7], $tools[0]->execute(['station_id' => 7]));
+    }
+
+    /**
+     * The short door obeys the same refusal as the long one.
+     *
+     * Two ways in must not mean two sets of rules — that is how the convenient one becomes the
+     * one that skips the check.
+     */
+    public function testTheShortDoorStillRefusesAScopelessTool(): void
+    {
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act
+        PublicRegistry::offer('x', '', 'x', [], static fn (): int => 1);
+    }
+
+    /**
+     * A compact spec becomes JSON Schema, and `?` is what makes a parameter optional.
+     *
+     * Required by default is the safer mistake: a model that omits something the tool needs gets
+     * a clear refusal, where a tool quietly running without it produces a wrong answer nobody
+     * questions.
+     */
+    public function testACompactSpecBecomesJsonSchema(): void
+    {
+        // Act
+        $schema = PublicRegistry::schema(['query' => 'string', 'limit' => 'integer?']);
+
+        // Assert
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame(['type' => 'string'], $schema['properties']['query']);
+        $this->assertSame(['type' => 'integer'], $schema['properties']['limit']);
+        $this->assertSame(['query'], $schema['required'], 'only the one without a ? is required');
+    }
+
+    /**
+     * A real JSON Schema passes through untouched.
+     *
+     * The escape hatch, and the reason the compact form has no wall to hit: anything it cannot
+     * express — enums, patterns, nested objects — is written as ordinary JSON Schema and nothing
+     * interferes with it.
+     */
+    public function testAFullSchemaIsLeftAlone(): void
+    {
+        // Arrange
+        $full = [
+            'type'       => 'object',
+            'properties' => ['mode' => ['type' => 'string', 'enum' => ['fast', 'slow']]],
+            'required'   => ['mode'],
+        ];
+
+        // Assert
+        $this->assertSame($full, PublicRegistry::schema($full));
+    }
+
+    /**
+     * One awkward parameter does not force the whole spec into longhand.
+     */
+    public function testOnePropertyCanBeSpeltOutAmongShorthand(): void
+    {
+        // Act
+        $schema = PublicRegistry::schema([
+            'query' => 'string',
+            'mode'  => ['type' => 'string', 'enum' => ['fast', 'slow']],
+        ]);
+
+        // Assert
+        $this->assertSame(['type' => 'string'], $schema['properties']['query']);
+        $this->assertSame(['fast', 'slow'], $schema['properties']['mode']['enum']);
+    }
+
+    /**
+     * A tool taking no input still describes itself as an object.
+     *
+     * `[]` is a tool with no parameters, not a tool with no schema. A client given no `type` has
+     * nothing to validate against and some refuse to call at all.
+     */
+    public function testAToolWithNoParametersStillHasASchema(): void
+    {
+        // Act
+        $schema = PublicRegistry::schema([]);
+
+        // Assert
+        $this->assertSame('object', $schema['type']);
+        $this->assertSame([], $schema['properties']);
+        $this->assertArrayNotHasKey('required', $schema);
+    }
+
     private function tool(string $name, string $scope): ScopedMcpTool
     {
         return new class ($name, $scope) implements ScopedMcpTool {

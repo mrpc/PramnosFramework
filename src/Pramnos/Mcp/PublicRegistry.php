@@ -58,6 +58,129 @@ class PublicRegistry
     }
 
     /**
+     * Offer a tool without writing a class for it.
+     *
+     * The short door. {@see ScopedMcpTool} is five methods, and most of what an application wants
+     * to offer is a name, a sentence and a closure — a class file for three lines of logic is the
+     * reason capabilities do not get offered.
+     *
+     * ```php
+     * PublicRegistry::offer(
+     *     name:        'station-health',
+     *     scope:       'user',
+     *     description: 'Report the last successful stream check for a station.',
+     *     input:       ['station_id' => 'integer', 'verbose' => 'boolean?'],
+     *     handler:     fn (array $in) => Station::health((int) $in['station_id']),
+     * );
+     * ```
+     *
+     * Write the class instead when the tool has state, needs injecting, or is worth unit-testing
+     * on its own. Both doors lead to the same registry and neither is the "real" one.
+     *
+     * @param array<string, mixed>          $input   Compact spec, or a full JSON Schema
+     * @param callable(array<string, mixed>): mixed $handler
+     */
+    public static function offer(
+        string $name,
+        string $scope,
+        string $description,
+        array $input,
+        callable $handler
+    ): void {
+        self::add(new class ($name, $scope, $description, $input, $handler) implements ScopedMcpTool {
+            /** @param array<string, mixed> $input */
+            public function __construct(
+                private string $toolName,
+                private string $scope,
+                private string $description,
+                private array $input,
+                private $handler
+            ) {
+            }
+
+            public function name(): string
+            {
+                return $this->toolName;
+            }
+
+            public function description(): string
+            {
+                return $this->description;
+            }
+
+            public function inputSchema(): array
+            {
+                return PublicRegistry::schema($this->input);
+            }
+
+            public function execute(array $input): mixed
+            {
+                return ($this->handler)($input);
+            }
+
+            public function requiredScope(): string
+            {
+                return $this->scope;
+            }
+        });
+    }
+
+    /**
+     * A compact input spec as JSON Schema — or a JSON Schema, unchanged.
+     *
+     * `['station_id' => 'integer', 'verbose' => 'boolean?']` is the same document as fourteen
+     * lines of nested arrays, and the fourteen lines are where people stop. A trailing `?` marks
+     * a parameter optional; everything else is required, because required-by-default is the
+     * safer mistake — a model omitting a parameter the tool needs gets a clear refusal, where a
+     * tool silently running without one gets a wrong answer nobody questions.
+     *
+     * **A spec carrying a top-level `type` is passed through untouched**, so anything the compact
+     * form cannot say — nested objects, enums, patterns — is written as ordinary JSON Schema and
+     * nothing here interferes. There is no wall to hit.
+     *
+     * A value that is itself an array is a full property definition and is kept as it is, so one
+     * awkward parameter does not force the whole spec into longhand.
+     *
+     * @param  array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    public static function schema(array $input): array
+    {
+        if (isset($input['type'])) {
+            return $input;
+        }
+
+        $properties = [];
+        $required   = [];
+
+        foreach ($input as $property => $spec) {
+            if (is_array($spec)) {
+                $properties[$property] = $spec;
+
+                continue;
+            }
+
+            $type = trim((string) $spec);
+
+            if (str_ends_with($type, '?')) {
+                $type = substr($type, 0, -1);
+            } else {
+                $required[] = $property;
+            }
+
+            $properties[$property] = ['type' => $type];
+        }
+
+        $schema = ['type' => 'object', 'properties' => $properties];
+
+        if ($required !== []) {
+            $schema['required'] = $required;
+        }
+
+        return $schema;
+    }
+
+    /**
      * The tools a caller holding these scopes may see.
      *
      * @param  list<string> $scopes The scopes on the caller's token
