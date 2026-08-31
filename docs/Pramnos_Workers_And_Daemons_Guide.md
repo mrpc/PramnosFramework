@@ -222,6 +222,30 @@ php pramnos work &
 php pramnos queue:process --daemon &
 ```
 
+### One broken job does not stop the pass
+
+The argument for one process rather than a crontab line each, and the thing that makes it safe: a
+task that raises is **reported, counted, and stepped over**. On an installation without cron this
+process is the only thing running the background, so a pass that abandoned itself on the first
+exception would stop the buffered writes, the queue and the cleanup along with the broken job —
+and keep stopping them every minute, for ever, on the strength of one bug in one task.
+
+Three outcomes, three marks, and only one of them is a failure:
+
+| | | |
+| --- | --- | --- |
+| `✓` | the task ran | timed, and logged with its duration |
+| `↷` | `run()` answered false | the no-overlap lock is held by the previous minute's copy — the mechanism working, **not** a failure |
+| `✗` | the task raised | counted, with the message, and written to the `schedule` channel |
+
+The middle row matters more than it looks: counted as a failure, a job that legitimately takes
+three minutes would report two failures for every success, and the count is what `--once` turns
+into an exit code for a cron line.
+
+And a failure is **logged, not only printed**. `work` runs under systemd or as a container command,
+where nothing is attached to the output — a failure that exists only on a terminal nobody is
+watching is a failure nobody knows about.
+
 ### How a `command` task is run
 
 `Scheduler::command('spool:drain')` shells out, and the console it shells out to is the
