@@ -110,6 +110,25 @@ class Pagination extends \Pramnos\Framework\Base
      */
     public bool $displayEdgePages = true;
 
+    /**
+     * Whether the row of page numbers is rendered at all.
+     *
+     * On by default. Off leaves only the previous/next links — the whole of the pager for a
+     * result set where a number offers no orientation.
+     *
+     * That is not a niche case. In search results the page count is large and **moves with the
+     * filters**: a reader who is on page 7 of 40 cannot say what page 7 is, and after narrowing
+     * the query it is a different page 7. Two links are the entire meaningful interface there,
+     * and a row of twelve numbers is noise that changes width as you read it.
+     *
+     * Distinct from {@see $displayEdgePages}, which only decides whether `1` and the last page
+     * are pinned inside that row. This removes the row.
+     *
+     * Requested by an application whose own pager was kept alive by this one switch — 421 lines
+     * forked because the framework's class could not be told to stop counting.
+     */
+    public bool $displayPageNumbers = true;
+
     /** Markup — not escaped. See the class docblock. */
     public string $previousButtonText = '&laquo;';
 
@@ -179,6 +198,21 @@ class Pagination extends \Pramnos\Framework\Base
          * element instead of a second one wrapped around it — two nested navigation landmarks
          * announce the region twice.
          */
+        /*
+         * Nothing to show is nothing to render, landmark included.
+         *
+         * With the number row off and neither button pair enabled, every branch below is skipped
+         * and what is left is an empty `<nav>`. An empty landmark is worse than no landmark: it
+         * appears in a reader's list of regions and leads nowhere. Same rule as the single-page
+         * case above, reached a different way.
+         */
+        if (!$this->displayPageNumbers
+            && !$this->displayNextPrevious
+            && !$this->displayFirstLast
+        ) {
+            return '';
+        }
+
         $isNav = strtolower($this->containerElement) === 'nav';
         $label = ' aria-label="' . $this->attr($this->navigationLabel) . '"';
 
@@ -192,7 +226,9 @@ class Pagination extends \Pramnos\Framework\Base
             $out .= $this->link($this->page - 1, $this->previousButtonText);
         }
 
-        $out .= $this->numbers();
+        if ($this->displayPageNumbers) {
+            $out .= $this->numbers();
+        }
 
         if ($this->displayNextPrevious && $this->page < $this->pages) {
             $out .= $this->link($this->page + 1, $this->nextButtonText);
