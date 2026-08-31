@@ -333,10 +333,26 @@ class Role extends \Pramnos\Application\Model
 }
 ```
 
-reads and writes the schema on PostgreSQL and `prefix_authserver_roles` on MySQL. It did not
-always: the Model's own SQL is not built by the QueryBuilder, so on MySQL every `_load()` and
-`_save()` asked for `yourdb.authserver.roles` — a cross-database reference — and threw. A model
-over a `pramnos.*` or `authserver.*` table needs nothing but the name now.
+reads and writes the schema on PostgreSQL and `prefix_authserver_roles` on the MySQL family
+(MariaDB included). It did not always, and it took **three** fixes because the Model has three
+places that name a table:
+
+1. `getFullTableName()` did not resolve a dotted name at all, so MySQL got
+   `yourdb.authserver.roles` — a cross-database reference — and threw.
+2. It then resolved it *after* prepending the connection's schema on PostgreSQL, so every read and
+   write went to `public.authserver.roles`. A qualified name is checked first now: it has already
+   said where it lives, and prepending another schema to it can only be wrong.
+3. The column-introspection query asked PostgreSQL for `table_schema = 'public' AND table_name =
+   'authserver.roles'`. That matches nothing, an empty column list is not an error anywhere, and
+   `_save()` went on to build `INSERT INTO authserver.roles () VALUES ()`. There were three copies
+   of that query and only one of them split the name; there is one now, and a save with no
+   writable columns throws instead of composing invalid SQL.
+
+A model over a `pramnos.*` or `authserver.*` table needs nothing but the name.
+
+TimescaleDB behaves as PostgreSQL throughout — it is an extension, and a settings `type` of
+`timescaledb` is normalised to `postgresql` with a `timescale` flag when the settings are read.
+Everything downstream compares `type == 'postgresql'` literally and depends on that.
 
 `#PREFIX#` still wins over the dot: `#PREFIX#some.thing` has already said where the prefix goes,
 and resolving the dot on top of that would rename the table twice.

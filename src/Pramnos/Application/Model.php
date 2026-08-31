@@ -418,24 +418,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 }
             } else {
 
-                if ($database->type == 'postgresql') {
-                    if ($this->_dbschema != null) {
-                        $schema = $this->_dbschema;
-                    } else {
-                        $schema = $database->schema;
-                    }
-                    $sql = "SELECT column_name as \"Field\", "
-                    . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
-                    . " is_nullable as \"Null\" "
-                    . " FROM information_schema.columns "
-                    . " WHERE table_schema = '"
-                    . $schema
-                    . "' AND table_name = '"
-                    . str_replace('#PREFIX#', $database->prefix, $this->_dbtable)
-                    . "';";
-                } else {
-                    $sql    = "SHOW COLUMNS FROM `" . $this->getFullTableName() . "`";
-                }
+                $sql = $this->columnIntrospectionSql($this->getFullTableName());
 
                 // Deliberately uncached — the `false` is the point of this comment.
                 //
@@ -508,6 +491,26 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             $primarykey = $this->_primaryKey;
             if ($debug==true) {
                 var_dump($itemdata);
+            }
+
+            /*
+             * No columns is not a row to write — it is a table that could not be read.
+             *
+             * The introspection above lists the table's columns, and it returns nothing when the
+             * name is wrong. Carrying on produced `INSERT INTO <table> () VALUES ()`, so the error
+             * the operator saw was a **syntax error** and the cause — a table name that does not
+             * resolve — was two steps back and invisible.
+             *
+             * Named here rather than left to the driver: a model with no columns to write means
+             * either the table is missing or every property is the primary key, and both are worth
+             * saying out loud.
+             */
+            if ($itemdata === array()) {
+                throw new \Exception(
+                    'Cannot save ' . static::class . ': no writable columns were found on `'
+                    . $this->getFullTableName() . '`. The table does not exist, or nothing but '
+                    . 'the primary key is declared on the model.'
+                );
             }
 
             $wasNew = ($this->_isnew == true);
@@ -1841,6 +1844,50 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     }
 
     /**
+     * The query that lists a table's columns, for the connected engine.
+     *
+     * There were **three** copies of this, and two of them read the schema and the table name from
+     * different places: `table_schema` from `_dbschema` or the connection, `table_name` from the
+     * whole of `_dbtable`. For a model over `authserver.roles` that asks PostgreSQL for
+     * `table_schema = 'public' AND table_name = 'authserver.roles'` — a row that cannot exist — so
+     * the column list came back **empty** and `_save()` built `INSERT INTO … () VALUES ()`.
+     *
+     * The third copy already split the name correctly. That is the shape of the whole defect: the
+     * fix existed in one of three places, and nothing made the other two agree.
+     *
+     * One reader now, taking the already-resolved physical name — which on PostgreSQL is
+     * `schema.table` for every model, qualified or not, and on the MySQL family (MariaDB included)
+     * is one flat name because there are no schemas to split.
+     *
+     * @param  string $resolvedTable The output of {@see getFullTableName()}.
+     * @return string
+     */
+    private function columnIntrospectionSql(string $resolvedTable): string
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+
+        if ($database->type !== 'postgresql') {
+            return "SHOW COLUMNS FROM `" . $resolvedTable . "`";
+        }
+
+        $parts = explode('.', $resolvedTable, 2);
+
+        if (count($parts) === 2) {
+            [$schema, $table] = $parts;
+        } else {
+            $schema = $this->_dbschema ?: $database->schema;
+            $table  = $resolvedTable;
+        }
+
+        return "SELECT column_name as \"Field\", "
+            . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
+            . " is_nullable as \"Null\" "
+            . " FROM information_schema.columns "
+            . " WHERE table_schema = '" . $schema . "'"
+            . " AND table_name = '" . $table . "';";
+    }
+
+    /**
      * Get the fully qualified table name with schema if needed
      * @return string
      */
@@ -1851,6 +1898,29 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             $tableName = $this->_dbtable;
         }
         
+        /*
+         * A name that already carries a schema is already qualified — resolved first.
+         *
+         * `Role` declares `authserver.roles`. That has to be read as a schema on PostgreSQL and
+         * flattened to `prefix_authserver_roles` on MySQL, which has none, and **neither happened**:
+         * the branch below prepended the connection's own schema on top of it, so every read and
+         * write went to `public.authserver.roles`, and MySQL got a cross-database reference. The
+         * roles administration screens could not create a role on either backend, and the 500 said
+         * `INSERT INTO public.authserver.roles () VALUES ()` — the empty column list because the
+         * introspection of a table that does not exist returns nothing.
+         *
+         * So this is checked **before** the schema is prepended: a dotted name has said where it
+         * lives, and prepending another schema to it can only be wrong.
+         *
+         * Delegated rather than repeated — the flattening rule and the prefix guard that keeps
+         * `pramnos_pramnos_x` from happening live in `SchemaBuilder::resolveTable()`, and two
+         * copies would drift. `#PREFIX#` still wins, because it has already said where the prefix
+         * goes and resolving the dot on top of that would rename the table twice.
+         */
+        if (strpos($tableName, '.') !== false && strpos($tableName, '#PREFIX#') === false) {
+            return $database->schema()->resolveTableName($tableName);
+        }
+
         // For PostgreSQL with schema defined, prepend the schema
         if ($database->type == 'postgresql' && $this->_dbschema !== null) {
             return str_replace(
@@ -1860,24 +1930,6 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             return str_replace(
                 '#PREFIX#', $database->prefix, $database->schema . '.' . $tableName
             );
-        }
-        
-        /*
-         * A `schema.table` name, on a backend that has no schemas.
-         *
-         * `Role` declares `authserver.roles`, which PostgreSQL reads as a schema and MySQL reads
-         * as **another database** — so every `_load()` and `_save()` asked for
-         * `pramnos_test.authserver.roles` and threw. The QueryBuilder has resolved this since
-         * `from()` was taught to (`authserver.roles` → `prefix_authserver_roles`); the Model's raw
-         * SQL never asked, so a model over a schema table worked on one backend and could not
-         * read a row on the other.
-         *
-         * Delegated rather than repeated: the flattening rule — and the prefix guard that keeps
-         * `pramnos_pramnos_x` from happening — lives in `SchemaBuilder::resolveTable()`, and two
-         * copies of it would eventually disagree.
-         */
-        if (strpos($tableName, '.') !== false && strpos($tableName, '#PREFIX#') === false) {
-            return $database->schema()->resolveTableName($tableName);
         }
 
         return str_replace(
@@ -2174,24 +2226,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $fields[] = $fieldInfo['Field'];
             }
         } else {
-            if ($database->type == 'postgresql') {
-                if ($this->_dbschema != null) {
-                    $schema = $this->_dbschema;
-                } else {
-                    $schema = $database->schema;
-                }
-                $sql = "SELECT column_name as \"Field\", "
-                    . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
-                    . " is_nullable as \"Null\" "
-                    . " FROM information_schema.columns "
-                    . " WHERE table_schema = '"
-                    . $schema
-                    . "' AND table_name = '"
-                    . str_replace('#PREFIX#', $database->prefix, $this->_dbtable)
-                    . "';";
-            } else {
-                $sql = "SHOW COLUMNS FROM `" . $tableName . "`";
-            }
+            $sql = $this->columnIntrospectionSql($tableName);
             
             $result = $database->query($sql, true, 3600, $cacheKey);
             while ($result->fetch()) {
@@ -2268,26 +2303,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         }
         
         try {
-            if ($database->type == 'postgresql') {
-                // For PostgreSQL, we need to handle schema
-                $parts = explode('.', $tableName);
-                if (count($parts) === 2) {
-                    $schema = $parts[0];
-                    $table = $parts[1];
-                } else {
-                    $schema = $this->_dbschema ?: $database->schema;
-                    $table = $tableName;
-                }
-                
-                $sql = "SELECT column_name as \"Field\", "
-                    . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
-                    . " is_nullable as \"Null\" "
-                    . " FROM information_schema.columns "
-                    . " WHERE table_schema = '" . $schema . "'"
-                    . " AND table_name = '" . $table . "';";
-            } else {
-                $sql = "SHOW COLUMNS FROM `" . $tableName . "`";
-            }
+            $sql = $this->columnIntrospectionSql($tableName);
             
             $cacheKey = "schema_columns_{$tableName}";
             $result = $database->query($sql, true, 3600, $cacheKey);
