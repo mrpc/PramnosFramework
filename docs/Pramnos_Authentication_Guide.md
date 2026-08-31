@@ -1726,6 +1726,25 @@ wrong password afterwards. `--all` refuses to run outside development: "clear
 every lockout on this server" is precisely what somebody working through a
 password list would want.
 
+Four behaviours worth knowing before you rely on them, each one asserted:
+
+- **A scope narrows it.** The same value can be locked twice — `10.0.0.5` as an
+  identifier and as an IP — and `--scope=ip` clears only that one. Without a scope,
+  every scope for that identifier goes.
+- **An unknown scope is refused, with the valid ones named.** A typo that silently
+  unlocked nothing would read as *that account was not locked*, and the operator
+  would move on believing the lockout had gone.
+- **`--list` clears nothing**, and reports the remaining time in a form somebody
+  reads (`1h 1m`). "Locked" without a duration does not tell an operator whether to
+  wait or to act, which is the only decision they have.
+- **An expired lockout is not listed.** The row stays — it is the failure history
+  the progressive backoff counts — but listing it would send somebody to unlock an
+  account that is already usable.
+
+And unlocking something that is not locked **succeeds**: it is "is this account
+locked?" asked in the imperative, and the state afterwards is the state the
+operator wanted either way.
+
 #### Usage
 
 ```php
