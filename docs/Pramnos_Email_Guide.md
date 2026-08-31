@@ -373,6 +373,51 @@ item from a sent one, an archived one and a deleted one. The listing therefore *
 it wants (`MessagesController::INBOX_TYPES`) rather than excluding the ones it does not: a state
 added later must not appear in somebody's inbox because a `NOT IN` list was not updated.
 
+Reading a message is what marks it read, and a notification keeps its own read state
+(`TYPE_NOTIFICATION_READ`) rather than collapsing into `TYPE_READ` — the pair exists so a screen
+can tell *something we told you* from *something somebody sent you*, and collapsing it would lose
+that on first read.
+
+### Writing to `messages` yourself
+
+Two things bite, and both were found by running the same tests against a second backend rather
+than by reading the code.
+
+**`attachmenttext` has no default.** It is `TEXT NOT NULL`, so an insert that omits it fails —
+on PostgreSQL always, and on MySQL under strict mode. Pass `''` explicitly, as
+`MassMessageDispatcher` does:
+
+```php
+$db->queryBuilder()->table('#PREFIX#messages')->insert([
+    // …
+    'attachmenttext' => '',   // TEXT NOT NULL with nothing to fall back on
+]);
+```
+
+**A failed query is not always an exception.** MySQL throws; PostgreSQL answers `false`. So
+
+```php
+try {
+    $result = $qb->…->get();
+} catch (\Throwable $e) {
+    return [];          // never reached on PostgreSQL
+}
+
+while (($row = $result->fetch()) !== null) {   // fatal: fetch() on false
+```
+
+is correct on one engine and a crash on the other. Guard the result as well as the call:
+
+```php
+if (!$result) {
+    return [];
+}
+```
+
+Worth stating as a rule rather than a footnote: **a `try`/`catch` around a query is only half the
+handling.** The inbox screen reported the error politely on MySQL and crashed on PostgreSQL, from
+the same lines.
+
 ## A message to one account
 
 `/admin/Users/notify/<id>` — the **Send** screen on an account. An operator frequently needs to

@@ -216,6 +216,20 @@ class MessagesController extends Controller
             return [];
         }
 
+        /*
+         * A failed query is not always an exception.
+         *
+         * On PostgreSQL the driver answers `false` where MySQL throws, so the `catch` above
+         * never ran and `$result->fetch()` was a fatal *call to a member function on false* —
+         * the inbox screen crashed on one backend and reported the error politely on the other,
+         * from the same code. Found by running this screen's tests against the second engine.
+         */
+        if (!$result) {
+            $this->addError(t('Could not read your messages.'));
+
+            return [];
+        }
+
         $messages = [];
 
         while (($row = $result->fetch()) !== null) {
@@ -247,6 +261,12 @@ class MessagesController extends Controller
                 ->limit(1)
                 ->get();
         } catch (\Throwable) {
+            return null;
+        }
+
+        // As in listFor(): PostgreSQL answers false rather than throwing, and `false->fetch()`
+        // is fatal.
+        if (!$result) {
             return null;
         }
 
