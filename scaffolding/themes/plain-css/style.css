@@ -509,7 +509,10 @@ p.error {
     display: inline-block;
 }
 
-.pf-omnibox-label {
+/* One recipe, two users: the omnibox label and a Datatable's caption are both text that
+   must be read and not seen. */
+.pf-omnibox-label,
+.pf-visually-hidden {
     /* Visually hidden, not display:none — a screen reader must still read it. */
     position: absolute;
     width: 1px;

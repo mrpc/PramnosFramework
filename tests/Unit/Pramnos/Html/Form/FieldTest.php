@@ -390,7 +390,14 @@ class FieldTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('<div class="mb-3">', $html);
-        $this->assertStringContainsString('<small class="form-text">We never share it.</small>', $html);
+        // The description carries an id now, because the input points at it with
+        // `aria-describedby` — without that the sentence is next to the field rather than part
+        // of it, and only a sighted reader gets it.
+        $this->assertStringContainsString(
+            '<small id="email-description" class="form-text">We never share it.</small>',
+            $html
+        );
+        $this->assertStringContainsString('aria-describedby="email-description"', $html);
         $this->assertStringContainsString('<span aria-hidden="true">*</span>', $html);
     }
 

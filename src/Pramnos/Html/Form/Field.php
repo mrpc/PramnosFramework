@@ -77,6 +77,27 @@ class Field
     /** @var mixed The value used when none has been set */
     public $default = '';
 
+    /**
+     * The validation message for this field, when it has one.
+     *
+     * Set it and the field renders as invalid *and says why, to everybody*: `aria-invalid` marks
+     * it, and the message is joined to the input by `aria-describedby` so a screen reader reads
+     * it as part of the field rather than as loose text somewhere on the page.
+     *
+     * Validation itself stays where it is — `Validation\FormRequest` and `View::$errors` own
+     * that. This is only the rendering end, which is the end that was missing.
+     *
+     * @var ?string
+     */
+    public ?string $error = null;
+
+    /**
+     * The ids this field's control points at, worked out while rendering.
+     *
+     * @var list<string>
+     */
+    private array $describedBy = [];
+
     /** @var mixed The current value */
     public $value = null;
 
@@ -207,6 +228,32 @@ class Field
             return $hidden->render();
         }
 
+        /*
+         * The ids that join a field to the text about it.
+         *
+         * A description rendered next to an input is not attached to it: it is a `<small>` that
+         * happens to sit nearby, which is a relationship only a sighted reader can see. Somebody
+         * using a screen reader hears the label and the control and never the sentence that
+         * explains what to type.
+         *
+         * `aria-describedby` is that relationship, and it needs an id on both sides. The input
+         * has had one all along.
+         */
+        $hasDescription = $this->description !== null && $this->description !== '';
+        $hasError       = $this->error !== null && $this->error !== '';
+
+        $this->describedBy = [];
+
+        if ($hasError) {
+            // First, because it is read first: a field that is wrong should say so before it
+            // explains what it wanted.
+            $this->describedBy[] = $this->name . '-error';
+        }
+
+        if ($hasDescription) {
+            $this->describedBy[] = $this->name . '-description';
+        }
+
         $control = match ($this->type) {
             'select', 'selectbox' => $this->renderSelect($styles),
             'checkbox'            => $this->renderCheckbox($styles),
@@ -226,9 +273,21 @@ class Field
 
         $out .= $control;
 
-        if ($this->description !== null && $this->description !== '') {
-            $out .= '<small' . $styles['help'] . '>' . $this->text($this->description)
-                . '</small>';
+        if ($hasError) {
+            /*
+             * `role="alert"` on the message, not on the field.
+             *
+             * A message that appears after a failed submit has to be announced when it appears,
+             * and an alert is the one role that interrupts to do it. Putting it on the field
+             * would re-announce the entire field every time anything about it changed.
+             */
+            $out .= '<small id="' . $this->attr($this->name) . '-error" role="alert"'
+                . $styles['help'] . '>' . $this->text((string) $this->error) . '</small>';
+        }
+
+        if ($hasDescription) {
+            $out .= '<small id="' . $this->attr($this->name) . '-description"' . $styles['help']
+                . '>' . $this->text($this->description) . '</small>';
         }
 
         return $out . '</div>';
@@ -271,6 +330,29 @@ class Field
      * @param string $type       An HTML input type, already resolved
      * @param string $styleAttrs The preset's attribute string, leading space included
      */
+    /**
+     * `aria-describedby` and `aria-invalid` for whichever of the two texts this field has.
+     *
+     * Nothing when it has neither, which is most fields — an `aria-describedby` pointing at an
+     * id that is not on the page is worse than no attribute at all: a screen reader announces
+     * the field and then nothing, and the omission looks like a bug in the reader.
+     */
+    private function associationAttributes(): string
+    {
+        $attributes = [];
+
+        if ($this->describedBy !== []) {
+            $attributes[] = 'aria-describedby="'
+                . $this->attr(implode(' ', $this->describedBy)) . '"';
+        }
+
+        if ($this->error !== null && $this->error !== '') {
+            $attributes[] = 'aria-invalid="true"';
+        }
+
+        return implode(' ', $attributes);
+    }
+
     private function control(string $type, string $styleAttrs): \Pramnos\Html\Input
     {
         $input = new \Pramnos\Html\Input($this->name, (string) $this->effectiveValue());
@@ -292,9 +374,12 @@ class Field
         $input->autocomplete = $this->autocomplete;
         $input->inputmode    = $this->inputmode;
 
-        // The preset is framework-authored markup, not caller input, which is why it goes
-        // through the one property that is not escaped.
-        $input->extraAttributes = trim($styleAttrs);
+        /*
+         * The preset is framework-authored markup, not caller input, which is why it goes through
+         * the one property that is not escaped. The association attributes go with it, in front,
+         * so a preset can never displace them.
+         */
+        $input->extraAttributes = trim($this->associationAttributes() . ' ' . $styleAttrs);
 
         return $input;
     }
@@ -364,7 +449,9 @@ class Field
         $select->id              = $this->name;
         $select->required        = $this->required;
         $select->title           = $this->title;
-        $select->extraAttributes = trim($styles['select']);
+        // The same association the input path gets: a dropdown's description and error are
+        // no more attached to it by proximity than a text field's are.
+        $select->extraAttributes = trim($this->associationAttributes() . ' ' . $styles['select']);
 
         // `addOption($label, $value)` — the label is the first argument. Reversed, this
         // would render every dropdown with labels and values swapped and no error

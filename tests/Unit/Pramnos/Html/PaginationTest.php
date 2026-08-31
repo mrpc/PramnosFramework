@@ -64,7 +64,9 @@ class PaginationTest extends TestCase
         $html = (new Pagination(3, 1, '/x/:page'))->render();
 
         // Assert
-        $this->assertStringStartsWith('<div>', $html);
+        // The container is inside a navigation landmark now: the links each said which page
+        // they were, but region navigation passed straight over the whole run of them.
+        $this->assertStringStartsWith('<nav aria-label="Pagination"><div>', $html);
         $this->assertStringNotContainsString('<div"', $html);
     }
 
