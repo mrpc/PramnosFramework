@@ -1363,9 +1363,48 @@ class PageCacheTest extends TestCase
         $first  = $cache->lookup($this->request('/stations'));
         $second = $cache->lookup($this->request('/stations'));
 
-        // Assert — both render, because the lock is always considered abandoned.
-        $this->assertNull($first);
-        $this->assertNull($second);
+        /*
+         * Assert — both render, because the lock is always considered abandoned.
+         *
+         * And the message carries the state, because this test failed once in three full-suite
+         * runs and never in isolation, and reading the code could not explain it: with
+         * `lockTtl = 0` both branches of `acquireLock()` return true unconditionally
+         * (`$previous === null || (time() - $previous) >= 0`, and `mkdir` succeeding or
+         * `time() - filemtime >= 0`), so `lookup()` cannot reach the STALE branch — yet a STALE
+         * response is what came back.
+         *
+         * Rather than guess a fix for a mechanism nobody has observed, the next occurrence is
+         * made to report it: which lock path was taken, what the entry's age was against the
+         * window, and what the cache counted. One failing run then answers the question that
+         * three hours of reading did not.
+         */
+        $this->assertNull($first, 'first lookup: ' . $this->lockState($cache));
+        $this->assertNull($second, 'second lookup: ' . $this->lockState($cache));
+    }
+
+    /**
+     * The state a lock decision was made from, for a failure message.
+     *
+     * Everything here is already reachable — this only puts it where a failing run will print
+     * it, which is the difference between a flake and a bug report.
+     */
+    private function lockState(PageCache $cache): string
+    {
+        $reflection = new \ReflectionClass($cache);
+
+        $config = $reflection->getProperty('config');
+        $config = (array) $config->getValue($cache);
+
+        $atomic = $reflection->getMethod('adapterSupportsAtomicCounter');
+
+        return json_encode([
+            'lockTtl'    => $config['lockTtl'] ?? null,
+            'ttl'        => $config['ttl'] ?? null,
+            'swr'        => $config['staleWhileRevalidate'] ?? null,
+            'lock_path'  => $atomic->invoke($cache) ? 'atomic' : 'directory',
+            'adapter'    => get_class($reflection->getMethod('adapter')->invoke($cache)),
+            'stats'      => $cache->stats(),
+        ]) ?: '(state could not be read)';
     }
 
     // ── ETag, 304 and gzip ──────────────────────────────────────────────────

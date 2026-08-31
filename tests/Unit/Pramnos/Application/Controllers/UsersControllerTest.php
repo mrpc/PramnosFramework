@@ -698,11 +698,29 @@ class UsersControllerTest extends TestCase
         );
         $this->db->query("INSERT IGNORE INTO `urls` (`urlid`, `url`) VALUES (7, '/api/1.0/account')");
 
+        /*
+         * Dropped and recreated, with every column any test in this suite uses.
+         *
+         * Four test files build `tokenactions`, three of them with
+         * `CREATE TABLE IF NOT EXISTS` and their own shape — so **whichever runs first decides
+         * the columns**, and the others inherit it. This one held the narrowest shape (six
+         * columns) while `TokenTest` inserts `params`, `execution_time_ms`, `return_data` and
+         * `action_time`, so the pair failed in whichever order left the narrow one in place. In
+         * isolation both passed, which is why it read as a flake.
+         *
+         * Dropping first makes the shape this test's own, and widening it to the superset means
+         * a test that inherits it is not the loser of a race either. See the Testing guide,
+         * "Two tests, one framework table, two shapes".
+         */
+        $this->db->query('DROP TABLE IF EXISTS `tokenactions`');
         $this->db->query(
-            'CREATE TABLE IF NOT EXISTS `tokenactions` ('
+            'CREATE TABLE `tokenactions` ('
             . '`actionid` bigint NOT NULL AUTO_INCREMENT, `tokenid` int NOT NULL, '
-            . '`urlid` int NOT NULL DEFAULT 0, `method` varchar(6) NOT NULL DEFAULT \'\', '
+            . '`urlid` int NOT NULL DEFAULT 0, `method` varchar(10) NOT NULL DEFAULT \'\', '
+            . '`params` text NULL, '
             . '`servertime` int NOT NULL DEFAULT 0, `return_status` int NULL, '
+            . '`execution_time_ms` decimal(10,3) NULL, `return_data` text NULL, '
+            . '`action_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP, '
             . 'PRIMARY KEY (`actionid`))'
         );
 
