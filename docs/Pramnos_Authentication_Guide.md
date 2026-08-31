@@ -512,6 +512,31 @@ $flow->sendAuthLink($returnUrl);   // false with nothing pending
 $flow->completeAuthLink($token);   // tagged `authlink`
 ```
 
+#### The four rules, and where they live
+
+All four are in `Auth\NewDeviceAuthLink`, not in the callers — what makes the method safe is
+not the token but these:
+
+| Rule | Constant | Why it is the whole security when the others are absent |
+| --- | --- | --- |
+| Single use | — | The mail stays in the inbox afterwards, and a provider's link-preview fetch counts as an open. The hash is cleared **before** an id is returned. |
+| Fifteen minutes | `TTL` | A link is a credential with no owner; the window is what bounds the loss. |
+| One at a time | — | Issuing again replaces the stored hash, so "send it again" cannot leave two live ways in — the older being the one nobody is watching. |
+| A rate limit | `RESEND_INTERVAL`, `MAX_SENDS`, `SEND_WINDOW` | The button sits behind a correct password, so anybody who phished one can hold it down. |
+
+Two decisions worth knowing before you rely on them:
+
+- **With no `authserver.user_activity_log` table, a send is allowed.** The accounting reads the
+  same rows that audit the sends, and refusing every link when the table is missing would refuse
+  the login itself — a half-migrated installation must not lock everybody out.
+- **A failed delivery is not recorded as a send.** A dead mail server would otherwise tell the
+  person to watch an inbox nothing is coming to, and spend their rate limit doing it. The stored
+  token is deliberately left behind: it is unreachable, and clearing it would revoke a link an
+  earlier successful send may still have out there.
+
+`notifier()` is a protected seam, so a test can run `send()` without a mail server. The same
+idiom as `Controllers\Me::resolveUser()` — override it, assert what was handed over.
+
 ### Fields the users table does not have
 
 `User` keeps anything outside its own columns in `$otherinfo`, reached with plain property

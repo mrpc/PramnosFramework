@@ -103,7 +103,7 @@ class NewDeviceAuthLink
         }
 
         try {
-            (new \Pramnos\Notification\Notifier())->sendNow(
+            $this->notifier()->sendNow(
                 $user,
                 new Notifications\NewDeviceAuthLinkNotification(
                     $this->url($token, $returnUrl),
@@ -238,6 +238,19 @@ class NewDeviceAuthLink
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
+
+    /**
+     * The notifier that delivers the link.
+     *
+     * A thin, overridable seam — the same reason `Auth\Controllers\Me::resolveUser()` exists.
+     * Without it the only reachable parts of `send()` are its refusals: the happy path builds a
+     * notifier inline, so a test either mails for real or never runs the fifteen lines that
+     * matter most, and "never runs" is what was happening.
+     */
+    protected function notifier(): \Pramnos\Notification\Notifier
+    {
+        return new \Pramnos\Notification\Notifier();
+    }
 
     /**
      * The absolute URL the mail carries.
