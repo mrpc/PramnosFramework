@@ -521,6 +521,31 @@ Three rules, in order of preference:
    drifts from what production ships, and two hand-rolled shapes drift from each other. The
    framework's own migration is the one definition both tests can agree on.
 
+## `loadFromConfig()` only adds — reset first
+
+`FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
+
+```php
+FeatureRegistry::loadFromConfig([]);        // a no-op, not "no features"
+```
+
+leaves whatever an earlier test enabled still enabled. Invisible in production, where it runs once
+at boot; in a suite it means a test asserting "refused without the `devpanel` feature" can pass
+for the wrong reason, or fail for one — which is how it was found.
+
+```php
+FeatureRegistry::reset();                       // clears known *and* enabled
+FeatureRegistry::loadFromConfig(['devpanel']);  // then declare exactly what this test wants
+```
+
+`reset()` exists for this and says so in its docblock. Two things to remember with it:
+
+- after a reset the next call re-registers the built-in defaults, so `getKnown()` is enough to
+  have a registry that knows every feature and enables none;
+- **restore what the suite runs with in `tearDown()`.** The registry is process-wide, so a test
+  that leaves it empty makes the next test's `isEnabled('auth')` answer false, and that test fails
+  for a reason that has nothing to do with it.
+
 ## Asserting that something was broadcast
 
 `NullDriver` discards silently and `LogDriver` writes a file a test then has to

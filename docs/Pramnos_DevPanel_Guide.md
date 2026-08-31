@@ -97,6 +97,36 @@ application's `vendor/` would enlarge the attack surface of applications that ne
 one, including the ones that do not read what a release added. With the package absent the route
 answers 404 like any other unknown address.
 
+### The two clauses of the gate
+
+Both must hold for a non-root account, and only the first for root:
+
+```php
+if ($usertype >= static::rootFloor()) {          // 99, or the installation's own
+    return true;                                  // anywhere, devpanel or not
+}
+
+if (!Application::isDeveloperEnvironment()) {
+    return false;
+}
+
+if (!FeatureRegistry::isEnabled('devpanel')) {    // the floor below belongs to that panel
+    return false;
+}
+
+return $usertype >= DevPanelController::config('min_usertype', 90);
+```
+
+The third clause reads as belt-and-braces and is not: the floor it is about to apply belongs to
+the DevPanel, and a floor configured for a panel the installation does not have is a number with
+nothing behind it. Letting a usertype-90 account through on the strength of it would be a gate
+configured by accident.
+
+And **signed in means both**: `User::getCurrentUser()` and `Session::staticIsLogged()` are
+independent questions, and this route needs yes to each. So an API-authenticated request — a
+sealed identity with no session — is refused, deliberately: this is a browser tool, and a bearer
+token is not the credential it asks for.
+
 ### What locks it, on a public server
 
 The gate on the URL *is* the authorisation — the connection is supplied, so reaching the page is

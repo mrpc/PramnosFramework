@@ -153,12 +153,25 @@ class Adminer extends \Pramnos\Application\Controller
 
     protected function mayOpen(): bool
     {
-        $user     = \Pramnos\User\User::getCurrentUser();
-        $usertype = (int) ($user->usertype ?? 0);
+        $user = \Pramnos\User\User::getCurrentUser();
 
-        if ($user === null || !\Pramnos\Http\Session::staticIsLogged()) {
+        /*
+         * Checked before the usertype is read, not after.
+         *
+         * `getCurrentUser()` answers **false** for an anonymous visitor, not null, and
+         * `(int) (false->usertype ?? 0)` raises "attempt to read property on bool" before the
+         * guard below ever runs. Harmless in the result — it lands on 0 and the visitor is
+         * refused — and a warning in the log of the one route where a log entry is the only
+         * visible trace of somebody trying the door.
+         *
+         * `!is_object()` rather than `=== null`, for the same reason: false was never covered by
+         * the original comparison.
+         */
+        if (!is_object($user) || !\Pramnos\Http\Session::staticIsLogged()) {
             return false;
         }
+
+        $usertype = (int) ($user->usertype ?? 0);
 
         if ($usertype >= static::rootFloor()) {
             return true;
