@@ -5272,7 +5272,8 @@ PHP;
      * **The well-known paths.** `init` scaffolds a `Discovery` controller
      * whenever the authserver feature is on, and its endpoints are named by
      * specification: `/.well-known/openid-configuration`, `jwks.json`,
-     * `oauth-authorization-server`. None of those fit the controller/action URL
+     * `oauth-authorization-server`, `oauth-protected-resource`. None of those fit
+     * the controller/action URL
      * shape, so without an explicit rule the scaffolded controller answers 404
      * on every documented address it has. The underscore spelling of
      * `openid_configuration` is in no specification and in plenty of clients;
@@ -5299,6 +5300,7 @@ PHP;
             . "RewriteRule ^\\.well-known/openid_configuration$ index.php?r=Discovery/configuration [L]\n"
             . "RewriteRule ^\\.well-known/jwks\\.json$ index.php?r=Discovery/jwks [L]\n"
             . "RewriteRule ^\\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]\n"
+            . "RewriteRule ^\\.well-known/oauth-protected-resource$ index.php?r=Discovery/oauthProtectedResource [L]\n"
             . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n";
     }
 

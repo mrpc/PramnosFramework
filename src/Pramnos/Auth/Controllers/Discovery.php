@@ -17,7 +17,8 @@ class Discovery extends Controller
 {
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addaction(['configuration', 'jwks', 'oauth2Metadata', 'health', 'serverConfig']);
+        $this->addaction(['configuration', 'jwks', 'oauth2Metadata', 'oauthProtectedResource',
+            'health', 'serverConfig']);
         parent::__construct($application);
     }
 
@@ -160,6 +161,51 @@ class Discovery extends Controller
 
         \Pramnos\Framework\Factory::getDocument('raw')->setContent(
             (string) json_encode($jwks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    /**
+     * OAuth 2.0 Protected Resource Metadata (RFC 9728).
+     * Endpoint: `/.well-known/oauth-protected-resource`
+     *
+     * The other half of the discovery pair, and the half that was missing. RFC 8414 tells a
+     * client where the **authorization server** is; this tells it where the **resource** is and
+     * which authorization servers it trusts. A client that has only the first has to be told the
+     * second out of band — configuration somebody types, gets wrong, and cannot verify.
+     *
+     * ### Which is why an MCP client needs it
+     *
+     * The Model Context Protocol's authorization spec starts here: a client calls a protected
+     * MCP endpoint, gets `401` with a `WWW-Authenticate` header naming this document, reads it,
+     * finds the authorization server, and runs the ordinary OAuth 2.1 code-with-PKCE flow it
+     * already knows. Without this document that chain stops at the first step, and the endpoint
+     * is reachable only by a client somebody configured by hand.
+     *
+     * `resource` is the identifier a token is *audience-bound* to. It is the site root here
+     * rather than one path, because every protected endpoint this installation serves belongs to
+     * the same resource — the tokens are the same tokens.
+     */
+    public function oauthProtectedResource(): void
+    {
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+        header('Content-Type: application/json');
+        header('Cache-Control: public, max-age=3600');
+
+        $metadata = [
+            'resource'                 => rtrim(sURL, '/'),
+            'authorization_servers'    => [rtrim(sURL, '/')],
+            'scopes_supported'         => array_keys(Scopes::getScopeDescriptions()),
+            // The only method this framework accepts. Saying so keeps a client from trying the
+            // form-encoded and query-parameter variants RFC 6750 also describes — both of which
+            // put a credential somewhere it gets logged.
+            'bearer_methods_supported' => ['header'],
+            'resource_documentation'   => sURL . 'docs',
+        ];
+
+        \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+            (string) json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
     }
 

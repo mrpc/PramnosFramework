@@ -102,7 +102,8 @@ class DiscoveryControllerTest extends TestCase
         $discovery = new Discovery(null);
 
         // Assert — every endpoint must be in the public $actions list
-        $expectedActions = ['configuration', 'jwks', 'oauth2Metadata', 'health', 'serverConfig'];
+        $expectedActions = ['configuration', 'jwks', 'oauth2Metadata', 'oauthProtectedResource',
+                            'health', 'serverConfig'];
         foreach ($expectedActions as $action) {
             $this->assertContains(
                 $action,
