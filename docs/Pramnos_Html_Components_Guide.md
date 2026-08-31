@@ -36,7 +36,7 @@ Every one of them also renders when cast to a string, so `echo $component` works
 
 ## Overriding a component's class names
 
-Four routes, in the order you should reach for them.
+Five routes, in the order you should reach for them.
 
 ### 1. Write CSS — for any `pf-*` hook
 
@@ -57,10 +57,41 @@ pf-omnibox (+ 9 pf-omnibox-* children) · pf-pagination · pf-skip-link · pf-st
 pf-visually-hidden
 ```
 
-### 2. Replace the class — where a property exists
+### 2. Declare the names once — `component_classes`
 
-Use this when the class **itself** has to differ: adopting a CSS framework's own name, or emitting
-none. This is the complete list; there is no property for anything not on it.
+For the case a stylesheet cannot answer: markup that must carry a **specific** class because
+something other than CSS is looking for it. A jQuery plugin doing `$('.breadcrumb')` reads the
+name, not the rule.
+
+```php
+// app/app.php
+'component_classes' => [
+    'breadcrumb'         => 'breadcrumb',
+    'pagination'         => 'pagination',
+    'pagination.current' => 'active',
+    'icon'               => 'icon',
+    'action'             => 'btn',
+    'omnibox'            => 'search-wrapper',
+],
+```
+
+Every key, with the hook it replaces, is in `Html\ComponentClasses::KEYS`. An unlisted key is
+reported by `ComponentClasses::unknownKeys()` rather than ignored — a misspelling is otherwise
+silent, and silence is indistinguishable from a feature that does not work.
+
+An empty string means **no class**, and is honoured: there the caller did speak.
+
+**Why configuration and not the property below, when the property already existed.** Because the
+objects are not all yours. A `Breadcrumb` is constructed in eight places in a scaffolded project —
+`Document`, `Application`, and an `admin_breadcrumb` and `account_breadcrumb` partial in each of
+three themes — and **two of those are inside this framework**, on the path that renders every page.
+A per-object property covers six of the eight. Read at construction, one declaration covers all of
+them.
+
+### 3. Replace the class on one object — where a property exists
+
+For one object rather than the project — a single breadcrumb that has to differ from the rest.
+Configuration decides the default; this decides the outcome, and wins.
 
 | Component | Property | Default | Controls |
 |---|---|---|---|
@@ -77,7 +108,7 @@ $pagination->containerElementClass = '';      // no class at all
 $pagination->containerElement = 'ul';         // and a different element
 ```
 
-### 3. Add alongside — `$extraAttributes`
+### 4. Add alongside — `$extraAttributes`
 
 `SearchBox`, `Select` and `Input` take a raw attribute string, so you can add classes without
 replacing what is there:
@@ -88,7 +119,7 @@ $select->extraAttributes = 'class="my-select" data-role="filter"';
 
 It is **not escaped** — it exists to carry markup, so never build it from user input.
 
-### 4. Form fields — `FieldStyles`, keyed by what the application declared
+### 5. Form fields — `FieldStyles`, keyed by what the application declared
 
 `Field` takes no class properties. Its classes come from a per-theme preset:
 
@@ -111,7 +142,7 @@ framework with no preset silently renders as `plain`, and a test asserts the two
 
 ### And colours come from one file, not from any of this
 
-None of the four routes is where a palette lives. `app/themes/theme.css` holds every colour and
+None of the five routes is where a palette lives. `app/themes/theme.css` holds every colour and
 radius for the project, in daisyUI's theme-generator format, and `pramnos theme:build` propagates
 it to `www/assets/css/theme-tokens.css`, `www/assets/theme-tokens.json` and
 `ThemeTokens::token()` for PHP. See the [Theme guide](Pramnos_Theme_Guide.md#one-palette-every-ui-system).

@@ -122,7 +122,7 @@ class SearchBox extends \Pramnos\Framework\Base
         $inputId   = $id . '-input';
         $resultsId = $id . '-results';
 
-        $out = '<div class="pf-omnibox" id="' . $id . '"'
+        $out = '<div class="' . $this->attr(ComponentClasses::get('omnibox')) . '" id="' . $id . '"'
             . ' data-pf-omnibox'
             . ' data-pf-omnibox-url="' . $this->attr($this->url) . '"'
             . ' data-pf-omnibox-min="' . max(1, $this->minimumCharacters) . '"'

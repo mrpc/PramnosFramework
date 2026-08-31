@@ -68,7 +68,7 @@ final class Icon
      *
      * @param string $name One of the names above; an unknown one renders nothing
      */
-    public static function svg(string $name, string $class = 'pf-icon'): string
+    public static function svg(string $name, ?string $class = null): string
     {
         if (!isset(self::PATHS[$name])) {
             return '';
@@ -79,6 +79,10 @@ final class Icon
             $paths .= '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="'
                 . htmlspecialchars($path, ENT_QUOTES, 'UTF-8') . '"/>';
         }
+
+        // `null` means "whatever the project configured", which is `pf-icon` unless it said
+        // otherwise. An explicit '' is a caller asking for no class, and is honoured.
+        $class ??= ComponentClasses::get('icon');
 
         return '<svg xmlns="http://www.w3.org/2000/svg" class="' . self::attr($class) . '"'
             . ' width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
@@ -100,7 +104,7 @@ final class Icon
      */
     public static function link(string $url, string $name, string $label, array $extra = []): string
     {
-        $classes = trim('pf-action ' . ($extra['class'] ?? ''));
+        $classes = trim(ComponentClasses::get('action') . ' ' . ($extra['class'] ?? ''));
         unset($extra['class']);
 
         $attributes = '';

@@ -35,7 +35,7 @@ class Breadcrumb extends \Pramnos\Framework\Base
      *
      * @var string
      */
-    public string $listClass = 'pf-breadcrumb';
+    public string $listClass = '';
 
     /**
      * What the navigation landmark is called.
@@ -68,6 +68,22 @@ class Breadcrumb extends \Pramnos\Framework\Base
             'url' => $url,
             'title' => $title
         );
+    }
+
+    /**
+     * Seeds the class names from the project's configuration.
+     *
+     * Done here rather than as a property default because this object is constructed in eight
+     * places in a scaffolded project, two of them inside this framework where an application
+     * cannot reach them. A default read at construction covers all eight from one declaration;
+     * setting `$listClass` afterwards still wins for one breadcrumb.
+     */
+    public function __construct()
+    {
+        parent::__construct();
+
+        $this->listClass       = ComponentClasses::get('breadcrumb');
+        $this->navigationLabel = 'breadcrumb';
     }
 
     /**

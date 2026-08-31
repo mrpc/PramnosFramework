@@ -87,7 +87,7 @@ class Pagination extends \Pramnos\Framework\Base
      *
      * @var string
      */
-    public string $containerElementClass = 'pf-pagination';
+    public string $containerElementClass = '';
 
     /**
      * What the navigation landmark is called.
@@ -176,6 +176,11 @@ class Pagination extends \Pramnos\Framework\Base
      */
     public function __construct(int $pages = 1, int $page = 1, string $url = '')
     {
+        // Seeded from the project's configuration; see Html\ComponentClasses. A caller setting
+        // these afterwards still wins — this decides the default, not the outcome.
+        $this->containerElementClass = ComponentClasses::get('pagination');
+        $this->currentPageClass      = ComponentClasses::get('pagination.current');
+
         parent::__construct();
 
         $this->pages = max(1, $pages);

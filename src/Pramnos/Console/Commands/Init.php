@@ -1153,6 +1153,24 @@ class Init extends Command
         // How this application is built. The make:* commands read it so a
         // `create:crud` in a SPA project also produces the API endpoints and the
         // front-end screen, instead of only server-rendered views.
+        /*
+         * The class-name overrides, commented out.
+         *
+         * Present so somebody finds the key by reading their own config rather than the framework,
+         * and commented because the answer is almost always CSS: the components emit neutral
+         * `pf-*` hooks and the theme's stylesheet dresses them. This is for markup that has to
+         * carry a specific name because something other than a stylesheet is looking for it — a
+         * jQuery plugin selecting `.breadcrumb` reads the name, not the CSS.
+         */
+        $classLines = "    // Class names on the shipped components. Defaults are the `pf-*` hooks\n"
+            . "    // each theme's stylesheet already styles; override only when a name itself\n"
+            . "    // matters, e.g. third-party JavaScript selecting on it.\n"
+            . "    // 'component_classes' => [\n"
+            . "    //     'breadcrumb'         => 'breadcrumb',\n"
+            . "    //     'pagination'         => 'pagination',\n"
+            . "    //     'pagination.current' => 'active',\n"
+            . "    // ],\n";
+
         $styleLines = "    'app_style' => '$appStyle',\n";
         if ($spaStack !== '') {
             $styleLines .= "    'spa_stack' => '$spaStack',\n";
@@ -1227,7 +1245,7 @@ class Init extends Command
             ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
             : "        'style-src'  => []\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$styleLines}{$featuresPhp}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$classLines}{$styleLines}{$featuresPhp}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 
