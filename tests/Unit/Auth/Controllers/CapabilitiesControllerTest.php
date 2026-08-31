@@ -236,13 +236,20 @@ class CapabilitiesControllerTest extends TestCase
 
     /**
      * Valid credentials resolve to the application's appid.
-     * loadByApiKey() (first()) returns the row; validateCredentials() (count())
-     * confirms the secret.
+     *
+     * Both steps read the same mocked row: loadByApiKey() takes the appid from it,
+     * and validateCredentials() compares the presented secret against its
+     * `apisecret`. The row used to omit that column, back when the secret was matched
+     * by a `WHERE apisecret = …` count rather than read and compared — the shape that
+     * let a request with no secret at all authenticate.
      */
     public function testAuthenticateClientValidReturnsAppId(): void
     {
         $this->withMockedDb(
-            firstRow: (object) ['numRows' => 1, 'fields' => ['appid' => 42, 'apikey' => 'id-1']],
+            firstRow: (object) [
+                'numRows' => 1,
+                'fields'  => ['appid' => 42, 'apikey' => 'id-1', 'apisecret' => 'secret-1'],
+            ],
             count: 1,
             run: function (): void {
                 $appId = $this->callProtectedArgs('authenticateClient', ['id-1', 'secret-1']);
@@ -252,16 +259,40 @@ class CapabilitiesControllerTest extends TestCase
     }
 
     /**
-     * A wrong secret (loadByApiKey succeeds but validateCredentials count == 0)
-     * yields null.
+     * A wrong secret yields null: the application is found, and the secret it holds
+     * is not the one presented.
      */
     public function testAuthenticateClientWrongSecretReturnsNull(): void
     {
         $this->withMockedDb(
-            firstRow: (object) ['numRows' => 1, 'fields' => ['appid' => 42, 'apikey' => 'id-1']],
-            count: 0, // secret mismatch
+            firstRow: (object) [
+                'numRows' => 1,
+                'fields'  => ['appid' => 42, 'apikey' => 'id-1', 'apisecret' => 'secret-1'],
+            ],
+            count: 1,
             run: function (): void {
                 $this->assertNull($this->callProtectedArgs('authenticateClient', ['id-1', 'bad']));
+            }
+        );
+    }
+
+    /**
+     * An empty secret against an application that has one yields null.
+     *
+     * The regression this endpoint shares with the token endpoint: authentication
+     * used to append its `apisecret` condition only when a secret arrived, so
+     * presenting none matched on the api key alone.
+     */
+    public function testAuthenticateClientEmptySecretReturnsNull(): void
+    {
+        $this->withMockedDb(
+            firstRow: (object) [
+                'numRows' => 1,
+                'fields'  => ['appid' => 42, 'apikey' => 'id-1', 'apisecret' => 'secret-1'],
+            ],
+            count: 1,
+            run: function (): void {
+                $this->assertNull($this->callProtectedArgs('authenticateClient', ['id-1', '']));
             }
         );
     }
