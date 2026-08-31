@@ -124,10 +124,20 @@ class ModelEnsurePrimaryKeyInSelectTest extends TestCase
     }
 
     /**
-     * SELECT * and empty field lists are passed straight through — there is no
-     * field list to inspect or extend.
+     * All three spellings of "no field list" answer `*`.
+     *
+     * There is nothing to inspect or extend, so nothing is added — but the answer still has to be
+     * **valid SQL**, and an empty string is not. Both callers hand this straight to `select()`,
+     * where `''` compiles to `SELECT  FROM users a`: a syntax error, which is a 500 on MySQL and,
+     * outside strict mode on PostgreSQL, an empty list that reads as "this account has no
+     * records".
+     *
+     * This test previously asserted `'' → ''`, and that was a pass-through rather than a
+     * decision: `Model::_getApiList()` already treats `''` as equivalent to `null` and `'*'`
+     * thirty lines further down, so the class disagreed with itself and only one of the two
+     * places produced SQL.
      */
-    public function testWildcardAndEmptyPassThroughUnchanged(): void
+    public function testEveryEmptyFieldListMeansEverything(): void
     {
         // Arrange
         $ensure = $this->invoker();
@@ -135,7 +145,7 @@ class ModelEnsurePrimaryKeyInSelectTest extends TestCase
         // Act & Assert
         $this->assertSame('*', $ensure('*', 'id'));
         $this->assertSame('*', $ensure(null, 'id'));
-        $this->assertSame('', $ensure('', 'id'));
+        $this->assertSame('*', $ensure('', 'id'));
     }
 
     /**

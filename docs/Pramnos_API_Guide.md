@@ -396,6 +396,50 @@ public function index()
 }
 ```
 
+## Sorting, filtering and field selection
+
+The list engine assembles its SQL through `Application\ApiList\ApiListSqlBuilder`, and two of
+its three jobs are security rather than formatting:
+
+| What arrives from the caller | What decides whether it reaches the SQL |
+| --- | --- |
+| `?order=name,-created` | the field must be in the model's available-fields whitelist, **and** match `^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$` |
+| a structured filter's `op` | must be one of `= != <> < > <= >= LIKE ILIKE IN "NOT IN" "IS NULL" "IS NOT NULL"` |
+| a filter's `value` | goes through `prepareInput()`; an `IN` list escapes every member |
+| `?fields=a,b` | the primary key is added if absent, because a row the screen cannot link is not a row |
+
+**Anything unrecognised is dropped, not rejected.** A filter is a request, not an instruction, and
+answering "no such field" would let a caller enumerate the schema by watching which names produce
+an error. The same reasoning applies to an order token: an unknown field is skipped, and if that
+leaves nothing the order falls back to the primary key descending — so the list still works and
+tells the caller nothing.
+
+Quoting is per driver, and `LIKE` becomes `ILIKE` on PostgreSQL. That last one matters more than
+it looks: `LIKE` on PostgreSQL is case-sensitive, so the same search box would match `Yannis` and
+not `yannis` on one engine and both on the other — reported as a broken search rather than as a
+driver difference.
+
+```php
+// A structured filter. Top-level entries are ANDed; an `or` group is parenthesised.
+$sql = ApiListSqlBuilder::buildFilterFromConditions(
+    [
+        ['field' => 'usertype', 'op' => '>=', 'value' => 50],
+        ['or' => [
+            ['field' => 'username', 'op' => 'LIKE', 'value' => '%a%'],
+            ['field' => 'email',    'op' => 'LIKE', 'value' => '%a%'],
+        ]],
+    ],
+    ['usertype', 'username', 'email']   // the whitelist
+);
+```
+
+Two edges worth knowing, both asserted:
+
+- `['field' => 'x', 'op' => '=', 'value' => null]` emits `IS NULL`, because `= NULL` matches
+  nothing and reads as a bug in the caller's data rather than in the query.
+- `IN` with an empty array is **dropped**: `IN ()` is not valid SQL, and inventing `IN (NULL)`
+  would silently change the meaning to "nothing matches".
+
 ## Versioning
 
 ```php

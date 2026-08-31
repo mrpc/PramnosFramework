@@ -74,8 +74,20 @@ final class ApiListSqlBuilder
      */
     public static function ensurePrimaryKeyInSelect(?string $queryFields, string $primaryKey): string
     {
+        /*
+         * Nothing specific asked for — all three spellings of it mean `*`.
+         *
+         * The condition already said so; the return did not. `?? '*'` covers `null` only, so an
+         * **empty string** came back as an empty string, and both callers hand the result
+         * straight to `select()`: `SELECT  FROM users a`, which is a syntax error. On MySQL that
+         * is a 500; on PostgreSQL outside strict mode it is an empty list, which reads as "this
+         * account has no records".
+         *
+         * `*` is what the branch was written to mean, and it is the only one of the three that
+         * is valid SQL.
+         */
         if ($queryFields === null || $queryFields === '' || $queryFields === '*') {
-            return $queryFields ?? '*';
+            return '*';
         }
         // Normalise the primary key for comparison: drop any table prefix,
         // surrounding identifier quotes (backticks / double quotes) and space.
