@@ -160,6 +160,37 @@ Logger::debug('Database query executed', [
 ]);
 ```
 
+### The three query logs `DEVELOPMENT` turns on
+
+Separate from `Logger`, and automatic: when `DEVELOPMENT` is true, `connect()` opens three files
+under `LOG_PATH/logs/`. Nothing to call — but worth knowing they exist, because the second one
+answers a question that is hard to answer any other way.
+
+| File | What is in it |
+|---|---|
+| `databaseQueries.log` | Every statement of the request, numbered, with its time. Each request is preceded by a rule carrying the date, the query count and the URL. |
+| `duplicateQueries.log` | Only statements the request issued **more than once**, under one header per request. |
+| the slow-query log | Statements over `$db->longQueryTime` seconds, each with the threshold it crossed. Written only if there was at least one. |
+
+`duplicateQueries.log` is the one to reach for when a page is slow and no individual query looks
+slow enough to explain it. That shape — one request asking the same question in a loop — is
+invisible in a list of timings, because every individual answer is fast. It is the whole reason the
+file is separate from the query log rather than a column in it.
+
+Three bounds, because all three logs used to grow without limit and the machine that hits that is a
+developer's, running a whole suite in one process:
+
+- the accumulated query text is written out once it passes 256 KB, rather than in the destructor —
+  a process killed by the memory limit used to write **nothing at all**, so the log was empty on
+  exactly the run somebody needed it for;
+- the duplicate detector remembers 5,000 statement fingerprints and then forgets the oldest half.
+  What that loses is a statement seen once at the start of a very long process and again at the end,
+  which is two requests rather than one request asking twice;
+- a log over 512 KB is rotated to `.log.old`, one generation only.
+
+None of it runs in production: `startLogs()` is called from `connect()` only under `DEVELOPMENT`,
+and `stopLogs()` on a request with no logs open does nothing.
+
 ### The entry's `type`, and the JSON sniff
 
 `log()` takes a `$context` array, and `type` is the field a log viewer filters on:
