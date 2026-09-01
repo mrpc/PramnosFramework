@@ -23,10 +23,10 @@ $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'
     <?php $this->activeNav = 'users_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
     <h2 class="mb-6"><?php echo $this->isNew ? 'New User' : 'Edit User'; ?></h2>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-error mb-4"><?php echo $e($this->error); ?></div>
+        <div role="alert" class="alert alert-error mb-4"><?php echo $e($this->error); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success mb-4"><?php echo $e($this->success); ?></div>
+        <div role="status" class="alert alert-success mb-4"><?php echo $e($this->success); ?></div>
     <?php endif; ?>
     <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="p-5">

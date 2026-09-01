@@ -30,12 +30,12 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
              had not happened, on the page an operator checks precisely because
              the rotation is invisible otherwise. */ ?>
     <?php if (!empty($this->message)): ?>
-        <div class="alert alert-success mb-4">
+        <div role="status" class="alert alert-success mb-4">
             <?php echo htmlspecialchars((string) $this->message); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-error mb-4">
+        <div role="alert" class="alert alert-error mb-4">
             <?php echo htmlspecialchars((string) $this->error); ?>
         </div>
     <?php endif; ?>

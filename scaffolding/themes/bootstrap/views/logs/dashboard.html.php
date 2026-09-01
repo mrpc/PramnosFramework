@@ -37,7 +37,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
     <?php $this->insert('_toolbar'); ?>
 
     <?php if (!empty($this->truncated)): ?>
-        <div class="alert alert-warning">
+        <div role="status" class="alert alert-warning">
             &#9888; Some log files are very large — only their most recent entries were analysed.
         </div>
     <?php endif; ?>
@@ -97,7 +97,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         </div>
     </div>
     <?php if (!$hasCharts): ?>
-    <div class="alert alert-info small">
+    <div role="status" class="alert alert-info small">
         Shown as tables because this installation has no <code>chartjs</code> asset registered —
         vendor it into <code>www/assets/vendor/chartjs/</code> and register the handle in
         <code>Application::registerVendorLibraries()</code>.
@@ -109,7 +109,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         <div class="card-body">
             <h3 class="h6 fw-semibold mb-3">Top Errors</h3>
             <?php if (empty($this->topErrors)): ?>
-                <div class="alert alert-info mb-0">No errors found in the selected time period.</div>
+                <div role="status" class="alert alert-info mb-0">No errors found in the selected time period.</div>
             <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-striped align-top">

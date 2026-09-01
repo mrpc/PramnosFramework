@@ -22,17 +22,17 @@ $this->activeNav   = 'twofactor_backup';
     <h2 class="text-2xl font-bold text-base-content mb-6">Backup Codes</h2>
 
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success mb-4">
+        <div role="status" class="alert alert-success mb-4">
             <?php echo htmlspecialchars($this->success); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-error mb-4">
+        <div role="alert" class="alert alert-error mb-4">
             <?php echo htmlspecialchars($this->error); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->setupComplete)): ?>
-        <div class="alert alert-info mb-4">
+        <div role="status" class="alert alert-info mb-4">
             <strong>Setup complete!</strong> Save your backup codes before leaving this page.
         </div>
     <?php endif; ?>
@@ -44,7 +44,7 @@ $this->activeNav   = 'twofactor_backup';
         <div class="md:col-span-3 space-y-4">
             <?php if (!empty($this->newBackupCodes)): ?>
             <div class="card bg-base-100 shadow-xs">
-                <div class="alert alert-warning border-b">
+                <div role="status" class="alert alert-warning border-b">
                     New Backup Codes
                 </div>
                 <div class="p-5">

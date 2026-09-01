@@ -22,13 +22,13 @@ $this->activeNav   = 'twofactor_backup';
     <h2 class="mb-4">Backup Codes</h2>
 
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
+        <div role="status" class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->setupComplete)): ?>
-        <div class="alert alert-info">
+        <div role="status" class="alert alert-info">
             <strong>Setup complete!</strong> Save your backup codes before leaving this page.
         </div>
     <?php endif; ?>

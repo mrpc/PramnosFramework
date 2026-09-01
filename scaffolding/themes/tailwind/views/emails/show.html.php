@@ -160,7 +160,7 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                 </p>
 
                 <?php if (!empty($tracking['note'])): ?>
-                    <div role="alert" class="alert alert-warning py-2">
+                    <div role="status" class="alert alert-warning py-2">
                         <span class="text-xs"><?php echo htmlspecialchars($tracking['note']); ?></span>
                     </div>
                 <?php endif; ?>

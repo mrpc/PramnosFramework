@@ -12,7 +12,7 @@
         <div class="card-body" style="padding:28px">
             <div style="font-size:3rem;margin-bottom:12px">&#9888;&#65039;</div>
             <h2 style="margin:0 0 16px;font-size:1.3rem">Authorization Error</h2>
-            <div class="alert alert-danger"><?php echo htmlspecialchars($this->error ?? 'An error occurred.'); ?></div>
+            <div role="alert" class="alert alert-danger"><?php echo htmlspecialchars($this->error ?? 'An error occurred.'); ?></div>
             <a href="?user_code=<?php echo urlencode($this->userCode ?? ''); ?>" class="btn" style="margin-top:8px">&larr; Try Again</a>
         </div>
     </div>

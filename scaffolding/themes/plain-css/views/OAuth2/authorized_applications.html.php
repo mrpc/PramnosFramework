@@ -15,10 +15,10 @@ $this->activeNav = 'applications';
     <h2>Authorized Applications</h2>
 
     <?php if ($this->hasMessages()): ?>
-        <div class="alert alert-success"><?php echo $this->_printMessages(); ?></div>
+        <div role="status" class="alert alert-success"><?php echo $this->_printMessages(); ?></div>
     <?php endif; ?>
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
+        <div role="alert" class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
     <?php endif; ?>
 
     <div class="account-grid">
@@ -27,7 +27,7 @@ $this->activeNav = 'applications';
 
         <div>
             <?php if (empty($this->authorizedApps)): ?>
-                <div class="alert alert-info">You have no authorized applications.</div>
+                <div role="status" class="alert alert-info">You have no authorized applications.</div>
             <?php else: ?>
                 <div class="card">
                     <div class="card-body" style="padding:0">

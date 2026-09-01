@@ -24,6 +24,23 @@ $errorMessages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+/*
+ * The error box's id, and the attributes that point the first field at it.
+ *
+ * `role="alert"` on its own is unreliable for an error that is already in the document when the
+ * page loads: a screen reader announces a live region when it *changes*, and this one never
+ * changed. What works with no JavaScript at all is the description — the field is marked invalid
+ * and described by the box, so the message is read out as part of the field the moment focus
+ * lands on it, and focus lands there on load because the first field carries `autofocus`.
+ *
+ * The *first* field only. These errors are form-level — «wrong username or password» is about the
+ * pair — and marking four fields invalid to report one failure tells a screen reader four things
+ * that are not true.
+ */
+$errorFieldAttributes = $errorText !== ''
+    ? ' aria-invalid="true" aria-describedby="form-error"'
+    : '';
+
 // The wait message carries a number, so it is the one error that is formatted.
 if ($errorKey === 'email_code_wait') {
     $errorText = sprintf($errorText, max(1, $resendIn));
@@ -62,10 +79,10 @@ $intro = $authLink
         <p class="text-sm text-base-content/70 mb-6"><?php echo $intro; ?></p>
 
         <?php if ($errorText !== ''): ?>
-            <div class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
+            <div role="alert" id="form-error" class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
         <?php endif; ?>
         <?php if ($noticeText !== ''): ?>
-            <div class="alert alert-success mb-4"><?php echo htmlspecialchars($noticeText); ?></div>
+            <div role="status" class="alert alert-success mb-4"><?php echo htmlspecialchars($noticeText); ?></div>
         <?php endif; ?>
 
         <?php /* The link case: nothing to type, so no code box — a field with no source
@@ -74,14 +91,14 @@ $intro = $authLink
         <p class="text-sm text-base-content/70 mb-4">
             Open the link within 15 minutes. It works once, and only for this sign-in.
         </p>
-        <form method="POST" action="<?php echo $base; ?>/verify">
+        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <input type="hidden" name="send_auth_link" value="1">
             <button type="submit" class="btn btn-neutral w-full">Email the link again</button>
         </form>
         <?php else: ?>
 
-        <form method="POST" action="<?php echo $base; ?>/verify" class="space-y-4">
+        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" class="space-y-4">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <?php if (!empty($this->returnUrl)): ?>
                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
@@ -94,7 +111,7 @@ $intro = $authLink
                 <input type="text" id="code" name="code" data-pf-otp
                        class="input w-full text-center text-2xl font-mono tracking-widest"
                        maxlength="6" pattern="[0-9]{6}" placeholder="000000"
-                       autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go" required autofocus>
+                       autocomplete="one-time-code"<?php echo $errorFieldAttributes; ?> inputmode="numeric" enterkeyhint="go" required autofocus>
             </div>
             <button type="submit" class="btn btn-primary w-full">Verify &amp; Sign In</button>
         </form>
@@ -113,7 +130,7 @@ $intro = $authLink
             <summary class="text-sm text-primary cursor-pointer">Try another way</summary>
             <div class="mt-3 space-y-2">
                 <?php if ($codePending): ?>
-                <form method="POST" action="<?php echo $base; ?>/verify" class="space-y-2">
+                <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" class="space-y-2">
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <input type="hidden" name="method" value="email">
                     <label for="email-code" class="block text-sm font-medium mb-1">Code sent to your email</label>
@@ -124,7 +141,7 @@ $intro = $authLink
                     <button type="submit" class="btn btn-neutral btn-sm w-full">Use the emailed code</button>
                 </form>
                 <?php endif; ?>
-                <form method="POST" action="<?php echo $base; ?>/verify">
+                <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify">
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <input type="hidden" name="send_email_code" value="1">
                     <?php
@@ -154,7 +171,7 @@ $intro = $authLink
         <?php endif; ?>
 
         <?php if ($emailFirst): ?>
-        <form method="POST" action="<?php echo $base; ?>/verify" class="mt-2">
+        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" class="mt-2">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <input type="hidden" name="send_email_code" value="1">
             <button type="submit" class="btn btn-ghost btn-sm w-full">Send another code</button>
@@ -177,7 +194,7 @@ $intro = $authLink
         <?php if ($hasTotp): ?>
         <details class="mt-4">
             <summary class="text-sm text-base-content/70 cursor-pointer">Use a backup code instead</summary>
-            <form method="POST" action="<?php echo $base; ?>/verify" class="mt-3 space-y-2">
+            <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" class="mt-3 space-y-2">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php if (!empty($this->returnUrl)): ?>
                     <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">

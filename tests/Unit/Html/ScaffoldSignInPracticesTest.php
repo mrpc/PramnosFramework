@@ -225,4 +225,48 @@ class ScaffoldSignInPracticesTest extends TestCase
             . implode("\n  ", $without)
         );
     }
+
+    /**
+     * A field the plain-css theme styles is at least 16px, because iOS zooms below that.
+     *
+     * The eighth finding of the eight, and the one that was filed as unverified. Measuring it turned
+     * out to be most of the work, and the answer is that two of the three themes already had it —
+     * which is worth writing down, because «add a rule to be safe» would have added a focus-time
+     * layout shift to fix nothing:
+     *
+     *  - **plain-css** declares `font-size: 1rem` on the shared input/select/textarea rule. This is
+     *    the file the framework ships and the only one it controls, so this is the one to pin.
+     *  - **bootstrap** inherits `1rem` from Bootstrap's own `.form-control`.
+     *  - **tailwind** is daisyUI, which raises `--font-size` to `1rem` on focus for `.input` and
+     *    `.textarea`. `.select` keeps the smaller minimum and does not need it: tapping a `<select>`
+     *    on iOS opens the picker wheel, not a keyboard, so there is nothing to zoom for.
+     *
+     * What iOS actually does is zoom in on focus and *not* zoom back out, leaving the form half off
+     * the screen for the rest of the visit — so the cost is not a small font, it is a page the person
+     * has to pinch their way around while typing a password they cannot see.
+     */
+    public function testThePlainCssThemeSizesItsFieldsAboveTheZoomThreshold(): void
+    {
+        // Arrange
+        $path = dirname(__DIR__, 3) . '/scaffolding/themes/plain-css/style.css';
+        $css = (string) file_get_contents($path);
+
+        // Act — the block that styles every text field at once
+        $at = strpos($css, 'input[type="password"]');
+        $this->assertNotFalse($at, 'the shared field rule moved; this test is pinning nothing');
+
+        $block = substr($css, $at, (int) (strpos($css, '}', $at) - $at));
+
+        $found = preg_match('/font-size:\s*([0-9.]+)(rem|px)/', $block, $matches);
+
+        // Assert
+        $this->assertSame(1, $found, 'the shared field rule declares no font size at all');
+
+        $pixels = $matches[2] === 'rem' ? (float) $matches[1] * 16.0 : (float) $matches[1];
+        $this->assertGreaterThanOrEqual(
+            16.0,
+            $pixels,
+            'iOS zooms in on a field below 16px and does not zoom back out'
+        );
+    }
 }

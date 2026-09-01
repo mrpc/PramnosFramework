@@ -18,7 +18,7 @@
     <div class="card shadow-sm">
         <div class="card-body">
             <?php if (!empty($this->results)): ?>
-                <div class="alert alert-info">
+                <div role="status" class="alert alert-info">
                     <div class="fw-semibold mb-1">Rotation Results:</div>
                     <ul class="mb-0">
                         <?php foreach ($this->results as $file => $rotated): ?>

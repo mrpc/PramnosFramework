@@ -11,10 +11,10 @@
 <div class="px-4 py-6">
     <?php $this->activeNav = 'users'; $this->insert('../partials/admin_breadcrumb'); ?>
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success mb-4"><?php echo htmlspecialchars($this->success); ?></div>
+        <div role="status" class="alert alert-success mb-4"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <?php /* The two links are wrapped: `space-between` on three children puts the middle
              one in the centre of the row, which reads as a broken stylesheet rather than as

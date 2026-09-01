@@ -15,10 +15,10 @@
                     <h1 class="h4 mb-3"><?php echo htmlspecialchars($this->title ?? 'Notice'); ?></h1>
 
                     <?php if ($this->hasErrors()): ?>
-                        <div class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
+                        <div role="alert" class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
                     <?php endif; ?>
                     <?php if ($this->hasMessages()): ?>
-                        <div class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
+                        <div role="status" class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
                     <?php endif; ?>
 
                     <?php if (!empty($this->message)): ?>

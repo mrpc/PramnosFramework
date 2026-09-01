@@ -13,7 +13,7 @@
     <h2 style="margin-bottom:20px"><?php echo htmlspecialchars($this->header ?? 'Single Sign-On'); ?></h2>
 
     <?php if ($this->isLoggedIn ?? false): ?>
-        <div class="alert alert-info" style="margin-bottom:16px">
+        <div role="status" class="alert alert-info" style="margin-bottom:16px">
             <strong>&#10003; Signed In</strong> — Signed in as <strong><?php echo htmlspecialchars($this->user->username ?? ''); ?></strong>
             (<?php echo htmlspecialchars($this->user->email ?? ''); ?>)
         </div>

@@ -11,7 +11,7 @@
 <div class="px-4 py-6">
     <h2 class="mb-6">Services</h2>
     <?php if (!empty($_GET['msg'])): ?>
-        <div class="alert alert-info mb-4"><?php echo htmlspecialchars($_GET['msg']); ?></div>
+        <div role="status" class="alert alert-info mb-4"><?php echo htmlspecialchars($_GET['msg']); ?></div>
     <?php endif; ?>
     <?php
     /**
@@ -28,7 +28,7 @@
     $heartbeat    = is_array($orchestrator) ? $orchestrator['heartbeat_age_seconds'] : null;
     ?>
     <?php if (!$supervising): ?>
-        <div class="alert alert-warning mb-4">
+        <div role="status" class="alert alert-warning mb-4">
             <div>
                 <strong>The orchestrator is not running.</strong>
                 Start and Restart below have nothing to act on — they write a request that the
@@ -61,7 +61,7 @@
             </div>
         </div>
     <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
-        <div class="alert alert-warning mb-4">
+        <div role="status" class="alert alert-warning mb-4">
             <div>
                 <strong>The orchestrator is running but has not cycled for
                 <?php echo (int) $heartbeat; ?>s</strong> (pid

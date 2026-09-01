@@ -20,10 +20,10 @@ $this->activeNav = 'security';
     <h2>Security Overview</h2>
 
     <?php if ($this->hasMessages()): ?>
-        <div class="alert alert-success"><?php echo $this->_printMessages(); ?></div>
+        <div role="status" class="alert alert-success"><?php echo $this->_printMessages(); ?></div>
     <?php endif; ?>
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
+        <div role="alert" class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
     <?php endif; ?>
 
     <div class="account-grid">

@@ -18,7 +18,7 @@ $this->activeNav   = 'twofactor';
     <h2 class="text-2xl font-bold text-base-content mb-6">Two-Factor Authentication</h2>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div class="alert alert-error mb-4">
+        <div role="alert" class="alert alert-error mb-4">
             <?php
             $messages = [
                 'already_enabled'   => 'Two-factor authentication is already enabled.',
@@ -30,7 +30,7 @@ $this->activeNav   = 'twofactor';
         </div>
     <?php endif; ?>
     <?php if (!empty($_GET['success'])): ?>
-        <div class="alert alert-success mb-4">
+        <div role="status" class="alert alert-success mb-4">
             <?php
             $messages = ['disabled' => 'Two-factor authentication has been disabled.'];
             echo htmlspecialchars($messages[$_GET['success']] ?? 'Done.');

@@ -19,7 +19,7 @@ $this->activeNav   = 'twofactor_setup';
     <h2>Set Up Two-Factor Authentication</h2>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div class="alert alert-error">
+        <div role="alert" class="alert alert-error">
             <?php
             $messages = [
                 'invalid_code'  => 'The code was invalid or expired. Please try again.',

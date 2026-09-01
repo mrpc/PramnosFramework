@@ -461,10 +461,17 @@
                 form.addEventListener('submit', function (event) {
                     if (solved || !pending) { return; }
 
-                    // Held, not blocked: the work is nearly always finished by now, and a
-                    // disabled button would leave somebody staring at a form that looks
-                    // broken while it finishes.
+                    // Held, not blocked: the work is nearly always finished by now.
                     event.preventDefault();
+
+                    // …but the hold is exactly when somebody presses submit a second time,
+                    // because nothing on the page changed. `pf-auth.js` cannot do this for us:
+                    // it skips a submit whose default was prevented, which is how it avoids
+                    // disabling a form that failed validation and has to be fixed.
+                    if (window.PramnosAuth && window.PramnosAuth.markSubmitBusy) {
+                        window.PramnosAuth.markSubmitBusy(form);
+                    }
+
                     pending.then(function () {
                         form.submit();
                     }).catch(function () {

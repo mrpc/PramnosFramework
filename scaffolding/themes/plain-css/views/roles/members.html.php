@@ -17,10 +17,10 @@ $orgId = (int) ($role->organization_id ?? 0);
 <div class="page-section">
     <?php $this->activeNav = 'roles_members'; $this->insert('../partials/admin_breadcrumb'); ?>
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
+        <div role="status" class="alert alert-success"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div style="display:flex;gap:8px" style="margin-bottom:16px;align-items:center">
         <a href="<?php echo adminUrl('Roles'); ?>" class="btn btn-outline-secondary">&larr; Back</a>

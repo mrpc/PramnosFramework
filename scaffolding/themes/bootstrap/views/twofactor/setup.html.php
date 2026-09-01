@@ -20,7 +20,7 @@ $this->activeNav   = 'twofactor_setup';
     <p class="text-muted mb-4">Follow the steps below to secure your account.</p>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div class="alert alert-danger">
+        <div role="alert" class="alert alert-danger">
             <?php
             $messages = [
                 'invalid_code'  => 'The code was invalid or expired. Please try again.',

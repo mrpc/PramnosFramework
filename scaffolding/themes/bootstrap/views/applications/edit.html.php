@@ -20,17 +20,17 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
     </div>
 
     <?php if (!empty($this->message)): ?>
-        <div class="alert alert-success alert-dismissible fade show">
+        <div role="status" class="alert alert-success alert-dismissible fade show">
             <?php echo htmlspecialchars($this->message === 'secret_rotated' ? 'Client secret rotated successfully.' : 'Application saved.'); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error === 'name_required' ? 'Application name is required.' : $this->error); ?></div>
+        <div role="alert" class="alert alert-danger"><?php echo htmlspecialchars($this->error === 'name_required' ? 'Application name is required.' : $this->error); ?></div>
     <?php endif; ?>
 
     <?php if (!$isNew && !empty($app['apikey'])): ?>
-        <div class="alert alert-info d-flex align-items-center gap-3 small">
+        <div role="status" class="alert alert-info d-flex align-items-center gap-3 small">
             <div>
                 <strong>Client ID (API Key):</strong>
                 <code class="ms-1"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code>

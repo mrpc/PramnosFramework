@@ -12,7 +12,7 @@
 <div class="max-w-2xl mx-auto py-6 px-4">
     <h2 class="mb-6"><?php echo $this->isNew ? 'New Setting' : 'Edit Setting'; ?></h2>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="p-5">

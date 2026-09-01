@@ -16,7 +16,7 @@
     <div class="card shadow-sm" style="max-width:36rem;">
         <div class="card-body">
             <?php if (!empty($this->result['error'])): ?>
-                <div class="alert alert-danger">
+                <div role="alert" class="alert alert-danger">
                     <strong>Error:</strong> <?php echo htmlspecialchars($this->result['error']); ?>
                 </div>
             <?php endif; ?>

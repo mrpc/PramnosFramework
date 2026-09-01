@@ -21,6 +21,23 @@ $errorMessages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+/*
+ * The error box's id, and the attributes that point the first field at it.
+ *
+ * `role="alert"` on its own is unreliable for an error that is already in the document when the
+ * page loads: a screen reader announces a live region when it *changes*, and this one never
+ * changed. What works with no JavaScript at all is the description — the field is marked invalid
+ * and described by the box, so the message is read out as part of the field the moment focus
+ * lands on it, and focus lands there on load because the first field carries `autofocus`.
+ *
+ * The *first* field only. These errors are form-level — «wrong username or password» is about the
+ * pair — and marking four fields invalid to report one failure tells a screen reader four things
+ * that are not true.
+ */
+$errorFieldAttributes = $errorText !== ''
+    ? ' aria-invalid="true" aria-describedby="form-error"'
+    : '';
+
 $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
 ?>
 <div class="container py-5">
@@ -31,7 +48,7 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
                     <h1 class="h4 mb-3">Choose a new password</h1>
 
                     <?php if ($errorText !== ''): ?>
-                        <div class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
+                        <div role="alert" id="form-error" class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
                     <?php endif; ?>
 
                     <?php if ($expired): ?>
@@ -39,13 +56,13 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
                             <a href="<?php echo $base; ?>/forgotpassword" class="small">Request a new reset link</a>
                         </div>
                     <?php else: ?>
-                        <div data-pf-password-error class="alert alert-danger d-none"></div>
-                        <form method="POST" action="<?php echo $base; ?>/resetpassword" data-pf-password-policy>
+                        <div data-pf-password-error role="alert" class="alert alert-danger d-none"></div>
+                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/resetpassword" data-pf-password-policy>
                             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                             <input type="hidden" name="token" value="<?php echo htmlspecialchars($token); ?>">
                             <div class="mb-3">
                                 <label for="password" class="form-label">New password</label>
-                                <input type="password" name="password" id="password" class="form-control" required autofocus autocomplete="new-password">
+                                <input type="password" name="password" id="password" class="form-control" required autofocus autocomplete="new-password"<?php echo $errorFieldAttributes; ?>>
                                 <?php echo \Pramnos\Html\PasswordToggle::render(
                                     'password', '', ''
                                 ); ?>

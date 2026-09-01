@@ -8,7 +8,7 @@
 ?>
 <div class="page-section">
     <h2><?php echo htmlspecialchars($this->header ?? 'OAuth2'); ?></h2>
-    <div class="alert alert-info">
+    <div role="status" class="alert alert-info">
         <strong>OAuth2 Server</strong> — This is the default OAuth2 view. A specific template was not found for the requested action.
     </div>
     <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn">Dashboard</a>

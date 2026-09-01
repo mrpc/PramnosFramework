@@ -13,10 +13,10 @@
         <div class="card-body" style="padding:24px">
 
             <?php if ($this->hasErrors()): ?>
-                <div class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
+                <div role="alert" class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
             <?php endif; ?>
             <?php if ($this->hasMessages()): ?>
-                <div class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
+                <div role="status" class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
             <?php endif; ?>
 
             <?php if (!empty($this->message)): ?>

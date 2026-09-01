@@ -18,7 +18,7 @@ $orgId = (int) ($role->organization_id ?? 0);
     <?php $this->activeNav = 'roles_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
     <h2 style="margin-bottom:16px"><?php echo $isNew ? 'New Role' : 'Edit Role'; ?></h2>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body" style="padding:16px">

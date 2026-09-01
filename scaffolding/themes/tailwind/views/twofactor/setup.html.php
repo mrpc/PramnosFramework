@@ -20,7 +20,7 @@ $this->activeNav   = 'twofactor_setup';
     <p class="text-base-content/70 text-sm mb-6">Follow the steps below to secure your account.</p>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div class="alert alert-error mb-4">
+        <div role="alert" class="alert alert-error mb-4">
             <?php
             $messages = [
                 'invalid_code'  => 'The code was invalid or expired. Please try again.',
@@ -69,7 +69,7 @@ $this->activeNav   = 'twofactor_setup';
                  different set from the one enrolment went on to store: whoever
                  wrote these down had ten codes that could never work. -->
             <div class="card bg-base-100 shadow-xs">
-                <div class="alert alert-warning border-b">
+                <div role="status" class="alert alert-warning border-b">
                     Step 2 — Your backup codes
                 </div>
                 <div class="p-5">

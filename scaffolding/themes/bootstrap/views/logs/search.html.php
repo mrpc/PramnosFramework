@@ -46,7 +46,7 @@
                 </h3>
 
                 <?php if (empty($this->results)): ?>
-                    <div class="alert alert-info">No results found.</div>
+                    <div role="status" class="alert alert-info">No results found.</div>
                 <?php else: ?>
                     <div class="d-flex flex-column gap-4">
                         <?php foreach ($this->results as $fileResult): ?>

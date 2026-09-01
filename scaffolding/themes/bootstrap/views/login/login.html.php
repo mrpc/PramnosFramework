@@ -21,6 +21,23 @@ $errorMessages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+/*
+ * The error box's id, and the attributes that point the first field at it.
+ *
+ * `role="alert"` on its own is unreliable for an error that is already in the document when the
+ * page loads: a screen reader announces a live region when it *changes*, and this one never
+ * changed. What works with no JavaScript at all is the description — the field is marked invalid
+ * and described by the box, so the message is read out as part of the field the moment focus
+ * lands on it, and focus lands there on load because the first field carries `autofocus`.
+ *
+ * The *first* field only. These errors are form-level — «wrong username or password» is about the
+ * pair — and marking four fields invalid to report one failure tells a screen reader four things
+ * that are not true.
+ */
+$errorFieldAttributes = $errorText !== ''
+    ? ' aria-invalid="true" aria-describedby="form-error"'
+    : '';
+
 ?>
 <div class="container py-5">
     <div class="row justify-content-center">
@@ -36,10 +53,10 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
                     </div>
 
                     <?php if ($errorText !== ''): ?>
-                        <div class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
+                        <div role="alert" id="form-error" class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
                     <?php endif; ?>
                     <?php if ($this->hasMessages()): ?>
-                        <div class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
+                        <div role="status" class="alert alert-info"><?php echo $this->_printMessages(); ?></div>
                     <?php endif; ?>
 
                     <?php if (($this->lockoutSeconds ?? 0) > 0): ?>
@@ -62,14 +79,14 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
                     </script>
                     <?php endif; ?>
 
-                    <form method="POST" action="<?php echo $base; ?>/login">
+                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/login">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <?php if (!empty($this->returnUrl)): ?>
                             <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
                         <?php endif; ?>
                         <div class="mb-3">
                             <label for="username" class="form-label">Username or Email</label>
-                            <input type="text" name="username" id="username" class="form-control" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username webauthn" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
+                            <input type="text" name="username" id="username" class="form-control" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username webauthn"<?php echo $errorFieldAttributes; ?> autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>

@@ -15,7 +15,7 @@ $inputCls = 'input w-full';
     <h2 class="text-2xl font-bold text-base-content mb-6">Change Password</h2>
 
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error mb-4">
+        <div role="alert" class="alert alert-error mb-4">
             <?php echo $this->_printErrors(); ?>
         </div>
     <?php endif; ?>
@@ -29,7 +29,7 @@ $inputCls = 'input w-full';
                 <p class="text-sm text-base-content/70 mb-5">
                     Choose a strong password: at least 8 characters, one digit, and one special character.
                 </p>
-                <div data-pf-password-error class="alert alert-error hidden mb-4"></div>
+                <div data-pf-password-error role="alert" class="alert alert-error hidden mb-4"></div>
                 <form method="post" action="<?php echo sURL . $routeBase; ?>/changepassword" class="space-y-4" data-pf-password-policy>
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <div>

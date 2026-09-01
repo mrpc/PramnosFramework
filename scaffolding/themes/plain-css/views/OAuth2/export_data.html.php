@@ -18,7 +18,7 @@ $this->activeNav = 'exportdata';
     <h2>Export My Data</h2>
 
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
+        <div role="alert" class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
     <?php endif; ?>
 
     <div class="account-grid">

@@ -10,7 +10,7 @@
 <div class="container-fluid py-4">
     <h2 class="mb-4">Services</h2>
     <?php if (!empty($_GET['msg'])): ?>
-        <div class="alert alert-info"><?php echo htmlspecialchars($_GET['msg']); ?></div>
+        <div role="status" class="alert alert-info"><?php echo htmlspecialchars($_GET['msg']); ?></div>
     <?php endif; ?>
     <?php
     /**
@@ -23,7 +23,7 @@
     $heartbeat    = is_array($orchestrator) ? $orchestrator['heartbeat_age_seconds'] : null;
     ?>
     <?php if (!$supervising): ?>
-        <div class="alert alert-warning">
+        <div role="status" class="alert alert-warning">
             <strong>The orchestrator is not running.</strong>
             Start and Restart below have nothing to act on — they write a request the
             supervisor reads on its next cycle. Stop still takes effect, because a daemon
@@ -34,7 +34,7 @@
             </p>
         </div>
     <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
-        <div class="alert alert-warning">
+        <div role="status" class="alert alert-warning">
             <strong>The orchestrator has not cycled for <?php echo (int) $heartbeat; ?>s</strong>
             (pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?>). A live process with a
             stale heartbeat is stuck rather than healthy.

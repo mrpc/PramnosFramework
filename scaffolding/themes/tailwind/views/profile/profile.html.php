@@ -23,10 +23,10 @@ $inputCls = 'input w-full';
     </div>
 
     <?php if ($this->hasMessages()): ?>
-        <div class="alert alert-success mb-4"><?php echo $this->_printMessages(); ?></div>
+        <div role="status" class="alert alert-success mb-4"><?php echo $this->_printMessages(); ?></div>
     <?php endif; ?>
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error mb-4"><?php echo $this->_printErrors(); ?></div>
+        <div role="alert" class="alert alert-error mb-4"><?php echo $this->_printErrors(); ?></div>
     <?php endif; ?>
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">

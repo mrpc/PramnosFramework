@@ -15,7 +15,7 @@ $this->activeNav = 'deleteaccount';
     <h2 class="mb-4">Delete Account</h2>
 
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
+        <div role="alert" class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
     <?php endif; ?>
 
     <div class="row g-4">
@@ -29,7 +29,7 @@ $this->activeNav = 'deleteaccount';
                 </div>
                 <div class="card-body">
 
-                    <div class="alert alert-warning">
+                    <div role="status" class="alert alert-warning">
                         <strong>Warning — this action is permanent.</strong><br>
                         All your personal data, authorized applications, activity history, and account
                         information will be permanently deleted. This cannot be undone.

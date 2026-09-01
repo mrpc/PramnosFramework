@@ -13,10 +13,10 @@
 <div class="px-4 py-6">
     <?php $this->activeNav = 'emails'; $this->insert('../partials/admin_breadcrumb'); ?>
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success mb-4"><?php echo htmlspecialchars($this->success); ?></div>
+        <div role="status" class="alert alert-success mb-4"><?php echo htmlspecialchars($this->success); ?></div>
     <?php endif; ?>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
         <h2>Email history</h2>
@@ -34,7 +34,7 @@
     $scopedTo = (string) ($this->scopedTo ?? '');
     ?>
     <?php if ($scopedTo !== ''): ?>
-        <div class="alert alert-info mb-4 flex flex-wrap items-center gap-3">
+        <div role="status" class="alert alert-info mb-4 flex flex-wrap items-center gap-3">
             <span>
                 Showing only mail sent to
                 <strong class="font-mono"><?php echo htmlspecialchars($scopedTo, ENT_QUOTES, 'UTF-8'); ?></strong>.

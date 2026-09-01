@@ -72,7 +72,7 @@ function viewCacheItem(key, ns) {
         .then(function(data) {
             if (!data.success) {
                 document.getElementById('cache-detail-content').innerHTML =
-                    '<div class="alert alert-danger">' + escapeHtml(data.error || 'Error') + '</div>';
+                    '<div role="alert" class="alert alert-danger">' + escapeHtml(data.error || 'Error') + '</div>';
                 return;
             }
             var m = data.metadata || {};
@@ -92,7 +92,7 @@ function viewCacheItem(key, ns) {
         })
         .catch(function(err) {
             document.getElementById('cache-detail-content').innerHTML =
-                '<div class="alert alert-danger">' + escapeHtml(err.message) + '</div>';
+                '<div role="alert" class="alert alert-danger">' + escapeHtml(err.message) + '</div>';
         });
 }
 
@@ -240,7 +240,7 @@ document.addEventListener('click', function(e) {
         </div>
         <div class="card-body p-0">
             <?php if ($memcachedLimitation): ?>
-                <div class="alert alert-warning m-3">
+                <div role="status" class="alert alert-warning m-3">
                     <strong>Memcached Limitation:</strong> <?php echo htmlspecialchars($memcachedLimitationMessage, ENT_QUOTES, 'UTF-8'); ?>
                     <br><small>Statistics show <?php echo (int) ($cacheStats['items'] ?? 0); ?> items stored, but individual items cannot be listed.</small>
                 </div>
@@ -310,7 +310,7 @@ document.addEventListener('click', function(e) {
                 </table>
             </div>
             <?php if (count($cacheItems) >= 50): ?>
-                <div class="alert alert-info m-3 mb-2">Showing first 50 items. There may be more.</div>
+                <div role="status" class="alert alert-info m-3 mb-2">Showing first 50 items. There may be more.</div>
             <?php endif; ?>
             <?php endif; ?>
         </div>

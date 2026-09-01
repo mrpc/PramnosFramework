@@ -21,7 +21,7 @@ $sURL = adminUrl();
     <div class="card shadow-sm">
         <div class="card-body">
             <?php if (empty($this->stats)): ?>
-                <div class="alert alert-info mb-0">No log files found.</div>
+                <div role="status" class="alert alert-info mb-0">No log files found.</div>
             <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-striped align-middle">

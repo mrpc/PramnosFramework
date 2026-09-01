@@ -98,7 +98,7 @@ $levelBadge = static function (string $level): string {
                 </h3>
 
                 <?php if (empty($this->results)): ?>
-                    <div class="alert alert-info">No log entries match the specified filters.</div>
+                    <div role="status" class="alert alert-info">No log entries match the specified filters.</div>
                 <?php else: ?>
                     <div class="table-responsive">
                         <table class="table table-striped align-top">

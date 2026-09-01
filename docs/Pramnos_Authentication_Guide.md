@@ -483,6 +483,67 @@ The completion is recorded as its own method so an audit can tell which factor a
 carried a login. They are not equally strong, and a log that calls them the same thing
 cannot answer that afterwards.
 
+### What the form says when it fails, and while it works
+
+Two things the scaffolded sign-in screens do that are invisible on the machine of the person who
+built them.
+
+**A failed submission is announced.** The error box carries `role="alert"`, and — the part that
+actually does the work — the first field of the form points at it:
+
+```php
+$errorFieldAttributes = $errorText !== ''
+    ? ' aria-invalid="true" aria-describedby="form-error"'
+    : '';
+```
+
+```html
+<div role="alert" id="form-error" class="alert alert-error">Wrong username or password.</div>
+…
+<input type="text" name="username" id="username" autocomplete="username webauthn"
+       aria-invalid="true" aria-describedby="form-error" autofocus>
+```
+
+`role="alert"` on its own is not enough here, and this is the easy thing to get wrong while believing
+it is done: a live region is announced when it **changes**, and a server-rendered error has been in
+the document since before the page existed. It never changed, so most screen readers say nothing. The
+description is what works with no JavaScript at all — the message is read out as part of the field the
+moment focus lands on it, and focus lands there on load because the first field carries `autofocus`.
+
+The **first** field only. These errors are form-level — «wrong username or password» is about the pair
+— and marking four fields invalid to report one failure tells a screen reader four things that are not
+true.
+
+The same split applies to every other message box on a scaffolded page: `alert-error` and
+`alert-danger` get `role="alert"`, which interrupts; `alert-info`, `alert-success` and `alert-warning`
+get `role="status"`, which waits for the next pause. A success message that interrupts whatever was
+being read is how a well-meaning accessibility sweep makes a page worse.
+
+**A submitted form says it heard the button.** Mark the form and `pf-auth.js` does the rest:
+
+```html
+<form method="POST" action="…/login" data-pf-progress>
+```
+
+On submit the submit buttons are disabled, gain a `pf-busy` class, get `…` appended to whatever they
+said (or `data-pf-busy-label` if the screen wants real words), and the form gets `aria-busy="true"`.
+The pause is real and unavoidable — the human-check proof runs in a worker and the form waits for it —
+and a person who cannot tell whether the press registered presses again. A second sign-in attempt is
+not free: it is a failed attempt against a lockout counter.
+
+One subtlety worth knowing before you touch it. A submit listener that called `preventDefault()` did
+one of two opposite things: **refused** the submit, in which case disabling its button hands somebody
+a form that can never be submitted; or **held** it, in which case that hold is exactly when the second
+press happens. Nothing in the event distinguishes them, so the indicator skips both — it runs a tick
+after the event and returns if the default was prevented — and whoever is holding marks the form
+itself:
+
+```js
+window.PramnosAuth.markSubmitBusy(form);
+```
+
+which is what `pf-humancheck.js` does while it waits for its proof.
+
 ### Telling an account it was used from somewhere new
 
 `NewSignInAlert` compares the current sign-in's device fingerprint against

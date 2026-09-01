@@ -10,6 +10,7 @@
  *   [data-pf-passkey-login]           button: primary passwordless login ceremony
  *   [data-pf-passkey-stepup]          button: second-factor passkey step-up ceremony
  *     both read data-options-url / data-verify-url / data-redirect / data-error
+ *   [data-pf-progress]                form:  disable + mark the submit button busy on submit
  *   [data-pf-passkey-manage]          container: list / add / rename / revoke passkeys
  *     reads data-base; contains [data-pf-passkey-list] [data-pf-passkey-add]
  *     [data-pf-passkey-message]
@@ -252,12 +253,78 @@
         document.querySelectorAll('[data-pf-passkey-manage]').forEach(wirePasskeyManager);
     }
 
+
+    // ── Submit progress ────────────────────────────────────────────────────────
+    /**
+     * Mark a form's submit buttons busy: disabled, `aria-busy`, and a label that says so.
+     *
+     * Exported on `window.PramnosAuth` because the human-check script holds a submit for a moment
+     * before re-submitting it, and that hold is the case this exists for — see below.
+     */
+    function markSubmitBusy(form) {
+        if (!form || form.getAttribute('data-pf-busy') !== null) { return; }
+        form.setAttribute('data-pf-busy', '');
+        form.setAttribute('aria-busy', 'true');
+
+        form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')
+            .forEach(function (button) {
+                var busyLabel = button.getAttribute('data-pf-busy-label');
+
+                // A trailing ellipsis rather than a spinner class: this script ships with three
+                // themes and is copied into projects with none of them, and a class only one theme
+                // styles is an invisible indicator. The disabled state is what stops the second
+                // press; the label is what says why.
+                if (busyLabel === null) {
+                    busyLabel = (button.tagName === 'INPUT' ? button.value : button.textContent)
+                        .trim() + '…';
+                }
+
+                if (button.tagName === 'INPUT') {
+                    button.value = busyLabel;
+                } else {
+                    button.textContent = busyLabel;
+                }
+
+                button.classList.add('pf-busy');
+
+                // Safe to disable here: a disabled submit button is left out of the submitted
+                // form data, but both callers are already past that point — one runs a tick after
+                // the submit event, the other has prevented the default and will re-submit
+                // programmatically, where no button participates at all.
+                button.disabled = true;
+            });
+    }
+
+    function wireSubmitProgress() {
+        document.querySelectorAll('form[data-pf-progress]').forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+                /*
+                 * Deferred by a tick so every other submit listener on this form has run.
+                 *
+                 * `defaultPrevented` then distinguishes the two things a listener may have done.
+                 * A validation handler that refused the submit leaves the person on the page with
+                 * a form they must fix — disabling its button would be a dead form. The human-check
+                 * script also prevents the default, but only to *hold* the submit while a proof
+                 * finishes, and it marks the form busy itself for exactly that reason.
+                 */
+                setTimeout(function () {
+                    if (event.defaultPrevented) { return; }
+                    markSubmitBusy(form);
+                }, 0);
+            });
+        });
+    }
+
     function init() {
         wireOtpInputs();
         wirePasswordPolicyForms();
+        wireSubmitProgress();
         wirePasskeyButtons();
         wirePasskeyManagers();
     }
+
+    window.PramnosAuth = window.PramnosAuth || {};
+    window.PramnosAuth.markSubmitBusy = markSubmitBusy;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

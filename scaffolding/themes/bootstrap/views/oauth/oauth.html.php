@@ -13,7 +13,7 @@
     </div>
 
     <?php if (empty($this->apps)): ?>
-        <div class="alert alert-info">No OAuth applications registered yet.</div>
+        <div role="status" class="alert alert-info">No OAuth applications registered yet.</div>
     <?php else: ?>
         <div class="card">
             <div class="card-body p-0">

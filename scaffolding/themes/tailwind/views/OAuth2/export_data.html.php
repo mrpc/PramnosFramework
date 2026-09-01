@@ -15,7 +15,7 @@ $this->activeNav = 'exportdata';
     <h2 class="text-2xl font-bold text-base-content mb-6">Export My Data</h2>
 
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error mb-4">
+        <div role="alert" class="alert alert-error mb-4">
             <?php echo $this->_printErrors(); ?>
         </div>
     <?php endif; ?>

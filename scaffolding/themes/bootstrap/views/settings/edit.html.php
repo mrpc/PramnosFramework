@@ -12,7 +12,7 @@
 <div class="container py-4" style="max-width:640px">
     <h2 class="mb-4"><?php echo $this->isNew ? 'New Setting' : 'Edit Setting'; ?></h2>
     <?php if (!empty($this->error)): ?>
-        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+        <div role="alert" class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div class="card">
         <div class="card-body">

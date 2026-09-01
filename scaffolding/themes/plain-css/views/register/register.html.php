@@ -31,6 +31,23 @@ $messages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $messages[$errorKey] ?? $errorKey;
+/*
+ * The error box's id, and the attributes that point the first field at it.
+ *
+ * `role="alert"` on its own is unreliable for an error that is already in the document when the
+ * page loads: a screen reader announces a live region when it *changes*, and this one never
+ * changed. What works with no JavaScript at all is the description — the field is marked invalid
+ * and described by the box, so the message is read out as part of the field the moment focus
+ * lands on it, and focus lands there on load because the first field carries `autofocus`.
+ *
+ * The *first* field only. These errors are form-level — «wrong username or password» is about the
+ * pair — and marking four fields invalid to report one failure tells a screen reader four things
+ * that are not true.
+ */
+$errorFieldAttributes = $errorText !== ''
+    ? ' aria-invalid="true" aria-describedby="form-error"'
+    : '';
+
 $closed    = ($this->registrationOpen ?? true) === false;
 ?>
 <div style="display:flex;align-items:center;justify-content:center;min-height:70vh;padding:20px">
@@ -39,14 +56,14 @@ $closed    = ($this->registrationOpen ?? true) === false;
         <div class="card-body" style="padding:24px">
 
             <?php if ($errorText !== ''): ?>
-                <div class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
+                <div role="alert" id="form-error" class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
             <?php endif; ?>
             <?php if ($this->hasErrors()): ?>
-                <div class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
+                <div role="alert" class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
             <?php endif; ?>
 
             <?php if (!$closed): ?>
-            <form method="POST" action="<?php echo sURL; ?>register">
+            <form data-pf-progress method="POST" action="<?php echo sURL; ?>register">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php
                 $inputStyle = 'width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px';
@@ -54,7 +71,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                 ?>
                 <div style="margin-bottom:14px">
                     <label for="username" style="<?php echo $labelStyle; ?>">Username</label>
-                    <input type="text" name="username" id="username" style="<?php echo $inputStyle; ?>" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"
+                    <input type="text" name="username" id="username" style="<?php echo $inputStyle; ?>" required autocomplete="username"<?php echo $errorFieldAttributes; ?> autocapitalize="none" autocorrect="off" spellcheck="false"
                            value="<?php echo htmlspecialchars($this->formData['username'] ?? ''); ?>">
                 </div>
                 <div style="margin-bottom:14px">
@@ -86,3 +103,4 @@ $closed    = ($this->registrationOpen ?? true) === false;
         </div>
     </div>
 </div>
+<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>

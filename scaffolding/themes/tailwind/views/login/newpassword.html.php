@@ -13,15 +13,15 @@
         <h1 class="text-2xl font-semibold mb-6">Set New Password</h1>
 
         <?php if (!empty($this->error)): ?>
-            <div class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
+            <div role="alert" class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
         <?php endif; ?>
         <?php if ($this->hasErrors()): ?>
-            <div class="alert alert-error mb-4"><?php echo $this->_printErrors(); ?></div>
+            <div role="alert" class="alert alert-error mb-4"><?php echo $this->_printErrors(); ?></div>
         <?php endif; ?>
         <?php if ($this->hasMessages()): ?>
-            <div class="alert alert-info mb-4"><?php echo $this->_printMessages(); ?></div>
+            <div role="status" class="alert alert-info mb-4"><?php echo $this->_printMessages(); ?></div>
         <?php endif; ?>
-        <div id="formError" class="alert alert-error mb-4 hidden"></div>
+        <div id="formError" role="alert" class="alert alert-error mb-4 hidden"></div>
 
         <form method="POST" action="<?php echo sURL; ?>Home/rpcsave" class="space-y-4" onsubmit="return validateNewPassword()">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>

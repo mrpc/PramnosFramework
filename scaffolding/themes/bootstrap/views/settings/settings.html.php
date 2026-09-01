@@ -39,13 +39,13 @@ ksort($initialSteps, SORT_NUMERIC);
     </div>
 
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <div role="status" class="alert alert-success alert-dismissible fade show">
             <?php echo htmlspecialchars($this->success); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->warning)): ?>
-        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <div role="status" class="alert alert-warning alert-dismissible fade show">
             <?php echo htmlspecialchars($this->warning); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -192,7 +192,7 @@ ksort($initialSteps, SORT_NUMERIC);
                                 <button type="button" class="btn btn-sm btn-outline-primary" id="add-lockout-rule">+ Add Rule</button>
                             </div>
                             <div id="lockout-rules-container"></div>
-                            <div id="lockout-rules-errors" class="alert alert-danger mt-2" style="display:none"></div>
+                            <div id="lockout-rules-errors" role="alert" class="alert alert-danger mt-2" style="display:none"></div>
                             <input type="hidden" name="loginlockoutsteps" id="loginlockoutsteps"
                                 value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
                             <div class="form-text">Each rule: after N failed attempts within the window, lock out for D seconds. Durations must increase.</div>

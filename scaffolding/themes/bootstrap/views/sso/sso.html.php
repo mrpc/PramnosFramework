@@ -15,7 +15,7 @@
             <h2 class="mb-4"><?php echo htmlspecialchars($this->header ?? 'Single Sign-On'); ?></h2>
 
             <?php if ($this->isLoggedIn ?? false): ?>
-                <div class="alert alert-success">
+                <div role="status" class="alert alert-success">
                     <strong>&#10003; Signed In</strong> — Signed in as <strong><?php echo htmlspecialchars($this->user->username ?? ''); ?></strong>
                     (<?php echo htmlspecialchars($this->user->email ?? ''); ?>)
                 </div>

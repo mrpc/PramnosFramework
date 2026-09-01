@@ -41,12 +41,12 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
     </div>
 
     <?php if (!empty($this->success)): ?>
-        <div class="alert alert-success mb-4">
+        <div role="status" class="alert alert-success mb-4">
             <?php echo htmlspecialchars($this->success); ?>
         </div>
     <?php endif; ?>
     <?php if (!empty($this->warning)): ?>
-        <div class="alert alert-warning mb-4">
+        <div role="status" class="alert alert-warning mb-4">
             <?php echo htmlspecialchars($this->warning); ?>
         </div>
     <?php endif; ?>
@@ -170,7 +170,7 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                             <button type="button" id="add-lockout-rule" class="btn btn-outline btn-primary btn-xs">+ Add Rule</button>
                         </div>
                         <div id="lockout-rules-container"></div>
-                        <div id="lockout-rules-errors" class="alert alert-error hidden mt-2"></div>
+                        <div id="lockout-rules-errors" role="alert" class="alert alert-error hidden mt-2"></div>
                         <input type="hidden" name="loginlockoutsteps" id="loginlockoutsteps"
                             value="<?php echo htmlspecialchars((string) json_encode($initialSteps)); ?>">
                         <p class="text-xs text-base-content/60 mt-1">Durations must increase with failed attempt count.</p>

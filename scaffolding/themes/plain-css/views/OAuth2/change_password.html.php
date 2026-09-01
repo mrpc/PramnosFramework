@@ -15,7 +15,7 @@ $this->activeNav = 'changepassword';
     <h2>Change Password</h2>
 
     <?php if ($this->hasErrors()): ?>
-        <div class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
+        <div role="alert" class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
     <?php endif; ?>
 
     <div class="account-grid">
@@ -28,7 +28,7 @@ $this->activeNav = 'changepassword';
                     <p style="font-size:.9em;color:#666;margin-bottom:16px">
                         Choose a strong password: at least 8 characters, one digit, and one special character.
                     </p>
-                    <div data-pf-password-error class="alert alert-error" style="display:none"></div>
+                    <div data-pf-password-error role="alert" class="alert alert-error" style="display:none"></div>
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/changepassword" data-pf-password-policy>
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <div class="form-group">

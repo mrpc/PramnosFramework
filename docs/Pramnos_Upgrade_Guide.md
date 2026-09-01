@@ -279,6 +279,83 @@ to «fix» a username that was right.
                 'autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"')
     ```
 
+### Two things the form should say: that it failed, and that it is working
+
+Neither is visible on the machine of the person who builds the screen, and one of them is the only
+accessibility item of the eight.
+
+**Announce the failure.** An `alert alert-error` box is a red rectangle to anybody who can see it and
+nothing at all to anybody who cannot. Two changes, no JavaScript:
+
+```php
+$errorFieldAttributes = $errorText !== ''
+    ? ' aria-invalid="true" aria-describedby="form-error"'
+    : '';
+```
+
+```html
+<div role="alert" id="form-error" class="alert alert-error">Wrong username or password.</div>
+…
+<input type="text" name="username" id="username" autocomplete="username"
+       <?php echo $errorFieldAttributes; ?> autofocus>
+```
+
+Do not stop at `role="alert"` and count it done. A live region is announced when it **changes**, and a
+server-rendered error has been in the document since before the page existed — it never changed, so
+most screen readers say nothing. The description is the part that works: the message is read out as
+part of the field the moment focus lands on it, and focus lands there on load because the first field
+carries `autofocus`.
+
+Mark the **first** field only. These errors are form-level — «wrong username or password» is about the
+pair — and marking four fields invalid to report one failure tells a screen reader four things that are
+not true.
+
+While you are in there, the rest of the boxes: `alert-error` and `alert-danger` want `role="alert"`,
+which interrupts. `alert-info`, `alert-success` and `alert-warning` want `role="status"`, which waits
+for the next pause. A sweep that puts `role="alert"` on everything makes the page worse, not better —
+and watch for a `role` that was already on the tag *after* `class`, which is how you end up with two
+of them on one element and no error from anything.
+
+**Acknowledge the submit.** With the current framework, mark the form:
+
+```html
+<form method="POST" action="…/login" data-pf-progress>
+```
+
+and make sure the page loads `assets/js/pf-auth.js` — two of the framework's own auth views had every
+other attribute right and no script tag at all, which looks correct in a diff and does nothing in a
+browser.
+
+Without upgrading, this is the whole behaviour:
+
+```js
+document.querySelectorAll('form[data-progress]').forEach(function (form) {
+    form.addEventListener('submit', function (event) {
+        // A tick later, so every other submit listener on this form has already run.
+        setTimeout(function () {
+            if (event.defaultPrevented) { return; }
+            form.setAttribute('aria-busy', 'true');
+            form.querySelectorAll('button[type="submit"], input[type="submit"]')
+                .forEach(function (b) {
+                    b.textContent = (b.textContent || '').trim() + '\u2026';
+                    b.disabled = true;
+                });
+        }, 0);
+    });
+});
+```
+
+The deferral and the `defaultPrevented` check are the whole design, and skipping them is how this
+becomes a bug rather than a fix. A submit listener that prevented the default did one of two opposite
+things — **refused** the submit, in which case disabling the button hands somebody a form that can
+never be submitted; or **held** it while something finishes, in which case that hold is exactly when
+the second press happens. Nothing in the event tells them apart, so skip both, and have whatever is
+holding mark the form itself.
+
+Do not reach for a spinner class from your CSS framework unless every page that loads this script has
+that framework. An indicator only one theme styles is an invisible indicator; `disabled` plus an
+ellipsis works everywhere and needs no stylesheet.
+
 ### Verify it, once, rather than screen by screen
 
 The check that keeps this from decaying is a test that reads your views and fails when a password
@@ -290,7 +367,14 @@ four things:
 - every one has an `id`;
 - every one has a toggle addressed to **its** id;
 - every toggle points at a field that exists — the mistake a rename makes, where the field becomes
-  `new_password`, the toggle still says `password`, and the control renders and addresses nothing.
+  `new_password`, the toggle still says `password`, and the control renders and addresses nothing;
+- and every toggle comes **after** its field, because with no `tabindex` on the form tab order is
+  document order.
+
+Two more in the same directory are worth copying with it: `ScaffoldSignInPracticesTest.php` for the
+mobile-keyboard attributes and the 16px floor, and `ScaffoldFormFeedbackTest.php` for the roles and the
+error wiring above. All three read your view sources and name the file and the field; none of them
+needs a browser or a database.
 
 ## The debug toolbar no longer uses an output buffer
 
