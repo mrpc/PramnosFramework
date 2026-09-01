@@ -254,6 +254,18 @@ The address limit answers that half: N failures from one address in a window, th
 address is refused for the rest of the window. Fixed, not a ladder, so a shared NAT is
 slowed rather than banned for a day.
 
+Two details of `recordFailedAttemptWithin()` that are the difference between a limit and a
+denial of service:
+
+- **The deadline belongs to the window the first failure opened**, not to the latest attempt.
+  Refusing until `now + window` on every failure would let a slow attacker hold an address
+  refused for as long as they cared to keep typing — and the people that punishes are the ones
+  sharing the address, not the attacker, who has a thousand others.
+- **A threshold or window below `1` disables the limiter rather than tightening it.**
+  `attempts >= 0` is true of every attempt, so a mistyped `0` would otherwise refuse the first
+  request from every address on the site, for the length of the window, with nothing naming the
+  setting.
+
 **Notices go to the previous address too.** That is the whole reason
 `SecurityChangeNotifier` exists rather than a line at each call site: a stolen session's
 first two moves are to change the address and then the password, and every notice after the
