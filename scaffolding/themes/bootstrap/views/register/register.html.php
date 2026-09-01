@@ -63,11 +63,17 @@ $closed    = ($this->registrationOpen ?? true) === false;
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
                             <input type="password" name="password" id="password" class="form-control" required minlength="8" autocomplete="new-password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                             <div class="form-text">At least 8 characters, with a digit and a symbol.</div>
                         </div>
                         <div class="mb-3">
                             <label for="confirm_password" class="form-label">Confirm Password</label>
                             <input type="password" name="confirm_password" id="confirm_password" class="form-control" required autocomplete="new-password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'confirm_password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <button type="submit" class="btn btn-success w-100">Create Account</button>
                     </form>

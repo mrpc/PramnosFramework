@@ -35,6 +35,9 @@
                     <input type="password" id="password" name="password"
                            style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px"
                            required autocomplete="current-password">
+                    <?php echo \Pramnos\Html\PasswordToggle::render(
+                        'password', '', '', 'btn btn-outline btn-sm'
+                    ); ?>
                 </div>
                 <button type="submit" class="btn" style="width:100%">Authorize Device</button>
             </form>

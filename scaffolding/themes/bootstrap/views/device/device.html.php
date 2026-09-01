@@ -33,6 +33,9 @@
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
                             <input type="password" id="password" name="password" class="form-control" required autocomplete="current-password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <button type="submit" class="btn btn-primary w-100">Authorize Device</button>
                     </form>

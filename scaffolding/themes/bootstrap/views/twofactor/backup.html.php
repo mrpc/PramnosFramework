@@ -90,6 +90,9 @@ $this->activeNav   = 'twofactor_backup';
                             <label for="regenerate_password" class="form-label">Password</label>
                             <input type="password" class="form-control" id="regenerate_password"
                                    name="regenerate_password" required autocomplete="current-password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'regenerate_password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <button type="submit" class="btn btn-warning">Regenerate Codes</button>
                     </form>

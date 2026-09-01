@@ -45,8 +45,11 @@ $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'
                 </div>
                 <?php if ($this->isNew): ?>
                 <div class="mb-3">
-                    <label class="block text-sm font-medium text-base-content mb-1">Password</label>
-                    <input type="password" name="password" class="form-control form-control-sm" required>
+                    <label for="password" class="block text-sm font-medium text-base-content mb-1">Password</label>
+                    <input id="password" type="password" name="password" class="form-control form-control-sm" required>
+                    <?php echo \Pramnos\Html\PasswordToggle::render(
+                        'password', '', '', 'btn btn-link btn-sm'
+                    ); ?>
                 </div>
                 <?php endif; ?>
                 <div class="mb-3">

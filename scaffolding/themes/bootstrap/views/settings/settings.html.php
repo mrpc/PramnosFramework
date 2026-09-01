@@ -154,8 +154,11 @@ ksort($initialSteps, SORT_NUMERIC);
                             <input type="text" name="smtp_user" class="form-control" autocomplete="off" value="<?php echo htmlspecialchars($s['smtp_user'] ?? ''); ?>">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-semibold">SMTP Password</label>
-                            <input type="password" name="smtp_pass" class="form-control" autocomplete="new-password" value="<?php echo htmlspecialchars($s['smtp_pass'] ?? ''); ?>">
+                            <label for="smtp_pass" class="form-label fw-semibold">SMTP Password</label>
+                            <input id="smtp_pass" type="password" name="smtp_pass" class="form-control" autocomplete="new-password" value="<?php echo htmlspecialchars($s['smtp_pass'] ?? ''); ?>
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'smtp_pass', '', '', 'btn btn-link btn-sm'
+                            ); ?>">
                         </div>
                         <div class="col-md-3">
                             <label class="form-label fw-semibold d-block">Use TLS/SSL</label>

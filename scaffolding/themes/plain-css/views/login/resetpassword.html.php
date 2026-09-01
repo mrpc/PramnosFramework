@@ -46,11 +46,17 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
                     <div style="margin-bottom:16px">
                         <label for="password" style="display:block;margin-bottom:4px;font-weight:500">New password</label>
                         <input type="password" name="password" id="password" style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px" required autofocus autocomplete="new-password">
+                        <?php echo \Pramnos\Html\PasswordToggle::render(
+                            'password', '', '', 'btn btn-outline btn-sm'
+                        ); ?>
                         <small style="color:#666">At least 8 characters, with a number and a symbol.</small>
                     </div>
                     <div style="margin-bottom:20px">
                         <label for="confirm_password" style="display:block;margin-bottom:4px;font-weight:500">Confirm new password</label>
                         <input type="password" name="confirm_password" id="confirm_password" style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px" required autocomplete="new-password">
+                        <?php echo \Pramnos\Html\PasswordToggle::render(
+                            'confirm_password', '', '', 'btn btn-outline btn-sm'
+                        ); ?>
                     </div>
                     <button type="submit" class="btn" style="width:100%;background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>">Reset password</button>
                 </form>

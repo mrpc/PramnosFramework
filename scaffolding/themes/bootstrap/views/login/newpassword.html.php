@@ -34,11 +34,17 @@
                             <label for="password" class="form-label">New Password</label>
                             <input type="password" name="password" id="password" class="form-control" required minlength="8"
                                    placeholder="At least 8 characters, a digit, and a symbol">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <div class="mb-3">
                             <label for="repassword" class="form-label">Confirm Password</label>
                             <input type="password" name="repassword" id="repassword" class="form-control" required
                                    placeholder="Repeat your new password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'repassword', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <button type="submit" class="btn btn-primary w-100">Save New Password</button>
                     </form>

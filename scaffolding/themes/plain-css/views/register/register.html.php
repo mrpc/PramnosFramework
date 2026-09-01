@@ -64,12 +64,18 @@ $closed    = ($this->registrationOpen ?? true) === false;
                 </div>
                 <div style="margin-bottom:14px">
                     <label for="password" style="<?php echo $labelStyle; ?>">Password</label>
-                    <input type="password" name="password" id="password" style="<?php echo $inputStyle; ?>" required minlength="8" autocomplete="new-password">
+                    <input type="password" name="password" id="password" style="<?php echo $inputStyle; ?>
+                    <?php echo \Pramnos\Html\PasswordToggle::render(
+                        'password', '', '', 'btn btn-outline btn-sm'
+                    ); ?>" required minlength="8" autocomplete="new-password">
                     <small style="color:#666">At least 8 characters, with a digit and a symbol.</small>
                 </div>
                 <div style="margin-bottom:20px">
                     <label for="confirm_password" style="<?php echo $labelStyle; ?>">Confirm Password</label>
-                    <input type="password" name="confirm_password" id="confirm_password" style="<?php echo $inputStyle; ?>" required autocomplete="new-password">
+                    <input type="password" name="confirm_password" id="confirm_password" style="<?php echo $inputStyle; ?>
+                    <?php echo \Pramnos\Html\PasswordToggle::render(
+                        'confirm_password', '', '', 'btn btn-outline btn-sm'
+                    ); ?>" required autocomplete="new-password">
                 </div>
                 <button type="submit" class="btn" style="width:100%;background:#27ae60">Create Account</button>
             </form>

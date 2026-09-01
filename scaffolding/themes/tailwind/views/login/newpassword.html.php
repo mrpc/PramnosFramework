@@ -32,12 +32,18 @@
                 <input type="password" name="password" id="password"
                        class="input w-full"
                        required minlength="8" placeholder="At least 8 chars, digit and symbol">
+                <?php echo \Pramnos\Html\PasswordToggle::render(
+                    'password', '', '', 'btn btn-ghost btn-xs'
+                ); ?>
             </div>
             <div>
                 <label for="repassword" class="block text-sm font-medium text-base-content mb-1">Confirm Password</label>
                 <input type="password" name="repassword" id="repassword"
                        class="input w-full"
                        required>
+                <?php echo \Pramnos\Html\PasswordToggle::render(
+                    'repassword', '', '', 'btn btn-ghost btn-xs'
+                ); ?>
             </div>
             <button type="submit" class="btn btn-primary w-full">Save New Password</button>
         </form>

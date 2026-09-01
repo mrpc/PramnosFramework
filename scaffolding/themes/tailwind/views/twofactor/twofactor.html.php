@@ -101,6 +101,9 @@ $this->activeNav   = 'twofactor';
             <label class="block text-sm font-medium text-base-content mb-1" for="confirm_password">Password</label>
             <input type="password" id="confirm_password" name="confirm_password" required autocomplete="current-password"
                    class="input input-sm block w-full mb-4">
+            <?php echo \Pramnos\Html\PasswordToggle::render(
+                'confirm_password', '', '', 'btn btn-ghost btn-xs'
+            ); ?>
             <div class="flex justify-end gap-2">
                 <button type="button" data-modal-hide="disableModal"
                         class="btn btn-outline btn-sm">

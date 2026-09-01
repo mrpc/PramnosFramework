@@ -102,6 +102,131 @@ no autoload configuration. See
 
 ---
 
+## Show password, for existing projects
+
+A scaffolded project gets the «show password» control on every password field from the start. An
+**existing** project does not — its views were copied before the control existed, so adding it is a
+deliberate step. This section is that step, in both the case where you can take the new framework and
+the case where you cannot.
+
+Why bother: it is the first recommendation of
+[web.dev's sign-in form guidance](https://web.dev/articles/sign-in-form-best-practices), and the
+reason is mobile. The commonest cause of a failed sign-in on a phone is a typo in a field nobody can
+read — the person retries the same wrong thing and then resets a password they never forgot. An
+evaluation of one real installation found the control missing from **every** screen; that is the
+normal state of a project that predates it.
+
+### Find every field first
+
+```bash
+grep -rn 'type="password"' src/Views/ | sed 's/:.*//' | sort -u
+```
+
+Every hit is a field a person types into and cannot read. Include the ones that are not sign-in
+screens — change-password, delete-account confirmation, an administrator setting somebody else's
+password, an SMTP password on a settings page. They are all passwords typed by hand.
+
+### With the current framework
+
+One line beside each field. The field itself does not change:
+
+```php
+<div class="flex items-baseline justify-between mb-1">
+    <label for="password">Password</label>
+    <?php echo \Pramnos\Html\PasswordToggle::render('password', '', '', 'btn btn-ghost btn-xs'); ?>
+</div>
+<input type="password" name="password" id="password" autocomplete="current-password" required>
+```
+
+Three things to know:
+
+- **The field needs an `id`.** The control addresses it by id, and so does `<label for>`. A field
+  without one has no programmatic label either, so add the id and wire the label at the same time —
+  in the framework's own scaffolds, eight fields across three themes turned out to be missing both.
+- **The last argument is your theme's button class.** The helper has no opinion about how a button
+  looks, so a hard-coded class would render a control matching nothing on your page.
+- **The labels default to translated «Show password» / «Hide password».** Pass your own if the screen
+  is in a language your catalogue does not cover — the fourth and fifth arguments to `render()`.
+
+### Without upgrading the framework
+
+If the dependency cannot move yet, the control is small enough to carry locally. Put this in your own
+`src/` and call it exactly as above; when you do upgrade, delete it and change the class name back.
+
+```php
+<?php
+namespace YourApp\Html;
+
+class PasswordToggle
+{
+    public static function render(
+        string $inputId,
+        string $showLabel = 'Show password',
+        string $hideLabel = 'Hide password',
+        string $class = ''
+    ): string {
+        if (preg_match('/^[A-Za-z][A-Za-z0-9_:.-]*$/', $inputId) !== 1) {
+            throw new \InvalidArgumentException('Not a usable input id: ' . $inputId);
+        }
+
+        $e = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES);
+
+        return '<button type="button" hidden'
+            . ($class !== '' ? ' class="' . $e($class) . '"' : '')
+            . ' data-password-toggle aria-controls="' . $e($inputId) . '" aria-pressed="false"'
+            . ' data-show-label="' . $e($showLabel) . '" data-hide-label="' . $e($hideLabel) . '">'
+            . htmlspecialchars($showLabel) . '</button>'
+            . '<script>(function(){'
+            . 'if(window.__passwordToggleBound){return;}window.__passwordToggleBound=true;'
+            . "var S='[data-password-toggle]';"
+            . 'function reveal(){document.querySelectorAll(S).forEach(function(b){b.hidden=false;});}'
+            . "document.addEventListener('click',function(ev){"
+            . 'var b=ev.target.closest?ev.target.closest(S):null;if(!b){return;}'
+            . "var f=document.getElementById(b.getAttribute('aria-controls'));if(!f){return;}"
+            . 'var s=f.selectionStart,e2=f.selectionEnd,show=f.type==="password";'
+            . 'f.type=show?"text":"password";'
+            . "b.setAttribute('aria-pressed',show?'true':'false');"
+            . "b.textContent=show?b.getAttribute('data-hide-label'):b.getAttribute('data-show-label');"
+            . 'f.focus();if(s!==null&&f.setSelectionRange){try{f.setSelectionRange(s,e2);}catch(x){}}'
+            . '});'
+            . "if(document.readyState==='loading'){"
+            . "document.addEventListener('DOMContentLoaded',reveal);}else{reveal();}"
+            . '})();</script>';
+    }
+}
+```
+
+Four properties in there are the whole design, and a hand-rolled toggle usually misses at least two:
+
+1. **The button ships `hidden`** and its own script unhides it. Without JavaScript a visible «show»
+   button is something a person presses twice and then distrusts the rest of the form.
+2. **Only `type` changes.** `name`, `id` and `autocomplete` are what a password manager matches on. A
+   toggle that renamed the field would stop it offering the saved password — a worse outcome than an
+   unreadable field.
+3. **Focus and the caret survive.** Toggling mid-word and losing your place is the same frustration
+   the control was added to remove.
+4. **The script guards itself in the browser** rather than being emitted once from PHP. A static
+   «already emitted» flag is *process* state, not request state: anything that renders two responses
+   from one process — an in-process test client, a long-running worker — gives the second page a
+   button with no listener behind it. That is the failure mode of the naive optimisation, and it is
+   silent.
+
+If you add a CSP with a nonce, put it on that `<script>` tag; the framework's own version reads
+`Application::currentInstance()->cspNonce` and does it for you.
+
+### Verify it, once, rather than screen by screen
+
+The check that keeps this from decaying is a test that reads your views and fails when a password
+field has no toggle beside it. The framework ships exactly that for its scaffolds
+(`tests/Unit/Html/ScaffoldPasswordFieldsTest.php`) — copy it and point it at `src/Views`. It asserts
+four things:
+
+- there are password fields to find at all, so a wrong path cannot read as «everything complies»;
+- every one has an `id`;
+- every one has a toggle addressed to **its** id;
+- every toggle points at a field that exists — the mistake a rename makes, where the field becomes
+  `new_password`, the toggle still says `password`, and the control renders and addresses nothing.
+
 ## The debug toolbar no longer uses an output buffer
 
 **Applies to:** any application that enables the debug toolbar and produces part of

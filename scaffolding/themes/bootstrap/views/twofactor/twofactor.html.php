@@ -107,6 +107,9 @@ $this->activeNav   = 'twofactor';
                         <label for="confirm_password" class="form-label">Password</label>
                         <input type="password" class="form-control" id="confirm_password"
                                name="confirm_password" required autocomplete="current-password">
+                        <?php echo \Pramnos\Html\PasswordToggle::render(
+                            'confirm_password', '', '', 'btn btn-link btn-sm'
+                        ); ?>
                     </div>
                 </div>
                 <div class="modal-footer">

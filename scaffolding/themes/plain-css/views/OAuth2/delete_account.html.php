@@ -39,6 +39,9 @@ $this->activeNav = 'deleteaccount';
                             <label for="del_password">Current Password</label>
                             <input type="password" id="del_password" name="password"
                                    class="form-control" required autocomplete="current-password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'del_password', '', '', 'btn btn-outline btn-sm'
+                            ); ?>
                         </div>
                         <div class="form-group">
                             <label for="del_confirm">Type <strong>DELETE</strong> to confirm</label>

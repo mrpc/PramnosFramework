@@ -35,17 +35,26 @@ $inputCls = 'input w-full';
                     <div>
                         <label for="current_password" class="block text-sm font-medium text-base-content mb-1">Current Password</label>
                         <input type="password" id="current_password" name="current_password"
-                               class="<?php echo $inputCls; ?>" required autocomplete="current-password" autofocus>
+                               class="<?php echo $inputCls; ?>
+                        <?php echo \Pramnos\Html\PasswordToggle::render(
+                            'current_password', '', '', 'btn btn-ghost btn-xs'
+                        ); ?>" required autocomplete="current-password" autofocus>
                     </div>
                     <div>
                         <label for="new_password" class="block text-sm font-medium text-base-content mb-1">New Password</label>
                         <input type="password" id="new_password" name="new_password"
-                               class="<?php echo $inputCls; ?>" required autocomplete="new-password" minlength="8">
+                               class="<?php echo $inputCls; ?>
+                        <?php echo \Pramnos\Html\PasswordToggle::render(
+                            'new_password', '', '', 'btn btn-ghost btn-xs'
+                        ); ?>" required autocomplete="new-password" minlength="8">
                     </div>
                     <div>
                         <label for="confirm_password" class="block text-sm font-medium text-base-content mb-1">Confirm New Password</label>
                         <input type="password" id="confirm_password" name="confirm_password"
-                               class="<?php echo $inputCls; ?>" required autocomplete="new-password">
+                               class="<?php echo $inputCls; ?>
+                        <?php echo \Pramnos\Html\PasswordToggle::render(
+                            'confirm_password', '', '', 'btn btn-ghost btn-xs'
+                        ); ?>" required autocomplete="new-password">
                     </div>
                     <button type="submit"
                             class="btn btn-primary">

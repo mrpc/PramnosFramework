@@ -35,17 +35,26 @@ $this->activeNav = 'changepassword';
                             <label for="current_password" class="form-label">Current Password</label>
                             <input type="password" id="current_password" name="current_password"
                                    class="form-control" required autocomplete="current-password" autofocus>
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'current_password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <div class="mb-3">
                             <label for="new_password" class="form-label">New Password</label>
                             <input type="password" id="new_password" name="new_password"
                                    class="form-control" required autocomplete="new-password"
                                    minlength="8" pattern="(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'new_password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <div class="mb-4">
                             <label for="confirm_password" class="form-label">Confirm New Password</label>
                             <input type="password" id="confirm_password" name="confirm_password"
                                    class="form-control" required autocomplete="new-password">
+                            <?php echo \Pramnos\Html\PasswordToggle::render(
+                                'confirm_password', '', '', 'btn btn-link btn-sm'
+                            ); ?>
                         </div>
                         <button type="submit" class="btn btn-primary">Update Password</button>
                     </form>
