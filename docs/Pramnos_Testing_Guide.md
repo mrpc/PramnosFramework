@@ -520,8 +520,33 @@ Three rules, in order of preference:
 3. **Build from the real migration, not from a hand-written `CREATE TABLE`.** A hand-rolled shape
    drifts from what production ships, and two hand-rolled shapes drift from each other. The
    framework's own migration is the one definition both tests can agree on.
+4. **Include the retrofit migrations, not only the creating one.** Several indexes are added by
+   `AddMissingIndexesToExistingTables` rather than by the `create_*` migration — `idx_sessions_userid`
+   among them. A table rebuilt from part of its history is not the shipped table, and the cost lands
+   on *other* tests: every later query against it scans. That was 40 seconds of suite wall clock,
+   measured, in files that had nothing to do with the change.
+5. **Ask for a name, never spell it.** A table whose name an installation can override —
+   `authserver.user_organizations` is one — has a single reader in the framework
+   (`Role::membershipTable()`, `Role::organizationColumn()`), and a fixture that writes the literal
+   is a third reader with its own opinion. This one bites hardest on MySQL, where a schema qualifier
+   is not a schema: the framework folds `authserver.user_organizations` down to
+   `authserver_user_organizations`, `hasTable()` knows about the folding and a raw
+   `queryBuilder()->table('authserver.user_organizations')` does not — it asks MySQL for a *database*
+   called `authserver`. Use the reader, or `schema()->quoteTable()` for raw SQL.
 
 ## `#[CoversClass]` decides what a test contributes to coverage
+
+### And a file with no class needs `#[CoversFunction]`
+
+The same rule, in the shape that is easy to miss. `src/Pramnos/DevPanel/adminer-object.php` declares
+one global *function* — Adminer looks the hook up with an unqualified string, so it cannot be a
+method — and its test carried `#[CoversClass(AdminerBridge::class)]`. Eleven passing tests, and the
+coverage report called the file **0%**, because no attribute on that test named it.
+
+So when reading a report: a 0% file is not always unexecuted machinery. Check what names it first —
+`#[CoversFunction('the_function')]` is what credits a file that declares functions rather than a
+class.
+
 
 Not just what the report *labels*. PHPUnit restricts a test's coverage to the classes its metadata
 names — so a class a test genuinely exercises, but does not declare, contributes **nothing** to that
