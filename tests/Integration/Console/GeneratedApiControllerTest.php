@@ -139,7 +139,10 @@ class GeneratedApiControllerTest extends BaseTestCase
     }
 
     /**
-     * A table with one column per branch of the type switch.
+     * A table with one column per branch of the type switch, nullable and not, for each.
+     *
+     * The pair matters as much as the type: for every branch the generator emits different code for
+     * a column that may be omitted and one that may not, and those are the two lines somebody keeps.
      *
      * Raw DDL rather than the schema builder, because the point is what `getColumns()` reports back
      * for each declared type — the generator reads that report, not the builder's intent, and the
@@ -160,6 +163,9 @@ class GeneratedApiControllerTest extends BaseTestCase
                 . $q('optional_count') . ' INTEGER NULL, '
                 . $q('ratio') . ' DOUBLE PRECISION NULL, '
                 . $q('is_active') . ' BOOLEAN NULL, '
+                . $q('published') . ' BOOLEAN NOT NULL DEFAULT FALSE, '
+                . $q('settings') . ' JSON NULL, '
+                . $q('payload') . " JSON NOT NULL DEFAULT '{}', "
                 . $q('notes') . ' TEXT NULL'
                 . ')'
             );
@@ -173,6 +179,9 @@ class GeneratedApiControllerTest extends BaseTestCase
                 . $q('optional_count') . ' INT NULL, '
                 . $q('ratio') . ' DOUBLE NULL, '
                 . $q('is_active') . ' TINYINT(1) NULL, '
+                . $q('published') . ' TINYINT(1) NOT NULL DEFAULT 0, '
+                . $q('settings') . ' JSON NULL, '
+                . $q('payload') . ' JSON NOT NULL, '
                 . $q('notes') . ' TEXT NULL'
                 . ') ENGINE=InnoDB'
             );
@@ -453,5 +462,132 @@ class GeneratedApiControllerTest extends BaseTestCase
 
         // Assert
         $this->assertSame(0, $status, 'the generated controller does not parse: ' . implode("\n", $output));
+    }
+
+    /**
+     * A JSON column is documented as JSON and written without `strip_tags`.
+     *
+     * The branch that had never run, and the one where a wrong cast is destructive rather than merely
+     * wrong: `strip_tags` on a JSON body eats every `<` in it, so `{"a":"1<2"}` is stored as
+     * `{"a":"12"}` — valid JSON, different data, and no error anywhere. The string branch is the
+     * default of that switch, so a missing `case` here does not fail loudly; it silently corrupts.
+     */
+    public function testAJsonColumnIsNotStrippedOfItsMarkup(): void
+    {
+        // Arrange
+        $file = $this->expectedFile(self::ENTITY);
+
+        // Act
+        $this->command->callCreateApi(self::ENTITY);
+        $source = (string) file_get_contents($file);
+
+        // Assert
+        $this->assertStringContainsString('@apiSuccess {JSON} data.settings', $source);
+        $this->assertStringContainsString('@apiBody {JSON} [settings]', $source, 'nullable JSON');
+        $this->assertStringContainsString('@apiBody {JSON} payload', $source, 'required JSON');
+        foreach (['settings', 'payload'] as $column) {
+            $this->assertStringContainsString(
+                '$model->' . $column . ' = trim(\\Pramnos\\Http\\Request::staticGet',
+                $source,
+                $column . ' does not reach the JSON arm of the type switch'
+            );
+            $this->assertStringNotContainsString(
+                '$model->' . $column . ' = trim(strip_tags(',
+                $source,
+                $column . ' is stripped of its markup, which eats every < in a JSON body'
+            );
+        }
+    }
+
+    /**
+     * The same boolean column generates a different API on the two engines, and that is measured
+     * rather than asserted away.
+     *
+     * `getColumns()` reports a PostgreSQL `BOOLEAN` as `boolean` and a MySQL `TINYINT(1)` as
+     * `tinyint`, and the generator's type switch lists `tinyint` among the integers. So the
+     * `case "bool": case "boolean":` arm is **unreachable on MySQL**: an identical schema produces
+     * `@apiBody {Boolean} [flag]` on one engine and `@apiBody {Number} flag` on the other, with a
+     * different cast in the generated `post` block behind it.
+     *
+     * Neither answer is wrong on its own, which is why this documents rather than changes it.
+     * `TINYINT(1)` in MySQL genuinely is a small integer that convention treats as a flag — the column
+     * type does not record which was meant, and a generator that assumed «flag» would mangle every
+     * `TINYINT(1)` somebody uses as a number. What is worth pinning is that the two differ, because
+     * the person who finds out is an integrator reading the apidoc for one deployment while calling
+     * the other.
+     *
+     * The PostgreSQL half also pins something quieter: that arm brackets **every** boolean as
+     * optional, nullable or not, because it never consults `Null`. A `NOT NULL` flag is documented as
+     * something the caller may leave out.
+     */
+    public function testABooleanGeneratesDifferentlyPerEngine(): void
+    {
+        // Arrange
+        $file = $this->expectedFile(self::ENTITY);
+
+        // Act
+        $this->command->callCreateApi(self::ENTITY);
+        $source = (string) file_get_contents($file);
+
+        // Assert
+        if ($this->db->type === 'postgresql') {
+            $this->assertStringContainsString('@apiSuccess {Boolean} data.published', $source);
+            $this->assertStringContainsString(
+                '@apiBody {Boolean} [published]',
+                $source,
+                'a NOT NULL boolean is documented as required, so the arm reads Null after all'
+            );
+            $this->assertStringContainsString('$tmpVar = \\Pramnos\\Http\\Request::staticGet', $source);
+
+            return;
+        }
+
+        $this->assertStringContainsString(
+            '@apiSuccess {Number} data.published',
+            $source,
+            'MySQL reports TINYINT(1) as tinyint, which the switch lists among the integers'
+        );
+        // Scoped to the column: the generated file has fixed `{Boolean}` lines of its own — the
+        // `success` flag every response carries — and a bare search for the word finds those.
+        $this->assertStringNotContainsString(
+            '{Boolean} data.published',
+            $source,
+            'the boolean arm became reachable on MySQL, which changes every generated controller'
+        );
+    }
+
+    /**
+     * An application with a name puts the controller under it, in the path and in the namespace.
+     *
+     * `$application->appName` is how one repository serves more than one application, and both halves
+     * have to move together: a namespace that gained the segment while the path did not produces a
+     * file the autoloader cannot find, which surfaces as «class not found» about a file that plainly
+     * exists.
+     */
+    public function testAnApplicationNameMovesBothThePathAndTheNamespace(): void
+    {
+        // Arrange
+        $this->command->getApplication()->internalApplication->appName = 'Storefront';
+
+        $dir = ROOT . DS . INCLUDES . DS . 'Storefront' . DS . 'Api' . DS . 'Controllers';
+        $file = $dir . DS . ucfirst(self::ENTITY) . '.php';
+        $this->written = [
+            $file,
+            $dir,
+            ROOT . DS . INCLUDES . DS . 'Storefront' . DS . 'Api',
+            ROOT . DS . INCLUDES . DS . 'Storefront',
+        ];
+
+        // Act
+        $summary = $this->command->callCreateApi(self::ENTITY);
+
+        // Assert
+        $this->assertFileExists($file, 'the file did not follow the application name');
+        $this->assertStringContainsString('Storefront', $summary);
+        $this->assertStringContainsString(
+            'namespace App\\Storefront\\Api\\Controllers;',
+            (string) file_get_contents($file),
+            'the namespace and the path disagree, so the autoloader will never find it'
+        );
     }
 }
