@@ -12,6 +12,22 @@ ini_set('error_log', '/dev/null');
 if (!defined('PRAMNOS_TESTING')) {
     define('PRAMNOS_TESTING', true);
 }
+
+/*
+ * `UNITTESTING`, here rather than in whichever test needs it first.
+ *
+ * It gates test-only seams in the framework — `MediaObject::move_uploaded_file()` uses `copy()`
+ * under it, because `move_uploaded_file()` refuses any file that did not arrive over HTTP and no
+ * test can produce one that did.
+ *
+ * It used to be defined inside a test's `setUp()`. A constant is process-global and cannot be
+ * undefined, so whether the seam engaged depended on **which test ran first**: a later test using
+ * the same seam passed when run after that one and failed when run alone or reordered. Defining it
+ * with the rest of the environment makes the answer the same for every test.
+ */
+if (!defined('UNITTESTING')) {
+    define('UNITTESTING', true);
+}
 /**
 * The following are REQUIRED by Pramnos Framework
 */

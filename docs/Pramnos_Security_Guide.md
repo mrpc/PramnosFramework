@@ -886,6 +886,54 @@ and does not know it is inside a JavaScript string. Quoting is no defence there.
 is `hex.int.int.hmac` and cannot contain a `<`, so nothing reachable depended on it — but this is
 a global helper with an array parameter, and a view may call it with its own.
 
+## A URL is on your site only if the *next character* is a boundary
+
+Anywhere the framework decides whether a URL belongs to this installation — a `Referer` it will turn
+into a link, a `returnUrl` it will redirect to — the check cannot be a plain prefix match:
+
+```php
+// Wrong, and it is an open redirect.
+if (str_starts_with($url, $base)) { … }
+```
+
+For a base of `https://example.com`, the URL `https://example.com.evil.test/phish` **starts with it**.
+An attacker registers a host whose name begins with yours, sends a signed-in administrator to a page
+that remembers where they came from, and that page renders the attacker's URL as its own «Back» link
+— an open redirect with your site's appearance vouching for it. Nothing in the markup looks wrong.
+
+What follows the base has to be a boundary — `/`, `?`, `#`, or the end of the string:
+
+```php
+protected static function isOnThisSite(string $url, string $base): bool
+{
+    if ($url === '' || $base === '') {
+        return false;
+    }
+
+    if ($url === $base) {
+        return true;
+    }
+
+    if (!str_starts_with($url, $base)) {
+        return false;
+    }
+
+    return in_array($url[strlen($base)] ?? '', ['/', '?', '#'], true);
+}
+```
+
+A trailing slash alone is **not** enough, and the reason is worth knowing before you simplify it:
+`/adminer?db=x` is a page at `/adminer` with no slash after it. The same comparison is used to ask
+"is this URL *inside* that section", so a rule demanding a slash stops recognising a section
+addressed with a query string.
+
+Two more rules go with it, both of which the DevPanel's Back button follows:
+
+- **check on the way out as well as on the way in.** A value kept in the session outlives the request
+  that validated it — a changed site URL, or a session restored from elsewhere, leaves something in
+  there that was once ours and no longer is.
+- **escape it.** It arrived in a header and it is going into an `href`.
+
 ## Dependency Security
 
 ### Keep Dependencies Updated

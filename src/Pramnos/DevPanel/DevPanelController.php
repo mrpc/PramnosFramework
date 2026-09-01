@@ -3181,6 +3181,41 @@ class DevPanelController extends Controller
     }
 
     /**
+     * Is this URL on this site — as a path under the base, not merely starting with its text?
+     *
+     * `str_starts_with($url, $base)` is not the same question, and the difference is an open
+     * redirect. For a base of `https://example.com`, the URL
+     * `https://example.com.evil.test/phish` starts with it: an attacker registers a host whose name
+     * begins with yours, sends a signed-in administrator here with that `Referer`, and the panel
+     * renders it as the destination of its own Back button — with the panel's appearance vouching
+     * for the link.
+     *
+     * So what follows the base has to be a boundary: `/`, `?`, `#`, or nothing at all. A trailing
+     * slash alone is not enough — `/adminer?db=x` is the Adminer page and has no slash after it, and
+     * the same function decides whether the referrer *is* the panel, which is how the exclusions
+     * work. Anything else is a different host or a different path that merely reads like ours.
+     *
+     * Used for the referrer on the way in and for the remembered value on the way out, because the
+     * session outlives the request that wrote it.
+     */
+    protected static function isOnThisSite(string $url, string $base): bool
+    {
+        if ($url === '' || $base === '') {
+            return false;
+        }
+
+        if ($url === $base) {
+            return true;
+        }
+
+        if (!str_starts_with($url, $base)) {
+            return false;
+        }
+
+        return in_array($url[strlen($base)] ?? '', ['/', '?', '#'], true);
+    }
+
+    /**
      * Where "Back" goes, for a page outside this panel.
      *
      * The same remembered referrer the panel's own Back button uses, so a visitor who came from
@@ -3197,16 +3232,16 @@ class DevPanelController extends Controller
 
         if ($referrer !== ''
             && $base !== ''
-            && str_starts_with($referrer, $base)
-            && !str_starts_with($referrer, $panelUrl)
-            && !str_starts_with($referrer, $adminer)
+            && static::isOnThisSite($referrer, $base)
+            && !static::isOnThisSite($referrer, $panelUrl)
+            && !static::isOnThisSite($referrer, $adminer)
         ) {
             $_SESSION[static::RETURN_KEY] = $referrer;
         }
 
         $remembered = (string) ($_SESSION[static::RETURN_KEY] ?? '');
 
-        if ($remembered !== '' && $base !== '' && str_starts_with($remembered, $base)) {
+        if (static::isOnThisSite($remembered, $base)) {
             return $remembered;
         }
 
@@ -3248,9 +3283,9 @@ class DevPanelController extends Controller
 
         if ($referrer !== ''
             && $baseUrl !== ''
-            && str_starts_with($referrer, $baseUrl)
-            && !str_starts_with($referrer, $panelUrl)
-            && !str_starts_with($referrer, $adminerUrl)
+            && static::isOnThisSite($referrer, $baseUrl)
+            && !static::isOnThisSite($referrer, $panelUrl)
+            && !static::isOnThisSite($referrer, $adminerUrl)
         ) {
             $_SESSION[static::RETURN_KEY] = $referrer;
         }
@@ -3260,7 +3295,7 @@ class DevPanelController extends Controller
         // Re-checked on the way out rather than trusted because it was checked on the way in:
         // the session outlives the request that wrote it, and a value that stopped being ours
         // — a changed site URL, a session restored from elsewhere — must not become a link.
-        if ($remembered !== '' && $baseUrl !== '' && str_starts_with($remembered, $baseUrl)) {
+        if (static::isOnThisSite($remembered, $baseUrl)) {
             return htmlspecialchars($remembered, ENT_QUOTES);
         }
 
