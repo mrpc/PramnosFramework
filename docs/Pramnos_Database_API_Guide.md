@@ -4,6 +4,7 @@ use_cases:
   - Handling a query result set
   - Deciding between raw SQL and the fluent query builder
   - Diagnosing a query that returns nothing or the wrong rows
+  - Holding a database handle in a long-lived worker or daemon
   - Reading a table's columns, types or foreign keys from code
 ---
 
@@ -259,6 +260,45 @@ own rule rather than picking one:
 You do not need to do anything with this table; it is here so that a statement
 which behaves differently on two servers has a documented reason. Write comments
 however you like, apostrophes included.
+
+### A prepared statement whose connection died underneath it
+
+Nothing to do; worth knowing it happens and that it is handled, because the failure it prevents is
+quiet.
+
+Every connection has an idle timeout — MySQL's `wait_timeout` is eight hours by default, a managed
+PostgreSQL or a connection pooler is usually far less — and the processes that hold a handle longest
+are the ones nobody is watching: a queue worker, a scheduled command, a daemon. They prepare a
+statement once and execute it for hours. A restarted database, a failover, an operator's `KILL`
+clearing a lock, and a pooler recycling a backend all produce the same thing.
+
+`execute()` notices that the connection is gone rather than that the statement failed, reconnects,
+re-prepares and runs it once. **Once**, and only for that condition: re-running a statement whose
+result was never seen is harmless for a `SELECT` and a duplicate for an `INSERT`, so a retry is only
+correct when the server cannot have applied it — which is what «the connection was already gone»
+means. A retry on any error would silently double writes.
+
+Two things about it are worth writing down, because both were true for a long time and both were
+invisible:
+
+**The retry could not fire on MySQL.** The gate read `mysqli_errno()` after an `execute()` that
+returned false — but mysqli's default error mode has been `MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT`
+since PHP 8.1, so `execute()` raises `mysqli_sql_exception` instead of returning false. The branch
+holding the gate was unreachable code. The failure the retry existed to survive was the one failure it
+could not, and the symptom was an uncaught exception in a process nobody is watching.
+
+**The retry could not fire on PostgreSQL either, for two different reasons.** The gate asked
+`pg_connection_status()`, which reports the last *known* state rather than polling: with the backend
+already terminated it answers `OK` before any operation, still `OK` at the instant the failing
+`pg_execute()` returns, and `BAD` only afterwards — so it was consulted at the one moment the answer
+was wrong. It reads the error text now, which says «server closed the connection unexpectedly» right
+there. And once that was fixed the retry still failed, because the prepared-statement cache is keyed
+on `md5($query)` alone: after reconnecting it handed back a plan name belonging to a session
+PostgreSQL had already forgotten. A plan does not outlive its session, so the cache is scoped to the
+connection that made it.
+
+If you keep a `Database` handle across a long idle period yourself, you need nothing extra. If you
+hold a raw `mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
 
 ## Result Handling
 

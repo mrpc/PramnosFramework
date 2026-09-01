@@ -448,6 +448,87 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Markers that a PostgreSQL failure was the connection dying, not the statement failing.
+     *
+     * Read from the error text on purpose — see {@see isConnectionGone()} for why the status cannot be
+     * asked instead.
+     */
+    private const PG_CONNECTION_LOST = [
+        'server closed the connection unexpectedly',
+        'terminating connection',
+        'no connection to the server',
+        'connection not open',
+        'could not connect',
+        'connection reset by peer',
+    ];
+
+    /**
+     * Did this statement fail because the connection is gone, rather than because the statement is?
+     *
+     * The distinction is the whole safety of retrying. Re-running a statement whose result was never
+     * seen is harmless for a `SELECT` and a duplicate for an `INSERT` — so a retry is only ever
+     * correct when the server *cannot* have applied it, which is what «the connection was already
+     * gone» means. A retry on any error would silently double writes.
+     *
+     * Both engines had a gate here and **neither one could ever be true.**
+     *
+     * **MySQL** was reading `mysqli_errno()` after an `execute()` that returned false. Since PHP 8.1
+     * mysqli's default error mode is `MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT`, so `execute()`
+     * raises `mysqli_sql_exception` instead of returning false — the `else` holding the gate was
+     * unreachable code. Both sources are read now: the exception's code and message, and the errno for
+     * an application that has turned strict mode off.
+     *
+     * **PostgreSQL** was asking `isConnectionAlive()`, which asks `pg_connection_status()`. That
+     * reports the last *known* state rather than polling, and measurement is unambiguous about the
+     * consequence: with the backend already terminated it answers `OK` before any operation, still
+     * `OK` at the moment the failing `pg_execute()` returns, and `BAD` only afterwards. So the gate
+     * was evaluated at the one instant the answer was wrong. The error text says it plainly at that
+     * point — «server closed the connection unexpectedly» — so that is what is read.
+     *
+     * @param resource|object|\mysqli    $connection
+     * @param string|null                 $error     The engine's error text for the failed call.
+     * @param \mysqli_sql_exception|null  $exception The exception `execute()` threw, if it threw.
+     * @return bool
+     */
+    protected function isConnectionGone(
+        $connection,
+        ?string $error = null,
+        ?\mysqli_sql_exception $exception = null
+    ): bool {
+        if ($this->type === 'postgresql') {
+            $text = strtolower((string) $error);
+
+            foreach (self::PG_CONNECTION_LOST as $marker) {
+                if ($text !== '' && str_contains($text, $marker)) {
+                    return true;
+                }
+            }
+
+            // Secondary, and only ever secondary: by the time this is true the text has usually
+            // already said so, but a driver that reports the status early should not be argued with.
+            return !$this->isConnectionAlive($connection);
+        }
+
+        $gone = [2006, 2013];
+
+        if ($exception !== null) {
+            if (in_array((int) $exception->getCode(), $gone, true)) {
+                return true;
+            }
+
+            // The code is 0 when the driver raises it from a state where errno was already cleared,
+            // and the message is then the only thing that says which failure this was.
+            if (stripos($exception->getMessage(), 'gone away') !== false
+                || stripos($exception->getMessage(), 'lost connection') !== false
+            ) {
+                return true;
+            }
+        }
+
+        return in_array((int) @\mysqli_errno($connection), $gone, true);
+    }
+
+    /**
      * Check if a connection is still alive.
      *
      * @param \mysqli|\PgSql\Connection $connection
@@ -1458,11 +1539,28 @@ class Database extends \Pramnos\Framework\Base
         if ($this->type == 'postgresql') {
             $stmtName = 'plan_' . md5($query);
 
-            // Return cached statement if already prepared in this session
+            /*
+             * Return the cached statement — but only if it belongs to *this* session.
+             *
+             * The cache is keyed on `md5($query)` alone, which is right for what it was written for
+             * (the same query prepared twice in one request costs one `PREPARE`) and wrong the moment
+             * the connection changes underneath it. A prepared plan does not outlive the session that
+             * made it, so after a lost connection this handed back a plan name belonging to a session
+             * PostgreSQL had already forgotten — and every execute of it failed with «server closed
+             * the connection unexpectedly», for ever.
+             *
+             * That is what made `execute()`'s reconnect-and-retry unable to work on this engine even
+             * once the retry fired: it called `prepare()`, `prepare()` reconnected, and then the cache
+             * handed the dead plan straight back.
+             */
             if (isset($this->statements[$stmtName])) {
-                $statement = new \stdClass();
-                $statement->id = $stmtName;
-                return $statement;
+                if (($this->statements[$stmtName]['connection'] ?? null) === $connection) {
+                    $statement = new \stdClass();
+                    $statement->id = $stmtName;
+                    return $statement;
+                }
+
+                unset($this->statements[$stmtName]);
             }
 
             $result = @pg_prepare($connection, $stmtName, $query);
@@ -1654,7 +1752,13 @@ class Database extends \Pramnos\Framework\Base
                         $arguments
                     );
                     $dbResource = @pg_execute($connection, $stmtName, $pgArgs);
-                    if (!$dbResource && $retry && !$this->isConnectionAlive($connection)) {
+                    // Read before the gate, because the gate is what needs it: the status cannot be
+                    // trusted at this instant, and the text can.
+                    $pgError = $dbResource ? '' : (string) @pg_last_error($connection);
+
+                    if (!$dbResource && $retry
+                        && $this->isConnectionGone($connection, $pgError)
+                    ) {
                         // Re-prepare on new connection
                         $statement = $this->prepare($stmtData['query']);
                         $stmtData = $this->statements[$statement->id];
@@ -1663,7 +1767,6 @@ class Database extends \Pramnos\Framework\Base
                         continue;
                     }
                     if (!$dbResource) {
-                        $pgError = @pg_last_error($connection);
                         // Transient deadlocks (SQLSTATE 40P01) from TimescaleDB
                         // background workers: retry with exponential back-off.
                         if ($deadlockRetries > 0 && stripos($pgError, 'deadlock') !== false) {
@@ -1693,7 +1796,32 @@ class Database extends \Pramnos\Framework\Base
                             array($statement, 'bind_param'), $mysqlArgs
                         );
                     }
-                    if ($statement->execute()) {
+                    /*
+                     * `execute()` **throws**, so the `else` below was unreachable.
+                     *
+                     * mysqli's default error mode has been `MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT`
+                     * since PHP 8.1: `mysqli_stmt::execute()` raises `mysqli_sql_exception` rather
+                     * than returning false. Everything after the `else` — the 2006/2013 check, the
+                     * re-prepare, the retry — could therefore never run, and the whole reason it
+                     * exists is a connection that has gone away.
+                     *
+                     * So the failure it was written to survive was the one failure it could not: a
+                     * long-lived process — a queue worker, a scheduled command, a daemon — that
+                     * prepares a statement and executes it for hours past the server's idle timeout
+                     * died on an uncaught exception instead of reconnecting. Quietly, because nobody
+                     * is watching a worker; the visible symptom is a queue that grows.
+                     *
+                     * The exception is caught here and turned back into the false the code below was
+                     * written against, so one branch handles both error modes.
+                     */
+                    $executed = false;
+                    try {
+                        $executed = (bool) $statement->execute();
+                    } catch (\mysqli_sql_exception $exception) {
+                        $executed = false;
+                    }
+
+                    if ($executed) {
                         $dbResource = $statement->get_result();
                         // get_result() returns false for DML (no result set).
                         // Capture affected_rows now — it becomes unavailable after close().
@@ -1702,12 +1830,13 @@ class Database extends \Pramnos\Framework\Base
                         }
                     } else {
                         $dbResource = null;
-                        if ($retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
+                        if ($retry && $this->isConnectionGone($connection, null, $exception ?? null)) {
                             // Re-prepare on new connection
                             $statement = $this->prepare($stmtData['query']);
                             $stmtData = $this->statements[$statement->id];
                             $connection = $stmtData['connection'];
                             $retry = false;
+                            $exception = null;
                             continue;
                         }
                     }
