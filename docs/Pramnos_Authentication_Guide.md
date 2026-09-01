@@ -582,15 +582,24 @@ What the endpoint enforces, in this order:
    crafted POST to a closed server cannot write a row.
 3. CSRF token → checked before validation, so a form with no token is not even an
    account-existence oracle.
-4. Username 3–60 characters, `[A-Za-z0-9._-]` only — the set that needs no
+4. The human check, when `auth.security.human_check_forms` lists `register`. This is a
+   public write that creates a row and sends a mail, which makes it the form on the site
+   most worth pricing.
+5. Username 3–60 characters, `[A-Za-z0-9._-]` only — the set that needs no
    escaping in a URL, a log line or an email subject.
-5. A valid email address.
-6. The same password policy `resetpassword` uses: 8 characters, a digit, a
+6. A valid email address.
+7. The same password policy `resetpassword` uses: 8 characters, a digit, a
    symbol, and a matching confirmation.
-7. Uniqueness, and only then a write.
+8. Uniqueness, and only then a write.
+
+A refused submission comes back with the username and the address filled in — retyping an
+address after a failed check is how people give up — and **never with the password**: the form
+is rendered into HTML that ends up in a browser's history, a proxy log and the occasional bug
+report screenshot.
 
 The new account is active at the lowest privilege level. Nothing in the flow can
-grant a usertype.
+grant a usertype: `createUser()` names the five fields it sets, so a submission carrying
+`usertype` or `userid` is ignored rather than obeyed.
 
 **What it tells an attacker.** "That username is taken" confirms an account
 exists, and there is no way to both refuse a duplicate and not confirm it — a form
