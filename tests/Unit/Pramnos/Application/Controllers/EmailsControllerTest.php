@@ -95,22 +95,54 @@ class EmailsControllerTest extends BaseTestCase
             session_start();
         }
 
-        // Create mails table
-        $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#mails` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `status` tinyint(1) NOT NULL DEFAULT '0',
-            `tomail` varchar(255) NOT NULL,
-            `toname` varchar(255) NOT NULL,
-            `subject` varchar(255) NOT NULL,
-            `date` datetime NOT NULL,
-            `module` varchar(255) NOT NULL,
-            PRIMARY KEY (`id`)
-        )");
+        /*
+         * The mails table, from its migration.
+         *
+         * It was hand-rolled here with `CREATE TABLE IF NOT EXISTS`, and the shape disagreed with
+         * the framework's: `date datetime NOT NULL`, where the shipped column is an **integer**
+         * holding a Unix timestamp. Two consequences, and the second is the reason this is worth
+         * a comment rather than a quiet edit.
+         *
+         * Whichever test touched the table first decided its shape for the whole run, so a class
+         * that built it from the migration made the inserts below fail with «Data truncated for
+         * column 'date'» — thirteen errors in a file that had not changed.
+         *
+         * And this class was asserting against a schema the framework does not have.
+         * `EmailsController::data()` reads that column as `(int) $row[4]`, so a `datetime` of
+         * `2023-01-01 10:00:00` becomes the integer `2023` — a date in January 1970. The test
+         * passed because nothing looked at the rendered date.
+         *
+         * Dropped first, because the stale shape has to go for the migration to run at all.
+         */
+        $db->query('DROP TABLE IF EXISTS ' . $db->schema()->quoteTable('#PREFIX#mails'));
+        $this->runMigrations(
+            [\Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class],
+            $db
+        );
 
-        // Insert mock data
-        $db->query("TRUNCATE TABLE `#PREFIX#mails`");
-        $db->query("INSERT INTO `#PREFIX#mails` (`id`, `status`, `tomail`, `toname`, `subject`, `date`, `module`) VALUES (1, 1, 'test@test.com', 'Test', 'Subject 1', '2023-01-01 10:00:00', 'system')");
-        $db->query("INSERT INTO `#PREFIX#mails` (`id`, `status`, `tomail`, `toname`, `subject`, `date`, `module`) VALUES (2, 0, 'fail@test.com', 'Fail', 'Subject 2', '2023-01-02 10:00:00', 'system')");
+        // Insert mock data. `date` is a Unix timestamp, and every NOT NULL column is named.
+        $db->query('DELETE FROM ' . $db->schema()->quoteTable('#PREFIX#mails'));
+
+        foreach ([[1, 1, 'test@test.com', 'Test', 'Subject 1'], [2, 0, 'fail@test.com', 'Fail', 'Subject 2']] as $row) {
+            [$id, $status, $to, $toName, $subject] = $row;
+
+            $db->queryBuilder()->table('#PREFIX#mails')->insert([
+                'id'         => $id,
+                'status'     => $status,
+                'frommail'   => 'no-reply@test.com',
+                'fromname'   => 'Test',
+                'tomail'     => $to,
+                'toname'     => $toName,
+                'subject'    => $subject,
+                'content'    => 'Body',
+                'date'       => 1672567200 + $id,
+                'module'     => 'system',
+                'moduleinfo' => '',
+                'extrainfo'  => '',
+                'path'       => '',
+                'hash'       => md5((string) $id),
+            ]);
+        }
 
         $app = \Pramnos\Application\Application::getInstance();
         if (!$app) {
