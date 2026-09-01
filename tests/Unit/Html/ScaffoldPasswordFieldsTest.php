@@ -195,6 +195,55 @@ class ScaffoldPasswordFieldsTest extends TestCase
     }
 
     /**
+     * Every toggle comes **after** the field it belongs to.
+     *
+     * These forms carry no `tabindex`, so the tab order *is* the DOM order. A toggle placed above its
+     * field — in the label row, which looks tidier — means tabbing off the previous field lands on
+     * the «show» button instead of the password box. The form still works and looks fine; only a
+     * keyboard notices, which is why this needs a test rather than a look.
+     *
+     * That is not hypothetical: the first installation wired for this feature had exactly that
+     * ordering, and it was spotted by someone using the form rather than by anything automated.
+     *
+     * A `tabindex="-1"` on the button would silence the symptom by making the control unreachable
+     * without a mouse. Placing it after the field costs nothing and keeps it reachable.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('themes')]
+    public function testEveryToggleComesAfterItsField(string $theme): void
+    {
+        // Act
+        $wrong = [];
+
+        foreach (self::viewFiles($theme) as $path) {
+            $source = (string) file_get_contents($path);
+            $short  = str_replace(self::viewsDirectory($theme) . '/', '', $path);
+
+            preg_match_all("/PasswordToggle::render\(\s*'([^']+)'/", $source, $matches, PREG_OFFSET_CAPTURE);
+
+            foreach ($matches[1] as $match) {
+                [$id, $toggleAt] = $match;
+
+                $fieldAt = strpos($source, 'id="' . $id . '"');
+                if ($fieldAt === false) {
+                    continue; // reported by its own test
+                }
+
+                if ($toggleAt < $fieldAt) {
+                    $wrong[] = $short . ' — id="' . $id . '"';
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $wrong,
+            "These toggles come before the field they control, so tabbing into the field lands on\n"
+            . "the button instead:\n  " . implode("\n  ", $wrong)
+        );
+    }
+
+    /**
      * Every toggle points at a field that exists in the same file.
      *
      * The other direction, and it catches the mistake a rename makes: the field becomes
