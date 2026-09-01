@@ -247,6 +247,74 @@ class MediaObject extends \Pramnos\Framework\Base
             return array();
         }
 
+        // JSON is what this class writes now. A leading `[` is enough to tell the two apart —
+        // PHP's serialisation of an array always begins `a:`.
+        $first = substr(ltrim($stored), 0, 1);
+
+        if ($first === '[' || $first === '{') {
+            $decoded = json_decode($stored, true);
+
+            return is_array($decoded) ? self::hydrateThumbnails($decoded) : array();
+        }
+
+        return self::readLegacyThumbnails($stored);
+    }
+
+    /**
+     * Build {@see Thumbnail} objects from the stored JSON.
+     *
+     * Only the properties the class declares are copied. A payload carrying something else — a key
+     * from a future version, or junk — is ignored rather than becoming a dynamic property, which
+     * PHP 8.2 deprecates and which nothing would read anyway.
+     *
+     * @param  array<int, mixed> $rows
+     * @return array<int, Thumbnail>
+     */
+    private static function hydrateThumbnails(array $rows): array
+    {
+        $thumbnails = array();
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $thumbnail = new Thumbnail();
+
+            foreach (self::THUMBNAIL_FIELDS as $field) {
+                if (array_key_exists($field, $row)) {
+                    $thumbnail->$field = $row[$field];
+                }
+            }
+
+            $thumbnails[] = $thumbnail;
+        }
+
+        return $thumbnails;
+    }
+
+    /**
+     * Read a row written before the column held JSON.
+     *
+     * Returned **as they are**, not converted to {@see Thumbnail}. An application with its own
+     * thumbnail class has been getting its own objects back from these rows for years, and
+     * rewriting them into this class's type on read would change what `getThumb()` hands its
+     * callers — for rows nobody has touched. They convert themselves the next time the media object
+     * is saved, because the writer only produces JSON.
+     *
+     * The filter is what stops the two shapes that break the caller rather than returning nothing:
+     * an object of a class the *reading process* cannot load, which deserialises to
+     * `__PHP_Incomplete_Class` and fatals on any property access; and a value that does not
+     * deserialise at all, where `unserialize('')` is `false` and `foreach (false)` warns.
+     *
+     * `unserialize()` is deliberately not restricted with `allowed_classes`: that would be better
+     * hardening and would also discard the application's own class, which loads perfectly well.
+     *
+     * @param  string $stored
+     * @return array<int, object>
+     */
+    private static function readLegacyThumbnails(string $stored): array
+    {
         $decoded = @unserialize($stored);
 
         if (!is_array($decoded)) {
@@ -256,8 +324,6 @@ class MediaObject extends \Pramnos\Framework\Base
         $usable = array();
 
         foreach ($decoded as $thumbnail) {
-            // An incomplete class is the case that fatals; anything without a `reason` is of no
-            // use to `getThumb()` either, and silently skipping it beats erroring on it.
             if (!is_object($thumbnail) || $thumbnail instanceof \__PHP_Incomplete_Class) {
                 continue;
             }
@@ -271,6 +337,77 @@ class MediaObject extends \Pramnos\Framework\Base
 
         return $usable;
     }
+
+    /**
+     * The thumbnails, as the column should hold them.
+     *
+     * JSON of the fields rather than `serialize()` of the objects, and the difference is not
+     * cosmetic. PHP's serialisation writes the **class name into the data**, so who can read a row
+     * depends on which classes the reading process has: this framework alone, a second application
+     * on the same database, or a CLI script that skips the first application's autoloader all get
+     * `__PHP_Incomplete_Class` and a fatal on the first property read. It also writes property
+     * *names*, so renaming one silently drops every stored value; it hands `unserialize()` the power
+     * to instantiate classes and run their magic methods; and nothing outside PHP can read it — no
+     * SQL, no `JSON_EXTRACT`, no reporting tool, and no index on «thumbnails wider than 500px».
+     *
+     * `Thumbnail` is eight scalar properties with no methods and no nesting, so there is nothing
+     * about it that JSON cannot carry.
+     *
+     * Falls back to `serialize()` if the payload cannot be encoded — a filename in some encoding
+     * `json_encode()` refuses, say. Losing the thumbnails would be worse than writing the old
+     * format for one row, and the reader accepts both.
+     *
+     * @param  mixed $thumbnails
+     * @return string
+     */
+    private static function encodeThumbnails($thumbnails): string
+    {
+        if (!is_array($thumbnails)) {
+            return '[]';
+        }
+
+        $rows = array();
+
+        foreach ($thumbnails as $thumbnail) {
+            if (!is_object($thumbnail)) {
+                continue;
+            }
+
+            $row = array();
+
+            foreach (self::THUMBNAIL_FIELDS as $field) {
+                // Read through `isset` rather than `property_exists`, so a legacy object of another
+                // class contributes whatever of these it happens to have.
+                $row[$field] = isset($thumbnail->$field) ? $thumbnail->$field : null;
+            }
+
+            $rows[] = $row;
+        }
+
+        $json = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if ($json === false) {
+            \Pramnos\Logs\Logger::log(
+                'Thumbnails could not be encoded as JSON (' . json_last_error_msg()
+                . '); stored in the legacy format instead.'
+            );
+
+            return serialize($thumbnails);
+        }
+
+        return $json;
+    }
+
+    /**
+     * The properties a thumbnail is stored as.
+     *
+     * Declared once because three things have to agree about them: what is written, what is read
+     * back, and what {@see Thumbnail} actually has. Adding a property to that class and forgetting
+     * one of the three is how a value starts disappearing on save.
+     */
+    private const THUMBNAIL_FIELDS = array(
+        'filename', 'x', 'y', 'views', 'filesize', 'reason', 'url', 'createdTxt',
+    );
 
     /**
      * Create the md5 hash of the contents of the media file.
@@ -1557,7 +1694,7 @@ class MediaObject extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'thumbnails',
-                'value' => serialize($this->thumbnails),
+                'value' => self::encodeThumbnails($this->thumbnails),
                 'type' => 'string'
             ),
             array(

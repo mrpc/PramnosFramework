@@ -438,4 +438,191 @@ class UploadContentChecksTest extends TestCase
         $this->assertSame('application/pdf', $detected, 'the file was not identified');
         $this->assertSame('', (new MediaObject())->mimetype, 'the property has no safe default');
     }
+
+    // ── The stored format ─────────────────────────────────────────────────────
+
+    /**
+     * Thumbnails are written as JSON, not as serialised objects.
+     *
+     * The format change, and the reason is not cosmetic. PHP's serialisation writes the **class name
+     * into the data**, so who can read a row depends on which classes the reading process has — this
+     * framework alone, a second application on the same database, or a CLI script that skips the
+     * first application's autoloader all get `__PHP_Incomplete_Class` and a fatal on the first
+     * property read. It writes property *names* too, so renaming one silently drops every stored
+     * value; it lets `unserialize()` instantiate classes and run their magic methods; and nothing
+     * outside PHP can read it — no SQL, no `JSON_EXTRACT`, no index on «thumbnails wider than 500».
+     */
+    public function testThumbnailsAreStoredAsJson(): void
+    {
+        // Arrange
+        $thumb = new \Pramnos\Media\Thumbnail();
+        $thumb->reason   = 'thumb';
+        $thumb->filename = '/uploads/2026/09/x.png';
+        $thumb->x        = 120;
+        $thumb->y        = 90;
+
+        // Act
+        $stored = (string) self::call('encodeThumbnails', [$thumb]);
+
+        // Assert
+        $this->assertStringStartsWith('[', $stored, 'the column still holds a serialised object');
+        $this->assertStringNotContainsString('O:', $stored, 'a class name reached the data');
+        $this->assertStringNotContainsString('Pramnos', $stored, 'the class name is in the payload');
+
+        $decoded = json_decode($stored, true);
+        $this->assertIsArray($decoded);
+        $this->assertSame('thumb', $decoded[0]['reason']);
+        $this->assertSame(120, $decoded[0]['x']);
+    }
+
+    /**
+     * A JSON payload comes back as `Thumbnail` objects, with every field.
+     *
+     * The in-memory shape is what callers depend on: `getThumb()` returns an object and its callers
+     * write `$thumb->url`. Changing the storage must not change that, or every template breaks.
+     */
+    public function testJsonComesBackAsThumbnailObjects(): void
+    {
+        // Arrange
+        $thumb = new \Pramnos\Media\Thumbnail();
+        $thumb->reason     = 'medium';
+        $thumb->filename   = '/uploads/2026/09/y.png';
+        $thumb->url        = 'uploads/2026/09/y.png';
+        $thumb->x          = 640;
+        $thumb->y          = 480;
+        $thumb->views      = 3;
+        $thumb->filesize   = 9182;
+        $thumb->createdTxt = '01/09/2026 12:00:00';
+
+        $stored = (string) self::call('encodeThumbnails', [$thumb]);
+
+        // Act
+        $read = self::call('usableThumbnails', $stored);
+
+        // Assert
+        $this->assertCount(1, $read);
+        $this->assertInstanceOf(\Pramnos\Media\Thumbnail::class, $read[0]);
+
+        foreach (['reason', 'filename', 'url', 'x', 'y', 'views', 'filesize', 'createdTxt'] as $field) {
+            $this->assertSame($thumb->$field, $read[0]->$field, $field . ' did not round-trip');
+        }
+    }
+
+    /**
+     * Greek text in a filename survives the round trip unescaped.
+     *
+     * `JSON_UNESCAPED_UNICODE`, and it earns its place: without it a Greek filename is stored as six
+     * bytes of `\uXXXX` per character in a `text` column, and a reader comparing the stored string
+     * with the one on disk stops matching.
+     */
+    public function testGreekTextSurvivesTheRoundTrip(): void
+    {
+        // Arrange
+        $thumb = new \Pramnos\Media\Thumbnail();
+        $thumb->reason   = 'thumb';
+        $thumb->filename = '/uploads/φωτογραφία.png';
+
+        // Act
+        $stored = (string) self::call('encodeThumbnails', [$thumb]);
+        $read   = self::call('usableThumbnails', $stored);
+
+        // Assert
+        $this->assertStringContainsString('φωτογραφία', $stored, 'stored as \\u escapes');
+        $this->assertSame('/uploads/φωτογραφία.png', $read[0]->filename);
+    }
+
+    /**
+     * A legacy serialised row is still read, and its objects come back as they are.
+     *
+     * Deliberately **not** converted to `Thumbnail`. An application with its own thumbnail class has
+     * been getting its own objects back from these rows for years, and rewriting them into this
+     * class's type on read would change what `getThumb()` hands its callers — for rows nobody has
+     * touched. They convert themselves on the next save, because the writer only produces JSON.
+     */
+    public function testALegacySerialisedRowIsStillReadUnchanged(): void
+    {
+        // Arrange — the framework's own class, serialised the old way
+        $thumb = new \Pramnos\Media\Thumbnail();
+        $thumb->reason = 'thumb';
+        $thumb->x      = 42;
+
+        // Act
+        $read = self::call('usableThumbnails', serialize([$thumb]));
+
+        // Assert
+        $this->assertCount(1, $read, 'a row written before the format change stopped being readable');
+        $this->assertSame(42, $read[0]->x);
+        $this->assertInstanceOf(\Pramnos\Media\Thumbnail::class, $read[0]);
+    }
+
+    /**
+     * A JSON key the class does not declare is ignored.
+     *
+     * Not assigned as a dynamic property — PHP 8.2 deprecates those, and nothing would read it
+     * anyway. This is the forward-compatibility case: a payload written by a later version that
+     * added a field must still load here, minus the field this version does not know.
+     */
+    public function testAnUnknownJsonKeyIsIgnored(): void
+    {
+        // Act
+        $read = self::call(
+            'usableThumbnails',
+            '[{"reason":"thumb","x":10,"somethingNew":"from a later version"}]'
+        );
+
+        // Assert
+        $this->assertCount(1, $read);
+        $this->assertSame('thumb', $read[0]->reason);
+        $this->assertSame(10, $read[0]->x);
+        $this->assertFalse(
+            property_exists($read[0], 'somethingNew'),
+            'an unknown key became a dynamic property'
+        );
+    }
+
+    /** Malformed JSON is an empty list, like any other unreadable value. */
+    public function testMalformedJsonIsAnEmptyList(): void
+    {
+        // Act & Assert
+        $this->assertSame([], self::call('usableThumbnails', '[{"reason":'));
+        $this->assertSame([], self::call('usableThumbnails', '[1,2,3]'));
+    }
+
+    /**
+     * Encoding a foreign-class object keeps whatever of the fields it has.
+     *
+     * The upgrade path for an application with its own thumbnail class: the first save after this
+     * change reads its objects (legacy path) and writes them as JSON, so the row converts without
+     * anybody migrating it — and without the class name going along.
+     */
+    public function testEncodingAForeignObjectKeepsTheFieldsItHas(): void
+    {
+        // Arrange — same field names, different class, exactly like the real legacy data
+        $foreign = new class () {
+            public $reason = 'thumb';
+
+            public $filename = '/uploads/legacy.png';
+
+            public $x = 200;
+        };
+
+        // Act
+        $stored  = (string) self::call('encodeThumbnails', [$foreign]);
+        $decoded = json_decode($stored, true);
+
+        // Assert
+        $this->assertSame('thumb', $decoded[0]['reason']);
+        $this->assertSame('/uploads/legacy.png', $decoded[0]['filename']);
+        $this->assertSame(200, $decoded[0]['x']);
+        $this->assertNull($decoded[0]['views'], 'a field it does not have should be null, not absent');
+    }
+
+    /** Nothing to encode is an empty JSON list, not an empty string. */
+    public function testNothingToEncodeIsAnEmptyJsonList(): void
+    {
+        // Act & Assert
+        $this->assertSame('[]', (string) self::call('encodeThumbnails', []));
+        $this->assertSame('[]', (string) self::call('encodeThumbnails', 'not an array at all'));
+        $this->assertSame([], self::call('usableThumbnails', '[]'));
+    }
 }

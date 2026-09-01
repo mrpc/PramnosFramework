@@ -416,7 +416,7 @@ One row per stored file. Twenty-three columns; the ones worth knowing:
 | `medialink` | When this row is a duplicate, the `mediaid` holding the real file. **`0` means "not a duplicate"** — a sentinel, which is why there is no foreign key here. |
 | `userid` | The uploader, or **`0` for no signed-in user** — the same reason there is no key on it. |
 | `order` | Display order, for emoticon sets. A reserved word in both backends; see below. |
-| `thumbnails` | PHP-**serialised** list, not JSON. `unserialize()` reads it back, so the column stays `text`. |
+| `thumbnails` | **JSON** of each thumbnail's fields. Rows written before 1 September 2026 hold PHP-serialised objects and are still read; see below. |
 | `otherusers`, `othermodules` | `tinyint` flags: may other users / other modules see this file. |
 
 ### `mediause`
@@ -455,6 +455,36 @@ every other one, and the next upload could be linked to any of them.
 
 A production library of 4,551 files held 14 rows carrying exactly that hash. `createMd5()` now leaves
 the hash empty instead, which matches nothing — the honest answer for a file nobody can read.
+
+### `thumbnails` holds JSON, and why it stopped holding objects
+
+PHP's `serialize()` writes the **class name into the data**. That single fact is behind four separate
+problems, and all four are gone now that the column holds JSON of the fields:
+
+- **who can read a row depended on which classes the reading process had.** This framework on its
+  own, a second application on the same database, a CLI script that skips the first application's
+  autoloader — each got `__PHP_Incomplete_Class` and a fatal on the first property read.
+- **renaming a property silently dropped every stored value**, because property names are in the
+  payload too. No error, just an empty field from then on.
+- **`unserialize()` instantiates classes and runs their magic methods.** Any write access to that
+  column was a step towards code execution. (The framework already knew: `Helpers::checkUnserialize()`
+  exists and passes `allowed_classes => false`.)
+- **nothing outside PHP could read it.** No SQL, no `JSON_EXTRACT`, no reporting tool, and no index
+  on «thumbnails wider than 500px».
+
+`Thumbnail` is eight scalar properties with no methods and no nesting, so there is nothing about it
+JSON cannot carry.
+
+**No migration is needed.** The reader accepts both formats — a leading `[` distinguishes JSON from
+`serialize()`'s `a:` — and the writer only produces JSON, so a row converts itself the next time its
+media object is saved. Objects from a legacy row come back **as they are** rather than being recast
+into `Thumbnail`: an application with its own thumbnail class has been getting its own type from
+those rows for years, and changing that on read would alter what `getThumb()` hands its callers for
+rows nobody has touched.
+
+An unencodable payload — a filename in some encoding `json_encode()` refuses — falls back to
+`serialize()` for that row and logs it. Losing the thumbnails would be worse, and the reader accepts
+both anyway.
 
 ### A thumbnail the reading process cannot load is dropped, not fatal
 
