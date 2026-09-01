@@ -2586,6 +2586,35 @@ abstract class MakeCommandBase extends Command
     }
 
     /**
+     * Make sure a generated file's directory exists, or say why it cannot.
+     *
+     * Three sites used a bare `mkdir($path)` — no recursion, no return check — against nineteen
+     * siblings in this class that pass `true`. `Api/Controllers`, `Controllers` and `Models` are
+     * two levels below the application root, so on a project that has not got the parent yet
+     * (a fresh one, or one adding its first API controller) `mkdir()` failed with a warning, the
+     * `file_put_contents()` below failed too, and the command printed «created» and the path of a
+     * file that was not there.
+     *
+     * Which is the part worth a throw rather than a warning. A generator that reports success for
+     * a file it did not write sends the developer looking for a bug in generated code that does
+     * not exist.
+     *
+     * @throws \Exception When the directory cannot be created
+     */
+    protected function ensureTargetDirectory(string $path): void
+    {
+        if (is_dir($path)) {
+            return;
+        }
+
+        // `!mkdir() && !is_dir()` rather than `!mkdir()`: two commands generating into the same
+        // new tree is ordinary, and losing that race is not a failure.
+        if (!@mkdir($path, 0777, true) && !is_dir($path)) {
+            throw new \Exception('Could not create the directory: ' . $path);
+        }
+    }
+
+    /**
      * Creates a controller
      * @param string $name Name of the controller to be created
      * @param bool $full Create a full crud controller
@@ -2617,9 +2646,7 @@ abstract class MakeCommandBase extends Command
             || file_exists($filename)) {
             throw new \Exception('Controller already exists.');
         }
-        if (!file_exists($path)) {
-            mkdir($path);
-        }
+        $this->ensureTargetDirectory($path);
 
 
         
@@ -2873,9 +2900,7 @@ $routeTokens = [
             || file_exists($filename)) {
             throw new \Exception('Controller already exists.');
         }
-        if (!file_exists($path)) {
-            mkdir($path);
-        }
+        $this->ensureTargetDirectory($path);
         // Generation is ALWAYS full CRUD (the $full parameter is ignored — the
         // simple skeleton path was removed). Either wizard columns are supplied
         // (migration wizard) or the live table is introspected. If neither is
@@ -3986,9 +4011,7 @@ PHP;
                     'Model already exists and cannot be updated'
                 );
         }
-        if (!file_exists($path)) {
-            mkdir($path);
-        }
+        $this->ensureTargetDirectory($path);
 
 
         // Normalise the live table definition into the SAME wizard column /

@@ -1258,6 +1258,11 @@ plain-css theme; bootstrap/tailwind use their own wrappers):
 php bin/pramnos create:api UserAPI
 ```
 
+The target directory is created if it is not there, parents included — a project adding its
+first API controller has no `Api/` yet. If it cannot be created the command **fails with the
+path**, rather than reporting a file it did not write; three of these generators used to do the
+latter, which sent people looking for a bug in generated code that was never on disk.
+
 This generates a complete REST API controller with:
 - GET endpoints for listing and individual records
 - POST endpoints for creating records
