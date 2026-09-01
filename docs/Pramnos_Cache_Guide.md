@@ -293,6 +293,37 @@ $cache->save($permanentData, 'permanent_data');
     that intermittently did not work for permanent values, which is the hardest kind
     to attribute.
 
+### Sweeping the expired entries on a schedule
+
+`$cache->cleanup()` removes what has expired and returns how many went. It is the deterministic
+entry point for a housekeeping task:
+
+```php
+// A scheduled task, every few hours
+$removed = \Pramnos\Cache\Cache::getInstance()->cleanup();
+```
+
+The file adapter already sweeps on its own — it walks the tree, deletes what has expired and prunes
+the empty directories every cache write leaves behind — but from a **sampled** caller: about one
+call in a hundred, and never under `PRAMNOS_TESTING`. That is right for spreading the cost over
+ordinary traffic and is not a guarantee, which is why an explicit call exists and why it goes
+straight to the sweep rather than through the sampling.
+
+Three things worth knowing:
+
+- **It is not `flushEverything()`.** That removes everything, valid entries included — a much more
+  expensive thing to do to a warm cache, and not what a housekeeping schedule wants.
+- **On Redis, Memcached and the array store it answers `0`**, because those drop an entry when its
+  TTL passes: there is nothing accumulating to reclaim. A scheduled task can call this without
+  knowing which adapter the installation configured.
+- **`AdapterInterface` does not declare it.** An application with its own adapter implements that
+  interface, and a new method on it would break every one of them on upgrade — so `Cache::cleanup()`
+  asks whether the adapter has the method and answers `0` when it does not. If you maintain an
+  adapter and want the sweep, extend `AbstractAdapter` or add a public `cleanup(): int`.
+
+The count is returned because the caller usually has somewhere to log it, and "how much was there
+to reclaim" is the number that says whether the schedule is frequent enough.
+
 ### What a listing can and cannot see, per adapter
 
 The cache dashboard asks three things — the categories, the entries, and the counts

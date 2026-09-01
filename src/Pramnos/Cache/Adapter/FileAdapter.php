@@ -509,13 +509,24 @@ class FileAdapter extends AbstractAdapter
 
     /**
      * @inheritDoc
+     *
+     * Public because a scheduled task needs a deterministic moment to run this: the sampled
+     * caller below fires on about one request in a hundred, which amortises the cost and
+     * guarantees nothing, and never fires at all under `PRAMNOS_TESTING`. An installation with a
+     * housekeeping cron had no way to ask for the sweep — `flushEverything()` removes everything,
+     * valid entries included, which is a different operation with a much worse cost.
+     *
+     * The count is returned because the caller is usually a cron task with somewhere to log it,
+     * and "how much was there to reclaim" is the question that decides whether the schedule is
+     * frequent enough.
      */
-    protected function cleanup()
+    public function cleanup()
     {
-        $files = $this->listDirectoryFiles($this->cacheDir);
+        $removed = 0;
+        $files   = $this->listDirectoryFiles($this->cacheDir);
         foreach ($files as $file) {
-            if ($this->checkIfFileIsExpired($file)) {
-                $this->deleteIfStillThere($file);
+            if ($this->checkIfFileIsExpired($file) && $this->deleteIfStillThere($file)) {
+                $removed++;
             }
         }
 
@@ -533,6 +544,8 @@ class FileAdapter extends AbstractAdapter
          * seen as empty in the same pass.
          */
         $this->pruneEmptyDirectories();
+
+        return $removed;
     }
 
     /**
@@ -692,11 +705,15 @@ class FileAdapter extends AbstractAdapter
      * and the `@` states that losing this particular race is the expected outcome
      * rather than something to report.
      */
-    private function deleteIfStillThere(string $file): void
+    private function deleteIfStillThere(string $file): bool
     {
-        if (is_file($file)) {
-            @unlink($file);
+        if (!is_file($file)) {
+            // Gone between the walk and here: another request's sweep, or a flush. Not a
+            // failure, and not something to count as reclaimed.
+            return false;
         }
+
+        return @unlink($file);
     }
 
     protected function listDirectoryFiles($path)

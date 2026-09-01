@@ -738,6 +738,33 @@ class Cache extends \Pramnos\Framework\Base
      *
      * @return bool True when the backend was flushed
      */
+    /**
+     * Sweep the expired entries now, and say how many went.
+     *
+     * The deterministic entry point a scheduled housekeeping task needs.
+     * {@see \Pramnos\Cache\Adapter\FileAdapter} already sweeps on roughly one call in a
+     * hundred — right for spreading the cost over ordinary traffic, and no guarantee at all — and
+     * it is skipped entirely under `PRAMNOS_TESTING`. An installation with a cron task had nothing
+     * to call: `clear()` is scoped to a category and `flushEverything()` removes what is still
+     * valid, which is a much more expensive thing to do to a warm cache.
+     *
+     * Asked of the adapter only when it has the method, so an application with its own adapter
+     * built against {@see AdapterInterface} — which does not declare this, deliberately — keeps
+     * working and answers 0.
+     *
+     * @return int Entries removed
+     */
+    public function cleanup()
+    {
+        $this->syncAdapter();
+
+        if (!is_object($this->adapter) || !method_exists($this->adapter, 'cleanup')) {
+            return 0;
+        }
+
+        return (int) $this->adapter->cleanup();
+    }
+
     public function flushEverything()
     {
         return $this->adapter ? $this->adapter->flushEverything() : false;

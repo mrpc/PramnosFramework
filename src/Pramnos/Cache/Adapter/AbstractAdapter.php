@@ -475,6 +475,32 @@ abstract class AbstractAdapter implements AdapterInterface
     }
 
     /**
+     * Sweep the entries that have expired, and say how many went.
+     *
+     * Nothing to do here, and that is the honest default rather than a stub: Redis, Memcached and
+     * the in-process array all drop an entry when its TTL passes, so there is no accumulation to
+     * reclaim. Only a backend that stores entries where nothing else looks at them — the file
+     * adapter — has a sweep worth asking for, and it overrides this.
+     *
+     * **Public, and separate from the sampled sweep.** {@see FileAdapter} already collects garbage
+     * on roughly one call in a hundred, which is right for amortising the cost across ordinary
+     * traffic and useless as a guarantee: an installation with a scheduled housekeeping task has a
+     * deterministic moment to do this and had no way to ask for it. `flushEverything()` is not that
+     * — it removes everything, including what is still valid.
+     *
+     * Not added to {@see \Pramnos\Cache\AdapterInterface}, deliberately. An application with its
+     * own adapter implements that interface, and a new method on it would break every one of them
+     * on upgrade; {@see \Pramnos\Cache\Cache::cleanup()} asks whether the adapter has this before
+     * calling it.
+     *
+     * @return int Entries removed
+     */
+    public function cleanup()
+    {
+        return 0;
+    }
+
+    /**
      * Wipe the entire backend, ignoring this installation's prefix.
      *
      * `clear()` is scoped to the prefix, because that is the isolation rule the

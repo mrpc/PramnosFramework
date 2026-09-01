@@ -73,10 +73,11 @@ class FileAdapterGarbageCollectionTest extends TestCase
                 return $this->collect;
             }
 
-            protected function cleanup()
+            public function cleanup()
             {
                 $this->sweeps++;
-                parent::cleanup();
+
+                return parent::cleanup();
             }
         };
     }
