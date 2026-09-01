@@ -533,10 +533,15 @@ class UnifiedAuthMiddlewareTest extends TestCase
         $db->query($db->prepareQuery(
             // token_lookup as well: authentication matches on the digest now, and a
             // fixture that writes only the value seeds a row nothing can find.
+            //
+            // And every NOT NULL column the migration declares, which this used to omit — it was
+            // passing against whatever shape an earlier test had left behind rather than the
+            // shipped one, and a strict database rejects the short insert.
             "INSERT INTO `usertokens`
-             (`userid`, `tokentype`, `token`, `token_lookup`, `created`, `status`, `expires`)
-             VALUES (661, 'auth', %s, %s, %d, 1, 0)",
-            $jwt, \Pramnos\User\Token::lookup($jwt), time()
+             (`userid`, `tokentype`, `token`, `token_lookup`, `created`, `status`, `expires`,
+              `lastused`, `notes`, `actions`, `removedate`, `deviceinfo`, `scope`)
+             VALUES (661, 'auth', %s, %s, %d, 1, 0, %d, '', 0, 0, '', '')",
+            $jwt, \Pramnos\User\Token::lookup($jwt), time(), time()
         ));
         $db->query("SET FOREIGN_KEY_CHECKS=1");
 

@@ -435,6 +435,15 @@ class TokenDetailScreenTest extends BaseTestCase
     {
         $token = 'tokenview-' . bin2hex(random_bytes(8));
 
+        /*
+         * `deviceinfo`, `scope`, `notes` and the rest are here because the shipped table declares
+         * them NOT NULL with no default.
+         *
+         * This fixture used to omit them and pass, which is the part worth the comment: it was
+         * passing against a `usertokens` left behind by whichever test ran first, not against the
+         * shape the migration ships. `addToken()` — the framework's own writer — supplies all of
+         * them, so an insert that does not is a fixture the database would reject in production.
+         */
         $this->db->queryBuilder()->table('#PREFIX#usertokens')->insert([
             'userid'        => $this->uid,
             'tokentype'     => 'auth',
@@ -443,6 +452,12 @@ class TokenDetailScreenTest extends BaseTestCase
             'applicationid' => 0,
             'status'        => 1,
             'created'       => time(),
+            'lastused'      => time(),
+            'notes'         => 'seeded by a test',
+            'actions'       => 0,
+            'removedate'    => 0,
+            'deviceinfo'    => '',
+            'scope'         => '',
         ]);
 
         return (int) $this->db->getInsertId();

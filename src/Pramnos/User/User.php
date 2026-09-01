@@ -1278,7 +1278,20 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
                 ->delete();
 
             return true;
-        } catch (\Throwable) {
+        } catch (\Throwable $ex) {
+            /*
+             * Logged, like its sibling above.
+             *
+             * The two readers degrade quietly — a project that has not migrated has no settings,
+             * which is the same answer as a user with none — and the two writers report failure
+             * instead, because a caller that was told a write succeeded will tell somebody the
+             * switch was changed. This one used to report the failure and leave no trace of it, so
+             * an operator pressing «remove» got an error with nothing anywhere to say why.
+             */
+            \Pramnos\Logs\Logger::log(
+                'User::deleteSetting failed for ' . $setting . ': ' . $ex->getMessage()
+            );
+
             return false;
         }
     }

@@ -283,6 +283,21 @@ with no list, no per-key delete and nothing an administrator can read. Deleting 
 same as setting `null`: no row means the application's default applies, a null value means
 somebody deliberately set it to nothing.
 
+Two things to know about how the four behave when the store is unreachable — a project that
+has not run the migration, or a database that is down. **The readers degrade and the writers
+report failure.** `getSetting()` answers the default and `listSettings()` answers `[]`,
+because a project with no settings table has no settings, and a framework upgrade should not
+take down every page that consults a preference. `setSetting()` and `deleteSetting()` return
+`false` instead, and both log: a caller told a write succeeded will tell somebody the switch
+was changed, and «removed» about a row that is still there is the one answer an operator acts
+on and is wrong about. So check the return value on a write and ignore it on a read.
+
+Values keep their type through the round trip — a list stays a list and `false` stays `false`,
+which matters because a store that flattened to text would hand back `"0"` for a switch
+somebody turned off, and `"0"` is truthy. A row whose value is *not* valid JSON comes back as
+the raw string, because rows do get written by hand in a database client and refusing to read
+one is the store deciding an operator's edit did not happen.
+
 **Per-user permissions.** The grants written directly to this account, with revoke, and a
 form to add one (`object_type`, `object_id`, `action`, allow/deny). Only the *direct*
 grants are listed: the resolver also answers from usertype and group membership, and a
