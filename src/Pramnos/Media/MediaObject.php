@@ -838,16 +838,33 @@ class MediaObject extends \Pramnos\Framework\Base
         }
 
         $reason = null;
+        $status = 0;
         $image = \Pramnos\Security\OutboundUrl::fetch(
             (string) $url,
             $this->remoteMaxBytes,
             $reason,
             10,
-            $this->remoteMaxRedirects
+            $this->remoteMaxRedirects,
+            $status
         );
 
         if ($image === false || $image === '') {
             $this->error = 'Cannot fetch remote image. ' . ($reason ?? 'Empty response.');
+            \Pramnos\Logs\Logger::log($this->error . ' URL: ' . $url);
+            return $this;
+        }
+
+        /*
+         * A body that came with an error status is not the picture that was asked for.
+         *
+         * Checking the content is not enough here, and this is the case that shows why: a CDN
+         * answering `404` with a placeholder image returns bytes that are a valid PNG, so the `finfo`
+         * check below passes and somebody's grey «image not found» square is entered into the library
+         * as the thing that was requested. Which is worse than storing nothing — nothing is visible as
+         * a gap, and a placeholder looks like a result.
+         */
+        if ($status < 200 || $status > 299) {
+            $this->error = 'The server answered ' . $status . ' rather than with the image.';
             \Pramnos\Logs\Logger::log($this->error . ' URL: ' . $url);
             return $this;
         }

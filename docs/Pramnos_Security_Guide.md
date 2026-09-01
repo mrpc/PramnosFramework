@@ -947,12 +947,28 @@ whoever supplied the address.
 
 ```php
 $reason = null;
-$body = \Pramnos\Security\OutboundUrl::fetch($url, 5 * 1024 * 1024, $reason);
+$status = 0;
+$body = \Pramnos\Security\OutboundUrl::fetch($url, 5 * 1024 * 1024, $reason, 10, 0, $status);
 
 if ($body === false) {
     // $reason says why. It never names the resolved address.
 }
+
+if ($status < 200 || $status > 299) {
+    // A body arrived, but it is not the thing you asked for.
+}
 ```
+
+**Check the status, not only the bytes.** `ignore_errors => true` is deliberate — a caller that wants
+to read a 404's body should be able to — so a body arriving is not the same as a request succeeding.
+«Check the content» answers this for most bodies and fails on the case that matters: a CDN answering
+`404` with a *placeholder image* returns bytes that are a valid PNG, so every content check passes and
+somebody's grey «image not found» square is stored as the thing that was requested. Which is worse than
+storing nothing — nothing is visible as a gap, and a placeholder looks like a result.
+
+The status is also the only place the difference between *this address is permanently wrong* (`404`,
+`410`) and *this server had a bad minute* (a timeout) lives, and that difference is what decides whether
+you forget an address or retry it tomorrow.
 
 `fetch()` is the thing to reach for. `isPublic()` is available on its own for a URL you are going to
 store rather than request now — a webhook target, a feed address in a settings screen — but prefer the
@@ -1004,6 +1020,11 @@ $hop = \Pramnos\Security\OutboundUrl::nextHop($currentUrl, $responseHeaders, $re
 `null` and `false` are different answers and a loop turns on the difference: `null` means «this is the
 response», `false` means «stop, and do not use what you have». A falsy check collapses them and turns
 every ordinary 200 into a failure.
+
+`statusOf($responseHeaders)` is there for the same reason, and has the same trap as the chain
+above: a chain the wrapper followed itself leaves several status lines in one block, and the one
+describing the response in hand is the **last**. Reading the first classifies the final 200 of a
+redirect chain as a redirect.
 
 `resolveLocation($from, $location)` is the part worth not writing again. Four shapes arrive in the wild:
 an absolute URL; `//host/path`, which inherits the scheme and **not** the host — read as a path it turns

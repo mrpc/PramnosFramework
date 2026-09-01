@@ -411,11 +411,17 @@ class OutboundUrlTest extends TestCase
         $this->assertSame('https://93.184.216.34/b', $hop);
         $this->assertNull($reason);
 
-        $this->assertSame(
-            5,
-            (new \ReflectionMethod(OutboundUrl::class, 'fetch'))->getNumberOfParameters(),
-            'fetch() has no maxRedirects, so a caller still cannot follow one safely'
+        /*
+         * …and `fetch()` can be asked to take it. Named rather than counted: an assertion on the
+         * parameter *count* broke the first time a parameter was added, which is a test failing about
+         * something it was never asserting.
+         */
+        $names = array_map(
+            static fn (\ReflectionParameter $p): string => $p->getName(),
+            (new \ReflectionMethod(OutboundUrl::class, 'fetch'))->getParameters()
         );
+        $this->assertContains('maxRedirects', $names, 'a caller cannot ask for a hop to be followed');
+        $this->assertContains('status', $names, 'a caller cannot tell a 404 from a 200');
     }
 
     /**
@@ -440,5 +446,73 @@ class OutboundUrlTest extends TestCase
 
         // Assert
         $this->assertNull($hop, 'the finished chain was read as still redirecting');
+    }
+
+    /**
+     * The status is readable, which is what tells a 404 apart from a 200.
+     *
+     * `ignore_errors => true` is deliberate — a caller that wants to read a 404's body should be able
+     * to — and it meant a 404, a 403 and a 200 were all the same return value from `fetch()`: a
+     * string. «Check the content» answers that for most bodies and fails on the one that matters: a
+     * CDN answering 404 with a **placeholder image** returns bytes that are a valid PNG, so every
+     * content check passes and the placeholder is stored as the thing that was asked for.
+     *
+     * It is also the only place the difference between «this address is permanently wrong» and «this
+     * server had a bad minute» lives, and that difference decides whether a caller forgets an address
+     * or retries it tomorrow.
+     *
+     * @param list<string> $headers
+     * @param int          $expected
+     */
+    #[DataProvider('headerBlocks')]
+    public function testTheStatusIsReadableFromAHeaderBlock(array $headers, int $expected): void
+    {
+        // Act & Assert
+        $this->assertSame($expected, OutboundUrl::statusOf($headers));
+    }
+
+    /** @return array<string, array{list<string>, int}> */
+    public static function headerBlocks(): array
+    {
+        return [
+            'a plain 200' => [['HTTP/1.1 200 OK', 'Content-Type: image/png'], 200],
+            'a 404 with a body' => [['HTTP/1.1 404 Not Found', 'Content-Type: image/png'], 404],
+            'HTTP/2 has no reason phrase' => [['HTTP/2 403'], 403],
+            'the last status line of a followed chain wins' => [
+                ['HTTP/1.1 301 Moved', 'Location: /b', 'HTTP/1.1 200 OK'],
+                200,
+            ],
+            'no status line at all' => [['Content-Type: text/html'], 0],
+            'nothing' => [[], 0],
+            'a line that only looks like one' => [['X-Note: HTTP/1.1 500 pretend'], 0],
+        ];
+    }
+
+    /**
+     * `fetch()` can hand the status back, and a refused fetch leaves it at zero.
+     *
+     * The zero matters as much as the number: `$status` is initialised before anything is dialled, so
+     * a caller reading it after a refusal sees «nothing was fetched» rather than whatever the variable
+     * happened to hold. A stale value from a previous call is the shape of bug an out-parameter
+     * invites.
+     *
+     * Asserted through a refusal rather than a live response, because every address this class would
+     * fetch from is by definition outside this network — and the loopback listener a test could stand
+     * up is exactly what `isPublic()` refuses. {@see statusOf()} above is where the parsing is tested;
+     * this is where the wiring is.
+     */
+    public function testARefusedFetchLeavesTheStatusAtZero(): void
+    {
+        // Arrange
+        $reason = null;
+        $status = 999;
+
+        // Act
+        $body = OutboundUrl::fetch('http://127.0.0.1/logo.png', 1024, $reason, 5, 0, $status);
+
+        // Assert
+        $this->assertFalse($body);
+        $this->assertSame(0, $status, 'the caller would read a status from a fetch that never happened');
+        $this->assertIsString($reason);
     }
 }

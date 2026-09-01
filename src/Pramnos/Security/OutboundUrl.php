@@ -298,11 +298,21 @@ final class OutboundUrl
     }
 
     /**
-     * The status code from a header block, or 0 when there is not one.
+     * The status code from a header block, or `0` when there is not one.
      *
-     * @param list<string> $responseHeaders
+     * Public for the same reason {@see nextHop()} is: a caller driving its own hop loop needs to know
+     * what it is looking at, and the alternative is every one of them writing this three-line regex
+     * again — differently, and at least one of them reading the *first* status line.
+     *
+     * That is the subtlety. A chain the stream wrapper followed itself leaves several status lines in
+     * one header block, and the one describing the response in hand is the **last**. Reading the first
+     * classifies the final 200 of a redirect chain as a redirect.
+     *
+     * @param list<string> $responseHeaders Raw header lines, as `stream_get_meta_data()`'s
+     *                                      `wrapper_data` gives them.
+     * @return int
      */
-    private static function statusOf(array $responseHeaders): int
+    public static function statusOf(array $responseHeaders): int
     {
         foreach ($responseHeaders as $line) {
             if (preg_match('#^HTTP/\S+\s+(\d{3})#', (string) $line, $matches) === 1) {
@@ -361,6 +371,9 @@ final class OutboundUrl
      * @param string|null  $reason       Filled with why it failed.
      * @param int          $timeout      Seconds, for connect and for read.
      * @param int          $maxRedirects How many hops to follow, each one checked. `0` follows none.
+     * @param int|null     $status       Filled with the status of the response the body came from —
+     *                                   the last one, when hops were followed. `0` when nothing was
+     *                                   fetched at all.
      * @return string|false The body, or false.
      */
     public static function fetch(
@@ -368,10 +381,12 @@ final class OutboundUrl
         int $maxBytes = 10485760,
         ?string &$reason = null,
         int $timeout = 10,
-        int $maxRedirects = 0
+        int $maxRedirects = 0,
+        ?int &$status = null
     ): string|false {
         $current = $url;
         $followed = 0;
+        $status = 0;
 
         while (true) {
             $body = self::fetchOnce($current, $maxBytes, $reason, $timeout, $headers);
@@ -379,6 +394,24 @@ final class OutboundUrl
             if ($body === false) {
                 return false;
             }
+
+            /*
+             * The status, and why it is an out-parameter rather than a refusal.
+             *
+             * `ignore_errors => true` stays: a caller that wants to read a 404's body should keep
+             * being able to, and turning a non-2xx into `false` would take that away. What was missing
+             * is that a caller could not *know* — a 404, a 403 and a 200 were all the same return
+             * value, a string.
+             *
+             * «Check the content» answers that for most bodies and fails on the one that matters: a
+             * CDN answering 404 with a placeholder image returns bytes that are a valid PNG, so every
+             * content check passes and the placeholder is stored as the thing that was asked for.
+             *
+             * It is also the only place the difference between «this address is permanently wrong» and
+             * «this server had a bad minute» lives, and that difference decides whether a caller
+             * forgets an address or retries it tomorrow.
+             */
+            $status = self::statusOf($headers);
 
             $hop = self::nextHop($current, $headers, $hopReason);
 
