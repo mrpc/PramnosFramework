@@ -449,11 +449,61 @@ its three jobs are security rather than formatting:
 | a filter's `value` | goes through `prepareInput()`; an `IN` list escapes every member |
 | `?fields=a,b` | the primary key is added if absent, because a row the screen cannot link is not a row |
 
+### The three shapes a list parameter arrives in
+
+`fields` and `search` each come off a URL, so each is accepted three ways and the caller does not
+choose which:
+
+| Parameter | Shapes |
+| --- | --- |
+| `fields` | `?fields=id,name` (comma-separated), `?fields=["id","name"]` (URL-encoded JSON), or an array from application code |
+| `search` | `?search=yannis` (across everything), `?search={"username":"yan"}` (URL-encoded JSON, one term per field), or an array |
+
+A JSON `search` read as a global one would look for the literal `{"username":"yan"}` in every
+column and find nothing — which presents as "the column filters do not work" rather than as a
+parsing question.
+
+With no `fields` at all the **source's** default set is used, not its whole schema: a source
+curates that list to what it is willing to expose, so "no preference" must never mean "everything".
+The same set is the fallback when nothing the caller named survives validation.
+
+With a join, a field may be named with or without its table prefix — the schema reports
+`u.username` because that is what the `SELECT` needs, and requiring the caller to know the alias
+would make every joined list harder to call than it is to build. The `fields` key in the answer is
+the caller's list with prefixes stripped: it describes what was asked for, not what the query
+selected, so the primary key added below does not appear in it unless the caller named it.
+
 **Anything unrecognised is dropped, not rejected.** A filter is a request, not an instruction, and
 answering "no such field" would let a caller enumerate the schema by watching which names produce
 an error. The same reasoning applies to an order token: an unknown field is skipped, and if that
 leaves nothing the order falls back to the primary key descending — so the list still works and
 tells the caller nothing.
+
+### When the query fails, the answer is still JSON
+
+A list endpoint answers a caller that sent a page number and a search box, so a failure has to
+come back in the same envelope:
+
+```json
+{"error": "Database query failed: …", "data": [], "pagination": null, "fields": [...],
+ "debug": {"filter": "where …", "order": "order by …", "selectFields": "…"}}
+```
+
+The fragments in `debug` are the only way to see what was actually run — the caller never sent a
+`WHERE` clause, so without them "it returned nothing" and "it failed" look the same from outside.
+
+That distinction is the reason `apiListLastError()` exists at all. An unpaginated fetch returns an
+empty array both when nothing matched and when the query failed; the error is what tells them
+apart, and reporting a failure as an empty list is how a broken filter looks exactly like a table
+with nothing in it.
+
+### DataTables counts two totals
+
+`recordsTotal` is the count *before* the search box and `recordsFiltered` the count after. The
+engine has the second one already, and recomputes the first **only when a search is active** —
+with no search the two are identical and the extra query buys nothing, on a screen that is drawn
+on every page load. Reporting the filtered count as both would make the table say a search matched
+everything there is, and offer one page where there are ninety.
 
 Quoting is per driver, and `LIKE` becomes `ILIKE` on PostgreSQL. That last one matters more than
 it looks: `LIKE` on PostgreSQL is case-sensitive, so the same search box would match `Yannis` and
