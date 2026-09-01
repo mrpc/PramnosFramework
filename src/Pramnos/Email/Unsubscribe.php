@@ -97,6 +97,21 @@ class Unsubscribe
     {
         $email   = static::normalise($email);
         $list    = static::normaliseList($list);
+
+        /*
+         * No address, no token — and therefore no header.
+         *
+         * `optOut()`, `optIn()` and `isOptedOut()` all refuse a blank address; this was the one
+         * entry point that did not, and it signed one. The result verifies, so the endpoint
+         * reads `['email' => '', 'list' => 'all']` out of it, calls `optOut('')`, is refused, and
+         * shows the reader a failure for a link this code generated. A caller with nothing to put
+         * in a token gets an empty string instead, which `url()` and `mailto()` already turn into
+         * an omitted header rather than one pointing at nothing.
+         */
+        if ($email === '') {
+            return '';
+        }
+
         $payload = $email . '|' . $list;
 
         return static::encode($payload . '|' . static::signature($payload));

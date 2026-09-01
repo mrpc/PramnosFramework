@@ -881,6 +881,30 @@ somebody who unsubscribed is the one mistake a provider counts against every fut
 including the transactional mail this is never asked about. A message not sent during a
 database outage is a message the next run sends.
 
+### And everything else fails open, on purpose
+
+The mirror image, and the reason it is worth writing down: **nothing may make an unsubscribe
+fail**. The suppression row is written first, and everything after it is best-effort:
+
+| What can go wrong | What happens |
+| --- | --- |
+| no `authserver.user_consents` table (the `auth` feature is off) | the consent event is skipped; the unsubscribe stands |
+| the address has no account | same — the suppression record is keyed by address, and is the whole story for a subscriber with no account |
+| an application's `handle()` callback raises | logged; the unsubscribe stands |
+| the account's own preference cannot be written | logged; the unsubscribe stands |
+| **the suppression row itself cannot be written** | `optOut()` returns **false** |
+
+That last line is the one a caller has to act on. An endpoint answering "done" while writing
+nothing leaves a person unsubscribing again, and again, from mail that keeps arriving — and their
+next move is the spam button, which is the outcome the whole feature exists to avoid.
+
+### A blank address gets no token
+
+`token('')` returns an empty string, and `url()` and `mailto()` turn that into an **omitted
+header** rather than one pointing at nothing. Until now it signed a token for the empty address:
+that token verifies, so the endpoint read `['email' => '', 'list' => 'all']` out of it, called
+`optOut('')`, was refused, and showed the reader a failure for a link the framework had generated.
+
 ### The rest of the compliance list
 
 The parts that are not code:
