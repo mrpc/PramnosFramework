@@ -38,7 +38,7 @@ $inputCls = 'input w-full';
                                class="<?php echo $inputCls; ?>
                         <?php echo \Pramnos\Html\PasswordToggle::render(
                             'current_password', '', '', 'btn btn-ghost btn-xs'
-                        ); ?>" required autocomplete="current-password" autofocus>
+                        ); ?>" required autocomplete="current-password" enterkeyhint="go" autofocus>
                     </div>
                     <div>
                         <label for="new_password" class="block text-sm font-medium text-base-content mb-1">New Password</label>
@@ -50,7 +50,7 @@ $inputCls = 'input w-full';
                     </div>
                     <div>
                         <label for="confirm_password" class="block text-sm font-medium text-base-content mb-1">Confirm New Password</label>
-                        <input type="password" id="confirm_password" name="confirm_password"
+                        <input type="password" id="confirm_password" name="confirm_password" enterkeyhint="go"
                                class="<?php echo $inputCls; ?>
                         <?php echo \Pramnos\Html\PasswordToggle::render(
                             'confirm_password', '', '', 'btn btn-ghost btn-xs'

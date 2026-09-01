@@ -52,7 +52,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
-                            <input type="text" name="username" id="username" class="form-control" required autocomplete="username"
+                            <input type="text" name="username" id="username" class="form-control" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"
                                    value="<?php echo htmlspecialchars($this->formData['username'] ?? ''); ?>">
                         </div>
                         <div class="mb-3">
@@ -70,7 +70,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                         </div>
                         <div class="mb-3">
                             <label for="confirm_password" class="form-label">Confirm Password</label>
-                            <input type="password" name="confirm_password" id="confirm_password" class="form-control" required autocomplete="new-password">
+                            <input type="password" name="confirm_password" enterkeyhint="go" id="confirm_password" class="form-control" required autocomplete="new-password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'confirm_password', '', '', 'btn btn-link btn-sm'
                             ); ?>

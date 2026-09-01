@@ -28,13 +28,13 @@
                     <label for="username" style="display:block;margin-bottom:4px;font-weight:500">Username or Email</label>
                     <input type="text" id="username" name="username"
                            style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px"
-                           required autocomplete="username">
+                           required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
                 </div>
                 <div style="margin-bottom:20px">
                     <label for="password" style="display:block;margin-bottom:4px;font-weight:500">Password</label>
                     <input type="password" id="password" name="password"
                            style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px"
-                           required autocomplete="current-password">
+                           required autocomplete="current-password" enterkeyhint="go">
                     <?php echo \Pramnos\Html\PasswordToggle::render(
                         'password', '', '', 'btn btn-outline btn-sm'
                     ); ?>

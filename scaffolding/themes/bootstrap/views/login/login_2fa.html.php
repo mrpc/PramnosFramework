@@ -90,7 +90,7 @@ $intro = $authLink
                             <label for="code" class="form-label">Verification Code</label>
                             <input type="text" id="code" name="code" data-pf-otp class="form-control text-center fs-4 font-monospace"
                                    maxlength="6" pattern="[0-9]{6}" placeholder="000000"
-                                   autocomplete="one-time-code" required autofocus>
+                                   autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go" required autofocus>
                         </div>
                         <button type="submit" class="btn btn-primary w-100" style="background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>">Verify &amp; Sign In</button>
                     </form>
@@ -103,7 +103,7 @@ $intro = $authLink
                         <input type="hidden" name="method" value="email">
                         <label for="email-code" class="form-label">Code sent to your email</label>
                         <input type="text" id="email-code" name="code" class="form-control text-center font-monospace mb-2"
-                               maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code">
+                               maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go">
                         <button type="submit" class="btn btn-secondary w-100">Use the emailed code</button>
                     </form>
                     <?php endif; ?>

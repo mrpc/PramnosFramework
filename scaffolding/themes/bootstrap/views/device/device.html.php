@@ -28,11 +28,11 @@
                         </div>
                         <div class="mb-3">
                             <label for="username" class="form-label">Username or Email</label>
-                            <input type="text" id="username" name="username" class="form-control" required autocomplete="username">
+                            <input type="text" id="username" name="username" class="form-control" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
-                            <input type="password" id="password" name="password" class="form-control" required autocomplete="current-password">
+                            <input type="password" id="password" name="password" class="form-control" required autocomplete="current-password" enterkeyhint="go">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'password', '', '', 'btn btn-link btn-sm'
                             ); ?>

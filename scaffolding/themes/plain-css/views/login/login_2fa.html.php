@@ -94,7 +94,7 @@ $intro = $authLink
                     <input type="text" id="code" name="code" data-pf-otp
                            style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-family:monospace;font-size:22px;text-align:center;letter-spacing:.15em"
                            maxlength="6" pattern="[0-9]{6}" placeholder="000000"
-                           autocomplete="one-time-code" required autofocus>
+                           autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go" required autofocus>
                 </div>
                 <button type="submit" class="btn" style="width:100%;background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>">Verify &amp; Sign In</button>
             </form>
@@ -108,7 +108,7 @@ $intro = $authLink
                 <label for="email-code" style="display:block;margin-bottom:4px;font-weight:500">Code sent to your email</label>
                 <input type="text" id="email-code" name="code"
                        style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-family:monospace;font-size:20px;text-align:center;letter-spacing:.15em;margin-bottom:8px"
-                       maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code">
+                       maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go">
                 <button type="submit" class="btn" style="width:100%;background-color:#374151;border-color:#374151">Use the emailed code</button>
             </form>
             <?php endif; ?>

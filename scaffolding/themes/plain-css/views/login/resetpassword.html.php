@@ -53,7 +53,7 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
                     </div>
                     <div style="margin-bottom:20px">
                         <label for="confirm_password" style="display:block;margin-bottom:4px;font-weight:500">Confirm new password</label>
-                        <input type="password" name="confirm_password" id="confirm_password" style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px" required autocomplete="new-password">
+                        <input type="password" name="confirm_password" enterkeyhint="go" id="confirm_password" style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px" required autocomplete="new-password">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
                             'confirm_password', '', '', 'btn btn-outline btn-sm'
                         ); ?>

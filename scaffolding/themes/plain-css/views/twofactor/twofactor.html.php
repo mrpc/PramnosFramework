@@ -72,7 +72,7 @@ $this->activeNav   = 'twofactor';
                             <div class="form-group">
                                 <label for="confirm_password">Confirm your password to disable 2FA:</label>
                                 <input type="password" id="confirm_password" name="confirm_password"
-                                       required autocomplete="current-password" class="form-control">
+                                       required autocomplete="current-password" enterkeyhint="go" class="form-control">
                                 <?php echo \Pramnos\Html\PasswordToggle::render(
                                     'confirm_password', '', '', 'btn btn-outline btn-sm'
                                 ); ?>

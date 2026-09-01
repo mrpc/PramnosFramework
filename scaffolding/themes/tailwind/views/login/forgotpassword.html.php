@@ -36,7 +36,7 @@ $sent      = (($this->message ?? '') === 'sent');
             <?php echo humanCheckField($this->humanCheck ?? null); ?>
                 <div>
                     <label for="email" class="block text-sm font-medium text-base-content mb-1">Email</label>
-                    <input type="email" name="email" id="email" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email">
+                    <input type="email" name="email" id="email" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email" enterkeyhint="go">
                 </div>
                 <button type="submit" class="btn btn-primary w-full">Send reset link</button>
             </form>

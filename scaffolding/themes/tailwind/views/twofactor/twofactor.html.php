@@ -99,7 +99,7 @@ $this->activeNav   = 'twofactor';
         <p class="text-sm text-base-content/70 mb-4">Enter your account password to confirm.</p>
         <form method="post" action="<?php echo sURL; ?>TwoFactorAuth/disable">
             <label class="block text-sm font-medium text-base-content mb-1" for="confirm_password">Password</label>
-            <input type="password" id="confirm_password" name="confirm_password" required autocomplete="current-password"
+            <input type="password" id="confirm_password" name="confirm_password" required autocomplete="current-password" enterkeyhint="go"
                    class="input input-sm block w-full mb-4">
             <?php echo \Pramnos\Html\PasswordToggle::render(
                 'confirm_password', '', '', 'btn btn-ghost btn-xs'

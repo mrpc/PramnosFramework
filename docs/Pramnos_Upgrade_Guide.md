@@ -214,6 +214,43 @@ Four properties in there are the whole design, and a hand-rolled toggle usually 
 If you add a CSP with a nonce, put it on that `<script>` tag; the framework's own version reads
 `Application::currentInstance()->cspNonce` and does it for you.
 
+### Three more attributes, on the same screens
+
+Invisible on a desktop, which is why they go missing. All three are one attribute each and none of
+them changes what the form submits:
+
+```php
+<!-- The username: iOS capitalises the first letter and autocorrects the word. A username that
+     changed silently is, to the person typing it, a wrong password. -->
+<input type="text" name="username" id="username" autocomplete="username"
+       autocapitalize="none" autocorrect="off" spellcheck="false" required>
+
+<!-- A six-digit code: `pattern` validates the value and does nothing to the keyboard. -->
+<input type="text" name="code" id="code" autocomplete="one-time-code"
+       inputmode="numeric" enterkeyhint="go" pattern="[0-9]{6}" maxlength="6" required>
+
+<!-- The last field a person types into, so the keyboard's action key submits. -->
+<input type="password" name="password" id="password" autocomplete="current-password"
+       enterkeyhint="go" required>
+```
+
+`spellcheck="false"` earns its place separately from the other two: the red underline invites a person
+to «fix» a username that was right.
+
+!!! warning "Do not script this with a tag-matching regex"
+    `<input\b[^>]*?>` is wrong for a PHP template, and the mistake is expensive: an attribute value
+    here routinely contains `<?php echo … ?>`, whose `>` ends the match early — so the «tag» is a
+    fragment, and an attribute appended to it lands in the middle of PHP code. Doing exactly that
+    broke about a hundred of the framework's own scaffold views in one pass.
+
+    Insert **straight after an attribute you know is in the tag**, `autocomplete="…"` being the
+    obvious one. No brackets to find, nothing to parse, and it cannot corrupt a file:
+
+    ```python
+    src.replace('autocomplete="username"',
+                'autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"')
+    ```
+
 ### Verify it, once, rather than screen by screen
 
 The check that keeps this from decaying is a test that reads your views and fails when a password

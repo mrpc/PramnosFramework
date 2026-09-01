@@ -79,7 +79,7 @@ $this->activeNav = 'security';
                           style="display:flex;gap:8px;flex-wrap:wrap">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="enable" value="<?php echo empty($this->emailFactorEnabled) ? '1' : '0'; ?>">
-                        <input id="password" type="password" name="password" required autocomplete="current-password"
+                        <input id="password" type="password" name="password" required autocomplete="current-password" enterkeyhint="go"
                                style="flex:1;min-width:180px;padding:8px;border:1px solid #ccc;border-radius:4px"
                                placeholder="Your password">
                         <?php echo \Pramnos\Html\PasswordToggle::render(

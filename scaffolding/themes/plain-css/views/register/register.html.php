@@ -54,7 +54,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                 ?>
                 <div style="margin-bottom:14px">
                     <label for="username" style="<?php echo $labelStyle; ?>">Username</label>
-                    <input type="text" name="username" id="username" style="<?php echo $inputStyle; ?>" required autocomplete="username"
+                    <input type="text" name="username" id="username" style="<?php echo $inputStyle; ?>" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"
                            value="<?php echo htmlspecialchars($this->formData['username'] ?? ''); ?>">
                 </div>
                 <div style="margin-bottom:14px">
@@ -72,7 +72,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                 </div>
                 <div style="margin-bottom:20px">
                     <label for="confirm_password" style="<?php echo $labelStyle; ?>">Confirm Password</label>
-                    <input type="password" name="confirm_password" id="confirm_password" style="<?php echo $inputStyle; ?>
+                    <input type="password" name="confirm_password" enterkeyhint="go" id="confirm_password" style="<?php echo $inputStyle; ?>
                     <?php echo \Pramnos\Html\PasswordToggle::render(
                         'confirm_password', '', '', 'btn btn-outline btn-sm'
                     ); ?>" required autocomplete="new-password">

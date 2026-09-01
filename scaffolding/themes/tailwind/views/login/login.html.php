@@ -70,11 +70,11 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
             <?php endif; ?>
             <div>
                 <label for="username" class="block text-sm font-medium text-base-content mb-1">Username or Email</label>
-                <input type="text" name="username" id="username" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username" autofocus>
+                <input type="text" name="username" id="username" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
             </div>
             <div>
                 <label for="password" class="block text-sm font-medium text-base-content mb-1">Password</label>
-                <input type="password" name="password" id="password" class="input w-full" required autocomplete="current-password">
+                <input type="password" name="password" id="password" class="input w-full" required autocomplete="current-password" enterkeyhint="go">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
                     'password', '', '', 'btn btn-ghost btn-xs'
                 ); ?>

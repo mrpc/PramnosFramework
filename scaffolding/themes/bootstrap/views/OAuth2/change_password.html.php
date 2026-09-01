@@ -34,7 +34,7 @@ $this->activeNav = 'changepassword';
                         <div class="mb-3">
                             <label for="current_password" class="form-label">Current Password</label>
                             <input type="password" id="current_password" name="current_password"
-                                   class="form-control" required autocomplete="current-password" autofocus>
+                                   class="form-control" required autocomplete="current-password" enterkeyhint="go" autofocus>
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'current_password', '', '', 'btn btn-link btn-sm'
                             ); ?>
@@ -50,7 +50,7 @@ $this->activeNav = 'changepassword';
                         </div>
                         <div class="mb-4">
                             <label for="confirm_password" class="form-label">Confirm New Password</label>
-                            <input type="password" id="confirm_password" name="confirm_password"
+                            <input type="password" id="confirm_password" name="confirm_password" enterkeyhint="go"
                                    class="form-control" required autocomplete="new-password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'confirm_password', '', '', 'btn btn-link btn-sm'

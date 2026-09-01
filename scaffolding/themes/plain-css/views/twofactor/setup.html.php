@@ -84,7 +84,7 @@ $this->activeNav   = 'twofactor_setup';
                             <label for="verify_code">Authenticator code</label>
                             <input type="text" id="verify_code" name="verify_code"
                                    inputmode="numeric" pattern="\d{6}" maxlength="6"
-                                   placeholder="000000" required autofocus autocomplete="one-time-code"
+                                   placeholder="000000" required autofocus autocomplete="one-time-code" enterkeyhint="go"
                                    class="form-control" style="max-width:160px;font-size:1.4em;letter-spacing:.15em;text-align:center">
                         </div>
                         <button type="submit" class="btn btn-primary">Activate 2FA</button>

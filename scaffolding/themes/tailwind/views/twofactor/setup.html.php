@@ -89,7 +89,7 @@ $this->activeNav   = 'twofactor_setup';
                         <label class="block text-sm font-medium text-base-content mb-1" for="verify_code">Authenticator code</label>
                         <input type="text" id="verify_code" name="verify_code"
                                inputmode="numeric" pattern="\d{6}" maxlength="6"
-                               placeholder="000000" required autofocus autocomplete="one-time-code"
+                               placeholder="000000" required autofocus autocomplete="one-time-code" enterkeyhint="go"
                                class="input input-lg block w-48 tracking-widest text-center mb-4">
                         <div class="flex gap-3">
                             <button type="submit"

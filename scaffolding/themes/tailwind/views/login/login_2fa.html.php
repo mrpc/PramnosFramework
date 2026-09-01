@@ -94,7 +94,7 @@ $intro = $authLink
                 <input type="text" id="code" name="code" data-pf-otp
                        class="input w-full text-center text-2xl font-mono tracking-widest"
                        maxlength="6" pattern="[0-9]{6}" placeholder="000000"
-                       autocomplete="one-time-code" required autofocus>
+                       autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go" required autofocus>
             </div>
             <button type="submit" class="btn btn-primary w-full">Verify &amp; Sign In</button>
         </form>
@@ -120,7 +120,7 @@ $intro = $authLink
                     <input type="text" id="email-code" name="code"
                            class="input w-full text-center text-xl font-mono tracking-widest"
                            maxlength="6" pattern="[0-9]{6}" placeholder="000000"
-                           autocomplete="one-time-code">
+                           autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go">
                     <button type="submit" class="btn btn-neutral btn-sm w-full">Use the emailed code</button>
                 </form>
                 <?php endif; ?>

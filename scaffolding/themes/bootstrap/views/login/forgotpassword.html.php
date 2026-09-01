@@ -35,7 +35,7 @@ $sent      = (($this->message ?? '') === 'sent');
                             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                             <div class="mb-3">
                                 <label for="email" class="form-label">Email</label>
-                                <input type="email" name="email" id="email" class="form-control" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email">
+                                <input type="email" name="email" id="email" class="form-control" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email" enterkeyhint="go">
                             </div>
                             <button type="submit" class="btn btn-primary w-100" style="background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>">Send reset link</button>
                         </form>

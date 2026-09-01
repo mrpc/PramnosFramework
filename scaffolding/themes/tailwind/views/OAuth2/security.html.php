@@ -131,7 +131,7 @@ $this->activeNav = 'security';
                         </label>
                         <div class="flex flex-col sm:flex-row gap-2">
                             <input type="password" id="emailfactor-password" name="password" required
-                                   autocomplete="current-password" class="input input-sm flex-1"
+                                   autocomplete="current-password" enterkeyhint="go" class="input input-sm flex-1"
                                    placeholder="Your account password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'emailfactor-password', '', '', 'btn btn-ghost btn-xs'
@@ -149,7 +149,7 @@ $this->activeNav = 'security';
                         <div class="flex flex-col sm:flex-row gap-2">
                             <input type="text" id="emailfactor-code" name="code" required
                                    inputmode="numeric" maxlength="6" pattern="[0-9]{6}"
-                                   autocomplete="one-time-code" class="input input-sm flex-1 font-mono tracking-widest"
+                                   autocomplete="one-time-code" enterkeyhint="go" class="input input-sm flex-1 font-mono tracking-widest"
                                    placeholder="000000">
                             <button type="submit" class="btn btn-sm btn-primary">Finish</button>
                         </div>
