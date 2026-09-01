@@ -1006,6 +1006,42 @@ loads without error, defines nothing, and `load()` answers false. Nothing raises
 logged, and every string renders as itself, which looks like a site written in English rather
 than a catalogue that was never loaded.
 
+### The forgot form answers the same either way
+
+`forgotpassword()` renders the same "if that address has an account, we have sent a link"
+whether or not one was found. Any difference — a different message, an error only one path can
+produce, a redirect on one and a render on the other — turns the form into a way to ask the site
+who its users are, one address at a time.
+
+The difference is on the inside: a token is written and a mail composed for the address that
+exists, and nothing happens for the one that does not.
+
+Two refusals come before that, and neither issues anything:
+
+- **the anti-CSRF token**, because this form mails an address the submitter chose. Without it, a
+  page anybody writes can make a signed-out visitor's browser ask this site to send mail, as often
+  as it likes;
+- **the human check** (`auth.security.human_check_forms`), for the same reason at scale — a form
+  that mails a stranger on demand is the cheapest way to use a site to deliver unwanted mail. The
+  typed address is kept in the re-rendered form: a refusal that also clears the field trains
+  people to give up rather than to try again.
+
+### A refusal must not spend the link
+
+Every refusal in `resetpassword()` leaves the token usable, and that is a property worth stating
+because two of them are easy to get wrong in opposite directions:
+
+| What happened | The link afterwards |
+| --- | --- |
+| no anti-CSRF token | **still usable** — the token is not resolved before the check |
+| password fails the policy | **still usable** — resolved, but only cleared on success |
+| password changed | spent |
+| link already spent, or invented | nothing to spend |
+
+The failure mode of getting either wrong is quiet: the account holder is told "that link is not
+valid", the link in their mailbox was valid a moment ago, and nothing in the message explains why
+one mistyped confirmation cost them a second trip through the mailbox.
+
 ### Who cannot be sent one
 
 `findUserIdByEmail()` answers null at or below userid 1 — 0 is anonymous and 1 is the system
