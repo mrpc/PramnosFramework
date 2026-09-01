@@ -552,6 +552,30 @@ Redis adapter as a collaborator — declaring it there would misstate what the t
 credit `RedisAdapter` with lines nothing in it asserts on. A coverage number inflated that way is
 worse than one that is honestly low.
 
+## Read a coverage report by 0% first, not by percentage
+
+A file at **0%** is a different kind of signal from a file at 70%, and it is worth acting on
+before anything else: it means the machinery is written, shipped, and has never been executed —
+not by a test, and quite possibly not by anybody. Every 0% file in this repository that has been
+worked on has produced at least one real defect, because nothing about it had ever been observed.
+
+Which makes the obvious ranking a trap. Sorting by *percentage* with a "files of at least N
+statements" filter — the natural way to avoid noise from three-statement classes — hides exactly
+these files, because they tend to be small: a reader, a writer and a service provider are 20 to 40
+statements each. In this repository that filter concealed eight files at 0% (189 statements) and
+462 uncovered statements in total.
+
+So rank twice:
+
+```bash
+# 1. everything at zero, whatever its size
+# 2. then the largest absolute gaps
+```
+
+Percentage is the least useful of the three orderings on its own: a 1,800-statement file at 86% has
+more uncovered code than a 40-statement file at 0%, and the 40-statement file is the one where
+something has never run.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
