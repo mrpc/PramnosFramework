@@ -39,6 +39,9 @@ class MassMessagesScreenTest extends BaseTestCase
     /** @var list<int> */
     private array $created = [];
 
+    /** @var list<int> accounts this test created, removed in tearDown */
+    private array $users = [];
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
@@ -74,14 +77,28 @@ class MassMessagesScreenTest extends BaseTestCase
         foreach ($this->created as $id) {
             foreach (['#PREFIX#massmessagerecipients', '#PREFIX#massmessages'] as $table) {
                 try {
-                    $column = str_contains($table, 'recipients') ? 'massid' : 'messageid';
-                    $this->db->queryBuilder()->table($table)->where($column, $id)->delete();
+                    // `messageid` in both tables. This said `massid` for the recipients, so the
+                    // delete threw, was swallowed, and the rows stayed — a cleanup that looked
+                    // exactly like a cleanup with nothing to do.
+                    $this->db->queryBuilder()->table($table)->where('messageid', $id)->delete();
                 } catch (\Throwable $exception) {
                     // Nothing to undo.
                 }
             }
         }
         $this->created = [];
+
+        foreach ($this->users as $userId) {
+            foreach (['#PREFIX#userdetails', '#PREFIX#users'] as $table) {
+                try {
+                    $this->db->queryBuilder()->table($table)->where('userid', $userId)->delete();
+                } catch (\Throwable $exception) {
+                    // Nothing to undo.
+                }
+            }
+        }
+        $this->users = [];
+        \Pramnos\User\User::clearUserCache();
 
         $_POST   = [];
         $_GET    = [];
@@ -453,6 +470,249 @@ class MassMessagesScreenTest extends BaseTestCase
         $this->assertSame(['That message no longer exists.'], $controller->errors);
     }
 
+    /**
+     * A real audience is queued once, and the count is what the operator is told.
+     *
+     * The success path, which had never run — every other test here stops at a refusal. The
+     * number matters more than it looks: it is the only figure the operator has before the
+     * schedule starts delivering, and a message saying "queued" with no count leaves them
+     * refreshing the view screen to find out whether it matched four people or four thousand.
+     *
+     * Delivery is **not** inline. Queueing writes the recipient rows and returns; the schedule
+     * sends. A screen that mailed thousands of people inside a request would time out somewhere
+     * in the middle, and nothing would say where.
+     */
+    public function testARealAudienceIsQueuedAndCounted(): void
+    {
+        // Arrange — two accounts, and a message naming exactly them.
+        $first  = $this->seedUser();
+        $second = $this->seedUser();
+        $id     = $this->seed(
+            'Real send',
+            MassMessage::STATUS_PENDING,
+            json_encode(['only_ids' => [$first, $second]])
+        );
+
+        $controller = $this->controller();
+        $this->postWithToken($id);
+
+        // Act
+        $controller->send($id);
+
+        // Assert
+        $this->assertSame([], $controller->errors, 'the send was refused: ' . json_encode($controller->errors));
+        $this->assertSame(2, $this->recipientCount($id), 'the recipient rows were not written');
+        $this->assertStringContainsString('2 recipient(s) queued', $controller->messages[0] ?? '');
+        $this->assertStringContainsString(
+            'schedule',
+            $controller->messages[0] ?? '',
+            'the operator is not told that delivery happens later'
+        );
+    }
+
+    /**
+     * Pressing send twice does not queue it twice.
+     *
+     * The least recoverable action on the screen with the least recoverable action. A double
+     * press, a double-submitted form, a browser retrying a request it thinks failed — any of them
+     * would reach every person on the list a second time, and there is no undo for a mail that
+     * has been delivered.
+     *
+     * The refusal names the reason rather than reporting success, because an operator told
+     * "queued" twice has no way to know whether the second press did anything, and the way to
+     * find out is to wait and see what people receive.
+     */
+    public function testSendingTwiceDoesNotQueueTwice(): void
+    {
+        // Arrange
+        $recipient = $this->seedUser();
+        $id        = $this->seed(
+            'Sent once',
+            MassMessage::STATUS_PENDING,
+            json_encode(['only_ids' => [$recipient]])
+        );
+
+        $first = $this->controller();
+        $this->postWithToken($id);
+        $first->send($id);
+        $this->assertSame(1, $this->recipientCount($id), 'precondition: the first send queued');
+
+        // Act — the same message again.
+        $second = $this->controller();
+        $this->postWithToken($id);
+        $second->send($id);
+
+        // Assert
+        $this->assertSame(
+            1,
+            $this->recipientCount($id),
+            'the second send queued the whole list again'
+        );
+        $this->assertStringContainsString('already has recipients', $second->errors[0] ?? '');
+        $this->assertSame([], $second->messages, 'a refused second send reported success');
+    }
+
+    /**
+     * Naming an account explicitly does not get past the safety filters.
+     *
+     * `only_ids` is applied as a filter rather than instead of the rest, and this is the reason:
+     * "send this to these three people" must not become a way to mail an account somebody
+     * switched off, or one whose address was never validated. A send to an unvalidated address is
+     * a bounce, and bounces are counted against the domain that produced them.
+     */
+    public function testNamingAnUnvalidatedAccountStillDoesNotSendToIt(): void
+    {
+        // Arrange
+        $unvalidated = $this->seedUser(validated: false);
+        $id          = $this->seed(
+            'Named but unvalidated',
+            MassMessage::STATUS_PENDING,
+            json_encode(['only_ids' => [$unvalidated]])
+        );
+
+        $controller = $this->controller();
+        $this->postWithToken($id);
+
+        // Act
+        $controller->send($id);
+
+        // Assert
+        $this->assertSame(0, $this->recipientCount($id), 'an unvalidated account was queued');
+        $this->assertStringContainsString('match nobody', $controller->errors[0] ?? '');
+    }
+
+    // ── The screens ───────────────────────────────────────────────────────────
+
+    /**
+     * The list screen hands the view its rows and the pickers beside them.
+     *
+     * The pickers are the reason this is worth a test rather than a glance: the audience is
+     * chosen from them, so a screen that rendered with an empty group list would offer "everybody"
+     * as the only option a person could pick.
+     */
+    public function testTheListScreenCarriesItsRowsAndItsPickers(): void
+    {
+        // Arrange
+        $id = $this->seed('On the list', MassMessage::STATUS_PENDING);
+        $controller = $this->controller();
+
+        // Act
+        $controller->display();
+
+        // Assert
+        $this->assertNotNull($controller->view, 'nothing was rendered');
+        $rows     = (array) ($controller->view->messages ?? []);
+        $subjects = array_column($rows, 'subject');
+        $this->assertContains('On the list', $subjects, 'the message is not on its own list screen');
+        $this->assertIsArray($controller->view->types ?? null, 'the type labels are missing');
+
+        // The progress is read per row, so a list with a row has one.
+        $mine = array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => (int) ($row['messageid'] ?? 0) === $id
+        ));
+        $this->assertIsArray($mine[0]['progress'] ?? null, 'the row carries no progress');
+    }
+
+    /**
+     * The view screen carries the message, its criteria and how far delivery has got.
+     *
+     * The screen an operator watches after pressing send, so the progress figures are the
+     * feature: without them the answer to "is it going out?" is to ask the people receiving it.
+     */
+    public function testTheViewScreenCarriesTheMessageAndItsProgress(): void
+    {
+        // Arrange
+        $recipient = $this->seedUser();
+        $id        = $this->seed(
+            'Being watched',
+            MassMessage::STATUS_PENDING,
+            json_encode(['only_ids' => [$recipient]])
+        );
+
+        $sender = $this->controller();
+        $this->postWithToken($id);
+        $sender->send($id);
+
+        $controller = $this->controller();
+        $this->route($id);
+
+        // Act
+        $controller->view($id);
+
+        // Assert
+        $this->assertNotNull($controller->view, 'nothing was rendered');
+        $this->assertSame(
+            'Being watched',
+            (string) (((array) ($controller->view->message ?? []))['subject'] ?? ''),
+            'the view screen does not show the message it was asked for'
+        );
+        $this->assertIsArray($controller->view->progress ?? null, 'no delivery progress');
+        $this->assertSame(
+            1,
+            (int) (((array) ($controller->view->progress ?? []))['total'] ?? 0),
+            'the progress does not count the recipient that was queued'
+        );
+        $this->assertNotSame(
+            '',
+            (string) ($controller->view->audience ?? ''),
+            'the screen does not say who the message was for'
+        );
+    }
+
+    /** The compose screen for an existing draft is filled in from it. */
+    public function testTheEditScreenIsFilledInFromTheDraft(): void
+    {
+        // Arrange
+        $id = $this->seed('A draft', MassMessage::STATUS_PENDING, '{"validated_only":true}');
+        $controller = $this->controller();
+        $this->route($id);
+
+        // Act
+        $controller->edit($id);
+
+        // Assert
+        $this->assertNotNull($controller->view, 'nothing was rendered');
+        $this->assertSame(
+            'A draft',
+            (string) (((array) ($controller->view->message ?? []))['subject'] ?? ''),
+            'the compose screen opened empty over an existing draft'
+        );
+        $this->assertSame(
+            true,
+            ((array) ($controller->view->criteria ?? []))['validated_only'] ?? null,
+            'the stored criteria were not put back on the form'
+        );
+        $this->assertIsArray($controller->view->groups ?? null, 'the group picker is missing');
+        $this->assertIsArray($controller->view->languages ?? null, 'the language picker is missing');
+        $this->assertIsArray(
+            $controller->view->preview ?? null,
+            'the compose screen does not say who the criteria currently mean'
+        );
+    }
+
+    /**
+     * A screen asked for a message that is not there says so and goes back to the list.
+     *
+     * A link from an old ticket, or a message somebody else deleted. A blank compose form would
+     * be the worst answer: the operator fills it in and saves a *new* message, believing they
+     * edited one.
+     */
+    public function testAScreenAskedForAMissingMessageGoesBack(): void
+    {
+        // Act & Assert
+        foreach (['view', 'edit'] as $action) {
+            $controller = $this->controller();
+            $this->route(987656);
+
+            $controller->$action(987656);
+
+            $this->assertNull($controller->view, $action . ' rendered a screen for nothing');
+            $this->assertSame(['That message no longer exists.'], $controller->errors);
+            $this->assertNotSame([], $controller->redirects);
+        }
+    }
+
     // ── Deleting ──────────────────────────────────────────────────────────────
 
     /** A message that was never sent can be deleted. */
@@ -672,6 +932,28 @@ class MassMessagesScreenTest extends BaseTestCase
         Request::resetInstance();
     }
 
+    /**
+     * One real account, because an audience is resolved against `users`.
+     *
+     * `only_ids` is checked against the table rather than trusted, which is what makes a send to
+     * a stale id queue nothing rather than a row pointing at nobody.
+     */
+    private function seedUser(bool $validated = true): int
+    {
+        $user = new \Pramnos\User\User();
+        $user->username = 'massmsg_' . bin2hex(random_bytes(4));
+        $user->email    = $user->username . '@example.test';
+        $user->active    = 1;
+        $user->validated = $validated ? 1 : 0;
+        $user->save();
+
+        $id = (int) $user->userid;
+        $this->assertGreaterThan(0, $id, 'the fixture account was not created');
+        $this->users[] = $id;
+
+        return $id;
+    }
+
     /** One mass message row. Returns its id. */
     private function seed(string $subject, int $status, string $request = '{}'): int
     {
@@ -714,13 +996,20 @@ class MassMessagesScreenTest extends BaseTestCase
         return ($row === null || ($row->numRows ?? 0) === 0) ? null : (array) $row->fields;
     }
 
+    /**
+     * How many recipients are queued for this message.
+     *
+     * `messageid`, and **no `try`**. It was `massid` inside a `catch` that returned 0 — a column
+     * that does not exist, so every call threw and every call answered "none queued". Three
+     * assertions of the form `assertSame(0, $this->recipientCount($id))` were therefore passing
+     * against a query error rather than against an empty table, including the one that checks a
+     * refused send queued nothing and the one that checks the usertype floor stops a send. A
+     * fixture that swallows a query error asserts nothing, quietly, for as long as nobody writes
+     * the positive case that would have caught it.
+     */
     private function recipientCount(int $id): int
     {
-        try {
-            return (int) $this->db->queryBuilder()->table('#PREFIX#massmessagerecipients')
-                ->where('massid', $id)->count();
-        } catch (\Throwable $exception) {
-            return 0;
-        }
+        return (int) $this->db->queryBuilder()->table('#PREFIX#massmessagerecipients')
+            ->where('messageid', $id)->count();
     }
 }
