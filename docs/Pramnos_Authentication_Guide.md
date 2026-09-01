@@ -124,6 +124,39 @@ if ($credentials !== false) {
 
 This method delegates to `Auth::getInstance()->verifyCredentials($username, $password)` which resolves the active authentication logic in the proper priority order (respecting any registered addons like `UserDatabase` or custom `AuthDriverInterface` drivers).
 
+### Two audiences for one refusal: `revokeapplication`
+
+`Account::revokeapplication()` answers both an XHR and a plain form post, and the difference is
+decided once by `sendRevokeResponse()`:
+
+| caller | answer |
+|---|---|
+| `X-Requested-With: XMLHttpRequest` | a JSON body, then the response ends |
+| a browser form | a flash message, then a redirect to `<routeBase>/applications` |
+
+Worth stating because getting it wrong is invisible from one side. An XHR handed an HTML flash page
+fails at `response.json()` and surfaces as «something went wrong» with no clue that the request was
+simply missing a field. A form post handed a bare JSON body shows the visitor `{"success":false,…}`
+as the entire page.
+
+**The redirect belongs in `sendRevokeResponse()`, not at the end of the action.** It used to sit after
+the try/catch, which meant the two early returns above it — «client_id is required» and «Application
+not found» — skipped it: a browser form hitting either one got a flash queued for a page that was
+never rendered, so a blank response, and the message surfacing later on whatever the visitor opened
+next. The AJAX caller was answered correctly in both, which is why it went unnoticed. If you override
+`sendRevokeResponse()`, it owns ending the response.
+
+### `exportdata` is a confirmation on `GET` and the file on `POST`
+
+GDPR Article 20, and the split is the security property rather than a UX preference. A `GET` that
+produced the file would put every fact the site holds about somebody behind a URL — shareable, in
+browser history, in a proxy log, and fetchable by any `<img src>` on any page they visit. So the `GET`
+renders what is about to be exported, and only a `POST` with a valid session token builds it.
+
+The order inside the `POST` matters too: the data is built *before* the download headers go out. The
+other way round hands the browser a file called `user_data_export_2026-09-01.json` containing an error
+page.
+
 ## User Management
 
 ### What a usertype is, what each one may do, and how to change them

@@ -1362,10 +1362,6 @@ class Account extends Controller
             \Pramnos\Logs\Logger::log('Error revoking application access: ' . $ex->getMessage());
             $this->sendRevokeResponse($isAjax, false, 'Failed to revoke access');
         }
-
-        if (!$isAjax) {
-            $this->redirect(sURL . $this->routeBase . '/applications');
-        }
     }
 
     // ── GDPR — data export ────────────────────────────────────────────────────
@@ -2413,6 +2409,19 @@ class Account extends Controller
         } else {
             $this->addError($message);
         }
+
+        /*
+         * …and go there, which is the half that was missing.
+         *
+         * The redirect used to sit at the end of `revokeapplication()`, after the try/catch — so the
+         * two early returns above it, «client_id is required» and «Application not found», skipped it.
+         * A browser form hitting either one got a flash message queued for a page that was never
+         * rendered: a blank response, and the message surfacing later on whatever the visitor opened
+         * next. The AJAX caller was answered correctly in both, which is why it went unnoticed.
+         *
+         * Ending the response is one decision, so it is made in one place, for all four outcomes.
+         */
+        $this->redirect(sURL . $this->routeBase . '/applications');
     }
 
     /**
