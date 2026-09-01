@@ -187,6 +187,12 @@ class MakeCommandBaseCoverageTest extends TestCase
             ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovJsonModel.php',
             ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovSchemaModel.php',
             ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovDoc.php',
+            ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovSpaDoc.php',
+            ROOT . DS . INCLUDES . DS . 'Models'      . DS . 'WcovBothDoc.php',
+            ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovSpaDocs.php',
+            ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovBothDocs.php',
+            ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovSpaDocTest.php',
+            ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovBothDocTest.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovWizarditems.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovWizardproducts.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovFkctrl.php',
@@ -213,7 +219,7 @@ class MakeCommandBaseCoverageTest extends TestCase
             $data = json_decode(file_get_contents($registryFile), true) ?? [];
             $testClasses = [
                 'WcovWizardItem', 'WcovJsonModel', 'WcovSchemaModel', 'WcovDoc',
-                'WcovWizardproducts', 'WcovWizarditems',
+                'WcovWizardproducts', 'WcovWizarditems', 'WcovSpaDoc', 'WcovBothDoc',
             ];
             $filtered = array_values(array_filter($data, function ($e) use ($testClasses) {
                 return !in_array($e['className'] ?? '', $testClasses, true);
@@ -1008,6 +1014,103 @@ class MakeCommandBaseCoverageTest extends TestCase
         // Assert — at least one step reported FAIL (since tableExists=false)
         $this->assertStringContainsString('FAIL', $result,
             'At least one step must report FAIL when table does not exist');
+    }
+
+    /**
+     * `create:crud --target=spa` produces the API half and stops there.
+     *
+     * The SPA half of CRUD generation had never been run through `createCrud()`. Each piece has its
+     * own test — the screen, the routes, the target resolution — and the orchestration that calls
+     * them in order had none, which is the shape of gap where a missing step is invisible: every
+     * part passes and the command still does not produce a working feature.
+     *
+     * Two properties, and the second is the one worth writing down. A SPA project has no
+     * server-rendered view layer, so the MVC half must **not** run — a `Creating View:` line here
+     * would mean the command had written into a directory the project does not use, and reported
+     * success for it.
+     */
+    public function testCrudForASpaProjectBuildsTheApiHalfAndNotTheViewHalf(): void
+    {
+        // Arrange — the target travels on a property, which is why createCrud() keeps its signature
+        $this->command->crudTarget = 'spa';
+        $this->command->setOutput(new BufferedOutput());
+
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('tableExists')->willReturn(false);
+        $db->type   = 'mysql';
+        $db->prefix = '';
+        $db->schema = '';
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $originalDb = $dbRef;
+        $dbRef = $db;
+
+        // Act
+        try {
+            $result = $this->command->callCreateCrud('WcovSpaDoc');
+        } finally {
+            $dbRef = $originalDb;
+            $this->command->crudTarget = '';
+        }
+
+        // Assert
+        $this->assertStringContainsString('Creating Model:', $result);
+        $this->assertStringContainsString(
+            'Creating API controller + routes:',
+            $result,
+            'the API half of a SPA crud never ran'
+        );
+        $this->assertStringContainsString('Creating SPA screen:', $result);
+        $this->assertStringNotContainsString(
+            'Creating View:',
+            $result,
+            'a SPA project has no server-rendered view layer to generate into'
+        );
+        $this->assertStringNotContainsString('Creating Controller:', $result);
+    }
+
+    /**
+     * `--target=both` produces every half, in one report.
+     *
+     * The hybrid case, which is what a project migrating from server-rendered screens to a SPA
+     * actually is for as long as the migration takes. It is also the only target where a step can
+     * fail silently by being skipped rather than by throwing: five steps, one summary, and nothing
+     * counting them.
+     */
+    public function testCrudForAHybridProjectBuildsEveryHalf(): void
+    {
+        // Arrange
+        $this->command->crudTarget = 'both';
+        $this->command->setOutput(new BufferedOutput());
+
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('tableExists')->willReturn(false);
+        $db->type   = 'mysql';
+        $db->prefix = '';
+        $db->schema = '';
+        $dbRef = &\Pramnos\Database\Database::getInstance();
+        $originalDb = $dbRef;
+        $dbRef = $db;
+
+        // Act
+        try {
+            $result = $this->command->callCreateCrud('WcovBothDoc');
+        } finally {
+            $dbRef = $originalDb;
+            $this->command->crudTarget = '';
+        }
+
+        // Assert — the report never throws, and names every step it attempted
+        $this->assertIsString($result);
+
+        foreach ([
+            'Creating Model:',
+            'Creating API controller + routes:',
+            'Creating SPA screen:',
+            'Creating Controller:',
+            'Creating View:',
+        ] as $step) {
+            $this->assertStringContainsString($step, $result, $step . ' was skipped for target=both');
+        }
     }
 
     // =========================================================================

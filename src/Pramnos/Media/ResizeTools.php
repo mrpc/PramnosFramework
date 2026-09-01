@@ -57,6 +57,38 @@ class ResizeTools extends \Pramnos\Framework\Base
      */
     public $maxsize = 1024;
     /**
+     * May a requested size be larger than the source?
+     *
+     * `false`, and that is the fix rather than the option. Asking a 40×40 picture for 512×512 used to
+     * write 512×512 of stretched blur — on disk, recorded as a rendition, served to a browser as
+     * though it were real, and *larger than the original it came from*, which is the opposite of what
+     * a thumbnail is for. The request is clamped to the source's own dimensions now, keeping the
+     * requested aspect, so a request above them returns the original size.
+     *
+     * Set it to `true` where an upscale is genuinely wanted — a fixed-size sprite sheet, a print
+     * target — knowing that the pixels are invented.
+     *
+     * @var bool
+     */
+    public $allowUpscale = false;
+
+    /**
+     * Why the last {@see resize()} produced nothing, or `false` if it produced something.
+     *
+     * A source GD cannot read — an SVG on an ordinary build, a truncated upload, a file whose
+     * extension lies — used to be turned into a 500×100 JPEG of the file path by
+     * {@see makeErrorImg()}. That is a valid image file, so every downstream check accepted it and
+     * the failure travelled: into the library, into `thumbnails`, into the page. Now nothing is
+     * written, `resize()` returns false, and this says what happened.
+     *
+     * The drawn error image is still available behind {@see $debug}, which is where it always
+     * belonged.
+     *
+     * @var bool|string
+     */
+    public $error = false;
+
+    /**
      * Set to true to display debug messages
      * @var boolean
      */
@@ -110,6 +142,10 @@ class ResizeTools extends \Pramnos\Framework\Base
      * @param string $src Source of the image
      * @param int $width
      * @param int $height
+     * @return bool True when a file was written. False when the source could not be read — see
+     *              {@see $error}. Callers that ignore the return value behave as they always did,
+     *              except that a source GD cannot read no longer leaves a picture of an error message
+     *              where the rendition should be.
      */
     public function resize($src = '', $width = 0, $height = 0)
     {
@@ -139,12 +175,26 @@ class ResizeTools extends \Pramnos\Framework\Base
         if (!$this->thumbW && !$this->thumbH) {
             $this->thumbW = $this->defaultwidth;
         }
+        $this->error = false;
         $this->loadInfo();
         $this->thumb = false;
 
         if ($this->thumb === false) {
             $this->thumb = $this->loadAndResize();
         }
+
+        if ($this->thumb === false) {
+            /*
+             * Nothing is written, and that is the whole point.
+             *
+             * The old behaviour drew the error into a real JPEG, which every check downstream then
+             * accepted: the row said 128×64, the file was 500×100 of a file path on white, and
+             * nothing raised. A caller that gets `false` can fall back to the original — which is
+             * what an application actually wants for a vector, or for a file it cannot read.
+             */
+            return false;
+        }
+
         $this->_setExportPath();
         if ($this->exportfile == '') {
             $f = basename($this->srcFile);
@@ -165,6 +215,21 @@ class ResizeTools extends \Pramnos\Framework\Base
             imagejpeg($this->thumb, $this->exportpath . $this->exportfile);
         }
         unset($this->thumb);
+
+        /*
+         * `thumbW`/`thumbH` are re-read from what was written, not left as what was asked for.
+         *
+         * Every caller copies them into the rendition's `x`/`y`, so while they held the *request* the
+         * database disagreed with the file on disk whenever the two diverged — and they diverge
+         * exactly when something went wrong, which is when a stored size is worth having.
+         */
+        $written = @getimagesize($this->exportpath . $this->exportfile);
+        if (is_array($written)) {
+            $this->thumbW = $written[0];
+            $this->thumbH = $written[1];
+        }
+
+        return true;
     }
 
     /**
@@ -210,7 +275,25 @@ class ResizeTools extends \Pramnos\Framework\Base
     private function loadInfo()
     {
         if (file_exists($this->srcFile)) {
-            list($this->width, $this->height, $this->type) = getimagesize($this->srcFile);
+            /*
+             * `getimagesize()` returns false for a file that is not an image, and the destructuring
+             * assignment then warns three times — «Cannot use bool as array» — and leaves `width`,
+             * `height` and `type` at whatever they were. The run continues on those values and fails
+             * further in, which is why this surfaced as an odd warning from a truncated upload rather
+             * than as «that is not an image».
+             */
+            $size = @getimagesize($this->srcFile);
+
+            if (!is_array($size)) {
+                $this->error = 'Not an image: ' . $this->srcFile;
+                $this->width = false;
+                $this->height = false;
+                $this->type = false;
+
+                return;
+            }
+
+            list($this->width, $this->height, $this->type) = $size;
 
             if ($this->thumbH === false && $this->thumbW !== false) {
                 if ($this->height != 0 && $this->thumbW != 0 and $this->width != 0) {
@@ -223,6 +306,46 @@ class ResizeTools extends \Pramnos\Framework\Base
             } elseif ($this->thumbH === false && $this->thumbW === false) {
                 die();
             }
+
+            $this->clampToSource();
+        }
+    }
+
+    /**
+     * Bring a requested box down to the size of the picture that has to fill it.
+     *
+     * Both dimensions are known by the time this runs — `loadInfo()` has derived whichever one the
+     * caller left out — so the comparison is available exactly where the decision belongs, which is
+     * why this is here and not in every caller of `resize()`.
+     *
+     * Scaled by the limiting factor rather than clipped per axis, so the aspect ratio the caller
+     * asked for survives: a 40×40 source asked for 512×256 gives 40×20, not 40×40.
+     */
+    private function clampToSource(): void
+    {
+        if ($this->allowUpscale
+            || !$this->width || !$this->height
+            || !$this->thumbW || !$this->thumbH
+        ) {
+            return;
+        }
+
+        $scale = min(
+            1.0,
+            $this->width / $this->thumbW,
+            $this->height / $this->thumbH
+        );
+
+        if ($scale >= 1.0) {
+            return;
+        }
+
+        $this->thumbW = max(1, (int) round($this->thumbW * $scale));
+        $this->thumbH = max(1, (int) round($this->thumbH * $scale));
+
+        if ($this->debug == true) {
+            echo '<br /> Clamped to the source, so: '
+                . $this->thumbW . ' x ' . $this->thumbH;
         }
     }
 
@@ -444,9 +567,26 @@ class ResizeTools extends \Pramnos\Framework\Base
         $ratio = $this->_calcRatio();
         $diff = $this->_calcRatioDiff($ratio, $ratio_original);
         $source = $this->loadImageByType($this->srcFile, $this->type);
-        if (!$source) { //In case of an error loading the original image, produce an error image
-            $this->thumb = $this->makeErrorImg($this->srcFile);
-            return $this->thumb;
+        if (!$source) {
+            /*
+             * GD cannot read this. Say so; do not draw it.
+             *
+             * `makeErrorImg()` turns «I could not read this» into a valid 500×100 JPEG of the file
+             * path, which every downstream check then accepts — so the failure reached the library,
+             * the `thumbnails` column and the page, with the row claiming the size that had been
+             * asked for. An SVG on an ordinary GD build took exactly that route.
+             *
+             * The drawing is kept for `debug`, where seeing the path rendered is the point.
+             */
+            $this->error = 'Cannot read this image: ' . $this->srcFile;
+
+            if ($this->debug == true) {
+                $this->thumb = $this->makeErrorImg($this->srcFile);
+                return $this->thumb;
+            }
+
+            $this->thumb = false;
+            return false;
         }
         if ($this->thumbH === false && $this->thumbW === false) {
             throw new \Exception('There is no size to create an image');

@@ -152,15 +152,63 @@ class ResizeToolsTest extends TestCase
         $this->assertEquals(150, $h); // Square image so ratio is 1:1
     }
 
-    public function testResizeMissingSourceFile(): void
+    /**
+     * A source that cannot be read produces nothing, and says so.
+     *
+     * This test asserted the opposite until the behaviour was fixed, and what it was asserting is the
+     * bug: `makeErrorImg()` turned «I could not read this» into a valid 500×100 JPEG of the file path,
+     * which every check downstream then accepted. So an unreadable file travelled into the media
+     * library, into the `thumbnails` column and onto the page as a rendition, with the row claiming
+     * the size that had been asked for. Nothing raised and nothing logged.
+     *
+     * `false` and an empty directory let the caller fall back to the original, which is what an
+     * application actually wants.
+     */
+    public function testResizeMissingSourceFileWritesNothingAndSaysWhy(): void
     {
+        // Arrange
         $tool = new ResizeTools();
         $tool->exportpath = $this->tempDir . '/';
         $tool->exportfile = 'error.jpg';
-        
-        $tool->resize($this->tempDir . '/non_existent.jpg', 100, 100);
-        
-        $this->assertFileExists($this->tempDir . '/error.jpg');
+
+        // Act
+        $result = $tool->resize($this->tempDir . '/non_existent.jpg', 100, 100);
+
+        // Assert
+        $this->assertFalse($result, 'resize() reported success for a source it could not read');
+        $this->assertFileDoesNotExist($this->tempDir . '/error.jpg');
+        $this->assertIsString($tool->error);
+        $this->assertStringContainsString('non_existent.jpg', (string) $tool->error);
+    }
+
+    /**
+     * …and under `debug`, the drawn error is still there.
+     *
+     * Which is where it always belonged: a developer looking at a broken thumbnail wants to see which
+     * path failed, rendered into the space the picture should occupy. The same image in production is
+     * a lie that passes every validity check.
+     */
+    public function testWithDebugTheErrorIsStillDrawn(): void
+    {
+        // Arrange
+        $tool = new ResizeTools();
+        $tool->exportpath = $this->tempDir . '/';
+        $tool->exportfile = 'debug-error.jpg';
+        $tool->debug = true;
+
+        // Act
+        ob_start();
+        $result = $tool->resize($this->tempDir . '/non_existent.jpg', 100, 100);
+        ob_end_clean();
+
+        // Assert
+        $this->assertTrue($result);
+        $this->assertFileExists($this->tempDir . '/debug-error.jpg');
+        $this->assertSame(
+            [500, 100],
+            array_slice((array) getimagesize($this->tempDir . '/debug-error.jpg'), 0, 2),
+            'makeErrorImg() draws 500x100'
+        );
     }
     
     public function testFastImageCopyResampled(): void
@@ -368,12 +416,75 @@ class ResizeToolsTest extends TestCase
         // Act — source (50×50) < thumb (100×100) → fast fastimagecopyresampled path
         $tool->resize($smallSrc, 100, 100);
 
-        // Assert — output file created at the requested size
+        // Assert — output file created, at the *source's* size, not the requested one
         $this->assertFileExists($this->tempDir . '/cropped_small.jpg',
             'crop of smaller source must produce an output file');
         [$w, $h] = getimagesize($this->tempDir . '/cropped_small.jpg');
-        $this->assertSame(100, $w);
-        $this->assertSame(100, $h);
+        /*
+         * 50×50, and this assertion used to say 100×100.
+         *
+         * A crop box larger than the picture it crops from cannot be filled without inventing pixels,
+         * and the old behaviour invented them — writing a file *larger* than its own source, which is
+         * the opposite of what a thumbnail is for. Nothing about the request said «and stretch it if
+         * you have to»; that was just what happened.
+         *
+         * The fast path this test exists to exercise still runs — `width < thumbW` holds inside
+         * `_crop()` whenever the clamp had to round — and the file it produces now describes itself.
+         */
+        $this->assertSame(50, $w);
+        $this->assertSame(50, $h);
+    }
+
+    /**
+     * …and an upscale is still available to whoever asks for one on purpose.
+     *
+     * A fixed-size sprite sheet or a print target genuinely wants the requested box filled. The
+     * property exists so that case stays possible; the default exists so nobody gets it by accident.
+     */
+    public function testAnUpscaleIsAvailableOnRequest(): void
+    {
+        // Arrange
+        $smallSrc = $this->tempDir . '/small40.jpg';
+        imagejpeg(imagecreatetruecolor(40, 40), $smallSrc);
+
+        $tool = new ResizeTools();
+        $tool->exportpath   = $this->tempDir . '/';
+        $tool->exportfile   = 'upscaled.jpg';
+        $tool->allowUpscale = true;
+
+        // Act
+        $tool->resize($smallSrc, 512, 512);
+
+        // Assert
+        $this->assertSame(
+            [512, 512],
+            array_slice((array) getimagesize($this->tempDir . '/upscaled.jpg'), 0, 2)
+        );
+    }
+
+    /**
+     * A clamped request keeps the aspect ratio the caller asked for.
+     *
+     * Scaled by the limiting factor rather than clipped per axis: a 40×40 source asked for 512×256
+     * gives 40×20, not 40×40. Clipping each axis to the source would silently change the shape of the
+     * box, which for a crop is a different picture.
+     */
+    public function testAClampedRequestKeepsItsAspectRatio(): void
+    {
+        // Arrange
+        $smallSrc = $this->tempDir . '/aspect40.jpg';
+        imagejpeg(imagecreatetruecolor(40, 40), $smallSrc);
+
+        $tool = new ResizeTools();
+        $tool->exportpath = $this->tempDir . '/';
+        $tool->exportfile = 'aspect.jpg';
+
+        // Act
+        $tool->resize($smallSrc, 512, 256);
+
+        // Assert
+        $this->assertSame(40, $tool->thumbW);
+        $this->assertSame(20, $tool->thumbH);
     }
 
     /**

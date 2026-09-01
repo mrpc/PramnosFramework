@@ -6,6 +6,7 @@ use_cases:
   - Configuring a Content Security Policy or trusted proxies
   - Adding a human check to a public write endpoint
   - Storing a credential the application has to read back (SMTP, API token, signing key)
+  - Fetching a URL a user supplied, from the server (SSRF)
 ---
 
 # Pramnos Security Guide
@@ -933,6 +934,65 @@ Two more rules go with it, both of which the DevPanel's Back button follows:
   that validated it — a changed site URL, or a session restored from elsewhere, leaves something in
   there that was once ours and no longer is.
 - **escape it.** It arrived in a header and it is going into an `href`.
+
+## Fetching a URL somebody else chose
+
+A URL a visitor typed is not a URL the server may request, and the gap between those two is where
+server-side request forgery lives. The server sits inside a network the visitor cannot reach: a cloud
+provider's metadata endpoint on `169.254.169.254` serving credentials to anything that asks, an
+unauthenticated admin panel on loopback, the database on a private address, a neighbour service that
+trusts whatever arrives from inside the subnet. `file_get_contents($url)` on a caller-supplied address
+turns the application into a proxy into all of that, and the response usually goes straight back to
+whoever supplied the address.
+
+```php
+$reason = null;
+$body = \Pramnos\Security\OutboundUrl::fetch($url, 5 * 1024 * 1024, $reason);
+
+if ($body === false) {
+    // $reason says why. It never names the resolved address.
+}
+```
+
+`fetch()` is the thing to reach for. `isPublic()` is available on its own for a URL you are going to
+store rather than request now — a webhook target, a feed address in a settings screen — but prefer the
+combined call for an actual fetch, and the next section says why.
+
+### The check and the request have to be the same operation
+
+Between an `isPublic()` that passed and a `file_get_contents()` that follows sits a second DNS lookup.
+A hostile resolver answers with a public address the first time and `127.0.0.1` the second, and the
+whole check was theatre. So `fetch()` **dials the address it approved** and puts the name in `Host:`,
+which makes «what did we check» and «what did we connect to» the same answer. The certificate is still
+verified against the name, via `peer_name` and SNI.
+
+### Redirects are not followed
+
+A `302` is a second URL, chosen by the server being fetched. The stream wrapper follows it without
+asking anybody, so an address that passed the check redirects to the metadata endpoint and the fetch
+proceeds. `fetch()` sets `follow_location => 0`, which means a caller that genuinely needs to follow
+redirects re-runs `isPublic()` on each hop — with the `Location` header in hand, which is the only
+place that decision can be made.
+
+### What each guard is actually for
+
+| Guard | The thing it stops |
+|---|---|
+| scheme allowlist (`http`, `https`) | `file:///etc/passwd` and `php://filter/…/resource=index.php` are well-formed URLs. A denylist of «not `file://`» misses the second. |
+| no credentials in the URL | `http://expected.example@10.0.0.1/` reads as a URL for `expected.example` — to a person skimming a log, and to any check that looks at the string instead of `parse_url()`'s host. |
+| **every** resolved address, both families | A name with one public and one private `A` record passes a check that looks at the first answer, then fails whichever one the fetch happens to connect to. A private-only `AAAA` passes an A-only check outright. |
+| no records is a refusal | A loop that checks each resolved address passes trivially when the list is empty, so «does not resolve» becomes «no address failed». |
+| a byte cap, applied mid-stream | A URL that answers with an endless stream otherwise costs the process its memory. |
+| the reason never names an address | The refusal message is logged and often shown. «That host resolves to an address inside this network» says enough; the address itself is the network map this check exists to keep. |
+
+### What it does not do
+
+It does not vouch for the *content*. Bytes fetched from a public address are still somebody else's
+bytes: read the type from the bytes rather than from the URL, keep the extension you store consistent
+with what you read, and do not put fetched markup — SVG, HTML — on your own origin, where its script
+is same-origin. [`MediaObject::addRemoteImage()`](Pramnos_Media_Guide.md) is worth reading as a worked
+example: it uses `fetch()`, caps the body, reads the mime with `finfo` from the buffer, and refuses
+SVG for exactly that reason.
 
 ## Dependency Security
 

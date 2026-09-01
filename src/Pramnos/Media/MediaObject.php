@@ -170,6 +170,50 @@ class MediaObject extends \Pramnos\Framework\Base
      */
     public $maxHeight = 0;
     /**
+     * Store the file and derive nothing from it.
+     *
+     * One switch for «I have my own resizer; be the library». Before this, saying it took six
+     * assignments, two of which meant the opposite of the other four, and a magic number chosen to be
+     * above every real picture — because `max = 0` genuinely meant «do not touch the original» while
+     * `medium = 0` meant «derive one for every upload, at a width nobody named».
+     *
+     * With this on, the `thumbnails` column still holds `original`, `medium` and `thumb`, all three
+     * pointing at the untouched file. That is the honest answer for a store that was told not to
+     * resize: the entries exist because callers ask for them by name, and they describe what is
+     * actually there.
+     *
+     * @var bool
+     */
+    public $deriveNothing = false;
+
+    /**
+     * May a rendition be larger than the file it is derived from?
+     *
+     * `false`. Asking a 40×40 logo for 512×512 used to write 512×512 of stretched blur, recorded as a
+     * rendition and served as though it were real — a file *larger* than the original it came from.
+     * Requests are clamped to the source's own dimensions now, keeping the requested aspect.
+     *
+     * Passed through to {@see ResizeTools::$allowUpscale}; set it where invented pixels are actually
+     * wanted.
+     *
+     * @var bool
+     */
+    public $allowUpscale = false;
+
+    /**
+     * Upper bound on a size {@see get()} may be asked for, in pixels. `0` leaves it to ResizeTools.
+     *
+     * Separate from {@see $max} because the two are different questions and sharing one number made
+     * the answer to one break the other: `max` is «do not rewrite what I stored», and `get()` was
+     * passing it down as «how large may a derived image be». So an application that set `max = 0` to
+     * protect its originals got 120-pixel-wide renditions from every `get()`, at any requested size,
+     * silently — the one ceiling that read correctly for storage was the one that broke retrieval.
+     *
+     * @var int
+     */
+    public $maxRequest = 0;
+
+    /**
      * Record errors in image proccess
      * @var boolean|string
      */
@@ -199,6 +243,41 @@ class MediaObject extends \Pramnos\Framework\Base
     public $resampleLimit = 0.55;
 
     protected $_ext = '';
+
+    /**
+     * Ceiling on the body of a fetch by {@see addRemoteImage()}, in bytes.
+     *
+     * Ten megabytes: above any station logo, product photo or avatar, and small enough that a URL
+     * answering with an endless stream costs this process nothing worth noticing. Raise it for an
+     * application that genuinely imports large originals; there is no value that means «no limit»,
+     * because a limitless read of somebody else's URL is the bug.
+     *
+     * @var int
+     */
+    public $remoteMaxBytes = 10485760;
+
+    /**
+     * What {@see addRemoteImage()} accepts, and the extension each type is stored under.
+     *
+     * Keyed by the mime read from the *bytes*, so the extension on disk describes the content rather
+     * than repeating the URL's claim about it. Everything under `www/uploads/` is served back by the
+     * web server, and what a web server does with a file it serves depends on that extension.
+     *
+     * SVG is deliberately absent. It is markup — it can carry script, and served from the site's own
+     * origin that script is same-origin. An application that wants remote SVGs owns that decision and
+     * can call {@see addImage()} with a file it fetched and sanitised itself.
+     */
+    private const REMOTE_IMAGE_TYPES = [
+        'image/jpeg'    => 'jpg',
+        'image/pjpeg'   => 'jpg',
+        'image/png'     => 'png',
+        'image/gif'     => 'gif',
+        'image/webp'    => 'webp',
+        'image/bmp'     => 'bmp',
+        'image/x-ms-bmp' => 'bmp',
+        'image/x-icon'  => 'ico',
+        'image/vnd.microsoft.icon' => 'ico',
+    ];
 
     /**
      * Return an instance
@@ -704,9 +783,34 @@ class MediaObject extends \Pramnos\Framework\Base
     }
 
     /**
-     * Add a remote image to media library
+     * Fetch an image from a URL and add it to the media library.
+     *
+     * **This method makes a request from the server.** That is the whole difference between it and
+     * {@see addImage()}, which reads a file the application already has, and it is why the two are
+     * not interchangeable however similar the call looks. The address, in every realistic use — an
+     * importer, a «fetch the logo from their website» button, a picture-by-URL field — came from
+     * outside, and the server can reach places whoever supplied it cannot: a cloud metadata endpoint,
+     * an unauthenticated service on loopback, the database, the rest of the subnet.
+     *
+     * So three things happen here that did not before, and each one is a fetch this used to perform:
+     *
+     *  - **the address is checked and dialled** through {@see \Pramnos\Security\OutboundUrl}, which
+     *    resolves the host, refuses every address inside this network, refuses a scheme that is not
+     *    http/https, and connects to the address it approved rather than resolving the name a second
+     *    time. Redirects are not followed, because a redirect is a second address chosen by the server
+     *    being fetched.
+     *  - **the body is capped** at {@see $remoteMaxBytes}, mid-stream, so a URL that answers with a
+     *    hundred gigabytes costs this process ten megabytes rather than its memory.
+     *  - **the type is read from the bytes**, not from the URL's text. The old extension guess
+     *    defaulted to `jpg`, so the stored filename said `jpg` about content nobody had looked at.
+     *
+     * On refusal it sets {@see $error} and returns `$this`, the same as every other failure in this
+     * class — there is nothing for a caller to do differently, and throwing would turn a bad URL in
+     * an import of two thousand into an aborted import.
+     *
      * @param string $url
      * @param string $module
+     * @return MediaObject
      */
     public function addRemoteImage($url, $module = '')
     {
@@ -715,33 +819,121 @@ class MediaObject extends \Pramnos\Framework\Base
         if (!is_dir(ROOT . DS . 'www' . DS . 'uploads')) {
             mkdir(ROOT . DS . 'www' . DS . 'uploads');
         }
-        $urlParams = explode('?', $url);
-        $urlParts=explode('.', $urlParams[0]);
 
-        $ext = '';
-        $getlast=explode('.', end($urlParts));
-        if (is_array($getlast)) {
-           $ext = $getlast[0];
+        $reason = null;
+        $image = \Pramnos\Security\OutboundUrl::fetch(
+            (string) $url,
+            $this->remoteMaxBytes,
+            $reason
+        );
+
+        if ($image === false || $image === '') {
+            $this->error = 'Cannot fetch remote image. ' . ($reason ?? 'Empty response.');
+            \Pramnos\Logs\Logger::log($this->error . ' URL: ' . $url);
+            return $this;
         }
 
-        $possibleExtentions = array(
-            'jpg', 'jpeg', 'gif', 'png', 'bmp', 'ico'
-         );
+        /*
+         * The extension comes from the content, and an unrecognised type is refused.
+         *
+         * Reading it from the URL was the actual defect, not a style problem: `$ext` fell back to
+         * `jpg` for anything the address did not spell out, so the library ended up holding files
+         * whose name asserted a type nothing had verified. Anything under `www/uploads/` is served
+         * back by the web server, and what a web server does with a file depends on its extension.
+         */
+        $mime = self::detectMimeTypeOfString($image);
+        $ext = self::REMOTE_IMAGE_TYPES[$mime] ?? '';
 
-        if (!in_array($ext, $possibleExtentions)) {
-            $ext = 'jpg';
+        if ($ext === '') {
+            $this->error = 'The fetched file is not an image this library accepts'
+                . ($mime === null ? '.' : ': ' . $mime);
+            \Pramnos\Logs\Logger::log($this->error . ' URL: ' . $url);
+            return $this;
         }
 
-
-        $image = \Pramnos\General\Helpers::fileGetContents($url);
         $filename = ROOT . DS . 'www' . DS
             . 'uploads' . DS . 'tmp' . self::randomToken()
             . '.' . $ext;
-        $handler = fopen($filename, 'w');
-        fwrite($handler, $image);
-        fclose($handler);
+
+        if (@file_put_contents($filename, $image) === false) {
+            $this->error = 'Cannot write the fetched image.';
+            \Pramnos\Logs\Logger::log($this->error . ' Path: ' . $filename);
+            return $this;
+        }
 
         return $this->addImage($filename, $module, true);
+    }
+
+    /**
+     * The pixel ceiling to hand `ResizeTools` for a *requested* size.
+     *
+     * `maxRequest` when set, then `max`, then whatever `ResizeTools` defaults to — and the last step
+     * is the fix. `max = 0` means «do not rewrite what I stored», and passing that straight down made
+     * every requested width «over the ceiling», so `ResizeTools` substituted its 120-pixel default:
+     * a 40×40 source asked for at 512 came back 512 with the defaults and 120 with `max = 0`. Leaving
+     * the ceiling alone when there is no storage ceiling keeps the two decisions apart.
+     *
+     * @return int
+     */
+    protected function requestCeiling(): int
+    {
+        if ($this->maxRequest > 0) {
+            return (int) $this->maxRequest;
+        }
+
+        if ($this->max > 0) {
+            return (int) $this->max;
+        }
+
+        return (new ResizeTools())->maxsize;
+    }
+
+    /**
+     * Does this file get raster renditions made from it?
+     *
+     * Three reasons it might not, and they are not the same reason:
+     *
+     *  - **the caller said not to.** {@see $deriveNothing}.
+     *  - **it is an icon.** A `.ico` holds several sizes already, and rewriting it produces one.
+     *  - **it is a vector.** An SVG is already every size, so there is nothing to derive — and what
+     *    used to happen instead was worse than nothing: GD cannot read it on an ordinary build, so
+     *    the first request for a size replaced the logo with a 500×100 JPEG of its own file path,
+     *    stored at a URL ending `.jpg`, recorded in the database as the size that had been asked for.
+     *    Nothing raised and nothing logged.
+     *
+     * The vector check reads the mime rather than `mediatype`. `mediatype` stays `1` for an SVG,
+     * because it is an image and because every application's own `mediatype == 1` branch means «this
+     * is a picture» — giving vectors a new number would quietly route them into whatever those
+     * branches do with an unknown type.
+     *
+     * @return bool
+     */
+    protected function derivesRenditions(): bool
+    {
+        return !$this->deriveNothing
+            && $this->_ext != 'ico'
+            && !$this->isVector();
+    }
+
+    /**
+     * Is the stored file a vector?
+     *
+     * Reads the recorded mime first, and falls back to the extension for rows written before the
+     * `mimetype` column was populated — where `''` is «nobody looked», not «not a vector».
+     *
+     * @return bool
+     */
+    public function isVector(): bool
+    {
+        if ($this->mimetype !== '') {
+            return str_contains(strtolower($this->mimetype), 'svg');
+        }
+
+        $extension = $this->_ext !== ''
+            ? $this->_ext
+            : strtolower((string) pathinfo((string) $this->filename, PATHINFO_EXTENSION));
+
+        return $extension === 'svg' || $extension === 'svgz';
     }
 
     /**
@@ -806,14 +998,15 @@ class MediaObject extends \Pramnos\Framework\Base
         $size = @getimagesize($file);
         $startWidth = $size[0];
         $startHeight = $size[1];
-        if ($this->_ext != 'ico' && ($this->max != 0
+        if ($this->derivesRenditions() && ($this->max != 0
             || $this->maxHeight != 0)) {
             if (($this->max != 0 && $startWidth > $this->max)
                 || ($this->maxHeight != 0
                 && $startHeight > $this->maxHeight)) {
                 rename($file, $file . '.original');
                 $thumb = new ResizeTools();
-                $thumb->maxsize = $this->max;
+                $thumb->maxsize = $this->requestCeiling();
+                $thumb->allowUpscale = $this->allowUpscale;
                 $thumb->exportpath = $path;
                 $thumb->exportfile = basename($file);
                 $thumb->resize(
@@ -900,12 +1093,26 @@ class MediaObject extends \Pramnos\Framework\Base
 
 
 
-        if ($this->_ext != 'ico'
-            && ($startWidth > $this->medium
-            || $startHeight > $this->mediumHeight)) {
+        /*
+         * `0` means «skip this rendition», the same as it does for `max`.
+         *
+         * It used to mean the reverse, and that was the trap: the guard was
+         * `$startWidth > $this->medium || $startHeight > $this->mediumHeight`, so `medium = 0` made
+         * `$startWidth > 0` true for every picture that has ever existed, and the setting that read
+         * as «no medium rendition» produced one for every upload — at `ResizeTools`'
+         * `defaultwidth`, a width the caller never named. Only `max` read the way it looked, and the
+         * inconsistency between the three was most of the trap.
+         *
+         * Each axis is now consulted only when it is set, which is what the `max` block already did.
+         */
+        $needsMedium = ($this->medium != 0 && $startWidth > $this->medium)
+            || ($this->mediumHeight != 0 && $startHeight > $this->mediumHeight);
+
+        if ($this->derivesRenditions() && $needsMedium) {
             $thumb = new ResizeTools();
             $thumb->createdTxt = date('d/m/Y H:i:s');
-            $thumb->maxsize = $this->max;
+            $thumb->maxsize = $this->requestCeiling();
+            $thumb->allowUpscale = $this->allowUpscale;
             $thumb->exportpath = $path;
             $thumb->resize($file, $this->medium, $this->mediumHeight);
             $tfile = $thumb->exportpath . $thumb->exportfile;
@@ -938,12 +1145,14 @@ class MediaObject extends \Pramnos\Framework\Base
             $this->thumbnails[] = $medium;
         }
 
-        if ($this->_ext != 'ico'
-            && ($startWidth > $this->thumb
-            || $startHeight > $this->thumbHeight)) {
+        $needsThumb = ($this->thumb != 0 && $startWidth > $this->thumb)
+            || ($this->thumbHeight != 0 && $startHeight > $this->thumbHeight);
+
+        if ($this->derivesRenditions() && $needsThumb) {
             $thumb = new ResizeTools();
             $thumb->createdTxt = date('d/m/Y H:i:s');
-            $thumb->maxsize = $this->max;
+            $thumb->maxsize = $this->requestCeiling();
+            $thumb->allowUpscale = $this->allowUpscale;
             $thumb->exportpath = $path;
             $thumb->resize($file, $this->thumb, $this->thumbHeight);
             $tfile = $thumb->exportpath . $thumb->exportfile;
@@ -1999,6 +2208,33 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $reason = '';
         $existingFile = '';
+
+        /*
+         * A vector is already every size, so the honest answer is the file itself.
+         *
+         * What happened before: GD cannot read an SVG on an ordinary build, so `loadImageByType()`
+         * failed, `makeErrorImg()` drew the source path onto a 500×100 white JPEG, and *that* was
+         * saved as the rendition — at a URL ending `.jpg`, recorded in `thumbnails` as the size that
+         * had been requested. A station logo became a picture of a file path, and every check
+         * downstream accepted it because it was a valid image.
+         *
+         * Returned rather than cached: there is nothing derived to cache, and adding an entry per
+         * requested size would fill the column with rows all describing the same file.
+         */
+        if ($this->isVector()) {
+            $vector = new Thumbnail();
+            $vector->createdTxt = date('d/m/Y H:i:s');
+            $vector->filename = $this->filename;
+            $vector->url = $this->url;
+            $vector->x = $this->x;
+            $vector->y = $this->y;
+            $vector->views = 0;
+            $vector->filesize = $this->filesize;
+            $vector->reason = 'original';
+
+            return $vector;
+        }
+
         if ($this->mediatype == 1 or $this->mediatype == 2) {
             if ($force == false) {
                 foreach ($this->thumbnails as $key => $thumb) {
@@ -2060,11 +2296,40 @@ class MediaObject extends \Pramnos\Framework\Base
             $thumb->createdTxt = date('d/m/Y H:i:s');
             $thumb->resample = $resample;
             $thumb->resampleLimit = $this->resampleLimit;
-            $thumb->maxsize = $this->max;
+            $thumb->maxsize = $this->requestCeiling();
             $thumb->exportpath = $this->createPath($this->module);
             $thumb->crop = $crop;
             $thumb->debug = $debug;
-            $thumb->resize($this->filename, $width, $height);
+            $thumb->allowUpscale = $this->allowUpscale;
+
+            if ($thumb->resize($this->filename, $width, $height) === false) {
+                /*
+                 * The source could not be read, so there is no rendition — and the original is a
+                 * better answer than a picture of an error message, which is what used to be stored
+                 * here and handed back.
+                 *
+                 * Nothing is written to `thumbnails`: a row pointing at a file that was never
+                 * created is worse than no row, because the next `get()` at the same size finds it,
+                 * fails the `file_exists()` check, deletes it and saves — a write per request for a
+                 * rendition that can never exist.
+                 */
+                $this->error = is_string($thumb->error)
+                    ? $thumb->error
+                    : 'Cannot create a rendition of ' . $this->filename;
+                \Pramnos\Logs\Logger::log($this->error);
+
+                $fallback = new Thumbnail();
+                $fallback->createdTxt = date('d/m/Y H:i:s');
+                $fallback->filename = $this->filename;
+                $fallback->url = $this->url;
+                $fallback->x = $this->x;
+                $fallback->y = $this->y;
+                $fallback->views = 0;
+                $fallback->filesize = $this->filesize;
+                $fallback->reason = 'original';
+
+                return $fallback;
+            }
 
             $tfile = $thumb->exportpath . $thumb->exportfile;
             if ($existingFile != '') {
@@ -2231,6 +2496,34 @@ class MediaObject extends \Pramnos\Framework\Base
         $detected = @finfo_file($finfo, $path);
         // No finfo_close(): deprecated in PHP 8.5, where the handle is freed
         // when it goes out of scope.
+
+        return is_string($detected) && $detected !== '' ? $detected : null;
+    }
+
+    /**
+     * The mime of content held in memory, rather than of a file on disk.
+     *
+     * `addRemoteImage()` needs to know what it fetched *before* deciding where to put it, and
+     * `finfo_file()` needs a path. Writing the bytes somewhere to ask about them and then moving them
+     * is the version of this that leaves an unidentified file on disk for as long as the check takes.
+     *
+     * @param string $content
+     * @return string|null The mime type, or null when `fileinfo` is unavailable or says nothing.
+     */
+    private static function detectMimeTypeOfString(string $content): ?string
+    {
+        if (!function_exists('finfo_open') || $content === '') {
+            return null;
+        }
+
+        $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo === false) {
+            return null;
+        }
+
+        $detected = @finfo_buffer($finfo, $content);
+        // No finfo_close(): deprecated in PHP 8.5, where the handle is freed when it goes out of
+        // scope.
 
         return is_string($detected) && $detected !== '' ? $detected : null;
     }

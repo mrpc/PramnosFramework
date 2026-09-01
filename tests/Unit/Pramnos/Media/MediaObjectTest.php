@@ -1339,21 +1339,66 @@ class MediaObjectTest extends TestCase
     }
 
     /**
-     * Test addRemoteImage fetches a remote file using a local file:// URL wrapper.
+     * `addRemoteImage()` refuses a `file://` URL, and this test used to assert the opposite.
+     *
+     * It was written to exercise the fetch without a network, and in doing so it pinned the defect in
+     * place: `file:///etc/passwd` is a perfectly well-formed URL, so a fetch helper that accepts any
+     * scheme PHP knows reads local files for whoever supplies the address. The convenience and the
+     * vulnerability were the same line.
+     *
+     * A local file was never what this method was for — {@see MediaObject::addImage()} takes one, and
+     * takes it without leaving the machine.
      */
     #[Test]
-    public function testAddRemoteImageFromLocalFileUri(): void
+    public function testAddRemoteImageRefusesAFileUri(): void
     {
+        // Arrange
         $dummyJpg = $this->createDummyJpg('remote_src.jpg', 10, 10);
-        $url = 'file://' . $dummyJpg;
 
+        // Act
+        $media = new MediaObject();
+        $media->addRemoteImage('file://' . $dummyJpg, 'test_media_module');
+
+        // Assert
+        $this->assertIsString($media->error, 'a file:// URL was fetched');
+        $this->assertSame('', $media->filename, 'something was written for a refused URL');
+    }
+
+    /**
+     * Nor an address inside this network, which is the reachable half of the same hole.
+     *
+     * The server sits somewhere the visitor who supplied the URL cannot reach: a cloud provider's
+     * metadata endpoint on 169.254.169.254, an unauthenticated panel on loopback, the database on a
+     * private address. An importer, a «fetch the logo from their website» button, a
+     * picture-by-URL field — each takes its address from data somebody else controls, and each one
+     * turned this application into a proxy into its own network.
+     *
+     * @param string $url
+     */
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('unreachableUrls')]
+    public function testAddRemoteImageRefusesAnAddressInsideThisNetwork(string $url): void
+    {
+        // Act
         $media = new MediaObject();
         $media->addRemoteImage($url, 'test_media_module');
-        $media->save();
 
-        $this->assertFalse($media->error);
-        $this->assertEquals(1, $media->mediatype);
-        $this->assertGreaterThan(0, $media->mediaid);
+        // Assert
+        $this->assertIsString($media->error, $url . ' was fetched');
+        $this->assertStringContainsString('Cannot fetch remote image', (string) $media->error);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function unreachableUrls(): array
+    {
+        return [
+            'loopback'       => ['http://127.0.0.1/logo.png'],
+            'by name'        => ['http://localhost/logo.png'],
+            'cloud metadata' => ['http://169.254.169.254/latest/meta-data/'],
+            'private range'  => ['http://10.0.0.5/logo.png'],
+            'IPv6 loopback'  => ['http://[::1]/logo.png'],
+            'credentials'    => ['http://someone:secret@example.com/logo.png'],
+        ];
     }
 
     /**

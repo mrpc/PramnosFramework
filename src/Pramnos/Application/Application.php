@@ -1880,6 +1880,21 @@ class Application extends Base
      * Executes a controller
      * @param string $coontrollerName
      */
+    /**
+     * This site's base URL — `sURL`, through a method.
+     *
+     * A method rather than the constant read inline, because a constant defined once per process is
+     * not something a test can vary: the suite's bootstrap defines `sURL` as an `https` address, so
+     * the `forcessl` branch below it — a redirect whose entire purpose is to happen on every insecure
+     * request — could not be reached from a test at all. It had never executed once.
+     *
+     * @return string
+     */
+    protected function siteUrl(): string
+    {
+        return defined('sURL') ? (string) sURL : '';
+    }
+
     public function exec($coontrollerName = '')
     {
         $this->cspNonce = base64_encode(random_bytes(16));
@@ -1914,9 +1929,10 @@ class Application extends Base
          * If there is a setting for ssl, enforce it
          */
         if (\Pramnos\Application\Settings::getSetting('forcessl') == '1') {
-            if (strpos(sURL, 'https') !== 0) {
+            $base = $this->siteUrl();
+            if (strpos($base, 'https') !== 0) {
                 $this->redirect(
-                    str_replace('http://', 'https://', sURL), true, 301
+                    str_replace('http://', 'https://', $base), true, 301
                 );
             }
         }

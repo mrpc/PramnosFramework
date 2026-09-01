@@ -114,6 +114,15 @@ class ResizeToolsCharacterizationTest extends TestCase
         $src = $this->makeTempMinimalPng();
         $rt  = new ResizeTools();
         $rt->exportpath = sys_get_temp_dir() . DIRECTORY_SEPARATOR;
+        /*
+         * `allowUpscale` so the clamp does not answer the question this test is asking.
+         *
+         * The source here is a minimal 1×1 PNG, and requests are clamped to the source's own
+         * dimensions now — so `thumbW` ends at 1 whatever the guard did, and the assertion would be
+         * measuring the clamp rather than the maxsize guard it is named after. Opting out of the
+         * clamp leaves exactly one thing under test.
+         */
+        $rt->allowUpscale = true;
 
         // Act — width and height both exceed maxsize (1024)
         try {
@@ -145,6 +154,8 @@ class ResizeToolsCharacterizationTest extends TestCase
         $src = $this->makeTempMinimalPng();
         $rt  = new ResizeTools();
         $rt->exportpath = sys_get_temp_dir() . DIRECTORY_SEPARATOR;
+        // See the note in the maxsize test: the clamp would otherwise answer for the guard.
+        $rt->allowUpscale = true;
 
         // Act
         try {

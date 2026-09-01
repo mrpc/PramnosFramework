@@ -83,7 +83,41 @@ $media->addImage('/path/to/existing/image.jpg', 'gallery', true); // true = dele
 // Add remote image
 $media = new MediaObject();
 $media->addRemoteImage('https://example.com/image.jpg', 'gallery');
+
+if ($media->error !== false) {
+    // The URL was refused or the fetch failed. $media->error says which.
+}
 ```
+
+#### `addRemoteImage()` is the one that leaves the machine
+
+These two sit one line apart and are not the same operation. `addImage()` reads a file this
+application already has. `addRemoteImage()` **makes a request from the server**, to an address that —
+for every caller shape this method reads as being for, an importer, a «fetch the logo from their
+website» button, a picture-by-URL field — came from outside.
+
+That matters because the server can reach places whoever supplied the address cannot: a cloud
+provider's metadata endpoint on `169.254.169.254`, an unauthenticated panel on loopback, the database
+on a private address, the rest of the subnet. So three guards run here, and each one is a fetch this
+method used to perform:
+
+- **the address is checked and then dialled** through
+  [`Pramnos\Security\OutboundUrl`](Pramnos_Security_Guide.md#fetching-a-url-somebody-else-chose): the host is resolved, every
+  address inside this network is refused, only `http` and `https` are accepted, credentials in the URL
+  are refused, and the connection is made to the address that was approved rather than resolving the
+  name a second time. Redirects are not followed — a redirect is a second address, chosen by the
+  server being fetched.
+- **the body is capped** at `$media->remoteMaxBytes` (10 MB by default), mid-stream.
+- **the type is read from the bytes**, not from the URL. The extension on disk now describes the
+  content; it used to default to `jpg` for anything the URL did not spell out, and everything under
+  `www/uploads/` is served back by the web server according to that extension.
+
+SVG is deliberately not on the accepted list for a *remote* fetch: it is markup, it can carry script,
+and served from your own origin that script is same-origin. An application that wants remote SVGs owns
+that decision and can fetch and sanitise one itself, then hand the file to `addImage()`.
+
+On refusal the object's `error` is set and nothing is written. It does not throw, because a bad URL in
+an import of two thousand should not abort the import.
 
 ## Media Types
 
@@ -189,6 +223,86 @@ $media->fixOrientation = true;   // Fix EXIF orientation
 
 $media->uploadFile($_FILES['image'], 'gallery');
 ```
+
+#### `0` means «skip this rendition»
+
+For all six of `max`, `maxHeight`, `medium`, `mediumHeight`, `thumb` and `thumbHeight`. An axis set to
+`0` is not consulted; both axes of a rendition at `0` means that rendition is not derived at all.
+
+Worth stating because four of the six used to mean the reverse. The guard was
+`$startWidth > $this->medium`, so `medium = 0` was true for every picture that has ever existed — and
+the setting that reads as «no medium rendition» produced one for every upload, at `ResizeTools`'
+120-pixel default, a width the caller never named. Only `max` read the way it looked.
+
+#### «Store this, derive nothing»
+
+```php
+$media = new MediaObject();
+$media->deriveNothing = true;      // I have my own resizer; be the library
+$media->addImage($file, 'logos');
+```
+
+For an application that wants what this class is good at — the storage layout, the md5 dedupe, the
+mime, `mediause` — and wants its own resizer to own the pixels. The `thumbnails` column still holds
+`original`, `medium` and `thumb`, all three pointing at the untouched file: callers ask for those by
+name, and the entries describe what is actually there.
+
+#### `max` is storage; `maxRequest` is retrieval
+
+```php
+$media->max        = 0;      // do not rewrite what I store
+$media->maxRequest = 2048;   // but a get() may ask for up to 2048px
+```
+
+Two different questions that used to share one number, and sharing it meant the answer to one broke
+the other. `get()` passed `max` down to `ResizeTools` as an upper bound on the *request*, so with
+`max = 0` every requested width was «over the ceiling» and `ResizeTools` substituted its 120-pixel
+default: a 40×40 source asked for at 512 came back 512 with the defaults and **120 with `max = 0`**,
+at any size, silently. The application that set `max = 0` to protect its originals lost sized
+renditions and was not told.
+
+`maxRequest` at `0` (the default) falls back to `max`, and then to `ResizeTools`' own ceiling, so
+nothing changes for a store that never sets either.
+
+#### Renditions are never larger than the source
+
+```php
+$media->get(512, 512);       // a 40x40 source answers 40x40
+$media->allowUpscale = true; // …unless you actually want invented pixels
+```
+
+Asking for a size above the picture's own used to write that size, by stretching — 512×512 of blur on
+disk, recorded as a rendition, served as though it were real, and *larger than the original it came
+from*. Requests are clamped to the source's dimensions now, scaled by the limiting factor so the
+requested aspect survives: a 40×40 source asked for 512×256 gives 40×20, not 40×40.
+
+A `Thumbnail`'s `x`/`y` are also read back from the file that was written rather than left as what was
+asked for. They diverge exactly when something went wrong, which is when a recorded size is worth
+having.
+
+#### A vector answers with itself, and an unreadable file with the original
+
+```php
+$svg = new MediaObject();
+$svg->addImage('/path/to/logo.svg', 'logos');
+$svg->isVector();            // true
+$svg->get(128, 64);          // the SVG itself, at its own dimensions
+```
+
+An SVG is already every size, so the original *is* the rendition. What happened before is worth
+knowing, because every check downstream accepted it: GD cannot decode SVG on an ordinary build, so
+`ResizeTools` drew the source path onto a 500×100 white JPEG and *that* was stored as the rendition —
+at a URL ending `.jpg`, recorded in `thumbnails` as the size that had been requested. A logo became a
+picture of a file path, and nothing raised, because a JPEG of an error message is a valid JPEG.
+
+The same now holds for any file GD cannot read — a truncated upload, a file whose extension lies.
+`get()` returns the original, sets `$media->error`, and records **nothing**: a row pointing at a file
+that was never created is worse than no row, because the next `get()` at that size finds it, fails the
+`file_exists()` check, deletes it and saves. One write per request, for ever.
+
+`mediatype` stays `1` for an SVG. It is an image, and every application's own `mediatype == 1` branch
+means «this is a picture» — giving vectors a new number would quietly route them into whatever those
+branches do with a type they do not know.
 
 ### Manual Image Processing
 
