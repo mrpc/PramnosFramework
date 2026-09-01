@@ -409,10 +409,20 @@ abstract class DaemonOrchestrator extends CommandBase
      * cleaned up on startup. Return '' to skip the cleanup scan.
      *
      * Example: '{QUEUE_PROCESSOR_*,KAFKA_CONSUMER_*}'
+     *
+     * **Empty by default, and it used to be `'*'`.** A base class does not know which files in
+     * `var/` are its locks, and `'*'` says "all of them": the sweep deletes every *file* directly in
+     * that directory whose mtime is older than the stale threshold. `var/` is not a lock directory —
+     * on this repository alone it holds `junit.xml` and the `migrations-*.lock` advisory locks that
+     * stop two migration runs overlapping. Deleting one of those because six minutes passed is how
+     * two concurrent migrations start, which is the thing the lock exists to prevent.
+     *
+     * So the default is the documented opt-out. An orchestrator that wants the sweep names its own
+     * files, which is what the example above has always shown.
      */
     protected function getManagedLockFileGlobPattern(): string
     {
-        return '*';
+        return '';
     }
 
     // ── Terminal size hook ────────────────────────────────────────────────────

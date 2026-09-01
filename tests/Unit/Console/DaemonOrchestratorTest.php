@@ -1370,8 +1370,19 @@ class DaemonOrchestratorTest extends TestCase
      * files in var/ are eligible for cleanup on orchestrator startup.
      *
      * Uses MinimalDaemonOrchestrator which does not override the method.
+     *
+     * **The expectation changed on 1 September 2026, from `'*'` to `''`.** The wildcard meant "every
+     * file directly in `var/`", and the sweep deletes any of them whose mtime is older than the
+     * stale threshold. `var/` is not a lock directory: on the framework's own checkout it holds
+     * `junit.xml` and the `migrations-*.lock` advisory locks that stop two migration runs
+     * overlapping — and deleting one of those because six minutes passed is exactly how two
+     * concurrent migrations start.
+     *
+     * A base class does not know which files are its locks. `''` is the opt-out the method's own
+     * docblock has always described, and an orchestrator that wants the sweep names its files, which
+     * is what that docblock's example has always shown.
      */
-    public function testGetManagedLockFileGlobPatternDefaultReturnsWildcard(): void
+    public function testGetManagedLockFileGlobPatternDefaultsToNoSweep(): void
     {
         // Arrange
         $orch = new MinimalDaemonOrchestrator();
@@ -1379,8 +1390,11 @@ class DaemonOrchestratorTest extends TestCase
         $ref = new \ReflectionMethod($orch, 'getManagedLockFileGlobPattern');
 
         // Act + Assert
-        $this->assertSame('*', $ref->invoke($orch),
-            'getManagedLockFileGlobPattern() default must return wildcard "*"');
+        $this->assertSame(
+            '',
+            $ref->invoke($orch),
+            'the default sweeps every file in var/, including the migration advisory locks'
+        );
     }
 
     /**
