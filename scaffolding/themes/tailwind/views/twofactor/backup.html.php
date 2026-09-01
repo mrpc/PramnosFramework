@@ -96,7 +96,7 @@ $this->activeNav   = 'twofactor_backup';
                                required autocomplete="current-password" enterkeyhint="go"
                                class="input input-sm block w-full mb-4">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
-                            'regenerate_password', '', '', 'btn btn-ghost btn-xs'
+                            'regenerate_password', '', ''
                         ); ?>
                         <button type="submit"
                                 class="btn btn-soft btn-warning btn-sm">

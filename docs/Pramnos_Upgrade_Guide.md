@@ -128,25 +128,30 @@ password, an SMTP password on a settings page. They are all passwords typed by h
 
 ### With the current framework
 
-One line beside each field. The field itself does not change:
+One line **after** each field. The field itself does not change:
 
 ```php
-<div class="flex items-baseline justify-between mb-1">
-    <label for="password">Password</label>
-    <?php echo \Pramnos\Html\PasswordToggle::render('password', '', '', 'btn btn-ghost btn-xs'); ?>
-</div>
+<label for="password">Password</label>
 <input type="password" name="password" id="password" autocomplete="current-password" required>
+<?php echo \Pramnos\Html\PasswordToggle::render('password'); ?>
 ```
 
-Three things to know:
+Four things to know:
 
 - **The field needs an `id`.** The control addresses it by id, and so does `<label for>`. A field
   without one has no programmatic label either, so add the id and wire the label at the same time —
   in the framework's own scaffolds, eight fields across three themes turned out to be missing both.
-- **The last argument is your theme's button class.** The helper has no opinion about how a button
-  looks, so a hard-coded class would render a control matching nothing on your page.
-- **The labels default to translated «Show password» / «Hide password».** Pass your own if the screen
-  is in a language your catalogue does not cover — the fourth and fifth arguments to `render()`.
+- **It goes after the input, not in the label row above it.** With no `tabindex` anywhere on the form,
+  tab order *is* document order: a control placed above the field means tabbing off the username lands
+  on the toggle instead of on the password box. The control renders as an eye and its own script moves
+  it inside the field's right-hand edge, so it *looks* like it is in the field while staying after it
+  in the document. `tabindex="-1"` is not the fix — it makes the control mouse-only.
+- **Pass no class.** The button styles itself for position; a theme's `btn` brings padding, a border
+  and a background that fight it. The `$class` argument is there for a caller that wants to take over,
+  and the scaffolded views pass nothing.
+- **The labels default to translated «Show password» / «Hide password»**, and they become the
+  accessible name (`aria-label`/`title`) rather than visible text. Pass your own if the screen is in a
+  language your catalogue does not cover — the second and third arguments to `render()`.
 
 ### Without upgrading the framework
 
@@ -174,27 +179,50 @@ class PasswordToggle
         return '<button type="button" hidden'
             . ($class !== '' ? ' class="' . $e($class) . '"' : '')
             . ' data-password-toggle aria-controls="' . $e($inputId) . '" aria-pressed="false"'
+            . ' aria-label="' . $e($showLabel) . '" title="' . $e($showLabel) . '"'
             . ' data-show-label="' . $e($showLabel) . '" data-hide-label="' . $e($hideLabel) . '">'
-            . htmlspecialchars($showLabel) . '</button>'
+            . self::EYE . '</button>'
             . '<script>(function(){'
             . 'if(window.__passwordToggleBound){return;}window.__passwordToggleBound=true;'
             . "var S='[data-password-toggle]';"
-            . 'function reveal(){document.querySelectorAll(S).forEach(function(b){b.hidden=false;});}'
+            . 'function place(b,f){var w=f.parentNode;'
+            . "if(!w||w.getAttribute('data-password-wrap')===null){"
+            . "w=document.createElement('span');w.setAttribute('data-password-wrap','');"
+            . "w.style.position='relative';w.style.display='block';"
+            . 'f.parentNode.insertBefore(w,f);w.appendChild(f);}'
+            . 'w.appendChild(b);'
+            . "b.style.cssText='position:absolute;top:50%;transform:translateY(-50%);right:.55em;"
+            . "display:inline-flex;align-items:center;padding:.2em;margin:0;border:0;"
+            . "background:transparent;color:inherit;opacity:.6;cursor:pointer;line-height:1';"
+            . "f.style.paddingRight='calc(1.15em + 1.1em)';}"
+            . 'function reveal(){document.querySelectorAll(S).forEach(function(b){'
+            . "var f=document.getElementById(b.getAttribute('aria-controls'));"
+            . 'if(f){place(b,f);}b.hidden=false;});}'
             . "document.addEventListener('click',function(ev){"
             . 'var b=ev.target.closest?ev.target.closest(S):null;if(!b){return;}'
             . "var f=document.getElementById(b.getAttribute('aria-controls'));if(!f){return;}"
             . 'var s=f.selectionStart,e2=f.selectionEnd,show=f.type==="password";'
             . 'f.type=show?"text":"password";'
             . "b.setAttribute('aria-pressed',show?'true':'false');"
-            . "b.textContent=show?b.getAttribute('data-hide-label'):b.getAttribute('data-show-label');"
+            . "var l=show?b.getAttribute('data-hide-label'):b.getAttribute('data-show-label');"
+            . "b.setAttribute('aria-label',l);b.setAttribute('title',l);"
             . 'f.focus();if(s!==null&&f.setSelectionRange){try{f.setSelectionRange(s,e2);}catch(x){}}'
             . '});'
             . "if(document.readyState==='loading'){"
             . "document.addEventListener('DOMContentLoaded',reveal);}else{reveal();}"
             . '})();</script>';
     }
+
+    private const EYE = '<svg aria-hidden="true" focusable="false" width="1.15em" height="1.15em"'
+        . ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"'
+        . ' stroke-linecap="round" stroke-linejoin="round">'
+        . '<path d="M1.8 12S5.4 5.4 12 5.4 22.2 12 22.2 12 18.6 18.6 12 18.6 1.8 12 1.8 12Z"/>'
+        . '<circle cx="12" cy="12" r="3.1"/></svg>';
 }
 ```
+
+This shortened copy keeps one eye for both states, which is the corner worth knowing you cut: the
+framework's own swaps to a crossed-out eye so the icon and the accessible name agree.
 
 Four properties in there are the whole design, and a hand-rolled toggle usually misses at least two:
 

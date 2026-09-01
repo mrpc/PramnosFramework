@@ -83,16 +83,76 @@ class PasswordToggleTest extends TestCase
         $this->assertStringContainsString('data-hide-label="', $html);
     }
 
-    /** Both labels can be given, for a screen with its own wording. */
-    public function testTheLabelsCanBeGiven(): void
+    /**
+     * Both labels can be given, and they become the accessible name.
+     *
+     * The control is an eye inside the field, so the words are not on screen — a bold «Show
+     * password» under the box is louder than the field it belongs to, for something most people
+     * never press. `aria-label` is where the meaning goes instead, which is also what gets swapped
+     * on toggle so a screen reader hears the new state.
+     */
+    public function testTheLabelsCanBeGivenAndBecomeTheAccessibleName(): void
     {
         // Act
         $html = PasswordToggle::render('password', 'Εμφάνιση', 'Απόκρυψη');
 
         // Assert
+        $this->assertStringContainsString('aria-label="Εμφάνιση"', $html);
+        $this->assertStringContainsString('title="Εμφάνιση"', $html);
         $this->assertStringContainsString('data-show-label="Εμφάνιση"', $html);
         $this->assertStringContainsString('data-hide-label="Απόκρυψη"', $html);
-        $this->assertStringContainsString('>Εμφάνιση</button>', $html, 'the visible text is the show label');
+
+        $this->assertStringNotContainsString(
+            '>Εμφάνιση</button>',
+            $html,
+            'the words are on screen again, which is what the icon replaced'
+        );
+    }
+
+    /**
+     * The visible content is an inline SVG that inherits the field's colour.
+     *
+     * Inline rather than a font or a sprite, because this ships with the markup and has to work in a
+     * project with no icon set, no build step and no network. `currentColor` and `em` sizing mean it
+     * fits a theme nobody told it about.
+     */
+    public function testTheVisibleContentIsAnInheritingIcon(): void
+    {
+        // Act
+        $html = PasswordToggle::render('password');
+
+        // Assert
+        $this->assertStringContainsString('<svg', $html);
+        $this->assertStringContainsString('currentColor', $html, 'the icon has a colour of its own');
+        $this->assertStringContainsString('1.15em', $html, 'the icon has a fixed pixel size');
+        $this->assertStringContainsString(
+            'aria-hidden="true"',
+            $html,
+            'a screen reader announces the drawing after the label'
+        );
+    }
+
+    /**
+     * The script positions the control inside the field rather than under it.
+     *
+     * Done in JavaScript on purpose: the button is rendered straight after its input, which is the
+     * correct **tab** order, and absolute positioning moves it visually without moving it in the
+     * document. No view has to change and no theme has to ship CSS for it.
+     */
+    public function testTheScriptPlacesTheControlInsideTheField(): void
+    {
+        // Act
+        $html = PasswordToggle::render('password');
+
+        // Assert
+        $this->assertStringContainsString('position = \'absolute\'', $html);
+        $this->assertStringContainsString('data-pramnos-password-wrap', $html);
+        $this->assertStringContainsString(
+            'paddingRight',
+            $html,
+            'a long password would run underneath the icon'
+        );
+        $this->assertStringContainsString('rtl', $html, 'the icon lands on the wrong edge in Arabic');
     }
 
     /**
@@ -109,6 +169,13 @@ class PasswordToggleTest extends TestCase
         // Assert
         $this->assertStringNotContainsString('<script>alert(1)', $html, 'a label broke out');
         $this->assertStringContainsString('&quot;', $html);
+        // It reaches three attributes now — aria-label, title and the data attribute — so a single
+        // unescaped one would be enough.
+        $this->assertSame(
+            0,
+            preg_match('/(aria-label|title|data-show-label)="[^"]*<script/', $html),
+            'a label reached an attribute unescaped'
+        );
     }
 
     /**

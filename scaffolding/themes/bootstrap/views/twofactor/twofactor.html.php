@@ -108,7 +108,7 @@ $this->activeNav   = 'twofactor';
                         <input type="password" class="form-control" id="confirm_password"
                                name="confirm_password" required autocomplete="current-password" enterkeyhint="go">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
-                            'confirm_password', '', '', 'btn btn-link btn-sm'
+                            'confirm_password', '', ''
                         ); ?>
                     </div>
                 </div>

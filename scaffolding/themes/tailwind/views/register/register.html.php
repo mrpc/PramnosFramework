@@ -66,7 +66,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                 <input type="password" name="password" id="password" class="input w-full"
                        required minlength="8" autocomplete="new-password">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                    'password', '', '', 'btn btn-ghost btn-xs'
+                    'password', '', ''
                 ); ?>
                 <p class="text-xs text-base-content/70 mt-1">At least 8 characters, with a digit and a symbol.</p>
             </div>
@@ -75,7 +75,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                 <input type="password" name="confirm_password" enterkeyhint="go" id="confirm_password" class="input w-full"
                        required autocomplete="new-password">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                    'confirm_password', '', '', 'btn btn-ghost btn-xs'
+                    'confirm_password', '', ''
                 ); ?>
             </div>
             <button type="submit" class="btn btn-success w-full">Create Account</button>

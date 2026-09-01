@@ -148,7 +148,7 @@ ksort($initialSteps, SORT_NUMERIC);
                         <label for="smtp_pass" style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">SMTP Password</label>
                         <input id="smtp_pass" type="password" name="smtp_pass" autocomplete="new-password" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($s['smtp_pass'] ?? ''); ?>
                         <?php echo \Pramnos\Html\PasswordToggle::render(
-                            'smtp_pass', '', '', 'btn btn-outline btn-sm'
+                            'smtp_pass', '', ''
                         ); ?>">
                     </div>
                 </div>

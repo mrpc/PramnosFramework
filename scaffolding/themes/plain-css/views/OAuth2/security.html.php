@@ -83,7 +83,7 @@ $this->activeNav = 'security';
                                style="flex:1;min-width:180px;padding:8px;border:1px solid #ccc;border-radius:4px"
                                placeholder="Your password">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
-                            'password', '', '', 'btn btn-outline btn-sm'
+                            'password', '', ''
                         ); ?>
                         <button type="submit" class="btn btn-sm">
                             <?php echo empty($this->emailFactorEnabled) ? 'Turn on' : 'Turn off'; ?>

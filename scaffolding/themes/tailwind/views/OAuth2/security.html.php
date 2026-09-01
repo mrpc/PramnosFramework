@@ -134,7 +134,7 @@ $this->activeNav = 'security';
                                    autocomplete="current-password" enterkeyhint="go" class="input input-sm flex-1"
                                    placeholder="Your account password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
-                                'emailfactor-password', '', '', 'btn btn-ghost btn-xs'
+                                'emailfactor-password', '', ''
                             ); ?>
                             <button type="submit" class="btn btn-sm btn-neutral">Turn off</button>
                         </div>

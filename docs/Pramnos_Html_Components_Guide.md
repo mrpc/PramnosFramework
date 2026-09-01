@@ -392,16 +392,43 @@ read. Someone who cannot see what they typed retries the same wrong thing, then 
 they never forgot.
 
 ```php
-<div class="flex items-baseline justify-between mb-1">
-    <label for="password">Password</label>
-    <?php echo \Pramnos\Html\PasswordToggle::render('password', 'Show', 'Hide', 'btn btn-ghost btn-xs'); ?>
-</div>
+<label for="password">Password</label>
 <input type="password" name="password" id="password" autocomplete="current-password" required>
+<?php echo \Pramnos\Html\PasswordToggle::render('password', 'Show', 'Hide'); ?>
 ```
 
 `render(string $inputId, string $showLabel = '', string $hideLabel = '', string $class = '')`. The id
 is the `id` of the input it controls; the labels default to translated «Show password» / «Hide
-password»; the class is the theme's own, because this class has no opinion about how a button looks.
+password». The class is optional and normally left off — see below.
+
+### It goes *after* the input, and it is an eye
+
+Both of those are the same fix, arrived at twice.
+
+The control renders as an eye icon, and its own script moves it inside the field's right-hand edge at
+runtime — wrapping the input in a `position: relative` span, positioning the button absolutely and
+adding right padding so a long password does not run underneath it. Nothing in a view or a theme has
+to change for that, and there is no stylesheet to ship.
+
+It is done in JavaScript rather than in the markup because the two requirements pull in opposite
+directions. The button has to come **after** the input in the document: with no `tabindex` anywhere,
+tab order *is* document order, so a control written into the label row above the field means tabbing
+off the username lands on «Show» instead of on the password box — reported as «the tabindex on the
+login form is wrong», and it was, by being absent. Absolute positioning moves the button visually
+without moving it in the document, so the tab order stays right and the icon still sits in the field.
+
+`tabindex="-1"` on the button would have fixed the tab order too, and is the wrong answer: it makes
+the control mouse-only, which removes it for the visitor most likely to need it.
+
+The words are the **accessible name**, not the visible content: `aria-label` and `title` carry them,
+and both are swapped along with `aria-pressed` so a screen reader hears the new state. A bold «Show
+password» printed under the box is louder than the field it belongs to, for something most people
+never press.
+
+The icon is an inline SVG sized in `em` and stroked in `currentColor`, so it fits a theme nobody told
+it about, and it works in a project with no icon set, no build step and no network. The `$class`
+argument still exists for a caller that wants its own button styling, but a theme's `btn` brings
+padding, a border and a background that fight the positioning — the scaffolded views pass nothing.
 
 ### The button ships `hidden`
 

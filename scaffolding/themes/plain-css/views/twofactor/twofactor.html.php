@@ -74,7 +74,7 @@ $this->activeNav   = 'twofactor';
                                 <input type="password" id="confirm_password" name="confirm_password"
                                        required autocomplete="current-password" enterkeyhint="go" class="form-control">
                                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                                    'confirm_password', '', '', 'btn btn-outline btn-sm'
+                                    'confirm_password', '', ''
                                 ); ?>
                             </div>
                             <button type="submit" class="btn btn-danger">Disable 2FA</button>

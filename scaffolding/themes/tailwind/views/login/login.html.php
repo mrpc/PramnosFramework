@@ -76,7 +76,7 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
                 <label for="password" class="block text-sm font-medium text-base-content mb-1">Password</label>
                 <input type="password" name="password" id="password" class="input w-full" required autocomplete="current-password" enterkeyhint="go">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                    'password', '', '', 'btn btn-ghost btn-xs'
+                    'password', '', ''
                 ); ?>
             </div>
             <label class="flex items-center gap-2 text-sm text-base-content">

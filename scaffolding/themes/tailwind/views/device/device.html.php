@@ -37,7 +37,7 @@
                        class="input w-full"
                        required autocomplete="current-password" enterkeyhint="go">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                    'password', '', '', 'btn btn-ghost btn-xs'
+                    'password', '', ''
                 ); ?>
             </div>
             <button type="submit" class="btn btn-primary w-full">Authorize Device</button>

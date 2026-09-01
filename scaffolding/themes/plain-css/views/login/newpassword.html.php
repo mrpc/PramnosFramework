@@ -34,7 +34,7 @@
                            style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px"
                            required minlength="8" placeholder="At least 8 chars, digit and symbol">
                     <?php echo \Pramnos\Html\PasswordToggle::render(
-                        'password', '', '', 'btn btn-outline btn-sm'
+                        'password', '', ''
                     ); ?>
                 </div>
                 <div style="margin-bottom:20px">
@@ -43,7 +43,7 @@
                            style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px"
                            required>
                     <?php echo \Pramnos\Html\PasswordToggle::render(
-                        'repassword', '', '', 'btn btn-outline btn-sm'
+                        'repassword', '', ''
                     ); ?>
                 </div>
                 <button type="submit" class="btn" style="width:100%">Save New Password</button>

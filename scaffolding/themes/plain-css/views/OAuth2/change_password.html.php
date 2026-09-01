@@ -36,7 +36,7 @@ $this->activeNav = 'changepassword';
                             <input type="password" id="current_password" name="current_password"
                                    class="form-control" required autocomplete="current-password" enterkeyhint="go" autofocus>
                             <?php echo \Pramnos\Html\PasswordToggle::render(
-                                'current_password', '', '', 'btn btn-outline btn-sm'
+                                'current_password', '', ''
                             ); ?>
                         </div>
                         <div class="form-group">
@@ -44,7 +44,7 @@ $this->activeNav = 'changepassword';
                             <input type="password" id="new_password" name="new_password"
                                    class="form-control" required autocomplete="new-password" minlength="8">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
-                                'new_password', '', '', 'btn btn-outline btn-sm'
+                                'new_password', '', ''
                             ); ?>
                         </div>
                         <div class="form-group">
@@ -52,7 +52,7 @@ $this->activeNav = 'changepassword';
                             <input type="password" id="confirm_password" name="confirm_password" enterkeyhint="go"
                                    class="form-control" required autocomplete="new-password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
-                                'confirm_password', '', '', 'btn btn-outline btn-sm'
+                                'confirm_password', '', ''
                             ); ?>
                         </div>
                         <button type="submit" class="btn btn-primary">Update Password</button>

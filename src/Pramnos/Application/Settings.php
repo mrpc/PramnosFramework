@@ -44,7 +44,16 @@ class Settings extends \Pramnos\Framework\Base
     static protected $database = null;
 
     /**
-     * Clear all settings and reset state
+     * Clear all settings and reset state.
+     *
+     * **This drops the settings file too, and nothing reloads it.** `loadSettings()` runs from the
+     * constructor when `$loaded` is false, so a process that reads settings statically — a long-lived
+     * worker, a test run, a queue consumer — sees an installation with no settings at all from here
+     * on, and the failure surfaces somewhere unrelated: a mail template that silently renders
+     * nothing, a cache that answers from the wrong backend.
+     *
+     * To forget one setting, use {@see deleteSetting()} — it removes the row, that one key, and the
+     * SQL-cache entry, and leaves the rest of the store standing.
      */
     public static function clearSettings()
     {

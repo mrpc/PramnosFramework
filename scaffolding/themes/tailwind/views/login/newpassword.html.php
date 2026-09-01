@@ -33,7 +33,7 @@
                        class="input w-full"
                        required minlength="8" placeholder="At least 8 chars, digit and symbol">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                    'password', '', '', 'btn btn-ghost btn-xs'
+                    'password', '', ''
                 ); ?>
             </div>
             <div>
@@ -42,7 +42,7 @@
                        class="input w-full"
                        required>
                 <?php echo \Pramnos\Html\PasswordToggle::render(
-                    'repassword', '', '', 'btn btn-ghost btn-xs'
+                    'repassword', '', ''
                 ); ?>
             </div>
             <button type="submit" class="btn btn-primary w-full">Save New Password</button>

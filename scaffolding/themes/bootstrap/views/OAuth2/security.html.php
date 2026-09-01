@@ -82,7 +82,7 @@ $this->activeNav = 'security';
                             <input id="password" type="password" name="password" required autocomplete="current-password" enterkeyhint="go"
                                    class="form-control form-control-sm" placeholder="Your password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
-                                'password', '', '', 'btn btn-link btn-sm'
+                                'password', '', ''
                             ); ?>
                         </div>
                         <div class="col-sm-4">

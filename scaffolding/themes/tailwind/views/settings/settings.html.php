@@ -146,7 +146,7 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                     <div><label for="smtp_pass" class="<?php echo $label; ?>">SMTP Password</label>
                         <input id="smtp_pass" type="password" name="smtp_pass" class="<?php echo $input; ?>
                         <?php echo \Pramnos\Html\PasswordToggle::render(
-                            'smtp_pass', '', '', 'btn btn-ghost btn-xs'
+                            'smtp_pass', '', ''
                         ); ?>" autocomplete="new-password" value="<?php echo htmlspecialchars($s['smtp_pass'] ?? ''); ?>"></div>
                 </div>
             </div>
