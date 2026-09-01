@@ -597,7 +597,7 @@ What the endpoint enforces, in this order:
    crafted POST to a closed server cannot write a row.
 3. CSRF token → checked before validation, so a form with no token is not even an
    account-existence oracle.
-4. The human check, when `auth.security.human_check_forms` lists `register`. This is a
+4. The human check, when `auth.security.human_check` lists `register`. This is a
    public write that creates a row and sends a mail, which makes it the form on the site
    most worth pricing.
 5. Username 3–60 characters, `[A-Za-z0-9._-]` only — the set that needs no
@@ -1045,7 +1045,7 @@ Two refusals come before that, and neither issues anything:
 - **the anti-CSRF token**, because this form mails an address the submitter chose. Without it, a
   page anybody writes can make a signed-out visitor's browser ask this site to send mail, as often
   as it likes;
-- **the human check** (`auth.security.human_check_forms`), for the same reason at scale — a form
+- **the human check** (`auth.security.human_check`), for the same reason at scale — a form
   that mails a stranger on demand is the cheapest way to use a site to deliver unwanted mail. The
   typed address is kept in the re-rendered form: a refusal that also clears the field trains
   people to give up rather than to try again.
