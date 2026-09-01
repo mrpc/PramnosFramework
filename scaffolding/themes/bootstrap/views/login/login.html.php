@@ -69,7 +69,7 @@ $errorText = $errorMessages[$errorKey] ?? $errorKey;
                         <?php endif; ?>
                         <div class="mb-3">
                             <label for="username" class="form-label">Username or Email</label>
-                            <input type="text" name="username" id="username" class="form-control" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
+                            <input type="text" name="username" id="username" class="form-control" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username webauthn" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>

@@ -102,16 +102,122 @@
         });
     }
 
+    // The one pending conditional ceremony, so an explicit sign-in can cancel it.
+    //
+    // The browser allows a single outstanding `credentials.get()`. A conditional request sits
+    // waiting for the whole life of the page, so starting *any* other ceremony while it is pending
+    // is refused — which would mean the «Sign in with a passkey» button silently stopped working the
+    // moment conditional UI was switched on. Cancelling first is what keeps both paths available.
+    var pendingConditional = null;
+
+    function cancelConditional() {
+        if (pendingConditional !== null) {
+            try {
+                pendingConditional.abort();
+            } catch (e) {
+                // An already-settled controller does not need aborting.
+            }
+            pendingConditional = null;
+        }
+    }
+
     var PramnosWebAuthn = {
         supported: function () {
             return typeof window.PublicKeyCredential !== 'undefined'
                 && typeof navigator.credentials !== 'undefined';
         },
 
+        // Whether this browser can offer a passkey inside the username autofill.
+        //
+        // Feature-detected rather than assumed: the method is absent in older browsers, and calling
+        // it there is a TypeError on the sign-in page.
+        conditionalSupported: function () {
+            return this.supported()
+                && typeof window.PublicKeyCredential.isConditionalMediationAvailable === 'function'
+                && typeof window.AbortController !== 'undefined';
+        },
+
+        // Offer the passkey inside the username field's autofill, instead of behind a button.
+        //
+        // The promise stays pending until somebody picks a passkey from the autofill list — which
+        // may be never, and that is the normal case. So it resolves with the verified body on
+        // success and with `null` when the browser cannot do this at all; a rejection means the
+        // ceremony was started and then failed, which the caller may want to show.
+        conditional: function (optionsUrl, verifyUrl, extra) {
+            var self = this;
+
+            if (!this.conditionalSupported()) {
+                return Promise.resolve(null);
+            }
+
+            return window.PublicKeyCredential.isConditionalMediationAvailable()
+                .then(function (available) {
+                    if (!available) {
+                        return null;
+                    }
+
+                    return postJson(optionsUrl, extra || {})
+                        .then(function (res) {
+                            if (!res.ok) { throw new Error('options_failed'); }
+                            return res.json();
+                        })
+                        .then(function (data) {
+                            cancelConditional();
+                            pendingConditional = new window.AbortController();
+
+                            return navigator.credentials.get({
+                                publicKey: prepareRequestOptions(data.options),
+                                mediation: 'conditional',
+                                signal: pendingConditional.signal
+                            });
+                        })
+                        .then(function (cred) {
+                            pendingConditional = null;
+
+                            // An aborted ceremony resolves with nothing in some browsers rather
+                            // than rejecting; there is no assertion to send in that case.
+                            if (!cred) {
+                                return null;
+                            }
+
+                            return postJson(verifyUrl, serializeAssertion(cred))
+                                .then(function (res) {
+                                    return res.json().then(function (body) {
+                                        if (!res.ok) {
+                                            throw new Error(body.error || 'verify_failed');
+                                        }
+                                        return body;
+                                    });
+                                });
+                        });
+                })
+                .catch(function (error) {
+                    pendingConditional = null;
+
+                    // Cancelling is not a failure: the person used the password form instead, or
+                    // pressed the button, which is exactly what the cancel exists for.
+                    if (error && (error.name === 'AbortError' || error.name === 'NotAllowedError')) {
+                        return null;
+                    }
+
+                    throw error;
+                });
+        },
+
+        // Stop waiting for a passkey from the autofill list.
+        cancelConditional: function () {
+            cancelConditional();
+        },
+
         // Assertion ceremony (login / step-up). Resolves with the parsed JSON on
         // success ({status:'ok', redirect?}), rejects on any failure.
         authenticate: function (optionsUrl, verifyUrl, extra) {
             if (!this.supported()) { return Promise.reject(new Error('webauthn_unsupported')); }
+
+            // A conditional ceremony waiting on the username field holds the browser's single
+            // outstanding `credentials.get()`. Without this the button below it would be refused.
+            cancelConditional();
+
             return postJson(optionsUrl, extra || {})
                 .then(function (res) {
                     if (!res.ok) { throw new Error('options_failed'); }

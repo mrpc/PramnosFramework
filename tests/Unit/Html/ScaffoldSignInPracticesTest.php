@@ -117,7 +117,13 @@ class ScaffoldSignInPracticesTest extends TestCase
     public function testTheUsernameFieldIsNotCapitalisedOrCorrected(string $theme): void
     {
         // Arrange
-        $occurrences = self::occurrences($theme, 'autocomplete="username"');
+        // Both spellings: the sign-in screen's field carries the `webauthn` token so a passkey can
+        // be offered inside its autofill, and anchoring on `autocomplete="username"` alone stopped
+        // matching it the day that was added — which would have read as «no username field found».
+        $occurrences = array_merge(
+            self::occurrences($theme, 'autocomplete="username"'),
+            self::occurrences($theme, 'autocomplete="username webauthn"')
+        );
         $this->assertNotSame([], $occurrences, 'no username field found in ' . $theme);
 
         // Act

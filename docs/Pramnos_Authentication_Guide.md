@@ -318,6 +318,53 @@ step-up offers them in:
 | `totp` | an authenticator app | strong; needs enrolling in advance |
 | `email` | a six-digit code, mailed | weakest; needs nothing set up in advance |
 
+### A passkey inside the username autofill
+
+The passkey button is not where most people sign in with one. Conditional mediation puts the
+credential in the username field's own autofill list, so signing in is one tap on a suggestion
+instead of noticing a second button and choosing it. The scaffolded sign-in screen does this out of
+the box; two things make it work.
+
+**The field declares it.** The `webauthn` token is how the specification marks the field a passkey
+suggestion belongs in:
+
+```html
+<input type="text" name="username" id="username"
+       autocomplete="username webauthn"
+       autocapitalize="none" autocorrect="off" spellcheck="false" required>
+```
+
+**The ceremony is started on load and left waiting.** `pf-auth.js` does it when the page has both
+that field and a `[data-pf-passkey-login]` button to read the URLs from. The promise settles when
+somebody picks a passkey — which may be never, and that is the normal case.
+
+```js
+window.PramnosWebAuthn.conditional(optionsUrl, verifyUrl)
+    .then(function (result) { if (result) { window.location = result.redirect; } });
+```
+
+!!! warning "A browser allows one outstanding `credentials.get()`"
+    A conditional request holds it for the life of the page. So switching this on naively **breaks
+    the passkey button**: the second ceremony is refused, silently, and nothing on the page says why.
+
+    `PramnosWebAuthn.authenticate()` cancels any pending conditional request before starting its own,
+    which is what keeps both paths working. If you write your own button, call
+    `PramnosWebAuthn.cancelConditional()` first.
+
+Three cases stand down rather than interfere, and each matters for a reason:
+
+- **`isConditionalMediationAvailable()` is absent** — older browsers. Calling it there is a
+  `TypeError` on the sign-in page, so it is feature-detected.
+- **it answers false** — no ceremony is started at all. Starting one that then failed would hold the
+  single outstanding `get()` and break the button for exactly the browsers that need it most.
+- **the person cancels, or uses the password form** — an `AbortError`, which is the normal ending of
+  a conditional ceremony and is not reported. An error message about a ceremony nobody asked for,
+  appearing while somebody types a password, is worse than no message.
+
+The client is tested by being run: `ConditionalMediationClientTest` loads the shipped
+`pf-webauthn.js` under Node against a stubbed `navigator.credentials` and asserts, among the rest,
+that pressing the button cancels the waiting ceremony and still signs the person in.
+
 **Email is offered precisely because it needs nothing set up in advance.** An
 authenticator app protects an account only if the person installed one before the day
 they needed it, and most have not. Mail is a channel every account already has, so it is

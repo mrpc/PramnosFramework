@@ -119,8 +119,59 @@
         });
     }
 
+    /**
+     * Offer the passkey inside the username field's autofill, not only behind the button.
+     *
+     * Started once on load and left waiting: the ceremony settles when somebody picks a passkey from
+     * the autofill list, which may be never. That is the point — signing in becomes one tap on a
+     * suggestion instead of noticing a second button and choosing it.
+     *
+     * Two conditions, both deliberate:
+     *
+     *  - **only the login button**, never step-up. Step-up already knows who the person is; there is
+     *    no username field to offer anything inside.
+     *  - **only when a username field says `webauthn`.** The `autocomplete="username webauthn"` token
+     *    is what the specification uses to mark the field the suggestion belongs in, so a page that
+     *    has not opted in is left exactly as it was.
+     *
+     * Failures are swallowed on purpose. Nobody asked for this ceremony, so an error message about
+     * it would appear on a form where the visitor is quietly typing a password — and the button and
+     * the password form both still work.
+     */
+    function startConditionalPasskey() {
+        if (!webauthnReady() || typeof window.PramnosWebAuthn.conditional !== 'function') {
+            return;
+        }
+
+        var field = document.querySelector('input[autocomplete~="webauthn"]');
+        var btn   = document.querySelector('[data-pf-passkey-login]');
+
+        if (!field || !btn) {
+            return;
+        }
+
+        var optionsUrl = btn.getAttribute('data-options-url');
+        var verifyUrl  = btn.getAttribute('data-verify-url');
+        var redirect   = btn.getAttribute('data-redirect') || '/';
+
+        if (!optionsUrl || !verifyUrl) {
+            return;
+        }
+
+        window.PramnosWebAuthn.conditional(optionsUrl, verifyUrl)
+            .then(function (result) {
+                if (result) {
+                    window.location = result.redirect || redirect;
+                }
+            })
+            .catch(function () {
+                // See above: an unasked-for ceremony reports nothing.
+            });
+    }
+
     function wirePasskeyButtons() {
         document.querySelectorAll('[data-pf-passkey-login],[data-pf-passkey-stepup]').forEach(wirePasskeyButton);
+        startConditionalPasskey();
     }
 
     // ── Passkey management page (list / add / rename / revoke) ──────────────────
