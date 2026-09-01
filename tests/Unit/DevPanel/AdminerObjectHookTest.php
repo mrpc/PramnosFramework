@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\DevPanel;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversFunction;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\DevPanel\AdminerBridge;
@@ -37,7 +38,17 @@ use Pramnos\DevPanel\AdminerBridge;
  * Separate processes: the file defines a global function, the bridge `eval`s a class, and the parent
  * class is stubbed here. None of those can be undone within a process.
  */
+/*
+ * `CoversFunction` as well as `CoversClass`, and the reason is this session's own lesson.
+ *
+ * `#[CoversClass]` **restricts** what a test contributes to coverage. `adminer-object.php` declares
+ * a global *function*, not a class, so with only the class attribution these eleven passing tests
+ * contributed nothing and the file went on being reported at 0% — the exact shape of the
+ * RedisAdapter measurement puzzle, arrived at from the other direction. A file that no attribute
+ * names is a file the report says nobody has run.
+ */
 #[CoversClass(AdminerBridge::class)]
+#[CoversFunction('adminer_object')]
 #[RunTestsInSeparateProcesses]
 class AdminerObjectHookTest extends TestCase
 {
