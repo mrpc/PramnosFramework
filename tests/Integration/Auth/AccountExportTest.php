@@ -199,9 +199,14 @@ class AccountExportTest extends BaseTestCase
             'userid' => $this->uid, 'share_usage_analytics' => 1, 'marketing_emails' => 0,
             'updated_at' => date('Y-m-d H:i:s', $now),
         ]);
+        // `visitorid` and `history` are NOT NULL with no default in the shipped `sessions`
+        // table, and this insert named neither — so it depended on some other test having
+        // created the table with a laxer shape first, and failed the moment one built it from
+        // the migration instead. Every NOT NULL column is named now.
         $this->db->queryBuilder()->table('sessions')->insert([
-            'sid' => 'sess-abc', 'userid' => $this->uid, 'guest' => 0, 'logout' => 0,
-            'host_addr' => '203.0.113.1', 'agent' => 'Firefox', 'time' => $now, 'url' => '/dashboard',
+            'visitorid' => 'visitor-export', 'sid' => 'sess-abc', 'userid' => $this->uid,
+            'guest' => 0, 'logout' => 0, 'host_addr' => '203.0.113.1', 'agent' => 'Firefox',
+            'time' => $now, 'url' => '/dashboard', 'history' => '',
         ]);
         // tokenactions.params holds a raw request body (possible secret) — excluded.
         $this->db->queryBuilder()->table('urls')->insert(['urlid' => 1, 'url' => '/api/x', 'hash' => 0]);
