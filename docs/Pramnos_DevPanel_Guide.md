@@ -127,6 +127,32 @@ independent questions, and this route needs yes to each. So an API-authenticated
 sealed identity with no session — is refused, deliberately: this is a browser tool, and a bearer
 token is not the credential it asks for.
 
+### What this route hands Adminer, and what it takes away first
+
+Three of these are load-bearing and none of them is visible in the page that comes back.
+
+**`$_POST['auth']` and `$_POST['logout']` are removed before the include.** Adminer's
+`auth.inc.php` acts on `$_POST['auth']` — driver, server, username, password, database — before
+anything else. Removing its login form took away the *page* that submits that, not the ability to
+submit it: a hand-made POST, or a form on another site aimed at this URL, would have logged this
+Adminer into any host reachable from the server with any credentials the sender knew. The gate on this
+route is permission to read *this* database, not a general-purpose database client. `permanent` goes
+with it — the field that asks Adminer to write an encrypted copy of the password into a cookie.
+
+**The session is closed *and emptied*.** `session_write_close()` writes the data and releases the
+handle; `$_SESSION` keeps its contents in memory. Adminer starts a session of its own only when none
+is active, and when it decides not to it reads and writes our keys. One of them is `token`: Adminer's
+CSRF token is `rand() ^ $_SESSION["token"]`, this framework's value is a hex string, and the result was
+«A non-numeric value encountered» twice per page and a CSRF check that could not work.
+
+**The URL rewrite is an output-buffer callback, not code after the include.** Adminer is a script and
+several of its paths end with `exit`, the login page among them — so post-include code never ran, PHP
+flushed the buffer at shutdown, and the page went out with Adminer's own `./static/default.css` links.
+Served from `/adminer` those resolve to `/static/…`, so the tool arrived with no stylesheet and looked
+broken rather than un-rewritten. A callback is invoked by the buffer's own flush, `exit` included.
+
+If you override `serveAdminer()`, all three come with it.
+
 ### The bar above Adminer's page
 
 Adminer is a whole application and every link it draws stays inside itself — it has no idea this
