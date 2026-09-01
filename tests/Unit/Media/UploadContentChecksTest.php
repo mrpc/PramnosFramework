@@ -302,4 +302,140 @@ class UploadContentChecksTest extends TestCase
 
         $this->assertFileDoesNotExist($this->tmp . '/not-a-directory-at-all/.htaccess');
     }
+
+    // ── What a stored row can do to the reader ────────────────────────────────
+
+    /**
+     * A thumbnail serialised as a class this installation does not have is dropped, not fatal.
+     *
+     * The `thumbnails` column holds serialised objects, and the class name travels with them. A
+     * library filled by an older application deserialises into `__PHP_Incomplete_Class`, and
+     * `getThumb()` reads `$thumb->reason` on every entry — reading *any* property of an incomplete
+     * class is a fatal error, not a warning.
+     *
+     * This is real data, not a hypothetical: a production library holds rows serialised as
+     * `O:23:"foreign_media_thumbnail"`, a class that is not in this framework. Every one of those
+     * rows would have taken down the page that displayed it.
+     */
+    public function testAThumbnailOfAnUnknownClassIsDroppedRatherThanFatal(): void
+    {
+        // Arrange — exactly the shape found in production
+        $stored = 'a:1:{i:0;O:23:"foreign_media_thumbnail":1:{s:6:"reason";s:5:"thumb";}}';
+
+        // Act
+        $usable = self::call('usableThumbnails', $stored);
+
+        // Assert
+        $this->assertSame([], $usable, 'an unreadable thumbnail reached the code that walks them');
+    }
+
+    /**
+     * A thumbnail of the framework's own class survives.
+     *
+     * Without this the filter would be satisfied by one that drops everything — a media library
+     * where no image ever has a thumbnail, which looks like the thumbnails were never generated.
+     */
+    public function testAThumbnailOfTheFrameworksOwnClassSurvives(): void
+    {
+        // Arrange
+        $thumb = new \Pramnos\Media\Thumbnail();
+        $thumb->reason = 'thumb';
+        $thumb->filename = '/tmp/x.png';
+
+        // Act
+        $usable = self::call('usableThumbnails', serialize([$thumb]));
+
+        // Assert
+        $this->assertCount(1, $usable, 'a valid thumbnail was dropped');
+        $this->assertSame('thumb', $usable[0]->reason);
+    }
+
+    /**
+     * An empty or unparsable value is an empty list, not `false`.
+     *
+     * `unserialize('')` returns `false`, and `foreach (false)` warns and iterates nothing — so the
+     * symptom was a warning in the log rather than a missing thumbnail anybody would chase.
+     */
+    public function testAnEmptyOrUnparsableValueIsAnEmptyList(): void
+    {
+        // Act & Assert
+        foreach (['', 'not serialised at all', 'a:1:{i:0;s:3:"str";}', null] as $stored) {
+            $this->assertSame(
+                [],
+                self::call('usableThumbnails', $stored),
+                'a stored value of ' . var_export($stored, true) . ' was not normalised'
+            );
+        }
+    }
+
+    /**
+     * A file that cannot be read leaves the hash empty, not the hash of nothing.
+     *
+     * `file_get_contents()` on a missing file returns `false`, and `md5(false)` is `md5('')` —
+     * `d41d8cd98f00b204e9800998ecf8427e`, **the same value for every missing file**. `uploadFile()`
+     * finds a re-upload with `where md5 = %s and medialink = 0`, so every file whose bytes had gone
+     * was a duplicate of every other one, and the next upload could be linked to any of them.
+     *
+     * A production library of 4,551 files holds **14** rows carrying exactly that hash. An empty
+     * hash matches nothing, which is the honest answer for a file nobody can read.
+     */
+    public function testAnUnreadableFileLeavesTheHashEmpty(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->filename = $this->tmp . DIRECTORY_SEPARATOR . 'definitely-not-here.png';
+
+        // Act
+        $media->createMd5();
+
+        // Assert
+        $this->assertSame('', $media->md5, 'a missing file was given the md5 of an empty string');
+        $this->assertNotSame('d41d8cd98f00b204e9800998ecf8427e', $media->md5);
+    }
+
+    /**
+     * A file that can be read is hashed normally.
+     *
+     * The other half: the guard above must not turn every hash into an empty string, which would
+     * stop re-upload detection working at all.
+     */
+    public function testAReadableFileIsHashedNormally(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->filename = $this->file('hashme.txt', 'the contents');
+
+        // Act
+        $media->createMd5();
+
+        // Assert
+        $this->assertSame(md5('the contents'), $media->md5);
+    }
+
+    /**
+     * The detected type is recorded rather than used and thrown away.
+     *
+     * `uploadFile()` reads the real type with `finfo` to decide whether the content matches the
+     * extension — the check that refuses a PHP script named `holiday.jpg` — and used to discard it.
+     * Two things went with it: the security decision became unauditable, and anything serving the
+     * file later had to re-guess the type from the extension, which is the claim that check exists
+     * to distrust. `mediatype` is no substitute: it is a display family and cannot tell a png from a
+     * jpeg.
+     */
+    public function testTheDetectedTypeIsRecorded(): void
+    {
+        // Arrange — a real PDF, which is refused by nothing
+        $pdf = $this->file(
+            'recorded.pdf',
+            "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+        );
+        $media = new MediaObject();
+
+        // Act — the checks run and pass; the upload itself needs a database, which this does not have
+        $detected = self::call('detectMimeType', $pdf);
+
+        // Assert — what the checks saw is what the column is meant to hold
+        $this->assertSame('application/pdf', $detected, 'the file was not identified');
+        $this->assertSame('', (new MediaObject())->mimetype, 'the property has no safe default');
+    }
 }

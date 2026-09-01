@@ -145,6 +145,7 @@ class MediaTablesMigrationTest extends BaseTestCase
                 'mediaid', 'mediatype', 'userid', 'module', 'views', 'thumbnails', 'filesize',
                 'description', 'x', 'y', 'order', 'name', 'filename', 'url', 'shortcut', 'tags',
                 'date', 'otherusers', 'othermodules', 'md5', 'medialink', 'usages', 'extrainfo',
+                'mimetype',
             ] as $column
         ) {
             $this->assertContains($column, $columns, $column . ' is missing from media');
@@ -335,6 +336,7 @@ class MediaTablesMigrationTest extends BaseTestCase
         $media->mediatype   = 1;
         $media->date        = time();
         $media->description = 'Saved through the model';
+        $media->mimetype    = 'image/png';
 
         // Act
         $media->save();
@@ -348,5 +350,10 @@ class MediaTablesMigrationTest extends BaseTestCase
         $this->assertSame('A saved file', (string) $loaded->name);
         $this->assertSame('mediamig_probe', (string) $loaded->module);
         $this->assertSame(str_repeat('e', 32), (string) $loaded->md5);
+        $this->assertSame(
+            'image/png',
+            (string) $loaded->mimetype,
+            'the detected type does not survive a save and load, so it cannot be audited'
+        );
     }
 }

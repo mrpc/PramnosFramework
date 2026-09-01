@@ -95,6 +95,24 @@ class CreateMediaTables extends Migration
                     ->comment('Whether modules other than the owning one may use it');
                 $table->string('md5', 32)->default('')
                     ->comment('Hash of the file content — how a re-upload is recognised');
+                /*
+                 * What the file actually is, according to its own bytes.
+                 *
+                 * `uploadFile()` already reads this with `finfo` to decide whether the content
+                 * matches the extension — that is the check that refuses a PHP script named
+                 * `holiday.jpg` — and then discarded it. Two things were lost with it: the security
+                 * decision became unauditable, and anything serving the file later had to re-guess
+                 * the type from the extension, which is exactly the claim the check exists to
+                 * distrust.
+                 *
+                 * `mediatype` is not a substitute: it is a display family (1 image, 2 emoticon,
+                 * 3 PDF, 0 other) and cannot tell a png from a jpeg.
+                 *
+                 * `''` when it could not be read — no `fileinfo` extension, or an unreadable file —
+                 * which is how every other string column here spells «unknown».
+                 */
+                $table->string('mimetype', 128)->default('')
+                    ->comment('MIME type read from the file content at upload; \'\' when unknown');
                 $table->integer('medialink')->default(0)
                     ->comment('When this row is a duplicate, the mediaid holding the actual file; 0 otherwise');
                 $table->integer('usages')->default(0)

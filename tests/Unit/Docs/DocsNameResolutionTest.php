@@ -88,19 +88,36 @@ class DocsNameResolutionTest extends TestCase
     }
 
     /**
-     * Every class, interface, trait and enum that ships in `src/`.
+     * Every class, interface, trait and enum this framework ships.
      *
      * Built by reading the files rather than by autoloading, so a name can be checked without
      * loading the class it points at — several would need a database or an application.
+     *
+     * **Two roots, not one.** `src/` is PSR-4, and `database/migrations/` is a composer classmap —
+     * so a migration is every bit as real and as autoloadable as anything in `src/`, and a guide
+     * naming one is making a checkable claim. Scanning only `src/` reported a correct reference to
+     * `Pramnos\Framework\Migrations\Core\CreateMediaTables` as a broken one, and would have let a
+     * *wrong* migration name through unnoticed.
      *
      * @return array<string, true> Fully-qualified name => true
      */
     private function shippedTypes(): array
     {
         $types = [];
-        $root  = dirname(__DIR__, 3) . '/src';
+        $base  = dirname(__DIR__, 3);
+        $roots = [$base . '/src', $base . '/database/migrations'];
 
-        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
+        $files = new \AppendIterator();
+        foreach ($roots as $root) {
+            if (!is_dir($root)) {
+                continue;
+            }
+
+            $files->append(
+                new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root))
+            );
+        }
+
         foreach ($files as $file) {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
@@ -194,7 +211,8 @@ class DocsNameResolutionTest extends TestCase
         $this->assertSame(
             [],
             $problems,
-            "These guides name types that do not exist in src/. A reader who greps one of\n"
+            "These guides name types this framework does not ship — neither in src/ nor in\n"
+            . "database/migrations/. A reader who greps one of\n"
             . "these gets nothing back and cannot tell a wrong search from a missing feature.\n"
             . "Fix the name, or remove the claim:\n  " . implode("\n  ", $problems)
         );

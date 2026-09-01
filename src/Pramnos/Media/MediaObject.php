@@ -104,6 +104,20 @@ class MediaObject extends \Pramnos\Framework\Base
      * @var string
      */
     public $md5 = '';
+
+    /**
+     * What the file actually is, according to its own bytes.
+     *
+     * Read with `finfo` at upload, where it is also what decides whether the content matches the
+     * extension. Recorded because the alternative is re-guessing the type from the extension later,
+     * which is the claim that check exists to distrust — and because a security decision nobody
+     * wrote down cannot be audited afterwards.
+     *
+     * `''` when it could not be read: no `fileinfo` extension, or an unreadable file.
+     *
+     * @var string
+     */
+    public $mimetype = '';
     /**
      * Number of usages
      * @var int
@@ -196,13 +210,84 @@ class MediaObject extends \Pramnos\Framework\Base
     }
 
     /**
-     * Create the md5 hash of the contents of the media file
+     * The thumbnails in a stored row, as a list this class can actually walk.
+     *
+     * `getThumb()` reads `$thumb->reason` on every entry, and two shapes of stored value make that
+     * fail rather than return nothing:
+     *
+     *  - **an object of a class this installation does not have.** The column holds serialised
+     *    objects, and the class name is part of the serialisation. A library filled by an older
+     *    application — or by one that had its own thumbnail class — deserialises into
+     *    `__PHP_Incomplete_Class`, and reading *any* property of one of those is a fatal. Real data
+     *    like this exists: rows serialised as `O:23:"foreign_media_thumbnail"`, a class that is not
+     *    in this framework, so every one of those rows would take down the page that displayed it.
+     *  - **an empty or unparsable value.** `unserialize('')` is `false`, and `foreach (false)` warns
+     *    and iterates nothing.
+     *
+     * So the value is normalised on the way in: anything that is not a usable thumbnail is dropped
+     * and the caller gets a shorter list, which is what `getThumb()` already handles — it falls
+     * back to an empty `Thumbnail`.
+     *
+     * `unserialize()` is deliberately **not** restricted with `allowed_classes`. It would be better
+     * hardening, and it would also discard an application's own thumbnail class that loads
+     * perfectly well today — which is a behaviour change for installations that are working. The
+     * filter below achieves the part that matters, which is not crashing.
+     *
+     * @param  mixed $stored The raw column value
+     * @return array<int, Thumbnail|object> Entries that can be read
+     */
+    private static function usableThumbnails($stored): array
+    {
+        if (!is_string($stored) || $stored === '') {
+            return array();
+        }
+
+        $decoded = @unserialize($stored);
+
+        if (!is_array($decoded)) {
+            return array();
+        }
+
+        $usable = array();
+
+        foreach ($decoded as $thumbnail) {
+            // An incomplete class is the case that fatals; anything without a `reason` is of no
+            // use to `getThumb()` either, and silently skipping it beats erroring on it.
+            if (!is_object($thumbnail) || $thumbnail instanceof \__PHP_Incomplete_Class) {
+                continue;
+            }
+
+            if (!property_exists($thumbnail, 'reason')) {
+                continue;
+            }
+
+            $usable[] = $thumbnail;
+        }
+
+        return $usable;
+    }
+
+    /**
+     * Create the md5 hash of the contents of the media file.
+     *
+     * A file that cannot be read leaves the hash **empty**, and that is the fix rather than a
+     * detail. `file_get_contents()` on a missing file returns `false`, and `md5(false)` is
+     * `md5('')` — `d41d8cd98f00b204e9800998ecf8427e`, the same value for every missing file. Since
+     * `uploadFile()` finds a re-upload with `where md5 = %s and medialink = 0`, every file whose
+     * bytes had gone was a duplicate of every other one, and the next upload could be linked to any
+     * of them.
+     *
+     * Not hypothetical: a production library of 4,551 files holds **14** rows carrying exactly that
+     * hash. An empty hash matches nothing, which is the honest answer for a file nobody can read.
+     *
      * @return MediaObject
      */
     public function createMd5()
     {
-        $file = file_get_contents($this->filename);
-        $this->md5 = md5($file);
+        $file = @file_get_contents((string) $this->filename);
+
+        $this->md5 = $file === false ? '' : md5($file);
+
         return $this;
     }
 
@@ -464,6 +549,10 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             }
             $this->filename = $path . strtolower(basename($file));
+            // Recorded here as well, so the column is populated whichever way a file arrived. No
+            // content *check* is added: this entry point takes a file the application already has,
+            // not one a visitor uploaded.
+            $this->mimetype = (string) self::detectMimeType($this->filename);
             $this->processImage($this->filename, $path);
             return $this;
         } else {
@@ -603,8 +692,10 @@ class MediaObject extends \Pramnos\Framework\Base
         $this->x = $startWidth;
         $this->y = $startHeight;
         $this->date = time();
-        $this->filesize = filesize($this->filename);
-        $this->md5 = md5(file_get_contents($this->filename));
+        // Through `createMd5()`, so an unreadable file leaves the hash empty here too rather than
+        // taking the md5 of nothing and colliding with every other unreadable file.
+        $this->filesize = (int) @filesize((string) $this->filename);
+        $this->createMd5();
 
         $sql = $database->prepareQuery(
             "select * from `#PREFIX#media` "
@@ -1085,6 +1176,10 @@ class MediaObject extends \Pramnos\Framework\Base
             return $this;
         }
 
+        // Kept, rather than used and thrown away. Recording what the file turned out to be is what
+        // makes the decision above auditable, and saves the next reader guessing from the extension.
+        $this->mimetype = (string) $detected;
+
         $uploadfile = $path . $filename;
         if (file_exists($uploadfile)) {
             $uploadfile = $path . self::randomToken() . $filename;
@@ -1113,8 +1208,10 @@ class MediaObject extends \Pramnos\Framework\Base
         #$this->x = 0;
         #$this->y = 0;
         $this->date = time();
-        $this->filesize = filesize($this->filename);
-        $this->md5 = md5(file_get_contents($this->filename));
+        // Through `createMd5()`, so an unreadable file leaves the hash empty here too rather than
+        // taking the md5 of nothing and colliding with every other unreadable file.
+        $this->filesize = (int) @filesize((string) $this->filename);
+        $this->createMd5();
 
         $database = \Pramnos\Framework\Factory::getDatabase();
         $sql = $database->prepareQuery(
@@ -1542,6 +1639,11 @@ class MediaObject extends \Pramnos\Framework\Base
                 'fieldName' => 'extrainfo',
                 'value' => $this->extrainfo,
                 'type' => 'string'
+            ),
+            array(
+                'fieldName' => 'mimetype',
+                'value' => $this->mimetype,
+                'type' => 'string'
             )
         );
         $database->cacheflush('media');
@@ -1680,7 +1782,7 @@ class MediaObject extends \Pramnos\Framework\Base
             foreach (array_keys($result->fields) as $key) {
                 $this->$key = $result->fields[$key];
             }
-            $this->thumbnails = unserialize($result->fields['thumbnails']);
+            $this->thumbnails = self::usableThumbnails($result->fields['thumbnails']);
             $this->_isnew = false;
         }
         return $this;

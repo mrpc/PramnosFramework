@@ -411,7 +411,8 @@ One row per stored file. Twenty-three columns; the ones worth knowing:
 | Column | Notes |
 |---|---|
 | `mediaid` | Signed auto-increment. **Not** `UNSIGNED` — `mediause.mediaid` is signed, and MySQL refuses a foreign key between columns that differ in signedness. |
-| `md5` | Content hash. Indexed, because every upload looks it up before storing: `where md5 = %s and medialink = 0`. |
+| `md5` | Content hash. Indexed, because every upload looks it up before storing: `where md5 = %s and medialink = 0`. **Empty when the file could not be read** — see below. |
+| `mimetype` | What the file actually is, read with `finfo` at upload. `''` when it could not be read. |
 | `medialink` | When this row is a duplicate, the `mediaid` holding the real file. **`0` means "not a duplicate"** — a sentinel, which is why there is no foreign key here. |
 | `userid` | The uploader, or **`0` for no signed-in user** — the same reason there is no key on it. |
 | `order` | Display order, for emoticon sets. A reserved word in both backends; see below. |
@@ -428,6 +429,44 @@ One row per *usage*, so one file can appear in many places — `users.photo` hol
 | `mediaid` | Cascading foreign key onto `media.mediaid`, **both directions**. Deleting a file removes its usages; a usage naming no file is refused. |
 | `module`, `specific` | Which record uses it. Indexed as a pair, because three separate queries filter on `module`, on `specific`, or on both. |
 | `order` | Display order within the record that uses it — a gallery is ordered. |
+
+### `mimetype`, and why it is not `mediatype`
+
+`uploadFile()` reads the real type with `finfo` to decide whether the content matches the extension
+— the check that refuses a PHP script named `holiday.jpg`. That value used to be used and thrown
+away. Two things went with it: the security decision became unauditable, and anything serving the
+file later had to re-guess the type from the extension, which is precisely the claim the check exists
+to distrust.
+
+`mediatype` is not a substitute. It is a display family — 1 image, 2 emoticon, 3 PDF, 0 other — and
+cannot tell a png from a jpeg. It is what the class branches on ten times over; `mimetype` is what
+the file is.
+
+Both entry points fill it: `uploadFile()` from the check it already performs, and `addImage()` from
+a detection of its own. `addImage()` gains no *validation* — it takes a file the application already
+has, not one a visitor sent.
+
+### An unreadable file gets an empty hash, not the hash of nothing
+
+`file_get_contents()` on a missing file returns `false`, and `md5(false)` is `md5('')` —
+`d41d8cd98f00b204e9800998ecf8427e`, **the same value for every missing file**. Since a re-upload is
+found with `where md5 = %s and medialink = 0`, every file whose bytes had gone was a duplicate of
+every other one, and the next upload could be linked to any of them.
+
+A production library of 4,551 files held 14 rows carrying exactly that hash. `createMd5()` now leaves
+the hash empty instead, which matches nothing — the honest answer for a file nobody can read.
+
+### A thumbnail of an unknown class is dropped, not fatal
+
+`thumbnails` holds serialised objects, and the class name travels with them. A library filled by an
+older application — or one with its own thumbnail class — deserialises into `__PHP_Incomplete_Class`,
+and `getThumb()` reads `$thumb->reason` on every entry. Reading *any* property of an incomplete class
+is a fatal error, so such a row took down the page that displayed it.
+
+Entries that cannot be read are now dropped on load and `getThumb()` falls back to an empty
+`Thumbnail`, which it already did for a file with no thumbnails. `unserialize()` is deliberately
+**not** restricted with `allowed_classes`: that would be better hardening and would also discard an
+application's own thumbnail class that loads perfectly well today.
 
 ### `order` and `specific` are reserved words
 
