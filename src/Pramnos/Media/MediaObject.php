@@ -257,6 +257,23 @@ class MediaObject extends \Pramnos\Framework\Base
     public $remoteMaxBytes = 10485760;
 
     /**
+     * How many redirects {@see addRemoteImage()} follows, each one checked.
+     *
+     * Three, not zero, and the reason is that refusing them outright loses pictures a site
+     * legitimately holds: an image address that has sat in a catalogue for years is very often an
+     * `http://` that now redirects to `https://`, or a path a CDN has since moved. A fetch that
+     * refused those would be safe and useless.
+     *
+     * Safe because every hop is a fresh question, not because three is a small number: a `302` is a
+     * second address chosen by the server being fetched, and
+     * {@see \Pramnos\Security\OutboundUrl::nextHop()} runs the whole check on it before it is
+     * dialled. Set it to `0` where an address is expected to be exact.
+     *
+     * @var int
+     */
+    public $remoteMaxRedirects = 3;
+
+    /**
      * What {@see addRemoteImage()} accepts, and the extension each type is stored under.
      *
      * Keyed by the mime read from the *bytes*, so the extension on disk describes the content rather
@@ -797,8 +814,8 @@ class MediaObject extends \Pramnos\Framework\Base
      *  - **the address is checked and dialled** through {@see \Pramnos\Security\OutboundUrl}, which
      *    resolves the host, refuses every address inside this network, refuses a scheme that is not
      *    http/https, and connects to the address it approved rather than resolving the name a second
-     *    time. Redirects are not followed, because a redirect is a second address chosen by the server
-     *    being fetched.
+     *    time. Redirects are followed up to {@see $remoteMaxRedirects} hops and **each hop is checked
+     *    again**, because a redirect is a second address chosen by the server being fetched.
      *  - **the body is capped** at {@see $remoteMaxBytes}, mid-stream, so a URL that answers with a
      *    hundred gigabytes costs this process ten megabytes rather than its memory.
      *  - **the type is read from the bytes**, not from the URL's text. The old extension guess
@@ -824,7 +841,9 @@ class MediaObject extends \Pramnos\Framework\Base
         $image = \Pramnos\Security\OutboundUrl::fetch(
             (string) $url,
             $this->remoteMaxBytes,
-            $reason
+            $reason,
+            10,
+            $this->remoteMaxRedirects
         );
 
         if ($image === false || $image === '') {

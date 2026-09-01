@@ -966,13 +966,50 @@ whole check was theatre. So `fetch()` **dials the address it approved** and puts
 which makes «what did we check» and «what did we connect to» the same answer. The certificate is still
 verified against the name, via `peer_name` and SNI.
 
-### Redirects are not followed
+### Redirects are followed only when asked, and every hop is checked
 
 A `302` is a second URL, chosen by the server being fetched. The stream wrapper follows it without
 asking anybody, so an address that passed the check redirects to the metadata endpoint and the fetch
-proceeds. `fetch()` sets `follow_location => 0`, which means a caller that genuinely needs to follow
-redirects re-runs `isPublic()` on each hop — with the `Location` header in hand, which is the only
-place that decision can be made.
+proceeds — which is not hypothetical: an importer that checked its catalogue's host once and left the
+wrapper's following on was measured taking exactly that hop, with the second address receiving the
+connection.
+
+```php
+$body = \Pramnos\Security\OutboundUrl::fetch($url, $maxBytes, $reason, 10, maxRedirects: 3);
+```
+
+`0` (the default) follows none. Above that, each `Location` is resolved against the address that sent
+it and passed through `isPublic()` **before it is dialled**, and a refusal on any hop fails the whole
+fetch with a `$reason` saying which.
+
+**A redirect that is not followed is a failure, not an empty success.** `ignore_errors => true` is what
+lets a caller read a 404 body, and it also meant a `302` came back as a successful fetch of an empty
+string — with no status and no `Location` anywhere in the return, so a caller could neither act on it
+nor know it had happened.
+
+Refusing redirects outright is usually not open to you, which is why this is not simply off. An address
+that has sat in a catalogue for years is very often an `http://` that now redirects to `https://`, or a
+path a CDN has since moved; refusing those is safe and useless.
+
+#### Driving your own loop
+
+If you need to do something between hops — count them differently, log each one, stop at a host you
+recognise — the decision is available on its own:
+
+```php
+$hop = \Pramnos\Security\OutboundUrl::nextHop($currentUrl, $responseHeaders, $reason);
+// string → the next checked address · null → not a redirect · false → refused, $reason says why
+```
+
+`null` and `false` are different answers and a loop turns on the difference: `null` means «this is the
+response», `false` means «stop, and do not use what you have». A falsy check collapses them and turns
+every ordinary 200 into a failure.
+
+`resolveLocation($from, $location)` is the part worth not writing again. Four shapes arrive in the wild:
+an absolute URL; `//host/path`, which inherits the scheme and **not** the host — read as a path it turns
+somebody else's host into a directory on yours; `/path`; and a bare relative path, which is relative to
+the *directory* of the current path, so `/a/b` + `c` is `/a/c` and not `/a/b/c`. `..` and `.` are
+collapsed, because the address that gets checked has to be the string that gets dialled.
 
 ### What each guard is actually for
 
