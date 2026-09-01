@@ -166,10 +166,32 @@ migration can move publishers and consumers over incrementally.
       [Reconnecting, and the events published during it](#reconnecting-and-the-events-published-during-it).
     - **database** — appends to a `broadcast_events` table and polls it (for hosts
       without Redis). Run the shipped `broadcasting` migration to create the table.
+      One portability note if you use it: see
+      [A payload's key order is not preserved](#a-payloads-key-order-is-not-preserved).
     - **log** — writes JSONL; the WebSocket server can tail it.
     - **pusher** — publishes to Pusher / self-hosted Reverb.
     - **Kafka** — not shipped, but implementing `SubscribableDriverInterface` is all
       a `KafkaDriver` needs.
+
+### A payload's key order is not preserved
+
+The **database** driver stores the payload in a `JSON` column, and MySQL normalises
+what it stores: an object's members are re-sorted — by key length first — so a
+payload published as
+
+```php
+Broadcast::channel('orders')->event('changed', ['title' => 'Νέα', 'url' => '/a/b']);
+```
+
+arrives at the consumer as `{"url":"/a/b","title":"Νέα"}`. PostgreSQL keeps the
+text as written, so the same code preserves the order there and the difference is
+invisible until the deployment changes backend.
+
+The keys and the values always round-trip, including Greek text and slashes, which
+are stored unescaped. Only the order is the backend's to choose — so read a payload
+by key, and never `json_encode()` one you received and compare the string, or hash
+it, or sign it. The Redis drivers hand back the bytes you published and would give
+a different answer to all three.
 
 ---
 
