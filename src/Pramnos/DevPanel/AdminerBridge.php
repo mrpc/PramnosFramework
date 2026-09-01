@@ -459,15 +459,21 @@ class AdminerBridge
          * request**, so Adminer's own `session_set_cookie_params()` then warned «Session cookies
          * cannot be used when session.use_cookies is disabled» at the top of every page. A repair
          * that leaves a warning behind has not repaired anything.
+         *
+         * `use_only_cookies` used to be set and restored beside it, and was doing nothing: it
+         * governs whether the id may be taken from the URL, and the id here is set explicitly by
+         * `session_id()` a line below. What it did do was emit «Disabling session.use_only_cookies
+         * INI setting is deprecated» on PHP 8.5 — from the restore, whenever the setting was
+         * already off — which is the same class of leftover warning this comment is about, added
+         * by the code that fixes it.
          */
-        $savedUseCookies     = ini_get('session.use_cookies');
-        $savedOnlyCookies    = ini_get('session.use_only_cookies');
+        $savedUseCookies = ini_get('session.use_cookies');
 
         try {
             session_name(self::SESSION_NAME);
             session_id($cookie);
 
-            if (@session_start(['use_cookies' => false, 'use_only_cookies' => false]) !== true) {
+            if (@session_start(['use_cookies' => false]) !== true) {
                 return;
             }
 
@@ -488,10 +494,6 @@ class AdminerBridge
 
             if (is_string($savedUseCookies)) {
                 ini_set('session.use_cookies', $savedUseCookies);
-            }
-
-            if (is_string($savedOnlyCookies)) {
-                ini_set('session.use_only_cookies', $savedOnlyCookies);
             }
         }
     }

@@ -174,6 +174,29 @@ What this does **not** protect against is somebody who already has a root accoun
 that is a concern, keep `adminer_autologin` off, and the operator types the database password —
 two locks instead of one.
 
+### The session repair
+
+Adminer starts a session only when none is active, so the first version of this route handed it
+ours. One of the keys it uses is `token`: ours is a hex string and its is
+`rand() ^ $_SESSION["token"]`, which gives «A non-numeric value encountered» twice a page and a
+CSRF check that cannot work.
+
+Closing our session fixed it for a new visitor and did nothing for anybody who had already loaded
+the broken page — the bad value was already in their `adminer_sid` session, waiting for every later
+request. So `AdminerBridge::repairSession()` removes it, rather than only preventing it: the
+alternative is telling people to clear their cookies, which is what software says when it cannot
+fix itself.
+
+It is deliberately narrow. Only `token`, and only when it is not numeric — everything else in
+there is Adminer's. Only when no session is already open, because starting a second one over a live
+session would take the visitor's own with it. Only for a cookie shaped like a session id, because
+that value is under the visitor's control and `session_id()` rejects anything else noisily.
+
+And it restores what it changed: the session name, and `session.use_cookies`.
+`session_start($options)` applies its options as ini settings **for the rest of the request**, so
+without the restore Adminer's own `session_set_cookie_params()` warned «Session cookies cannot be
+used when session.use_cookies is disabled» at the top of every page.
+
 Two details worth knowing:
 
 - Its assets live in `vendor/`, which no web root serves, and it links them as
