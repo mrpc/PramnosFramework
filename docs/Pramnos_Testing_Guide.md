@@ -521,6 +521,37 @@ Three rules, in order of preference:
    drifts from what production ships, and two hand-rolled shapes drift from each other. The
    framework's own migration is the one definition both tests can agree on.
 
+## `#[CoversClass]` decides what a test contributes to coverage
+
+Not just what the report *labels*. PHPUnit restricts a test's coverage to the classes its metadata
+names — so a class a test genuinely exercises, but does not declare, contributes **nothing** to that
+class's numbers.
+
+That is easy to lose an hour to, because the test passes, the code demonstrably runs, and the report
+says zero:
+
+```php
+#[CoversClass(AbstractAdapter::class)]
+#[CoversClass(FileAdapter::class)]      // …and no RedisAdapter
+class StructuredOperationParityTest extends TestCase
+```
+
+That class asserts that the fallback adapters and the native Redis one behave identically — its
+Redis rows pass, `hashSet()` provably reaches the server, and `RedisAdapter` still measured
+**0 of 328** when the class was run on its own. Adding the missing attribute took it to 90 with no
+other change. The same file reads 222 in a full suite run, because *other* tests declare
+`RedisAdapter` and contribute their own lines.
+
+So three numbers for one commit — 0, 90 and 222 — and none of them was a measurement fault. If a
+file looks less covered than the tests suggest, check the attributes before you go looking for a
+flake.
+
+**Add the attribute only where the class really is part of the test's subject.** The parity test *is*
+about all three adapters, so declaring all three is accurate. `PageCacheEdgesTest` merely uses a
+Redis adapter as a collaborator — declaring it there would misstate what the test is about and
+credit `RedisAdapter` with lines nothing in it asserts on. A coverage number inflated that way is
+worse than one that is honestly low.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so

@@ -43,6 +43,7 @@ use Pramnos\Cache\Adapter\RedisAdapter;
  */
 #[CoversClass(AbstractAdapter::class)]
 #[CoversClass(FileAdapter::class)]
+#[CoversClass(RedisAdapter::class)]
 class StructuredOperationParityTest extends TestCase
 {
     private const REDIS_DB = 11;
