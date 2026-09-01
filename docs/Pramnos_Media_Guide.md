@@ -393,51 +393,82 @@ $userMedia = $media->getList(0, '', 123); // All types, any module, user ID 123
 
 ## Database Schema
 
-### Main Media Table
+**Created by the shipped migration** — `Pramnos\Framework\Migrations\Core\CreateMediaTables`,
+which builds both tables in one `up()` because `mediause.mediaid` has a cascading foreign key onto
+`media.mediaid` and the parent has to exist first. Run `migrate` and they are there.
+
+That migration is the definition. It did not exist until 1 September 2026: `MediaObject` arrived with
+the framework's original import in 2020, and the migrations were reconstructed six years later from
+an application that does not use it — so these two tables were never in the source that
+reconstruction read. In the meantime three different shapes were written down (this guide's, the
+framework test's, and the one actually running), and they disagreed on the type of half the columns.
+Read the migration rather than any of them.
+
+### `media`
+
+One row per stored file. Twenty-three columns; the ones worth knowing:
+
+| Column | Notes |
+|---|---|
+| `mediaid` | Signed auto-increment. **Not** `UNSIGNED` — `mediause.mediaid` is signed, and MySQL refuses a foreign key between columns that differ in signedness. |
+| `md5` | Content hash. Indexed, because every upload looks it up before storing: `where md5 = %s and medialink = 0`. |
+| `medialink` | When this row is a duplicate, the `mediaid` holding the real file. **`0` means "not a duplicate"** — a sentinel, which is why there is no foreign key here. |
+| `userid` | The uploader, or **`0` for no signed-in user** — the same reason there is no key on it. |
+| `order` | Display order, for emoticon sets. A reserved word in both backends; see below. |
+| `thumbnails` | PHP-**serialised** list, not JSON. `unserialize()` reads it back, so the column stays `text`. |
+| `otherusers`, `othermodules` | `tinyint` flags: may other users / other modules see this file. |
+
+### `mediause`
+
+One row per *usage*, so one file can appear in many places — `users.photo` holds a `usageid`.
+
+| Column | Notes |
+|---|---|
+| `usageid` | Signed auto-increment. |
+| `mediaid` | Cascading foreign key onto `media.mediaid`, **both directions**. Deleting a file removes its usages; a usage naming no file is refused. |
+| `module`, `specific` | Which record uses it. Indexed as a pair, because three separate queries filter on `module`, on `specific`, or on both. |
+| `order` | Display order within the record that uses it — a gallery is ordered. |
+
+### `order` and `specific` are reserved words
+
+Both are real column names here and both are reserved in MySQL and PostgreSQL. `MediaObject`'s own
+queries are hand-written SQL with the quoting already in place, but anything going through the query
+builder needs the grammar to quote them — which it now does, for these and the rest of the words that
+turn up as column names. Before that, `where('order', 5)` compiled to `WHERE order = ?`, a syntax
+error on both backends.
+
+If you are naming a column, this still argues for avoiding a reserved word. These two are kept
+because they are what is running.
+
+### Bringing an existing installation up to this shape
+
+An installation that has had these tables since before the migration existed will differ in four
+ways. None of them changes a column name or breaks anything that works, so this is a `migrate`-safe
+catch-up rather than a rewrite:
 
 ```sql
-CREATE TABLE media (
-    mediaid INT AUTO_INCREMENT PRIMARY KEY,
-    mediatype INT DEFAULT 0,
-    userid INT DEFAULT 0,
-    module VARCHAR(100),
-    order_field INT DEFAULT 0,
-    name VARCHAR(255),
-    filename TEXT,
-    url TEXT,
-    shortcut VARCHAR(50),
-    tags TEXT,
-    date INT,
-    views INT DEFAULT 0,
-    thumbnails TEXT,
-    filesize INT DEFAULT 0,
-    description TEXT,
-    x INT DEFAULT 0,
-    y INT DEFAULT 0,
-    usages INT DEFAULT 0,
-    md5 VARCHAR(32),
-    medialink INT DEFAULT 0,
-    otherusers TINYINT DEFAULT 0,
-    othermodules TINYINT DEFAULT 0
-);
+-- 1. utf8mb4, so a description or a tag can hold an emoji. utf8mb3 cannot.
+ALTER TABLE media    CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER TABLE mediause CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 2. One index on md5, not two. `md5` and `md5_2` are the same column; the second costs a
+--    write on every insert and answers no question the first cannot.
+ALTER TABLE media DROP INDEX md5_2;
+
+-- 3. The index that was never there. Three queries filter mediause by module, by specific,
+--    or by both, and every one of them is a full scan without this.
+ALTER TABLE mediause ADD INDEX idx_mediause_module_specific (module, specific);
+
+-- 4. filesize and date as BIGINT. int(11) caps filesize at 2 GB — a video overflows it — and
+--    a Unix timestamp in an int stops working in 2038.
+ALTER TABLE media    MODIFY filesize BIGINT NOT NULL DEFAULT 0,
+                     MODIFY `date`   BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE mediause MODIFY `date`   BIGINT NOT NULL DEFAULT 0;
 ```
 
-### Media Usage Table
-
-```sql
-CREATE TABLE mediause (
-    usageid INT AUTO_INCREMENT PRIMARY KEY,
-    mediaid INT,
-    module VARCHAR(100),
-    specific VARCHAR(255),
-    date INT,
-    title VARCHAR(255),
-    description TEXT,
-    tags TEXT,
-    order_field INT DEFAULT 0,
-    FOREIGN KEY (mediaid) REFERENCES media(mediaid)
-);
-```
+The fifth difference needs no action: the migration gives every column a default, where an older
+table has them `NOT NULL` with none. That only widens what an insert may omit, so existing inserts
+are unaffected.
 
 ## API Reference
 

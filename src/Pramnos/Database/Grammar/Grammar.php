@@ -59,16 +59,62 @@ abstract class Grammar implements GrammarInterface
      */
     protected function quoteIfCaseSensitive(string $column): string
     {
-        if ($column === strtolower($column)) {
-            return $column;
-        }
-
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column) !== 1) {
             return $column;
         }
 
-        return $this->quoteColumn($column);
+        if ($column !== strtolower($column)) {
+            return $this->quoteColumn($column);
+        }
+
+        return isset(static::RESERVED_COLUMN_NAMES[$column])
+            ? $this->quoteColumn($column)
+            : $column;
     }
+
+    /**
+     * Lower-case identifiers that are reserved words, and so need quoting anyway.
+     *
+     * The rule above quotes anything with an upper-case letter, which is what case folding needs. A
+     * reserved word is the other reason a bare identifier fails, and it is invisible to that rule
+     * because reserved words are conventionally written in lower case: `where('order', 5)` compiled
+     * to `WHERE order = ?`, which is a syntax error on both backends.
+     *
+     * It stopped being hypothetical when the framework's own `media` and `mediause` tables arrived
+     * with `order` and `specific` columns — the framework would have shipped a table its own query
+     * builder could not filter. `MediaObject` never hit it because its queries are hand-written SQL
+     * with the backticks already in place.
+     *
+     * Not the full SQL reserved list, which runs to hundreds of words most of which nobody names a
+     * column: this is the set that shows up as column names in practice, plus the ones already in
+     * this framework's tables. Quoting a bare identifier is always valid, so a word listed here that
+     * did not need it costs nothing — the reason the list is not simply «everything» is the rule
+     * above, which deliberately leaves untouched SQL that already works.
+     *
+     * Keyed for an O(1) lookup; the values are ignored.
+     */
+    protected const RESERVED_COLUMN_NAMES = [
+        'order' => true, 'group' => true, 'key' => true, 'index' => true, 'primary' => true,
+        'unique' => true, 'default' => true, 'check' => true, 'references' => true,
+        'specific' => true, 'table' => true, 'column' => true, 'select' => true, 'from' => true,
+        'where' => true, 'having' => true, 'limit' => true, 'offset' => true, 'union' => true,
+        'desc' => true, 'asc' => true, 'and' => true, 'or' => true, 'not' => true, 'null' => true,
+        'true' => true, 'false' => true, 'like' => true, 'in' => true, 'is' => true, 'as' => true,
+        'on' => true, 'using' => true, 'natural' => true, 'join' => true, 'inner' => true,
+        'outer' => true, 'left' => true, 'right' => true, 'full' => true, 'cross' => true,
+        'case' => true, 'when' => true, 'then' => true, 'else' => true, 'end' => true,
+        'exists' => true, 'between' => true, 'distinct' => true, 'all' => true, 'any' => true,
+        'some' => true, 'values' => true, 'set' => true, 'into' => true, 'insert' => true,
+        'update' => true, 'delete' => true, 'create' => true, 'drop' => true, 'alter' => true,
+        'grant' => true, 'revoke' => true, 'user' => true, 'current_user' => true,
+        'session_user' => true, 'localtime' => true, 'localtimestamp' => true, 'current_date' => true,
+        'current_time' => true, 'current_timestamp' => true, 'interval' => true, 'to' => true,
+        'with' => true, 'window' => true, 'over' => true, 'partition' => true, 'range' => true,
+        'rows' => true, 'only' => true, 'returning' => true, 'analyse' => true, 'analyze' => true,
+        'binary' => true, 'collate' => true, 'concurrently' => true, 'freeze' => true,
+        'ilike' => true, 'isnull' => true, 'notnull' => true, 'offset' => true, 'placing' => true,
+        'similar' => true, 'symmetric' => true, 'variadic' => true, 'verbose' => true,
+    ];
 
     /**
      * Optionally modify a column reference for a specific operator.

@@ -42,54 +42,6 @@ class MediaObjectTest extends TestCase
      *
      * @var string
      */
-    private const MEDIA_TABLE_DDL = <<<'SQL'
-CREATE TABLE `media` (
-                `mediaid` int(11) NOT NULL AUTO_INCREMENT,
-                `mediatype` int(11) NOT NULL DEFAULT 0,
-                `userid` int(11) NOT NULL DEFAULT 0,
-                `module` varchar(255) NOT NULL DEFAULT "",
-                `views` int(11) NOT NULL DEFAULT 0,
-                `thumbnails` text,
-                `filesize` int(11) NOT NULL DEFAULT 0,
-                `description` text,
-                `x` int(11) NOT NULL DEFAULT 0,
-                `y` int(11) NOT NULL DEFAULT 0,
-                `usages` int(11) NOT NULL DEFAULT 0,
-                `md5` varchar(32) NOT NULL DEFAULT "",
-                `medialink` int(11) NOT NULL DEFAULT 0,
-                `order` int(11) NOT NULL DEFAULT 0,
-                `name` varchar(255) NOT NULL DEFAULT "",
-                `filename` varchar(255) NOT NULL DEFAULT "",
-                `url` varchar(255) NOT NULL DEFAULT "",
-                `shortcut` varchar(255) NOT NULL DEFAULT "",
-                `tags` varchar(255) NOT NULL DEFAULT "",
-                `date` int(11) NOT NULL DEFAULT 0,
-                `otherusers` int(11) NOT NULL DEFAULT 0,
-                `othermodules` int(11) NOT NULL DEFAULT 0,
-                `extrainfo` text,
-                PRIMARY KEY (`mediaid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SQL;
-
-    /**
-     * DDL for the `mediause` table.
-     *
-     * @var string
-     */
-    private const MEDIAUSE_TABLE_DDL = <<<'SQL'
-CREATE TABLE `mediause` (
-                `usageid` int(11) NOT NULL AUTO_INCREMENT,
-                `mediaid` int(11) NOT NULL DEFAULT 0,
-                `module` varchar(255) NOT NULL DEFAULT "",
-                `specific` varchar(255) NOT NULL DEFAULT "",
-                `date` int(11) NOT NULL DEFAULT 0,
-                `title` varchar(255) NOT NULL DEFAULT "",
-                `description` text,
-                `tags` varchar(255) NOT NULL DEFAULT "",
-                `order` int(11) NOT NULL DEFAULT 0,
-                PRIMARY KEY (`usageid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SQL;
 
     /**
      * Every table this class owns, in an order safe to create and empty.
@@ -151,8 +103,27 @@ SQL;
         User::setupDb();
         $db->query('SET FOREIGN_KEY_CHECKS = 1');
 
-        $db->query(self::MEDIA_TABLE_DDL);
-        $db->query(self::MEDIAUSE_TABLE_DDL);
+        /*
+         * From the shipped migration, not from a constant in this file.
+         *
+         * These two tables had no migration until 1 September 2026 — `MediaObject` arrived with the
+         * framework's original import and the migrations were reconstructed six years later from an
+         * application that does not use it. So this file carried its own `CREATE TABLE`, and it had
+         * drifted: `description` as `text` where production has `varchar(255)`,
+         * `otherusers`/`othermodules` as `int` where production has `tinyint`, `shortcut` at 255
+         * where production has 128, and no index on `md5` at all.
+         *
+         * A test asserting a shape the framework does not ship is a test that can pass while the
+         * shipped schema is broken, which is the whole reason the rule is to build from the
+         * migration.
+         */
+        // This setUp is static, so `getMockBuilder()` is unavailable; a migration only ever touches
+        // `$this->application->database`, so an Application built without its constructor is enough.
+        $migrationApp = (new \ReflectionClass(\Pramnos\Application\Application::class))
+            ->newInstanceWithoutConstructor();
+        $migrationApp->database = $db;
+
+        (new \Pramnos\Framework\Migrations\Core\CreateMediaTables($migrationApp))->up();
 
         $singleton = &Factory::getDatabase();
         $singleton = null;
@@ -185,8 +156,11 @@ SQL;
         if (!$db->connected) {
             $db->connect();
         }
-        $db->query('DROP TABLE IF EXISTS `media`');
+        // The child first: `mediause.mediaid` has a cascading foreign key onto `media`, so dropping
+        // the parent while the child exists is refused. The `TABLES` constant above already lists
+        // them in this order; this pair did not, because until today there was no key to respect.
         $db->query('DROP TABLE IF EXISTS `mediause`');
+        $db->query('DROP TABLE IF EXISTS `media`');
 
         $singleton = &Factory::getDatabase();
         $singleton = null;
