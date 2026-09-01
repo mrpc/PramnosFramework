@@ -121,17 +121,28 @@ class AccountCharacterizationTest extends BaseTestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
-        // user_activity_log — column names match what Account::getActivityLog() selects
-        $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}authserver_user_activity_log` (
-                `id`         bigint AUTO_INCREMENT PRIMARY KEY,
-                `userid`     bigint NOT NULL,
-                `action`     varchar(100) NOT NULL,
-                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                `ip_address` varchar(45) DEFAULT NULL,
-                `user_agent` text DEFAULT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        /*
+         * user_activity_log — from its migration, not from hand-rolled DDL.
+         *
+         * It was hand-rolled here, with the columns `Account::getActivityLog()` selects and no
+         * `details`. That is enough for this test and wrong for the database, because the DDL was
+         * `CREATE TABLE IF NOT EXISTS`: whichever test touched the table first decided its shape
+         * for the whole run, and when it was this one, every later `ActivityLog::record()` insert
+         * failed on the missing column and was swallowed by the logger's own catch.
+         *
+         * The visible damage was elsewhere. `EmailSecondFactor::recentSends()` selects `details`
+         * to filter by purpose, so it threw, was caught, and returned "no recent sends" — which
+         * means the resend rate limit on emailed sign-in codes silently did not apply, on MySQL,
+         * for any run in which this test happened to go first.
+         *
+         * Dropped and migrated, so the shape is the shipped one and no ordering decides it.
+         */
+        $this->db->query("DROP TABLE IF EXISTS `{$p}authserver_user_activity_log`");
+        $this->runMigrations(
+            [\Pramnos\Framework\Migrations\Auth\CreateUserActivityLogTable::class],
+            $this->db
         );
+        \Pramnos\Auth\ActivityLog::resetTableCache();
 
         // user_privacy_settings — columns match Account::getPrivacySettings() / privacy() POST
         // Column names align with the migration and the reference application: share_usage_analytics, marketing_emails.

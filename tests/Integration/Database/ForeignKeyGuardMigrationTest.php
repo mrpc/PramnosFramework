@@ -180,6 +180,73 @@ class ForeignKeyGuardMigrationTest extends TestCase
         $this->assertFalse($this->constraintExists('users', 'fk_users_locationid'));
     }
 
+    /**
+     * A row whose parent is gone makes the key be skipped, not the batch aborted.
+     *
+     * `ALTER TABLE … ADD CONSTRAINT` validates every existing row, so one orphan aborts the
+     * statement and the whole migration — on every later `migrate`, with a raw constraint error
+     * naming a table the operator did not touch.
+     *
+     * And it is exactly backwards: a database that has run for years without these keys is where
+     * a deleted user can have left an audit row behind, while a fresh one has nothing to orphan.
+     * So the migration failed on the installations it was written for and succeeded on the ones
+     * that did not need it.
+     *
+     * This is also the fault that made this suite fail intermittently. `authserver.user_activity_log`
+     * is shared between many tests; whether one of them had left a row for a user it then removed
+     * decided whether this class errored, and that depends on ordering.
+     */
+    public function testARowWithNoParentSkipsTheKeyRatherThanAbortingTheMigration(): void
+    {
+        // Arrange — an audit row for a user who is not there any more.
+        if (!$this->tableExists('users')) {
+            $this->markTestSkipped('No users table on this connection.');
+        }
+
+        /*
+         * Asked through the schema builder, not through this class's own `tableExists()`.
+         *
+         * That helper looks in `public`, which is right for the tables these scenarios create and
+         * wrong for this one: `authserver.user_activity_log` is a real schema on PostgreSQL and a
+         * table-prefix emulation on MySQL, and only the builder knows which.
+         */
+        $schema = $this->app->database->schema();
+
+        if (!$schema->hasTable('authserver.user_activity_log')) {
+            // Created from its own migration rather than skipped: this scenario is the reason
+            // the guard exists, and a test that quietly does not run on the connection where the
+            // fault appeared is the shape of the problem, not a workaround for it.
+            (new \Pramnos\Framework\Migrations\Auth\CreateUserActivityLogTable($this->app))->up();
+        }
+
+        if (!$schema->hasTable('authserver.user_activity_log')) {
+            $this->markTestSkipped('The activity log could not be created on this connection.');
+        }
+
+        $log = $schema->quoteTable('authserver.user_activity_log');
+
+        $orphan = 987654321;
+        $this->statement(
+            'INSERT INTO ' . $log . ' (userid, action, created_at)'
+            . " VALUES ({$orphan}, 'orphan_probe', '2026-01-01 00:00:00')",
+            true
+        );
+
+        // Act — the whole migration, as `migrate` runs it.
+        (new AddMissingForeignKeysToExistingTables($this->app))->up();
+
+        // Assert — it completed, and declined to add the one key the data cannot satisfy.
+        $this->assertFalse(
+            $this->constraintExists('user_activity_log', 'fk_user_activity_log_userid'),
+            'the constraint was added over a row that violates it'
+        );
+
+        $this->statement(
+            'DELETE FROM ' . $log . " WHERE action = 'orphan_probe'",
+            true
+        );
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     /**

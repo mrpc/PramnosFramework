@@ -296,7 +296,84 @@ class AddMissingForeignKeysToExistingTables extends Migration
             return false;
         }
 
+        $orphans = $this->orphanCount($table, $column, $referencedTable, $onColumn);
+
+        if ($orphans > 0) {
+            $this->skipForeignKey(
+                $constraint,
+                "$table has $orphans row(s) whose '$column' names no $referencedTable."
+                . " Remove or repair them and run migrate again"
+            );
+
+            return false;
+        }
+
         return true;
+    }
+
+    /**
+     * How many rows would violate the constraint if it were added now.
+     *
+     * The three checks above ask whether the *shape* allows the key. This asks whether the
+     * *data* does, and it was the missing one. `ALTER TABLE … ADD CONSTRAINT` validates every
+     * existing row, so one orphan aborts the statement — and with it the whole batch, on every
+     * later `migrate`, exactly as a mismatched `locations` column did before the guard above
+     * existed.
+     *
+     * The installations this hurts are the ones the migration is for. A database that has been
+     * running without these keys is precisely where a deleted user can have left an audit row
+     * behind; a fresh one has nothing to orphan. So the migration would refuse to complete on old
+     * data and succeed on new, which is the wrong way round.
+     *
+     * Skipped rather than fixed. Deleting rows is not a migration's decision to take on an
+     * operator's behalf — an orphaned `user_activity_log` row is an audit record, and the audit
+     * trail losing entries because an upgrade tidied up is worse than a missing constraint. The
+     * log line says which constraint, how many rows, and that `migrate` will add it once they are
+     * dealt with; the migration stays re-runnable, so it will.
+     *
+     * A `NULL` in the child column is not an orphan: a nullable foreign key means "no parent",
+     * and every backend accepts it.
+     *
+     * @param  string $table           Child table, possibly schema-qualified
+     * @param  string $column          Child column
+     * @param  string $referencedTable Parent table, bare
+     * @param  string $onColumn        Parent column
+     * @return int    Rows that would violate the constraint; 0 when it is safe to add
+     */
+    protected function orphanCount($table, $column, $referencedTable, $onColumn)
+    {
+        $schema = $this->schema('public');
+
+        try {
+            $child  = $schema->quoteTable($table);
+            $parent = $schema->quoteTable($referencedTable);
+
+            $row = $this->DB()->selectOne(
+                'SELECT COUNT(*) AS orphans FROM ' . $child . ' c'
+                . ' LEFT JOIN ' . $parent . ' p ON c.' . $column . ' = p.' . $onColumn
+                . ' WHERE c.' . $column . ' IS NOT NULL AND p.' . $onColumn . ' IS NULL'
+            );
+        } catch (\Throwable $exception) {
+            /*
+             * A count that cannot be taken is not evidence of orphans.
+             *
+             * Refusing the key here would make an unrelated failure — a permission, a view
+             * standing in for a table — look like dirty data, and the message would send an
+             * operator looking for rows that are not there. The `ALTER TABLE` below is the
+             * check of last resort either way.
+             */
+            return 0;
+        }
+
+        if (is_array($row)) {
+            return (int) ($row['orphans'] ?? reset($row));
+        }
+
+        if (is_object($row)) {
+            return (int) ($row->orphans ?? 0);
+        }
+
+        return (int) $row;
     }
 
     /**

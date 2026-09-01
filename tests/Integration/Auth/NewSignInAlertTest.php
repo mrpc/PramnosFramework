@@ -74,6 +74,10 @@ class NewSignInAlertTest extends DatabaseTestCase
                 `value` TEXT,
                 PRIMARY KEY (`userid`, `fieldname`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
+            // `details` is not read here, and is declared anyway: this table is dropped and
+            // recreated per run, and every other owner of it writes that column. A shape missing
+            // it is one an `ActivityLog::record()` insert fails against — silently, because the
+            // logger catches its own errors.
             'CREATE TABLE IF NOT EXISTS `authserver_user_activity_log` (
                 `id` BIGINT NOT NULL AUTO_INCREMENT,
                 `userid` BIGINT NOT NULL,
