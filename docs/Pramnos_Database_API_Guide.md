@@ -70,6 +70,40 @@ $this->application->database->prepareQuery("SELECT * FROM users WHERE id = ?", [
 
 **Note**: Only `%s` and `%d` are commonly used in the Pramnos framework.
 
+## A literal `%` in the SQL, and `LIKE`
+
+`prepareQuery()` is `sprintf` underneath, so a `%` in the query string is a format directive unless
+you say otherwise. Two rules follow, and the second used to be a crash:
+
+**With arguments, write `%%` for a literal percent.** That is what the method documents and what
+every `LIKE` needs:
+
+```php
+// Wildcards, with a bound argument beside them
+$sql = $db->prepareQuery(
+    "SELECT * FROM `#PREFIX#users` WHERE `userid` = %d AND `username` LIKE 'a%%'",
+    7
+);
+```
+
+**With no arguments, a single `%` is left alone.** Until 1 September 2026 it was not: `vsprintf` ran
+whether or not there was anything to substitute, so
+
+```php
+$db->prepareQuery("SELECT * FROM `#PREFIX#queueitems` WHERE `payload` LIKE '%ApplyStart%'");
+```
+
+raised **`ValueError: Missing padding character`** — `sprintf` reads the trailing `%'` as «pad with
+the next character» and there is no next character. The `@` in front of `vsprintf` suppressed
+warnings, not exceptions, so this was a fatal error on an ordinary query. It no longer calls
+`vsprintf` when there is nothing to substitute.
+
+`%%` still collapses to `%` on that path, because callers have relied on that for years — a query
+holding `DATE_FORMAT(\`created\`, '%%c')` with no arguments still reaches the database as `'%c'`.
+
+A `%s` or `%d` with no argument passes through to the database instead of raising, which is a
+malformed query rather than a fatal. If you write a placeholder, pass its value.
+
 ## Reading a table's schema: `getColumns()`
 
 ```php

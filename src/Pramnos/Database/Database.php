@@ -2042,6 +2042,31 @@ class Database extends \Pramnos\Framework\Base
             $args[$key] = $this->prepareInput($arg);
         }
 
+        /*
+         * With nothing to substitute, `vsprintf` is all risk and no benefit.
+         *
+         * It used to be called regardless, so every literal `%` in an argument-less query was read
+         * as a format directive. `LIKE '%ApplyStart%'` is the ordinary victim: to `sprintf` the
+         * trailing `%'` is «pad with the next character» and there is no next character, so PHP 8
+         * raises **`ValueError: Missing padding character`**. The `@` does not help — it suppresses
+         * warnings, not exceptions — so a routine `LIKE` query was a fatal error. Measured surface in
+         * one consuming application: 82 lines across 15 files containing `LIKE '%`.
+         *
+         * `str_replace` rather than `return $query`, and the difference matters. The predecessor this
+         * method replaces returned the query untouched, which would leave `%%` in the SQL — and the
+         * documented meaning of `%%` here is «a literal percent». `vsprintf` collapsed it, so every
+         * caller relying on that has been getting `%` for years; returning the query as-is would
+         * change `DATE_FORMAT(f, '%%c')` into something MySQL reads as a literal `%` followed by
+         * `c`. Collapsing it by hand keeps the contract and cannot throw.
+         *
+         * A `%s` in an argument-less query passes through to the database, which is a malformed
+         * query rather than a fatal — the same thing the predecessor did, and a caller that wrote a
+         * placeholder without an argument has a bug either way.
+         */
+        if ($args === array()) {
+            return str_replace('%%', '%', $query);
+        }
+
         return @vsprintf($query, $args);
     }
 
