@@ -870,6 +870,22 @@ directory and a view directory is per-application: the sign-in page is the one s
 project inherits, so every project had to copy the partial in to use the feature and then
 owned a copy of the framework's markup for ever.
 
+**The nonce is not optional.** A project with a strict `Content-Security-Policy` drops an
+un-nonced inline script *silently* — no error a person sees — so no solution is ever computed
+and the check then refuses every submission. That is a public form nobody can send, presenting
+as the check doing its job. Both script tags carry it: the inline one that hands the challenge
+to the form, and the `src` one that loads the worker.
+
+The field id is derived from the token, so two forms with a check on one page — a sign-in beside
+a registration — do not collide. Without that the script would find the first form's input from
+both, and the second would submit an empty solution.
+
+The challenge is encoded with `JSON_HEX_TAG`, because it lands inside a `<script>` element:
+`</script>` closes a script tag wherever it appears in one, since HTML looks for those characters
+and does not know it is inside a JavaScript string. Quoting is no defence there. The real token
+is `hex.int.int.hmac` and cannot contain a `<`, so nothing reachable depended on it — but this is
+a global helper with an array parameter, and a view may call it with its own.
+
 ## Dependency Security
 
 ### Keep Dependencies Updated

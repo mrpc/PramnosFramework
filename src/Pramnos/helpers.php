@@ -315,7 +315,23 @@ if (!function_exists('humanCheckField')) {
             ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') . '"'
             : '';
         $id    = 'pf-hc-' . substr(hash('sha256', $token), 0, 8);
-        $json  = json_encode($challenge, JSON_UNESCAPED_SLASHES);
+
+        /*
+         * `JSON_HEX_TAG`, because this JSON ends up inside a `<script>` element.
+         *
+         * `</script>` closes a script element wherever it appears in one — HTML looks for the
+         * literal characters and does not know it is inside a JavaScript string, so no amount of
+         * quoting helps. With `JSON_UNESCAPED_SLASHES` alone a value containing `</script>` ended
+         * the tag and everything after it was markup.
+         *
+         * Not reachable today: the only caller passes `HumanCheck::challenge()`, whose token is
+         * `hex.int.int.hmac` and cannot contain a `<`. But this is a global helper with a
+         * documented array parameter, and a view is entitled to call it with its own — so the
+         * encoding is made safe for the context it is written into rather than for the one caller
+         * that exists. `<` and `>` become `\u003C` and `\u003E`, which every browser parses
+         * identically.
+         */
+        $json  = json_encode($challenge, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
         $src   = (defined('sURL') ? sURL : '') . 'assets/js/pf-humancheck.js';
 
         return '<input type="hidden" name="human_challenge" value="'
@@ -323,7 +339,7 @@ if (!function_exists('humanCheckField')) {
             . '<input type="hidden" name="human_solution" value="" id="' . $id . '">'
             . '<script' . $attr . '>(function(){var f=document.getElementById("' . $id . '");'
             . 'if(f&&f.form){f.form.setAttribute("data-pf-humancheck",'
-            . json_encode($json, JSON_UNESCAPED_SLASHES) . ');}})();</script>'
+            . json_encode($json, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) . ');}})();</script>'
             . '<script' . $attr . ' src="' . htmlspecialchars($src, ENT_QUOTES, 'UTF-8')
             . '"></script>';
     }
