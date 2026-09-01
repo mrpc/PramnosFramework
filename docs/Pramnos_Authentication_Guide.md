@@ -1541,6 +1541,23 @@ alarm that stays rare, and rarity is the whole value — a security notification
 learn to ignore is worse than none. If you need finer granularity, add a signed device
 cookie; that is the tool built for the job, and narrowing this fingerprint is not.
 
+### The current sign-in is excluded once, not everywhere
+
+The history is read **after** the login lifecycle has logged this sign-in, so the current
+fingerprint is already in it and would always match itself. It is therefore excluded — but only
+**one** row of it.
+
+Excluding every row carrying it looks equivalent and is not. An account that uses a laptop and a
+phone has both in its history: signing in from the laptop removed *all* the laptop's rows and left
+the phone's, which is a non-empty history missing the current device — the definition of "new". So
+both devices alerted on every single sign-in, forever, which is exactly the alert-nobody-reads
+failure this feature exists to avoid.
+
+One row is what the current sign-in contributes, so one is what is dropped. If it has not been
+logged yet, the row dropped is an earlier sign-in from the same device and any others still mark it
+familiar; only a device being used for the second time ever can still look new, which is the
+conservative direction.
+
 ### Where the history comes from
 
 `authserver.user_activity_log`, which has recorded a user agent against every `login`

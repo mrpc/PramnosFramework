@@ -225,6 +225,27 @@ class ForeignKeyGuardMigrationTest extends TestCase
 
         $log = $schema->quoteTable('authserver.user_activity_log');
 
+        /*
+         * The constraint is dropped first, because it survives between runs.
+         *
+         * `canAddForeignKey()` short-circuits when the constraint already exists — rightly, so a
+         * re-run is safe — which means a database where an earlier clean run added it would let
+         * this test pass for the wrong reason, and one where it is present *and* the data is dirty
+         * would fail. Either way the test would be asserting about the previous run rather than
+         * about this migration. Dropping it makes the precondition this test's own; the migration
+         * puts it back on the next run once the orphan below is gone.
+         */
+        $this->statement(
+            'ALTER TABLE ' . $log . ' DROP CONSTRAINT fk_user_activity_log_userid',
+            true
+        );
+        if ($this->driver === 'mysql') {
+            $this->statement(
+                'ALTER TABLE ' . $log . ' DROP FOREIGN KEY fk_user_activity_log_userid',
+                true
+            );
+        }
+
         $orphan = 987654321;
         $this->statement(
             'INSERT INTO ' . $log . ' (userid, action, created_at)'

@@ -273,9 +273,9 @@ class NewSignInAlert
      * The fingerprints this account has signed in with before.
      *
      * @param  int    $userId  The user
-     * @param  string $exclude A fingerprint to leave out — the current sign-in, whose
-     *                         own log row has usually been written by the time this
-     *                         runs, and which would otherwise always match itself
+     * @param  string $exclude A fingerprint to leave out **once** — the current sign-in, whose
+     *                         own log row has usually been written by the time this runs, and
+     *                         which would otherwise always match itself
      * @param  \Pramnos\Database\Database|null $database Explicit connection
      * @return array<string, true> Fingerprint => true
      */
@@ -298,18 +298,42 @@ class NewSignInAlert
                 'auth'
             );
 
-            // No history is not the same as no matches. Returning an empty set here
-            // would mean "everything is new", and the caller would notify — turning a
-            // database hiccup into mail to the user. The caller treats a failure as
-            // "say nothing", which is why this is distinguishable from a real empty.
+            // An empty set means "everything is new", so a caller that notified on it would turn
+            // a database hiccup into mail to every user with the preference on. It does not:
+            // {@see isNew()} answers false for an empty set, which covers a failed read and a
+            // genuinely empty history at once — the two want the same answer, so nothing here
+            // needs to tell them apart.
             return array();
         }
 
+        /*
+         * The excluded fingerprint is dropped **once**, not wherever it appears.
+         *
+         * `$exclude` exists because the current sign-in's own row has usually been written by the
+         * time this runs, and a device that matched itself would never look familiar. Dropping
+         * every row with that fingerprint went far past that: an account that uses a laptop and a
+         * phone has both in its history, so signing in from either removed *all* of that device's
+         * rows and left the other — a non-empty set missing the current fingerprint, which is the
+         * definition of "new". Both devices then produced an alert on every single sign-in,
+         * forever, which is precisely the alert-nobody-reads failure the feature exists to avoid.
+         *
+         * One row is what the current sign-in contributes, so one is what comes out. If it had
+         * not been logged yet, the row dropped is an earlier sign-in from the same device and any
+         * others still mark it familiar; only a device used for the second time ever can still
+         * look new, which is the conservative direction.
+         */
+        $excluded = $exclude === '';
+
         foreach ((array) $rows as $row) {
             $fingerprint = SignInFingerprint::fromUserAgent($row['user_agent'] ?? null);
-            if ($fingerprint !== $exclude) {
-                $known[$fingerprint] = true;
+
+            if (!$excluded && $fingerprint === $exclude) {
+                $excluded = true;
+
+                continue;
             }
+
+            $known[$fingerprint] = true;
         }
 
         return $known;
