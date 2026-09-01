@@ -383,6 +383,57 @@ declares what it needs.
 
 ---
 
+## PasswordToggle
+
+The «show password» control that sits beside a password field. First recommendation of
+[web.dev's sign-in form guidance](https://web.dev/articles/sign-in-form-best-practices), and the
+reason is mobile: on a phone the commonest cause of a failed sign-in is a typo in a field nobody can
+read. Someone who cannot see what they typed retries the same wrong thing, then resets a password
+they never forgot.
+
+```php
+<div class="flex items-baseline justify-between mb-1">
+    <label for="password">Password</label>
+    <?php echo \Pramnos\Html\PasswordToggle::render('password', 'Show', 'Hide', 'btn btn-ghost btn-xs'); ?>
+</div>
+<input type="password" name="password" id="password" autocomplete="current-password" required>
+```
+
+`render(string $inputId, string $showLabel = '', string $hideLabel = '', string $class = '')`. The id
+is the `id` of the input it controls; the labels default to translated «Show password» / «Hide
+password»; the class is the theme's own, because this class has no opinion about how a button looks.
+
+### The button ships `hidden`
+
+It is rendered with the `hidden` attribute and unhidden by its own script. A control that cannot do
+anything is worse than no control: without JavaScript a visible «show» button is something a person
+presses twice and then distrusts the rest of the form. A no-JS visitor sees exactly the form they saw
+before, and the field never depended on the script.
+
+### The script repeats, on purpose
+
+Every button carries the script, and the script guards itself in the browser — the first copy binds a
+delegated listener on `document`, the rest return immediately.
+
+The first version kept a static «already emitted» flag so it went out once per page. That flag is
+**process** state, not request state: a process that renders more than one response — an in-process
+test client, a long-running worker, anything producing two pages — gave the second page a button with
+no listener behind it. A few hundred repeated bytes is the better trade against a bug that only
+appears outside a plain request, which is exactly where nobody looks for it.
+
+### What it does not touch
+
+Only `type` changes. `name`, `id` and `autocomplete` stay as they are, because those three are what a
+password manager matches on — a toggle that renamed the field would stop it offering the saved
+password, which costs more than an unreadable field does. Focus and the caret position are preserved
+too: toggling mid-word and losing your place is the same frustration in a different shape.
+
+### The id is checked, not escaped
+
+It reaches an HTML attribute *and* a `getElementById` call. An id is written by a developer as a
+constant, so anything outside `^[A-Za-z][A-Za-z0-9_:.-]*$` raises `InvalidArgumentException` rather
+than being quietly encoded into a control that addresses nothing.
+
 ## SearchBox
 
 ```php
