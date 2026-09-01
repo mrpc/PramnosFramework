@@ -456,12 +456,16 @@ every other one, and the next upload could be linked to any of them.
 A production library of 4,551 files held 14 rows carrying exactly that hash. `createMd5()` now leaves
 the hash empty instead, which matches nothing — the honest answer for a file nobody can read.
 
-### A thumbnail of an unknown class is dropped, not fatal
+### A thumbnail the reading process cannot load is dropped, not fatal
 
-`thumbnails` holds serialised objects, and the class name travels with them. A library filled by an
-older application — or one with its own thumbnail class — deserialises into `__PHP_Incomplete_Class`,
-and `getThumb()` reads `$thumb->reason` on every entry. Reading *any* property of an incomplete class
-is a fatal error, so such a row took down the page that displayed it.
+`thumbnails` holds serialised objects, and the class name travels with them — so **who can read a row
+depends on which classes that process has**. An application with its own thumbnail class reads its own
+rows fine; the class is declared, the objects come back whole.
+
+It breaks for a different reader: this framework on its own, a second application sharing the
+database, a CLI process that never boots the first application's class aliases. There `unserialize()`
+yields `__PHP_Incomplete_Class`, and `getThumb()` reads `$thumb->reason` on every entry — reading
+*any* property of an incomplete class is a fatal error rather than a missing thumbnail.
 
 Entries that cannot be read are now dropped on load and `getThumb()` falls back to an empty
 `Thumbnail`, which it already did for a file with no thumbnails. `unserialize()` is deliberately

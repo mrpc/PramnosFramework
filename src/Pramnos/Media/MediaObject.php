@@ -215,12 +215,17 @@ class MediaObject extends \Pramnos\Framework\Base
      * `getThumb()` reads `$thumb->reason` on every entry, and two shapes of stored value make that
      * fail rather than return nothing:
      *
-     *  - **an object of a class this installation does not have.** The column holds serialised
-     *    objects, and the class name is part of the serialisation. A library filled by an older
-     *    application — or by one that had its own thumbnail class — deserialises into
-     *    `__PHP_Incomplete_Class`, and reading *any* property of one of those is a fatal. Real data
-     *    like this exists: rows serialised as `O:23:"foreign_media_thumbnail"`, a class that is not
-     *    in this framework, so every one of those rows would take down the page that displayed it.
+     *  - **an object of a class the *reading process* cannot load.** The column holds serialised
+     *    objects, and the class name is part of the serialisation, so who can read a row depends on
+     *    which classes that process has. An application with its own thumbnail class reads its own
+     *    rows perfectly well — real data exists serialised as `O:23:"foreign_media_thumbnail"`, and
+     *    the application holding it declares exactly that class with the same properties this one
+     *    has, so nothing there was ever broken.
+     *
+     *    It breaks for a *different* reader: this framework on its own, a second application sharing
+     *    the database, a CLI process that does not boot the first application's aliases. There
+     *    `unserialize()` yields `__PHP_Incomplete_Class`, and reading *any* property of one of those
+     *    is a fatal error rather than a missing thumbnail.
      *  - **an empty or unparsable value.** `unserialize('')` is `false`, and `foreach (false)` warns
      *    and iterates nothing.
      *
