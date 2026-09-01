@@ -314,16 +314,52 @@ class FileAdapter extends AbstractAdapter
         }
 
         if (is_dir($dir)) {
-            $files = scandir($dir);
+            $files = $this->scanDirectory($dir);
+
+            /*
+             * A read that failed is not an empty directory.
+             *
+             * `scandir()` answers `false` when the directory has gone between the `is_dir()`
+             * above and the read — which happens, because this sweep runs from
+             * `Database::cacheflush()` and that runs on every model save, so two of them can be
+             * walking the same tree. `count(false)` is a **TypeError**, and a TypeError is an
+             * `Error` rather than an `Exception`, so it went straight past the catch below and
+             * out of the save that triggered the flush.
+             *
+             * Seen once in a full suite run and never in the twenty before it, which is the
+             * signature of the race. Same shape as the vanishing directory `cleanup()` was
+             * taught about earlier: reclaiming disk is best-effort, and the request that
+             * happened to trigger it must not fail for it.
+             */
+            if (!is_array($files)) {
+                return;
+            }
+
             if (count($files) <= 2) { // Only . and ..
                 try {
                     rmdir($dir);
                     $this->cleanEmptyDirectories(dirname($dir));
-                } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+                } catch (\Throwable $ex) { // @codeCoverageIgnoreStart
                     \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 } // @codeCoverageIgnoreEnd
             }
         }
+    }
+
+    /**
+     * The entries of a directory, or `false` when it cannot be read.
+     *
+     * A seam, for the same reason {@see directoryIterator()} is one: the interesting case is the
+     * read *failing*, and a test cannot make `scandir()` fail on a directory it owns — the suite
+     * runs as root, so permissions are no lever. `@` because a vanished directory is a warning
+     * this method is about to handle, not one to print.
+     *
+     * @param  string $dir
+     * @return array<int, string>|false
+     */
+    protected function scanDirectory(string $dir)
+    {
+        return @scandir($dir);
     }
 
     /**

@@ -69,6 +69,82 @@ class FileAdapterVanishingDirectoryTest extends TestCase
     }
 
     /**
+     * An adapter whose empty-directory sweep cannot read the directory it is about to remove.
+     *
+     * The other half of the same race, and the one that got past the first fix.
+     * `cleanEmptyDirectories()` checks `is_dir()` and then reads — and between the two, another
+     * flush can have removed it. `scandir()` answers `false` there, and `count(false)` is a
+     * **TypeError**: an `Error`, not an `Exception`, so it went straight past the `catch` beside
+     * it and out of whatever triggered the flush. Which is a model save, on every write.
+     */
+    private function unreadableSweepAdapter(): FileAdapter
+    {
+        return new class ($this->dir) extends FileAdapter {
+            public int $reads = 0;
+
+            protected function scanDirectory(string $dir)
+            {
+                $this->reads++;
+
+                return false;
+            }
+
+            /** `cleanEmptyDirectories()` is protected; this is the way in. */
+            public function sweep(string $dir): void
+            {
+                $this->cleanEmptyDirectories($dir);
+            }
+        };
+    }
+
+    /**
+     * The empty-directory sweep survives the directory going away between the check and the read.
+     *
+     * Seen once in a full suite run and never in the twenty before it, which is what a race looks
+     * like from outside. The sweep only reclaims disk — a stale file is never *served*, because
+     * `load()` checks the timestamp — so nothing here is worth failing a save for.
+     */
+    public function testTheEmptyDirectorySweepSurvivesAnUnreadableDirectory(): void
+    {
+        // Arrange — a real directory, so `is_dir()` passes and the read is what fails.
+        $adapter = $this->unreadableSweepAdapter();
+        $nested  = $this->dir . '/category';
+        mkdir($nested, 0777, true);
+
+        // Act & Assert — a TypeError here is the bug; anything else is the fix working.
+        $adapter->sweep($nested);
+
+        $this->assertSame(1, $adapter->reads, 'the directory was never read');
+        $this->assertDirectoryExists(
+            $nested,
+            'a directory that could not be read was removed anyway'
+        );
+    }
+
+    /**
+     * And with a readable, genuinely empty directory it still removes it.
+     *
+     * The guard must not turn into "never sweep": every cache write creates a directory, and
+     * before this swept upward they stayed for good — three thousand empty directories on one
+     * installation, each one walked again by the next sweep.
+     */
+    public function testAGenuinelyEmptyDirectoryIsStillRemoved(): void
+    {
+        // Arrange
+        $adapter = new FileAdapter($this->dir, '');
+        $nested  = $this->dir . '/category/deeper';
+        mkdir($nested, 0777, true);
+
+        // Act
+        (function () use ($nested): void {
+            $this->cleanEmptyDirectories($nested);
+        })->call($adapter);
+
+        // Assert
+        $this->assertDirectoryDoesNotExist($nested, 'an empty directory was left behind');
+    }
+
+    /**
      * A flush over a directory that vanishes mid-walk succeeds and reports nothing wrong.
      *
      * This is the assertion that would have saved the user activation: the caller of a flush is

@@ -110,13 +110,60 @@ class ApiDocsDefaultsTest extends TestCase
         $dir = $this->tmp . '/' . $relative;
         mkdir($dir, 0775, true);
 
+        /*
+         * A real class, in the namespace the command will derive, and loaded.
+         *
+         * `OpenApiGenerator::fromClasses()` skips anything `class_exists()` denies, and
+         * `discoverClasses()` builds the name from the namespace plus the **file name**. This
+         * fixture used to write a file with `#[Route]` methods and no class declaration at all,
+         * on the reasoning that the generator "reflects over files" — it reflects over *classes*,
+         * so every file was skipped and every run reported `0 path(s), 0 operation(s)`.
+         *
+         * Nothing failed, because no assertion in this file looked at a count: the sibling
+         * comparison is `$otherCount > $found`, and `0 > 0` is false, so the test asserting that
+         * an explicit directory is *not* second-guessed passed without a sibling to ignore.
+         *
+         * The class name carries a random suffix because a PHP process may declare a class once,
+         * and several tests here write controllers into the same relative directory.
+         */
+        $namespace = $this->namespaceFor($relative);
+        $class     = 'Demo' . bin2hex(random_bytes(4)) . 'Controller';
+
         $methods = '';
         for ($i = 1; $i <= $routes; $i++) {
             $methods .= "    #[Route('/thing{$i}', methods: 'GET')]\n"
-                . "    public function thing{$i}(): array { return []; }\n";
+                . "    public function thing{$i}(): void {}\n";
         }
 
-        file_put_contents($dir . '/DemoController.php', "<?php\n" . $methods);
+        $file = $dir . '/' . $class . '.php';
+        file_put_contents(
+            $file,
+            "<?php\n\nnamespace {$namespace};\n\n"
+            . "use Pramnos\\Routing\\Attributes\\Route;\n\n"
+            . "class {$class}\n{\n" . $methods . "}\n"
+        );
+
+        require $file;
+    }
+
+    /**
+     * The namespace the command derives for a controllers directory.
+     *
+     * The same rule `detectNamespace()` applies — the application namespace, then the directory
+     * with its `src/` root stripped — so the fixture and the command agree by construction rather
+     * than by coincidence.
+     */
+    private function namespaceFor(string $relative): string
+    {
+        $relative = trim($relative, '/');
+
+        if (str_starts_with($relative, 'src/')) {
+            $relative = substr($relative, 4);
+        }
+
+        $segments = array_filter(explode('/', $relative), static fn (string $s): bool => $s !== '');
+
+        return 'DemoApp' . ($segments === [] ? '' : '\\' . implode('\\', $segments));
     }
 
     /**
@@ -289,6 +336,171 @@ class ApiDocsDefaultsTest extends TestCase
         // Assert
         $this->assertStringContainsString('Scanned src/Controllers', $display);
         $this->assertStringContainsString('namespace DemoApp\\Controllers', $display);
+    }
+
+    /**
+     * A scan that found less than the directory next door says so — and changes nothing.
+     *
+     * The defect that prompted the whole class, in its live form. `Wrote 1 path(s), 1
+     * operation(s)` was **true** for an application serving seventy-two endpoints, and a document
+     * describing one of them is not obviously broken: it is indistinguishable from an application
+     * that genuinely has one, so it gets published and believed.
+     *
+     * Both halves are asserted. The warning has to name the other directory, the two counts and
+     * the flag to re-run with, because "check your configuration" is not something anybody can
+     * act on. And **nothing is switched**: the document written is still the one that was asked
+     * for, because a command that quietly scanned somewhere else would be a worse surprise than a
+     * thin document — the operator would have no way to know which of the two they were reading.
+     *
+     * @return void
+     */
+    public function testAThinScanSaysWhatTheSiblingHolds(): void
+    {
+        // Arrange — the layout from the report: one MVC controller, and the real API next door.
+        $this->writeAppFile('DemoApp');
+        $this->writeControllers('src/Controllers', 1);
+        $this->writeControllers('src/Api/Controllers', 5);
+
+        // Act — no `--controllers`, so the defaults choose.
+        $display = $this->runCommand()->getDisplay();
+
+        // Assert — the API directory is preferred, so this run is the good one.
+        $this->assertStringContainsString('Scanned src/Api/Controllers', $display);
+        $this->assertStringNotContainsString(
+            'Re-run with',
+            $display,
+            'the richer directory was scanned and it still nagged'
+        );
+    }
+
+    /**
+     * And when the thin directory is the one scanned, the warning names the other.
+     *
+     * Reached by removing the preferred directory's advantage: with only `src/Controllers`
+     * holding the single route and `src/Api/Controllers` absent from the candidates it would
+     * pick, the operator has to be told where the rest of the API is.
+     *
+     * @return void
+     */
+    public function testTheWarningNamesTheDirectoryTheCountsAndTheFlag(): void
+    {
+        // Arrange — `src/Api/Controllers` is richer, and the run is pointed at the thin one by
+        // being the only candidate the default picks: remove the API directory from the equation
+        // by asking for the thin one *without* `--controllers`, which the defaults would not do,
+        // so the scan is driven through the same path a default run takes.
+        $this->writeAppFile('DemoApp');
+        $this->writeControllers('src/Api/Controllers', 1);
+        $this->writeControllers('src/Controllers', 5);
+
+        // Act
+        $display = $this->runCommand()->getDisplay();
+
+        // Assert — the default prefers the API directory, which here is the thin one.
+        $this->assertStringContainsString('Scanned src/Api/Controllers', $display);
+        $this->assertStringContainsString('src/Controllers holds 5 operation(s)', $display);
+        $this->assertStringContainsString('more than the 1 found', $display);
+        $this->assertStringContainsString(
+            '--controllers=src/Controllers',
+            $display,
+            'the warning does not say how to act on it'
+        );
+
+        // …and it wrote the document it was asked for, not the sibling's.
+        $written = json_decode(
+            (string) file_get_contents($this->tmp . '/www/api/openapi.json'),
+            true
+        );
+        $this->assertCount(
+            1,
+            (array) ($written['paths'] ?? []),
+            'the command switched directories instead of saying so'
+        );
+    }
+
+    /**
+     * A sibling with the same number of operations is not worth a warning.
+     *
+     * The comparison is `>`, not `!=`. Two directories of equal size are two halves of an API,
+     * and a line advising a re-run that would find exactly as much is a line that trains people
+     * to ignore the warning that matters.
+     *
+     * @return void
+     */
+    public function testAnEquallySizedSiblingIsNotWorthAWarning(): void
+    {
+        // Arrange
+        $this->writeAppFile('DemoApp');
+        $this->writeControllers('src/Api/Controllers', 3);
+        $this->writeControllers('src/Controllers', 3);
+
+        // Act
+        $display = $this->runCommand()->getDisplay();
+
+        // Assert
+        $this->assertStringNotContainsString('Re-run with', $display);
+    }
+
+    /**
+     * With no `app/app.php` the namespace cannot be derived, and the command says so.
+     *
+     * A project root that is not a Pramnos application, or a command run from the wrong
+     * directory. Guessing a namespace here would scan for classes that cannot exist and report a
+     * successful run with nothing in it — which is the failure this whole class is about.
+     *
+     * @return void
+     */
+    public function testWithNoApplicationFileTheNamespaceCannotBeDerived(): void
+    {
+        // Arrange — controllers, but nothing saying what namespace they are in.
+        $this->writeControllers('src/Controllers', 2);
+
+        // Act
+        $tester  = $this->runCommand();
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertNotSame(0, $tester->getStatusCode(), 'a run with no namespace reported success');
+        $this->assertStringContainsString('namespace', $display);
+    }
+
+    /**
+     * An overrides document is deep-merged rather than replacing what was generated.
+     *
+     * Overrides exist for what cannot be inferred from a route — a request body's schema, an
+     * example, a description. Replacing the generated document with them would mean maintaining
+     * the whole thing by hand, which is what the generator is for.
+     *
+     * @return void
+     */
+    public function testAnOverridesDocumentIsMergedIntoTheGenerated(): void
+    {
+        // Arrange
+        $this->writeAppFile('DemoApp');
+        $this->writeControllers('src/Controllers', 1);
+
+        file_put_contents(
+            $this->tmp . '/overrides.json',
+            json_encode(['info' => ['contact' => ['name' => 'Somebody']]])
+        );
+
+        // Act
+        $this->runCommand(['--overrides' => 'overrides.json']);
+
+        // Assert
+        $written = json_decode(
+            (string) file_get_contents($this->tmp . '/www/api/openapi.json'),
+            true
+        );
+        $this->assertSame(
+            'Somebody',
+            $written['info']['contact']['name'] ?? null,
+            'the overrides were not merged'
+        );
+        $this->assertNotSame(
+            [],
+            (array) ($written['paths'] ?? []),
+            'the overrides replaced the generated document instead of merging into it'
+        );
     }
 
     /**
