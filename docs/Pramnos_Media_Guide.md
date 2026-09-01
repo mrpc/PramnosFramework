@@ -440,35 +440,13 @@ error on both backends.
 If you are naming a column, this still argues for avoiding a reserved word. These two are kept
 because they are what is running.
 
-### Bringing an existing installation up to this shape
+### An installation that predates this migration
 
-An installation that has had these tables since before the migration existed will differ in four
-ways. None of them changes a column name or breaks anything that works, so this is a `migrate`-safe
-catch-up rather than a rewrite:
-
-```sql
--- 1. utf8mb4, so a description or a tag can hold an emoji. utf8mb3 cannot.
-ALTER TABLE media    CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE mediause CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- 2. One index on md5, not two. `md5` and `md5_2` are the same column; the second costs a
---    write on every insert and answers no question the first cannot.
-ALTER TABLE media DROP INDEX md5_2;
-
--- 3. The index that was never there. Three queries filter mediause by module, by specific,
---    or by both, and every one of them is a full scan without this.
-ALTER TABLE mediause ADD INDEX idx_mediause_module_specific (module, specific);
-
--- 4. filesize and date as BIGINT. int(11) caps filesize at 2 GB — a video overflows it — and
---    a Unix timestamp in an int stops working in 2038.
-ALTER TABLE media    MODIFY filesize BIGINT NOT NULL DEFAULT 0,
-                     MODIFY `date`   BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE mediause MODIFY `date`   BIGINT NOT NULL DEFAULT 0;
-```
-
-The fifth difference needs no action: the migration gives every column a default, where an older
-table has them `NOT NULL` with none. That only widens what an insert may omit, so existing inserts
-are unaffected.
+`hasTable()` guards both `createTable()` calls, so `migrate` leaves existing tables alone — it will
+not touch a `media` that has been there for years. Such a table may differ from what the migration
+now creates: character set, the index on `md5`, whether `(module, specific)` is indexed, and the width
+of `filesize` and `date`. Reconciling that is the application's decision, not the framework's, and
+nothing in the framework depends on it.
 
 ## API Reference
 
