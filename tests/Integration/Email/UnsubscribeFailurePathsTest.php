@@ -344,24 +344,47 @@ class UnsubscribeFailurePathsTest extends BaseTestCase
     }
 
     /**
-     * A token nobody signed does not verify — including one edited by a single character.
+     * A token naming somebody else does not verify.
      *
-     * The property that makes an unstored token safe: the address and the list travel inside it,
-     * so without the signature check anybody could unsubscribe a stranger by editing a URL.
+     * The property that makes an unstored token safe: the address and the list travel *inside*
+     * it, so without the signature check anybody could unsubscribe a stranger by editing a URL.
+     * Written as the attack rather than as a mutation — decode, put another address in, keep the
+     * signature, re-encode — which is deterministic and is what somebody would actually try.
+     *
+     * The first version flipped the token's last character and asserted it stopped verifying.
+     * That failed in a full run and passed under a filter, because base64 carries six bits per
+     * character: the last one holds padding bits that `base64_decode` discards, so changing it
+     * often decodes to the identical bytes. A test of the signature has to change the *payload*,
+     * not the encoding of it.
      */
-    public function testAnEditedTokenDoesNotVerify(): void
+    public function testATokenNamingSomebodyElseDoesNotVerify(): void
     {
         // Arrange
         $token = Unsubscribe::token($this->address, 'marketing');
         $this->assertNotSame('', $token, 'precondition: a token was issued');
         $this->assertIsArray(Unsubscribe::verify($token), 'precondition: it verifies');
 
-        // Act & Assert
+        $decoded = base64_decode(strtr($token, '-_', '+/'), true);
+        $parts   = explode('|', (string) $decoded);
+        $this->assertCount(3, $parts, 'precondition: the payload is address, list and signature');
+
+        // Act — the same signature, over a different person.
+        $forged = rtrim(strtr(base64_encode(
+            'somebody.else@example.com|' . $parts[1] . '|' . $parts[2]
+        ), '+/', '-_'), '=');
+
+        // Assert
+        $this->assertNull(
+            Unsubscribe::verify($forged),
+            'a token edited to name another address still verified'
+        );
         $this->assertNull(Unsubscribe::verify(''), 'an empty token verified');
         $this->assertNull(Unsubscribe::verify('not-a-token'), 'a made-up token verified');
         $this->assertNull(
-            Unsubscribe::verify(substr($token, 0, -1) . (str_ends_with($token, 'a') ? 'b' : 'a')),
-            'a token with its last character changed still verified'
+            Unsubscribe::verify(rtrim(strtr(base64_encode(
+                $parts[0] . '|' . $parts[1] . '|' . str_repeat('0', strlen($parts[2]))
+            ), '+/', '-_'), '=')),
+            'a token with the signature replaced still verified'
         );
     }
 
