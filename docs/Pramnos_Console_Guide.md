@@ -801,6 +801,23 @@ This generates a model class with:
 - Type-safe property declarations
 - API list method with pagination
 
+### Which column becomes the primary key
+
+From the table, when there is a table to ask. `create:model` reads the key out of the schema, so a
+legacy table keyed on `customer_id` gets a model that says `customer_id` — it used to derive the
+name by convention (singular table name plus `id`) and produce `customerid`, which is not a column:
+such a model loads nothing and inserts a new row on every save, which presents as «the edit form
+does not work». `create:api` had always read the schema, so the two generators disagreed about the
+same table.
+
+The convention is still the answer in the two cases where the schema cannot be asked:
+
+- the **migration-wizard path**, where the migration has been written and not yet run, so the table
+  does not exist;
+- a **composite primary key**, because `Pramnos\Application\Model` addresses a row by one column
+  and there is no honest single answer — the convention at least produces a name a developer will
+  recognise as needing an edit.
+
 ### Generated Model Structure
 
 ```php

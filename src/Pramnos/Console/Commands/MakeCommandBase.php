@@ -3778,10 +3778,27 @@ PHP;
         string $className,
         string $tableName,
         array  $columns,
-        array  $foreignKeys = []
+        array  $foreignKeys = [],
+        string $primaryKey = ''
     ): string {
-        $date          = date('d/m/Y H:i');
-        $primaryKey    = $this->getSingularPrimaryKey($tableName);
+        $date = date('d/m/Y H:i');
+
+        /*
+         * The table's own primary key when the caller knows it, the convention otherwise.
+         *
+         * The convention — singular table name plus `id` — is right for a table this toolchain
+         * generated, and it is the only thing available on the wizard path, where the table does not
+         * exist yet. It is wrong for every table that does not follow it, which is most legacy
+         * schemas: `customers` keyed on `customer_id` produced a model declaring `customerid`, and a
+         * model whose primary key is not a column loads nothing and inserts a new row on every save.
+         *
+         * `createApi()` has always read the key out of the column report, so the two generators
+         * disagreed about the same table — the controller addressing `customer_id` and the model
+         * `customerid`. The parameter is optional so no existing caller changes behaviour.
+         */
+        if ($primaryKey === '') {
+            $primaryKey = $this->getSingularPrimaryKey($tableName);
+        }
         $arrayFix      = '';
         $foreignFixes  = '';
         $allFields     = [$primaryKey];
@@ -3949,10 +3966,18 @@ PHP;
                 $this->getSingularPrimaryKey($tableName), $tableName,
                 $wizardForeignKeys, defined('ROOT') ? ROOT : getcwd()
             );
+            /*
+             * The same closing line the live-table branch prints.
+             *
+             * This branch — a migration written but not yet run — ended after the paths, so
+             * `create:model` confirmed nothing on the one path where the developer has most reason
+             * to wonder whether it worked: there is no table behind it to go and look at.
+             */
             return "Namespace: {$namespace}\n"
                  . "Class:     {$className}\n"
                  . "File:      {$filename}\n"
-                 . $testLine;
+                 . $testLine
+                 . "\nModel created.";
         }
 
         $result = $database->getColumns($tableName, $this->schema, false, true);
@@ -4027,7 +4052,9 @@ PHP;
         }
 
         $fileContent = $this->buildModelFromWizardColumns(
-            $namespace, $className, $tableName, $columns, $foreignKeys
+            $namespace, $className, $tableName, $columns, $foreignKeys,
+            // Empty on the wizard path — the table is not there to ask.
+            empty($wizardColumns) ? $this->livePrimaryKey($tableName) : ''
         );
 
         file_put_contents($filename, $fileContent);
@@ -4059,6 +4086,29 @@ PHP;
             . "File:      {$filename}\n"
             . $testLine
             . "\n" . ($isUpdate ? "Model updated." : "Model created.");
+    }
+
+    /**
+     * The table's actual primary key, or '' when it has none or has several.
+     *
+     * Asked through `SchemaBuilder::primaryKeyColumns()`, which both backends already implement, so
+     * this adds no driver-specific SQL of its own.
+     *
+     * Empty for a composite key deliberately: `Pramnos\Application\Model` addresses a row by one
+     * column, so there is no honest answer to give it, and the convention at least produces a name
+     * a developer will recognise as needing an edit.
+     */
+    protected function livePrimaryKey(string $tableName): string
+    {
+        try {
+            $columns = \Pramnos\Database\Database::getInstance()
+                ->schema()
+                ->primaryKeyColumns($tableName);
+        } catch (\Throwable) {
+            return '';
+        }
+
+        return count($columns) === 1 ? (string) $columns[0] : '';
     }
 
     /**
