@@ -61,6 +61,42 @@ So before you believe a slowdown:
 Which is why the numbers quoted elsewhere in this guide are pairs, and why a real regression here
 looks like `2:37 → 3:00` twice in a row rather than a single bad reading.
 
+## A connection per test costs more than the thing you are measuring
+
+Four tests, each opening its own PostgreSQL connection in `setUp()`, moved the suite from its
+2:34–2:38 band to 2:42 twice over. The tests themselves are two 600ms back-off measurements and two
+controls — about 1.2 seconds of deliberate sleeping — so four handshakes cost roughly as much again
+as the behaviour under test.
+
+Sharing one connection for the class brought it back to 2:38–2:40:
+
+```php
+private static ?Database $shared = null;
+
+protected function setUp(): void
+{
+    if (self::$shared === null) {
+        self::$shared = static::openConnection();
+    }
+    $this->connection = self::$shared;
+}
+
+public static function tearDownAfterClass(): void
+{
+    self::$shared?->close();
+    self::$shared = null;
+}
+```
+
+The condition for doing this is that **nothing in the class writes anything**. A class that inserts
+rows needs its isolation and should pay per test; one that only reads, or only provokes errors, has
+nothing to isolate and no reason to pay.
+
+What remains — the last second or two — is the `usleep()` the code under test performs, and there is
+no way to observe a back-off without waiting for it. Worth stating plainly in the commit rather than
+rounding away: a retry loop that has never run is as likely to spin for ever as to work, and the
+elapsed time is the only assertion that can tell those apart.
+
 ## The distribution is the finding
 
 A suite's total is decided by a handful of classes. Sort by time and look at the top ten
