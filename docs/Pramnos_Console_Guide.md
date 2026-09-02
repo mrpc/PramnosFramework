@@ -293,6 +293,33 @@ php bin/pramnos create:api UserAPI
 php bin/pramnos create:migration CreateUsersTable
 ```
 
+#### Running `create:model` again on a model that exists
+
+Safe, and worth knowing exactly how safe. Adding a column and re-running the generator that produced
+the model is the normal thing to do, so this path matters more than an «already exists» branch usually
+would.
+
+**The file is left alone.** Not regenerated — an existing model's own methods, properties and docblocks
+stay exactly as they are, and the report says `Model updated.` rather than `Model created.` The only
+change made to a file the generator did not just write is **adding `getApiList()` if it is missing**,
+which is additive and inserted before the last closing brace.
+
+No test file is generated and no registry entry is added, both for the same reason: a generated test
+would overwrite whatever the developer wrote in its place, and a second registry entry for one model is
+a lookup that answers twice.
+
+So a new column does **not** reach the model by re-running this. Write the migration, run it, and add
+the property — which is the trade this branch makes deliberately, because the alternative was losing
+the model's own code.
+
+> **Fixed 2026-09-02.** It was not true before. The branch set a flag and printed «left untouched», and
+> an unconditional `file_put_contents()` a few statements further down regenerated the file from the
+> schema — so every hand-written method went, while the command reported success. And that was the
+> *second* version of this path: the first called `updateModel()`, which does not exist anywhere in the
+> framework, so the same command died with a fatal error instead. Neither had ever been executed by a
+> test, because the branch turns on `class_exists()` and a generated model is not autoloadable in the
+> framework's own checkout.
+
 ### Server Commands
 
 ```bash

@@ -3986,11 +3986,19 @@ PHP;
         if (class_exists('\\' . $namespace . '\\'. $className)
             && file_exists($filename)) {
             $isUpdate = true;
-            // A model that already exists is left alone: regenerating it would
-            // discard hand-written methods. (This used to call updateModel(),
-            // which does not exist anywhere in the framework — so re-running
-            // create:model or create:crud on an existing entity, exactly what
-            // one does after adding a column, died with a fatal error.)
+            /*
+             * A model that already exists is left alone: regenerating it would discard hand-written
+             * methods.
+             *
+             * Twice now this has not been true. It first called `updateModel()`, which does not exist
+             * anywhere in the framework, so re-running `create:model` on an existing entity — exactly
+             * what one does after adding a column — died with a fatal error. That was replaced by this
+             * message, and the unconditional `file_put_contents()` further down went on regenerating
+             * the file anyway. Both are fixed; the guard is on that write, not here.
+             *
+             * What this branch does do is add `getApiList()` if the file predates it, which is
+             * additive and cannot lose anything.
+             */
             $updateResult = "Model already exists — left untouched.\n";
 
             // Check if getApiList method exists, if not, add it
@@ -4030,11 +4038,6 @@ PHP;
                     file_put_contents($filename, $newFileContents);
                 }
             }
-        } elseif (class_exists('\\' . $namespace . '\\'. $className)
-            && file_exists($filename)) {  
-                throw new \Exception(
-                    'Model already exists and cannot be updated'
-                );
         }
         $this->ensureTargetDirectory($path);
 
@@ -4057,7 +4060,23 @@ PHP;
             empty($wizardColumns) ? $this->livePrimaryKey($tableName) : ''
         );
 
-        file_put_contents($filename, $fileContent);
+        /*
+         * Not written when the model already exists, which is what the branch above promises.
+         *
+         * This `file_put_contents()` used to run unconditionally, so «Model already exists — left
+         * untouched» was false in the only way that matters: the file was regenerated from the schema
+         * and every hand-written method in it was destroyed. The report still said «Model updated.»
+         *
+         * It also made the retrofit above pointless — that block carefully inserts `getApiList()` into
+         * the existing file and this line overwrote the result a few statements later.
+         *
+         * Re-running `create:model` after adding a column is the normal thing to do, and losing the
+         * model's own code for it is not a trade anybody agreed to. An existing model is left alone;
+         * `create:migration` and an edit are how a column reaches it.
+         */
+        if (!$isUpdate) {
+            file_put_contents($filename, $fileContent);
+        }
 
         if (!$isUpdate) {
             // Register model in the registry for easier lookup
