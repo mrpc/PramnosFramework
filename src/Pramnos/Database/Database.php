@@ -1329,13 +1329,27 @@ class Database extends \Pramnos\Framework\Base
             while (true) {
                 if ($this->type == 'postgresql') {
                     $this->queryResult = @\pg_query($connection, $query);
-                    if ($this->queryResult === false && $retry && !$this->isConnectionAlive($connection)) {
+                    $pgError = $this->queryResult === false
+                        ? (string) @\pg_last_error($connection)
+                        : '';
+
+                    /*
+                     * Read the error before the gate, because the gate needs it.
+                     *
+                     * This used to ask `isConnectionAlive()`, which asks `pg_connection_status()` —
+                     * and that reports the last *known* state rather than polling. Against a
+                     * terminated backend it answers `OK` before any operation, still `OK` at the
+                     * instant the failing query returns, and `BAD` only afterwards, so the gate was
+                     * consulted at the one moment the answer was wrong. See `isConnectionGone()`.
+                     */
+                    if ($this->queryResult === false && $retry
+                        && $this->isConnectionGone($connection, $pgError)
+                    ) {
                         $connection = $this->getConnection($isWrite);
                         $retry = false;
                         continue;
                     }
                     if ($this->queryResult === false) {
-                        $pgError = \pg_last_error($connection);
                         // Transient deadlocks (SQLSTATE 40P01) arise in TimescaleDB
                         // when background workers hold advisory locks during DDL.
                         // Retry with exponential back-off before surfacing the error.
@@ -1347,11 +1361,41 @@ class Database extends \Pramnos\Framework\Base
                         \Pramnos\Logs\Logger::logError('Postgres error: ' . $pgError . ' for query: ' . $query, null);
                     }
                 } else {
-                    $this->queryResult = @\mysqli_query($connection, $query);
-                    if ($this->queryResult === false && $retry && (\mysqli_errno($connection) == 2006 || \mysqli_errno($connection) == 2013)) {
+                    /*
+                     * `mysqli_query()` **throws**, so the reconnect below was unreachable.
+                     *
+                     * mysqli's default error mode has been `MYSQLI_REPORT_ERROR |
+                     * MYSQLI_REPORT_STRICT` since PHP 8.1: the `@` suppresses a warning, not an
+                     * exception. So `$this->queryResult === false` was never reached for a lost
+                     * connection — the same defect `execute()` had, on the path every *unprepared*
+                     * query takes, which is most of them.
+                     */
+                    $queryException = null;
+
+                    try {
+                        $this->queryResult = @\mysqli_query($connection, $query);
+                    } catch (\mysqli_sql_exception $exception) {
+                        $this->queryResult = false;
+                        $queryException = $exception;
+                    }
+
+                    if ($this->queryResult === false && $retry
+                        && $this->isConnectionGone($connection, null, $queryException)
+                    ) {
                         $connection = $this->getConnection($isWrite);
                         $retry = false;
                         continue;
+                    }
+
+                    /*
+                     * Not a lost connection, so the statement itself failed: put the exception back.
+                     *
+                     * Callers of `query()` catch `\Exception` around a failing statement and rely on
+                     * it — swallowing it here would turn every syntax error and constraint violation
+                     * into a silent `false`, which is a far larger change than the one being made.
+                     */
+                    if ($queryException !== null) {
+                        throw $queryException;
                     }
                 }
                 break;

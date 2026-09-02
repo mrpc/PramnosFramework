@@ -297,6 +297,15 @@ on `md5($query)` alone: after reconnecting it handed back a plan name belonging 
 PostgreSQL had already forgotten. A plan does not outlive its session, so the cache is scoped to the
 connection that made it.
 
+The same holds for a plain `query()`, and by a slightly different route. That path asks
+`getConnection()` first, which probes the handle — so a connection that died while the process was idle
+is replaced *there*, before the statement is sent. What `runQuery()`'s own reconnect is for is the
+narrower window the probe cannot cover: the probe passed, the handle was handed over, and the server
+went away before the statement arrived. That is what a database restart or a failover during a request
+looks like, and on MySQL it used to come out as an uncaught `mysqli_sql_exception` for the same reason
+as above — the gate read `mysqli_errno()` after a call that throws. (On PostgreSQL that path already
+worked: a failed `pg_query` marks the connection immediately, unlike a failed `pg_execute`.)
+
 If you keep a `Database` handle across a long idle period yourself, you need nothing extra. If you
 hold a raw `mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
 

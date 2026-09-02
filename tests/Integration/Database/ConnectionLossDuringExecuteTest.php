@@ -7,7 +7,7 @@ namespace Pramnos\Tests\Integration\Database;
 use Pramnos\Framework\Testing\DatabaseTestCase;
 
 /**
- * A prepared statement whose connection died underneath it.
+ * A statement whose connection died underneath it — prepared or not.
  *
  * `execute()` carries a re-prepare-and-retry path for exactly this, and it had never run. Twenty-five
  * of its statements had never executed once across the whole suite — not error handling nobody cares
@@ -206,5 +206,157 @@ class ConnectionLossDuringExecuteTest extends DatabaseTestCase
         // Assert
         $rows = $this->db->query('SELECT id FROM reconnect_probe WHERE id = 7');
         $this->assertSame(1, $rows->numRows, 'the retried write was applied twice, or not at all');
+    }
+
+    // ── The same loss, on an unprepared query ────────────────────────────────
+
+    /**
+     * A connection that dies *between* the liveness probe and the query.
+     *
+     * Staging this needed a seam, and the reason is worth recording. `query()` asks
+     * `getConnection()` first, which probes with `SELECT 1` on MySQL — so a connection killed before
+     * the call is replaced *there*, and `runQuery()`'s own reconnect never sees a dead handle. Killing
+     * it from outside therefore proved nothing: the first version of these tests passed with the
+     * reconnect broken.
+     *
+     * What reaches `runQuery()` is the narrow window this subclass reproduces: the probe passed, the
+     * handle was handed over, and the server went away before the statement was sent. That is not a
+     * contrived race — it is precisely what a database restart or a failover during a request looks
+     * like.
+     */
+    private function dyingConnection(): \Pramnos\Database\Database
+    {
+        $config = static::connectionConfig();
+
+        $db = new class extends \Pramnos\Database\Database {
+            public bool $killNext = false;
+
+            /** @var callable(mixed):void */
+            public $killer;
+
+            public function getConnection($isWrite = false)
+            {
+                $connection = parent::getConnection($isWrite);
+
+                if ($this->killNext) {
+                    $this->killNext = false;
+                    ($this->killer)($connection);
+                }
+
+                return $connection;
+            }
+        };
+
+        foreach ($config as $property => $value) {
+            $db->$property = $value;
+        }
+        $db->connect(true);
+
+        $isPostgres = ($config['type'] ?? '') === 'postgresql';
+        $killer = static::openConnection();
+
+        $db->killer = function ($connection) use ($isPostgres, $killer): void {
+            // Asked of the handle itself, not of the Database: the point is to kill *this* backend.
+            if ($isPostgres) {
+                $identity = (int) pg_fetch_result(
+                    @pg_query($connection, 'SELECT pg_backend_pid()'),
+                    0,
+                    0
+                );
+                $killer->query('SELECT pg_terminate_backend(' . $identity . ')');
+                $listed = 'SELECT 1 AS present FROM pg_stat_activity WHERE pid = ' . $identity;
+            } else {
+                $row = @mysqli_fetch_row(@mysqli_query($connection, 'SELECT CONNECTION_ID()'));
+                $identity = (int) ($row[0] ?? 0);
+                $killer->query('KILL ' . $identity);
+                $listed = 'SELECT 1 AS present FROM information_schema.processlist WHERE id = '
+                    . $identity;
+            }
+
+            for ($attempt = 0; $attempt < 20; $attempt++) {
+                if ($killer->query($listed)->numRows === 0) {
+                    return;
+                }
+
+                usleep(10000);
+            }
+        };
+
+        return $db;
+    }
+
+    /**
+     * A plain `query()` survives a connection that died after the probe.
+     *
+     * `execute()` is the prepared-statement path; `runQuery()` behind `query()` is the other one, and
+     * it is the one most statements take — every hand-written `SELECT`, everything the query builder
+     * compiles, every migration. It carried the same reconnect and the same two reasons it could not
+     * fire: on MySQL the gate read `mysqli_errno()` after a call that **throws** rather than returning
+     * false, and on PostgreSQL it asked `isConnectionAlive()` at the one instant that answer is stale.
+     *
+     * The rows are the assertion, as with the prepared path: a retry that reconnected and returned
+     * nothing reads as «the table is empty» to every caller above it, which is worse than an error.
+     */
+    public function testAnUnpreparedQuerySurvivesAConnectionThatDiedAfterTheProbe(): void
+    {
+        // Arrange
+        $db = $this->dyingConnection();
+        $this->assertSame('before', $db->query('SELECT label FROM reconnect_probe WHERE id = 1')
+            ->fields['label']);
+
+        // Act — the next getConnection() hands over a handle and then kills it
+        $db->killNext = true;
+        $after = $db->query('SELECT label FROM reconnect_probe WHERE id = 1');
+
+        // Assert
+        $this->assertNotFalse($after, 'query() gave up instead of reconnecting');
+        $this->assertSame(
+            'before',
+            $after->fields['label'],
+            'the retry reconnected and returned nothing, which reads as an empty table'
+        );
+
+        $db->close();
+    }
+
+    /**
+     * And a statement that is simply wrong still raises.
+     *
+     * The half that makes the reconnect safe to have. Catching the driver's exception in order to
+     * inspect it means putting it back when the answer is «the connection is fine and your SQL is
+     * not» — otherwise every syntax error and constraint violation becomes a silent `false`, and the
+     * callers that wrap a failing statement in `catch (\Exception)` stop seeing anything at all.
+     */
+    public function testABrokenStatementStillRaises(): void
+    {
+        // Act & Assert
+        $this->expectException(\Exception::class);
+
+        $this->db->query('SELECT nosuchcolumn FROM reconnect_probe');
+    }
+
+    /**
+     * A write on that path is retried once and lands once.
+     *
+     * The same distinction the prepared path is pinned against, and the temptation is larger here
+     * because `runQuery()` sees every statement rather than only the ones somebody prepared: a retry
+     * is correct only when the server *cannot* have applied it, which is what «the connection was
+     * already gone» means.
+     */
+    public function testAnUnpreparedWriteLandsOnce(): void
+    {
+        // Arrange
+        $db = $this->dyingConnection();
+        $db->query('SELECT 1');
+
+        // Act
+        $db->killNext = true;
+        $db->query("INSERT INTO reconnect_probe (id, label) VALUES (9, 'plain')");
+
+        // Assert
+        $rows = $this->db->query('SELECT id FROM reconnect_probe WHERE id = 9');
+        $this->assertSame(1, $rows->numRows, 'the retried write was applied twice, or not at all');
+
+        $db->close();
     }
 }
