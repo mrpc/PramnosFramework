@@ -139,6 +139,38 @@ keeps a request parameter out of the statement. A filter that silently does noth
 listing is usually the qualified-name mapping — send `title` and the list may hold `posts.title`,
 which the builder maps, but only for a name that is there.
 
+## Writing a point: `'geometry'` and the coordinate order
+
+`insertDataToTable()` and `updateTableData()` take a `'type' => 'geometry'` field and convert it to
+PostGIS for you, on PostgreSQL. Three shapes are accepted:
+
+```php
+$db->insertDataToTable('places', [
+    // a "lat, lon" string — what a form posts
+    ['fieldName' => 'location', 'value' => '37.9838, 23.7275',                          'type' => 'geometry'],
+    // a named pair — what an API request carries
+    ['fieldName' => 'location', 'value' => ['latitude' => 37.9838, 'longitude' => 23.7275], 'type' => 'geometry'],
+    // anything else: passed to ST_GeomFromText(), so a polygon or a line works
+    ['fieldName' => 'area',     'value' => 'POLYGON((23.7 37.9, 23.8 37.9, 23.8 38.0, 23.7 37.9))', 'type' => 'geometry'],
+]);
+```
+
+The first two both compile to `ST_SetSRID(ST_MakePoint(23.7275, 37.9838), 4326)` — **longitude
+first**, because that is what `ST_MakePoint()` takes while people write latitude first. Getting it
+backwards is silent: nothing errors, every insert succeeds, and `ST_MakePoint(37.9838, 23.7275)` is a
+spot in the Indian Ocean rather than Athens. If a map is drawing points in the wrong place and the
+numbers in the table look right, this is the first thing to check.
+
+Three details worth having:
+
+- **`0, 0` is a coordinate**, not an empty value — the origin is in the Gulf of Guinea and the
+  pattern accepts it. So is a negative number in either position.
+- **The conversion is gated on the driver, not the column.** On MySQL the value is written through
+  unchanged, because `ST_MakePoint` and `ST_SetSRID` are PostGIS spellings — MySQL names its
+  spatial functions differently and takes the SRID as an argument rather than a wrapper.
+- **Each method has its own copy of the conversion.** A change to one and not the other gives you a
+  row that is inserted correctly and moves when it is edited.
+
 ## Reading a table's schema: `getColumns()`
 
 ```php
