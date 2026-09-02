@@ -388,6 +388,23 @@ if (!$schema->hasIndex('usertokens', 'idx_usertokens_token_lookup')) {
 Before it existed the alternatives were catching the driver's duplicate-index error
 or leaving the guard out, which are two ways of writing "I could not ask".
 
+**Each driver asks its own question, and PostgreSQL asks a different one.** MySQL reads
+`information_schema.statistics`; PostgreSQL reads `pg_indexes`, because the standard has no index
+view — indexes are not part of it — and `information_schema.statistics` does not exist there at all.
+A grammar for a driver the framework does not know inherits the MySQL-shaped query, on the
+reasoning that an unknown driver is more likely to resemble that than nothing.
+
+Two consequences worth knowing when a guard answers wrongly:
+
+- **A qualified name is split on PostgreSQL.** `authserver.usertokens` becomes schema
+  `authserver`, table `usertokens` — without that, `tablename = 'authserver.usertokens'` matches
+  nothing and every index on the framework's own tables reads as absent.
+- **With no schema, PostgreSQL excludes `pg_catalog` and `information_schema`** rather than
+  searching everything. Those carry thousands of indexes, and a name colliding with one of them
+  would answer yes for a table your project owns.
+
+
+
 ## TimescaleDB Operations
 
 All TimescaleDB methods return `false` silently on non-TimescaleDB backends:
