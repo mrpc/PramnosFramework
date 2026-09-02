@@ -58,7 +58,7 @@ class FileAdapter extends AbstractAdapter
             try {
                 mkdir($this->cacheDir, 0755, true);
             } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
             } // @codeCoverageIgnoreEnd
         }
@@ -97,7 +97,7 @@ class FileAdapter extends AbstractAdapter
 
             return $categories;
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [];
         } // @codeCoverageIgnoreEnd
     }
@@ -111,7 +111,7 @@ class FileAdapter extends AbstractAdapter
             mkdir($this->cacheDir);
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
             $this->caching = false;
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         } // @codeCoverageIgnoreEnd
     }
 
@@ -140,7 +140,7 @@ class FileAdapter extends AbstractAdapter
                 try {
                     mkdir($path, 0755, true);
                 } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-                    \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                    \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                     return false;
                 } // @codeCoverageIgnoreEnd
             }
@@ -153,7 +153,7 @@ class FileAdapter extends AbstractAdapter
                 try {
                     mkdir($path, 0755, true);
                 } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-                    \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                    \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                     return false;
                 } // @codeCoverageIgnoreEnd
             }
@@ -243,7 +243,7 @@ class FileAdapter extends AbstractAdapter
 
             return $entry['data'];
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         } // @codeCoverageIgnoreEnd
     }
@@ -274,7 +274,7 @@ class FileAdapter extends AbstractAdapter
 
             return true;
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         } // @codeCoverageIgnoreEnd
     }
@@ -298,7 +298,7 @@ class FileAdapter extends AbstractAdapter
             $this->cleanEmptyDirectories(dirname($filePath));
             return true;
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         } // @codeCoverageIgnoreEnd
     }
@@ -340,7 +340,7 @@ class FileAdapter extends AbstractAdapter
                     rmdir($dir);
                     $this->cleanEmptyDirectories(dirname($dir));
                 } catch (\Throwable $ex) { // @codeCoverageIgnoreStart
-                    \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                    \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 } // @codeCoverageIgnoreEnd
             }
         }
@@ -676,7 +676,7 @@ class FileAdapter extends AbstractAdapter
         try {
             $details = unserialize($contents);
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return null;
         } // @codeCoverageIgnoreEnd
 
@@ -815,7 +815,7 @@ class FileAdapter extends AbstractAdapter
             $stats['categories'] = count($this->getCategories());
             $stats['items'] = count($this->listDirectoryFiles($path));
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         } // @codeCoverageIgnoreEnd
 
         return $stats;
@@ -891,7 +891,7 @@ class FileAdapter extends AbstractAdapter
                 } // @codeCoverageIgnoreEnd
             }
         } catch (\Exception $ex) { // @codeCoverageIgnoreStart
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         } // @codeCoverageIgnoreEnd
         
         return $items;

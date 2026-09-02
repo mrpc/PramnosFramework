@@ -143,7 +143,7 @@ class RedisAdapter extends AbstractAdapter
             
             return $entry['data'];
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -180,7 +180,7 @@ class RedisAdapter extends AbstractAdapter
 
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -308,7 +308,7 @@ class RedisAdapter extends AbstractAdapter
             $this->redis->del($key);
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -364,7 +364,7 @@ class RedisAdapter extends AbstractAdapter
             }
             return (int) $new;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -391,7 +391,7 @@ class RedisAdapter extends AbstractAdapter
             }
             return (int) $new;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -412,7 +412,7 @@ class RedisAdapter extends AbstractAdapter
         try {
             return (int) $this->redis->get($key);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return 0;
         }
     }
@@ -439,7 +439,7 @@ class RedisAdapter extends AbstractAdapter
             $prev = $this->redis->getSet($key, (string) $value);
             return $prev === false ? null : (string) $prev;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return null;
         }
     }
@@ -459,7 +459,7 @@ class RedisAdapter extends AbstractAdapter
                 $this->redis->expire($key, (int) $ttl);
             }
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
 
@@ -472,7 +472,7 @@ class RedisAdapter extends AbstractAdapter
             $value = $this->redis->hGet($key, (string) $field);
             return $value === false ? $default : unserialize($value);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return $default;
         }
     }
@@ -485,7 +485,7 @@ class RedisAdapter extends AbstractAdapter
         try {
             $this->redis->hDel($key, (string) $field);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
 
@@ -501,7 +501,7 @@ class RedisAdapter extends AbstractAdapter
             }
             return array_map(static fn ($v) => unserialize($v), $all);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [];
         }
     }
@@ -514,7 +514,7 @@ class RedisAdapter extends AbstractAdapter
         try {
             return (int) $this->redis->lPush($key, serialize($value));
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return 0;
         }
     }
@@ -527,7 +527,7 @@ class RedisAdapter extends AbstractAdapter
         try {
             $this->redis->lTrim($key, (int) $start, (int) $stop);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
 
@@ -543,7 +543,7 @@ class RedisAdapter extends AbstractAdapter
             }
             return array_map(static fn ($v) => unserialize($v), $range);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [];
         }
     }
@@ -556,7 +556,7 @@ class RedisAdapter extends AbstractAdapter
         try {
             $this->redis->expire($key, (int) $ttl);
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
     }
 
@@ -587,7 +587,7 @@ class RedisAdapter extends AbstractAdapter
             } while ($cursor !== 0 && $cursor !== null);
             return $found;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [];
         }
     }
@@ -633,7 +633,7 @@ class RedisAdapter extends AbstractAdapter
 
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -668,7 +668,7 @@ class RedisAdapter extends AbstractAdapter
             $this->redis->flushDb();
             return true;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return false;
         }
     }
@@ -703,7 +703,7 @@ class RedisAdapter extends AbstractAdapter
                     $this->redis->flushDb();
                     return true;
                 } catch (\Exception $ex) {
-                    \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                    \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                     return false;
                 }
             }
@@ -713,7 +713,7 @@ class RedisAdapter extends AbstractAdapter
             try {
                 return $this->clearCategory($category);
             } catch (\Exception $ex) {
-                \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+                \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
                 return false;
             }
         }
@@ -824,7 +824,7 @@ class RedisAdapter extends AbstractAdapter
 
             return $categories;
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return [];
@@ -880,7 +880,7 @@ class RedisAdapter extends AbstractAdapter
                 }
             }
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return $stats;
@@ -960,7 +960,7 @@ class RedisAdapter extends AbstractAdapter
                 }
             }
         } catch (\Exception $ex) {
-            \pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
         }
         
         return $items;

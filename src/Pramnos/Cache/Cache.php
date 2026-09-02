@@ -595,7 +595,7 @@ class Cache extends \Pramnos\Framework\Base
                     self::$_connections[$methodKey]->select($this->database);
                 }
             } catch (\Exception $exc) {
-                \pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
+                \Pramnos\Logs\Logger::logError($exc->getMessage(), $exc);
                 $this->logAdapterFallback(
                     $methodKey, 'file', $exc->getMessage()
                 );

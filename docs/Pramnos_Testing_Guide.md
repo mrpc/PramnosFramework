@@ -799,6 +799,36 @@ Wrap the connect in a `try`/`markTestSkipped()` as well. A class whose backend i
 should skip, not error: the two lanes here mean every dual-backend class runs twice, and one of the
 two may have nothing to talk to.
 
+## A wrong-case namespace is a bug that only an uncovered branch can hide
+
+Thirty-six references in the Cache subsystem were written `\pramnos\Logs\Logger` — lowercase `p`.
+PHP resolves class names case-insensitively, so this looks harmless, and it is not:
+
+- **If the class is already loaded**, PHP finds it in its own table and the call works.
+- **If it is not**, the autoloader is asked for the literal string `pramnos\Logs\Logger`, and
+  Composer's PSR-4 map is keyed on `Pramnos\` — a case-sensitive miss. `Error: Class
+  "pramnos\Logs\Logger" not found`.
+
+So whether it works depends on what else the process happened to load first. In these files every
+one of them sat inside a `catch`, which is the worst possible place for a load-order-dependent
+fatal: the line only runs when something has already gone wrong, and it turns a handled failure
+into an unhandled one. The Redis adapter's sixteen `catch` arms exist so that losing the cache
+degrades the application rather than stopping it, and every one of them would have raised
+`Class not found` instead.
+
+It surfaced the moment a test executed one of those arms in isolation, and not before, because the
+covered arms all ran in processes where the Logger was loaded already. That is the general shape:
+
+**A wrong-case reference in a rarely-taken branch cannot be found by running the application.** It
+needs either the branch executed in a cold process, or a grep:
+
+```bash
+grep -rn '\\pramnos\\' --include='*.php' src/     # should print nothing
+```
+
+Worth running after any bulk edit that touches namespaces, and worth remembering when a class that
+demonstrably exists is reported as not found.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
