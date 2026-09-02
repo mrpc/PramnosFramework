@@ -385,4 +385,202 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
             'a rendition that was never written got a row'
         );
     }
+
+    // ── What arrives from a URL, once the bytes are in hand ───────────────────
+
+    /**
+     * A MediaObject whose outbound request is answered from the test rather than the network.
+     *
+     * Everything interesting in `addRemoteImage()` happens after the bytes arrive — the type read from
+     * the content, the extension that follows from it, the refusal of an error status — and none of it
+     * was reachable, because reaching it meant a real request. Every address `OutboundUrl` will fetch
+     * from is by definition outside this network, so the loopback listener a suite could stand up is
+     * exactly what the guard refuses.
+     *
+     * @param string $body   What the «server» answers with.
+     * @param int    $status The status it answers with.
+     */
+    private function answering(string $body, int $status = 200): MediaObject
+    {
+        return new class ($body, $status) extends MediaObject {
+            public function __construct(private string $body, private int $status)
+            {
+                parent::__construct();
+            }
+
+            protected function fetchRemote(string $url, ?string &$reason, ?int &$status): string|false
+            {
+                $status = $this->status;
+                $reason = null;
+
+                return $this->body === '' ? false : $this->body;
+            }
+        };
+    }
+
+    /** The bytes of a real image of the given type. */
+    private function bytesOf(string $type): string
+    {
+        $image = imagecreatetruecolor(24, 24);
+        imagefill($image, 0, 0, imagecolorallocate($image, 10, 90, 180));
+
+        ob_start();
+        match ($type) {
+            'png'  => imagepng($image),
+            'gif'  => imagegif($image),
+            default => imagejpeg($image),
+        };
+
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * The extension a fetched file is stored under comes from its bytes, not from its URL.
+     *
+     * The defect this replaced, and it was not a style problem. `$ext` was taken from the URL's own
+     * text with a `jpg` fallback, so the library held files whose *name* asserted a type nothing had
+     * verified — and everything under `www/uploads/` is served back by the web server according to
+     * that name. Here the URL says `.png` and the bytes are a JPEG; the stored file has to say JPEG.
+     */
+    public function testTheStoredExtensionComesFromTheBytesAndNotTheUrl(): void
+    {
+        // Arrange — a URL that lies about its content
+        $media = $this->answering($this->bytesOf('jpg'));
+
+        // Act
+        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+
+        // Assert
+        $this->assertFalse($media->error, (string) $media->error);
+        $this->assertStringEndsWith('.jpg', $media->filename, 'the URL decided the extension');
+        $this->assertSame('image/jpeg', $media->mimetype);
+    }
+
+    /**
+     * Something that is not an image at all is refused, and nothing is written.
+     *
+     * The commonest real answer to a stale image URL: an HTML error page, served with a 200 by a CDN
+     * that would rather show something than nothing. Stored under an image extension it becomes a
+     * broken picture on a page; the refusal is what turns it into a visible gap instead.
+     */
+    public function testSomethingThatIsNotAnImageIsRefused(): void
+    {
+        // Arrange
+        $media = $this->answering('<!doctype html><title>Not found</title>');
+
+        // Act
+        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+
+        // Assert
+        $this->assertIsString($media->error);
+        $this->assertStringContainsString('not an image', (string) $media->error);
+        $this->assertSame('', $media->filename, 'a non-image was written into the library');
+    }
+
+    /**
+     * An SVG is refused for a *remote* fetch, even though it is a real image.
+     *
+     * Deliberate, and the reason is not that it cannot be drawn: it is markup, it can carry script, and
+     * served back from this site's own origin that script is same-origin. An application that wants
+     * remote SVGs owns that decision and can hand a fetched, sanitised file to `addImage()` — which
+     * accepts them, as {@see testAVectorAnswersWithItself()} above shows.
+     */
+    public function testAnSvgIsRefusedForARemoteFetch(): void
+    {
+        // Arrange
+        $media = $this->answering(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+            . '<rect width="10" height="10" fill="#c00"/></svg>'
+        );
+
+        // Act
+        $media->addRemoteImage('https://example.test/logo.svg', 'media_policy');
+
+        // Assert
+        $this->assertIsString($media->error);
+        $this->assertStringContainsString('svg', strtolower((string) $media->error));
+        $this->assertSame('', $media->filename);
+    }
+
+    /**
+     * A valid image that arrived with a 404 is refused.
+     *
+     * The case that proves checking the content is not enough. A CDN answering `404` with a
+     * placeholder image returns bytes that are a perfectly valid PNG, so every content check passes —
+     * and somebody's grey «image not found» square is entered into the library as the thing that was
+     * asked for. Worse than storing nothing: nothing is visible as a gap, and a placeholder looks like
+     * a result.
+     */
+    public function testAValidImageWithAnErrorStatusIsRefused(): void
+    {
+        // Arrange — real PNG bytes, wrong status
+        $media = $this->answering($this->bytesOf('png'), 404);
+
+        // Act
+        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+
+        // Assert
+        $this->assertIsString($media->error);
+        $this->assertStringContainsString('404', (string) $media->error);
+        $this->assertSame('', $media->filename, 'a placeholder was stored as the requested picture');
+    }
+
+    /**
+     * A refused fetch says why, and writes nothing.
+     *
+     * The `$reason` is carried through rather than replaced, because it is the only thing that
+     * distinguishes «that host is inside our network» from «that host does not resolve» from «the
+     * response was too large» — three different things for an operator looking at an import that
+     * skipped rows.
+     */
+    public function testARefusedFetchIsReportedAndWritesNothing(): void
+    {
+        // Arrange — the seam's «false»
+        $media = $this->answering('', 0);
+
+        // Act
+        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+
+        // Assert
+        $this->assertIsString($media->error);
+        $this->assertStringContainsString('Cannot fetch remote image', (string) $media->error);
+        $this->assertSame('', $media->filename);
+    }
+
+    /**
+     * The type of content held in memory is read from the content.
+     *
+     * `detectMimeTypeOfString()` is what decides the extension above, and it is the piece that makes
+     * the decision cheap enough to take *before* anything is written — `finfo_file()` needs a path, and
+     * the alternative is putting unidentified bytes on disk to ask about them and moving them
+     * afterwards.
+     *
+     * @param string      $body
+     * @param string|null $expected
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('bodiesAndTypes')]
+    public function testTheTypeOfABufferIsReadFromItsBytes(string $body, ?string $expected): void
+    {
+        // Act
+        $detected = (new \ReflectionMethod(MediaObject::class, 'detectMimeTypeOfString'))
+            ->invoke(null, $body);
+
+        // Assert
+        $this->assertSame($expected, $detected);
+    }
+
+    /** @return array<string, array{string, string|null}> */
+    public static function bodiesAndTypes(): array
+    {
+        $png = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF/8P0OAAAAAElFTkSuQmCC'
+        );
+
+        return [
+            'a PNG'            => [$png, 'image/png'],
+            'HTML'             => ['<!doctype html><title>x</title>', 'text/html'],
+            'nothing'          => ['', null],
+            'plain bytes'      => ['just some words', 'text/plain'],
+        ];
+    }
 }

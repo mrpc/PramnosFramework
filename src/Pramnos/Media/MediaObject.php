@@ -839,14 +839,7 @@ class MediaObject extends \Pramnos\Framework\Base
 
         $reason = null;
         $status = 0;
-        $image = \Pramnos\Security\OutboundUrl::fetch(
-            (string) $url,
-            $this->remoteMaxBytes,
-            $reason,
-            10,
-            $this->remoteMaxRedirects,
-            $status
-        );
+        $image = $this->fetchRemote((string) $url, $reason, $status);
 
         if ($image === false || $image === '') {
             $this->error = 'Cannot fetch remote image. ' . ($reason ?? 'Empty response.');
@@ -970,6 +963,36 @@ class MediaObject extends \Pramnos\Framework\Base
             : strtolower((string) pathinfo((string) $this->filename, PATHINFO_EXTENSION));
 
         return $extension === 'svg' || $extension === 'svgz';
+    }
+
+    /**
+     * The outbound request, as a seam.
+     *
+     * Everything interesting in {@see addRemoteImage()} happens *after* the bytes arrive — the type is
+     * read from the content, the extension it is stored under follows from that, and an error status
+     * is refused. None of it was reachable from a test, because reaching it meant making a real
+     * request: every address {@see \Pramnos\Security\OutboundUrl} will fetch from is by definition
+     * outside this network, so a loopback listener a suite could stand up is exactly what the guard
+     * refuses.
+     *
+     * So the request is one overridable method and the decisions are not. Overriding it in application
+     * code means opting out of the host check, the byte cap and the redirect checking — do not.
+     *
+     * @param string      $url
+     * @param string|null $reason Filled with why the fetch failed.
+     * @param int|null    $status Filled with the status the body came from.
+     * @return string|false
+     */
+    protected function fetchRemote(string $url, ?string &$reason, ?int &$status): string|false
+    {
+        return \Pramnos\Security\OutboundUrl::fetch(
+            $url,
+            $this->remoteMaxBytes,
+            $reason,
+            10,
+            $this->remoteMaxRedirects,
+            $status
+        );
     }
 
     /**

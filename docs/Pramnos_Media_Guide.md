@@ -119,6 +119,11 @@ that decision and can fetch and sanitise one itself, then hand the file to `addI
 On refusal the object's `error` is set and nothing is written. It does not throw, because a bad URL in
 an import of two thousand should not abort the import.
 
+The request itself is one overridable method, `fetchRemote()`. It exists so the decisions *after* the
+bytes arrive can be tested — the type read from the content, the extension that follows, the refusal of
+an error status — because reaching them otherwise means a real outbound request. Overriding it in
+application code means opting out of the host check, the byte cap and the redirect checking, so do not.
+
 ## Media Types
 
 The system supports different media types with specific handling:
