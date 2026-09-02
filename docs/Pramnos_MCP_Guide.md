@@ -86,6 +86,36 @@ database-stored setting: the name is right there, no connection is involved, and
 whose settings failed to load would otherwise have shown the framework's generic default
 for every one of its servers.
 
+## What a tool must tell a client
+
+Three methods, and together they are the whole of discovery: a client reads them once and builds every
+call from them.
+
+| Method | What it decides |
+|---|---|
+| `name()` | the wire identifier — a client sends `tools/call` with it and nothing else |
+| `description()` | **whether** the tool is used, because a client chooses between fifteen of them by reading these and nothing else |
+| `inputSchema()` | how the call is built and validated |
+
+If you add a tool, these are the parts to get right, and the reason is that getting them wrong is
+**silent**. A malformed schema is not a wrong answer: the tool disappears from the client's list, or the
+client sends a shape the tool does not read, and nothing on the server logs anything because the request
+never arrives. The same for a description — an empty one is a tool nobody calls, and a one-word one is a
+tool called for the wrong thing, which is worse because the answer looks like an answer.
+
+`ToolDiscoveryContractTest` holds every registered tool to it, so a tool added tomorrow is covered the
+day it is registered rather than the day somebody writes a test for it. What it requires:
+
+- a name matching `^[a-z][a-z0-9-]*$`, unique across the server — the server keys tools by name, so a
+  duplicate does not collide loudly, it replaces;
+- a description of more than thirty characters;
+- a schema that is `{"type": "object", "properties": {…}}`, where every property has a `type` (what the
+  client validates against) and a `description` (what stops the value being guessed);
+- a `required` list naming only properties the schema defines — requiring one it does not define is
+  rejected outright by a strict client and sent empty by a lenient one;
+- and a schema that survives `json_encode`/`json_decode` unchanged, since that is the round trip it
+  actually makes.
+
 ## The built-in tools
 
 | Tool | Answers |
