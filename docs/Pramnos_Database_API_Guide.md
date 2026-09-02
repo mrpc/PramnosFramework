@@ -105,6 +105,40 @@ holding `DATE_FORMAT(\`created\`, '%%c')` with no arguments still reaches the da
 A `%s` or `%d` with no argument passes through to the database instead of raising, which is a
 malformed query rather than a fatal. If you write a placeholder, pass its value.
 
+## What a datatable search actually looks for
+
+`_getPaginated()` builds its `WHERE` from the search terms a datatable posts, and four of the rules
+are not obvious from the outside. Worth knowing before deciding a filter is broken.
+
+**A Greek word is searched without its final sigma.** `Γιάννης` becomes `%Γιάννη%`. Greek inflects
+the ending — a visitor types the nominative and the row holds the genitive — so dropping the last
+`ς`/`σ` is the cheapest stemming there is and it is why the search box feels like it works. Only the
+*ending*: `Κώστας` becomes `Κώστα%`, not `Κώτα%`.
+
+**On PostgreSQL, a Greek term is compared through `unaccent()`.**
+
+```sql
+unaccent(CAST(a."name" AS TEXT)) ILIKE unaccent('%Γιάννη%')
+```
+
+So `Γιάννης`, `ΓΙΑΝΝΗΣ` and `Γιαννης` all find each other — a form filled in caps and an import that
+lost its accents are both ordinary. A term with no Greek in it stays plain `ILIKE`, without wrapping
+either side in a function, which on a large table is the difference between using an index and not.
+
+**A numeric column is matched with `=`, not `LIKE`.** Filtering an integer column by `9` with
+`LIKE '%9%'` returns 9, 19, 29, 90 and 1999, which reads as a broken filter rather than a broad one.
+The column's type comes from `Model::$columnCache`, so this only applies where the model has read
+the schema — a joined table whose alias cannot be resolved falls back to `LIKE`.
+
+**A term that already contains `%` is used as it is.** `Γιαν%` is left anchored rather than wrapped
+again, because the caller has said where the wildcard goes.
+
+And one rule that is a boundary rather than a convenience: **a search field that is not in the field
+list produces no condition at all.** The names arrive from the query string, so the list is what
+keeps a request parameter out of the statement. A filter that silently does nothing on a joined
+listing is usually the qualified-name mapping — send `title` and the list may hold `posts.title`,
+which the builder maps, but only for a name that is there.
+
 ## Reading a table's schema: `getColumns()`
 
 ```php
