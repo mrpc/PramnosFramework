@@ -536,6 +536,26 @@ Three rules, in order of preference:
 
 ## `#[CoversClass]` decides what a test contributes to coverage
 
+### A test that names one class but exercises seventeen
+
+The cost of getting this wrong, measured. A tool-discovery test asserts the wire contract of every
+registered MCP tool — a unique name, a description long enough to choose by, a JSON Schema that
+survives a round-trip — and declared `#[CoversClass(McpServiceProvider::class)]`, which is true of
+what it asks for the server and false of what it exercises. Every line of tool code it ran was
+discarded: 69 tests, 305 assertions, and a project total that moved from **94.05% to 94.05%**, with
+the three methods the class was written for still reading zero hits.
+
+Removing the attribute recovered **76 statements** and changed no code. That is the whole finding:
+the round had earned them and the attribute threw them away, invisibly, behind a green run.
+
+Which is the case for declaring nothing at all when the subject is a contract rather than a class.
+Naming all seventeen tools would have worked and would have been wrong for the same reason the test
+is written the way it is — a tool added tomorrow would silently stop counting. `requireCoverageMetadata`
+is not enabled here, so a test with no attribute contributes everything it executes.
+
+**`#[CoversClass]` is a filter, not a label.** Reach for it when a test's subject really is one or
+two named classes, and leave it off when the test deliberately runs code outside them.
+
 ### And a file with no class needs `#[CoversFunction]`
 
 The same rule, in the shape that is easy to miss. `src/Pramnos/DevPanel/adminer-object.php` declares
@@ -600,6 +620,41 @@ So rank twice:
 Percentage is the least useful of the three orderings on its own: a 1,800-statement file at 86% has
 more uncovered code than a 40-statement file at 0%, and the 40-statement file is the one where
 something has never run.
+
+## Reflection into a private method covers the algorithm, not the tool
+
+`route-list` had thirteen tests for its routes-file parser, all of them green, and every one reached
+it the same way:
+
+```php
+$routes = (new \ReflectionMethod(RouteListTool::class, 'parseRoutes'))
+    ->invoke($tool, $contents);
+```
+
+Which is a fine way to test a parser — the cases are pure string-in, array-out, and driving them
+through the public surface would mean writing thirty files to disk. It is also why `execute()` was a
+straight line of code that had never run. Finding the candidate files, reading them, stamping each
+route with the file it came from, applying the filter while reading, and choosing between the two
+answer shapes: none of it was touched by any of the thirteen. The report said 87%, the parser was
+exhaustively covered, and the tool had never been called.
+
+So the parser tests stayed and one file was added that goes in through `execute()` against real
+files, with `projectRoot()` overridden to a directory the test owns. Six tests, and they immediately
+described two behaviours nobody had written down:
+
+- with routes on disk and no attribute controllers — **which is every console application, and the
+  console is the only kernel that reaches this tool** — the answer is the keyed report, never the
+  flat list;
+- the keyed report is in discovery order (`app/routes.php`, `routes.php`, `routes/web.php`,
+  `routes/api.php`, and within a file the order written), while only the combined answer is sorted
+  by URI, because only it merges two sources with no natural order between them.
+
+Both were correct and neither was asserted anywhere, which is the usual state of a code path that has
+only ever been read.
+
+The rule this leaves: **test the private method for the algorithm and the public one for the wiring.**
+If every test of a class reaches past its entry point, the entry point is untested no matter what the
+percentage says — and a `protected` seam like `projectRoot()` exists so that the public test is cheap.
 
 ## `loadFromConfig()` only adds — reset first
 
