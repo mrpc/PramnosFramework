@@ -919,6 +919,33 @@ and does not know it is inside a JavaScript string. Quoting is no defence there.
 is `hex.int.int.hmac` and cannot contain a `<`, so nothing reachable depended on it — but this is
 a global helper with an array parameter, and a view may call it with its own.
 
+## When the human check itself breaks
+
+The two halves of it fail in opposite directions, on purpose, and the combination is worth knowing
+before an incident rather than during one.
+
+| What broke | What happens | Why that way round |
+|---|---|---|
+| Minting a challenge (`challenge()` raises) | the form renders **without** one | an exception here would take the sign-in page down, which is a worse outage than a check nobody can solve |
+| Verifying a submission (`verify()` raises) | the submission is **refused** | a check that accepted when verification broke would be bypassable by breaking verification |
+| A submission with no challenge or no solution | **refused**, without asking the service | otherwise omitting the fields — the first thing anything automating a form does — would be enough to skip the check |
+| The form is not gated by `human_check` | passes, and mints nothing | the early return has to come before the service is touched, or turning the feature off would still break when the service does |
+
+Put together: **with the service down, the form renders and every submission is refused.** The page
+is up and nobody can sign in. That is fail-closed, which is the defensible choice for a security
+control, but it is not what "the page renders without one" on its own suggests — so if you enable
+`human_check` on the `login` form, the check is on the critical path for signing in and its
+availability is your sign-in availability.
+
+Two consequences for an operator:
+
+- **Enable it on `register` and `forgot` before `login`.** Those are the forms the check is really
+  for — a thousand free registrations or reset mails — and neither is on the path of somebody who
+  already has an account.
+- **A sign-in outage with `Δεν ολοκληρώθηκε ο έλεγχος ασφαλείας` on the page** is this, not a
+  credential problem. The log line is `HumanCheck challenge failed for login: …` or
+  `HumanCheck verification failed for login: …`, in the `auth` channel.
+
 ## A URL is on your site only if the *next character* is a boundary
 
 Anywhere the framework decides whether a URL belongs to this installation — a `Referer` it will turn

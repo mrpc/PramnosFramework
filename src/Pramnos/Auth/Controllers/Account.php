@@ -700,7 +700,7 @@ class Account extends Controller
         }
 
         try {
-            return (new \Pramnos\Security\HumanCheck())->challenge();
+            return $this->humanCheck()->challenge();
         } catch (\Throwable $exception) {
             // A check that cannot be minted must not take the form down with it: the page
             // renders without one, and the verification below treats an absent challenge
@@ -740,7 +740,7 @@ class Account extends Controller
         }
 
         try {
-            return (new \Pramnos\Security\HumanCheck())->verify($challenge, $solution);
+            return $this->humanCheck()->verify($challenge, $solution);
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'HumanCheck verification failed for ' . $form . ': ' . $exception->getMessage(),
@@ -749,6 +749,19 @@ class Account extends Controller
 
             return false;
         }
+    }
+
+    /**
+     * The proof-of-work service.
+     *
+     * A method rather than the two `new` expressions it replaces, because both of the branches
+     * that matter here are about what happens when it *raises* — and a collaborator constructed
+     * inside the `try` you care about is a branch nobody can watch. The two arms disagree on
+     * purpose, and the only way to see that they do is to make this throw.
+     */
+    protected function humanCheck(): \Pramnos\Security\HumanCheck
+    {
+        return new \Pramnos\Security\HumanCheck();
     }
 
     protected function renderLogin(array $ctx): mixed
