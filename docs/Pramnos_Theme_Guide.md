@@ -902,6 +902,11 @@ class MyTheme extends \Pramnos\Theme\Theme
 }
 ```
 
+**A name that begins with a digit is renamed.** `2fa_enabled` becomes `_2fa_enabled`, because the
+name is used as a form field and as a property and neither may start with a digit. The rename is
+silent, so it matters for reading the value back: declare `2fa_enabled` and you will find it under
+`_2fa_enabled`. A digit anywhere else is left alone — `oauth2_key` stays as written.
+
 **Types:** `textfield` (or `text`), `textarea`, `checkbox`, `select` (or `selectbox`),
 `number`, `email`, `url`, `password`, `date`, `time`, `datetime`, `color`, `hidden`. An
 unrecognised type renders as a text input rather than nothing, so a typo costs the wrong
