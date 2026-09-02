@@ -610,4 +610,183 @@ class SessionRevocationTest extends BaseTestCase
             $this->migrateTables();
         }
     }
+
+    // ── Revoking one named token ──────────────────────────────────────────────
+
+    /**
+     * A token this class writes directly, so `deleteToken()` has something to revoke.
+     *
+     * Written rather than minted, because minting goes through the login path and retires whatever
+     * came before it — which is the behaviour three of the tests above are about and the opposite of
+     * what this one needs.
+     */
+    private function writeToken(int $userid, ?int $parent = null): int
+    {
+        $this->db->queryBuilder()->table('#PREFIX#usertokens')->insert([
+            'userid'      => $userid,
+            'tokentype'   => Token::TYPE_WEB_SESSION,
+            'token'       => bin2hex(random_bytes(16)),
+            'status'      => 1,
+            'created'     => time(),
+            'lastused'    => time(),
+            'expires'     => time() + 86400,
+            'parentToken' => $parent ?? 0,
+            /*
+             * Every NOT NULL column that has no default, taken from the shipped migration rather
+             * than discovered one refusal at a time.
+             *
+             * A direct insert bypasses the model that would have filled them in, and MySQL refuses
+             * rather than defaulting — which is the right behaviour and the reason this list is
+             * explicit: a column added to the migration should break this fixture loudly instead of
+             * being silently written as an empty string.
+             */
+            'deviceinfo'  => 'test device',
+            'scope'       => '',
+        ]);
+
+        return (int) $this->db->getInsertId();
+    }
+
+    /** One row's status and removal time, by id. */
+    private function tokenState(int $tokenid): array
+    {
+        $row = $this->db->queryBuilder()
+            ->table('#PREFIX#usertokens')
+            ->where('tokenid', $tokenid)
+            ->first();
+
+        return [
+            'status'     => (int) ($row->fields['status'] ?? -1),
+            'removedate' => (int) ($row->fields['removedate'] ?? 0),
+        ];
+    }
+
+    /**
+     * `deleteToken()` revokes the named token and dates the revocation.
+     *
+     * Status 2, not deletion, and the `removedate` is the reason: a revoked token is evidence. «This
+     * credential stopped working at 14:12» is the answer to «was my account used after I signed out
+     * of that laptop», and a deleted row cannot answer it.
+     *
+     * The second assertion is the one that would catch a missing `WHERE`: another live token of the
+     * same account must be untouched, because this method is what a «sign out this device» button
+     * calls and revoking the wrong one signs somebody out of the browser they are holding.
+     */
+    public function testDeletingATokenRevokesOnlyThatOne(): void
+    {
+        // Arrange
+        $doomed = $this->writeToken($this->uid);
+        $spared = $this->writeToken($this->uid);
+
+        // Act
+        (new User($this->uid))->deleteToken($doomed);
+
+        // Assert
+        $revoked = $this->tokenState($doomed);
+        $this->assertSame(2, $revoked['status'], 'the token was not revoked');
+        $this->assertGreaterThan(0, $revoked['removedate'], 'the revocation is undated');
+
+        $this->assertSame(1, $this->tokenState($spared)['status'], 'another live token was revoked');
+    }
+
+    /**
+     * A token belonging to somebody else is not revoked, whatever id is passed.
+     *
+     * The `userid` in the `WHERE` is the only thing standing between «revoke my device» and «revoke
+     * anybody's device by guessing a number», and the ids are sequential integers that appear in
+     * URLs. A method that trusted the id alone would be an account takeover in reverse: sign the
+     * victim out, repeatedly, from an authenticated request of your own.
+     */
+    public function testATokenBelongingToSomebodyElseIsNotRevoked(): void
+    {
+        // Arrange
+        $otherUid = $this->makeUser('revoke_other');
+        $theirs = $this->writeToken($otherUid);
+
+        // Act — this account asks for that token
+        (new User($this->uid))->deleteToken($theirs);
+
+        // Assert
+        $this->assertSame(
+            1,
+            $this->tokenState($theirs)['status'],
+            'one account revoked another account\'s session'
+        );
+
+        $this->db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', $otherUid)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $otherUid)->delete();
+    }
+
+    /**
+     * On MySQL a child token goes with its parent; on PostgreSQL only the named one does.
+     *
+     * A real per-engine difference in this method, and the test says which is which rather than
+     * asserting one and skipping the other — an asymmetry nobody has written down is one somebody
+     * later «fixes» in whichever direction they happened to read.
+     *
+     * `parentToken` is how a refreshed credential remembers the one it replaced, so cascading is the
+     * behaviour you want: revoking the session a device holds should take the refresh chain hanging off
+     * it, or the device renews itself straight back in.
+     */
+    public function testTheParentCascadeIsMySqlOnly(): void
+    {
+        // Arrange
+        $parent = $this->writeToken($this->uid);
+        $child  = $this->writeToken($this->uid, $parent);
+
+        // Act
+        (new User($this->uid))->deleteToken($parent);
+
+        // Assert
+        $this->assertSame(2, $this->tokenState($parent)['status']);
+
+        if (($this->db->type ?? '') === 'postgresql') {
+            $this->assertSame(
+                1,
+                $this->tokenState($child)['status'],
+                'the PostgreSQL branch cascaded, which is not what it says it does'
+            );
+
+            return;
+        }
+
+        $this->assertSame(
+            2,
+            $this->tokenState($child)['status'],
+            'the refresh chain survived, so the device renews itself back in'
+        );
+    }
+
+    /**
+     * `revokeOtherSessions()` spares the token the current request is holding.
+     *
+     * «Sign out everywhere else» that signed you out too is the bug a user notices immediately and
+     * cannot work around — they press it, they are ejected, and the natural conclusion is that the
+     * button is broken rather than that it worked.
+     *
+     * The token to keep is read from `$_SESSION['usertoken']` rather than passed in, because the
+     * session is the only place that knows which credential *this* request arrived with.
+     */
+    public function testRevokingOtherSessionsSparesTheTokenThisRequestHolds(): void
+    {
+        // Arrange
+        $mine = $this->writeToken($this->uid);
+        $elsewhere = $this->writeToken($this->uid);
+
+        $held = new Token();
+        $held->tokenid = $mine;
+        $held->userid = $this->uid;
+        $_SESSION['usertoken'] = $held;
+
+        $this->openSession('keepme_' . bin2hex(random_bytes(4)), $this->uid);
+
+        // Act
+        (new User($this->uid))->revokeOtherSessions('keepme_sid');
+
+        // Assert
+        $this->assertSame(1, $this->tokenState($mine)['status'], 'the caller was signed out too');
+        $this->assertSame(0, $this->tokenState($elsewhere)['status'], 'another session survived');
+
+        unset($_SESSION['usertoken']);
+    }
 }

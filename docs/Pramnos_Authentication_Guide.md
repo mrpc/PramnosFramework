@@ -1353,6 +1353,33 @@ leave the other stale. The order inside it is load-bearing: the back-fill from `
 happen before `action_time` becomes `NOT NULL`, or the `ALTER` fails on every existing row — after three
 other `ALTER`s have already gone through.
 
+#### `deleteToken()` revokes one device, and the cascade is MySQL-only
+
+```php
+(new User($userid))->deleteToken($tokenid);
+```
+
+Status `2` with a `removedate`, not a deleted row — a revoked token is evidence. «This credential
+stopped working at 14:12» is the answer to «was my account used after I signed out of that laptop», and
+a deleted row cannot answer it.
+
+The `WHERE` carries the **user id as well as the token id**, and that is not defensive tidying: token
+ids are sequential integers that appear in URLs, so a method trusting the id alone would let any
+authenticated request sign any account out, repeatedly, by counting.
+
+**One difference between the engines, and it is deliberate rather than an oversight.** On MySQL the
+revocation also takes any token whose `parentToken` is the one named; on PostgreSQL it takes only the
+named token. `parentToken` is how a refreshed credential remembers the one it replaced, so cascading is
+the behaviour you want — revoking what a device holds should take the refresh chain hanging off it, or
+the device renews itself straight back in. If you rely on that, rely on it on MySQL only.
+
+#### «Sign out everywhere else» keeps the credential you are holding
+
+`revokeOtherSessions()` reads the token to spare from `$_SESSION['usertoken']`, because the session is
+the only place that knows which credential *this* request arrived with. A button that signed the caller
+out as well is the bug a user notices immediately and cannot work around: they press it, they are
+ejected, and the natural conclusion is that the button is broken rather than that it worked.
+
 ### Working with Token Objects
 
 ```php
