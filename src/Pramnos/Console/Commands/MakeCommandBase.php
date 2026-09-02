@@ -225,7 +225,15 @@ abstract class MakeCommandBase extends Command
         ]);
 
         if (!file_put_contents($filename, $stub)) {
+            // @codeCoverageIgnoreStart
+            // Unreachable in the suite, and kept because production is not the suite:
+            // `file_exists()` above is true for a directory, so the obvious way to make the
+            // write fail trips that guard instead, and every remaining way — a read-only
+            // mount, a full disk, a quota — is not something a container running as root
+            // produces. A generator that reported success after writing nothing is exactly
+            // the failure this catches.
             throw new \Exception("Cannot write middleware file: $filename");
+            // @codeCoverageIgnoreEnd
         }
 
         $testOutput = $this->generateTestStub($className . 'Middleware', $namespace);
@@ -285,7 +293,15 @@ abstract class MakeCommandBase extends Command
         ]);
 
         if (!file_put_contents($filename, $stub)) {
+            // @codeCoverageIgnoreStart
+            // Unreachable in the suite, and kept because production is not the suite:
+            // `file_exists()` above is true for a directory, so the obvious way to make the
+            // write fail trips that guard instead, and every remaining way — a read-only
+            // mount, a full disk, a quota — is not something a container running as root
+            // produces. A generator that reported success after writing nothing is exactly
+            // the failure this catches.
             throw new \Exception("Cannot write service file: $filename");
+            // @codeCoverageIgnoreEnd
         }
 
         $testOutput = $this->generateTestStub($className, $namespace);
@@ -337,7 +353,15 @@ abstract class MakeCommandBase extends Command
         ]);
 
         if (!file_put_contents($filename, $stub)) {
+            // @codeCoverageIgnoreStart
+            // Unreachable in the suite, and kept because production is not the suite:
+            // `file_exists()` above is true for a directory, so the obvious way to make the
+            // write fail trips that guard instead, and every remaining way — a read-only
+            // mount, a full disk, a quota — is not something a container running as root
+            // produces. A generator that reported success after writing nothing is exactly
+            // the failure this catches.
             throw new \Exception("Cannot write event file: $filename");
+            // @codeCoverageIgnoreEnd
         }
 
         $testOutput = $this->generateTestStub($className . 'Event', $namespace . '\\Events');
@@ -390,7 +414,15 @@ abstract class MakeCommandBase extends Command
         ]);
 
         if (!file_put_contents($filename, $stub)) {
+            // @codeCoverageIgnoreStart
+            // Unreachable in the suite, and kept because production is not the suite:
+            // `file_exists()` above is true for a directory, so the obvious way to make the
+            // write fail trips that guard instead, and every remaining way — a read-only
+            // mount, a full disk, a quota — is not something a container running as root
+            // produces. A generator that reported success after writing nothing is exactly
+            // the failure this catches.
             throw new \Exception("Cannot write listener file: $filename");
+            // @codeCoverageIgnoreEnd
         }
 
         $testOutput = $this->generateTestStub($className . 'Listener', $namespace . '\\Listeners');
@@ -455,7 +487,15 @@ abstract class MakeCommandBase extends Command
         ]);
 
         if (file_put_contents($filePath, $content) === false) {
+            // @codeCoverageIgnoreStart
+            // Unreachable in the suite, and kept because production is not the suite:
+            // `file_exists()` above is true for a directory, so the obvious way to make the
+            // write fail trips that guard instead, and every remaining way — a read-only
+            // mount, a full disk, a quota — is not something a container running as root
+            // produces. A generator that reported success after writing nothing is exactly
+            // the failure this catches.
             throw new \Exception('Cannot write migration file.');
+            // @codeCoverageIgnoreEnd
         }
 
         return "Namespace: {$fullNamespace}\n"

@@ -656,6 +656,67 @@ The rule this leaves: **test the private method for the algorithm and the public
 If every test of a class reaches past its entry point, the entry point is untested no matter what the
 percentage says — and a `protected` seam like `projectRoot()` exists so that the public test is cheap.
 
+## Making a write fail is harder than it looks
+
+Four scaffolders carry the same guard:
+
+```php
+if (!file_put_contents($filename, $stub)) {
+    throw new \Exception("Cannot write middleware file: $filename");
+}
+```
+
+The obvious way to cover it is to put a directory where the file should go, so the write cannot
+succeed. It does not work, and the reason is worth knowing before spending an afternoon on it:
+
+- **`file_exists()` is true for a directory.** Every one of these methods checks "already there"
+  before it writes, so the directory trips *that* guard and the write is never attempted.
+- **`chmod 000` does not stop root.** The suite runs as root in its container, where an unwritable
+  file is still writable and an unwritable directory is still enterable.
+- **Making the parent a file works only if the parent does not exist yet.** `@mkdir($dir, 0777,
+  true)` fails on a path whose component is a file, the failure is discarded, and the write then
+  fails for real — but `src/Middleware` and its three siblings already exist in any tree the suite
+  has run in once.
+
+Which leaves a read-only mount, a full disk or a quota: real production conditions, and none of them
+producible from a test here. So the guards stay and carry `@codeCoverageIgnoreStart` with that
+reason written next to them, the same way `Database::prepareInput()`'s missing-extension branch does.
+
+**Mark a branch ignored only after failing to reach it, and write down what you tried.** The comment
+is the part that matters: without it the next reader cannot tell an unreachable branch from one
+nobody got round to, and the annotation becomes a way of hiding work rather than recording a fact.
+
+What the tests assert instead is the guard that *does* fire — an occupied path is refused, on all
+four, with the message naming the kind of file. Which turned out to be the more valuable assertion
+anyway: `create:model` used to overwrite an existing model and report success either way.
+
+## An application's `applicationInfo` cannot be set by a property default
+
+`Application::__construct()` assigns `$this->applicationInfo = self::loadApplicationInfo(APP_PATH .
+'/app.php')`, so a test double written the obvious way —
+
+```php
+class TestApplication extends \Pramnos\Application\Application
+{
+    public $applicationInfo = [];      // ← overwritten before any test sees it
+}
+```
+
+— comes back holding the fixture's namespace, not the empty array. Which is why four `: 'App'`
+fallback lines in the scaffolders had never executed: every test that reached them supplied a
+namespace without meaning to, and the "unconfigured project" case was unreachable by construction.
+
+Assign it after construction instead:
+
+```php
+$application = new TestApplication();
+$application->applicationInfo = ['theme' => 'default'];   // non-empty, names no namespace
+```
+
+Note the value: `[]` would work here too, but a project whose `applicationInfo` is genuinely empty
+is a different case from one that has settings and no namespace, and it is the second that the
+fallback is written for.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
