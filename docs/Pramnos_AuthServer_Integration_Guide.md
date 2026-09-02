@@ -171,6 +171,20 @@ POST /oauth/introspect → { "active": true, "sub": "4", "username": "sys_3a5c9a
 It is `usertype` 1 — below every administrative threshold — so a token issued to an
 application can never be mistaken for one issued to an operator.
 
+And the account is never `userid` 0 or 1. Those are the framework's guest and system
+rows, so an application whose `systemuser` column holds either has a *gap* rather than
+an account — and a token stored under one of them would sit beneath an identity shared
+with every other application in the same state, which makes "what has this account been
+doing" unanswerable. The check is `> 1`, in both places that could produce such an id:
+the column when it is read, and the row creation when it answers.
+
+Every refusal along the way returns no account rather than raising, and the token insert
+then fails on its foreign key. That is deliberate: **a token for a client that cannot be
+resolved is not stored under a user invented for it.** If a `client_credentials` grant
+answers with a server error rather than a token, this is one of the things to check —
+the log carries `Could not create a system user for application <id>` or `Could not
+resolve a system user for client <id>`.
+
 If you need a token that acts *as* a particular person without that person signing
 in, that is the JWT bearer grant (RFC 7523 §2.1) rather than this one — it must be
 enabled per client, because its holder can obtain a token for any user.
