@@ -730,10 +730,29 @@ class TwoFactorAuthService
      * The key is a hash of the code rather than the code, so a cache dump does not hand
      * out live second factors, and it expires with the TOTP window it belongs to.
      */
+    /**
+     * The store the replay claim counts in.
+     *
+     * A method rather than the `getInstance('auth')` it wraps, because the claim has four
+     * outcomes and three of them are about the store misbehaving — no atomic counter, a counter
+     * that answers `false`, a counter that raises. Reaching those through the singleton means
+     * swapping its adapter, which is process-wide: it left the shared `auth` cache in a state
+     * every later test in the run inherited, and cost the suite ten seconds.
+     */
+    protected function authCache(): \Pramnos\Cache\Cache
+    {
+        return \Pramnos\Cache\Cache::getInstance('auth');
+    }
+
+    /**
+     * Claim a code for this request, once, across every request in the window.
+     *
+     * See the note above `authCache()` for why the store is a method call.
+     */
     private function claimCode(int $userId, string $code): bool
     {
         try {
-            $cache = \Pramnos\Cache\Cache::getInstance('auth');
+            $cache = $this->authCache();
             if (!$cache->supportsAtomicCounter()) {
                 return true;
             }

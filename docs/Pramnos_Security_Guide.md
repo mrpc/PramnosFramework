@@ -976,6 +976,44 @@ The allow-list short-circuiting *before* the service is consulted matters for mo
 setup screen is itself a gated path, and a decision that ran first would send it to itself for ever.
 Paths are compared on the first segment, not as a substring — `logo.png` is not `logout`.
 
+## A TOTP code is single-use only if you ask for it, and only best-effort
+
+A six-digit code verifies for its 30-second window plus the drift accepted either side — about
+ninety seconds — and within that window it verifies **every time it is presented**. Anybody who sees
+one submission can replay it: a proxy, a shared screen, a phishing page that forwards what it was
+given.
+
+`TwoFactorAuthService` makes the first presentation the only one, by claiming the code in a counting
+cache. Two things to know before relying on it:
+
+**It is off unless you turn it on.**
+
+```php
+'auth' => ['security' => ['cache_totp_replays' => true]],
+```
+
+Without that, `claimCode()` is never called and a code is replayable for its whole window.
+
+**With it on, it stands down rather than refusing.** Three separate ways:
+
+| Condition | Result |
+|---|---|
+| the cache has no atomic counter (a file cache, no cache at all) | the claim is allowed |
+| the counter answers `false` — the server is unreachable mid-request | allowed |
+| anything raises | allowed, and a line in the `auth` log |
+
+Deliberate: refusing every second factor while Redis is down is a larger failure than a ninety-second
+replay window. But it means the protection is best-effort, which is not what "single-use" sounds
+like — **so it needs a counting cache to be worth anything.** Redis or Memcached; a file cache
+cannot count atomically, and a read-modify-write would lose claims exactly when it matters, since
+two requests reading `0` would both write `1` and both believe they were first.
+
+Two details that are right and easy to get wrong if this is ever reimplemented: the key contains a
+hash of the code and never the code, so a cache dump or a Redis `MONITOR` does not hand out live
+second factors; and the claim carries the account id, because six digits and a 30-second window make
+two accounts producing the same code at the same moment unlikely but possible — and a key without
+the account would sign one of them out of their own login.
+
 ## A URL is on your site only if the *next character* is a boundary
 
 Anywhere the framework decides whether a URL belongs to this installation — a `Referer` it will turn
