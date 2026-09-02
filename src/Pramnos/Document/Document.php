@@ -189,29 +189,27 @@ class Document extends \Pramnos\Framework\Base
      */
     private const CDN_HANDLES = ['jquery', 'bootstrap-datepicker', 'jquery-inputmask'];
 
+    /**
+     * Whether the three CDN-pointing defaults are still coming from the CDN.
+     *
+     * Defined in terms of {@see localHandles()} rather than reading the setting again, because
+     * "are they on the CDN" *is* "is nothing local" — and because reading it twice meant reading
+     * it two different ways.
+     *
+     * This used to parse `documentAssetSource` itself and handle only the plain-array form. The
+     * setting round-trips as an array, an `stdClass`, a JSON string or a comma-separated string
+     * depending on how it was stored, which `localHandles()` says in its own comment and handles.
+     * The three forms this method did not handle gave three wrong answers: an `stdClass` reached
+     * `(string) $configured` and raised `Object of class stdClass could not be converted to
+     * string` — on every page build, for an installation that had configured a list — and a JSON
+     * or comma-separated list was silently reported as "on the CDN", so a page emitted CDN tags
+     * for scripts the installation had vendored.
+     *
+     * Found by writing the first test that ever called it.
+     */
     protected static function servesDefaultsFromCdn(): bool
     {
-        try {
-            $configured = \Pramnos\Application\Settings::getSetting('documentAssetSource');
-        } catch (\Throwable) {
-            // A document can be built before settings are readable — during install, in a
-            // unit test, from the console. The default is what it has always been.
-            return true;
-        }
-
-        // A list of handles serves exactly those locally and leaves the rest on the CDN. That
-        // exists because all-or-nothing was the wrong shape, and a consumer proved it within a
-        // day: they had `media/js/jquery/jquery.min.js` vendored and **no `plugins/` directory
-        // at all**, so switching to 'local' would have 404'd two of the three scripts. Their
-        // choice was between a GDPR problem they wanted to fix and two broken scripts, when what
-        // they actually needed was to fix the one they could.
-        if (is_array($configured)) {
-            // Per-handle: some from the CDN, some not. "Is it the CDN" has no single answer,
-            // and the callers that matter ask localHandles() instead.
-            return $configured === [];
-        }
-
-        return strtolower(trim((string) $configured)) !== 'local';
+        return self::localHandles() === [];
     }
 
     /**

@@ -341,6 +341,26 @@ or two broken scripts.
 A comma-separated string and a JSON array are accepted too, because settings round-trip a list
 differently depending on how it was stored.
 
+All four forms are equivalent — an array, an `stdClass`, a JSON string, a comma-separated string —
+and which one comes back depends on how the setting was written and read, not on what you meant:
+
+```php
+'documentAssetSource' => ['jquery']                      // array
+'documentAssetSource' => '["jquery"]'                    // JSON, as some stores return it
+'documentAssetSource' => 'jquery, bootstrap-datepicker'  // typed into a form
+```
+
+Before 1.2 only the plain-array form was understood by the "is anything on the CDN" check. The other
+three misbehaved in two different ways: an `stdClass` raised `Object of class stdClass could not be
+converted to string` on **every page build**, and the string forms were read as "everything is on
+the CDN" — so a page emitted CDN tags for scripts the installation had vendored, which is precisely
+the outcome the setting was configured to avoid. Both are fixed; if you are on an earlier version
+and using a list, prefer the plain array.
+
+**The default is the CDN.** Not configuring this sends every visitor's browser to a third-party
+host for three scripts, which is a privacy decision an installation inherits without making it.
+
+
 ### CSS Management
 
 ```php
