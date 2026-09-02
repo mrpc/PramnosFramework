@@ -1273,6 +1273,22 @@ php bin/pramnos project:resync --spa-components --all    # overwrite local edits
 
 It is **not** included in a plain `project:resync`, for the same reason.
 
+Two conditions decide whether it writes anything at all, and both fail silently — a project that
+meets neither gets no files and no complaint:
+
+- **`app_style` must not be `mvc`.** That is the default, so a project that has never asked for a
+  front end has no source directory to write into, and the resync will not decide it should have one.
+  This holds even with `spa_stack => 'svelte'` configured: the stack being right does not create
+  somewhere to put the files.
+- **`spa_stack` must be `svelte`.** The shared components *are* Svelte. A project on a no-build
+  stack has an SPA and nothing that compiles `.svelte`, so the files would sit there as text — and
+  the resync would have reported success.
+
+Where they land follows `spa_source_dir` when it is set, so a project whose front end lives in
+`admin-ui/` receives them there rather than having to rename its directory to be helped.
+
+If `--spa-components` appears to do nothing, check `app_style` first.
+
 ### Generated View Examples
 
 #### List View (user.html.php)
