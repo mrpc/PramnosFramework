@@ -769,6 +769,36 @@ it, and hands back an empty object — no error, no warning, and `->thumbnails` 
 `new MediaObject(); $media->load($id);` is the loading form. An assertion that a freshly written row
 came back empty is the symptom, and the row is fine.
 
+## `No such file or directory` from a database that worked under a filter
+
+A class that connects fine on its own and fails in the full suite with a socket error is not a
+flaky database. It is the singleton: whichever test ran before left
+`Database::getInstance()` holding another lane's connection settings, and `Factory::getDatabase()`
+hands that same object back rather than building one from the settings just loaded.
+
+Drop the reference first, which is what the integration tests here already do:
+
+```php
+Settings::loadSettings($this->settingsFixture());
+
+$reference = &\Pramnos\Database\Database::getInstance();
+$reference = null;                       // ← the part that is easy to leave out
+
+$db = \Pramnos\Framework\Factory::getDatabase();
+if (!$db->connected) {
+    $db->connect();
+}
+```
+
+The symptom is worth recognising because it points the wrong way: `No such file or directory` is a
+socket path, so it reads as "the database is not running" — and under `--filter` the same class
+passes, which reads as "the suite is interfering with itself" rather than "this class did not ask
+for its own connection".
+
+Wrap the connect in a `try`/`markTestSkipped()` as well. A class whose backend is genuinely absent
+should skip, not error: the two lanes here mean every dual-backend class runs twice, and one of the
+two may have nothing to talk to.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
