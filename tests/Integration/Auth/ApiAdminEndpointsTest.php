@@ -232,6 +232,49 @@ class ApiAdminEndpointsTest extends BaseTestCase
         }
     }
 
+    /**
+     * The term comes from `q`, and reaches the registry as typed.
+     *
+     * An assertion the previous version of this test could not make: it re-implemented the limit
+     * and returned early, so nothing observed what was searched for. A `search()` that read the
+     * wrong parameter would have answered an empty result set for every query — which looks
+     * exactly like an omnibox over an empty database.
+     */
+    public function testTheTermComesFromTheQueryParameter(): void
+    {
+        // Arrange
+        $api    = $this->api(authenticated: true, authorized: true);
+        $_GET   = ['q' => '  Γιάννης  ', 'limit' => '5'];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $api->search();
+
+        // Assert — handed over as typed; trimming is the registry's own business
+        $this->assertSame('  Γιάννης  ', $api->searchTerm);
+    }
+
+    /**
+     * With no `limit` at all, five is what the registry is asked for.
+     *
+     * The default is part of the endpoint's contract: an omnibox that asked for one row per group
+     * would look broken, and one that asked for twenty by default would make the common case the
+     * expensive one.
+     */
+    public function testTheDefaultLimitIsFive(): void
+    {
+        // Arrange
+        $api  = $this->api(authenticated: true, authorized: true);
+        $_GET = ['q' => 'anything'];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $api->search();
+
+        // Assert
+        $this->assertSame(5, $api->searchLimit);
+    }
+
     // ── The log endpoint ──────────────────────────────────────────────────────
 
     /**
@@ -337,6 +380,9 @@ class ApiAdminEndpointsTest extends BaseTestCase
 
             public ?int $searchLimit = null;
 
+            /** The term the endpoint handed over, so a test can check it came from `q`. */
+            public ?string $searchTerm = null;
+
             public function __construct(private bool $authenticated, private bool $authorized)
             {
             }
@@ -361,21 +407,20 @@ class ApiAdminEndpointsTest extends BaseTestCase
             /**
              * The registry call, recorded instead of run.
              *
-             * `search()` composes the limit and hands it over; the cap is the thing under test,
-             * and running six real searches would be asserting the registry's own behaviour.
+             * Recorded *below* the cap rather than in place of it. This used to override
+             * `search()` and re-implement `min(20, max(1, …))`, which asserted the test's own
+             * arithmetic — and would have passed just as happily if the real cap had become
+             * `min(500, …)`. Now the real `search()` runs and this catches what it hands over,
+             * so the number asserted is the one the endpoint computed.
+             *
+             * @return array<string, mixed>
              */
-            public function search(): mixed
+            protected function searchRegistry(string $term, int $perSource): array
             {
-                if (($denied = $this->guard('search')) !== null) {
-                    return $denied;
-                }
+                $this->searchLimit = $perSource;
+                $this->searchTerm  = $term;
 
-                $this->searchLimit = min(
-                    20,
-                    max(1, (int) \Pramnos\Http\Request::staticGet('limit', 5, 'get', 'int'))
-                );
-
-                return \Pramnos\Http\Response::json([]);
+                return ['query' => $term, 'total' => 0, 'groups' => []];
             }
         };
     }

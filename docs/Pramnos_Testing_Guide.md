@@ -948,6 +948,51 @@ Two assertions, always. And note the first one: **a loop over an empty array ass
 test that iterates discovered data needs a non-empty check whether or not it iterates. PHPUnit says
 so — *"This test did not perform any assertions"* — but only when the loop is the *whole* test.
 
+## A test that re-implements the code under test will pass when the code changes
+
+The sharpest version of "a test that replaces a method is not a test of it", because this one had a
+good reason and a name that said it was doing the opposite.
+
+`ApiAdmin::search()` caps the omnibox limit at twenty — an endpoint that took the number from the
+request would be a denial-of-service endpoint with a friendly name. The test called
+`testTheOmniboxLimitIsCapped()`, and its probe did this:
+
+```php
+public function search(): mixed
+{
+    if (($denied = $this->guard('search')) !== null) {
+        return $denied;
+    }
+
+    // a copy of the line under test
+    $this->searchLimit = min(20, max(1, (int) Request::staticGet('limit', 5, 'get', 'int')));
+
+    return Response::json([]);
+}
+```
+
+The reasoning in its docblock was sound — running six real searches would assert the registry's
+behaviour rather than the cap. The consequence was not: **the test asserted its own arithmetic.**
+Change the source to `min(500, …)` and it still passes, because the source is never called.
+
+The fix is to record from *below* the thing under test, not in place of it. One protected line in
+the controller —
+
+```php
+protected function searchRegistry(string $term, int $perSource): array
+{
+    return \Pramnos\Search\Registry::query($term, $perSource);
+}
+```
+
+— and the probe overrides that instead. The real `search()` runs, the real cap computes, and the
+number asserted is the one the endpoint produced. Two assertions became possible that were not
+before: that the term comes from `q`, and that the default is five.
+
+**The test to run on your own probes:** for each method it overrides, ask whether the source could
+change and the test still pass. If the override contains a copy of any expression from the source,
+the answer is yes.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so

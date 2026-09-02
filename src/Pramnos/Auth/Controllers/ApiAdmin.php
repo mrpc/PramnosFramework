@@ -78,12 +78,27 @@ class ApiAdmin extends ApiCrudController
 
         \Pramnos\Search\Registry::loadDefinitions();
 
-        return Response::json(\Pramnos\Search\Registry::query(
+        return Response::json($this->searchRegistry(
             (string) Request::staticGet('q', '', 'get'),
             // Capped rather than taken from the request: an omnibox asking for 500 rows
             // from six tables is a denial-of-service endpoint with a friendly name.
             min(20, max(1, (int) Request::staticGet('limit', 5, 'get', 'int')))
         ));
+    }
+
+    /**
+     * Run a term across the registered sources.
+     *
+     * A method rather than the static call it wraps, so the cap above can be observed without
+     * being re-implemented. A test that overrode `search()` had to copy `min(20, max(1, …))` into
+     * itself, which meant it asserted its own arithmetic — and would have passed just as happily
+     * if the real cap had become `min(500, …)`.
+     *
+     * @return array<string, mixed>
+     */
+    protected function searchRegistry(string $term, int $perSource): array
+    {
+        return \Pramnos\Search\Registry::query($term, $perSource);
     }
 
     /**
