@@ -946,6 +946,36 @@ Two consequences for an operator:
   credential problem. The log line is `HumanCheck challenge failed for login: …` or
   `HumanCheck verification failed for login: …`, in the `auth` channel.
 
+## Forced second-factor enrolment fails **open**
+
+`RequireFactorEnrolmentMiddleware` walks a privileged account to the setup screen until it has
+enrolled a second factor. Its decision has five ways of saying "not this request", and one of them
+is worth knowing before you rely on the wall:
+
+| Condition | Answer |
+|---|---|
+| `require_factor_enrolment_from_usertype` is `0` | not gated — the feature is off by default, so upgrading the framework cannot lock an installation out |
+| nobody is signed in | not gated — there is nothing to enrol, and the sign-in flow must not sit behind a screen that needs signing in |
+| the path is on the allow-list | not gated, **without consulting the enrolment service** |
+| there is no current user object | not gated |
+| the enrolment service says so | gated: redirect, and `$_SESSION['factor_enrolment_required']` is set for the screen to explain itself |
+| **the decision raises** | **not gated**, and a line in the `auth` log |
+
+That last row is deliberate and it is the opposite of the human check on the sign-in form, which
+fails closed. The difference is what each failure costs. A broken human check refuses new
+submissions; a broken enrolment check would redirect *every page* of the site to a setup screen, and
+if the allow-list were ever wrong, the setup screen too. Locking an installation out of itself
+because a lookup failed is worse than a privileged account going one more request without a second
+factor.
+
+So: **this wall is not a containment boundary.** It gets accounts enrolled; it is not something to
+rely on for keeping an unenrolled administrator out of a screen. If a screen must refuse an account
+without a second factor, check that on the screen.
+
+The allow-list short-circuiting *before* the service is consulted matters for more than speed: the
+setup screen is itself a gated path, and a decision that ran first would send it to itself for ever.
+Paths are compared on the first segment, not as a substring — `logo.png` is not `logout`.
+
 ## A URL is on your site only if the *next character* is a boundary
 
 Anywhere the framework decides whether a URL belongs to this installation — a `Referer` it will turn
