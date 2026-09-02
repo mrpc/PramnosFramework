@@ -719,6 +719,33 @@ Accepts the spellings a config file actually contains: `false`, `0`, `'0'`,
 `'false'`, `'no'`, `'off'` and `''` all decline. `true`, `1`, `'yes'`, `'on'` leave
 it on, as does omitting the key.
 
+### What the row is, and the two things that keep it cheap
+
+One row per **visitor**, keyed on `visitorid` — not one per request. The table is a live-visitor list
+rather than a record, so it is written by an upsert and swept rather than accumulated.
+
+The upsert is hand-written per dialect: `ON DUPLICATE KEY UPDATE` on MySQL and
+`ON CONFLICT (visitorid) DO UPDATE … RETURNING logout` on PostgreSQL. The `RETURNING` is a feature, not
+a flourish — **the upsert deliberately does not touch `logout`**, and reads back what it was. That flag
+is how «an administrator ended this session» reaches the visitor: somebody else sets it in the table,
+and the visitor's next request finds it and is signed out. An upsert that wrote every column, `logout`
+included, would clear the instruction before it was ever read, and the eject button would silently do
+nothing.
+
+Two settings keep the cost down, and both trade promptness for writes:
+
+- **`session_write_interval`** (60s) — nothing is written twice in the same minute unless the visitor
+  *navigated* somewhere new. A page that loads and then calls its own API would otherwise write the row
+  twice a second apart, and a page making ten XHR calls ten times. Only a navigation records a URL: an
+  XHR is the page talking to the server, and because it runs after the page that made it, recording its
+  URL would leave the row permanently showing `/users/data` for somebody looking at `/users`.
+- **`session_gc_divisor`** (100) — one request in N sweeps rows older than five minutes, rather than
+  every request issuing the `DELETE`. Rows are allowed to be five minutes stale, so how promptly they
+  go does not matter to anything that reads them.
+
+The cost of both is that a visitor drops off the list up to a minute late, and a forced logout takes up
+to a minute to be noticed. Neither is a promise anything makes.
+
 The two inference rules still work and are still checked, after this one: naming the
 middleware in `middleware`, or registering the deprecated `Addon\System\Session`.
 An explicit answer is never overruled by a guess about one.
