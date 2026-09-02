@@ -2873,11 +2873,230 @@ class MediaObjectTest extends TestCase
         $check->load((string)$mid);
         $this->assertTrue($this->getProtectedProperty($check, '_isnew'));
     }
+    // ────────────────────────────────────────────────────────────────────────
+    // The arms that only run when something goes wrong
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * An EXIF reader that throws does not stop the upload.
+     *
+     * `exif_read_data()` warns rather than throwing, so this arm is unreachable through the real
+     * function — but the extension is optional and a stream wrapper can raise, which is what the
+     * guard is for. The shim at the foot of this file supplies the throw, and what is asserted is
+     * that the image still arrives: an orientation nobody could read is a cosmetic loss, and
+     * failing the whole upload over it would not be.
+     */
+    #[Test]
+    public function testAnExifReaderThatThrowsDoesNotFailTheUpload(): void
+    {
+        // Arrange
+        $source = $this->createDummyJpg('exif_throws.jpg', 40, 30);
+
+        // Act
+        $media                 = new MediaObject();
+        $media->fixOrientation = true;
+        $media->addImage($source, 'test_media_module');
+
+        // Assert
+        $this->assertFalse($media->error, 'an unreadable orientation should not fail the upload');
+        $this->assertEquals(1, $media->mediatype);
+    }
+
+    /**
+     * A thumbnail whose file has been deleted is dropped and made again.
+     *
+     * The record and the file are two things, and only one of them is in the database. A deploy
+     * that wipes `www/uploads`, a tidy-up script, a restore from a backup taken at the wrong
+     * moment: any of them leaves a row pointing at nothing. Returning that row would put a broken
+     * image on the page for as long as the record lives, so `get()` checks the file and forgets
+     * the record when it is gone.
+     */
+    #[Test]
+    public function testAThumbnailWhoseFileIsMissingIsRemadeRatherThanReturned(): void
+    {
+        // Arrange
+        $source = $this->createDummyJpg('stale.jpg', 400, 300);
+
+        $media                 = new MediaObject();
+        $media->fixOrientation = false;
+        $media->medium         = 200;
+        $media->thumb          = 100;
+        $media->thumbHeight    = 75;
+        $media->addImage($source, 'test_media_module');
+        $media->save();
+
+        $first = $media->get(100, 75);
+        $this->assertNotEmpty($first->filename, 'no thumbnail was created to invalidate');
+        $path = $first->filename;
+        $this->assertFileExists($path);
+
+        // The file goes; the record stays.
+        unlink($path);
+
+        // Act
+        $second = $media->get(100, 75);
+
+        // Assert
+        $this->assertNotFalse($second, 'get() gave up instead of remaking the thumbnail');
+        $this->assertFileExists(
+            $second->filename,
+            'get() returned a thumbnail record whose file does not exist'
+        );
+    }
+
+    /**
+     * Thumbnails that JSON cannot carry are stored in the legacy format, and still read back.
+     *
+     * The column holds JSON now, for reasons written at length on `encodeThumbnails()` — chiefly
+     * that `serialize()` writes the class name into the data, so who can read a row depends on
+     * which classes the reading process happens to have. What has to stay true is that a payload
+     * `json_encode()` refuses does not simply vanish: losing every thumbnail on that media would
+     * be worse than writing one row in the old format.
+     *
+     * `INF` is the trigger, not a badly encoded filename, and the difference is worth recording.
+     * The method's own note offers "a filename in some encoding `json_encode()` refuses" as the
+     * case — but a byte sequence that is not valid UTF-8 cannot be stored in a `utf8mb4` column
+     * either, so the fallback writes a value the database then rejects and the row comes back
+     * empty. What the fallback genuinely rescues is a value PHP can serialise and JSON has no way
+     * to represent: `INF` and `NAN`, which `json_encode()` refuses outright and `serialize()`
+     * writes as plain ASCII.
+     *
+     * Asserted through `save()` and a fresh load rather than by calling the encoder, because the
+     * claim is that the *reader* accepts both formats. Testing the encoder alone would prove the
+     * fallback is written and nothing about whether anything can read it.
+     */
+    #[Test]
+    public function testThumbnailsThatJsonRefusesAreStoredInTheLegacyFormatAndStillLoad(): void
+    {
+        // Arrange
+        $source = $this->createDummyJpg('legacyfallback.jpg', 200, 150);
+
+        $media                 = new MediaObject();
+        $media->fixOrientation = false;
+        $media->medium         = 100;
+        $media->thumb          = 50;
+        $media->thumbHeight    = 40;
+        $media->addImage($source, 'test_media_module');
+        $media->save();
+
+        $this->assertNotEmpty($media->thumbnails, 'nothing to make unencodable');
+        $expected = count($media->thumbnails);
+
+        // `json_encode()` refuses the whole payload for one INF; `serialize()` writes `d:INF;`.
+        array_values($media->thumbnails)[0]->filesize = INF;
+
+        // Act
+        $media->save();
+
+        /*
+         * `load()` reads through the query cache — `query($sql, true, 600, 'media')` — so a row
+         * written a moment ago is asserted against only after a flush.
+         */
+        Factory::getDatabase()->cacheflush('media');
+
+        // `MediaObject` declares no constructor, so `new MediaObject($id)` silently ignores the
+        // id and hands back an empty object. Loading is a call.
+        $reloaded = new MediaObject();
+        $reloaded->load($media->mediaid);
+
+        // Assert
+        $this->assertCount(
+            $expected,
+            $reloaded->thumbnails,
+            'the thumbnails were lost rather than written in the old format'
+        );
+        $this->assertTrue(
+            is_infinite((float) array_values($reloaded->thumbnails)[0]->filesize),
+            'the unencodable value did not survive the round trip'
+        );
+    }
+
+    /**
+     * A JPEG whose name does not say so is rotated anyway, and written as a JPEG.
+     *
+     * Extension and content are two different claims. A file arriving as `.gif` while holding JPEG
+     * bytes is ordinary — a download named by a URL, an export from a tool that guessed — and the
+     * `else` here is what stops the rotation from being skipped over a filename. It reads the file
+     * as JPEG, and `$isJpg` is what then makes the *output* a JPEG rather than falling through to
+     * the PNG writer, which would produce a file that no reader can open.
+     */
+    #[Test]
+    public function testAJpegWithTheWrongExtensionIsStillRotated(): void
+    {
+        // Arrange — JPEG bytes, `.gif` name
+        $jpeg = $this->createDummyJpg('mislabelled.jpg', 60, 40);
+        $path = $this->scratchDir() . DS . 'mislabelled.gif';
+        copy($jpeg, $path);
+        $this->createdFiles[] = $path;
+
+        $media           = new RotatableMedia();
+        $media->filename = $path;
+
+        // Act
+        $result = $media->rotateBy(90);
+
+        // Assert
+        $this->assertNotFalse($result, 'a mislabelled JPEG was refused instead of rotated');
+
+        $written = preg_replace('/\.gif$/', '-r90.gif', $path);
+        $this->createdFiles[] = $written;
+        $this->assertFileExists($written, 'nothing was written for the rotated image');
+        $this->assertSame(
+            'image/jpeg',
+            (string) (@getimagesize($written)['mime'] ?? ''),
+            'the rotated file is not a readable JPEG'
+        );
+    }
+
+    /**
+     * A file that is not an image at all is refused rather than rotated.
+     *
+     * The other half of the same `else`: having decided to read it as JPEG, a failure has to stop
+     * there. `imagerotate(false, …)` is a TypeError, so without the guard a `.gif` full of text
+     * would take the process down instead of returning `false`.
+     */
+    #[Test]
+    public function testAFileThatIsNotAnImageIsRefusedByRotate(): void
+    {
+        // Arrange
+        $path = $this->scratchDir() . DS . 'nonsense.gif';
+        file_put_contents($path, "this is not an image\n");
+        $this->createdFiles[] = $path;
+
+        $media           = new RotatableMedia();
+        $media->filename = $path;
+
+        // Act
+        $result = @$media->rotateBy(90);
+
+        // Assert
+        $this->assertFalse($result, 'a file with no image in it was not refused');
+    }
+
+}
+
+/** Exposes `rotate()`, which is protected because callers rotate through the upload path. */
+class RotatableMedia extends MediaObject
+{
+    public function rotateBy(int $degrees): mixed
+    {
+        return $this->rotate($degrees);
+    }
 }
 
 namespace Pramnos\Media;
 
 function exif_read_data($filename) {
+    /*
+     * The throwing case, for the arm the real function cannot reach.
+     *
+     * `exif_read_data()` warns and returns `false` rather than throwing, so the `catch` in
+     * `fixJpegOrientation()` is unreachable through it. The guard is still right — the extension
+     * is optional and a stream wrapper can raise — and this is the only way to run it.
+     */
+    if (strpos($filename, 'exif_throws.jpg') !== false) {
+        throw new \RuntimeException('exif is not available for this stream');
+    }
     if (strpos($filename, 'exif_test_6.jpg') !== false) {
         return ['Orientation' => 6];
     }

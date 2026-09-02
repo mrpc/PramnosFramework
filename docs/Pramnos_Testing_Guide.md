@@ -717,6 +717,58 @@ Note the value: `[]` would work here too, but a project whose `applicationInfo` 
 is a different case from one that has settings and no namespace, and it is the second that the
 fallback is written for.
 
+## A warning is an exception here, but only because a test made it one
+
+`MediaObject::addImage()` wraps `copy()` in `try { … } catch (\Exception $ex)`. That looks like
+dead code — `copy()` warns and returns `false`, it does not throw — and it is not, because the test
+that covers it installs a handler first:
+
+```php
+set_error_handler(function ($errno, $errstr, $errfile, $errline) {
+    throw new \ErrorException($errstr, 0, $errno, $errfile, $errline);
+}, E_WARNING);
+
+try {
+    $media->addImage($sourceDirectory, 'test_media_module');
+} finally {
+    restore_error_handler();
+}
+```
+
+`ErrorException` extends `Exception`, so the `catch` fires and the arm is reachable. This is the
+established way to cover a warning-shaped failure in this suite, and it is worth knowing before
+"fixing" one of these guards into a return-value check: the guard is right, the arm is tested, and
+rewriting it breaks the test that was covering it.
+
+Two details that follow:
+
+- **`@` does not stop a custom handler.** PHP 8 calls the handler regardless; it is the handler's job
+  to consult `error_reporting()`. So `@copy(…)` inside the source does not protect the caller from a
+  handler the test installed.
+- **The arm is only reachable while the handler is installed.** Which is why the neighbouring
+  `unlink()` guard is still uncovered: reaching it needs a copy that succeeds and a delete that
+  fails, and as root in a container the second does not happen.
+
+## Two ways to lose a row you just wrote
+
+Both cost an afternoon in `MediaObject`, and neither is about the code under test.
+
+**`load()` reads through the query cache.** It is `query($sql, true, 600, 'media')` — cached for ten
+minutes, keyed on the SQL text. A test that writes a row and reads it back gets the cache unless it
+flushes:
+
+```php
+\Pramnos\Framework\Factory::getDatabase()->cacheflush('media');
+```
+
+Worse in a class that recreates its tables per run, because `mediaid` restarts at 1 and the cached
+row belongs to a *different test's* media — same id, same SQL, plausible-looking answer.
+
+**`MediaObject` declares no constructor.** So `new MediaObject($id)` accepts the argument, ignores
+it, and hands back an empty object — no error, no warning, and `->thumbnails` is the empty default.
+`new MediaObject(); $media->load($id);` is the loading form. An assertion that a freshly written row
+came back empty is the symptom, and the row is fine.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
