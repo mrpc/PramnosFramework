@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Unit\Mcp;
 
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Container;
@@ -31,7 +30,18 @@ use Pramnos\Mcp\McpToolInterface;
  * the next tool does not have. This asks the service provider for the real server and holds every tool
  * on it to the same rules, so a tool added tomorrow is covered the day it is registered.
  */
-#[CoversClass(McpServiceProvider::class)]
+/*
+ * No `#[CoversClass]`, deliberately.
+ *
+ * The attribute **restricts** what a test contributes to the coverage report, and the subject here is
+ * not one class: it is the discovery contract across every registered tool. Declaring
+ * `McpServiceProvider` — which is what this class did first — discarded every line of tool code the
+ * test executed, so a round of 69 tests and 305 assertions moved the project total by **one
+ * statement** while the three methods it was written for stayed at zero hits.
+ *
+ * Naming all seventeen tools instead would work and would be wrong for the same reason the test is
+ * written this way: a tool added tomorrow would silently stop counting.
+ */
 class ToolDiscoveryContractTest extends TestCase
 {
     protected function setUp(): void
