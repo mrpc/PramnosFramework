@@ -293,6 +293,166 @@ class WebhookControllerTest extends TestCase
             $this->assertNotContains($action, $controller->actions_auth, $action);
         }
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // The credential check itself
+    // ────────────────────────────────────────────────────────────────────────
+
+    /*
+     * Everything above runs against a probe that overrides `requireClient()`, which is why the
+     * real one had no covered line: the tests assert what the actions do with an answer, and the
+     * answer was the stub's. `ClientCredentialsAuthTrait` — where the credentials are read and
+     * checked — is fully covered; what was not is the fourteen statements that turn its two
+     * possible answers into an HTTP response.
+     *
+     * These override the trait's two methods instead, one level below, so the real
+     * `requireClient()` runs.
+     */
+
+    /**
+     * A controller whose credential extraction and check answer as the test says.
+     *
+     * @param array{client_id: string, client_secret: string}|null $credentials
+     */
+    private function clientChecking(?array $credentials, ?int $authenticatesAs): object
+    {
+        return new class ($credentials, $authenticatesAs) extends \Pramnos\Auth\Controllers\Webhook {
+            /** @var list<array{0: string, 1: string}> */
+            public array $checked = [];
+
+            public function __construct(
+                private readonly ?array $credentials,
+                private readonly ?int $authenticatesAs
+            ) {
+                parent::__construct();
+            }
+
+            protected function extractClientCredentials(): ?array
+            {
+                return $this->credentials;
+            }
+
+            protected function authenticateClient(string $clientId, string $clientSecret): ?int
+            {
+                $this->checked[] = [$clientId, $clientSecret];
+
+                return $this->authenticatesAs;
+            }
+
+            public function exposeRequireClient(): mixed
+            {
+                return $this->requireClient();
+            }
+        };
+    }
+
+    /** The status and decoded body of a response. */
+    private function readResponse(mixed $response): array
+    {
+        $this->assertInstanceOf(\Pramnos\Http\Response::class, $response);
+
+        return [
+            $response->getStatusCode(),
+            json_decode((string) $response->getBody(), true) ?: [],
+        ];
+    }
+
+    /**
+     * A request with no credentials is a 401 that says what is missing.
+     *
+     * The description matters here in a way it usually does not: this endpoint is called by
+     * somebody else's server, by a developer wiring it up for the first time, and `invalid_client`
+     * on its own does not distinguish "you sent nothing" from "what you sent is wrong". The two
+     * have completely different fixes.
+     */
+    public function testARequestWithNoCredentialsSaysWhatIsMissing(): void
+    {
+        // Arrange
+        $controller = $this->clientChecking(null, 7);
+
+        // Act
+        [$status, $body] = $this->readResponse($controller->exposeRequireClient());
+
+        // Assert
+        $this->assertSame(401, $status);
+        $this->assertSame('invalid_client', $body['error'] ?? null);
+        $this->assertSame('Client credentials required', $body['error_description'] ?? null);
+        $this->assertSame([], $controller->checked, 'nothing was sent, so nothing should be checked');
+    }
+
+    /**
+     * Credentials that do not authenticate are a 401 with **no** description.
+     *
+     * Deliberately less than the case above. Distinguishing "no such client" from "wrong secret"
+     * for a caller that presented something would let an id be confirmed by trying it, which is
+     * the same reason a sign-in form does not say which half was wrong.
+     */
+    public function testCredentialsThatDoNotAuthenticateSayNothingMore(): void
+    {
+        // Arrange
+        $controller = $this->clientChecking(
+            ['client_id' => 'some-client', 'client_secret' => 'wrong'],
+            null
+        );
+
+        // Act
+        [$status, $body] = $this->readResponse($controller->exposeRequireClient());
+
+        // Assert
+        $this->assertSame(401, $status);
+        $this->assertSame('invalid_client', $body['error'] ?? null);
+        $this->assertArrayNotHasKey(
+            'error_description',
+            $body,
+            'a rejected credential should not say which half was wrong'
+        );
+    }
+
+    /**
+     * Both halves reach the check, in order.
+     *
+     * A `requireClient()` that passed the id twice, or dropped the secret, would authenticate
+     * anybody who knew a client id — and every test above would still pass, because they only
+     * assert the outcome the stub was told to give.
+     */
+    public function testBothHalvesOfTheCredentialReachTheCheck(): void
+    {
+        // Arrange
+        $controller = $this->clientChecking(
+            ['client_id' => 'the-id', 'client_secret' => 'the-secret'],
+            7
+        );
+
+        // Act
+        $controller->exposeRequireClient();
+
+        // Assert
+        $this->assertSame([['the-id', 'the-secret']], $controller->checked);
+    }
+
+    /**
+     * An authenticated client comes back as its application id, not as a response.
+     *
+     * The `int|Response` return is what the actions branch on, so this is the assertion that says
+     * the success path is distinguishable from the failure ones: an `int` means carry on, anything
+     * else means send it and stop.
+     */
+    public function testAnAuthenticatedClientComesBackAsItsApplicationId(): void
+    {
+        // Arrange
+        $controller = $this->clientChecking(
+            ['client_id' => 'the-id', 'client_secret' => 'the-secret'],
+            4242
+        );
+
+        // Act
+        $result = $controller->exposeRequireClient();
+
+        // Assert
+        $this->assertSame(4242, $result);
+        $this->assertNotInstanceOf(\Pramnos\Http\Response::class, $result);
+    }
+
 }
 
 /** Webhook with authentication, storage and the delivery service replaced. */

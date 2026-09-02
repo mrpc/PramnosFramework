@@ -602,6 +602,29 @@ grows means events are being queued and nothing is sending them.
 
 ---
 
+### What a 401 from the webhook endpoints tells you
+
+Both failures are `invalid_client` with status `401`, and the difference between them is the whole
+diagnostic:
+
+```json
+{"error": "invalid_client", "error_description": "Client credentials required"}
+```
+
+You sent nothing the endpoint could read — no `Authorization: Basic`, no `client_id`/`client_secret`
+in the body. Check how your client is attaching them.
+
+```json
+{"error": "invalid_client"}
+```
+
+You sent credentials and they did not authenticate. **There is no description on purpose**: saying
+whether the id or the secret was wrong would let a client id be confirmed by trying it, the same
+reason a sign-in form does not say which half failed. Check the id and the secret together, and that
+the application is still registered and enabled.
+
+So: **a description means "nothing arrived", and no description means "what arrived was wrong".**
+
 ## 7. Putting it together
 
 ```
