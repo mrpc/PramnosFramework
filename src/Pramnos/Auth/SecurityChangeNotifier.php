@@ -74,7 +74,7 @@ class SecurityChangeNotifier
         try {
             $user = new \Pramnos\User\User($userId);
             $notification = new Notifications\SecurityChangeNotification($what, $detail);
-            $notifier = new \Pramnos\Notification\Notifier();
+            $notifier = static::notifier();
             $sent = false;
 
             $current = (string) ($user->email ?? '');
@@ -118,5 +118,22 @@ class SecurityChangeNotifier
 
             return false;
         }
+    }
+
+    /**
+     * What does the sending, as a seam.
+     *
+     * `new Notifier()` inline made every branch below it unobservable: whether the *previous* address
+     * was mailed — the one property this class exists for — is a question about which notifiables were
+     * sent to, and nothing recorded them.
+     *
+     * `static::` rather than `self::`, so a subclass can answer it. That is the only reason this method
+     * is not private.
+     *
+     * @return \Pramnos\Notification\Notifier
+     */
+    protected static function notifier(): \Pramnos\Notification\Notifier
+    {
+        return new \Pramnos\Notification\Notifier();
     }
 }

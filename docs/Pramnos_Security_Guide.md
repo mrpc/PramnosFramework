@@ -272,6 +272,25 @@ denial of service:
 first two moves are to change the address and then the password, and every notice after the
 first goes to the attacker. The mail to the old address is the only signal the owner gets.
 
+Four details of that, because each is a way to lose the signal while appearing to send it:
+
+- The old address is mailed through a **detached notifiable**, not by re-pointing the user object.
+  The user is a live model other code holds, and mutating its address to send one mail is the kind
+  of change that leaks into a `save()`.
+- It is skipped when it matches the current one **case-insensitively and after trimming**. An address
+  that changed only in capitalisation has not changed, and two identical mails about one event teach
+  the recipient to ignore both.
+- It is skipped when it is not an address. It arrives from whatever the account held before — a
+  legacy row, an import, a column somebody once used for a note — and handing that to the mailer is
+  a bounce at best, and on a transactional provider a reputation charge to the sender.
+- `userid` 0 and 1 are refused before a user is loaded. A notice «about» the guest or system row is a
+  mail to whatever address those rows carry, reporting a change to an account nobody owns.
+
+And the whole thing is **best-effort**: a send that fails is logged and swallowed. A notification is
+never worth failing the change it reports — somebody told «your password could not be updated»
+because a mail server was down will try again, and the second attempt, on an account whose password
+*did* change, is what actually goes wrong.
+
 **Timeouts are enforced in `Session::staticIsLogged()`**, not in a middleware, because that
 function is what every "is somebody signed in" path goes through — the current user, the
 controllers' guard, the API's session exchange. A timeout in a middleware is a timeout the
