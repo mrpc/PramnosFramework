@@ -354,6 +354,35 @@ POST /account/logout         accessToken: <jwt>   (or Authorization: Bearer <jwt
 
 Either header is read, and the body may be JSON or a form post.
 
+### What `POST /account/login2fa` answers
+
+The second leg carries only the code — the pending login lives server-side — and its four answers
+are the whole of what a client has to branch on:
+
+```
+POST /account/login2fa       {"code": "123456"}
+  → 200 {"status":"success","access_token":"<jwt>","token_type":"Bearer","user":{…}}
+  → 400 {"error":"missing_code"}
+  → 401 {"error":"invalid_code"}
+  → 429 {"error":"too_many_attempts","retry_after": <seconds>}
+  → 405 {"error":"method_not_allowed"}
+```
+
+Four things to build against:
+
+- **A success is byte-for-byte the shape of a login that needed no second factor.** Both legs share
+  `tokenResponse()`, so a client needs one code path for the outcome, not two.
+- **`401 invalid_code` leaves the pending login intact.** Try the next code from the authenticator;
+  there is no need to re-send the password. That is the reason this is a second request at all.
+- **`429` is not `401`.** A client that treats them the same will keep retrying, which is what turns
+  a lockout into a loop — honour `retry_after`.
+- **`400 missing_code` costs no attempt.** The code is checked for emptiness before the flow is
+  asked, so a bug in your form cannot spend your users' attempts and lock them out.
+
+It must be a `POST`; a code in a query string ends up in access logs, browser history and every
+proxy in between, and is worth something for as long as it is valid.
+
+
 **Tokens do not expire by default.** `auth.token_ttl` in `app.php` is the opt-in, in seconds:
 
 ```php

@@ -189,6 +189,215 @@ class ApiAccountControllerTest extends TestCase
         $user->email    = $email;
         return $user;
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // The second leg of an API login
+    // ────────────────────────────────────────────────────────────────────────
+
+    /*
+     * `login2fa()` finishes a login that stopped for a second factor. Its five statements-worth of
+     * branching had never executed: every test above drives `login()`, and the flow they build has
+     * two-factor turned off, so the second leg was never reached from either direction.
+     *
+     * These build the flow's answer directly. What matters about this endpoint is what each of the
+     * four possible answers becomes on the wire — a client has nothing else to go on.
+     */
+
+    /** A controller whose flow answers `completeTwoFactor()` as the test says. */
+    private function secondLeg(\Pramnos\Auth\LoginFlowResult $answer, string $code = '123456'): object
+    {
+        return new class ($answer, $code) extends ApiAccount {
+            /** @var list<string> Codes handed to the flow */
+            public array $submitted = [];
+
+            public string $method = 'POST';
+
+            public function __construct(
+                private readonly \Pramnos\Auth\LoginFlowResult $answer,
+                private readonly string $code
+            ) {
+                parent::__construct();
+            }
+
+            protected function requestMethod(): string
+            {
+                return $this->method;
+            }
+
+            protected function input(string $key): mixed
+            {
+                return $key === 'code' ? $this->code : null;
+            }
+
+            protected function loginFlow(): \Pramnos\Auth\ApiLoginFlow
+            {
+                $outer = $this;
+
+                return new class ($outer, $this->answer) extends \Pramnos\Auth\ApiLoginFlow {
+                    public function __construct(
+                        private readonly object $outer,
+                        private readonly \Pramnos\Auth\LoginFlowResult $answer
+                    ) {
+                    }
+
+                    public function completeTwoFactor(string $code): \Pramnos\Auth\LoginFlowResult
+                    {
+                        $this->outer->submitted[] = $code;
+
+                        return $this->answer;
+                    }
+                };
+            }
+
+            protected function userFor(int $userId): \Pramnos\User\User
+            {
+                $user = new StubApiUser();
+                $user->userid   = $userId;
+                $user->username = 'someone';
+
+                return $user;
+            }
+
+            protected function signingKey(): string
+            {
+                return '0123456789abcdef0123456789abcdef';
+            }
+
+            protected function audience(): string
+            {
+                return 'app-apikey';
+            }
+        };
+    }
+
+    /** The status and decoded body of a response. */
+    private function readJson(mixed $response): array
+    {
+        $this->assertInstanceOf(\Pramnos\Http\Response::class, $response);
+
+        return [
+            $response->getStatusCode(),
+            json_decode((string) $response->getBody(), true) ?: [],
+        ];
+    }
+
+    /**
+     * The second leg is a POST, like the first.
+     *
+     * A code in a query string ends up in access logs, browser history and any proxy in between —
+     * and a second factor is worth something for the ninety seconds it is valid.
+     */
+    public function testTheSecondLegRejectsAnythingButAPost(): void
+    {
+        // Arrange
+        $controller = $this->secondLeg(\Pramnos\Auth\LoginFlowResult::success(7));
+        $controller->method = 'GET';
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login2fa());
+
+        // Assert
+        $this->assertSame(405, $status);
+        $this->assertSame('method_not_allowed', $body['error'] ?? null);
+        $this->assertSame([], $controller->submitted, 'the flow was asked to verify a GET');
+    }
+
+    /**
+     * An empty code is refused before the flow is asked.
+     *
+     * Not just tidiness: reaching the flow with `''` would spend a verification attempt — and the
+     * attempts are counted towards a lockout — on a submission that cannot possibly succeed. A
+     * client with a bug in its form would lock its own users out.
+     */
+    public function testAnEmptyCodeIsRefusedWithoutSpendingAnAttempt(): void
+    {
+        // Arrange
+        $controller = $this->secondLeg(\Pramnos\Auth\LoginFlowResult::success(7), '   ');
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login2fa());
+
+        // Assert
+        $this->assertSame(400, $status);
+        $this->assertSame('missing_code', $body['error'] ?? null);
+        $this->assertSame([], $controller->submitted, 'an empty code was counted as an attempt');
+    }
+
+    /**
+     * A locked account gets 429 and is told how long to wait.
+     *
+     * `429` rather than `401`, and `retry_after` with it, because a client that cannot tell "wrong
+     * code" from "stop asking" will keep retrying — which is what the lockout exists to stop, and
+     * what turns a lockout into a loop.
+     */
+    public function testALockedAccountIsToldHowLongToWait(): void
+    {
+        // Arrange
+        $controller = $this->secondLeg(\Pramnos\Auth\LoginFlowResult::locked(90));
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login2fa());
+
+        // Assert
+        $this->assertSame(429, $status);
+        $this->assertSame('too_many_attempts', $body['error'] ?? null);
+        $this->assertSame(90, $body['retry_after'] ?? null);
+    }
+
+    /**
+     * A wrong code is 401, and says only that.
+     *
+     * The pending login is left where it is, server-side, so the person can try again with the
+     * next code from their authenticator — which is the reason this is a second *request* rather
+     * than a re-submission of the password.
+     */
+    public function testAWrongCodeIsAPlain401(): void
+    {
+        // Arrange
+        $controller = $this->secondLeg(\Pramnos\Auth\LoginFlowResult::failed());
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login2fa());
+
+        // Assert
+        $this->assertSame(401, $status);
+        $this->assertSame('invalid_code', $body['error'] ?? null);
+        $this->assertSame(['123456'], $controller->submitted, 'the code never reached the flow');
+    }
+
+    /**
+     * A correct code answers with a bearer token, exactly like a login that needed no second
+     * factor.
+     *
+     * The point of sharing `tokenResponse()` between the two legs: a client should not need two
+     * code paths for the same outcome, and a second factor is a step in a login rather than a
+     * different kind of login.
+     */
+    public function testACorrectCodeAnswersWithABearerToken(): void
+    {
+        // Arrange
+        $controller = $this->secondLeg(\Pramnos\Auth\LoginFlowResult::success(4242));
+
+        // Act
+        $response = $controller->login2fa();
+        [$status, $body] = $this->readJson($response);
+
+        // Assert
+        $this->assertSame(200, $status, 'a verified second factor should complete the login');
+        $this->assertSame('Bearer', $body['token_type'] ?? null);
+        $this->assertNotEmpty($body['access_token'] ?? '', 'no token was issued');
+        $this->assertSame(
+            2,
+            substr_count((string) $body['access_token'], '.'),
+            'the second leg should issue a signed JWT, like the first'
+        );
+
+        // The assertion that matters: the token belongs to the account the *second factor*
+        // verified. A `login2fa()` that answered for whoever was pending, or for the id in the
+        // request, would issue a working token for an account nobody proved they held.
+        $this->assertSame(4242, $body['user']['id'] ?? null);
+    }
+
 }
 
 /** ApiAccount with every external collaborator replaced by a settable double. */
