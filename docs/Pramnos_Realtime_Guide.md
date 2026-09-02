@@ -201,6 +201,29 @@ a different answer to all three.
 a producer that streams for the life of the request. `StreamedResponse::sse()`
 presets the event-stream headers and hands the producer an `SseWriter`.
 
+**`withHeader()` appends; `withRawHeader()` replaces.** Not the PSR-7 meanings — there
+`withHeader()` replaces and `withAddedHeader()` appends — so reaching for the familiar name to
+correct a header leaves both values on the response:
+
+```php
+$response
+    ->withHeader('Content-Type', 'text/html')
+    ->withHeader('Content-Type', 'application/json');   // Content-Type: text/html, application/json
+
+$response
+    ->withHeader('Content-Type', 'text/html')
+    ->withRawHeader('Content-Type', 'application/json'); // Content-Type: application/json
+```
+
+Appending is the right default for `Vary` and `Cache-Control`, which are list-valued. It is the
+wrong one for `Content-Type`, and the result is a header no browser will use and no log will
+explain — so use `withRawHeader()` whenever you mean "this value, not another one".
+
+`getHeaders()` flattens each name to the single line that goes on the wire; `getHeader()` returns
+the underlying list. A streamed response cannot be re-read once sent, so these accessors are the
+only way middleware can see what it will send.
+
+
 ### A complete SSE endpoint
 
 ```php
