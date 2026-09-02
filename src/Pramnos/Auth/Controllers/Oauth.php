@@ -662,12 +662,24 @@ class Oauth extends Controller
     protected function endWebSession(): void
     {
         try {
-            (new \Pramnos\Auth\Auth())->logout();
+            $this->webLogout();
         } catch (\Throwable $ex) {
             // The tokens are already gone; a session that could not be ended is
             // worth a log line and not worth failing the request over.
             \Pramnos\Logs\Logger::log('OAuth logout: could not end the web session: ' . $ex->getMessage());
         }
+    }
+
+    /**
+     * Sign the browser out, the same way the browser logout does.
+     *
+     * A method rather than the `new` it replaces, because the behaviour worth testing here is what
+     * happens when it *throws* — the tokens are already revoked by then — and a collaborator
+     * constructed inside the `try` you care about is a branch nobody can watch.
+     */
+    protected function webLogout(): void
+    {
+        (new \Pramnos\Auth\Auth())->logout();
     }
 
     // ── Device Authorization ──────────────────────────────────────────────────
