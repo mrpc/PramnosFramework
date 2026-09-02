@@ -829,6 +829,30 @@ grep -rn '\\pramnos\\' --include='*.php' src/     # should print nothing
 Worth running after any bulk edit that touches namespaces, and worth remembering when a class that
 demonstrably exists is reported as not found.
 
+## A green filtered run is not evidence that your new test ran
+
+Seven tests appended to an existing file, `./dockertest --filter UsersControllerTest`, `OK (62
+tests, 183 assertions)`. Read as "they pass". They had not run at all.
+
+The file ends with two classes — the `TestCase` and a `UsersProbe` subclass that exposes protected
+methods — and the insertion landed in the second one. A test method on a class that is not a
+`TestCase` is just a method: PHPUnit never sees it, nothing fails, and the run is green because the
+*other* 62 tests are fine.
+
+The full suite is what said so, and only by its count: 14,853 before and 14,853 after. Same
+assertion total, too.
+
+So when adding to an existing file:
+
+- **Check the test count moved**, by the number of methods you added. `OK` on its own says nothing
+  about the tests you just wrote.
+- **Look at where the file ends.** A helper class, a probe subclass, a namespace block for function
+  shims — several files here have all three after the `TestCase`, and "append before the last
+  closing brace" puts your work in the wrong one.
+- **A new test that has never failed has not been demonstrated to work.** Break it once on purpose
+  if it went in green on the first run — the same rule as for any assertion, and this is the failure
+  mode it catches.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so

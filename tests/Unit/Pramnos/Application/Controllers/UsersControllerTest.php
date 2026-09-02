@@ -1655,6 +1655,210 @@ class UsersControllerTest extends TestCase
         $_REQUEST = $fields;
         Request::resetInstance();
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // The privilege boundary
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The current administrator, at whatever privilege the test needs.
+     *
+     * `save()` reads it through `User::getCurrentUser()`, which returns the application's cached
+     * `currentUser` — so lowering it here is how a junior administrator is staged.
+     */
+    private function currentAdminUsertype(int $usertype): void
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+        $application->currentUser->usertype = $usertype;
+        $_SESSION['user']['usertype']       = $usertype;
+    }
+
+    /**
+     * Nobody can hand out a privilege higher than their own.
+     *
+     * The cap, and it is a cap rather than a refusal: the value is clamped and the save goes
+     * through, so an administrator who over-reaches gets an account at their own level instead of
+     * an error. Never executed before this, in the one place in the admin area where a usertype is
+     * written from a form — and a form field is exactly what somebody editing a request would
+     * change.
+     */
+    public function testNobodyCanAssignAPrivilegeHigherThanTheirOwn(): void
+    {
+        // Arrange — an administrator at 80, asking for 100
+        $this->currentAdminUsertype(80);
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+
+        $_POST = [
+            '_csrf_token' => $token,
+            'userid'      => 3,
+            'username'    => 'testuser',
+            'email'       => 'test@example.com',
+            'usertype'    => 100,
+        ];
+
+        // Act
+        $this->controller->save();
+
+        // Assert
+        $row = $this->db->query('SELECT usertype FROM `users` WHERE `userid` = 3')->fetch();
+        $this->assertEquals(
+            80,
+            $row['usertype'],
+            'an administrator at 80 granted a privilege of 100'
+        );
+    }
+
+    /**
+     * A privilege at or below the caller's own is written as asked.
+     *
+     * The control for the test above. Without it, a cap that clamped *everything* to zero would
+     * pass — and the admin area would be unable to grant any privilege at all.
+     */
+    public function testAPrivilegeAtOrBelowTheCallersOwnIsWrittenUnchanged(): void
+    {
+        // Arrange
+        $this->currentAdminUsertype(80);
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+
+        $_POST = [
+            '_csrf_token' => $token,
+            'userid'      => 3,
+            'username'    => 'testuser',
+            'email'       => 'test@example.com',
+            'usertype'    => 50,
+        ];
+
+        // Act
+        $this->controller->save();
+
+        // Assert
+        $row = $this->db->query('SELECT usertype FROM `users` WHERE `userid` = 3')->fetch();
+        $this->assertEquals(50, $row['usertype']);
+    }
+
+    /**
+     * An account of higher privilege cannot be edited at all.
+     *
+     * Stronger than the cap and needed in addition to it: without this, a junior administrator
+     * could not raise anybody, but could still rename a senior account, change its email — and
+     * therefore where its password reset goes — or deactivate it. The cap protects the privilege
+     * column; this protects the account.
+     */
+    public function testAnAccountOfHigherPrivilegeCannotBeEdited(): void
+    {
+        // Arrange — a senior account, and a junior administrator editing it
+        $this->db->query(
+            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) '
+            . 'VALUES (4, "senior", "senior@example.com", 120, 1)'
+        );
+        $this->currentAdminUsertype(80);
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+
+        $_POST = [
+            '_csrf_token' => $token,
+            'userid'      => 4,
+            'username'    => 'taken_over',
+            'email'       => 'attacker@example.com',
+            'usertype'    => 80,
+        ];
+
+        // Act
+        $this->controller->save();
+
+        // Assert
+        $this->assertSame(
+            'You cannot edit users with a higher privilege level.',
+            $_SESSION['users_error'] ?? null
+        );
+        $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
+
+        $row = $this->db->query('SELECT username, email FROM `users` WHERE `userid` = 4')->fetch();
+        $this->assertEquals('senior', $row['username'], 'the senior account was renamed');
+        $this->assertEquals(
+            'senior@example.com',
+            $row['email'],
+            'the senior account\'s email was changed, which redirects its password reset'
+        );
+    }
+
+    /**
+     * An account at the same privilege can be edited.
+     *
+     * The boundary is strictly *higher*, not "different" — administrators at the same level are
+     * peers, and a rule that stopped them editing each other would leave an installation with one
+     * administrator unable to fix anything about the others.
+     */
+    public function testAnAccountAtTheSamePrivilegeCanBeEdited(): void
+    {
+        // Arrange
+        $this->db->query(
+            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) '
+            . 'VALUES (5, "peer", "peer@example.com", 80, 1)'
+        );
+        $this->currentAdminUsertype(80);
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+
+        $_POST = [
+            '_csrf_token' => $token,
+            'userid'      => 5,
+            'username'    => 'peer_renamed',
+            'email'       => 'peer@example.com',
+            'usertype'    => 80,
+        ];
+
+        // Act
+        $this->controller->save();
+
+        // Assert
+        $row = $this->db->query('SELECT username FROM `users` WHERE `userid` = 5')->fetch();
+        $this->assertEquals('peer_renamed', $row['username'], 'peers should be editable');
+    }
+
+    /**
+     * A reset link cannot be sent to an account that is not there.
+     *
+     * The id comes from the URL, so "not found" is the ordinary case of a stale link or a deleted
+     * account — and it has to be distinguishable from "sent", because a silent success would leave
+     * an administrator waiting for a mail nobody will receive.
+     */
+    public function testAResetLinkForAMissingAccountSaysSo(): void
+    {
+        // Arrange — an id nothing occupies
+        // `staticGetOption()` reads `$_GET['_option']` — the router puts the URL segment there.
+        $_GET['_option'] = '9987';
+
+        // Act
+        $this->controller->resetpassword();
+
+        // Assert
+        $this->assertSame('User not found.', $_SESSION['users_error'] ?? null);
+        $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
+    }
+
+    /**
+     * An account with no email address cannot be sent a reset link.
+     *
+     * Ordinary for an account an administrator created by hand. Saying so is the point: the
+     * alternative is a mailer called with an empty recipient, which fails somewhere less legible.
+     */
+    public function testAResetLinkForAnAccountWithNoEmailSaysSo(): void
+    {
+        // Arrange
+        $this->db->query(
+            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) '
+            . 'VALUES (6, "noemail", "", 10, 1)'
+        );
+        $_GET['_option'] = '6';
+
+        // Act
+        $this->controller->resetpassword();
+
+        // Assert
+        $this->assertSame(
+            'User has no email address — cannot send reset link.',
+            $_SESSION['users_error'] ?? null
+        );
+    }
 }
 
 /**
@@ -1691,6 +1895,7 @@ class UsersProbe extends \Pramnos\Application\Controllers\UsersController
     {
         return $this->mailLists();
     }
+
 
     /** @param list<string> $channels */
     public function exposeCompose(string $subject, string $message, array $channels): \Pramnos\Notification\Message
