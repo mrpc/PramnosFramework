@@ -719,6 +719,22 @@ $cache->expire('recent', 86400);             // (re)set TTL
 $cache->keys('banned:*');                    // enumerate (logical keys)
 ```
 
+#### Enumeration is a cursor walk, and clearing is scoped to your prefix
+
+`keys()` and the sweep behind `clear()` use Redis **SCAN**, not `KEYS`. The difference is not
+efficiency: `KEYS` holds the whole server for the length of the sweep, and the sweep is over a
+production cache. So both walk the keyspace in bounded steps and reassemble the batches, and both are
+safe to call on a database with a million keys in it.
+
+`clear('')` deletes `<prefix>*` rather than issuing `FLUSHDB` — **unless no prefix is configured**, in
+which case it does flush the database and logs a warning saying so. Several installations routinely
+share one Redis, so set a prefix: without one, one application's «clear the cache» empties another
+application's sessions, and reports success.
+
+`supportsKeyEnumeration()` is how a caller finds out whether any of this is available before relying on
+it. `AbstractAdapter` answers `false` — the File and Array adapters have no keyspace to walk — and
+`RedisAdapter` answers `true`.
+
 Semantics:
 
 - Field/element values are **serialised**, so arrays/objects round-trip (unlike
