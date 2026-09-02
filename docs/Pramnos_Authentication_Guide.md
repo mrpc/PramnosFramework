@@ -1326,6 +1326,33 @@ the row is written with no status and no duration.
 > absolute URL with its query, so that same report was twenty distinct URLs of one call
 > each. Both reported from the same screen.
 
+#### `updateAction()` repairs a `tokenactions` older than the columns it writes
+
+An installation whose `tokenactions` predates `return_status`, `execution_time_ms`, `return_data` and
+`action_time` gets them added on the first API call after the upgrade, from inside the `catch` that
+handled the failed `UPDATE`. Then the write is retried.
+
+You need to do nothing. It is documented because of *when* it runs: once, on a production database,
+during a request, in an error path — so it is worth knowing it exists and that it is now tested on both
+engines rather than believed.
+
+Two things it got wrong until 2 September 2026, both of the kind that only a real database reveals:
+
+- **`ADD COLUMN IF NOT EXISTS` is MariaDB, not MySQL.** MySQL 8 rejects it as a syntax error, so the
+  whole repair — on the engine most installations run — threw from inside the `catch` that was already
+  handling a failure. The request failed, the audit row was lost, the table was not repaired, and the
+  next request did it all again. It asks the schema builder per column and per index now.
+- **On PostgreSQL the sync trigger read `servertime = 0` as a real instant.** `servertime` is declared
+  `DEFAULT 0`, so a row written without one arrives as a zero rather than a null — and `IS NOT NULL`
+  stamped every such row 1 January 1970. An audit log where «no time was given» and «this happened at
+  the epoch» are the same row cannot be read. The condition is `> 0`.
+
+The PostgreSQL branch also installs a `plpgsql` function and a `BEFORE INSERT OR UPDATE` trigger that
+keep `servertime` and `action_time` in step **both** ways, so code that writes only one of them does not
+leave the other stale. The order inside it is load-bearing: the back-fill from `servertime` has to
+happen before `action_time` becomes `NOT NULL`, or the `ALTER` fails on every existing row — after three
+other `ALTER`s have already gone through.
+
 ### Working with Token Objects
 
 ```php

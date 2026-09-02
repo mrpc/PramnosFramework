@@ -935,7 +935,15 @@ class Token extends \Pramnos\Framework\Base
                     'CREATE OR REPLACE FUNCTION #PREFIX#sync_tokenactions_time() '
                     . 'RETURNS TRIGGER AS $$ '
                     . 'BEGIN '
-                    . 'IF NEW.servertime IS NOT NULL THEN '
+                    /*
+                     * `> 0`, not merely `IS NOT NULL`.
+                     *
+                     * `servertime` is declared `DEFAULT 0`, so a row written without one arrives with
+                     * a zero rather than a null — and `IS NOT NULL` reads that as a real instant, so
+                     * every such row was stamped 1 January 1970. An audit log where «no time was
+                     * given» and «this happened at the epoch» are the same row cannot be read.
+                     */
+                    . 'IF NEW.servertime IS NOT NULL AND NEW.servertime > 0 THEN '
                     . 'NEW.action_time = TO_TIMESTAMP(NEW.servertime); '
                     . 'ELSE '
                     . 'NEW.action_time = CURRENT_TIMESTAMP; '
@@ -968,19 +976,50 @@ class Token extends \Pramnos\Framework\Base
                     return;
                 }
             } elseif ($database->type == 'mysql' && strpos($e->getMessage(), 'Unknown column') !== false) {
-                $database->query($database->prepareQuery(
-                    'ALTER TABLE #PREFIX#tokenactions '
-                    . 'ADD COLUMN IF NOT EXISTS return_status INT, '
-                    . 'ADD COLUMN IF NOT EXISTS execution_time_ms DECIMAL(10,3), '
-                    . 'ADD COLUMN IF NOT EXISTS return_data JSON, '
-                    . 'ADD COLUMN IF NOT EXISTS action_time TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP;'
-                ));
-                $database->query($database->prepareQuery(
-                    'CREATE INDEX IF NOT EXISTS idx_tokenactions_return_status ON #PREFIX#tokenactions(return_status);'
-                ));
-                $database->query($database->prepareQuery(
-                    'CREATE INDEX IF NOT EXISTS idx_tokenactions_execution_time ON #PREFIX#tokenactions(execution_time_ms);'
-                ));
+                /*
+                 * `ADD COLUMN IF NOT EXISTS` is MariaDB, not MySQL.
+                 *
+                 * MySQL 8 rejects it as a syntax error — so this whole repair, on the one engine most
+                 * installations run, threw from inside the `catch` that was handling the first
+                 * failure. Which is the worst place for it: the request that triggered it fails, the
+                 * audit row is lost, the table is not repaired, and the next request does it all
+                 * again. It had never been executed.
+                 *
+                 * The framework's own schema builder answers the question instead, per column and per
+                 * index, which is both dialect-correct and what the guides say to reach for.
+                 */
+                $schema = $database->schema();
+                $columns = [
+                    'return_status'     => 'INT NULL',
+                    'execution_time_ms' => 'DECIMAL(10,3) NULL',
+                    'return_data'       => 'JSON NULL',
+                    'action_time'       => 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+                ];
+
+                foreach ($columns as $column => $definition) {
+                    if ($schema->hasColumn('tokenactions', $column)) {
+                        continue;
+                    }
+
+                    $database->query($database->prepareQuery(
+                        'ALTER TABLE `#PREFIX#tokenactions` ADD COLUMN `'
+                        . $column . '` ' . $definition
+                    ));
+                }
+
+                foreach ([
+                    'idx_tokenactions_return_status' => 'return_status',
+                    'idx_tokenactions_execution_time' => 'execution_time_ms',
+                ] as $index => $column) {
+                    if ($schema->hasIndex('tokenactions', $index)) {
+                        continue;
+                    }
+
+                    $database->query($database->prepareQuery(
+                        'CREATE INDEX `' . $index . '` ON `#PREFIX#tokenactions`(`' . $column . '`)'
+                    ));
+                }
+
                 try {
                     $database->query($sql);
                 } catch (\Exception $e) {
