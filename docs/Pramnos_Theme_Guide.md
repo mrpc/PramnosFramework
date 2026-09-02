@@ -1193,6 +1193,27 @@ The file is read once per request. `ThemeTokens::load()` returns every theme;
 `defaultTheme()` picks the one a page gets when it asks for none — the one flagged
 `default`, or the first declared, which is what daisyUI itself does.
 
+Three things about `token()` worth relying on:
+
+- **It never throws and never returns nothing you did not choose.** A theme that is not declared, a
+  token that is not declared, a palette file that is missing or unparsable — every one of them gives
+  back your `fallback`. A chart with the wrong shade is a cosmetic bug; an exception in a mail
+  template is a mail nobody receives.
+- **The leading `--` is optional.** `token('primary')` and `token('--primary')` are the same lookup,
+  because half of the callers think in token names and half in custom properties.
+- **With no `fallback`, a miss is `''`.** Not `null` — which would otherwise reach string
+  concatenation in every template that omits the third argument.
+
+And for a test that needs a palette of its own: prime it rather than writing the file.
+`ThemeTokens::flush()` is public for exactly this, and the real palette lives in the project root
+where a test has no business writing.
+
+```php
+(new \ReflectionProperty(ThemeTokens::class, 'cache'))
+    ->setValue(null, [ThemeTokens::locate() => $themes]);
+```
+
+
 ### What this does not do
 
 **Bootstrap's own variables are not generated.** Bootstrap 5 wants `--bs-primary` as a
