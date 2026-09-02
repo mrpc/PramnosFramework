@@ -1073,6 +1073,59 @@ almost always in the middle of something that matters more. `directoryIterator()
 seam precisely so this can be tested — a race cannot be reproduced by arranging files, so the
 only honest way to cover the `catch` is to make the walk fail on purpose.
 
+## What each adapter answers when its server is gone
+
+Every adapter method wraps its call in the same guard: log the exception, return an empty value.
+The **type** of that empty value is the contract, not the fact that something came back — the wrong
+kind of nothing becomes a second failure in the caller, a step away from the one that happened.
+
+| Method | Answer when the server is unreachable | What the wrong answer would do |
+|---|---|---|
+| `load()`, `save()`, `delete()` | `false` | — |
+| `counter()` | `0` | `false` in arithmetic: `false + 1` is `1`, for ever |
+| `increment()`, `decrement()` | `false` | `0` reads as "nothing yet" and lets a limiter pass everything |
+| `swap()` | `null` | — |
+| `hashGet()` | **the caller's `$default`** | `null` overrides what the caller said a miss means |
+| `hashGetAll()`, `listRange()`, `keys()` | `[]` | `false` in a `foreach` |
+| `listPush()` | `0` | — |
+
+`counter()` and `increment()` differing is deliberate. `counter()` is a read — "how many so far" —
+and zero is the truthful answer for a counter nobody can see. `increment()` is a write, and
+answering `0` would claim the increment happened.
+
+Note also that these arms only run when the cache fails **mid-request**. An adapter that never
+connected answers from its own `connected` flag without a round trip, so the guards are about a
+server that went away while the application was talking to it.
+
+## `clear()` with no prefix empties the whole server
+
+Memcached cannot enumerate its keys. So a `clear()` with no category has two very different
+behaviours, and which one you get depends on whether a prefix is configured:
+
+- **With a prefix**, the adapter clears the category indexes it maintains itself. Other tenants'
+  keys are untouched.
+- **Without one**, it calls `flush()`, which empties the entire server — every co-tenant's data
+  included. It writes a line to the log saying so first, and that is the only warning there is.
+
+Which makes the prefix an isolation boundary rather than a naming convenience. **Set one on any
+server that more than one installation talks to.** Redis had the same break and was fixed the same
+way.
+
+## The Memcached counter, and why it calls the server up to three times
+
+`increment()` is a rate limiter's correctness, so the sequence is worth knowing:
+
+1. `increment` — succeeds if the counter exists, and that is the whole call.
+2. If it fails, the key is absent: `add` creates it, atomically, with the expiry. Only the call that
+   *creates* the counter sets the expiry — a fixed window, not a sliding one, so a client that keeps
+   trying is not locked out for ever.
+3. If `add` fails too, another request created it in between. `increment` again, on top of theirs.
+
+No increment is lost in a race, which is the entire reason for using the server's counter instead of
+a read-modify-write. The path that matters is the third one: returning the amount added there, rather
+than incrementing, would discard the winner's count and let a limiter undercount by one request per
+race.
+
 ## Troubleshooting
 
 ### Common Issues
