@@ -1817,6 +1817,36 @@ unsubscribe flips that same checkbox. Everything else — a password reset, a se
 change — is transactional, and offering to unsubscribe from a password reset is offering
 to disable the only way back into the account.
 
+## The URL registry behind token actions
+
+Every token action records *which URL* the token was used on, and `urls` is a deduplicated registry
+— one row per endpoint, not one per call. `Token::urlId()` resolves a URL to its id, inserting the
+row the first time that URL is ever seen on the installation.
+
+It is called from the spool drain, which is a long-running process, so the cache in front of it is
+the design rather than an optimisation: a site serves a few hundred distinct URLs, a worker learns
+them in its first minutes, and after that every action resolves from memory.
+
+Three properties worth knowing when reading a report built on this table:
+
+- **The cache is bounded at `Token::URL_CACHE_LIMIT` (2,000), and drops its oldest half when it
+  fills.** A site that puts an id in the path or a search term in the query string generates URLs
+  without limit, and a process that never restarts would otherwise grow the cache without limit
+  too. The half that survives is the most recently used, because on a worker those are the URLs it
+  is currently busy with — clearing everything would make the next minute of work re-resolve exactly
+  what it had just learned.
+- **The cache is per process; the registry is not.** A second worker resolving a URL the first one
+  registered finds the existing row rather than inserting a duplicate, so ids are stable across
+  processes and a report can group on them.
+- **An unreachable registry resolves to `0`, and the drain carries on.** `0` is the "no URL" value
+  the action row takes, so a missing or broken `urls` table costs the URL of an action rather than
+  the whole batch — a gap in a report instead of a gap in the audit trail.
+
+A consequence for anyone reading `urls`: a query string is **not** part of the key. The registry is
+per endpoint, so `/orders?id=1` and `/orders?id=2` are one row. That is deliberate — the alternative
+gave a busy page a new row on every call — and it means a report cannot tell those two apart from
+this table alone.
+
 ## Authentication Addons
 
 `Addon::load($name)` takes a file name **or** a fully-qualified class name, and refuses
