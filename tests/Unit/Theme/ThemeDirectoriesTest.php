@@ -74,12 +74,20 @@ class ThemeDirectoriesTest extends TestCase
         // Act
         $directories = $this->directories();
 
-        // Assert
+        /*
+         * Assert once, on a derived value, rather than once per directory.
+         *
+         * A loop of assertions makes this test's contribution to the suite's assertion total
+         * depend on how many theme directories the checkout happens to have — which showed up as
+         * a total that moved between identical runs. Harmless in itself, and it costs the one
+         * signal that says whether a change to the suite added assertions or lost some.
+         */
         $this->assertNotEmpty($directories, 'nothing was found, so the filter proves nothing');
-
-        foreach ($directories as $directory) {
-            $this->assertDirectoryExists($directory);
-        }
+        $this->assertSame(
+            $directories,
+            array_values(array_filter($directories, 'is_dir')),
+            'a directory that does not exist was returned'
+        );
     }
 
     /**
@@ -104,10 +112,12 @@ class ThemeDirectoriesTest extends TestCase
         // Act
         $directories = $this->directories();
 
-        // Assert
-        foreach ($removed as $directory) {
-            $this->assertNotContains($directory, $directories);
-        }
+        // Assert — one assertion, whichever of the two this test happened to create
+        $this->assertSame(
+            [],
+            array_values(array_intersect($removed, $directories)),
+            'a directory that had just been removed was still returned'
+        );
     }
 
     /**

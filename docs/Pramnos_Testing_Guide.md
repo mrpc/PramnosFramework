@@ -915,6 +915,39 @@ So:
       | grep -vE '// @codeCoverageIgnore(Start|End)?$'
   ```
 
+## Assert once on a derived value, not once per item found
+
+A loop of assertions over whatever a method discovered —
+
+```php
+foreach ($this->directories() as $directory) {
+    $this->assertDirectoryExists($directory);
+}
+```
+
+— makes the test's contribution to the suite's assertion total depend on how much the checkout
+happens to have. Two identical runs reported 44,287 and 44,290 assertions, and the difference was
+this: one run found a theme directory the other did not.
+
+Nothing fails, and that is the cost. The assertion total is the cheapest signal there is for "did
+this change add assertions or quietly lose some" — the same signal that caught seven tests landing
+in the wrong class earlier — and a variable total is a signal you can no longer read.
+
+Assert the property instead of iterating:
+
+```php
+$this->assertNotEmpty($directories, 'nothing was found, so the filter proves nothing');
+$this->assertSame(
+    $directories,
+    array_values(array_filter($directories, 'is_dir')),
+    'a directory that does not exist was returned'
+);
+```
+
+Two assertions, always. And note the first one: **a loop over an empty array asserts nothing**, so a
+test that iterates discovered data needs a non-empty check whether or not it iterates. PHPUnit says
+so — *"This test did not perform any assertions"* — but only when the loop is the *whole* test.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so
