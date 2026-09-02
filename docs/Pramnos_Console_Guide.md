@@ -320,6 +320,35 @@ the model's own code.
 > test, because the branch turns on `class_exists()` and a generated model is not autoloadable in the
 > framework's own checkout.
 
+#### Select2 changes what a foreign-key field loads
+
+`create:crud` and `create:controller` generate an edit form whose foreign-key fields behave differently
+depending on whether the project registered Select2:
+
+| | without Select2 | with Select2 |
+|---|---|---|
+| the option list | loaded in full, server-side | fetched over AJAX from the generated `fkOptions()` |
+| the selected row | one of the loaded options | loaded on its own, so the field is not blank |
+
+The full list is fine for a status lookup and breaks for a foreign key to a table with thousands of
+rows: a form that takes seconds to render and megabytes to send. So the Select2 form loads **only the
+currently selected row** — which it still has to, or an existing record opens with an empty field where
+its category used to be and saving clears the reference.
+
+Availability is read from the Document — `isScriptRegistered('select2')` — and not by looking for
+`www/assets/vendor/select2` on disk. A directory says a file exists; the registration says the project
+opted in, which is the question being asked. If your `registerVendorLibraries()` registers it, the
+generator uses it.
+
+A foreign key to `users` is the one case that does not go through a generated model: it reaches for
+`\Pramnos\User\User` and reads `username`, rather than the `name`/`title`/`label` chain every other
+reference falls through. Generating `\App\Models\Users` would name a class the application does not
+have, and the failure would arrive when somebody opened the form rather than when the code was written.
+
+**An existing controller is never overwritten** — the generator refuses and names the file. Same reason
+as `create:model` above: a generator that silently replaces a file somebody has edited loses work, and
+the loss is invisible until something that called the removed method breaks.
+
 ### Server Commands
 
 ```bash

@@ -197,6 +197,9 @@ class MakeCommandBaseCoverageTest extends TestCase
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovWizardproducts.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovFkctrl.php',
             ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovDocs.php',
+            ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovSelectctrl.php',
+            ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovUserfk.php',
+            ROOT . DS . INCLUDES . DS . 'Controllers' . DS . 'WcovExistingctrl.php',
             ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovWizardItemTest.php',
             ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovJsonModelTest.php',
             ROOT . DS . 'tests'  . DS . 'Unit'        . DS . 'WcovSchemaModelTest.php',
@@ -1111,6 +1114,226 @@ class MakeCommandBaseCoverageTest extends TestCase
         ] as $step) {
             $this->assertStringContainsString($step, $result, $step . ' was skipped for target=both');
         }
+    }
+
+    // =========================================================================
+    // 8b. createControllerAndViewsFromWizard() — the Select2 foreign-key path
+    // =========================================================================
+
+    /**
+     * Declare Select2 installed for the duration of one test.
+     *
+     * `detectUiSetup()` reads `isScriptRegistered('select2')` on the Document rather than probing
+     * `www/assets/vendor` — a deliberate choice, because a directory on disk says a file exists and the
+     * registration says the project opted in. Which also makes it the only way to reach this path from
+     * a test, and the reason it had never been reached.
+     */
+    private function withSelect2(): void
+    {
+        \Pramnos\Framework\Factory::getDocument()->registerScript('select2', 'select2.js');
+    }
+
+    /**
+     * With Select2, a foreign-key field loads only the selected option's text.
+     *
+     * Not the whole list, and that is the point of the branch. The non-Select2 form embeds every row of
+     * the referenced table as `<option>`s, which is fine for a status lookup and breaks for a foreign
+     * key to a table with thousands of rows — a form that takes seconds to render and megabytes to
+     * send. Select2 fetches the options over AJAX from `fkOptions()` instead.
+     *
+     * But the *currently selected* row still has to be named, or an existing record opens with a blank
+     * field where its category used to be, and saving the form clears the reference. That is what this
+     * branch generates, and what these assertions are about: one row loaded, the rest left to AJAX.
+     */
+    public function testWithSelect2AForeignKeyLoadsOnlyTheSelectedOption(): void
+    {
+        // Arrange
+        $this->withSelect2();
+
+        $ctrlPath = ROOT . DS . INCLUDES . DS . 'Controllers';
+        if (!is_dir($ctrlPath)) {
+            mkdir($ctrlPath, 0755, true);
+        }
+        $ctrlFile = $ctrlPath . DS . 'WcovSelectctrl.php';
+        @unlink($ctrlFile);
+
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => '', 'comment' => '', 'unique' => false, 'unsigned' => false],
+            ['name' => 'category_id', 'type' => 'biginteger', 'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => true],
+        ];
+        $foreignKeys = [
+            ['column' => 'category_id', 'references' => 'categoryid', 'on' => '#PREFIX#categories', 'onDelete' => 'RESTRICT', 'onUpdate' => 'RESTRICT'],
+        ];
+
+        $this->command->setOutput(new BufferedOutput());
+
+        // Act
+        $this->command->callCreateControllerAndViewsFromWizard(
+            'wcov_selectctrl',
+            'App\\Controllers',
+            'App\\Models',
+            'WcovSelectctrl',
+            'WcovSelectctrl',
+            '#PREFIX#wcov_selectctrls',
+            $ctrlPath,
+            $columns,
+            $foreignKeys,
+            $ctrlFile
+        );
+
+        // Assert
+        $this->assertFileExists($ctrlFile);
+        $source = (string) file_get_contents($ctrlFile);
+
+        $this->assertStringContainsString(
+            'category_idSelectedText',
+            $source,
+            'the selected row is never named, so an existing record opens with a blank field'
+        );
+        $this->assertStringContainsString(
+            'if ($model->category_id)',
+            $source,
+            'the load is not guarded, so a new record loads row 0'
+        );
+        $this->assertStringContainsString(
+            'function fkOptions',
+            $source,
+            'there is no endpoint for Select2 to fetch the options from'
+        );
+
+        /*
+         * …and it does not eagerly load the whole list, which is what Select2 replaces.
+         *
+         * The non-Select2 branch emits `$categoryList = new …; $view->categoryList =
+         * $categoryList->getList();` — every row of the referenced table, into the form. Asserting the
+         * absence of *that* is the real distinction; an earlier version of this test asserted the
+         * absence of a string neither branch ever emits, which is a negative assertion that cannot
+         * fail.
+         */
+        $this->assertStringNotContainsString(
+            'categoryList',
+            $source,
+            'the full option list is still loaded, so the form breaks on a large table'
+        );
+        $this->assertStringNotContainsString(
+            '->getList();',
+            $source,
+            'the referenced table is still read in full for the form'
+        );
+
+        @unlink($ctrlFile);
+    }
+
+    /**
+     * A foreign key to `users` is loaded through the framework's own User, not a generated model.
+     *
+     * `users` is the one referenced table an application does not have a model for — it is the
+     * framework's — so the generated code has to reach for `\Pramnos\User\User` and read `username`
+     * rather than the `name`/`title`/`label` chain every other reference falls through. Generating a
+     * `\App\Models\Users` here would be a class that does not exist, and the failure arrives when
+     * somebody opens the edit form rather than when the code is generated.
+     */
+    public function testAForeignKeyToUsersUsesTheFrameworkUser(): void
+    {
+        // Arrange
+        $this->withSelect2();
+
+        $ctrlPath = ROOT . DS . INCLUDES . DS . 'Controllers';
+        if (!is_dir($ctrlPath)) {
+            mkdir($ctrlPath, 0755, true);
+        }
+        $ctrlFile = $ctrlPath . DS . 'WcovUserfk.php';
+        @unlink($ctrlFile);
+
+        $columns = [
+            ['name' => 'userid', 'type' => 'biginteger', 'options' => [], 'nullable' => false, 'default' => null, 'comment' => '', 'unique' => false, 'unsigned' => true],
+        ];
+        $foreignKeys = [
+            ['column' => 'userid', 'references' => 'userid', 'on' => '#PREFIX#users', 'onDelete' => 'CASCADE', 'onUpdate' => 'RESTRICT'],
+        ];
+
+        $this->command->setOutput(new BufferedOutput());
+
+        // Act
+        $this->command->callCreateControllerAndViewsFromWizard(
+            'wcov_userfk',
+            'App\\Controllers',
+            'App\\Models',
+            'WcovUserfk',
+            'WcovUserfk',
+            '#PREFIX#wcov_userfks',
+            $ctrlPath,
+            $columns,
+            $foreignKeys,
+            $ctrlFile
+        );
+
+        // Assert
+        $source = (string) file_get_contents($ctrlFile);
+
+        $this->assertStringContainsString('\Pramnos\User\User(', $source);
+        $this->assertStringContainsString('->username', $source, 'a user is named by its username');
+        $this->assertStringNotContainsString(
+            'App\Models\Users(',
+            $source,
+            'the generated code instantiates a model the application does not have'
+        );
+
+        @unlink($ctrlFile);
+    }
+
+    /**
+     * Generating over an existing controller is refused rather than overwriting it.
+     *
+     * The same lesson as `create:model`: a generator that silently replaces a file somebody has edited
+     * is a generator that loses work, and the loss is invisible until something that called the removed
+     * method breaks. Refusing costs a rename.
+     */
+    public function testAnExistingControllerIsNotOverwritten(): void
+    {
+        // Arrange
+        $ctrlPath = ROOT . DS . INCLUDES . DS . 'Controllers';
+        if (!is_dir($ctrlPath)) {
+            mkdir($ctrlPath, 0755, true);
+        }
+        $ctrlFile = $ctrlPath . DS . 'WcovExistingctrl.php';
+        file_put_contents($ctrlFile, "<?php\n// hand-written\n");
+
+        $columns = [
+            ['name' => 'title', 'type' => 'string', 'options' => [], 'nullable' => false, 'default' => '', 'comment' => '', 'unique' => false, 'unsigned' => false],
+        ];
+
+        $this->command->setOutput(new BufferedOutput());
+
+        // Act
+        $threw = false;
+        try {
+            $this->command->callCreateControllerAndViewsFromWizard(
+                'wcov_existingctrl',
+                'App\\Controllers',
+                'App\\Models',
+                'WcovExistingctrl',
+                'WcovExistingctrl',
+                '#PREFIX#wcov_existingctrls',
+                $ctrlPath,
+                $columns,
+                [],
+                $ctrlFile
+            );
+        } catch (\Exception $exception) {
+            $threw = true;
+            $this->assertStringContainsString('already exists', $exception->getMessage());
+        }
+
+        // Assert
+        $this->assertTrue($threw, 'the generator overwrote a controller somebody had written');
+        $this->assertSame(
+            "<?php\n// hand-written\n",
+            (string) file_get_contents($ctrlFile),
+            'the file was rewritten before the refusal'
+        );
+
+        @unlink($ctrlFile);
     }
 
     // =========================================================================
