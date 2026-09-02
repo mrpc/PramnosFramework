@@ -152,4 +152,70 @@ class StreamedResponseHeadersTest extends TestCase
         );
     }
 
+    /**
+     * Every mutator returns a clone, so a response can be shared.
+     *
+     * The `with*` shape promises immutability, and middleware relies on it: a pipeline that
+     * inspects a response and passes the original along must not find its own inspection has
+     * changed it. A mutator that returned `$this` would make every earlier stage's reference point
+     * at the final state.
+     */
+    public function testEveryMutatorReturnsACloneAndLeavesTheOriginalAlone(): void
+    {
+        // Arrange
+        $original = $this->response()->withHeader('X-One', 'a');
+
+        // Act
+        $withStatus  = $original->withStatus(503);
+        $withHeader  = $original->withHeader('X-Two', 'b');
+        $withoutOne  = $original->withoutHeader('X-One');
+
+        // Assert — three new objects
+        $this->assertNotSame($original, $withStatus);
+        $this->assertNotSame($original, $withHeader);
+        $this->assertNotSame($original, $withoutOne);
+
+        // ...and the original is untouched by any of them
+        $this->assertSame(200, $original->getStatusCode());
+        $this->assertSame(['X-One' => 'a'], $original->getHeaders());
+    }
+
+    /**
+     * `withStatus()` carries the code through.
+     *
+     * A streamed response sends its status before the first byte of the body, so this is the last
+     * moment it can be set — there is no changing it once the producer has run.
+     */
+    public function testWithStatusCarriesTheCodeThrough(): void
+    {
+        // Act
+        $response = $this->response()->withStatus(503);
+
+        // Assert
+        $this->assertSame(503, $response->getStatusCode());
+    }
+
+    /**
+     * `withoutHeader()` removes every value of a name, and is silent about one that is absent.
+     *
+     * Removing an unset header is the ordinary case for middleware that strips a header it may or
+     * may not have been given — an error there would make the caller check first, every time.
+     */
+    public function testWithoutHeaderRemovesEveryValueAndIgnoresAnAbsentName(): void
+    {
+        // Arrange
+        $response = $this->response()
+            ->withHeader('Vary', 'Accept')
+            ->withHeader('Vary', 'Accept-Encoding')
+            ->withHeader('X-Keep', 'yes');
+
+        // Act
+        $stripped = $response->withoutHeader('Vary')->withoutHeader('X-Never-Set');
+
+        // Assert
+        $this->assertFalse($stripped->hasHeader('Vary'), 'a multi-valued header was only half removed');
+        $this->assertSame([], $stripped->getHeader('Vary'));
+        $this->assertSame('yes', $stripped->getHeaders()['X-Keep'] ?? null, 'an unrelated header went with it');
+    }
+
 }
