@@ -33,6 +33,34 @@ contradicting a plausible written diagnosis — a fixture blamed for a cost that
 password hashing, a schema rebuild blamed for a cost that was in the database container's
 durability settings, a "slow ORM" that was one `clear()` walking the whole cache per save.
 
+## One wall-clock reading is not a measurement
+
+The band on a developer machine is wider than most regressions you are looking for. Four runs of the
+same commit, minutes apart, nothing else changed:
+
+```
+3:20    ← "a 44-second regression"
+3:11    ← the same, with the new tests removed
+2:38
+2:36
+```
+
+The first reading was taken straight after a `--coverage` run, whose HTML report writes thousands of
+files; the machine was still catching up. Acting on it would have meant reverting a test file that
+costs **one second**, and the control run — the same suite with the new tests moved out of the tree —
+would have "confirmed" the regression, because it was still inside the same noisy window.
+
+So before you believe a slowdown:
+
+- **Run it twice more.** Two readings that agree are a measurement; one is a reading.
+- **Never compare across a coverage run.** `--coverage` leaves the disk busy; give it a plain run in
+  between or the next number is about the report, not the suite.
+- **A control run is only worth taking once the band is known.** Removing the suspect file and
+  getting a number inside the noise proves nothing either way.
+
+Which is why the numbers quoted elsewhere in this guide are pairs, and why a real regression here
+looks like `2:37 → 3:00` twice in a row rather than a single bad reading.
+
 ## The distribution is the finding
 
 A suite's total is decided by a handful of classes. Sort by time and look at the top ten

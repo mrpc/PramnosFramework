@@ -60,7 +60,7 @@ class MessagesDispatch extends Command
         $limit = max(1, (int) $input->getOption('limit'));
 
         try {
-            $stats = (new MassMessageDispatcher())->dispatch($limit);
+            $stats = $this->dispatcher()->dispatch($limit);
         } catch (\Throwable $exception) {
             if ($this->looksLikeMissingTable($exception)) {
                 if ($output->isVerbose()) {
@@ -92,6 +92,20 @@ class MessagesDispatch extends Command
         // the next run carries on, and a red line every five minutes for a handful of dead
         // addresses is how a schedule log stops being read. The counts are the report.
         return Command::SUCCESS;
+    }
+
+    /**
+     * The dispatcher this command drives.
+     *
+     * Constructed here rather than inline in the `try`, for the same reason as elsewhere: a
+     * collaborator built inside the branch you care about is a branch nobody can watch. The
+     * interesting behaviour of this command is what it does with a throw, a zero and a set of
+     * counts, and none of the three was reachable while the dispatcher was a `new` in an
+     * expression.
+     */
+    protected function dispatcher(): MassMessageDispatcher
+    {
+        return new MassMessageDispatcher();
     }
 
     /**

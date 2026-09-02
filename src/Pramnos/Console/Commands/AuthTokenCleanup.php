@@ -63,7 +63,7 @@ class AuthTokenCleanup extends Command
         $days = max(1, (int) $input->getOption('days'));
 
         try {
-            User::cleanupAllAuthTokens($days);
+            $this->retire($days);
         } catch (\Throwable $exception) {
             // An application without the auth schema has no tokens to retire, and
             // that is not a failure — the schedule runs this on every installation.
@@ -88,6 +88,21 @@ class AuthTokenCleanup extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Retire the idle tokens.
+     *
+     * A method rather than the static call it wraps, because the two branches below are about what
+     * happens when it *throws* — a missing table, which the schedule must survive on an
+     * installation without the auth schema, and anything else, which has to be seen. A static call
+     * written inline cannot be made to throw from a test, so neither arm could ever be observed.
+     *
+     * @param int $days Idle days after which a token is retired
+     */
+    protected function retire(int $days): void
+    {
+        User::cleanupAllAuthTokens($days);
     }
 
     /**
