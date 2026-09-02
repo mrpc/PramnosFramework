@@ -825,6 +825,30 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             }
             $primarykey = $this->_primaryKey;
             $selectClause = $this->_ensurePrimaryKeyInSelect($queryFields, $primarykey);
+
+            /*
+             * …unless the caller has grouped by something that is not the key.
+             *
+             * Forcing the primary key into the select is right for a row listing — a model without its
+             * key cannot be reloaded or saved — and it is **invalid SQL** in a grouped query: a column
+             * that is neither grouped nor aggregated is refused by PostgreSQL outright and by MySQL
+             * under `ONLY_FULL_GROUP_BY`, which has been the default since 5.7.
+             *
+             * That is why this branch had never executed. It could not: any `$group` that did not
+             * happen to name the primary key produced a query the database rejected, so «a page of
+             * categories with counts» — the obvious reason to group a listing — was not available at
+             * all.
+             *
+             * Grouping *by* the key stays as it was. That is the other real use — a join that
+             * multiplies rows, grouped back down to one per parent — and there the key belongs in the
+             * select, so nothing about it changes.
+             */
+            if ($group != '' && !empty($queryFields)
+                && strpos((string) $group, (string) $primarykey) === false
+            ) {
+                $selectClause = $queryFields;
+            }
+
             $qb = $database->queryBuilder()
                 ->from($this->getFullTableName() . ' a')
                 ->select($selectClause);

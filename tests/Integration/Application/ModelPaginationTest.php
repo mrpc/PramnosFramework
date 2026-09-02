@@ -43,9 +43,17 @@ class PaginationProbeModel extends Model
             false,
             '',
             $options['fields'] ?? null,
-            '',
-            $options['asModels'] ?? false
+            $options['group'] ?? '',
+            $options['asModels'] ?? false,
+            $options['useGetData'] ?? false,
+            $options['customGetListMethod'] ?? false
         );
+    }
+
+    /** A stand-in for the per-row transform an application supplies. */
+    public function summarise(): array
+    {
+        return ['label' => strtoupper((string) $this->title)];
     }
 }
 
@@ -117,6 +125,26 @@ class ModelPaginationTest extends BaseTestCase
             . $q('rank') . ' INT NOT NULL)'
             . ($this->db->type === 'postgresql' ? '' : ' ENGINE=InnoDB')
         );
+    }
+
+    /**
+     * Rows with the ranks the caller names, for the grouped cases.
+     *
+     * A second helper rather than a wider `seed()`: the tests above want *distinct* ranks — that is
+     * what makes an ordering assertion mean anything — and the grouped ones want repeats. One helper
+     * doing both would take an argument that changes what every existing test is asserting.
+     *
+     * @param list<array{title: string, rank: int}> $rows
+     */
+    private function seedRows(array $rows): void
+    {
+        // Emptied first: `setUp()` seeds 25 rows with distinct ranks, which is what the ordering
+        // assertions above need and the opposite of what a grouped one does.
+        $this->db->query('DELETE FROM ' . $this->table);
+
+        foreach ($rows as $row) {
+            $this->db->queryBuilder()->table($this->table)->insert($row);
+        }
     }
 
     private function seed(int $count): void
@@ -382,5 +410,140 @@ class ModelPaginationTest extends BaseTestCase
         // Assert
         $this->assertSame('Row 25', $answer['items'][0]['title']);
         $this->assertSame('Row 21', $answer['items'][4]['title']);
+    }
+
+    /**
+     * A grouped page counts **groups**, not rows.
+     *
+     * The branch that had never run, and the one where getting it wrong is invisible on the first page
+     * and broken on the last. A grouped query cannot be counted with `count(a.key)` — that returns the
+     * number of rows in each group, one row per group, so the count read back is the size of the first
+     * group. So the count is taken as `SELECT COUNT(*) FROM (…) as grouped_query` instead.
+     *
+     * Get it wrong and a listing of twelve rows in three groups reports «5 results» (or «1»), the page
+     * arithmetic follows the wrong number, and the last page is either empty or unreachable — on a
+     * screen that renders perfectly.
+     */
+    public function testAGroupedPageCountsGroupsAndNotRows(): void
+    {
+        // Arrange — four rows, two distinct ranks
+        $this->seedRows([
+            ['title' => 'a', 'rank' => 1],
+            ['title' => 'b', 'rank' => 1],
+            ['title' => 'c', 'rank' => 2],
+            ['title' => 'd', 'rank' => 2],
+        ]);
+
+        // Act — arrays, not models: a group is not a row, and a model needs a row's key
+        $page = (new PaginationProbeModel($this->table))->page(10, 1, [
+            'fields'   => 'a.rank',
+            'group'    => 'GROUP BY a.rank',
+            'order'    => 'ORDER BY a.rank ASC',
+            'asModels' => false,
+        ]);
+
+        // Assert
+        $this->assertSame(2, (int) $page['total'], 'the total counted rows rather than groups');
+        $this->assertSame(1, (int) $page['pages']);
+        $this->assertCount(2, $page['items']);
+    }
+
+    /**
+     * …and the group arithmetic survives being paged.
+     *
+     * Its own case because the count and the page are two queries that have to agree: the count wraps
+     * the grouped query in a subquery, and the page applies `LIMIT`/`OFFSET` to the grouped query
+     * itself. A mistake in either shows up only when there is more than one page of groups.
+     */
+    public function testAGroupedSetPagesByGroup(): void
+    {
+        // Arrange — six rows, three groups
+        $this->seedRows([
+            ['title' => 'a', 'rank' => 1],
+            ['title' => 'b', 'rank' => 1],
+            ['title' => 'c', 'rank' => 2],
+            ['title' => 'd', 'rank' => 2],
+            ['title' => 'e', 'rank' => 3],
+            ['title' => 'f', 'rank' => 3],
+        ]);
+
+        $model = new PaginationProbeModel($this->table);
+        $options = [
+            'fields'   => 'a.rank',
+            'group'    => 'GROUP BY a.rank',
+            'order'    => 'ORDER BY a.rank ASC',
+            'asModels' => false,
+        ];
+
+        // Act
+        $first = $model->page(2, 1, $options);
+        $second = (new PaginationProbeModel($this->table))->page(2, 2, $options);
+
+        // Assert
+        $this->assertSame(3, (int) $first['total'], 'three groups were not counted as three');
+        $this->assertSame(2, (int) $first['pages']);
+        $this->assertCount(2, $first['items'], 'the first page is two groups');
+        $this->assertCount(1, $second['items'], 'the second page is the remaining group');
+    }
+
+    /**
+     * The keyword may be included or left out, and both mean the same thing.
+     *
+     * `GROUP BY a.rank` and `a.rank` both arrive here from real callers — the parameter is documented
+     * as a «group by statement», which reads either way — so the keyword is stripped rather than
+     * assumed absent. Without that, one of the two spellings produces `GROUP BY GROUP BY a.rank`, and
+     * the error names a syntax problem in a query the caller never wrote.
+     */
+    public function testTheGroupKeywordIsOptional(): void
+    {
+        // Arrange
+        $this->seedRows([
+            ['title' => 'a', 'rank' => 1],
+            ['title' => 'b', 'rank' => 1],
+            ['title' => 'c', 'rank' => 2],
+        ]);
+
+        $options = ['fields' => 'a.rank', 'order' => 'ORDER BY a.rank ASC', 'asModels' => false];
+
+        // Act
+        $withKeyword = (new PaginationProbeModel($this->table))
+            ->page(10, 1, $options + ['group' => 'GROUP BY a.rank']);
+        $without = (new PaginationProbeModel($this->table))
+            ->page(10, 1, $options + ['group' => 'a.rank']);
+
+        // Assert
+        $this->assertSame((int) $withKeyword['total'], (int) $without['total']);
+        $this->assertSame(2, (int) $without['total']);
+    }
+
+    /**
+     * A caller's own per-row method replaces the model in the result.
+     *
+     * `$customGetListMethod` is how an application returns something other than its own rows from a
+     * listing — a summary, a joined shape, a view model. Never exercised, and the failure it hides is
+     * specific: the method is called on each object *after* the key has been used to index the array,
+     * so a transform that returns an array leaves the keys intact and the values replaced. A listing
+     * whose keys stopped being ids is one whose edit links point at array offsets.
+     */
+    public function testACallersOwnMethodReplacesEachRow(): void
+    {
+        // Arrange
+        $this->seedRows([['title' => 'alpha', 'rank' => 1], ['title' => 'beta', 'rank' => 2]]);
+
+        // Act
+        $page = (new PaginationProbeModel($this->table))->page(10, 1, [
+            'asModels'            => true,
+            'useGetData'          => true,
+            'customGetListMethod' => 'summarise',
+        ]);
+
+        // Assert
+        $this->assertCount(2, $page['items']);
+
+        foreach ($page['items'] as $key => $item) {
+            $this->assertIsArray($item, 'the transform did not replace the model');
+            $this->assertSame(strtoupper((string) $item['label']), $item['label']);
+            $this->assertGreaterThan(0, (int) $key, 'the row is no longer keyed by its id');
+        }
     }
 }

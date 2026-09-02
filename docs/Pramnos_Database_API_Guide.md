@@ -300,6 +300,48 @@ connection that made it.
 If you keep a `Database` handle across a long idle period yourself, you need nothing extra. If you
 hold a raw `mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
 
+### A paginated list that groups
+
+`_getPaginated()` takes a `$group` clause, and two shapes of it behave differently in a way worth
+knowing before you use it.
+
+**Grouping by the primary key** — a join that multiplies rows, grouped back down to one per parent —
+works as it always has, and can return models:
+
+```php
+$this->_getPaginated(
+    20, $page, null, 'ORDER BY a.title', null, null, false,
+    'LEFT JOIN #PREFIX#comments c ON c.postid = a.postid',
+    'a.postid, a.title, COUNT(c.commentid) AS comments',
+    'GROUP BY a.postid, a.title'
+);
+```
+
+**Grouping by anything else** — «a page of categories with counts» — must name its fields and ask for
+arrays rather than models:
+
+```php
+$this->_getPaginated(
+    20, $page, null, 'ORDER BY a.category', null, null, false, '',
+    'a.category, COUNT(*) AS total',
+    'GROUP BY a.category',
+    false                              // ← arrays: a group is not a row
+);
+```
+
+Two reasons, and neither is arbitrary. The primary key is normally forced into the select, because a
+returned model without its key cannot be reloaded or saved — and in a grouped query a column that is
+neither grouped nor aggregated is **invalid SQL**, refused by PostgreSQL outright and by MySQL under
+`ONLY_FULL_GROUP_BY`. So when the group clause does not name the key, the caller's field list is used
+exactly as given. And a model is a row: with no key to index by, the result is a list, which is what
+`$returnAsModels = false` returns.
+
+The total is counted as `SELECT COUNT(*) FROM (…) as grouped_query` rather than with `count(a.key)`,
+because the latter counts rows *within* each group. Getting that wrong is invisible on the first page:
+a listing of twelve rows in three groups would report the size of the first group as the total, the
+page arithmetic would follow that number, and the last page would be empty or unreachable — on a screen
+that renders perfectly.
+
 ## Result Handling
 
 **CRITICAL**: Pramnos query results use different patterns for single vs multiple records:
