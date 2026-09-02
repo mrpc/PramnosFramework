@@ -767,7 +767,8 @@ class ResizeTools extends \Pramnos\Framework\Base
         $current = ini_get('memory_limit');
 
         if (!is_string($current) || $current === '') {
-            return null;   // @codeCoverageIgnore — memory_limit always exists
+            // memory_limit always exists
+            return null; // @codeCoverageIgnore
         }
 
         $parsed = \Pramnos\General\Helpers::parseMemoryLimit($current);

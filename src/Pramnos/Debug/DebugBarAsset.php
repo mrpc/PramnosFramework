@@ -39,7 +39,8 @@ final class DebugBarAsset
     {
         $source = @file_get_contents(self::SOURCE);
         if ($source === false) {
-            // @codeCoverageIgnoreStart — the asset ships with the framework, so
+            // the asset ships with the framework, so
+            // @codeCoverageIgnoreStart
             // reaching this means a broken install, not a branch a test can set up
             // without deleting a file out of vendor/.
             throw new \RuntimeException(

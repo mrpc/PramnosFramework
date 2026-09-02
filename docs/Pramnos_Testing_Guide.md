@@ -853,6 +853,68 @@ So when adding to an existing file:
   if it went in green on the first run — the same rule as for any assertion, and this is the failure
   mode it catches.
 
+## `@codeCoverageIgnore` must be the whole comment, or it does the opposite
+
+php-code-coverage 11 matches these annotations by **exact string comparison**:
+
+```php
+if ($comment === '// @codeCoverageIgnoreStart' ||
+    $comment === '//@codeCoverageIgnoreStart') {
+```
+
+So the natural thing to write —
+
+```php
+// @codeCoverageIgnoreStart — reached only when the socket is already closed
+```
+
+— matches nothing. Which would merely be a no-op, except for the `End` handler:
+
+```php
+if ($comment === '// @codeCoverageIgnoreEnd' || ...) {
+    if (false === $start) {
+        $start = $token[2];
+    }
+    $this->ignoredLines[$filename] = array_merge(…, range($start, $token[2]));
+}
+```
+
+`$start` is **not reset after use**. A `Start` that failed to match leaves it holding the line of the
+last one that *did*, and the next `End` then ignores everything from there to itself. In a file with
+several annotations and explanations on the `Start` lines, whole regions disappear from the report —
+and nothing warns you, because the numbers only get better.
+
+Measured here: **453 statements across 32 files** were excluded by accident. `Init.php` alone was
+missing 157, `ProjectResync` 122, `MakeCommandBase` 59. Correcting the syntax put them back and the
+project total still went **up**, 94.62% to 94.71%, because most of the accidentally-excluded code is
+covered — the exclusions were not hiding untested code, they were hiding the size of the codebase.
+
+So:
+
+- **Put the reason on its own line**, above or below:
+
+  ```php
+  // Unreachable in the suite: the guard above is true for a directory.
+  // @codeCoverageIgnoreStart
+  ```
+
+- **A docblock is different.** There the check is `str_contains($docComment->getText(), '@codeCoverageIgnore')`,
+  so `* @codeCoverageIgnore Requires a live server` works fine. The exact-match rule is only for `//`
+  comments.
+- **Check it took effect.** An ignored line is *absent* from `clover.xml`, not present with a count
+  of zero:
+
+  ```bash
+  grep -c 'line num="268"' coverage/clover.xml    # 0 means ignored
+  ```
+
+- **Audit with a grep**, because this fails silently:
+
+  ```bash
+  grep -rn '// *@codeCoverageIgnore' --include='*.php' src/ \
+      | grep -vE '// @codeCoverageIgnore(Start|End)?$'
+  ```
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so

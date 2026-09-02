@@ -42,7 +42,8 @@ class TestEnvironment
     public static function setup($testSettingsPath, $schemaPath = null)
     {
         if (!defined('UNITTESTING')) {
-            define('UNITTESTING', true); // @codeCoverageIgnore — UNITTESTING is always pre-defined by the test bootstrap
+            // UNITTESTING is always pre-defined by the test bootstrap
+            define('UNITTESTING', true); // @codeCoverageIgnore
         }
 
         // Application::close() calls exit() unless this is defined, in which case it
@@ -52,7 +53,8 @@ class TestEnvironment
         // output. Every path that can end a request goes through close(), so without
         // this a single database fault silently truncates the whole suite.
         if (!defined('PRAMNOS_TESTING')) {
-            define('PRAMNOS_TESTING', true); // @codeCoverageIgnore — pre-defined by this framework's own bootstrap
+            // pre-defined by this framework's own bootstrap
+            define('PRAMNOS_TESTING', true); // @codeCoverageIgnore
         }
 
         /**

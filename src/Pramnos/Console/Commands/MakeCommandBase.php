@@ -1080,7 +1080,8 @@ abstract class MakeCommandBase extends Command
                     $q = new Question("   Default value [<comment>''</comment>] (NULL = no default): ", '');
                     $rawDefault = $helper->ask($input, $output, $q);
                     if (strtolower((string) $rawDefault) === 'null') {
-                        $default = null; // @codeCoverageIgnore — only reached when user types "null" in wizard
+                        // only reached when user types "null" in wizard
+                        $default = null; // @codeCoverageIgnore
                     } else {
                         $default = (string) $rawDefault; // '' or whatever the user typed
                     }
@@ -1551,7 +1552,8 @@ abstract class MakeCommandBase extends Command
             }
         }
 
-        // @codeCoverageIgnoreStart — only for a routes.php without the group
+        // only for a routes.php without the group
+        // @codeCoverageIgnoreStart
         $block = $this->renderStub('api-routes', $tokens + ['router' => '$router']);
         file_put_contents($routerFile, str_replace(
             'return $router->dispatch($newRequest);',

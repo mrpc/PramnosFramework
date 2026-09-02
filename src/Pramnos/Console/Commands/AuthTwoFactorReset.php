@@ -136,7 +136,8 @@ class AuthTwoFactorReset extends Command
     /** @return bool Whether there was an enrolment to clear */
     protected function clearAuthenticator(int $userId, bool $dryRun): bool
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         try {
             $service = new TwoFactorAuthService(\Pramnos\Framework\Factory::getDatabase());
             $status  = $service->getStatus($userId);
@@ -155,7 +156,8 @@ class AuthTwoFactorReset extends Command
     /** @return bool Whether the mailed-code factor was on */
     protected function clearMailedCodeFlag(int $userId, bool $dryRun): bool
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         try {
             $factor = new EmailSecondFactor();
 
@@ -173,7 +175,8 @@ class AuthTwoFactorReset extends Command
     /** @return bool Whether any passkey was removed */
     protected function clearPasskeys(int $userId, bool $dryRun): bool
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         try {
             $service = new \Pramnos\Auth\Passkey\PasskeyService();
 
@@ -224,7 +227,8 @@ class AuthTwoFactorReset extends Command
     /** One lookup, as its own seam so the tests need no database. */
     protected function lookup(string $needle, string $field): ?int
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         if ($field === 'userid') {
             $user = new User((int) $needle);
 

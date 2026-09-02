@@ -1013,7 +1013,8 @@ class Database extends \Pramnos\Framework\Base
             return $message;
         }
 
-        return 'Could not connect to database'; // @codeCoverageIgnore — reached only when mysqli_connect_error() returns null (impossible when a connection truly failed)
+        // reached only when mysqli_connect_error() returns null (impossible when a connection truly failed)
+        return 'Could not connect to database'; // @codeCoverageIgnore
     }
 
 

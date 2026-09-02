@@ -264,7 +264,8 @@ class AuthTwoFactorStatus extends Command
      */
     protected function privilegedAccounts(int $floor): array
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
             ->table('#PREFIX#users')
             ->select(array('userid', 'username', 'usertype'))
@@ -290,7 +291,8 @@ class AuthTwoFactorStatus extends Command
      */
     protected function totpStatus(int $userId): ?array
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         try {
             return (new TwoFactorAuthService(\Pramnos\Framework\Factory::getDatabase()))
                 ->getStatus($userId);
@@ -303,7 +305,8 @@ class AuthTwoFactorStatus extends Command
     /** @return object The account */
     protected function loadUser(int $userId): object
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         return new User($userId);
         // @codeCoverageIgnoreEnd
     }
@@ -331,7 +334,8 @@ class AuthTwoFactorStatus extends Command
     /** One lookup, as its own seam so the tests need no database. */
     protected function lookup(string $needle, string $field): ?int
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         if ($field === 'userid') {
             $user = new User((int) $needle);
 

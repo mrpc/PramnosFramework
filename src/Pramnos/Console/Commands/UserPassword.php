@@ -209,7 +209,8 @@ class UserPassword extends Command
      */
     protected function lookup(string $needle, string $field): ?int
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         if ($field === 'userid') {
             $user = new User((int) $needle);
 
@@ -332,7 +333,8 @@ class UserPassword extends Command
      */
     protected function setPassword(int $userId, string $password): bool
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         $user = new User($userId);
         if ((int) $user->userid <= 1) {
             return false;
@@ -354,7 +356,8 @@ class UserPassword extends Command
      */
     protected function clearResetTokens(int $userId): void
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         $db = \Pramnos\Framework\Factory::getDatabase();
         foreach (['password_reset_hash', 'password_reset_expires'] as $field) {
             $db->queryBuilder()->table('#PREFIX#userdetails')
@@ -377,7 +380,8 @@ class UserPassword extends Command
      */
     protected function clearLockouts(int $userId): bool
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         try {
             $db   = \Pramnos\Framework\Factory::getDatabase();
             $user = new User($userId);
@@ -409,7 +413,8 @@ class UserPassword extends Command
      */
     protected function revokeSessions(int $userId): int
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         $db = \Pramnos\Framework\Factory::getDatabase();
 
         $db->queryBuilder()->table('#PREFIX#usertokens')
@@ -430,7 +435,8 @@ class UserPassword extends Command
      */
     protected function recordChange(int $userId, bool $forced, ?int $revoked): void
     {
-        // @codeCoverageIgnoreStart — live-DB boundary; the tests override this
+        // live-DB boundary; the tests override this
+        // @codeCoverageIgnoreStart
         \Pramnos\Auth\ActivityLog::record($userId, 'password_changed_by_cli', [
             'policy_waived'    => $forced,
             'sessions_revoked' => $revoked !== null,

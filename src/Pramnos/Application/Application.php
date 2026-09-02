@@ -2838,7 +2838,8 @@ class Application extends Base
             if (class_exists('\APCUIterator')) {
                 apcu_delete(new \APCUIterator('/^' . preg_quote($prefix, '/') . '/'));
             } else {
-                apcu_clear_cache();   // @codeCoverageIgnore — no iterator available
+                // no iterator available
+                apcu_clear_cache(); // @codeCoverageIgnore
             }
         }
 

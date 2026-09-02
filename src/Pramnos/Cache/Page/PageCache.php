@@ -492,7 +492,8 @@ final class PageCache
         $response->send();
 
         if ($exit) {
-            exit;   // @codeCoverageIgnore — the tests pass $exit = false
+            // the tests pass $exit = false
+            exit; // @codeCoverageIgnore
         }
 
         return true;

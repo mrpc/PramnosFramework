@@ -168,7 +168,8 @@ trait RunsProcesses
         $exitCode = proc_close($process);
 
         if ($liveOutput) {
-            $output->writeln($exitCode === 0 ? "<info>$message: DONE</info>" : "<error>$message: FAILED (Exit Code: $exitCode)</error>"); // @codeCoverageIgnore — live output path only under -v or slow-step escalation
+            // live output path only under -v or slow-step escalation
+            $output->writeln($exitCode === 0 ? "<info>$message: DONE</info>" : "<error>$message: FAILED (Exit Code: $exitCode)</error>"); // @codeCoverageIgnore
         } else {
             $suffix = $exitCode === 0 ? "<info>DONE</info>" : "<error>FAILED</error>";
             $output->write("\r\033[K$message $suffix\n");
@@ -198,7 +199,8 @@ trait RunsProcesses
             }
 
             if ($exitCode !== 0) {
-                // @codeCoverageIgnoreStart — reached only when a subprocess fails
+                // reached only when a subprocess fails
+                // @codeCoverageIgnoreStart
                 $this->explainDockerFailure($stdoutBuf . "\n" . $stderrBuf, $output);
                 // @codeCoverageIgnoreEnd
             }

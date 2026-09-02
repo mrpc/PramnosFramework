@@ -373,7 +373,8 @@ class ApiAccount extends Controller
     /** The framework auth service. */
     protected function authService(): \Pramnos\Auth\Auth
     {
-        return \Pramnos\Framework\Factory::getAuth(); // @codeCoverageIgnore — DI seam; a double is injected in tests
+        // DI seam; a double is injected in tests
+        return \Pramnos\Framework\Factory::getAuth(); // @codeCoverageIgnore
     }
 
     /**

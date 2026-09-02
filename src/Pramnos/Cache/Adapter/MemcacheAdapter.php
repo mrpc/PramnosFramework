@@ -318,7 +318,8 @@ class MemcacheAdapter extends AbstractAdapter
                     'note' => 'Memcache extension does not support key enumeration'
                 ]
             ];
-        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+        // Start
+        } catch (\Exception $ex) { // @codeCoverageIgnore
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return [
                 [
@@ -330,6 +331,7 @@ class MemcacheAdapter extends AbstractAdapter
                     'note' => 'Error with Memcache: ' . $ex->getMessage()
                 ]
             ];
-        } // @codeCoverageIgnoreEnd
+        // End
+        } // @codeCoverageIgnore
     }
 }

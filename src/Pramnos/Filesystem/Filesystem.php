@@ -52,10 +52,12 @@ class Filesystem
                     unlink($dir . DS . $file);
                 }
             }
-        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+        // Start
+        } catch (\Exception $ex) { // @codeCoverageIgnore
             #pramnos_logs::log($ex->getMessage());
             return false;
-        } // @codeCoverageIgnoreEnd
+        // End
+        } // @codeCoverageIgnore
 
         return true;
     }
@@ -73,9 +75,11 @@ class Filesystem
             return unlink($dir);
         }
         $files = scandir($dir);
-        if (!is_array($files)) { // @codeCoverageIgnoreStart
+        // Start
+        if (!is_array($files)) { // @codeCoverageIgnore
             return false;
-        } // @codeCoverageIgnoreEnd
+        // End
+        } // @codeCoverageIgnore
         $counter = 0; //Performance
         foreach ($files as $file) {
             $counter +=1;
@@ -109,9 +113,11 @@ class Filesystem
         if (!file_exists($dst)) {
             try {
                 mkdir($dst);
-            } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+            // Start
+            } catch (\Exception $ex) { // @codeCoverageIgnore
                 return false;
-            } // @codeCoverageIgnoreEnd
+            // End
+            } // @codeCoverageIgnore
         }
         while (false !== ( $file = readdir($dir))) {
             if (( $file != '.' ) && ( $file != '..' )) {
@@ -177,10 +183,12 @@ class Filesystem
         }
         try {
             unlink($file);
-        } catch (\Exception $ex) { // @codeCoverageIgnoreStart
+        // Start
+        } catch (\Exception $ex) { // @codeCoverageIgnore
             #pramnos_logs::log($ex->getMessage());
             return false;
-        } // @codeCoverageIgnoreEnd
+        // End
+        } // @codeCoverageIgnore
         return true;
     }
 }

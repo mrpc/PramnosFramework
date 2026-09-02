@@ -388,7 +388,8 @@ class Init extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         if ($this->targetBaseDir === '') {
-            $this->targetBaseDir = defined('ROOT') ? ROOT : getcwd(); // @codeCoverageIgnore — tests always pre-set targetBaseDir
+            // tests always pre-set targetBaseDir
+            $this->targetBaseDir = defined('ROOT') ? ROOT : getcwd(); // @codeCoverageIgnore
         }
 
         if ($this->scaffoldingDir === '') {
@@ -572,7 +573,8 @@ class Init extends Command
             if (\Pramnos\Validation\Validator::checkEmail($userEmail)) {
                 break;
             }
-            $output->writeln('<error>Invalid email address. Please try again.</error>'); // @codeCoverageIgnore — tests always provide valid email addresses
+            // tests always provide valid email addresses
+            $output->writeln('<error>Invalid email address. Please try again.</error>'); // @codeCoverageIgnore
         }
 
         // API base path — the one place it is decided, so app.php, the routes
@@ -902,7 +904,8 @@ class Init extends Command
                 $syncAutoloadStatus = $this->runProcessWithSpinner('composer dump-autoload --no-interaction 2>/dev/null',                 'Regenerating autoloader',   $output);
 
                 if ($syncStatus !== 0 || $syncAutoloadStatus !== 0) {
-                    $this->autoloadSuccess = false; // @codeCoverageIgnore — composer sync always exits 0 in the test environment
+                    // composer sync always exits 0 in the test environment
+                    $this->autoloadSuccess = false; // @codeCoverageIgnore
                 }
             }
 
@@ -910,13 +913,15 @@ class Init extends Command
             // local Node/npm). Guarded by skipDockerRun so the unit-test scaffold
             // never shells out to npm.
             if ($withApiDocs && !$this->skipDockerRun) {
-                // @codeCoverageIgnoreStart — never exercised: tests set skipDockerRun
+                // never exercised: tests set skipDockerRun
+                // @codeCoverageIgnoreStart
                 $this->runProcessWithSpinner('bash scripts/doc.sh --host 2>&1', 'Generating API documentation', $output);
                 // @codeCoverageIgnoreEnd
             }
 
             if ($appStyle !== 'mvc' && self::spaNeedsNode($spaStack) && !$this->skipDockerRun) {
-                // @codeCoverageIgnoreStart — never exercised: tests set skipDockerRun
+                // never exercised: tests set skipDockerRun
+                // @codeCoverageIgnoreStart
                 $this->buildSpa('sh -lc', $output);
                 // @codeCoverageIgnoreEnd
             }
@@ -1033,7 +1038,8 @@ class Init extends Command
         $output->writeln("\n<comment>Step 4 — Extra libraries</comment>");
         $wantLibraries = $helper->ask($input, $output, new ConfirmationQuestion('Configure extra libraries? [Y/n] ', true));
         if (!$wantLibraries) {
-            return $this->withMandatoryLibraries([]); // @codeCoverageIgnore — tests that reach this path use the --libraries CLI option (line 396 path)
+            // tests that reach this path use the --libraries CLI option (line 396 path)
+            return $this->withMandatoryLibraries([]); // @codeCoverageIgnore
         }
 
         $catalog = $this->loadAssetCatalog();
@@ -1062,13 +1068,15 @@ class Init extends Command
             }
             $requiredUi = $lib['requires_ui'] ?? [];
             if (!empty($requiredUi) && !in_array($uiSystem, $requiredUi, true)) {
-                continue; // @codeCoverageIgnore — ui-filtered libraries not exercised in tests
+                // ui-filtered libraries not exercised in tests
+                continue; // @codeCoverageIgnore
             }
             $requires = $lib['requires'] ?? [];
             if (!empty($requires)) {
                 $missingDeps = array_diff($requires, $selected);
                 if (!empty($missingDeps)) {
-                    continue; // @codeCoverageIgnore — dependency-skip path not exercised in tests
+                    // dependency-skip path not exercised in tests
+                    continue; // @codeCoverageIgnore
                 }
             }
             $default = in_array($key, $defaultEnabled, true);
@@ -1365,7 +1373,8 @@ class Init extends Command
      */
     private function buildSpa(string $runner, OutputInterface $output): void
     {
-        // @codeCoverageIgnoreStart — shells out to npm; never run in unit tests
+        // shells out to npm; never run in unit tests
+        // @codeCoverageIgnoreStart
         $install = $this->runProcessWithSpinner(
             $runner . ' "cd /var/www/html 2>/dev/null || cd .; npm install --no-audit --no-fund" 2>&1',
             'Installing front-end dependencies',
@@ -2210,7 +2219,8 @@ CSS;
             'Generate API documentation tooling (OpenAPI + RapiDoc)? [Y/n] ', true
         ));
         if (!$enabled) {
-            return [false, '', '']; // @codeCoverageIgnore — tests always answer 'y' (default) to api-docs prompt
+            // tests always answer 'y' (default) to api-docs prompt
+            return [false, '', '']; // @codeCoverageIgnore
         }
         $defaultUrl   = 'https://api.example.com';
         $defaultColor = '#4CAF50';
@@ -2798,7 +2808,8 @@ CSS;
     {
         $pkgPath = $this->targetBaseDir . '/package.json';
         if (file_exists($pkgPath)) {
-            $pkg = json_decode((string) file_get_contents($pkgPath), true) ?: []; // @codeCoverageIgnore — no package.json in the scaffolded temp dir during tests
+            // no package.json in the scaffolded temp dir during tests
+            $pkg = json_decode((string) file_get_contents($pkgPath), true) ?: []; // @codeCoverageIgnore
         } else {
             $pkg = [
                 'name'        => strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $namespace)),
@@ -3401,7 +3412,8 @@ PHP;
     {
         $source = $this->scaffoldingDir . '/theme.css';
         if (!file_exists($source)) {
-            return; // @codeCoverageIgnore — scaffolding/theme.css ships with the package
+            // scaffolding/theme.css ships with the package
+            return; // @codeCoverageIgnore
         }
 
         $slug = $this->paletteSlug($appName);
@@ -3420,7 +3432,8 @@ PHP;
         // and "run theme:build" is not discoverable from that symptom.
         $themes = \Pramnos\Theme\ThemeTokens::parse($css);
         if ($themes === []) {
-            return; // @codeCoverageIgnore — the shipped palette declares two themes
+            // the shipped palette declares two themes
+            return; // @codeCoverageIgnore
         }
 
         $this->writeFile(
@@ -3530,7 +3543,8 @@ PHP;
         $catalog = $this->loadAssetCatalog();
         $lib     = $catalog['libraries']['inter'] ?? null;
         if ($lib === null) {
-            return; // @codeCoverageIgnore — assets.json has an 'inter' entry
+            // assets.json has an 'inter' entry
+            return; // @codeCoverageIgnore
         }
 
         $this->downloadLibraryAssets('inter', $lib, false);
@@ -4007,7 +4021,8 @@ HTML,
     {
         $src = $this->brandDir . '/favicons';
         if (!is_dir($src)) {
-            return; // @codeCoverageIgnore — brand/favicons is always present in the test tree
+            // brand/favicons is always present in the test tree
+            return; // @codeCoverageIgnore
         }
 
         // Sized app icons → subdir. favicon.ico stays at the web root.
@@ -4143,7 +4158,8 @@ HTML,
     {
         $src = $this->brandDir . '/logos';
         if (!is_dir($src)) {
-            return; // @codeCoverageIgnore — brand/logos is always present in the test tree
+            // brand/logos is always present in the test tree
+            return; // @codeCoverageIgnore
         }
 
         $this->mkdir($this->webRoot . '/assets/img');
@@ -4183,7 +4199,8 @@ HTML,
         $catalog = $this->loadAssetCatalog();
         $lib     = $catalog['libraries']['bootstrap'] ?? null;
         if ($lib === null) {
-            return; // @codeCoverageIgnore — assets.json has a 'bootstrap' entry; null is never returned in tests
+            // assets.json has a 'bootstrap' entry; null is never returned in tests
+            return; // @codeCoverageIgnore
         }
         $this->downloadLibraryAssets('bootstrap', $lib, false);
     }
@@ -4207,7 +4224,8 @@ HTML,
         foreach (['tailwind', 'daisyui'] as $key) {
             $lib = $catalog['libraries'][$key] ?? null;
             if ($lib === null) {
-                continue; // @codeCoverageIgnore — assets.json has both entries
+                // assets.json has both entries
+                continue; // @codeCoverageIgnore
             }
             $this->downloadLibraryAssets($key, $lib, false);
         }
@@ -4227,7 +4245,8 @@ HTML,
         foreach ($libraries as $key) {
             $lib = $catalog['libraries'][$key] ?? null;
             if ($lib === null) {
-                continue; // @codeCoverageIgnore — tests only pass keys that exist in the catalog
+                // tests only pass keys that exist in the catalog
+                continue; // @codeCoverageIgnore
             }
             $manifest[$key] = [
                 'version'    => $lib['version'],
@@ -5646,7 +5665,8 @@ PHP;
         $composer = json_decode(file_get_contents($composerPath), true) ?: [];
         foreach ($composer['repositories'] ?? [] as $repo) {
             if (($repo['type'] ?? '') === 'path' && str_contains($repo['url'] ?? '', 'PramnosFramework')) {
-                return "      - {$repo['url']}:/var/www/PramnosFramework\n"; // @codeCoverageIgnore — test composer.json has no path repo for PramnosFramework
+                // test composer.json has no path repo for PramnosFramework
+                return "      - {$repo['url']}:/var/www/PramnosFramework\n"; // @codeCoverageIgnore
             }
         }
         return '';
@@ -5913,7 +5933,8 @@ BASH;
         }
         $composer = json_decode(file_get_contents($composerPath), true);
         if (!$composer) {
-            return; // @codeCoverageIgnore — tests scaffold a valid composer.json so decode always succeeds
+            // tests scaffold a valid composer.json so decode always succeeds
+            return; // @codeCoverageIgnore
         }
 
         $slug = strtolower(str_replace([' ', '_'], '-', $appName));
@@ -5924,7 +5945,8 @@ BASH;
         $composer['keywords']    = ['pramnos', 'framework', 'application', $slug];
 
         if (!isset($composer['require-dev'])) {
-            $composer['require-dev'] = []; // @codeCoverageIgnore — scaffold composer.json already has require-dev
+            // scaffold composer.json already has require-dev
+            $composer['require-dev'] = []; // @codeCoverageIgnore
         }
         $composer['require-dev']['phpunit/phpunit'] = '^11.0';
         // PsySH powers a rich `pramnos tinker` REPL; without it tinker falls back
@@ -6039,7 +6061,8 @@ BASH;
 
         if ($useDocker) {
             if (!$this->dockerSuccess && !$this->skipDockerRun) {
-                $steps[] = "Run <comment>docker-compose up -d --build</comment>"; // @codeCoverageIgnore — skipDockerRun=true in all tests
+                // skipDockerRun=true in all tests
+                $steps[] = "Run <comment>docker-compose up -d --build</comment>"; // @codeCoverageIgnore
             }
             $appUrl = "http://localhost:$dockerPort";
             $steps[] = "Access your app at <comment>$appUrl</comment>";
@@ -6062,7 +6085,8 @@ BASH;
                 . ($dbType === 'mysql' ? "\n    Root Pass: <comment>$dbRootPass</comment>" : '');
 
             if ($this->migrationsSuccess) {
-                $steps[] = "<info>✓ Framework migrations ran successfully.</info>"; // @codeCoverageIgnore — migrations never run (skipDockerRun=true)
+                // migrations never run (skipDockerRun=true)
+                $steps[] = "<info>✓ Framework migrations ran successfully.</info>"; // @codeCoverageIgnore
             } elseif (!$skipMigrations) {
                 $steps[] = "Run <comment>./$cliName migrate --scope=framework</comment> when the container is ready.";
             }
@@ -6100,7 +6124,8 @@ BASH;
         foreach ($selectedLibraries as $lib) {
             $libDef = $catalog['libraries'][$lib] ?? null;
             if ($libDef === null) {
-                continue; // @codeCoverageIgnore — tests only pass library keys that exist in the catalog
+                // tests only pass library keys that exist in the catalog
+                continue; // @codeCoverageIgnore
             }
             $version = $libDef['version'];
             $deps    = $libDef['requires'] ?? [];
@@ -6917,7 +6942,8 @@ PHP;
         bool   $withRestApi
     ): void {
         if (file_exists($this->targetBaseDir . '/README.md')) {
-            return; // @codeCoverageIgnore — a fresh project never has one
+            // a fresh project never has one
+            return; // @codeCoverageIgnore
         }
 
         $featureList = $features === []
@@ -7114,7 +7140,8 @@ PHP;
             return; // Windows: no stty
         }
         if (!function_exists('shell_exec')) {
-            return; // @codeCoverageIgnore — disabled/hardened environments
+            // disabled/hardened environments
+            return; // @codeCoverageIgnore
         }
         // Only touch the terminal when stdin actually is one.
         if (defined('STDIN') && function_exists('stream_isatty') && !@stream_isatty(STDIN)) {
@@ -7310,7 +7337,8 @@ PHP;
                 return $port;
             }
         }
-        return $start; // @codeCoverageIgnore — 200 consecutive busy pairs is not a real scenario
+        // 200 consecutive busy pairs is not a real scenario
+        return $start; // @codeCoverageIgnore
     }
 
     /**
@@ -7353,7 +7381,8 @@ PHP;
             if ($busy === []) {
                 return $port;
             }
-            // @codeCoverageIgnoreStart — reached only when the answered port is taken
+            // reached only when the answered port is taken
+            // @codeCoverageIgnoreStart
             $output->writeln(sprintf(
                 '  <error>Port %s already in use.</error> The environment needs both %d'
                 . ' (application) and %d (database tool).',
@@ -7364,7 +7393,8 @@ PHP;
             // @codeCoverageIgnoreEnd
         }
 
-        return $port; // @codeCoverageIgnore — five busy answers in a row
+        // five busy answers in a row
+        return $port; // @codeCoverageIgnore
     }
 
 

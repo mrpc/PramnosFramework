@@ -82,7 +82,8 @@ class ProjectResync extends Command
     {
         $base = $this->targetBaseDir;
         if ($base === '') {
-            // @codeCoverageIgnoreStart — tests always pre-set targetBaseDir
+            // tests always pre-set targetBaseDir
+            // @codeCoverageIgnoreStart
             $base = defined('ROOT') ? ROOT : getcwd();
             // @codeCoverageIgnoreEnd
         }
@@ -94,7 +95,8 @@ class ProjectResync extends Command
 
         $scaffoldingDir = $this->scaffoldingDir;
         if ($scaffoldingDir === '') {
-            // @codeCoverageIgnoreStart — tests always pre-set scaffoldingDir
+            // tests always pre-set scaffoldingDir
+            // @codeCoverageIgnoreStart
             $scaffoldingDir = ScaffoldingHelper::resolveScaffoldingDir();
             // @codeCoverageIgnoreEnd
         }
@@ -413,7 +415,8 @@ class ProjectResync extends Command
         try {
             $content = \Pramnos\Debug\DebugBarAsset::spaModule($appName);
         } catch (\RuntimeException) {
-            // @codeCoverageIgnoreStart — the asset ships with the framework
+            // the asset ships with the framework
+            // @codeCoverageIgnoreStart
             return [];
             // @codeCoverageIgnoreEnd
         }
@@ -472,7 +475,8 @@ class ProjectResync extends Command
     {
         $brand = dirname($scaffoldingDir) . '/brand/favicons';
         if (!is_dir($brand)) {
-            return [];   // @codeCoverageIgnore — brand/ ships with the framework
+            // brand/ ships with the framework
+            return []; // @codeCoverageIgnore
         }
 
         $webRoot = $this->webRootOf($base);
@@ -594,7 +598,8 @@ class ProjectResync extends Command
         foreach ($wanted as $relative => $stub) {
             $path = $scaffoldingDir . '/templates/' . $stub . '.stub';
             if (!is_file($path)) {
-                continue;   // @codeCoverageIgnore — ships with the framework
+                // ships with the framework
+                continue; // @codeCoverageIgnore
             }
 
             $files[] = [

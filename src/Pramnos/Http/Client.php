@@ -520,7 +520,8 @@ class Client
             throw $lastException;
         }
 
-        // @codeCoverageIgnore — unreachable: throwOnError causes response->throw() inside the
+        // unreachable: throwOnError causes response->throw() inside the
+        // @codeCoverageIgnore
         // loop which is caught by the catch block, setting $lastException (handled above).
         if ($this->throwOnError && $response !== null) { // @codeCoverageIgnore
             $response->throw(); // @codeCoverageIgnore

@@ -152,9 +152,11 @@ class MigrationLoader
                     if ($ref->isAbstract()) {
                         continue;
                     }
-                } catch (\ReflectionException $e) { // @codeCoverageIgnoreStart
+                // Start
+                } catch (\ReflectionException $e) { // @codeCoverageIgnore
                     continue;
-                } // @codeCoverageIgnoreEnd
+                // End
+                } // @codeCoverageIgnore
 
                 $migrations[] = new $class($app);
             }

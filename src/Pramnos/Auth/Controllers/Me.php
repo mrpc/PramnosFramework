@@ -109,7 +109,8 @@ class Me extends Controller
      */
     protected function resolveUser()
     {
-        return User::getCurrentUser(); // @codeCoverageIgnore — thin static wrapper; overridden in tests
+        // thin static wrapper; overridden in tests
+        return User::getCurrentUser(); // @codeCoverageIgnore
     }
 
     /**

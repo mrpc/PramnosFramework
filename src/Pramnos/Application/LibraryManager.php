@@ -216,7 +216,8 @@ class LibraryManager
             return file_put_contents($dest, "/* mocked download of $url */\n") !== false;
         }
 
-        // @codeCoverageIgnoreStart — real network path, not exercised in tests.
+        // real network path, not exercised in tests.
+        // @codeCoverageIgnoreStart
         $ctx = stream_context_create([
             'http' => [
                 'timeout'    => 15,

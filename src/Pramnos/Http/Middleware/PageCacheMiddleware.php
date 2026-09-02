@@ -109,7 +109,8 @@ class PageCacheMiddleware implements MiddlewareInterface
             : null;
 
         if ($app === null || !method_exists($app, 'cspPolicy')) {
-            return $response;   // @codeCoverageIgnore — no application, no policy to build
+            // no application, no policy to build
+            return $response; // @codeCoverageIgnore
         }
 
         return $response->withHeader('Content-Security-Policy', $app->cspPolicy());

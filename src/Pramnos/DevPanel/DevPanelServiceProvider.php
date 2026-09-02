@@ -33,7 +33,8 @@ class DevPanelServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->bootHttp(); // @codeCoverageIgnore — only reached under HTTP SAPI
+        // only reached under HTTP SAPI
+        $this->bootHttp(); // @codeCoverageIgnore
     }
 
     /**

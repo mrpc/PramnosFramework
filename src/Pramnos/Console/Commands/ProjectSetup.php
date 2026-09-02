@@ -285,7 +285,8 @@ class ProjectSetup extends Command
             return;
         }
 
-        // @codeCoverageIgnoreStart — needs a running database; the tests set skipProcesses
+        // needs a running database; the tests set skipProcesses
+        // @codeCoverageIgnoreStart
         $output->write('Waiting for database ');
         $symbols = ['/', '-', '\\', '|'];
 
@@ -348,7 +349,8 @@ class ProjectSetup extends Command
             return;
         }
 
-        // @codeCoverageIgnoreStart — interactive passthrough; the tests set skipProcesses
+        // interactive passthrough; the tests set skipProcesses
+        // @codeCoverageIgnoreStart
         passthru("docker-compose exec -u www-data app php $cliName.php user:create --admin");
         // @codeCoverageIgnoreEnd
     }

@@ -185,7 +185,8 @@ class SseWriter
             readTimeout: max(1, $pingInterval),
             maxRuntime: $maxRuntime > 0 ? $maxRuntime : null,
             onIdle: function () use ($onTick): bool {
-                // @codeCoverageIgnoreStart — connection_aborted() is always 0
+                // connection_aborted() is always 0
+                // @codeCoverageIgnoreStart
                 // under CLI, so the branch that notices a client walking away
                 // cannot be reached from a test. It is the reason a closed tab
                 // does not leave a PHP process polling a database for another
@@ -229,7 +230,8 @@ class SseWriter
         $driver->subscribe(
             $channels,
             function (string $channel, string $event, array $payload, ?string $id = null) use ($onEvent): bool {
-                // @codeCoverageIgnoreStart — see above: unreachable under CLI.
+                // see above: unreachable under CLI.
+                // @codeCoverageIgnoreStart
                 if (connection_aborted()) {
                     return false;
                 }

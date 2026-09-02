@@ -237,7 +237,8 @@ final class PasswordHash
     public static function options(): array
     {
         if (PASSWORD_DEFAULT !== PASSWORD_BCRYPT) {
-            return []; // @codeCoverageIgnore — PASSWORD_DEFAULT is bcrypt on every PHP this framework supports
+            // PASSWORD_DEFAULT is bcrypt on every PHP this framework supports
+            return []; // @codeCoverageIgnore
         }
 
         $configured = getenv(self::COST_ENV);

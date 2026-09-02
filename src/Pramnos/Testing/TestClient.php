@@ -28,7 +28,8 @@ class TestClient
                 $this->app = $appInstance;
             }
             if (!$this->app->initialized) {
-                $this->app->init(); // @codeCoverageIgnore — stub apps always have initialized=true
+                // stub apps always have initialized=true
+                $this->app->init(); // @codeCoverageIgnore
             }
         } else {
             $this->app = $app;

@@ -44,7 +44,8 @@ abstract class SpaCommandBase extends Command
             return $this->projectRoot;
         }
 
-        // @codeCoverageIgnoreStart — tests always pre-set projectRoot
+        // tests always pre-set projectRoot
+        // @codeCoverageIgnoreStart
         return defined('ROOT') ? ROOT : (string) getcwd();
         // @codeCoverageIgnoreEnd
     }
@@ -199,7 +200,8 @@ abstract class SpaCommandBase extends Command
      */
     protected function inContainer(): bool
     {
-        // @codeCoverageIgnoreStart — overridden in tests
+        // overridden in tests
+        // @codeCoverageIgnoreStart
         return is_file('/.dockerenv');
         // @codeCoverageIgnoreEnd
     }
@@ -207,7 +209,8 @@ abstract class SpaCommandBase extends Command
     /** Whether an npm binary is reachable. Separated so tests can pin it. */
     protected function hasNpm(): bool
     {
-        // @codeCoverageIgnoreStart — overridden in tests; shelling out here would
+        // overridden in tests; shelling out here would
+        // @codeCoverageIgnoreStart
         // make the result depend on the machine running the suite.
         exec('command -v npm 2>/dev/null', $out, $code);
         return $code === 0;
@@ -222,7 +225,8 @@ abstract class SpaCommandBase extends Command
      */
     protected function passthru(string $command): int
     {
-        // @codeCoverageIgnoreStart — replaced in tests; running npm for real is
+        // replaced in tests; running npm for real is
+        // @codeCoverageIgnoreStart
         // not something a unit test should do.
         $code = 0;
         passthru($command, $code);
