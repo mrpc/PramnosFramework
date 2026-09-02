@@ -101,9 +101,27 @@ class EmailSecondFactorTest extends BaseTestCase
 
     // ── Fixture ───────────────────────────────────────────────────────────────
 
-    /** Built from the real migrations, so the test cannot pass against a schema nobody ships. */
+    /**
+     * Built from the real migrations, so the test cannot pass against a schema nobody ships.
+     *
+     * **Once per class**, and that is worth a note: four `DROP`s and four migrations per *test* was
+     * costing this class about four seconds a test in a suite that runs 14,000 of them. Nothing here
+     * asserts anything about the schema — the assertions are about what the service does with rows —
+     * and `tearDown()` already deletes by `userid` while every test creates a new user, so a fresh
+     * table per test was buying nothing at all.
+     *
+     * Keyed on `static::class` rather than a plain flag, so a subclass running against another engine
+     * builds its own.
+     */
     private function buildTables(): void
     {
+        static $built = [];
+
+        if (isset($built[static::class])) {
+            return;
+        }
+
+        $built[static::class] = true;
         $prefix = $this->db->prefix;
         foreach (['authserver_user_twofactor', 'authserver_twofactor_email_codes'] as $table) {
             $this->db->query('DROP TABLE IF EXISTS `' . $prefix . $table . '`');
@@ -641,4 +659,225 @@ class EmailSecondFactorTest extends BaseTestCase
         $this->assertFalse($factor->maySend($this->uid));
     }
 
+    // ── When the store or the mailer is the thing that fails ──────────────────
+
+    /**
+     * A database whose every statement fails.
+     *
+     * Injected into the factor and *only* there: `User` and `ActivityLog` keep the real connection, so
+     * what is under test is the factor's own error handling rather than a test that cannot load a user.
+     */
+    private function unavailableDatabase(): \Pramnos\Database\Database
+    {
+        return new class extends \Pramnos\Database\Database {
+            public function __construct()
+            {
+                $this->type = 'mysql';
+                $this->connected = true;
+            }
+
+            public function queryBuilder()
+            {
+                throw new \Exception('the database is unavailable');
+            }
+        };
+    }
+
+    /**
+     * A code that cannot be stored is not reported as sent.
+     *
+     * The direction that matters. `send()` returning true after a failed write would tell the screen a
+     * code is on its way, so the person waits for mail that never comes and then cannot ask again
+     * because the resend interval says they just did.
+     */
+    public function testACodeThatCannotBeStoredIsNotReportedAsSent(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->unavailableDatabase());
+
+        // Act
+        $sent = $factor->send($this->uid);
+
+        // Assert
+        $this->assertFalse($sent, 'a failed write was reported as a sent code');
+
+        // …and nothing was recorded, so the person can ask again the moment the database is back
+        $log = $this->db->queryBuilder()
+            ->table('authserver.user_activity_log')
+            ->where('userid', $this->uid)
+            ->where('action', 'twofactor_email_code_sent')
+            ->count();
+        $this->assertSame(0, (int) $log);
+    }
+
+    /**
+     * A code that could not be mailed does not consume the allowance either.
+     *
+     * The order this protects is in the method's own comment: the code is stored *before* it is
+     * mailed, because a code that reaches somebody and cannot be verified is worse than one never
+     * sent. The consequence is that a failed mail leaves a stored code nobody has — so the accounting
+     * row is written last, and this asserts that it was not written.
+     *
+     * Without it, a mail server having a bad minute costs the person their next two minutes as well:
+     * the resend interval would refuse the retry on the strength of a send that never happened.
+     */
+    public function testACodeThatCouldNotBeMailedDoesNotConsumeTheAllowance(): void
+    {
+        // Arrange
+        $factor = new class ($this->db) extends EmailSecondFactor {
+            protected function notifier(): \Pramnos\Notification\Notifier
+            {
+                return new class extends \Pramnos\Notification\Notifier {
+                    public function __construct()
+                    {
+                    }
+
+                    public function sendNow(
+                        mixed $notifiable,
+                        \Pramnos\Notification\NotificationInterface $notification
+                    ): void {
+                        throw new \Exception('the mail server refused the message');
+                    }
+                };
+            }
+        };
+
+        // Act
+        $sent = $factor->send($this->uid);
+
+        // Assert
+        $this->assertFalse($sent, 'a mail that was refused was reported as sent');
+        $this->assertSame(
+            0,
+            $factor->secondsUntilResend($this->uid),
+            'a failed send consumed the resend interval, so the retry is refused too'
+        );
+        $this->assertTrue($factor->maySend($this->uid));
+    }
+
+    /**
+     * The reserved user ids are refused before anything is generated or written.
+     *
+     * `userid` 0 and 1 are not accounts — 0 is «nobody» and 1 is the historical placeholder — so a
+     * code issued for one is a code with no owner, and a verification that accepted it would be a
+     * second factor anybody can pass. Asserted for all three entry points, because each carries the
+     * guard separately and the one that loses it is not the one being read.
+     */
+    public function testTheReservedUserIdsAreRefusedEverywhere(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->db);
+
+        // Act & Assert
+        foreach ([0, 1] as $reserved) {
+            $this->assertFalse($factor->send($reserved), 'send() issued a code for ' . $reserved);
+            $this->assertFalse(
+                $factor->setEnabledFor($reserved, true),
+                'setEnabledFor() wrote a row for ' . $reserved
+            );
+            $this->assertFalse(
+                $factor->verify($reserved, '123456'),
+                'verify() accepted a code for ' . $reserved
+            );
+        }
+    }
+
+    /**
+     * An empty code is refused without consulting the store.
+     *
+     * Its own case because `hash_equals('', …)` is a comparison that can succeed by accident if the
+     * stored hash is ever empty — an unfinished migration, a truncated column — and a second factor
+     * that a blank input passes is not a second factor.
+     */
+    public function testAnEmptyCodeIsRefusedOutright(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->db);
+        $factor->send($this->uid);
+
+        // Act & Assert
+        $this->assertFalse($factor->verify($this->uid, ''));
+        $this->assertFalse($factor->verify($this->uid, '   '), 'whitespace was read as a code');
+
+        // …and the live code is still there to be used properly
+        $this->assertTrue($factor->hasLiveCode($this->uid));
+    }
+
+    /**
+     * Turning the factor on when the write fails says so rather than throwing.
+     *
+     * It is called from a settings screen, and a `false` is a message the person can read. An
+     * exception is a 500 on a page that was working a second ago, and it leaves them unable to tell
+     * whether the setting took.
+     */
+    public function testTurningItOnReportsAFailedWrite(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->unavailableDatabase());
+
+        // Act
+        $result = $factor->setEnabledFor($this->uid, true);
+
+        // Assert
+        $this->assertFalse($result);
+    }
+
+    /**
+     * The scheduled cleanup does not take the scheduler down with it.
+     *
+     * It runs beside the other pruning in one command, so an exception here stops whatever was queued
+     * after it. The codes expire by timestamp whether the cleanup runs or not, which is exactly why
+     * failing quietly is the right answer: nothing is less safe for having skipped it.
+     */
+    public function testTheCleanupSwallowsAFailingStore(): void
+    {
+        // Arrange — a real expired code, so «nothing happened» is observable rather than assumed
+        $this->db->queryBuilder()->table('authserver.twofactor_email_codes')->insert([
+            'userid'     => $this->uid,
+            'purpose'    => 'login',
+            'code_hash'  => str_repeat('a', 64),
+            'expires_at' => time() - 3600,
+            'attempts'   => 0,
+            'created_at' => time() - 7200,
+        ]);
+
+        $factor = new EmailSecondFactor($this->unavailableDatabase());
+
+        // Act
+        $factor->cleanupExpired();
+
+        // Assert — the failure was total, not partial: the row is exactly as it was
+        $remaining = $this->db->queryBuilder()
+            ->table('authserver.twofactor_email_codes')
+            ->where('userid', $this->uid)
+            ->count();
+        $this->assertSame(1, (int) $remaining, 'a store that cannot be read deleted something anyway');
+
+        // …and the working cleanup does remove it, which is what makes the above a comparison
+        (new EmailSecondFactor($this->db))->cleanupExpired();
+
+        $after = $this->db->queryBuilder()
+            ->table('authserver.twofactor_email_codes')
+            ->where('userid', $this->uid)
+            ->count();
+        $this->assertSame(0, (int) $after);
+    }
+
+    /**
+     * With no readable accounting log, a send is allowed rather than refused.
+     *
+     * The limit exists to prevent nuisance. Refusing every code because a log table is unreadable
+     * would turn a missing audit table into an inability to sign in — so the failure direction is
+     * chosen deliberately, and it is the kind of choice that gets reversed by someone tidying up a
+     * `catch` unless a test says which way it goes.
+     */
+    public function testAnUnreadableLogAllowsTheSend(): void
+    {
+        // Arrange
+        $factor = new EmailSecondFactor($this->unavailableDatabase());
+
+        // Act & Assert
+        $this->assertTrue($factor->maySend($this->uid), 'a missing log table blocked sign-in');
+        $this->assertSame(0, $factor->secondsUntilResend($this->uid));
+    }
 }

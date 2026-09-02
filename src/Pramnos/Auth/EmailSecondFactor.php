@@ -295,7 +295,7 @@ class EmailSecondFactor
         // Mailed after the code is stored, never before: a code that reaches somebody
         // and cannot be verified is worse than one that was never sent.
         try {
-            (new \Pramnos\Notification\Notifier())->sendNow(
+            $this->notifier()->sendNow(
                 $user,
                 new Notifications\SecondFactorCodeNotification($code, self::TTL)
             );
@@ -558,6 +558,21 @@ class EmailSecondFactor
     /**
      * Keyed by the installation secret and the user id — see the class docblock.
      */
+    /**
+     * What does the sending, as a seam.
+     *
+     * `new Notifier()` inline made the mail failure below unreachable from a test — and that branch is
+     * the one that decides whether somebody is told a code is coming when it is not. The order it
+     * protects is the interesting part: the code is stored *before* it is mailed, so a mail that fails
+     * leaves a code nobody has, and the send is reported as the failure it was.
+     *
+     * @return \Pramnos\Notification\Notifier
+     */
+    protected function notifier(): \Pramnos\Notification\Notifier
+    {
+        return new \Pramnos\Notification\Notifier();
+    }
+
     private function hash(string $code, int $userId): string
     {
         $key = (string) \Pramnos\Application\Settings::getSetting('securitySalt') . '|' . $userId;
