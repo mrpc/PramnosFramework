@@ -993,6 +993,44 @@ before: that the term comes from `q`, and that the default is five.
 change and the test still pass. If the override contains a copy of any expression from the source,
 the answer is yes.
 
+## When the gap is in the environment, fix the environment
+
+Two branches in this framework had no covered line for a reason that was not about the tests at all.
+
+**APCu.** The migration fingerprint cache prefers APCu and falls back to a marker file. APCu is the
+path that runs in production — it is the reason the cache exists — and it was unreachable here
+twice over: the extension was not in the image, and `apc.enable_cli` defaults to `0` even once it
+is. Both are now set in the `Dockerfile`. Each CLI process gets its own empty cache, so nothing
+carries between tests.
+
+**A fetchable address.** `OutboundUrl` refuses every private, loopback, link-local and reserved
+address, which is the whole point of it — so nothing a container can reach is fetchable, and its
+socket path had never opened. The temptation is to widen the guard for tests: change `self::` to
+`static::` so a subclass can override `isPublicAddress()`, or add a flag. **Do not.** A guard that a
+test can relax is a guard an application can relax by accident.
+
+Give the environment a legitimate address instead. `docker-compose.yml` puts the test container on a
+second network in `203.0.113.0/24` — TEST-NET-3 from RFC 5737, reserved for documentation and routed
+nowhere — and PHP's `FILTER_FLAG_NO_PRIV_RANGE | NO_RES_RANGE` does not exclude the documentation
+blocks, so an address in it reads as public while the container holding it can still only reach
+itself. Apache is already listening, so `http://203.0.113.2/…` is a real fetch of a real file over a
+real socket, with the guard untouched.
+
+The tests that need it skip when it is absent, so a checkout run outside this compose file does not
+fail on an address it cannot dial:
+
+```php
+$probe = @fsockopen('203.0.113.2', 80, $errno, $errstr, 2);
+if ($probe === false) {
+    $this->markTestSkipped('The outbound fixture address is not configured on this host.');
+}
+```
+
+The general rule: **before deciding a branch is untestable, ask whether it is the environment that
+cannot reach it.** An extension that is not installed, a SAPI setting that defaults off, an address
+family a container does not have — all three look exactly like unreachable code, and none of them
+is.
+
 ## `loadFromConfig()` only adds — reset first
 
 `FeatureRegistry::loadFromConfig()` enables what you pass and **never disables anything**, so

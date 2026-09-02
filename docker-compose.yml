@@ -9,6 +9,12 @@ services:
       - "18081:80"
     volumes:
       - .:/var/www/html
+    networks:
+      # Both: the default one carries db/timescaledb/redis by name, and the fixture
+      # network gives this container an address that *looks* public.
+      default:
+      outbound-fixture:
+        ipv4_address: 203.0.113.2
     environment:
       - DB_HOST=timescaledb
       - DB_USER=postgres
@@ -56,3 +62,24 @@ services:
     volumes:
       - .:/docs
     working_dir: /docs
+
+networks:
+  default:
+
+  # An address `OutboundUrl` will agree to dial.
+  #
+  # That class refuses every private, loopback, link-local and reserved address, which is the
+  # whole point of it — so nothing reachable from a container is fetchable, and its socket path
+  # had no covered line. Not a gap in the tests: a gap in the environment.
+  #
+  # `203.0.113.0/24` is TEST-NET-3 from RFC 5737, reserved for documentation and routed nowhere
+  # on the real internet. PHP's `FILTER_FLAG_NO_PRIV_RANGE | NO_RES_RANGE` does not exclude the
+  # documentation blocks, so an address in it reads as public — while a container holding one can
+  # still only reach itself.
+  #
+  # The guard is untouched. Nothing is overridden, no seam is widened, no test subclass relaxes
+  # `isPublicAddress()`. The suite simply has somewhere legitimate to fetch from.
+  outbound-fixture:
+    ipam:
+      config:
+        - subnet: 203.0.113.0/24
