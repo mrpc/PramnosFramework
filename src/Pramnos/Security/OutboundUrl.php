@@ -476,20 +476,8 @@ final class OutboundUrl
             return false;
         }
 
-        /*
-         * Dialled by address, with the name in `Host:`.
-         *
-         * This is what closes the rebinding window. `fopen($url)` would resolve the name a second
-         * time, and a resolver that answers differently gets the private address it was refused a
-         * moment ago. Substituting the address that passed the check makes «what did we approve» and
-         * «what did we connect to» the same answer.
-         */
         $address = $addresses[0];
-        $dialled = $parts['scheme'] . '://'
-            . (str_contains($address, ':') ? '[' . $address . ']' : $address)
-            . (isset($parts['port']) ? ':' . $parts['port'] : '')
-            . ($parts['path'] ?? '/')
-            . (isset($parts['query']) ? '?' . $parts['query'] : '');
+        $dialled = self::dialledUrl($url, $address);
 
         $context = stream_context_create([
             'http' => [
@@ -533,7 +521,64 @@ final class OutboundUrl
             'is_string'
         ));
 
+        $body = self::readCapped($handle, $maxBytes, $reason);
+        fclose($handle);
+
+        return $body;
+    }
+
+    /**
+     * The same URL with the approved address in place of the name.
+     *
+     * This is what closes the DNS-rebinding window, and it is a separate method because it is the only
+     * part of the fetch that can be checked without a network: `fopen($url)` would resolve the name a
+     * second time, and a resolver that answers differently gets the private address it was refused a
+     * moment ago. Substituting the address that passed makes «what did we approve» and «what did we
+     * connect to» the same answer — and the name still goes out in `Host:`, so virtual hosting and
+     * certificate verification are unaffected.
+     *
+     * The IPv6 brackets are the fiddly part: an address containing colons has to be bracketed or the
+     * first colon reads as the port separator, and the URL points at a host that does not exist.
+     *
+     * @param string $url     The checked URL.
+     * @param string $address One of the addresses its host resolved to.
+     * @return string
+     */
+    public static function dialledUrl(string $url, string $address): string
+    {
+        $parts = parse_url($url);
+
+        if (!isset($parts['scheme'])) {
+            return $url;
+        }
+
+        return $parts['scheme'] . '://'
+            . (str_contains($address, ':') ? '[' . $address . ']' : $address)
+            . (isset($parts['port']) ? ':' . $parts['port'] : '')
+            . ($parts['path'] ?? '/')
+            . (isset($parts['query']) ? '?' . $parts['query'] : '');
+    }
+
+    /**
+     * Read a stream up to a ceiling, refusing rather than truncating when it is passed.
+     *
+     * Mid-stream, which is the whole point: a server answering with a hundred gigabytes costs this
+     * process `$maxBytes` and not its memory. And a **refusal**, not a truncated body — half a JPEG or
+     * half a JSON document is worse than nothing, because it is the shape the caller expects and the
+     * failure surfaces somewhere else.
+     *
+     * Takes a handle rather than a URL so it can be checked against an in-memory stream, which is the
+     * only part of the fetch that a suite making no network calls can reach.
+     *
+     * @param resource    $handle
+     * @param int         $maxBytes
+     * @param string|null $reason
+     * @return string|false
+     */
+    private static function readCapped($handle, int $maxBytes, ?string &$reason): string|false
+    {
         $body = '';
+
         while (!feof($handle)) {
             $chunk = fread($handle, 8192);
 
@@ -544,13 +589,11 @@ final class OutboundUrl
             $body .= $chunk;
 
             if (strlen($body) > $maxBytes) {
-                fclose($handle);
                 $reason = 'The response is larger than ' . $maxBytes . ' bytes.';
+
                 return false;
             }
         }
-
-        fclose($handle);
 
         return $body;
     }

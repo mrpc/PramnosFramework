@@ -515,4 +515,127 @@ class OutboundUrlTest extends TestCase
         $this->assertSame(0, $status, 'the caller would read a status from a fetch that never happened');
         $this->assertIsString($reason);
     }
+
+    /**
+     * The URL that is actually dialled carries the approved address, and the name goes in `Host:`.
+     *
+     * This is the one part of the fetch a suite making no network calls can check, and it is the part
+     * that closes the DNS-rebinding window: `fopen($url)` would resolve the name a second time, and a
+     * resolver that answers differently gets the private address it was refused a moment ago.
+     *
+     * The IPv6 row is the fiddly one. An address containing colons has to be bracketed, or the first
+     * colon reads as the port separator and the URL points at a host that does not exist — which fails
+     * as «could not connect» rather than as anything that suggests a quoting bug.
+     *
+     * @param string $url
+     * @param string $address
+     * @param string $expected
+     */
+    #[DataProvider('dialledUrls')]
+    public function testTheDialledUrlCarriesTheApprovedAddress(
+        string $url,
+        string $address,
+        string $expected
+    ): void {
+        // Act & Assert
+        $this->assertSame($expected, OutboundUrl::dialledUrl($url, $address));
+    }
+
+    /** @return array<string, array{string, string, string}> */
+    public static function dialledUrls(): array
+    {
+        return [
+            'the host is replaced' => [
+                'https://example.test/logo.png',
+                '93.184.216.34',
+                'https://93.184.216.34/logo.png',
+            ],
+            'an IPv6 address is bracketed' => [
+                'https://example.test/logo.png',
+                '2606:2800:220:1:248:1893:25c8:1946',
+                'https://[2606:2800:220:1:248:1893:25c8:1946]/logo.png',
+            ],
+            'the port survives' => [
+                'https://example.test:8443/logo.png',
+                '93.184.216.34',
+                'https://93.184.216.34:8443/logo.png',
+            ],
+            'the query survives' => [
+                'https://example.test/logo?size=large',
+                '93.184.216.34',
+                'https://93.184.216.34/logo?size=large',
+            ],
+            'no path becomes a root path' => [
+                'http://example.test',
+                '93.184.216.34',
+                'http://93.184.216.34/',
+            ],
+            'something with no scheme is handed back unchanged' => [
+                'not a url',
+                '93.184.216.34',
+                'not a url',
+            ],
+        ];
+    }
+
+    /**
+     * A response past the ceiling is refused, not truncated.
+     *
+     * Half a JPEG or half a JSON document is worse than nothing: it is the shape the caller expects, so
+     * every check downstream accepts it and the failure surfaces somewhere else entirely. And the check
+     * is mid-stream, so a server answering with a hundred gigabytes costs this process the ceiling
+     * rather than its memory.
+     *
+     * Driven against an in-memory stream, which is the only way this loop is reachable from a suite
+     * that makes no network calls — `fread`/`feof` do not care what kind of stream they are given.
+     */
+    public function testABodyPastTheCeilingIsRefusedRatherThanTruncated(): void
+    {
+        // Arrange
+        $handle = fopen('php://memory', 'r+');
+        fwrite($handle, str_repeat('x', 20000));
+        rewind($handle);
+
+        $read = new \ReflectionMethod(OutboundUrl::class, 'readCapped');
+        $reason = null;
+        $arguments = [$handle, 8192, &$reason];
+
+        // Act
+        $body = $read->invokeArgs(null, $arguments);
+        fclose($handle);
+
+        // Assert
+        $this->assertFalse($body, 'an oversized response was truncated and handed back');
+        $this->assertStringContainsString('8192', (string) $arguments[2]);
+    }
+
+    /**
+     * A body inside the ceiling comes back whole, including one that is exactly the ceiling.
+     *
+     * The boundary, because the comparison is `>` and an off-by-one here refuses a response that is
+     * precisely the size a caller allowed — which reads as an intermittent failure on a CDN that
+     * serves a consistently-sized placeholder.
+     */
+    public function testABodyAtTheCeilingComesBackWhole(): void
+    {
+        // Arrange
+        $read = new \ReflectionMethod(OutboundUrl::class, 'readCapped');
+
+        foreach ([1, 4096, 8192] as $size) {
+            $handle = fopen('php://memory', 'r+');
+            fwrite($handle, str_repeat('y', $size));
+            rewind($handle);
+
+            $reason = null;
+            $arguments = [$handle, 8192, &$reason];
+
+            // Act
+            $body = $read->invokeArgs(null, $arguments);
+            fclose($handle);
+
+            // Assert
+            $this->assertSame($size, strlen((string) $body), $size . ' bytes did not come back whole');
+            $this->assertNull($arguments[2]);
+        }
+    }
 }
