@@ -267,6 +267,19 @@ denial of service:
   request from every address on the site, for the length of the window, with nothing naming the
   setting.
 
+**The address limit is checked before the password is.** That is the order, and it is the security
+property rather than an implementation detail: a limiter that verified the credentials first and then
+refused would still stop brute force and would also be a perfectly good oracle for credential
+stuffing — the attacker reads the difference between «locked» after a real password and «locked» after
+a wrong one, or simply the timing. So a limited address learns nothing at all, including whether the
+password it sent was right.
+
+It is a second counter rather than a wider one, because the two answer different questions: the account
+lockout stops somebody guessing one password, and the address limit stops somebody trying one password
+against ten thousand accounts — which no per-account counter can see, since each account records exactly
+one failure. The configured window and threshold travel with each record, so an installation that sets
+them gets them; a limiter reading a default window would ignore the configuration it was given.
+
 **Notices go to the previous address too.** That is the whole reason
 `SecurityChangeNotifier` exists rather than a line at each call site: a stolen session's
 first two moves are to change the address and then the password, and every notice after the

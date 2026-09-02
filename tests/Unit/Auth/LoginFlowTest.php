@@ -918,6 +918,139 @@ class LoginFlowTest extends TestCase
         $this->assertSame(['twofactor'], $result->stepUpMethods);
     }
 
+
+    // ── The per-address rate limit ────────────────────────────────────────────
+
+    /**
+     * A limited address is refused before the password is looked at.
+     *
+     * The order is the security property, and it is stated in the method's own comment: refused
+     * *before* the credentials are checked, so a limited address cannot even learn whether a password
+     * was right. A limiter that checked the password first and then refused would still be a working
+     * limiter for brute force and a perfectly good oracle for credential stuffing — the attacker reads
+     * the timing, or simply the difference between «locked» after a real password and after a wrong
+     * one.
+     *
+     * Asserted by the *absence* of a credential check, which is the only way to see an ordering.
+     */
+    public function testALimitedAddressIsRefusedBeforeThePasswordIsChecked(): void
+    {
+        // Arrange
+        $this->savedInstances = $this->installApplication(
+            ['totp'],
+            ['ip_rate_limit' => ['attempts' => 5, 'window' => 600]]
+        );
+        $flow = new TestableLoginFlow();
+        $flow->fakeLockout->statusByScope['ip'] = ['locked' => true, 'remaining' => 42];
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.9';
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $result = $flow->attempt('somebody', 'a-password');
+
+        // Assert
+        $this->assertTrue($result->isLocked(), 'a limited address was allowed to try');
+        $this->assertSame(42, $result->lockoutRemaining, 'the screen cannot say how long to wait');
+        $this->assertSame(
+            [],
+            $flow->fakeAuth->verifyArgs,
+            'the password was checked anyway, so the refusal is an oracle'
+        );
+    }
+
+    /**
+     * A failed sign-in is counted against the address as well as the account.
+     *
+     * Two counters, because they answer different questions: the account lockout stops somebody
+     * guessing one password, and the address limit stops somebody trying one password against a
+     * thousand accounts — which no per-account counter can see, since each account has exactly one
+     * failure.
+     *
+     * The window and the threshold travel with the record rather than being read again inside the
+     * lockout, so the configured values are asserted here: a limiter recording against a default
+     * window would silently ignore the configuration it was given.
+     */
+    public function testAFailedSignInIsCountedAgainstTheAddressToo(): void
+    {
+        // Arrange
+        $this->savedInstances = $this->installApplication(
+            ['totp'],
+            ['ip_rate_limit' => ['attempts' => 7, 'window' => 300]]
+        );
+        $flow = new TestableLoginFlow();
+        $flow->fakeAuth->response = false;
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.10';
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $result = $flow->attempt('somebody', 'the-wrong-password');
+
+        // Assert
+        $this->assertTrue($result->isFailed());
+        $this->assertContains(
+            ['identifier', 'somebody'],
+            $flow->fakeLockout->recorded,
+            'the account counter was not touched'
+        );
+        $this->assertSame(
+            [['ip', '203.0.113.10', 300, 7]],
+            $flow->fakeLockout->recordedWithin,
+            'the address counter was not touched, or not with the configured window'
+        );
+    }
+
+    /**
+     * With no limit configured, the address is never consulted or counted.
+     *
+     * Off by default, and the absence has to be complete: a flow that still read the IP status would
+     * pay a lookup per sign-in for a feature nobody switched on, and one that still recorded would
+     * accumulate rows an installation never asked for and cannot see.
+     */
+    public function testWithNoLimitConfiguredTheAddressIsNotConsulted(): void
+    {
+        // Arrange — the default application declares no `ip_rate_limit`
+        $flow = new TestableLoginFlow();
+        $flow->fakeAuth->response = false;
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.11';
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $flow->attempt('somebody', 'the-wrong-password');
+
+        // Assert
+        $this->assertSame([], $flow->fakeLockout->recordedWithin);
+        $this->assertNotContains(
+            ['ip', '203.0.113.11'],
+            $flow->fakeLockout->recorded,
+            'an unconfigured limiter recorded anyway'
+        );
+    }
+
+    /**
+     * An unreadable usertype is 0, not privileged.
+     *
+     * `usertypeOf()` is a seam and its real body had never run. The `catch` returning 0 is the whole
+     * point: the value decides whether an account is held to the administrator rule that demands a
+     * second factor, and a read that keeps failing would otherwise demand a factor of every account
+     * nobody can confirm *is* an administrator — on every login, for ever, with the reason invisible.
+     *
+     * 0 is also the safe direction for the other reading: it under-privileges rather than
+     * over-privileges, so a failure cannot promote anybody.
+     */
+    public function testAnUnreadableUsertypeIsZeroRatherThanPrivileged(): void
+    {
+        // Arrange — a userid that cannot resolve to a row
+        $flow = new TestableLoginFlow();
+        $read = new \ReflectionMethod(LoginFlow::class, 'usertypeOf');
+
+        // Act
+        $usertype = (int) $read->invoke($flow, 0);
+
+        // Assert
+        $this->assertSame(0, $usertype, 'an unreadable usertype was treated as privileged');
+    }
+
+
 }
 
 /** In-memory Auth double: verifyCredentials/loginById record args and return canned values. */
@@ -966,17 +1099,39 @@ class FakeLockout extends Loginlockout
 {
     /** @var array{locked:bool,remaining:int} */
     public array $status = ['locked' => false, 'remaining' => 0];
+
+    /**
+     * Per-scope answers, for the tests that need the two scopes to differ.
+     *
+     * The IP limit and the account lockout are separate questions asked of the same object, and a
+     * double that answered both the same way could not tell «this address is limited» from «this
+     * account is locked» — which is the distinction the IP path exists to make.
+     *
+     * @var array<string, array{locked:bool,remaining:int}>
+     */
+    public array $statusByScope = [];
+
     public array $recorded = [];
+    public array $recordedWithin = [];
     public array $cleared = [];
 
     public function getLockoutStatus(string $scope, string $identifier): array
     {
-        return $this->status;
+        return $this->statusByScope[$scope] ?? $this->status;
     }
 
     public function recordFailedAttempt(string $scope, string $identifier): void
     {
         $this->recorded[] = [$scope, $identifier];
+    }
+
+    public function recordFailedAttemptWithin(
+        string $scope,
+        string $identifier,
+        int $window,
+        int $threshold
+    ): void {
+        $this->recordedWithin[] = [$scope, $identifier, $window, $threshold];
     }
 
     public function clearSuccessfulLoginState(string $scope, string $identifier): void
