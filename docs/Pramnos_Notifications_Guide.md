@@ -438,8 +438,12 @@ For several recipients, one notification:
 (new \Pramnos\Notification\Notifier())->send([$user1, $user2, $user3], new OrderShipped($order));
 ```
 
-`send()` is a loop over `sendNow()`, so it is per-recipient rendering with the language
-switch each time — right for correctness, and linear in cost.
+`send()` is a `foreach` over `sendNow()`, so it is per-recipient rendering with the language
+switch each time — right for correctness, and linear in the number of recipients.
+
+Within one recipient, push does not multiply that: `PushChannel` queues every subscription and
+issues a single `flush()`, so an account with six devices is one batched send rather than six
+round trips. It is the recipient count that costs, not the device count.
 
 **Dispatch is synchronous.** `notify()` returns when every channel has been called, so a
 mail server pausing is a request pausing. For anything on a user-facing path with more
