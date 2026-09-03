@@ -260,7 +260,7 @@ class FeatureRegistryUnitTest extends TestCase
     /**
      * getProvider() must return the FQCN string when a provider is registered,
      * or null when no provider has been set (the expected state during Phase 4
-     * before the feature implementations are implemented).
+     * before that feature's implementation has landed).
      */
     public function testGetProviderReturnsNullWhenNotSet(): void
     {

@@ -175,7 +175,7 @@ class ServiceProviderUnitTest extends TestCase
     /**
      * getProvider() must return null for a feature that was registered without
      * a 'provider' key — the expected state for all built-in features during
-     * Phase 4 before the feature implementations are wired up.  The bootstrap loop skips
+     * a feature key whose provider has not been wired up.  The bootstrap loop skips
      * null providers silently.
      */
     public function testNullProviderIsSkippedSilently(): void

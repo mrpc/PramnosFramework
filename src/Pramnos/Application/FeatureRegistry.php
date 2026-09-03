@@ -20,7 +20,7 @@ namespace Pramnos\Application;
  * ## Built-in feature keys
  *
  * The framework pre-registers the following keys. Their Service Providers and
- * migrations will be wired in as the feature implementations are implemented.
+ * migrations are wired in as each feature is implemented.
  *
  * | Key          | Description                         |
  * |---|---|
@@ -182,8 +182,8 @@ class FeatureRegistry
 
     /**
      * Returns the FQCN of the ServiceProvider class for a feature, or null
-     * when no provider has been wired up yet (expected during Phase 4 before
-     * the feature implementations are implemented).
+     * when no provider has been wired up yet, which is the ordinary state for a
+     * feature key whose implementation has not landed.
      *
      * @param string $key Feature key.
      * @return string|null FQCN or null.

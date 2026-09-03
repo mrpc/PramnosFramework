@@ -473,7 +473,7 @@ class Gdpr extends Controller
      * knows the difference.
      *
      * This controller previously queried `oauth2_gdpr_requests`, a table no
-     * migration has ever created: it was brought in from an OAuth server whose
+     * migration has ever created: it came from an OAuth server whose
      * schema was never adopted here, so every one of these endpoints failed at
      * runtime.
      *

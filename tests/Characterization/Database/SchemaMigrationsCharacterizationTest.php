@@ -16,7 +16,7 @@ use Pramnos\Database\Migrations\AddMissingForeignKeysToExistingTables;
 use Pramnos\Database\Migrations\AddMissingIndexesToExistingTables;
 
 /**
- * Characterization tests for new the reference application schema schema import migrations.
+ * Characterization tests for the reference application schema migrations.
  *
  * These tests verify that the new migration classes correctly create tables,
  * hypertables, foreign keys, triggers, and indexes across MySQL, PostgreSQL,

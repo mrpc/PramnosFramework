@@ -1094,7 +1094,7 @@ abstract class DaemonOrchestrator extends CommandBase
      * (there is no wait loop, and `pcntl` is frequently not built into the image), and each
      * graceful stop leaves behind a `<defunct>` entry it reads as a healthy worker.
      *
-     * Observed in a project's development stack on 2026-08-18: three of four daemons had
+     * Observed in a development stack running the orchestrator: three of four daemons had
      * been zombies for fourteen hours after a redeploy asked them to stop. `ps` showed
      * `[php] <defunct>`, the orchestrator's own log showed nothing wrong, and the features
      * behind those workers — now-playing, airplay statistics, feed-health tiering — were
@@ -1484,7 +1484,7 @@ abstract class DaemonOrchestrator extends CommandBase
      * on the same host, an admin panel, or — in a containerised development stack — a *different
      * container*, where pid 20 is either nothing or somebody else entirely.
      *
-     * Reported from a project on 2026-08-18: the panel's Workers screen showed all four daemons
+     * Reported from a project running four daemons: the panel's Workers screen showed all four
      * **down** while all four were running, and `/api/realtime-config` therefore advertised SSE
      * with a healthy WebSocket worker listening two containers away. The pid check was not wrong
      * about pids; it was answering a different question from the one being asked.

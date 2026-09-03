@@ -521,7 +521,7 @@ class DevPanelControllerIntegrationTest extends TestCase
             '1 GB'            => 'the database size',
             '99.4'            => 'the cache-hit ratio',
             'Copy'            => 'the copy button on a query',
-            'myapp'   => "the process's application name",
+            'myapp'           => "the process's application name",
             '10.0.0.9'        => "the process's client address",
             'Started'         => 'when the backend connected',
             '10.0.0.2'        => 'the replication standby',

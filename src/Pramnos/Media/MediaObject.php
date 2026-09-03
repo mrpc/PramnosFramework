@@ -314,7 +314,7 @@ class MediaObject extends \Pramnos\Framework\Base
      *  - **an object of a class the *reading process* cannot load.** The column holds serialised
      *    objects, and the class name is part of the serialisation, so who can read a row depends on
      *    which classes that process has. An application with its own thumbnail class reads its own
-     *    rows perfectly well — real data exists serialised as `O:23:"foreign_media_thumbnail"`, and
+     *    rows perfectly well — real data exists serialised under an application's own thumbnail class, and
      *    the application holding it declares exactly that class with the same properties this one
      *    has, so nothing there was ever broken.
      *

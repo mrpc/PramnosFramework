@@ -2635,7 +2635,7 @@ class DaemonOrchestratorTest extends TestCase
      * the daemons: a web request, an admin panel, or — in a containerised development stack — a
      * different container, where the recorded pid is either nothing or an unrelated process.
      *
-     * Reported from a project on 2026-08-18: the panel showed all four daemons **down** while all
+     * Reported from a project running four daemons under the orchestrator: the panel showed all four **down** while all
      * four were running, and `/api/realtime-config` advertised SSE with a healthy WebSocket worker
      * listening in the next container. The pid check was not wrong about pids — it was answering a
      * different question from the one being asked.
@@ -2710,7 +2710,7 @@ class DaemonOrchestratorTest extends TestCase
      * orphan is reparented to **PID 1** — which in a container is the orchestrator itself. It
      * inherits every daemon it starts and reaps none of them.
      *
-     * Found in a project's development stack on 2026-08-18: three of four daemons had been
+     * Found in a development stack running the orchestrator: three of four daemons had been
      * `[php] <defunct>` for fourteen hours after a redeploy asked them to stop, the
      * orchestrator's log showed nothing wrong, and every feature behind those workers was
      * simply empty. A supervisor that cannot tell a corpse from a worker is worse than none,

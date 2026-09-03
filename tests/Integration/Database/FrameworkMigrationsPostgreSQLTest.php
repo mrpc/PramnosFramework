@@ -1463,7 +1463,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             'is_enabled column must exist; is_active was the old incorrect name'
         );
 
-        // Assert — updated_at column exists (missing in original schema import)
+        // Assert — updated_at column exists (missing in the original schema)
         $this->assertTrue(
             $this->columnExists('oauth2_client_auth_methods', 'updated_at', 'applications'),
             'updated_at must be present to match the reference application schema'
