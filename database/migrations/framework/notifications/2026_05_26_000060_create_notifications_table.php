@@ -13,6 +13,19 @@ use Pramnos\Database\Migration;
  *
  * Used by DatabaseChannel from Pramnos\Notification\Channels.
  *
+ * ## This directory is ungated, and that is load-bearing
+ *
+ * `Application::filterMigrationDirsByEnabledFeatures()` gates each `framework/<name>/`
+ * directory on `FeatureRegistry::isEnabled(<name>)` — but fail-open: a name that is **not** a
+ * registered feature always runs. `notifications` is not registered, so this runs everywhere.
+ *
+ * Registering a `notifications` feature would therefore be a silent breaking change. Every
+ * installation that does not list it in `app.php` would stop getting this table, and
+ * `DatabaseChannel` is the one channel that does not skip when its prerequisite is missing — it
+ * issues an INSERT, so the failure arrives as a SQL error at send time rather than as a missing
+ * feature at boot. If a feature is ever wanted here, it needs a default-on entry, not just a
+ * registration.
+ *
  */
 class CreateNotificationsTable extends Migration
 {

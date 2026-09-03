@@ -149,7 +149,8 @@ retried. It needs VAPID keys and the `minishlink/web-push` library, which is
 See the [Push guide](Pramnos_Push_Guide.md).
 
 **`log`** appends one JSON line per dispatch to `LOGS/notifications.log`. For
-development: it lets you see what a `notify()` would have sent without a transport.
+development: it lets you see what a `notify()` would have sent without a transport. Not to be
+confused with `notifier.log`, which is where the dispatcher records channels that *failed*.
 
 ### Choosing them per recipient
 
@@ -285,26 +286,35 @@ debugging. In order of how often it is the answer:
 3. **The address opted out of the list** the notification declared.
 4. **Push has no subscriptions, no VAPID keys, or no library.** All four push refusals
    are recorded in the push log with the notification's name — start there.
-5. **An earlier channel threw.** See below.
+5. **An earlier channel threw** and was logged rather than raised — look in `notifier.log`,
+   which names both the channel and the notification. See below.
 
 The `log` channel is the fastest way to answer 1 and 2: add it to `via()`, send, and
 read `LOGS/notifications.log`.
 
-### An exception in one channel stops the ones after it
+### A channel that throws, and the ones after it
 
-`sendNow()` iterates the channels from `via()` and calls each in turn. There is no
-`try`/`catch` around the loop, so a channel that throws — not one that skips — abandons
-the rest.
+Each channel is called inside its own `try`, so one that *throws* — as opposed to one that
+skips — is logged to `notifier.log` with its own name and the notification's, and the
+remaining channels are still tried. The order in `via()` therefore does not decide who gets
+what.
 
-This makes the order in `via()` meaningful. Put the channel that must arrive first:
+That is the same rule `PushChannel` already applies to its own batch one level down, for the
+same reason: one failed delivery must not take down whatever else was queued behind it.
+
+For a caller that must know instead — a queue worker deciding whether to retry, an
+administration screen that told an operator "sent" — ask for the exception:
 
 ```php
-return ['mail', 'push'];       // the durable copy first
+(new Notifier())->throwOnChannelFailure()->sendNow($user, $notification);
 ```
 
-The built-in channels are written not to throw for missing optional data, so this
-mostly matters for a custom channel, and for a `toMail()` that itself raises. If a
-notification's payload methods do real work that can fail, catch inside them.
+It is off by default because the default has to serve the request path: somebody changing
+their password should not be shown a failure because an audit broadcast could not connect.
+
+**An unknown channel name throws either way.** A typo in `via()`, or a channel class that was
+renamed, is a mistake in the code and not a delivery that failed — catching it would turn the
+one error here that a test would catch into a line in a log nobody reads.
 
 ## Adding a channel
 

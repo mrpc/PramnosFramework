@@ -356,6 +356,168 @@ class NotifierTest extends TestCase
         $this->assertCount(1, SpyChannel::$calls,
             'registerChannel() must replace the built-in channel alias');
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // A channel that fails, and the channels after it
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * A channel that throws must not decide whether the later channels are tried.
+     *
+     * `ChannelInterface` asks channels not to throw and the built-in ones keep to it, so the
+     * ones that do throw are the custom channels the framework invites — talking to somebody
+     * else's gateway, over a network. Left to propagate, one of those makes the **order** of
+     * `via()` decide whether the mail goes out when the SMS gateway times out: load-bearing,
+     * invisible, and nowhere written down.
+     *
+     * Asserted on the channel *after* the failure, because that is the one that used to be
+     * skipped. Asserting that `sendNow()` did not throw would pass on an implementation that
+     * swallowed the exception and abandoned the loop anyway.
+     */
+    public function testAChannelThatThrowsDoesNotStopTheOnesAfterIt(): void
+    {
+        // Arrange
+        SpyChannel::$calls = [];
+        $notifier = new Notifier();
+        $notifier->registerChannel('boom', ThrowingChannel::class);
+        $notifier->registerChannel('spy', SpyChannel::class);
+
+        // Act
+        $notifier->sendNow(new StubNotifiable(), new ThrowingThenSpyNotification());
+
+        // Assert
+        $this->assertCount(
+            1,
+            SpyChannel::$calls,
+            'the channel listed after the failing one was never called'
+        );
+    }
+
+    /**
+     * `throwOnChannelFailure()` asks for the opposite, for a caller that must know.
+     *
+     * A queue worker deciding whether to retry the job, or an administration screen that told
+     * an operator «sent» and has to be able to take it back. Best-effort is right for the
+     * request path and wrong for both of those.
+     */
+    public function testThrowOnChannelFailureRaisesTheChannelsException(): void
+    {
+        // Arrange
+        SpyChannel::$calls = [];
+        $notifier = (new Notifier())->throwOnChannelFailure();
+        $notifier->registerChannel('boom', ThrowingChannel::class);
+        $notifier->registerChannel('spy', SpyChannel::class);
+
+        // Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('the gateway is down');
+
+        // Act
+        $notifier->sendNow(new StubNotifiable(), new ThrowingThenSpyNotification());
+    }
+
+    /**
+     * And it is off unless asked for — the default serves the request path.
+     *
+     * Somebody changing their password should not be shown a failure because an audit
+     * broadcast could not connect. Stated as its own test because a default is exactly the
+     * kind of thing a later refactor flips without noticing.
+     */
+    public function testFailuresAreCaughtUnlessThrowingIsAskedFor(): void
+    {
+        // Arrange
+        $notifier = new Notifier();
+        $notifier->registerChannel('boom', ThrowingChannel::class);
+        $notifier->registerChannel('spy', SpyChannel::class);
+
+        // Act — no expectException: this must simply return
+        $notifier->sendNow(new StubNotifiable(), new ThrowingThenSpyNotification());
+
+        // Assert
+        $this->assertTrue(true, 'reaching this line is the assertion');
+    }
+
+    /**
+     * `throwOnChannelFailure(false)` puts it back, so the setter is a switch and not a latch.
+     */
+    public function testThrowingCanBeTurnedBackOff(): void
+    {
+        // Arrange
+        $notifier = (new Notifier())->throwOnChannelFailure()->throwOnChannelFailure(false);
+        $notifier->registerChannel('boom', ThrowingChannel::class);
+        $notifier->registerChannel('spy', SpyChannel::class);
+        SpyChannel::$calls = [];
+
+        // Act
+        $notifier->sendNow(new StubNotifiable(), new ThrowingThenSpyNotification());
+
+        // Assert
+        $this->assertCount(1, SpyChannel::$calls);
+    }
+
+    /**
+     * An unknown channel name throws even though delivery failures do not.
+     *
+     * The distinction is the whole point of resolving outside the `try`: a typo in `via()`, or
+     * a channel class that was renamed, is a **mistake in the code** and not a delivery that
+     * failed. Catching it would turn the one error in this subsystem that a test would catch
+     * into a line in a log file nobody reads.
+     *
+     * The spy assertion is what makes this test about resolution rather than about throwing:
+     * the unknown name is first in `via()`, so a `spy` that ran would mean the loop had
+     * continued past a bug.
+     */
+    public function testAnUnknownChannelThrowsEvenThoughFailuresAreCaught(): void
+    {
+        // Arrange
+        SpyChannel::$calls = [];
+        $notifier = new Notifier();
+        $notifier->registerChannel('spy', SpyChannel::class);
+
+        // Act
+        try {
+            $notifier->sendNow(new StubNotifiable(), new UnknownThenSpyNotification());
+            $this->fail('an unknown channel name was swallowed');
+        } catch (\InvalidArgumentException) {
+            // Assert — expected, and nothing after it ran
+            $this->assertSame([], SpyChannel::$calls);
+        }
+    }
+
+    /**
+     * The message names the form that actually works from where it is read.
+     *
+     * It used to say «Register it with `Notifier::registerChannel()`» and nothing else, which
+     * is advice that cannot be followed: somebody reading this has almost always arrived via
+     * `$user->notify()`, and `NotifiableTrait::notify()` builds its **own** `Notifier` — so an
+     * alias registered anywhere else does not exist as far as that call is concerned. The one
+     * remedy the message gave was the one that could not work.
+     */
+    public function testTheUnknownChannelMessageNamesTheFormThatWorksThroughNotify(): void
+    {
+        // Arrange
+        $notifier = new Notifier();
+
+        // Act
+        try {
+            $notifier->sendNow(new StubNotifiable(), new UnknownChannelNotification());
+            $this->fail('no exception was raised');
+        } catch (\InvalidArgumentException $exception) {
+            // Assert
+            $message = $exception->getMessage();
+
+            $this->assertStringContainsString(
+                'fully-qualified class name',
+                $message,
+                'the message does not offer the route that needs no registration'
+            );
+            $this->assertStringContainsString(
+                'notify()',
+                $message,
+                'the message does not say why the alias route may not apply'
+            );
+        }
+    }
 }
 
 // =============================================================================
@@ -463,4 +625,25 @@ class LanguageSpyNotification implements NotificationInterface
     {
         return ['langspy'];
     }
+}
+
+/** A channel that fails the way a real one does: a gateway that will not answer. */
+class ThrowingChannel implements ChannelInterface
+{
+    public function send(mixed $notifiable, NotificationInterface $notification): void
+    {
+        throw new \RuntimeException('the gateway is down');
+    }
+}
+
+/** The failing channel first, so the spy after it is the thing being asserted. */
+class ThrowingThenSpyNotification implements NotificationInterface
+{
+    public function via(mixed $notifiable): array { return ['boom', 'spy']; }
+}
+
+/** An unknown name first: a bug, and the spy must not be reached past it. */
+class UnknownThenSpyNotification implements NotificationInterface
+{
+    public function via(mixed $notifiable): array { return ['nonexistent_channel_xyz', 'spy']; }
 }

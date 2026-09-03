@@ -181,6 +181,35 @@ class LogChannelTest extends TestCase
         $this->assertStringStartsWith(sys_get_temp_dir(), $channel->getLogPath());
         $this->assertStringEndsWith('notifications.log', $channel->getLogPath());
     }
+
+    /**
+     * A notifiable that is not an object is logged, not fatal.
+     *
+     * `Notifier::languageOf()` reads a `language` from an **array** as well as from an object, so
+     * arrays reach the channels — and the database channel handles one correctly, resolving its
+     * id to null and skipping. This channel used `get_class()`, which is a `TypeError` on an
+     * array: the one channel whose entire purpose is to make a dispatch visible was the only one
+     * that died on it.
+     *
+     * `get_debug_type()` returns the class name for an object, so the log format for every
+     * existing entry is unchanged — asserted in the object test above; this one is the array.
+     */
+    public function testANonObjectNotifiableIsLoggedRatherThanFatal(): void
+    {
+        // Arrange
+        $path = sys_get_temp_dir() . '/pf-log-array-' . bin2hex(random_bytes(4)) . '.log';
+        $channel = new LogChannel($path);
+
+        // Act — an array notifiable, as Notifier::languageOf() explicitly supports
+        $channel->send(['userid' => 7, 'language' => 'greek'], new NotificationWithDatabase(['ok' => 1]));
+
+        // Assert
+        $entry = json_decode(trim((string) file_get_contents($path)), true);
+        unlink($path);
+
+        $this->assertIsArray($entry, 'nothing usable was written');
+        $this->assertSame('array', $entry['notifiable'], 'the notifiable type was not recorded');
+    }
 }
 
 // =============================================================================

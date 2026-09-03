@@ -756,8 +756,10 @@ class UsersController extends Controller
      * record on the account and uses whatever address they happen to type.
      *
      * Three channels, and the screen only offers the ones this account can actually receive:
-     * mail needs a valid address, the in-app record needs the notifications table, and push
-     * needs a VAPID pair **and** at least one browser subscribed. Offering a channel that
+     * mail needs a valid address, and push needs a VAPID pair **and** at least one browser
+     * subscribed. The in-app record has no per-account precondition — it needs the
+     * notifications table, which is a property of the installation and not of the account, so
+     * it is not something this screen can usefully offer or withhold. Offering a channel that
      * silently delivers nothing is the failure this screen exists to prevent — an operator
      * pressing Send and being told "sent" is entitled to believe it.
      *
@@ -826,6 +828,16 @@ class UsersController extends Controller
                 'reason'    => $mail ? '' : 'This account has no usable email address.',
             ],
             'database' => [
+                /*
+                 * Always, and the question is not the one it looks like.
+                 *
+                 * This array answers «what can *this account* receive», and every entry in it is
+                 * a per-account precondition: an address, a subscribed browser. The
+                 * notifications table is per *installation* — if it is missing, nothing here
+                 * works, including the user list this screen was reached from. Gating on it
+                 * would spend a schema query per render to defend against a state in which the
+                 * whole application is already down.
+                 */
                 'available' => true,
                 'reason'    => '',
             ],

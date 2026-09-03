@@ -46,7 +46,12 @@ class LogChannel implements ChannelInterface
         $entry = json_encode([
             'time'         => date('Y-m-d H:i:s'),
             'notification' => get_class($notification),
-            'notifiable'   => get_class($notifiable),
+            // Not `get_class()`: a notifiable does not have to be an object. `Notifier` reads a
+            // `language` from an array as well, and the database channel resolves an array's id
+            // to null and skips — so an array reaches here, and `get_class()` on one is a
+            // TypeError. This channel exists to make a dispatch visible; being the only thing
+            // that fails on it would be the wrong way round.
+            'notifiable'   => get_debug_type($notifiable),
             'data'         => $data,
         ], JSON_UNESCAPED_UNICODE);
 
