@@ -306,6 +306,79 @@ class MailChannelTest extends TestCase
         );
     }
 
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The outbox
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * A notification that declares `queueable()` is handed to the outbox, not to SMTP.
+     *
+     * The point of the whole outbox is that the request does not wait for a mail server, so the
+     * assertion is on `send()` **not** having been called. Asserting only that `queue()` was
+     * called would pass on an implementation that did both — which is the bug that would send
+     * every one of these twice.
+     */
+    public function testAQueueableNotificationGoesToTheOutboxInsteadOfSmtp(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('someone@example.com'),
+            new QueueableNotification()
+        );
+
+        // Assert
+        $this->assertSame(1, $spy->queueCount, 'the message was not queued');
+        $this->assertSame(0, $spy->sendCount, 'it was also sent, so it goes out twice');
+    }
+
+    /**
+     * And a notification that declares nothing keeps going out in the request.
+     *
+     * The default has to stay synchronous: a second-factor code queued for a worker is a person
+     * staring at a screen waiting for a number. Stated as its own test because this is exactly
+     * the kind of default a later change flips for tidiness.
+     */
+    public function testANotificationThatSaysNothingIsStillSentInline(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('someone@example.com'),
+            new SimpleMailNotification(['subject' => 'Hi', 'body' => '<p>Hi</p>'])
+        );
+
+        // Assert
+        $this->assertSame(1, $spy->sendCount);
+        $this->assertSame(0, $spy->queueCount, 'a transactional message must not be deferred');
+    }
+
+    /**
+     * `queueable()` returning false is the same as not declaring it.
+     *
+     * So a notification can decide per instance — a digest that is queued normally and sent
+     * inline when an operator asked for a test send — without the channel needing to know.
+     */
+    public function testQueueableFalseIsTheSameAsNotDeclaringIt(): void
+    {
+        // Arrange
+        $spy = new SpyEmail();
+
+        // Act
+        (new MailChannel($spy))->send(
+            new MailNotifiable('someone@example.com'),
+            new QueueableNotification(false)
+        );
+
+        // Assert
+        $this->assertSame(1, $spy->sendCount);
+        $this->assertSame(0, $spy->queueCount);
+    }
 }
 
 // =============================================================================
@@ -323,6 +396,8 @@ class SpyEmail extends Email
 {
     public int $sendCount = 0;
 
+    public int $queueCount = 0;
+
     public int $trackingCalls = 0;
 
     public ?string $preheaderGiven = null;
@@ -339,6 +414,7 @@ class SpyEmail extends Email
     public function setTo($to)              { $this->to      = $to;      return $this; }
     public function setFrom($from)          { $this->from    = $from;    return $this; }
     public function send()                  { $this->sendCount++;        return true;  }
+    public function queue(): bool           { $this->queueCount++;       return true;  }
 
     public function preheader($text)
     {
@@ -417,4 +493,19 @@ class MailNotifiable implements NotifiableInterface
     {
         return $channel === 'mail' ? $this->email : null;
     }
+}
+
+/** A notification content to be delivered by the outbox worker. */
+class QueueableNotification implements NotificationInterface
+{
+    public function __construct(private bool $queue = true) {}
+
+    public function via(mixed $notifiable): array { return ['mail']; }
+
+    public function toMail(mixed $notifiable): array
+    {
+        return ['subject' => 'Later is fine', 'body' => '<p>Nobody is waiting.</p>'];
+    }
+
+    public function queueable(): bool { return $this->queue; }
 }

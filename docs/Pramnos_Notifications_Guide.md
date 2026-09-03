@@ -442,27 +442,59 @@ channel, not after.
 
 ## Sending many, and sending later
 
-For several recipients, one notification:
+### Getting the mail off the request
+
+`notify()` returns when every channel has been called, so an SMTP round trip is a round trip
+the visitor waits for. A notification can decline to wait:
+
+```php
+class WeeklyDigest implements NotificationInterface
+{
+    public function queueable(): bool { return true; }
+    public function toMail(mixed $notifiable): array { /* … */ }
+}
+```
+
+The message is **composed in this request** — rendered, wrapped, suppression-checked — and
+written to the outbox instead of an SMTP connection. `mail:flush` delivers it. See
+[the outbox](Pramnos_Email_Guide.md#the-outbox) for what the worker does with a refusal.
+
+Composed now rather than by the worker, and that is the part worth understanding: composition
+reads the request's language, its settings and its unsubscribe token, and a worker running an
+hour later has none of them. A spool that stored the inputs and rendered later would send a
+different message from the one you composed — occasionally, and unreproducibly.
+
+**Only mail defers.** The other channels are already cheap or already batched: the database
+channel is one `INSERT`, and push queues every subscription and issues a single `flush()`.
+
+Declaring nothing keeps a notification synchronous, which is the right default and not
+timidity:
+
+| | |
+|---|---|
+| A second-factor code | somebody is watching the screen for it — **never queue** |
+| A new-device sign-in link | same |
+| An operator pressing Send | they are entitled to be told what happened |
+| A security alert, an audit notice, a digest | nobody is waiting — **queue** |
+
+The framework's own `NewSignInNotification` and `SecurityChangeNotification` declare it; its
+second-factor and auth-link notifications deliberately do not.
+
+### And for many recipients
 
 ```php
 (new \Pramnos\Notification\Notifier())->send([$user1, $user2, $user3], new OrderShipped($order));
 ```
 
 `send()` is a `foreach` over `sendNow()`, so it is per-recipient rendering with the language
-switch each time — right for correctness, and linear in the number of recipients.
+switch each time — right for correctness, and linear in the number of recipients. With
+`queueable()` on the notification, what that loop costs is one row each rather than one SMTP
+connection each.
 
-Within one recipient, push does not multiply that: `PushChannel` queues every subscription and
-issues a single `flush()`, so an account with six devices is one batched send rather than six
-round trips. It is the recipient count that costs, not the device count.
-
-**Dispatch is synchronous.** `notify()` returns when every channel has been called, so a
-mail server pausing is a request pausing. For anything on a user-facing path with more
-than a couple of recipients, enqueue the notification instead of sending it inline and let
-a worker call `notify()` — see the [Queue guide](Pramnos_Queue_Guide.md) and the
-[Workers guide](Pramnos_Workers_And_Daemons_Guide.md).
-
-Pass identifiers through the queue, not the objects. A serialised user model is a snapshot
-that may be stale by the time the worker runs; a `userid` is not.
+For an audience rather than a list of accounts — a campaign, an announcement to everybody —
+use the mass-message path instead. It resolves the audience once, writes one row per recipient,
+and delivers in batches from a command, so a send interrupted halfway resumes without sending
+anything twice. `notify()` in a loop over ten thousand users has none of that.
 
 ## Testing
 

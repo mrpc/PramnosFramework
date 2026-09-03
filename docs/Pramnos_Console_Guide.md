@@ -35,7 +35,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `user:` | User administration | `user:create`, `user:password` |
 | `key:` | Secret/key management | `key:generate` |
 | `push:` | Web push notifications | `push:setup`, `push:vapid-generate` |
-| `mail:` | Deliverability, and the mail log's size | `mail:dns-check`, `mail:prune` |
+| `mail:` | Deliverability, the outbox, and the mail log's size | `mail:dns-check`, `mail:flush`, `mail:prune` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |

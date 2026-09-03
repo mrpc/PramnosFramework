@@ -186,6 +186,23 @@ class NewSignInNotification implements NotificationInterface
         return 'newsignin';
     }
 
+    /**
+     * Nobody is waiting for this one, so it goes through the outbox.
+     *
+     * It is sent *after* a sign-in that has already succeeded, to somebody who is by definition
+     * looking at something else — the whole point is that it reaches the account's owner rather
+     * than whoever just signed in. Holding the sign-in response open for an SMTP round trip
+     * buys nothing.
+     *
+     * The push copy still goes out in the request, which is the half that matters for «somebody
+     * else is inside your account right now»: it arrives in seconds, and the mail is the
+     * durable record that is still there tomorrow.
+     */
+    public function queueable(): bool
+    {
+        return true;
+    }
+
     public function toMail(mixed $notifiable): array
     {
         $device = SignInFingerprint::describe($this->fingerprint);

@@ -38,6 +38,7 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 11. [Accessibility in the message](#accessibility-in-the-message)
 12. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
 13. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
+13. [The outbox](#the-outbox)
 14. [SMTP Configuration](#smtp-configuration)
 14. [Error Handling](#error-handling)
 15. [Best Practices](#best-practices)
@@ -1409,6 +1410,86 @@ The logo beside the subject, and the only item here that is worth money.
 
 `mail:dns-check` reports each of these separately, so "we published BIMI and nothing happened" has
 an answer.
+
+## The outbox
+
+`send()` opens an SMTP connection and waits for it. That is right when somebody is watching the
+screen for what the message contains — a second-factor code, a sign-in link — and wrong for
+everything else, where a visitor is paying 200–800ms for a message they are not waiting on.
+
+```php
+$email->queue();     // composed now, delivered by mail:flush
+```
+
+Two things happen. The message is **composed in this request** — the mail type applied, the
+address checked against the unsubscribe records, the wrapper rendered — and then written to
+`mails` at status `2` instead of being dialled out.
+
+Composed now rather than by the worker, and that is the point rather than an implementation
+detail: composition reads the request's language, its settings, its signed-in user and its
+unsubscribe token, and a worker running an hour later has none of them. A spool that stored the
+inputs and rendered later would send a different message from the one you composed —
+occasionally, and unreproducibly. What the row holds is the final string.
+
+`queue()` returns whether the message was **accepted for delivery**, which is a weaker claim
+than `send()`'s "delivered". That is why it is a separate method and not a flag: no existing
+caller's understanding of its own return value changes.
+
+An address that has opted out is not queued at all — it is recorded as refused, exactly as
+`send()` would.
+
+### Delivering it
+
+```bash
+./yourapp mail:flush                # send what is pending
+./yourapp mail:flush --limit=50
+./yourapp mail:flush --dry-run      # list it, send nothing
+```
+
+Run it from the scheduler, every few minutes. It moves each row to sent or failed **in place**,
+so a message has one row for its whole life and the history screens need no union.
+
+It is a worker, so unlike `mail:prune` it does its job by default — a dry run is an option, not
+the default.
+
+### The two answers that must not be confused
+
+| The server said | Meaning | What happens |
+|---|---|---|
+| `5xx` | never — no such mailbox, rejected for policy | failed at once, reason on the row |
+| `4xx` | not now | left pending, retried next run |
+| nothing recognisable — DNS, timeout, refused connection | probably not now | left pending |
+
+Treating a permanent refusal as retryable spends a full SMTP connection every run on an address
+that will not accept the message at any point. Treating a temporary one as fatal throws away a
+message because a mail server had a bad minute — and that failure is the invisible kind, because
+a row marked failed looks exactly like one that was genuinely undeliverable.
+
+### Bounded by time, not by attempts
+
+There is no attempt counter. A real MTA retries for days and then bounces, because the useful
+question is whether something has been undeliverable *long enough to give up on* — not how many
+times it was tried. A row younger than the deadline is retried; past it, it fails with the
+reason.
+
+```php
+'mail' => [
+    'outbox' => ['deadline' => 86400],   // seconds; 24 hours by default
+],
+```
+
+### One at a time
+
+The command holds a worker lock, because two overlapping runs would both read the same pending
+rows and both send them — and a duplicate security alert is a support ticket. Rows are marked
+**after** the send rather than before, so a crash mid-run resends at worst one message rather
+than losing it. For a notification that says somebody signed in to your account, that is the
+right way round.
+
+### From a notification
+
+A notification declares `queueable(): bool` and the mail channel does the rest. See the
+[Notifications guide](Pramnos_Notifications_Guide.md#getting-the-mail-off-the-request).
 
 ## What to keep of a sent message, and for how long
 

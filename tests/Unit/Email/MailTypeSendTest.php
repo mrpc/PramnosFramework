@@ -214,6 +214,104 @@ class MailTypeSendTest extends TestCase
     }
 
     /** An Email whose mailer, log and opt-out store are all seams. */
+    /**
+     * An address that left the list is not queued either — suppression is at compose time.
+     *
+     * `queue()` and `send()` share `compose()`, so the decision is taken in the request that
+     * wrote the message and with the unsubscribe records that request could see. Deferring it to
+     * the worker would take the decision an hour later against a different set of records, and
+     * the caller would have been told the message was accepted.
+     *
+     * The recorded status is the assertion that matters: a *queued* row for a suppressed address
+     * is a message the worker would faithfully deliver to somebody who asked us to stop.
+     */
+    public function testAnAddressThatLeftTheListIsNotQueued(): void
+    {
+        // Arrange
+        $email = $this->spooler();
+        $email->optedOutOf = ['digest'];
+        $email->type('digest');
+        $email->setTo('gone@example.com');
+        $email->setSubject('Weekly digest');
+        $email->setBody('<p>News</p>');
+
+        // Act
+        $queued = $email->queue();
+
+        // Assert
+        $this->assertFalse($queued, 'a suppressed address must not be queued');
+        $this->assertSame(
+            [\Pramnos\Messaging\Mail::STATUS_FAILED],
+            $email->statuses,
+            'the refusal must be recorded as refused, not as queued'
+        );
+    }
+
+    /**
+     * And an address still on the list is queued rather than sent.
+     *
+     * The pair is the point: `queue()` has to make the same suppression decision `send()` makes
+     * and then take the other branch. Asserting only the refusal above would pass on a `queue()`
+     * that refused everything.
+     */
+    public function testAnAddressStillOnTheListIsQueuedAndNotSent(): void
+    {
+        // Arrange
+        $email = $this->spooler();
+        $email->type('digest');
+        $email->setTo('here@example.com');
+        $email->setSubject('Weekly digest');
+        $email->setBody('<p>News</p>');
+
+        // Act
+        $queued = $email->queue();
+
+        // Assert
+        $this->assertTrue($queued);
+        $this->assertSame([\Pramnos\Messaging\Mail::STATUS_QUEUED], $email->statuses);
+        $this->assertSame('', $email->delivered, 'the outbox path must open no SMTP connection');
+    }
+
+    /**
+     * An Email whose outbox is a list in memory, so a unit test needs no database.
+     *
+     * `writeMailRow()` is overridden rather than `recordMail()`, and that is not arbitrary: the
+     * outbox calls the first directly so that an application overriding the second — as the
+     * double below does — cannot silently record a queued message as sent.
+     */
+    private function spooler(): object
+    {
+        return new class () extends Email {
+            /** @var list<string> */
+            public array $optedOutOf = [];
+
+            public string $delivered = '';
+
+            /** @var list<int> */
+            public array $statuses = [];
+
+            protected function sendWithSymfonyMailer()
+            {
+                $this->delivered = (string) ($this->renderedBody ?? $this->body);
+
+                return true;
+            }
+
+            protected function writeMailRow(int $status): bool
+            {
+                $this->statuses[] = $status;
+
+                return true;
+            }
+
+            protected function optedOut(string $address, string $list): bool
+            {
+                return in_array($list, $this->optedOutOf, true)
+                    || in_array('all', $this->optedOutOf, true);
+            }
+        };
+    }
+
     private function mailer(): object
     {
         return new class () extends Email {

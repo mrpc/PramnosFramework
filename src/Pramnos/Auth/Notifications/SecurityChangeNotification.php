@@ -87,6 +87,23 @@ class SecurityChangeNotification implements NotificationInterface
     }
 
     /**
+     * Nobody is waiting for this one either, so it goes through the outbox.
+     *
+     * It reports a change that has **already happened** — the password is changed, the factor
+     * is gone — and `SecurityChangeNotifier` is best-effort precisely because the notification
+     * is never worth failing the change it describes. Holding the response open for SMTP is the
+     * same trade in a different currency: somebody who has just changed their password waits
+     * for the mail server instead of seeing the screen that says it worked.
+     *
+     * This matters most on the address-change path, which sends **two** mails — the new address
+     * and the previous one. That was two SMTP round trips inside one form submission.
+     */
+    public function queueable(): bool
+    {
+        return true;
+    }
+
+    /**
      * The change, in the length a lock screen has.
      *
      * No link, deliberately — the mail carries those. A notification that appears unprompted

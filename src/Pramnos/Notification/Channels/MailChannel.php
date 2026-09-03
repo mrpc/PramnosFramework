@@ -48,6 +48,17 @@ use Pramnos\Notification\NotificationInterface;
  * somebody who unsubscribed from everything, and an unsubscribe link on it teaches people the
  * link does nothing.
  *
+ * ## Notifications nobody is waiting for
+ *
+ * A notification may also declare `queueable(): bool`. When it returns true the message is
+ * composed in this request and handed to the outbox instead of an SMTP connection, and
+ * `mail:flush` delivers it. Use it for anything the recipient did not ask for and is not
+ * waiting on — a security alert, an audit notice.
+ *
+ * Do **not** use it for a second-factor code or a sign-in link: somebody is looking at the
+ * screen waiting for those, and a spool would trade a latency nobody measures for a wait
+ * everybody feels. Declaring nothing keeps the message synchronous.
+ *
  */
 class MailChannel implements ChannelInterface
 {
@@ -104,7 +115,33 @@ class MailChannel implements ChannelInterface
 
         $this->applyOptions($email, $notification);
 
+        /*
+         * Queued only when the notification asks, and the default is the safe half.
+         *
+         * The three notifications a person is *waiting* for — a second-factor code, a
+         * new-device link, an operator pressing Send with somebody on the phone — must go out
+         * in this request. Queuing those would make the product worse in exchange for a
+         * latency nobody is measuring, so opting in is per notification rather than a setting,
+         * and a notification that says nothing keeps today's behaviour exactly.
+         */
+        if ($this->queues($notification)) {
+            $email->queue();
+
+            return;
+        }
+
         $email->send();
+    }
+
+    /**
+     * Whether this notification is content to be delivered by the outbox worker.
+     *
+     * Read through `method_exists()` like every other optional declaration a notification may
+     * make, so nothing has to implement it.
+     */
+    protected function queues(NotificationInterface $notification): bool
+    {
+        return method_exists($notification, 'queueable') && (bool) $notification->queueable();
     }
 
     /**

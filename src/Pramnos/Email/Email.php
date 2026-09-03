@@ -781,14 +781,23 @@ class Email extends \Pramnos\Framework\Base
      * Send the email
      * @return boolean
      */
-    public function send()
+    /**
+     * Suppression, then the wrapper — everything that decides what the bytes are.
+     *
+     * Extracted from {@see send()} because it is the half that {@see queue()} also needs and
+     * the transport is the half it does not. Nothing about it changed in the extraction: the
+     * order matters and is the reason for both comments below.
+     *
+     * @return bool False when this address asked us to stop, in which case `renderedBody` is
+     *              the unwrapped body so an audit row still records what was refused.
+     */
+    protected function compose(): bool
     {
         // Suppression before composition: an address that asked us to stop is a message not
         // sent, and rendering a body first only wastes the work. This also fills in the
         // unsubscribe link, which the wrapper below reads.
         if (!$this->applyMailType()) {
             $this->renderedBody = (string) $this->body;
-            $this->recordMail(false);
 
             return false;
         }
@@ -811,6 +820,109 @@ class Email extends \Pramnos\Framework\Base
                 'language'        => $this->messageLanguage(),
             ]
         );
+
+        return true;
+    }
+
+    /**
+     * Compose now, hand to the outbox, and return — no SMTP in this request.
+     *
+     * `mails` has described itself as an «outbox queue» since 2020 and `Mail::STATUS_QUEUED`
+     * has been declared since then; nothing ever wrote one. This writes one.
+     *
+     * ## Composed here and not by the worker
+     *
+     * The body is rendered, wrapped and suppression-checked in *this* request, and what the
+     * row holds is the final string. That is deliberate: composition reads the request's
+     * language, its settings, its signed-in user and its unsubscribe token, and a worker
+     * running an hour later has none of them. A spool that stored inputs and rendered later
+     * would send a different message from the one the caller composed — occasionally, and
+     * unreproducibly.
+     *
+     * ## What this changes about the answer
+     *
+     * `send()` returns whether the message was *delivered*. This returns whether it was
+     * *accepted for delivery*, which is a weaker claim and the reason it is a separate method
+     * rather than a flag on `send()`: no existing caller's understanding of its own return
+     * value changes.
+     *
+     * Nothing is queued when the address has opted out — that is a message not sent, and it is
+     * recorded as such, exactly as `send()` would.
+     *
+     * @return bool Whether a row was written.
+     */
+    public function queue(): bool
+    {
+        if (!$this->compose()) {
+            $this->recordMail(false);
+
+            return false;
+        }
+
+        $written = $this->writeMailRow(\Pramnos\Messaging\Mail::STATUS_QUEUED);
+
+        if (!$written) {
+            /*
+             * The outbox is the only record that this message exists.
+             *
+             * `recordMail()` is best-effort by design — an audit row that cannot be written
+             * must never fail the send it describes. Here the row *is* the send: losing it
+             * loses the message silently, which is the one outcome worse than a slow request.
+             * So it falls back to sending inline rather than reporting a success it cannot
+             * support.
+             */
+            \Pramnos\Logs\Logger::log(
+                'Could not write to the mail outbox; sending inline instead.',
+                'mail'
+            );
+
+            return (bool) $this->sendRendered();
+        }
+
+        return true;
+    }
+
+    /**
+     * Send a body that is already composed — the outbox worker's entry point.
+     *
+     * No wrapper, no suppression check, no audit row: all three happened when the message was
+     * queued, and doing them again would either double-wrap the body or re-render it from a
+     * request that no longer exists. This is the transport and nothing else.
+     *
+     * @return bool
+     */
+    public function sendRendered(): bool
+    {
+        try {
+            $this->lastError     = '';
+            $this->lastException = null;
+
+            return (bool) $this->sendWithSymfonyMailer();
+        } catch (\Exception $exception) {
+            $this->lastError     = $exception->getMessage();
+            $this->lastException = $exception;
+
+            return false;
+        }
+    }
+
+    /**
+     * The rendered body, for a caller that has to store or inspect it.
+     *
+     * Read-only on purpose: the way to set it is to compose a message.
+     */
+    public function renderedBody(): string
+    {
+        return (string) ($this->renderedBody ?? $this->body);
+    }
+
+    public function send()
+    {
+        if (!$this->compose()) {
+            $this->recordMail(false);
+
+            return false;
+        }
 
         try {
             // Reset last error before attempting to send
@@ -842,8 +954,34 @@ class Email extends \Pramnos\Framework\Base
      */
     protected function recordMail(bool $success): void
     {
+        /*
+         * The signature is untouched, and deliberately.
+         *
+         * This method is documented as overridable for custom logging, so an application may
+         * have its own. Widening it to take a status would break those silently — PHP ignores
+         * an extra argument to a userland method, so a subclass would keep recording `1` for a
+         * message that was only queued, and the worker would never find the row it was told to
+         * send. {@see writeMailRow()} is the widened one, and it is what the outbox calls.
+         */
+        $this->writeMailRow($success ? \Pramnos\Messaging\Mail::STATUS_SENT : \Pramnos\Messaging\Mail::STATUS_FAILED);
+    }
+
+    /**
+     * One row in `mails`, at whatever status the caller means.
+     *
+     * The audit log and the outbox are the same table, which is why one method writes both:
+     * a queued row is not a different kind of record, it is the same record before its
+     * delivery has been attempted. The worker moves it to sent or failed in place, so a
+     * message has exactly one row for its whole life and the history screens need no union.
+     *
+     * @param  int $status One of `Pramnos\Messaging\Mail::STATUS_*`.
+     * @return bool Whether the row was written. Callers for whom the row *is* the message
+     *              (the outbox) must check this; the audit log deliberately does not.
+     */
+    protected function writeMailRow(int $status): bool
+    {
         if (!$this->recordToMails) {
-            return;
+            return false;
         }
         try {
             $tomail  = $this->emailToString($this->to);
@@ -851,8 +989,7 @@ class Email extends \Pramnos\Framework\Base
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#mails')
                 ->insert([
-                    // 1 = sent, 0 = failed (matches Pramnos\Messaging\Mail::STATUS_*).
-                    'status'     => $success ? 1 : 0,
+                    'status'     => $status,
                     'frommail'   => $this->emailToString($this->from),
                     'fromname'   => '',
                     'tomail'     => $tomail,
@@ -862,7 +999,9 @@ class Email extends \Pramnos\Framework\Base
                     'date'       => $date,
                     'module'     => (string) $this->module,
                     'moduleinfo' => '',
-                    'extrainfo'  => $success ? '' : (string) $this->lastError,
+                    'extrainfo'  => $status === \Pramnos\Messaging\Mail::STATUS_FAILED
+                        ? (string) $this->lastError
+                        : '',
                     'path'       => '',
                     'hash'       => md5($tomail . '|' . (string) $this->subject . '|' . $date),
                 ]);
@@ -883,7 +1022,11 @@ class Email extends \Pramnos\Framework\Base
             }
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Could not record mail in mails table: ' . $e->getMessage());
+
+            return false;
         }
+
+        return true;
     }
 
     /**
