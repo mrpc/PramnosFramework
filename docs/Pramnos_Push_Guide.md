@@ -39,8 +39,11 @@ class NewSignIn implements \Pramnos\Notification\NotificationInterface
 $user->notify(new NewSignIn('Θεσσαλονίκη'));
 ```
 
-That is the whole application-level API. The rest of this page is the setup it
-needs once, and the handful of facts that decide whether it works in a year.
+That is the whole application-level API — it is the notification model, of which
+push is one channel; the [Notifications guide](Pramnos_Notifications_Guide.md)
+covers the dispatcher, the other channels and how to choose between them. The rest
+of this page is the setup push needs once, and the handful of facts that decide
+whether it works in a year.
 
 ---
 

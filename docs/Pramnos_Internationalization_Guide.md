@@ -153,7 +153,7 @@ $mail = \Pramnos\Translator\Language::using($user->language, fn () => [
 `Notifier::sendNow()` already does this for every notification: if the notifiable has a
 `language`, the channels render inside it. So a notification needs no special handling, and
 only mail composed outside the notification system — like the password-reset link — asks for
-it directly.
+it directly. See the [Notifications guide](Pramnos_Notifications_Guide.md).
 
 Two things it does that a hand-rolled switch does not:
 

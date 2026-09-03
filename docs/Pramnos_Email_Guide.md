@@ -468,6 +468,10 @@ Each channel gets a shape it can use. The push body is stripped of markup and fl
 line, because a push is two lines on a lock screen — handed HTML it shows the tags, handed a
 paragraph the operating system truncates it at a point nobody chose.
 
+Mail is one channel of several here. The [Notifications guide](Pramnos_Notifications_Guide.md)
+covers the dispatcher itself — the contracts, the other channels, routing per recipient, and why
+a channel silently delivered nothing.
+
 ### The mail options are declarations, not calls
 
 `MailChannel` reads four optional methods off a notification — `unsubscribeList()`,
