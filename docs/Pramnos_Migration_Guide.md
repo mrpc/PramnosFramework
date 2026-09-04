@@ -153,6 +153,31 @@ Such an installation sets a cutoff precisely so the baseline epoch is skipped â€
 and a reader that ignored it would report the whole epoch as pending work and,
 worse, attempt it.
 
+**Overrides.** `--path` and `--cutoff` still win, because running one directory
+or one epoch deliberately is what they are for. Note that they are independent:
+`--path` names *where to look* and does not switch the cutoff off, so
+`migrate --path=app/Migrations` on an installation with a cutoff still respects
+it. Pass `--cutoff` to change that.
+
+**What `migrate:status` shows.** Out-of-scope migrations are listed, not omitted,
+with the reason in the Status column:
+
+```
+ create_sessions_table            | framework | core         | Skipped (cutoff)
+ create_broadcast_events_table    | framework | broadcasting | Skipped (feature: broadcasting)
+```
+
+followed by a count and, when one is in force, the cutoff that decided it. The
+report is the only place to find out *why* something is never going to run, so a
+row that is out of scope says so rather than disappearing â€” a CLI that hides
+pending migrations is as unhelpful as one that invents them. `--path` applies no
+feature gate, because the directory was named explicitly.
+
+**Without a database connection**, `migrate:status` says so and still lists what
+it found on disk. The console reaches an application without initialising it, so
+that is an ordinary state for the command; what is on disk does not depend on a
+connection, and only the Ran/Pending distinction does.
+
 ### Automatic Migration (Application Startup)
 
 Pending `autoExecute = true` migrations run automatically during the request

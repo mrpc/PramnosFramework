@@ -89,10 +89,14 @@ class Migrate extends Command
             return 1;
         }
 
+        // Which migrations apply here is the application's answer, not this
+        // command's: the `features` gate and app.php's `migration_cutoff`. Read
+        // it before --path/--cutoff, both of which still override it below —
+        // that is how somebody runs one directory, or one epoch, deliberately.
+        $migrationScope = MigrationLoader::scopeFor($app, true);
+
         $explicitPath = $input->getOption('path');
-        $dirs         = $explicitPath
-            ? [$explicitPath]
-            : $this->resolveMigrationDirectories();
+        $dirs         = $explicitPath ? [$explicitPath] : $migrationScope['dirs'];
         $migrations   = MigrationLoader::loadFromDirectories($dirs, $app);
 
         if (empty($migrations)) {
@@ -132,7 +136,11 @@ class Migrate extends Command
         if ($input->getOption('force')) {
             $options['force'] = true;
         }
-        if ($cutoff = $input->getOption('cutoff')) {
+        // --cutoff wins; otherwise the configured one applies. Without this the
+        // CLI attempted the whole baseline epoch on every installation whose
+        // app.php exists precisely to skip it.
+        $cutoff = $input->getOption('cutoff') ?: $migrationScope['cutoff'];
+        if ($cutoff !== '') {
             $options['cutoff'] = $cutoff;
         }
 
@@ -159,7 +167,7 @@ class Migrate extends Command
             return 0;
         }
 
-        $this->printSummary($output, $db, $input, $dirs, $result);
+        $this->printSummary($output, $db, $input, $dirs, $result, $migrationScope['cutoff']);
 
         return empty($result['failed']) ? 0 : 1;
     }
@@ -169,13 +177,15 @@ class Migrate extends Command
      *
      * @param array{ran: string[], failed: array<string,string>} $result
      * @param string[] $dirs
+     * @param string   $configuredCutoff app.php's cutoff, reported when --cutoff is absent
      */
     private function printSummary(
         OutputInterface $output,
         Database        $db,
         InputInterface  $input,
         array           $dirs,
-        array           $result
+        array           $result,
+        string          $configuredCutoff = ''
     ): void {
         $sep = str_repeat('─', 62);
         $output->writeln('');
@@ -210,6 +220,10 @@ class Migrate extends Command
         }
         if ($cutoff = $input->getOption('cutoff')) {
             $output->writeln(' <comment>Cutoff:</comment>     ' . $cutoff);
+        } elseif ($configuredCutoff !== '') {
+            $output->writeln(
+                ' <comment>Cutoff:</comment>     ' . $configuredCutoff . ' <comment>(app.php)</comment>'
+            );
         }
 
         $output->writeln(' <comment>Dirs:</comment>       ' . array_shift($dirs));
@@ -259,18 +273,4 @@ class Migrate extends Command
         return $label;
     }
 
-    /**
-     * Returns all directories that should be scanned for migrations.
-     *
-     * Includes the app's own Migrations directory plus every feature
-     * subdirectory under the framework's database/migrations/framework/ tree.
-     * This means --scope=framework automatically finds built-in migrations
-     * without requiring a --path override.
-     *
-     * @return string[]
-     */
-    private function resolveMigrationDirectories(): array
-    {
-        return MigrationLoader::resolveDefaultDirectories();
-    }
 }

@@ -50,20 +50,64 @@ class MigrateStatus extends Command
             return 1;
         }
 
+        // Two different needs, and only one of them is fatal. Listing what is on
+        // disk needs an application to hand to the loader; a *connection* is
+        // needed only to tell Ran from Pending. The report is worth printing
+        // without one, so the connection is checked further down instead of here.
         $app = $consoleApp->internalApplication;
-        $db  = $app->database ?? null;
-
-        if ($db === null) {
-            $output->writeln('<error>No database connection available.</error>');
+        if (!$app instanceof \Pramnos\Application\Application) {
+            $output->writeln('<error>No Pramnos application available.</error>');
             return 1;
         }
+        $db = $app->database ?? null;
+
+        // Which migrations apply here is the application's answer: the `features`
+        // gate and app.php's `migration_cutoff`. Reading it is what stops this
+        // report counting the baseline epoch, and the features the installation
+        // declined, as pending. Nothing in it touches the database, so it is
+        // available even on the no-connection path below.
+        $migrationScope = MigrationLoader::scopeFor($app, true);
 
         $explicitPath = $input->getOption('path');
-        $dirs         = $explicitPath ? [$explicitPath] : $this->resolveMigrationDirectories();
-        $migrations   = MigrationLoader::loadFromDirectories($dirs, $app);
 
-        $runner  = new MigrationRunner($db);
-        $history = $runner->getHistory();
+        // --path means "report on exactly this directory": no feature gate to
+        // apply, because the operator named the directory themselves.
+        if ($explicitPath) {
+            $dirs        = [$explicitPath];
+            $skippedDirs = [];
+        } else {
+            $dirs        = $migrationScope['dirs'];
+            $skippedDirs = $migrationScope['skipped'];
+        }
+
+        // Loaded from the skipped directories too. Omitting them would leave an
+        // operator with no way to find out why a migration they can see on disk
+        // is never going to run, which is exactly the silence that sent somebody
+        // looking for this.
+        $migrations = MigrationLoader::loadFromDirectories($dirs, $app);
+        $skipReasons = [];
+        foreach ($skippedDirs as $dir => $reason) {
+            foreach (MigrationLoader::loadFromDirectory($dir, $app) as $migration) {
+                $skipReasons[$migration->getSlug()] = $reason;
+                $migrations[] = $migration;
+            }
+        }
+
+        $cutoff = $migrationScope['cutoff'];
+
+        // A connection is what tells Ran from Pending; without one the disk
+        // listing is still worth printing, and saying so beats returning 1 and
+        // nothing.
+        $history = [];
+        if ($db !== null) {
+            $history = (new MigrationRunner($db))->getHistory();
+        } else {
+            $output->writeln(
+                '<comment>No database connection: showing what is on disk, '
+                . 'without run history.</comment>'
+            );
+            $output->writeln('');
+        }
 
         // Build a slug → history row map for fast lookup
         $historyMap = [];
@@ -79,7 +123,8 @@ class MigrateStatus extends Command
         $table = new Table($output);
         $table->setHeaders(['Migration', 'Scope', 'Feature', 'Status', 'Batch', 'Time (s)', 'Ran At']);
 
-        $hasPending = false;
+        $hasPending  = false;
+        $skippedRows = [];
 
         // Rows for known migration classes (may or may not have a history entry)
         foreach ($migrations as $migration) {
@@ -97,17 +142,47 @@ class MigrateStatus extends Command
                     $row['when']     ?? '-',
                 ]);
                 unset($historyMap[$slug]);
-            } else {
-                $hasPending = true;
-                $table->addRow([
+                continue;
+            }
+
+            // Out of scope for this installation: shown, with the reason, and
+            // never counted as pending. A migration whose feature is off is
+            // skipped whatever its timestamp, so the feature reason is checked
+            // first.
+            $reason = $skipReasons[$slug] ?? $this->cutoffReason($migration, $cutoff);
+            if ($reason !== null) {
+                $skippedRows[] = [
                     $slug,
                     $migration->scope,
                     $migration->feature,
-                    '<comment>Pending</comment>',
+                    '<comment>Skipped</comment> (' . $reason . ')',
                     '-',
                     '-',
                     '-',
-                ]);
+                ];
+                continue;
+            }
+
+            $hasPending = true;
+            $table->addRow([
+                $slug,
+                $migration->scope,
+                $migration->feature,
+                '<comment>Pending</comment>',
+                '-',
+                '-',
+                '-',
+            ]);
+        }
+
+        // Grouped after the live rows rather than interleaved: on the
+        // installation this was found on the skipped set is 44 rows against 2
+        // that matter, and a report where the answer is buried is the problem
+        // this is fixing, not the fix.
+        if (!empty($skippedRows)) {
+            $table->addRow(new TableSeparator());
+            foreach ($skippedRows as $row) {
+                $table->addRow($row);
             }
         }
 
@@ -130,6 +205,20 @@ class MigrateStatus extends Command
 
         $table->render();
 
+        if (!empty($skippedRows)) {
+            $output->writeln(sprintf(
+                '<comment>%d migration(s) do not apply to this installation'
+                . ' and will not run.</comment>',
+                count($skippedRows)
+            ));
+            if ($cutoff !== '') {
+                $output->writeln(
+                    '<comment>Cutoff:</comment> ' . $cutoff . ' <comment>(app.php'
+                    . ' migration_cutoff)</comment>'
+                );
+            }
+        }
+
         if ($hasPending) {
             $output->writeln('<comment>Run <info>migrate</info> to execute pending migrations.</comment>');
         }
@@ -137,21 +226,25 @@ class MigrateStatus extends Command
         return 0;
     }
 
-    private function resolveMigrationDirectories(): array
+    /**
+     * Why the cutoff excludes this migration, or null when it does not.
+     *
+     * A migration with no timestamp in its filename (the legacy `Migration0126`
+     * shape) has nothing to compare and is never cut off — the same rule
+     * MigrationRunner::filterCutoff() applies, because a report that disagreed
+     * with the runner would be a new way to be wrong.
+     */
+    private function cutoffReason(Migration $migration, string $cutoff): ?string
     {
-        $root = defined('ROOT') ? ROOT : getcwd();
-        $dirs = [$root . '/app/Migrations'];
-
-        $base = dirname(__DIR__, 4) . '/database/migrations/framework';
-        if (!is_dir($base)) {
-            $base = $root . '/vendor/mrpc/pramnosframework/database/migrations/framework';
+        if ($cutoff === '') {
+            return null;
         }
-        if (is_dir($base)) {
-            foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $d) {
-                $dirs[] = $d;
-            }
+        $timestamp = $migration->getTimestamp();
+        if ($timestamp === null || $timestamp === '') {
+            return null;
         }
 
-        return $dirs;
+        return strcmp($timestamp, $cutoff) <= 0 ? 'cutoff' : null;
     }
+
 }

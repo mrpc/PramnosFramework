@@ -155,24 +155,38 @@ class MigrateStatusTest extends TestCase
     }
 
     // =========================================================================
-    // Guard: no database connection
+    // No database connection — reported, not refused
     // =========================================================================
 
     /**
-     * When no database is available (database === null) execute() must return
-     * exit code 1 and print an appropriate error.
+     * With no connection the command says so and still reports the disk.
+     *
+     * WHAT: `database === null` prints a notice, lists the migrations found on
+     *       disk, and exits 0.
+     * WHY:  this used to return 1 and print nothing else. The console reaches an
+     *       application without initialising it, so no connection is an ordinary
+     *       state for this command rather than a failure — and only the
+     *       Ran/Pending distinction needs one. What the framework ships does not
+     *       depend on a database, and an operator asking for it should get an
+     *       answer. A missing *application* is still fatal, because there is then
+     *       nothing to hand the migration loader.
      */
-    public function testNoDatabaseConnectionReturnsError(): void
+    public function testNoDatabaseConnectionStillReportsWhatIsOnDisk(): void
     {
         // Arrange — valid Pramnos app, database is null
         $tester = $this->makeTester(null);
 
         // Act
-        $code = $tester->execute([]);
+        $code    = $tester->execute([]);
+        $display = $tester->getDisplay();
 
         // Assert
-        $this->assertSame(1, $code, 'No-database guard must return exit code 1');
-        $this->assertStringContainsString('No database connection', $tester->getDisplay());
+        $this->assertSame(0, $code, 'a missing connection is not a failure here');
+        $this->assertStringContainsString('No database connection', $display);
+        $this->assertStringContainsString('without run history', $display);
+        // Proves it got past the notice and actually read the framework tree —
+        // printing the notice alone would also have exited 0.
+        $this->assertStringContainsString('create_sessions_table', $display);
     }
 
     // =========================================================================
@@ -264,32 +278,33 @@ class MigrateStatusTest extends TestCase
     }
 
     // =========================================================================
-    // resolveMigrationDirectories() — covered via reflection
+    // The default directory list
     // =========================================================================
 
     /**
-     * The private resolveMigrationDirectories() method must return a non-empty
-     * array that includes an 'app/Migrations' entry as the first element.
+     * The fallback directory list leads with app/Migrations.
      *
-     * This verifies the method builds the expected default directory list
-     * without requiring a live filesystem with real migrations.
+     * This command used to carry its own copy of this logic — a third one,
+     * beside MigrationLoader::resolveDefaultDirectories() and Application's
+     * feature-gated resolver — and that duplication is what let the CLI and the
+     * request lifecycle disagree about which migrations apply to an
+     * installation. The copy is gone; the assertion belongs to the one that
+     * remains.
+     *
+     * Unfiltered on purpose: this list is the answer when there is no
+     * application to read a `features` array or a cutoff from, and reporting too
+     * much can at least be read, while silently applying a gate that could not
+     * be read cannot.
      */
-    public function testResolveMigrationDirectoriesIncludesAppMigrations(): void
+    public function testTheDefaultDirectoryListLeadsWithAppMigrations(): void
     {
-        // Arrange
-        $command = new MigrateStatus();
-        $method  = new \ReflectionMethod($command, 'resolveMigrationDirectories');
-
         // Act
-        $dirs = $method->invoke($command);
+        $dirs = \Pramnos\Database\MigrationLoader::resolveDefaultDirectories();
 
-        // Assert — must be a non-empty array
-        $this->assertIsArray($dirs, 'resolveMigrationDirectories() must return an array');
-        $this->assertNotEmpty($dirs, 'resolveMigrationDirectories() must return at least one directory');
-
-        // Assert — first entry is the app/Migrations directory
+        // Assert
+        $this->assertNotEmpty($dirs);
         $this->assertStringContainsString('Migrations', $dirs[0],
-            'First directory must be the app/Migrations path');
+            'the application directory comes first, before the framework features');
     }
 
     // =========================================================================

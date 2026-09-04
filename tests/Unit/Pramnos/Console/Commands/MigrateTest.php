@@ -80,7 +80,7 @@ class MigrateTest extends TestCase
      * type-checks its $app parameter.  We use an anonymous subclass with an
      * empty __construct() to bypass the heavy initialisation.
      */
-    private function makeTester(?Database $db = null): CommandTester
+    private function makeTester(?Database $db = null, array $applicationInfo = []): CommandTester
     {
         // Arrange — create a lightweight Pramnos\Console\Application stub
         $consoleApp = new class('Test', '0.0') extends \Pramnos\Console\Application {
@@ -102,6 +102,9 @@ class MigrateTest extends TestCase
         if ($db !== null) {
             $consoleApp->internalApplication->database = $db;
         }
+        // Stands in for app.php: migrationScope() reads migration_cutoff and
+        // features from here, which is the whole point of the tests below.
+        $consoleApp->internalApplication->applicationInfo = $applicationInfo;
 
         $command = new Migrate();
         $consoleApp->add($command);
@@ -537,5 +540,103 @@ PHP;
         // Assert — must not crash; either no migrations found or nothing to migrate
         $this->assertContains($code, [0, 1],
             'Command must exit 0 or 1 when run with default directories in test env');
+    }
+
+    // =========================================================================
+    // app.php's migration_cutoff
+    // =========================================================================
+
+    /**
+     * The configured cutoff applies without anyone passing --cutoff.
+     *
+     * WHAT: two migrations either side of app.php's `migration_cutoff`; only the
+     *       later one runs.
+     * WHY:  this command had a `--cutoff` option and no default, so it ignored
+     *       the configuration the web path obeys. On an installation whose schema
+     *       predates the migration system — the case the setting exists for —
+     *       that meant `migrate` attempting the entire baseline epoch of
+     *       `CREATE TABLE`s against tables that have existed for years.
+     */
+    public function testConfiguredCutoffIsAppliedWithoutTheOption(): void
+    {
+        // Arrange — one migration before the cutoff, one after
+        $this->writeMigrationFile('2020_01_01_000001_baseline_thing', 'MigrateTest_Baseline');
+        $this->writeMigrationFile('2026_05_21_000046_recent_thing', 'MigrateTest_Recent');
+        $tester = $this->makeTester(
+            $this->makeDbMock(),
+            ['migration_cutoff' => '2020-01-02 00:00:00']
+        );
+
+        // Act
+        $code    = $tester->execute(['--path' => $this->tmpDir]);
+        $display = $tester->getDisplay();
+
+        // Assert — the post-cutoff migration ran, the baseline one was never tried
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('recent_thing', $display);
+        $this->assertStringNotContainsString('baseline_thing', $display);
+        // --path names the directory, not the epoch: it must not switch the
+        // cutoff off, or "run just this directory" would quietly mean "and also
+        // run everything the configuration excludes".
+        $this->assertStringContainsString('2020_01_02_000000', $display);
+        $this->assertStringContainsString('app.php', $display);
+    }
+
+    /**
+     * --cutoff still overrides the configured one.
+     *
+     * WHAT: a cutoff on the command line that is *earlier* than app.php's lets
+     *       the baseline migration through.
+     * WHY:  running one epoch deliberately is what the option is for, and a
+     *       default that could not be overridden would take that away. Asserted
+     *       in the permissive direction on purpose — an override that only ever
+     *       narrowed the set would pass a test written the other way round while
+     *       being useless.
+     */
+    public function testExplicitCutoffOverridesTheConfiguredOne(): void
+    {
+        // Arrange — same two migrations, same configured cutoff
+        $this->writeMigrationFile('2020_01_01_000001_baseline_thing', 'MigrateTest_Baseline2');
+        $this->writeMigrationFile('2026_05_21_000046_recent_thing', 'MigrateTest_Recent2');
+        $tester = $this->makeTester(
+            $this->makeDbMock(),
+            ['migration_cutoff' => '2020-01-02 00:00:00']
+        );
+
+        // Act — an earlier cutoff than the configuration's
+        $code    = $tester->execute([
+            '--path'   => $this->tmpDir,
+            '--cutoff' => '2019_01_01_000000',
+        ]);
+        $display = $tester->getDisplay();
+
+        // Assert — both ran, and the summary reports the override, not app.php's
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('baseline_thing', $display);
+        $this->assertStringContainsString('recent_thing', $display);
+        $this->assertStringContainsString('2019_01_01_000000', $display);
+        $this->assertStringNotContainsString('app.php', $display);
+    }
+
+    /**
+     * With no cutoff configured, nothing is filtered.
+     *
+     * The complement of the first test: proves the filter is driven by the
+     * configuration rather than always on, which a test that only checked the
+     * exclusion could not distinguish.
+     */
+    public function testWithoutAConfiguredCutoffEverythingRuns(): void
+    {
+        // Arrange — an old migration and no cutoff anywhere
+        $this->writeMigrationFile('2020_01_01_000001_baseline_thing', 'MigrateTest_Baseline3');
+        $tester = $this->makeTester($this->makeDbMock(), []);
+
+        // Act
+        $code    = $tester->execute(['--path' => $this->tmpDir]);
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('baseline_thing', $display);
     }
 }

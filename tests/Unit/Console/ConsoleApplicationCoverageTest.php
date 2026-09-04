@@ -680,11 +680,18 @@ class ConsoleApplicationCoverageTest extends TestCase
     }
 
     /**
-     * MigrateStatus must output "No database connection available" when db is null.
+     * MigrateStatus must refuse only when there is no application at all.
+     *
+     * WHAT: an internalApplication that is not a Pramnos application leaves
+     *       nothing to hand the migration loader, so the command exits 1.
+     * WHY:  a missing *connection* is a different problem, and no longer fatal —
+     *       see the test below. This guard remains because the loader's second
+     *       parameter is typed `Application`, so continuing without one would
+     *       raise a TypeError inside the report rather than say what is wrong.
      */
-    public function testMigrateStatusRejectsNullDatabase(): void
+    public function testMigrateStatusRejectsAMissingApplication(): void
     {
-        // Arrange
+        // Arrange — internalApplication is a bare stub, not an Application
         $consoleApp = $this->buildPramnosAppWithNullDb();
         $cmd = new MigrateStatus();
         $consoleApp->add($cmd);
@@ -695,7 +702,48 @@ class ConsoleApplicationCoverageTest extends TestCase
 
         // Assert
         $this->assertSame(1, $exit);
-        $this->assertStringContainsString('No database connection', $tester->getDisplay());
+        $this->assertStringContainsString('No Pramnos application', $tester->getDisplay());
+    }
+
+    /**
+     * With an application but no connection, MigrateStatus still reports the disk.
+     *
+     * WHAT: `$app->database === null` prints a notice, lists the migrations found
+     *       on disk, and exits 0 rather than 1.
+     * WHY:  the console reaches an application without initialising it, so "no
+     *       connection" is an ordinary state for this command, not a failure.
+     *       Refusing to say anything is what the run history is for; what is on
+     *       disk does not depend on a database, and an operator asking what the
+     *       framework ships should get an answer.
+     */
+    public function testMigrateStatusListsFromDiskWithoutAConnection(): void
+    {
+        // Arrange — a real Application whose database was never opened
+        $consoleApp = new class extends ConsoleApplication {
+            protected function registerCommands(): void {}
+        };
+        $consoleApp->internalApplication = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+                $this->applicationInfo = ['namespace' => 'App'];
+                $this->database        = null;
+            }
+        };
+
+        $cmd = new MigrateStatus();
+        $consoleApp->add($cmd);
+        $tester = new CommandTester($cmd);
+
+        // Act
+        $exit = $tester->execute([]);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertSame(0, $exit, 'no connection is not a failure for this command');
+        $this->assertStringContainsString('No database connection', $display);
+        // Proves it got past the guard and actually read the framework tree —
+        // an empty table would also have exited 0.
+        $this->assertStringContainsString('create_sessions_table', $display);
     }
 
     // =========================================================================
