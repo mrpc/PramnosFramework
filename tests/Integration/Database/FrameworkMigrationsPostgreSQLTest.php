@@ -2852,17 +2852,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     public function testApplicationsViewsUpCreatesAllViews(): void
     {
         // Arrange — create all FK parents and source tables
-        // (oauth2_webhook_endpoints/events are required by the oauth2_webhook_status view)
-        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
-        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
-        $this->loadMigration('auth', 'CreateUsersTable')->up();
-        $this->loadMigration('auth', 'CreateUrlsTable')->up();
-        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
-        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
-        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
-        $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
-        $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
-        $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable')->up();
+        $this->arrangeApplicationsViewSources();
         $m = $this->loadMigration('applications', 'CreateApplicationsViews');
 
         // Act
@@ -2967,6 +2957,182 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         );
         $this->assertSame('0', (string) $r->fields['cnt'],
             'applications.usage_statistics matview must be gone after down()');
+    }
+
+    /**
+     * Every FK parent and source table the applications views read from.
+     *
+     * oauth2_webhook_endpoints/events are in here because oauth2_webhook_status
+     * reads them, not because anything references them.
+     */
+    private function arrangeApplicationsViewSources(): void
+    {
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationSettingsTable')->up();
+        $this->loadMigration('applications', 'CreateApplicationStatsTable')->up();
+        $this->loadMigration('authserver', 'CreateOauth2WebhooksTables')->up();
+        $this->loadMigration('authserver', 'CreateOauth2ApplicationGrantsTable')->up();
+    }
+
+    /**
+     * A materialized `applications.usage_statistics` belongs to whoever made it
+     * one, and the migration must complete around it.
+     *
+     * WHAT: with the name already taken by a *materialized* view — plus, on
+     *       TimescaleDB, a job refreshing it — `up()` finishes, every other view
+     *       is created, the materialization is untouched, and the job is still
+     *       scheduled.
+     * WHY:  `DROP VIEW IF EXISTS` does not drop a materialized view, it raises
+     *       `"usage_statistics" is not a view`. The migration therefore died at
+     *       that statement with the eight views before it already committed, and
+     *       the runner recorded a failure and retried it on every deploy that
+     *       changed the fingerprint. This is the reported case, and the plain
+     *       path below is the one that was already covered and already passed —
+     *       which is exactly why nothing caught this.
+     *
+     * The surviving job is the assertion that matters most: making the drop
+     * relation-kind aware would have let `up()` finish too, and left a refresh
+     * job pointed at a relation that no longer existed, to start failing every
+     * four hours somewhere away from the deploy that caused it.
+     */
+    public function testApplicationsViewsLeavesAPreExistingMaterializedUsageStatisticsAlone(): void
+    {
+        // Arrange — the sources, then a consumer's cached usage_statistics on top
+        $this->arrangeApplicationsViewSources();
+        $this->db->query(
+            'CREATE MATERIALIZED VIEW applications.usage_statistics AS
+             SELECT appid, name AS application_name, NOW() AS stats_updated_at
+             FROM public.applications'
+        );
+        $this->db->query(
+            'CREATE UNIQUE INDEX usage_statistics_appid_key
+             ON applications.usage_statistics (appid)'
+        );
+
+        $hasTsdb = $this->db->schema()->getCapabilities()->hasTimescaleDB();
+        $jobId   = null;
+        if ($hasTsdb) {
+            $this->db->query(
+                "CREATE OR REPLACE FUNCTION applications.refresh_usage_statistics(
+                     job_id INT, config JSONB
+                 ) RETURNS VOID AS \$\$
+                 BEGIN
+                     REFRESH MATERIALIZED VIEW applications.usage_statistics;
+                 END
+                 \$\$ LANGUAGE plpgsql"
+            );
+            $jobId = (int) $this->db->query(
+                "SELECT add_job('applications.refresh_usage_statistics'::regproc, '4 hours') AS id"
+            )->fields['id'];
+        }
+
+        // Act — the whole migration, as `migrate` runs it
+        $this->loadMigration('applications', 'CreateApplicationsViews')->up();
+
+        // Assert — it got past usage_statistics and created everything else
+        foreach ([
+            'api_performance_summary', 'application_health', 'rate_limit_status',
+            'slow_api_calls', 'ip_violations', 'oauth2_active_tokens',
+            'oauth2_webhook_status', 'top_applications',
+        ] as $view) {
+            $this->assertGreaterThan(
+                0,
+                (int) $this->db->query(
+                    $this->db->prepareQuery(
+                        'SELECT COUNT(*) AS cnt FROM information_schema.views
+                          WHERE table_schema = %s AND table_name = %s',
+                        'applications',
+                        $view
+                    )
+                )->fields['cnt'],
+                "applications.{$view} must still be created"
+            );
+        }
+
+        // Assert — the materialization is exactly as the consumer left it
+        $this->assertSame(
+            'm',
+            $this->db->schema()->getRelationKind('applications.usage_statistics'),
+            'the consumer materialized view must survive the migration'
+        );
+        $this->assertGreaterThan(
+            0,
+            (int) $this->db->query(
+                "SELECT COUNT(*) AS cnt FROM pg_matviews
+                  WHERE schemaname = 'applications' AND matviewname = 'usage_statistics'"
+            )->fields['cnt'],
+            'and must still be listed as a materialized view, not replaced by a plain one'
+        );
+
+        // Assert — the read the consuming application makes still answers
+        $this->assertNotNull(
+            $this->db->query('SELECT * FROM applications.usage_statistics WHERE appid = 1'),
+            'the application read contract is unchanged'
+        );
+
+        // Assert — nothing was orphaned: the refresh job still has its relation
+        if ($hasTsdb) {
+            $this->assertGreaterThan(
+                0,
+                (int) $this->db->query(
+                    $this->db->prepareQuery(
+                        'SELECT COUNT(*) AS cnt FROM timescaledb_information.jobs
+                          WHERE job_id = %d',
+                        $jobId
+                    )
+                )->fields['cnt'],
+                'the refresh job must still be scheduled against a relation that exists'
+            );
+            $this->db->query($this->db->prepareQuery('SELECT delete_job(%d)', $jobId));
+            $this->db->query(
+                'DROP FUNCTION IF EXISTS applications.refresh_usage_statistics(INT, JSONB)'
+            );
+        }
+
+        $this->db->query('DROP MATERIALIZED VIEW IF EXISTS applications.usage_statistics CASCADE');
+    }
+
+    /**
+     * A plain `applications.usage_statistics` is the framework's own, and is
+     * still replaced.
+     *
+     * WHAT: after a first `up()`, a second one rebuilds the view rather than
+     *       skipping it.
+     * WHY:  the guard is deliberately narrow. Skipping on *any* pre-existing
+     *       relation would mean the framework could never again update a view it
+     *       created itself — every later change to the definition would silently
+     *       fail to land on every installation that had already migrated once,
+     *       which is a worse failure than the one being fixed because nothing
+     *       reports it.
+     */
+    public function testApplicationsViewsStillReplacesItsOwnUsageStatisticsView(): void
+    {
+        // Arrange — one full run, so the framework owns a plain view by that name
+        $this->arrangeApplicationsViewSources();
+        $m = $this->loadMigration('applications', 'CreateApplicationsViews');
+        $m->up();
+        $this->assertSame(
+            'v',
+            $this->db->schema()->getRelationKind('applications.usage_statistics'),
+            'precondition: the framework created a plain view'
+        );
+
+        // Act — the same migration again, as a re-run with a changed fingerprint does
+        $m->up();
+
+        // Assert — replaced in place, still a plain view, still queryable
+        $this->assertSame(
+            'v',
+            $this->db->schema()->getRelationKind('applications.usage_statistics')
+        );
+        $this->assertNotNull(
+            $this->db->query('SELECT * FROM applications.usage_statistics WHERE appid = 1')
+        );
     }
 
     // =========================================================================

@@ -3,6 +3,8 @@ use_cases:
   - Writing a new migration or naming its file
   - Running, rolling back or checking the status of migrations
   - Understanding batching, the migration cutoff, or how migrations are discovered
+  - Fixing a migration that fails on an installation whose schema already has the object
+  - Writing a migration that must coexist with an application's own tables and views
 ---
 
 # Pramnos Migration Guide
@@ -282,6 +284,51 @@ public function up(\Pramnos\Database\Database $db)
             }
         });
 }
+```
+
+### A migration is not the first thing to touch the schema
+
+The framework's migrations run inside applications that have their own. Every object
+a framework migration creates may already be there — built by an app migration, by a
+predecessor of the migration system, or by an operator. Written on the assumption of
+an empty schema, a migration fails **partway through**: the statements before the
+failure are committed, the ones after it never run, the runner records `result = 0`,
+and it retries and fails again on every deploy that changes the fingerprint.
+
+The checks below cover almost all of it.
+
+**1. Ask what kind of relation owns a name before you drop it.** `DROP VIEW IF EXISTS`
+does not protect you from a materialized view under the same name — PostgreSQL raises
+`"x" is not a view` and the `IF EXISTS` is no help, because the relation does exist.
+
+```php
+// Replaces the framework's own view; leaves a consumer's materialization alone.
+if ($schema->getRelationKind('reports.usage') === 'v') {
+    $this->DB()->query('DROP VIEW IF EXISTS reports.usage CASCADE');
+    $this->DB()->query('CREATE VIEW reports.usage AS ...');
+}
+```
+
+Note what this deliberately does *not* do: pick `DROP MATERIALIZED VIEW` when the kind
+is `m`. Completing the migration is the easy half. An application that made the name a
+materialized view chose a cached read over a live one and refreshes it on a schedule,
+so replacing it swaps a cached read for a full aggregation under an installation
+serving traffic, and leaves the refresh job pointed at a relation that no longer
+exists — failing on its own schedule, far from the deploy that caused it. Skip, and say
+so in the log. A plain view is the framework's own and is replaced as usual, so the
+framework never loses the ability to update what it created.
+
+**Say what you skipped.** A migration that quietly does nothing is indistinguishable
+from one that worked. Log to the `migrations` channel with enough detail for an
+operator to act on:
+
+```php
+\Pramnos\Logs\Logger::log(
+    'reports.usage already exists as a materialized view and was left as it is. '
+    . "To adopt the framework's live view, drop the relation together with whatever "
+    . 'refreshes it and re-run this migration.',
+    'migrations'
+);
 ```
 
 ## Migration Files Naming

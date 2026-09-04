@@ -343,7 +343,51 @@ class CreateApplicationsViews extends Migration
         // that has to be refreshed, and only the TimescaleDB one used to say so.
         ContinuousAggregateRegistry::apply($schema, 'applications.application_stats_hourly');
 
-        // usage_statistics — live multi-CTE view: token activity, OAuth config, webhook health
+        $this->createUsageStatisticsView($schema);
+    }
+
+    /**
+     * usage_statistics — live multi-CTE view: token activity, OAuth config, webhook health.
+     *
+     * Left alone when something other than a plain view already owns the name.
+     *
+     * An installation that has made this a *materialized* view has chosen a cached
+     * read over a live one, for an aggregation that spans the whole of `usertokens`
+     * plus the OAuth grant and webhook-event tables, and it refreshes it on a
+     * schedule of its own. Two things follow, and they are why the drop is not
+     * simply made relation-kind aware. Replacing it would swap that cached read for
+     * a full aggregation underneath an installation already serving traffic — a
+     * performance decision a migration is in no position to take. And it would
+     * leave whatever refreshes it pointed at a relation that no longer exists, so a
+     * job that had been quietly working would start failing on its own schedule,
+     * away from the deploy that caused it.
+     *
+     * The framework therefore keeps its definition to itself here and says so. Both
+     * shapes answer `SELECT * FROM applications.usage_statistics WHERE appid = ?`
+     * identically, so nothing that reads it has to know which one it got.
+     *
+     * A plain view *is* the framework's own, from an earlier run of this migration,
+     * and is replaced as before — so the framework never stops being able to update
+     * what it created.
+     */
+    private function createUsageStatisticsView(\Pramnos\Database\SchemaBuilder $schema): void
+    {
+        $kind = $schema->getRelationKind('applications.usage_statistics');
+        if ($kind !== null && $kind !== 'v') {
+            \Pramnos\Logs\Logger::log(
+                'applications.usage_statistics already exists as a '
+                . ($kind === 'm' ? 'materialized view' : 'relation of kind ' . $kind)
+                . ' and was left as it is: the framework will not trade a cached read'
+                . ' for a live aggregation on a running installation, nor orphan whatever'
+                . ' refreshes it. To adopt the framework\'s live view instead, drop the'
+                . ' relation together with its refresh function and job, then re-run this'
+                . ' migration.',
+                'migrations'
+            );
+
+            return;
+        }
+
         $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics CASCADE");
         $this->DB()->query("
             CREATE VIEW applications.usage_statistics AS
@@ -783,9 +827,15 @@ class CreateApplicationsViews extends Migration
 
     public function down(): void
     {
-        $caps = $this->DB()->schema()->getCapabilities();
+        $schema = $this->DB()->schema();
+        $caps = $schema->getCapabilities();
         if ($caps->isPostgreSQL()) {
-            $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics");
+            // Only ever drop the plain view, for the same reason up() only ever
+            // creates one: a materialization under this name is a consumer's, and
+            // this migration did not put it there.
+            if ($schema->getRelationKind('applications.usage_statistics') === 'v') {
+                $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics");
+            }
             $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly");
             $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily");
             $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications");
