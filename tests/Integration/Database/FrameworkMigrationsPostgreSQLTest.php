@@ -3237,6 +3237,103 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     /**
+     * geographic_analysis must build whether `ip_address` is VARCHAR or INET.
+     *
+     * WHAT: the column is retyped to INET — the type an application that created
+     *       `twofactor_attempts` itself would reasonably pick, since it validates
+     *       what goes in — and the migration must still create the view.
+     * WHY:  the view grouped on `SPLIT_PART(ip_address, '.', 1)`, and SPLIT_PART
+     *       has no INET overload:
+     *
+     *           function split_part(inet, unknown, integer) does not exist
+     *
+     *       geographic_analysis is the last view in that migration, so the failure
+     *       cost exactly that one object — but it cost it on every deploy. HOST()
+     *       is not the fix either: it rejects VARCHAR, so it would break the
+     *       framework's own column instead. `::text` is defined for both and
+     *       yields the dotted form either way, which is all the /8 grouping needs.
+     */
+    public function testGeographicAnalysisBuildsWhenIpAddressIsInet(): void
+    {
+        // Arrange — the authserver view sources, then the divergent column type
+        $this->loadMigration('authserver', 'CreateAuthserverSchema')->up();
+        $this->loadMigration('auth', 'CreateUsersTable')->up();
+        $this->loadMigration('auth', 'CreateUrlsTable')->up();
+        $this->loadMigration('auth', 'CreateUsertokensTable')->up();
+        $this->loadMigration('auth', 'CreateLoginlockoutTable')->up();
+        $this->loadMigration('auth', 'CreateUserTwofactorTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorSetupTable')->up();
+        $this->loadMigration('auth', 'CreateTwofactorAttemptsTable')->up();
+        $this->loadMigration('auth', 'CreateUserActivityLogTable')->up();
+        $this->loadMigration('auth', 'CreateUserConsentsTable')->up();
+        $this->loadMigration('auth', 'CreateUserPrivacySettingsTable')->up();
+        $this->loadMigration('auth', 'CreateGdprRequestsTable')->up();
+        $this->loadMigration('authserver', 'CreateApplicationsTable')->up();
+
+        try {
+            // TimescaleDB refuses a column rewrite while compression is enabled, and
+            // the migration enables it. The table is empty here, so there is nothing
+            // to decompress before turning it off.
+            if ($this->db->schema()->getCapabilities()->hasTimescaleDB()) {
+                try {
+                    $this->db->query(
+                        "SELECT remove_compression_policy('authserver.twofactor_attempts', TRUE)"
+                    );
+                } catch (\Throwable) {
+                    // No policy on this backend or version; the ALTER below decides.
+                }
+                $this->db->query(
+                    'ALTER TABLE authserver.twofactor_attempts
+                     SET (timescaledb.compress = false)'
+                );
+            }
+            $this->db->query(
+                'ALTER TABLE authserver.twofactor_attempts
+                 ALTER COLUMN ip_address TYPE INET USING ip_address::INET'
+            );
+        } catch (\Throwable $e) {
+            // Without the INET column there is nothing here to prove.
+            $this->markTestSkipped('ip_address could not be retyped to INET: ' . $e->getMessage());
+        }
+        $this->assertSame(
+            'inet',
+            (string) $this->db->query(
+                "SELECT data_type FROM information_schema.columns
+                  WHERE table_schema = 'authserver' AND table_name = 'twofactor_attempts'
+                    AND column_name = 'ip_address'"
+            )->fields['data_type'],
+            'precondition: the column really is INET'
+        );
+
+        // Act
+        $this->loadMigration('authserver', 'CreateAuthserverViews')->up();
+
+        // Assert — the view exists and answers, which it could not before
+        $this->assertGreaterThan(
+            0,
+            (int) $this->db->query(
+                "SELECT COUNT(*) AS cnt FROM information_schema.views
+                  WHERE table_schema = 'authserver' AND table_name = 'geographic_analysis'"
+            )->fields['cnt'],
+            'authserver.geographic_analysis must be created over an INET column'
+        );
+
+        $this->db->query(
+            "INSERT INTO authserver.twofactor_attempts (userid, ip_address, success, attempt_time)
+             VALUES (1, '203.0.113.7', false, CURRENT_TIMESTAMP)"
+        );
+        $row = $this->db->query(
+            "SELECT ip_network, attempts FROM authserver.geographic_analysis
+              WHERE ip_network = '203.x.x.x'"
+        );
+
+        // Proves the cast produced the dotted form and the /8 grouping still works —
+        // a view that built but grouped on nonsense would pass the check above.
+        $this->assertSame('203.x.x.x', (string) $row->fields['ip_network']);
+        $this->assertSame(1, (int) $row->fields['attempts']);
+    }
+
+    /**
      * AddSyncConsentTimestampTrigger must create authserver.sync_consent_timestamp()
      * and install it as BEFORE INSERT OR UPDATE on authserver.oauth2_user_consents.
      *

@@ -318,6 +318,16 @@ exists — failing on its own schedule, far from the deploy that caused it. Skip
 so in the log. A plain view is the framework's own and is replaced as usual, so the
 framework never loses the ability to update what it created.
 
+**2. Cast, do not assume a column's type.** The same logical column can be `VARCHAR` on
+one installation and something narrower on another, when the application created the
+table first and picked a type that validates its contents. Pick an expression defined
+for both:
+
+```sql
+-- SPLIT_PART has no INET overload; HOST() has no VARCHAR one; ::text is defined for both
+SPLIT_PART(ip_address::text, '.', 1)
+```
+
 **Say what you skipped.** A migration that quietly does nothing is indistinguishable
 from one that worked. Log to the `migrations` channel with enough detail for an
 operator to act on:

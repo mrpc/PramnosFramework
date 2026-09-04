@@ -158,12 +158,18 @@ class CreateAuthserverViews extends Migration
         ");
 
         // geographic_analysis — 2FA attempt volume grouped by /8 subnet, last 7 days
-        // ip_address is VARCHAR in the framework (inet in the reference application), so HOST() is not needed.
+        //
+        // ip_address is cast to text because the column is not the same type on
+        // every installation: VARCHAR where the framework's own migration created
+        // it, INET where the application created it first and kept a type that
+        // validates addresses. SPLIT_PART() has no INET overload and HOST() has no
+        // VARCHAR one, so neither works on both — but ::text is defined for both,
+        // and yields the dotted form either way.
         $this->DB()->query("DROP VIEW IF EXISTS authserver.geographic_analysis CASCADE");
         $this->DB()->query("
             CREATE VIEW authserver.geographic_analysis AS
             SELECT
-                SPLIT_PART(ip_address, '.', 1) || '.x.x.x'
+                SPLIT_PART(ip_address::text, '.', 1) || '.x.x.x'
                                                             AS ip_network,
                 COUNT(*)                                    AS attempts,
                 COUNT(*) FILTER (WHERE success = false)     AS failed_attempts,
@@ -172,7 +178,7 @@ class CreateAuthserverViews extends Migration
                 MAX(attempt_time)                           AS last_seen
             FROM authserver.twofactor_attempts
             WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '7 days'
-            GROUP BY SPLIT_PART(ip_address, '.', 1)
+            GROUP BY SPLIT_PART(ip_address::text, '.', 1)
             ORDER BY COUNT(*) DESC
         ");
 
