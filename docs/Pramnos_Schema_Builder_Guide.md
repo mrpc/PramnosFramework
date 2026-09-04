@@ -352,6 +352,45 @@ $schema->refreshMaterializedView('mv_stats', true); // CONCURRENTLY (PG: allows 
 $schema->dropMaterializedView('mv_stats');
 ```
 
+### Which kind of relation owns a name
+
+`dropView()` and `dropMaterializedView()` are not interchangeable. PostgreSQL refuses
+`DROP VIEW` on a materialized view outright:
+
+```
+ERROR:  "usage_statistics" is not a view
+HINT:  Use DROP MATERIALIZED VIEW to remove a materialized view.
+```
+
+`hasView()` cannot tell you which you have — it answers yes for a plain view, a
+materialized view and a TimescaleDB continuous aggregate alike, which is the right
+question only when all you need to know is whether a `SELECT` will be answered.
+`getRelationKind()` is the one to ask before a drop:
+
+```php
+$kind = $schema->getRelationKind('applications.usage_statistics');
+
+// null → nothing owns the name, free to create
+// 'v'  → a plain view (a continuous aggregate reports 'v' too)
+// 'm'  → a materialized view
+// 'r'  → an ordinary table  ('p' partitioned, 'f' foreign)
+
+if ($kind === 'v') {
+    $schema->dropView('applications.usage_statistics');
+}
+```
+
+The letters are PostgreSQL's own `pg_class.relkind` values. MySQL has neither
+materialized views nor a relkind, so it answers with the only two it can distinguish,
+`v` and `r`.
+
+The reason to reach for it is rarely a re-run — a view the framework created is a view
+it can replace. It is a *different owner*: an application that made the same name a
+materialized view because it wanted a cached read, and refreshes it on a schedule of
+its own. Dropping that relation swaps a cached read for a full aggregation underneath
+a running installation, and leaves whatever refreshes it pointed at nothing. Neither
+belongs in a migration, so check the kind and leave what you did not create.
+
 ## Introspection
 
 ```php
@@ -366,6 +405,12 @@ if ($schema->hasColumn('users', 'email')) {
 if ($schema->hasIndex('users', 'idx_users_email')) {
     // index exists
 }
+
+if ($schema->hasView('reports.daily')) {
+    // a plain view, a materialized view or a continuous aggregate — any of the three
+}
+
+$schema->getRelationKind('reports.daily'); // 'v' | 'm' | 'r' | null — which one it is
 ```
 
 `hasIndex()` matches on the index **name**, not on its columns. Two indexes over the

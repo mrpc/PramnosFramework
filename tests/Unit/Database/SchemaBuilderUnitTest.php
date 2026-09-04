@@ -1397,6 +1397,106 @@ class SchemaBuilderUnitTest extends TestCase
     }
 
     // =========================================================================
+    // getRelationKind() — which of the things sharing the name a name is
+    // =========================================================================
+
+    /**
+     * On PostgreSQL the pg_class.relkind letter is returned verbatim.
+     *
+     * `m` is the one that matters: a caller about to issue `DROP VIEW` has to be
+     * able to tell a materialized view apart from a plain one, because PostgreSQL
+     * refuses the statement on the former and `hasView()` answers yes to both.
+     */
+    public function testGetRelationKindReturnsTheRelkindOnPostgreSQL(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql');
+        $captured = '';
+        $db->method('query')->willReturnCallback(function (string $sql) use (&$captured) {
+            $captured = $sql;
+            return $this->fakeResult([['relkind' => 'm']], ['relkind' => 'm']);
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $kind = $sb->getRelationKind('applications.usage_statistics');
+
+        // Assert
+        $this->assertSame('m', $kind);
+        // Asked of pg_class, not information_schema.views — which lists neither
+        // materialized views nor tables, so it could not answer this question.
+        $this->assertStringContainsString('pg_class', $captured);
+    }
+
+    /**
+     * A name nothing owns answers null, not a guess.
+     *
+     * Callers branch on `=== null` to mean "free to create", so an empty result
+     * must not come back as an empty-string kind.
+     */
+    public function testGetRelationKindReturnsNullWhenNothingOwnsTheName(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql');
+        $db->method('query')->willReturn($this->fakeResult([], []));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertNull($sb->getRelationKind('applications.usage_statistics'));
+    }
+
+    /**
+     * A failed lookup is also null rather than a false kind.
+     */
+    public function testGetRelationKindReturnsNullWhenTheQueryYieldsNothing(): void
+    {
+        // Arrange — the driver returned no result object at all
+        $db = $this->makeDBMock('postgresql');
+        $db->method('query')->willReturn(null);
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertNull($sb->getRelationKind('applications.usage_statistics'));
+    }
+
+    /**
+     * MySQL has no relkind, so its two distinguishable kinds are mapped onto the
+     * same letters PostgreSQL uses: `v` for a view, `r` for anything else.
+     *
+     * There is no `m` case to test because MySQL has no materialized views —
+     * which is also why the guard this feeds is a no-op there.
+     */
+    public function testGetRelationKindMapsMySQLTableTypesOntoRelkindLetters(): void
+    {
+        foreach ([['VIEW', 'v'], ['BASE TABLE', 'r'], ['SYSTEM VIEW', 'v']] as [$tableType, $expected]) {
+            // Arrange
+            $db = $this->makeDBMock('mysql');
+            $db->method('query')->willReturn(
+                $this->fakeResult([['relation_type' => $tableType]], ['relation_type' => $tableType])
+            );
+            $sb = new SchemaBuilder($db);
+
+            // Act + Assert
+            $this->assertSame($expected, $sb->getRelationKind('applications.usage_statistics'),
+                "MySQL table_type {$tableType} must map to {$expected}");
+        }
+    }
+
+    /**
+     * An unknown name on MySQL answers null too.
+     */
+    public function testGetRelationKindReturnsNullOnMySQLWhenTheNameIsFree(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $db->method('query')->willReturn($this->fakeResult([], []));
+        $sb = new SchemaBuilder($db);
+
+        // Act + Assert
+        $this->assertNull($sb->getRelationKind('applications.usage_statistics'));
+    }
+
+    // =========================================================================
     // createContinuousAggregate() — three-way dispatch
     // =========================================================================
 

@@ -1355,6 +1355,70 @@ class SchemaBuilder
     }
 
     /**
+     * What kind of relation is sitting under this name, if any?
+     *
+     * `hasView()` answers yes for a plain view and for a materialized one alike,
+     * which is the right question when all you need to know is whether something
+     * will answer a SELECT. It is the wrong question before a `DROP VIEW`:
+     * PostgreSQL refuses to drop a materialized view that way, and a migration
+     * that assumes it is the first thing to touch the schema then fails partway
+     * through, leaving everything it created before the failure behind.
+     *
+     * The kinds that matter here are PostgreSQL's own `pg_class.relkind` letters:
+     * `v` a view, `m` a materialized view, `r` an ordinary table, `p` a partitioned
+     * one, `f` foreign. A TimescaleDB continuous aggregate reports `v`, because
+     * that is what it presents as. MySQL has neither materialized views nor a
+     * relkind, so it answers with the only two it can distinguish: `v` and `r`.
+     *
+     * @param  string      $name Logical relation name, e.g. `applications.usage_statistics`
+     * @return string|null One `pg_class.relkind` letter, or null when nothing owns the name
+     */
+    public function getRelationKind(string $name): ?string
+    {
+        [$schema, $relation] = $this->splitTable($name);
+
+        if ($this->capabilities->isMySQL()) {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT table_type AS relation_type FROM information_schema.tables
+                     WHERE table_schema = DATABASE() AND table_name = %s',
+                    $relation
+                )
+            );
+
+            if (!$result || $result->numRows === 0) {
+                return null;
+            }
+
+            // Aliased, because MySQL reports information_schema column names in
+            // upper case on some versions and lower on others, and the result
+            // object keys on whatever came back.
+            return str_contains(
+                strtoupper((string) ($result->fields['relation_type'] ?? '')),
+                'VIEW'
+            ) ? 'v' : 'r';
+        }
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT c.relkind FROM pg_class c
+                   JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = %s AND c.relname = %s",
+                $schema,
+                $relation
+            )
+        );
+
+        if (!$result || $result->numRows === 0) {
+            return null;
+        }
+
+        $kind = (string) ($result->fields['relkind'] ?? '');
+
+        return $kind !== '' ? $kind : null;
+    }
+
+    /**
      * Is this aggregate already being refreshed by something?
      *
      * Two backends, two answers, one question — which is the whole point of
