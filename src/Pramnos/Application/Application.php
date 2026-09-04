@@ -156,7 +156,7 @@ class Application extends Base
         if ($this->breadcrumbs === null) {
             $this->breadcrumbs = new \Pramnos\Html\Breadcrumb();
         }
-        if (file_exists(ROOT . '/var/MAINTENANCE')) {
+        if (file_exists($this->maintenanceFlagFile())) {
             $this->showError($this->maintenanceMessage());
         }
         if (!defined('PRAMNOS_DEFINES')) {
@@ -1490,7 +1490,36 @@ class Application extends Base
      */
     protected function isInMaintenance(): bool
     {
-        return file_exists(ROOT . DS . 'var' . DS . 'MAINTENANCE');
+        return file_exists($this->maintenanceFlagFile());
+    }
+
+    /**
+     * Where the maintenance flag lives.
+     *
+     * Built with a literal `/` and **not** with `DS`, because the earliest
+     * caller is the constructor's first act and `DS` is defined by
+     * `setDefines()`, further down the same constructor. Anything on this path
+     * that reaches for `DS` is an uncaught `Error` on any entry point that has
+     * not defined it — which is what the framework's own older scaffolding
+     * produces:
+     *
+     *     define('ROOT', dirname(__DIR__));
+     *     require ROOT . '/vendor/autoload.php';
+     *     $app = new \MyApp\Application();
+     *
+     * and nothing there should have to define it: a filesystem check cannot
+     * depend on constants its own caller has not set yet. PHP's filesystem
+     * functions accept `/` on every platform, including Windows, so there is
+     * nothing `DS` was buying here.
+     *
+     * One method rather than the string repeated at each site, so the next
+     * caller cannot reintroduce the dependency.
+     *
+     * @return string
+     */
+    protected function maintenanceFlagFile(): string
+    {
+        return ROOT . '/var/MAINTENANCE';
     }
 
     /**
@@ -1517,7 +1546,7 @@ class Application extends Base
      */
     protected function maintenanceMessage(): string
     {
-        $file   = ROOT . DS . 'var' . DS . 'MAINTENANCE';
+        $file   = $this->maintenanceFlagFile();
         $reason = is_readable($file) ? trim((string) @file_get_contents($file)) : '';
 
         $parts = [];
@@ -3380,13 +3409,13 @@ class Application extends Base
      */
     public function startMaintenance($reason = '')
     {
-        if (file_exists(ROOT . DS . 'var' . DS . "MAINTENANCE")) {
+        if (file_exists($this->maintenanceFlagFile())) {
             return;
         }
-        if (!file_exists(ROOT . DS . 'var')) {
-            mkdir(ROOT . DS . 'var');
+        if (!file_exists(ROOT . '/var')) {
+            mkdir(ROOT . '/var');
         }
-        $file = @fopen(ROOT . DS . 'var' . DS . "MAINTENANCE", "w+");
+        $file = @fopen($this->maintenanceFlagFile(), "w+");
         if ($file === false) {
             return; // Cannot write maintenance flag (e.g. permission denied) — skip silently
         }
@@ -3408,11 +3437,11 @@ class Application extends Base
      */
     public function stopMaintenance()
     {
-        if (file_exists(ROOT . DS . 'var' . DS . "MAINTENANCE")) {
-                unlink(ROOT . DS . 'var' . DS . "MAINTENANCE");
+        if (file_exists($this->maintenanceFlagFile())) {
+                unlink($this->maintenanceFlagFile());
         }
         //@codeCoverageIgnoreStart
-        if (file_exists(ROOT . DS . 'var' . DS . "MAINTENANCE")) {
+        if (file_exists($this->maintenanceFlagFile())) {
             sleep(2);
             $this->stopMaintenance();
         }

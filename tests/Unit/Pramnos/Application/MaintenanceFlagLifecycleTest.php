@@ -179,6 +179,63 @@ class MaintenanceFlagLifecycleTest extends TestCase
     }
 
     /**
+     * The maintenance page renders on an entry point that has not defined `DS`.
+     *
+     * WHAT: a bare front controller — `ROOT`, autoload, `new Application()` and
+     *       nothing else — with the flag present must answer the 503 page, not a
+     *       PHP fatal.
+     * WHY:  `Application::__construct()`'s first act is this filesystem check,
+     *       and `DS` is defined by `setDefines()` further down the same
+     *       constructor. Every method on this path that reached for `DS` was an
+     *       uncaught `Error` on any entry point that had not defined it —
+     *       including the one the framework's own older scaffolding produces.
+     *       The flag also goes up on its own, from `runMigration()`, for the
+     *       duration of every migration on a deploy, so a request arriving in
+     *       that window got the fatal instead of the 503 with `Retry-After`.
+     *
+     * **This runs in a subprocess, and it has to.** The suite bootstrap defines
+     * `DS`, so a test inside this process cannot reproduce the condition at all —
+     * which is exactly why the whole class of bug reached a release with a green
+     * suite behind it.
+     */
+    public function testTheMaintenancePageRendersWithoutTheDSConstant(): void
+    {
+        // Arrange — the flag, and the entry point from the scaffolding verbatim
+        file_put_contents($this->flag, 'Reason: raised by an operator, by hand');
+        $script = <<<'PHP'
+        <?php
+        define('ROOT', getenv('PRAMNOS_TEST_ROOT'));
+        define('SP', microtime(true));
+        require ROOT . '/vendor/autoload.php';
+        $app = new \Pramnos\Application\Application();
+        echo "CONSTRUCTED-WITHOUT-MAINTENANCE";
+        PHP;
+        $file = sys_get_temp_dir() . '/pramnos_bare_entry_' . bin2hex(random_bytes(4)) . '.php';
+        file_put_contents($file, $script);
+
+        try {
+            // Act
+            $output = (string) shell_exec(
+                'PRAMNOS_TEST_ROOT=' . escapeshellarg(ROOT) . ' '
+                . escapeshellcmd(PHP_BINARY) . ' ' . escapeshellarg($file) . ' 2>&1'
+            );
+
+            // Assert — no fatal of any kind
+            $this->assertStringNotContainsString('Undefined constant', $output,
+                'the constructor must not depend on constants setDefines() has not defined yet');
+            $this->assertStringNotContainsString('Fatal error', $output);
+            $this->assertStringNotContainsString('CONSTRUCTED-WITHOUT-MAINTENANCE', $output,
+                'the flag was present, so the page must have been served instead');
+
+            // Assert — and it is the page, carrying the reason
+            $this->assertStringContainsString('Maintenance Mode', $output);
+            $this->assertStringContainsString('raised by an operator, by hand', $output);
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    /**
      * The page shows the reason from the flag rather than an empty array.
      */
     public function testTheMaintenanceMessageCarriesTheReason(): void

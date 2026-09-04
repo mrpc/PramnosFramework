@@ -1120,6 +1120,41 @@ the operator who needs it is the one running with `DEVELOPMENT` on, or reading t
 log. Without a reason and without `DEVELOPMENT` the page carries only its title —
 which is why passing a reason is worth the four words.
 
+#### Nothing on this path may depend on `DS`
+
+`Application::__construct()`'s **first act** is the flag check, and `DS` is
+defined by `setDefines()` further down that same constructor. So every method the
+maintenance path touches builds the flag's location through
+`maintenanceFlagFile()`, which uses a literal `/`:
+
+```php
+protected function maintenanceFlagFile(): string
+{
+    return ROOT . '/var/MAINTENANCE';
+}
+```
+
+Reaching for `DS` there is an uncaught `Error` on any entry point that has not
+defined it — including a bare front controller, which is a shape the framework's
+own scaffolding has produced:
+
+```php
+define('ROOT', dirname(__DIR__));
+require ROOT . '/vendor/autoload.php';
+$app = new \MyApp\Application();       // nothing here defines DS
+```
+
+and nothing there should have to: a filesystem check cannot depend on constants
+its own caller has not set yet. `DS` buys nothing in a path anyway — PHP's
+filesystem functions accept `/` on every platform, Windows included.
+
+This is worth knowing before adding to the path, because the flag goes up on its
+own from `runMigration()` for the duration of every migration on a deploy. A
+fault here turns a request arriving in that window into a PHP fatal instead of
+the 503 with `Retry-After` this section is about. A test for it has to run in a
+**subprocess** — the test suite's bootstrap defines `DS`, so nothing inside the
+suite's own process can reproduce the condition.
+
 `Retry-After` is an hour by default in the middleware, five minutes from
 `Application::showError()`. Define `PRAMNOS_MAINTENANCE_RETRY_AFTER` to set both:
 
