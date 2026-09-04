@@ -2346,18 +2346,21 @@ class DevPanelController extends Controller
                 return ['—', '—', '—'];
             }
 
-            // The same directories the console's `migrate:status` and the MCP
-            // migration tool resolve, rather than a second answer to the same
-            // question: FeatureRegistry::getMigrationPaths() covers registered
-            // features only and misses the application's own app/Migrations.
-            $all = \Pramnos\Database\MigrationLoader::loadFromDirectories(
-                \Pramnos\Database\MigrationLoader::resolveDefaultDirectories(
-                    defined('ROOT') ? \ROOT : getcwd()
-                ),
+            // The same answer the console's `migrate:status` and the MCP
+            // migration tool get, rather than a second one to the same question:
+            // migrationScope() applies the `features` gate and app.php's
+            // migration_cutoff, so the card cannot claim pending work that
+            // nothing will ever run.
+            $scope = \Pramnos\Database\MigrationLoader::scopeFor($app, true);
+            $all   = \Pramnos\Database\MigrationLoader::loadFromDirectories(
+                $scope['dirs'],
                 $app
             );
 
             $runner  = new \Pramnos\Database\MigrationRunner($db);
+            if ($scope['cutoff'] !== '') {
+                $all = $runner->filterCutoff($all, $scope['cutoff']);
+            }
             $history = [];
             $last    = '—';
             foreach ($runner->getHistory() as $row) {

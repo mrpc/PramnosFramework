@@ -104,12 +104,16 @@ class StatusTool implements McpToolInterface
         }
 
         try {
-            $root       = defined('ROOT') ? (string) ROOT : (string) getcwd();
-            $migrations = MigrationLoader::loadFromDirectories(
-                MigrationLoader::resolveDefaultDirectories($root),
-                $this->app
-            );
-            $history = (new MigrationRunner($db))->getHistory();
+            // Feature-gated and cutoff-filtered, the same way the web path and
+            // the CLI decide it — an unfiltered count here reported the baseline
+            // epoch as pending work on installations that will never run it.
+            $scope      = MigrationLoader::scopeFor($this->app, true);
+            $runner     = new MigrationRunner($db);
+            $migrations = MigrationLoader::loadFromDirectories($scope['dirs'], $this->app);
+            if ($scope['cutoff'] !== '') {
+                $migrations = $runner->filterCutoff($migrations, $scope['cutoff']);
+            }
+            $history = $runner->getHistory();
         } catch (\Throwable $exception) {
             return ['unknown' => true, 'error' => $exception->getMessage()];
         }

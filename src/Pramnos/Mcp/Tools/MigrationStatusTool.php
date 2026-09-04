@@ -42,9 +42,17 @@ class MigrationStatusTool implements McpToolInterface
             return ['error' => 'No database connection'];
         }
 
-        $dirs       = $this->resolveDirs();
-        $migrations = MigrationLoader::loadFromDirectories($dirs, $this->app);
+        // The application's answer to which migrations apply here — the
+        // `features` gate and app.php's `migration_cutoff`. Without it this tool
+        // reported the whole baseline epoch as pending on any installation whose
+        // schema predates the migration system, which is a number an assistant
+        // then repeats to a developer.
+        $scope      = MigrationLoader::scopeFor($this->app, true);
+        $migrations = MigrationLoader::loadFromDirectories($scope['dirs'], $this->app);
         $runner     = new MigrationRunner($db);
+        if ($scope['cutoff'] !== '') {
+            $migrations = $runner->filterCutoff($migrations, $scope['cutoff']);
+        }
         $history    = $runner->getHistory();
 
         $historyMap = [];
@@ -78,12 +86,13 @@ class MigrationStatusTool implements McpToolInterface
             'applied_count'  => count($applied),
             'pending'        => $pending,
             'last_applied'   => $lastApplied,
+            // Named so a reader can tell "nothing pending" from "nothing in
+            // scope", which are different states with the same count.
+            'cutoff'         => $scope['cutoff'],
+            'skipped_features' => array_values(array_unique(array_map(
+                static fn(string $reason): string => $reason,
+                $scope['skipped']
+            ))),
         ];
-    }
-
-    private function resolveDirs(): array
-    {
-        $root = defined('ROOT') ? ROOT : getcwd();
-        return MigrationLoader::resolveDefaultDirectories($root);
     }
 }
