@@ -7,6 +7,10 @@ use_cases:
   - Setting up data retention on MySQL or plain PostgreSQL
   - Changing a chunk, compression or retention interval after the fact
   - Choosing segmentby and orderby so compression actually compresses
+  - Deciding whether to cache an aggregate as a continuous aggregate or a materialised view
+  - Working out why CREATE MATERIALIZED VIEW WITH (timescaledb.continuous) is refused
+  - Scheduling the refresh of a rollup, or fixing one that is frozen
+  - Deciding whether a table should become a hypertable at all
 ---
 
 # Hypertables: declaring them, and repairing them later
@@ -233,6 +237,223 @@ log because they ran a maintenance command.
 `auditid`. Widening it later is possible but is a maintenance-window job —
 decompress, rebuild the primary key, recompress — so if you are running one and
 expect volume, plan it rather than discover it.
+
+## What belongs in a hypertable, and what does not
+
+The question arrives from the other direction too: *a continuous aggregate needs
+a hypertable, so should I make this table one so that it qualifies?* Usually no,
+and the reason generalises.
+
+**A hypertable is for append-mostly rows queried by time range. A table of live
+mutable state looked up by identity is not one, however many rows it has.**
+
+`public.usertokens` is the worked counter-example, and it is instructive because
+it looks like a candidate: tens of millions of rows, a `created` timestamp, rows
+that stop mattering after a while. It is still the wrong shape, for three
+reasons, and the first two are hard refusals rather than trade-offs.
+
+**Every unique index must contain the partitioning column.** Measured on 2.19.3:
+
+```
+ERROR:  cannot create a unique index without the column "created" (used in partitioning)
+HINT:   If you're creating a hypertable on a table with a primary key, ensure the
+        partitioning column is part of the primary or composite key.
+```
+
+`usertokens` has unique indexes that exist to guarantee one row per value —
+`token_lookup` is there precisely to make a digest unique. Compositing it as
+`(token_lookup, created)` is accepted and still serves lookups from the index
+prefix, but the uniqueness guarantee is gone: the same digest can now be inserted
+twice with different `created`. For an index whose entire purpose is that
+guarantee, that is not a workaround.
+
+**Then nothing can reference it by its surrogate key.** The primary key has to
+become `(tokenid, created)` for the same reason, and then:
+
+```
+ERROR:  there is no unique constraint matching given keys for referenced table "usertokens"
+```
+
+for any `REFERENCES usertokens (tokenid)`. That is not hypothetical either — it
+is `fk_tokenactions_tokenid`, which the framework's own
+`add_missing_foreign_keys_to_existing_tables` creates. A composite foreign key is
+accepted, but only if every referencing table also stores the token's `created`.
+
+**And there is nothing to gain.** The access pattern is a point lookup on a unique
+digest, not a time-ranged scan, so chunk exclusion buys nothing. The rows are
+updated constantly — `lastused`, `status` — which is what compression is worst at.
+And retention by chunk age would delete tokens by *creation* time, while a
+long-lived token in an old chunk is still perfectly valid.
+
+`HypertableRegistry` already reflects this. Every table it declares is a record of
+something that happened, addressed by when: `tokenactions`,
+`authserver.twofactor_attempts`, `authserver.user_activity_log`, the consent and
+GDPR trails (`user_consents`, `data_processing_records`, `gdpr_requests`), the
+three `pramnos.changelog*` tables, and `applications.application_stats`.
+`usertokens` — live credential state, addressed by digest — is not among them, and
+that is the distinction rather than an oversight.
+
+## Caching an aggregate: continuous aggregate, or materialised view
+
+The framework offers two ways to cache an aggregate and they are not
+interchangeable. `SchemaBuilder::createContinuousAggregate()` is the better one
+where it applies, and where it does not apply it does not *degrade* — it refuses.
+So the first question is not which you prefer, it is which your query is allowed
+to be.
+
+### The three requirements
+
+A continuous aggregate must:
+
+1. **select from a hypertable.** Not from an ordinary table, and not only from a
+   CTE over one.
+2. **bucket on that hypertable's time dimension with `time_bucket()`.**
+   `date_trunc()` does not count, even though it produces the same buckets.
+3. **stay inside the SQL TimescaleDB can maintain incrementally.** No CTEs, no
+   subqueries, no set-returning functions, no window functions.
+
+Miss one and you get a refusal at `CREATE`, not a slow view. Measured on
+TimescaleDB 2.19.3, which is what this project's stack runs:
+
+| What is wrong | What PostgreSQL says |
+|---|---|
+| source is an ordinary table | `invalid continuous aggregate view` · *At least one hypertable should be used in the view definition.* |
+| no `time_bucket()` | `continuous aggregate view must include a valid time bucket function` |
+| `date_trunc()` instead of `time_bucket()` | the same error as above |
+| a window function | `invalid continuous aggregate query` · *Window functions are not supported by continuous aggregates.* |
+| a CTE, or a correlated subquery | `invalid continuous aggregate query` · *CTEs, subqueries and set-returning functions are not supported by continuous aggregates.* |
+
+**Check the restriction against your own version before designing around it.**
+The maintainable-SQL subset has grown across releases, and two things commonly
+described as forbidden are accepted on 2.19.3: `COUNT(DISTINCT …)` and a
+`LEFT JOIN` to an ordinary table both create successfully. Ask your database
+rather than a list — the cost of asking is one `CREATE` that either succeeds or
+tells you why not.
+
+### A pair that makes the boundary concrete
+
+Two rollups in the same schema, one of each kind, and the difference is not taste.
+
+```sql
+-- applications.tokenactions_hourly — qualifies.
+-- public.tokenactions is a hypertable on action_time (see the registry above);
+-- the bucket is on that same column; every aggregate is one TimescaleDB can
+-- maintain incrementally — including FILTER and percentile_cont, which are fine.
+SELECT time_bucket('1 hour', action_time) AS bucket,
+       tokenid, urlid, method, return_status,
+       COUNT(*)                                                               AS request_count,
+       AVG(execution_time_ms)                                                 AS avg_execution_time,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY execution_time_ms::float)  AS p95_execution_time,
+       COUNT(*) FILTER (WHERE return_status BETWEEN 500 AND 599)              AS server_error_count
+FROM public.tokenactions
+WHERE action_time IS NOT NULL
+GROUP BY time_bucket('1 hour', action_time), tokenid, urlid, method, return_status
+```
+
+```sql
+-- applications.usage_statistics — cannot be a continuous aggregate.
+-- Two independent reasons: public.usertokens is an ordinary table, and the query
+-- is four CTEs. There is also no time bucket anywhere in it, because it is not a
+-- time series — it is one current row per application.
+WITH token_stats AS (...), historical_stats AS (...),
+     oauth_config AS (...), webhook_stats AS (...)
+SELECT a.appid, ... FROM public.applications a
+LEFT JOIN token_stats ts ON ...
+```
+
+The sentence that separates them: **a continuous aggregate answers "this measure,
+per time bucket, from this time series". Anything whose answer is "the current
+state of this entity" is the other kind**, however much aggregation it does.
+
+### The fallback, and what it costs
+
+A materialised view plus a scheduled refresh. `createMaterializedView()` builds
+it; the refresh has to be arranged, because PostgreSQL never refreshes one on its
+own.
+
+```sql
+-- The refresh function's signature is not optional, and getting it wrong is
+-- worse than an error at CREATE: see below.
+CREATE FUNCTION applications.refresh_usage_statistics(job_id INT, config JSONB)
+RETURNS VOID AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY applications.usage_statistics;
+END
+$$ LANGUAGE plpgsql;
+
+SELECT add_job('applications.refresh_usage_statistics'::regproc, '4 hours');
+```
+
+`CONCURRENTLY` needs a unique index on the view, and buys readers no lock during
+the refresh. Without it, readers block.
+
+Three costs that a continuous aggregate does not have:
+
+**Staleness you choose.** Every read between refreshes is as old as the last one.
+That is the trade being made deliberately — for an aggregate over a whole table
+read once per page view, a four-hour-old answer is usually the right call — but it
+is a decision to record where the view is defined, not an implementation detail.
+
+**`add_job` accepts the wrong signature and fails later.** A function taking no
+arguments registers without complaint and then fails on every scheduled run with
+`cache lookup failed for function 0` — which names nothing you can search for.
+Measured on 2.19.3. If a refresh job is silently not working, check the signature
+first.
+
+**A job outliving its view fails forever.** Drop the view and the job stays
+scheduled, erroring every interval with
+`relation "…" does not exist` inside `REFRESH MATERIALIZED VIEW`, far from
+whatever dropped it. So the job and the function belong to the view's lifecycle:
+if a migration removes the view, it removes them in the same migration. This is
+not hypothetical — it is why `create_applications_views` asks
+`SchemaBuilder::getRelationKind()` before dropping anything and leaves a
+materialisation it did not create alone.
+
+Note also that `add_continuous_aggregate_policy()` is not available here:
+pointing it at a plain materialised view answers `"…" is not a continuous
+aggregate`. Refreshing one is `add_job` on TimescaleDB, and the framework's own
+declaration for its rollups is [`ContinuousAggregateRegistry`](#keeping-a-rollup-refreshed).
+
+## Keeping a rollup refreshed
+
+Creating a rollup does not schedule its refresh, on either backend.
+`SchemaBuilder::addContinuousAggregatePolicy()` does that, and it branches: a
+native TimescaleDB job where the extension is present, a row in
+`pramnos.framework_policies` executed by the policy engine everywhere else. A
+materialised view that nothing refreshes is frozen at the moment it was created —
+it exists, it answers, and every answer is the one it gave the day the migration
+ran, which is worse than a missing view because a missing view fails.
+
+`Pramnos\Database\ContinuousAggregateRegistry` is where the parameters live, once,
+so the migration that creates a rollup and the repair that fixes an installation
+whose migrations already ran cannot disagree about them.
+
+```php
+use Pramnos\Database\ContinuousAggregateRegistry;
+
+ContinuousAggregateRegistry::register('reports.daily_totals', [
+    'start_offset'      => '3 days',   // how far back a refresh reaches
+    'end_offset'        => '1 day',    // how close to now it stops
+    'schedule_interval' => '1 day',    // how often it runs
+]);
+```
+
+Then, from the migration that created the view:
+
+```php
+ContinuousAggregateRegistry::apply($schema, 'reports.daily_totals');
+```
+
+`apply()` is guarded on every side, so it is safe from a migration that has just
+created the view and from a repair run against a database that already has the
+policy: it does nothing when the view is absent (the feature may not be enabled
+here), nothing when a policy already exists, and nothing when there is nowhere to
+record one — on a backend without TimescaleDB whose core migrations have not yet
+created `pramnos.framework_policies`, the insert would fail and take the
+surrounding migration with it. It returns what it did, so a migration can log it.
+
+`php pramnos timescale:ensure` reads the same registry and adds what is missing,
+which is the repair path for a database migrated before its rollup had a policy.
 
 ## Repairing a database
 

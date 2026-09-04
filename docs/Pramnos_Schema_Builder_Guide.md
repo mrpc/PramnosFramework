@@ -4,6 +4,7 @@ use_cases:
   - Choosing a column type, modifier, index or foreign key
   - Writing DDL that must work on MySQL, PostgreSQL and TimescaleDB
   - Guarding DDL behind a database capability check
+  - Choosing between a continuous aggregate and a materialised view
 ---
 
 # Pramnos Schema Builder Guide
@@ -476,6 +477,15 @@ $schema->createContinuousAggregate(
 );
 ```
 
+**Not every aggregate can be one.** TimescaleDB requires a continuous aggregate to select
+from a hypertable, to bucket on that hypertable's time dimension with `time_bucket()`, and
+to stay inside the SQL it can maintain incrementally — so a query built on CTEs, or over an
+ordinary table, is refused at `CREATE` rather than merely being slow. The boundary, the
+exact refusals, a qualifying/non-qualifying pair, and the materialised-view-plus-`add_job`
+fallback with the three costs it carries are in
+**[Caching an aggregate: continuous aggregate, or materialised view](Pramnos_Hypertable_Guide.md#caching-an-aggregate-continuous-aggregate-or-materialised-view)**.
+Read it before designing a rollup, not after the refusal.
+
 `createContinuousAggregate()` is safe to call against a name that is already taken: it
 returns without issuing any DDL and writes a line to the `migrations` log saying the
 existing definition was kept.
@@ -498,7 +508,10 @@ Creating an aggregate does not schedule its refresh. `addContinuousAggregatePoli
 does that — a native job on TimescaleDB, a row in `pramnos.framework_policies` on every
 other backend — and `Pramnos\Database\ContinuousAggregateRegistry` is where the
 framework declares the parameters once, so the creating migration and a later repair
-use the same ones.
+use the same ones. See
+**[Keeping a rollup refreshed](Pramnos_Hypertable_Guide.md#keeping-a-rollup-refreshed)**:
+an unrefreshed materialised view is frozen at the moment it was created, which is worse
+than a missing one because it still answers.
 
 ## Capability-Conditional DDL
 
