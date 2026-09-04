@@ -1572,6 +1572,42 @@ class SchemaBuilderUnitTest extends TestCase
         $this->assertStringNotContainsString('MATERIALIZED', $allSql);
     }
 
+    /**
+     * An aggregate that already exists is not re-created, on any backend.
+     *
+     * WHAT: `hasView()` says yes, so no CREATE statement is issued at all.
+     * WHY:  `CREATE MATERIALIZED VIEW` is not idempotent and MySQL's `CREATE
+     *       VIEW` is not either, so the second caller got `continuous aggregate
+     *       "…" already exists` and the migration around it failed. The case in
+     *       the field is an installation whose own migration had already built
+     *       the identical rollup — pure noise, and the only alternative from its
+     *       side was rebuilding an aggregate with materialised history to reach
+     *       the same definition.
+     */
+    public function testCreateContinuousAggregateSkipsWhenTheViewIsAlreadyThere(): void
+    {
+        // Arrange — every backend, so the guard is proven to sit before the branch
+        foreach ([['postgresql', true], ['postgresql', false], ['mysql', false]] as [$type, $tsdb]) {
+            $db = $this->makeDBMock($type, $tsdb);
+            $capturedSqls = [];
+            $db->method('query')->willReturnCallback(function ($sql) use (&$capturedSqls) {
+                $capturedSqls[] = $sql;
+                // Answers the hasView() probe affirmatively; nothing else is expected.
+                return $this->fakeResult([['x' => 1]], ['x' => 1]);
+            });
+            $sb = new SchemaBuilder($db);
+
+            // Act
+            $sb->createContinuousAggregate('mv_stats', 'SELECT 1');
+
+            // Assert — the only statement run was the existence probe
+            $allSql = implode(' ', $capturedSqls);
+            $this->assertStringNotContainsString('CREATE ', $allSql,
+                "{$type} (timescale=" . var_export($tsdb, true) . ') must not issue a CREATE');
+            $this->assertCount(1, $capturedSqls, 'exactly one query: the probe');
+        }
+    }
+
     // =========================================================================
     // TimescaleDB introspection: getHypertables()
     // =========================================================================

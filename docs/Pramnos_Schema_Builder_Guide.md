@@ -476,6 +476,30 @@ $schema->createContinuousAggregate(
 );
 ```
 
+`createContinuousAggregate()` is safe to call against a name that is already taken: it
+returns without issuing any DDL and writes a line to the `migrations` log saying the
+existing definition was kept.
+
+That guard is there because neither `CREATE MATERIALIZED VIEW` nor MySQL's `CREATE VIEW`
+is idempotent. Without it the call raises `continuous aggregate "…" already exists` and
+takes the surrounding migration with it — on an installation whose only difference is
+that it built the same rollup first, which is a common thing for an application to have
+done.
+
+Two consequences to know:
+
+- **The definition in force is the one that was already there.** A changed aggregate
+  body does not land on an installation that has the old one; dropping and rebuilding
+  it is a deliberate act, because on TimescaleDB it discards materialised history.
+- **The log line is the only notice.** It is written to the `migrations` channel, not
+  raised, so a migration that must know should ask `hasView()` itself first.
+
+Creating an aggregate does not schedule its refresh. `addContinuousAggregatePolicy()`
+does that — a native job on TimescaleDB, a row in `pramnos.framework_policies` on every
+other backend — and `Pramnos\Database\ContinuousAggregateRegistry` is where the
+framework declares the parameters once, so the creating migration and a later repair
+use the same ones.
+
 ## Capability-Conditional DDL
 
 `ifCapable()` on `SchemaBuilder` runs a callback only when the backend supports the capability.

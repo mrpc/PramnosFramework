@@ -62,6 +62,8 @@ class SchemaBuilderTimescaleDBTest extends SchemaBuilderPostgreSQLTest
         // Continuous aggregates must be dropped before their source tables
         $view = 'sb_cagg_hourly';
         $src  = 'sb_cagg_src';
+        $this->db->execute('DROP MATERIALIZED VIEW IF EXISTS sb_cagg2_hourly CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS sb_cagg2_src CASCADE');
         $comp = 'sb_compress';
         $ret  = 'sb_retention';
         $hyp  = 'sb_hyper';
@@ -235,6 +237,70 @@ class SchemaBuilderTimescaleDBTest extends SchemaBuilderPostgreSQLTest
         );
         $this->assertGreaterThan(0, (int) $rows->fields['cnt'],
             'createContinuousAggregate() must create a timescaledb.continuous materialized view');
+    }
+
+    /**
+     * A second createContinuousAggregate() on the same name keeps the first
+     * definition instead of raising.
+     *
+     * WHAT: the same aggregate is asked for twice with a *different* SELECT; the
+     *       call returns quietly and the aggregate that survives is the first one.
+     * WHY:  `CREATE MATERIALIZED VIEW` is not idempotent, so the second call gave
+     *
+     *           continuous aggregate "…" already exists
+     *
+     *       and took the whole migration with it. The case in the field is not a
+     *       re-run: an installation whose own migration had already built the same
+     *       rollup, column for column, could never get past the framework
+     *       migration that declares it — and the alternative from its side was
+     *       dropping a continuous aggregate with materialised history off a
+     *       hypertable and rebuilding it to arrive at the same definition.
+     *
+     * Asserted on the *columns*, not just on absence of an exception, because
+     * "kept the old definition" and "silently replaced it" both avoid throwing and
+     * only one of them is the contract.
+     */
+    public function testCreateContinuousAggregateKeepsAnExistingAggregate(): void
+    {
+        // Arrange — a hypertable and one aggregate over it
+        $this->schema->createTable('sb_cagg2_src', function ($t) {
+            $t->timestampTz('recorded_at');
+            $t->float('value')->nullable();
+        });
+        $this->schema->createHypertable('sb_cagg2_src', 'recorded_at', [
+            'chunk_time_interval' => '1 day',
+        ]);
+        $this->schema->createContinuousAggregate(
+            'sb_cagg2_hourly',
+            "SELECT time_bucket('1 hour', recorded_at) AS bucket, AVG(value) AS avg_value
+               FROM sb_cagg2_src GROUP BY bucket"
+        );
+
+        // Act — the same name, a different definition
+        $this->schema->createContinuousAggregate(
+            'sb_cagg2_hourly',
+            "SELECT time_bucket('1 hour', recorded_at) AS bucket, MAX(value) AS max_value
+               FROM sb_cagg2_src GROUP BY bucket"
+        );
+
+        // Assert — still exactly one aggregate, and it is the original
+        $viewName = 'sb_cagg2_hourly';
+        $rows = $this->db->execute(
+            "SELECT COUNT(*) AS cnt FROM timescaledb_information.continuous_aggregates
+              WHERE view_name = \$1",
+            $viewName
+        );
+        $this->assertSame(1, (int) $rows->fields['cnt']);
+
+        $columns = $this->db->execute(
+            "SELECT column_name FROM information_schema.columns
+              WHERE table_name = \$1 ORDER BY ordinal_position",
+            $viewName
+        );
+        $names = array_column($columns ? $columns->fetchAll() : [], 'column_name');
+        // avg_value, not max_value: the definition that was already there won.
+        $this->assertContains('avg_value', $names);
+        $this->assertNotContains('max_value', $names);
     }
 
     // -------------------------------------------------------------------------

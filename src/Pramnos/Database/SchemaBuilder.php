@@ -999,6 +999,15 @@ class SchemaBuilder
      * On plain PostgreSQL: falls back to a regular MATERIALIZED VIEW.
      * On MySQL: falls back to a regular VIEW (data is not materialised).
      *
+     * An aggregate that is already there keeps the definition it has, and that is
+     * said out loud rather than passed over. Three reasons it is a pre-check and
+     * not an `IF NOT EXISTS`: TimescaleDB accepts the clause but MySQL's
+     * `CREATE VIEW` has no such thing, so one branch would still fail; the clause
+     * is silent, and "kept what was there" is a different outcome from "created
+     * what was asked for"; and the case it covers is not a re-run but a consumer
+     * whose own migration built the same rollup first, which is worth a line in the
+     * log for whoever later wonders why their definition is the one in force.
+     *
      * @param  string $name
      * @param  string $sql      The SELECT body (must use time_bucket() on TimescaleDB).
      * @param  array  $options  TimescaleDB-specific WITH options.
@@ -1007,6 +1016,16 @@ class SchemaBuilder
     public function createContinuousAggregate(string $name, string $sql, array $options = []): void
     {
         $resolved = $this->resolveTable($name);
+
+        if ($this->hasView($name)) {
+            \Pramnos\Logs\Logger::log(
+                'Continuous aggregate ' . $name . ' already exists; kept its current '
+                . 'definition. The one in this migration was not applied.',
+                'migrations'
+            );
+
+            return;
+        }
 
         if ($this->capabilities->hasTimescaleDB()) {
             $withOpts = array_merge(['timescaledb.continuous' => true], $options);

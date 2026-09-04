@@ -328,6 +328,11 @@ for both:
 SPLIT_PART(ip_address::text, '.', 1)
 ```
 
+**3. Prefer the builder method that already guards.** `createContinuousAggregate()`
+returns quietly when the aggregate exists, and `hasIndex()` / `hasTable()` /
+`hasColumn()` / `hasView()` exist so a guard can be asked rather than inferred from a
+caught driver error.
+
 **Say what you skipped.** A migration that quietly does nothing is indistinguishable
 from one that worked. Log to the `migrations` channel with enough detail for an
 operator to act on:
