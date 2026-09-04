@@ -157,7 +157,7 @@ class Application extends Base
             $this->breadcrumbs = new \Pramnos\Html\Breadcrumb();
         }
         if (file_exists(ROOT . '/var/MAINTENANCE')) {
-            $this->showError();
+            $this->showError($this->maintenanceMessage());
         }
         if (!defined('PRAMNOS_DEFINES')) {
             $this->setDefines();
@@ -1494,6 +1494,59 @@ class Application extends Base
     }
 
     /**
+     * What the maintenance page should say, read from the flag itself.
+     *
+     * `startMaintenance()` has always accepted a reason and written it into the
+     * file, and nothing ever read it back — so the page rendered whatever
+     * `showError()` could find on its own, which under DEVELOPMENT is a var-dump
+     * of the last database error and is usually this:
+     *
+     *     Maintenance Mode
+     *     Array ( [message] => '' [code] => 0 )
+     *
+     * An operator reading that has nothing to act on and no way to know the file
+     * exists at all.
+     *
+     * The reason is shown wherever there is one: it is operator-authored text
+     * ("Database migrations in progress"), which is the appropriate thing to tell
+     * whoever is looking at a 503. **Where the flag lives is only named under
+     * DEVELOPMENT** — a public visitor has no use for a path, and the operator
+     * who needs it is the one running with DEVELOPMENT on or reading the log.
+     *
+     * @return string HTML-escaped, because showError() interpolates it into a page.
+     */
+    protected function maintenanceMessage(): string
+    {
+        $file   = ROOT . DS . 'var' . DS . 'MAINTENANCE';
+        $reason = is_readable($file) ? trim((string) @file_get_contents($file)) : '';
+
+        $parts = [];
+        if ($reason !== '') {
+            $parts[] = htmlspecialchars($reason, ENT_QUOTES, 'UTF-8');
+        }
+        if ($this->inDevelopmentMode()) {
+            $parts[] = 'Remove <code>var/MAINTENANCE</code> to clear this.';
+        }
+
+        return implode('<br />', $parts);
+    }
+
+    /**
+     * Whether this installation is running with DEVELOPMENT on.
+     *
+     * A method rather than the bare constant so both answers are reachable from
+     * a test: the constant is defined once per process, and a suite that does not
+     * define it can otherwise never exercise the branch that depends on it — the
+     * branch here decides whether a production page names a filesystem path.
+     *
+     * @return bool
+     */
+    protected function inDevelopmentMode(): bool
+    {
+        return defined('DEVELOPMENT') && DEVELOPMENT == true;
+    }
+
+    /**
      * Send the status line and content type for a terminal error.
      *
      * Split out from {@see showError()} so the decisions above it — which status,
@@ -2612,15 +2665,60 @@ class Application extends Base
             }
             $object = new $nameSpacedClass($this);
             if ($object->autoExecute == true) {
-                $this->startMaintenance();
-                $object->up();
-                $sql = $this->database->prepareQuery(
-                    "insert into `#PREFIX#schemaversion` (`key`) values (%s);",
-                    $object->version
+                // Two things this used to get wrong, both of which cost an
+                // afternoon somewhere.
+                //
+                // The flag went up and came down with no `finally`, so a
+                // migration that threw left `var/MAINTENANCE` on disk — and the
+                // constructor of this very class refuses to build an application
+                // while that file exists. Every request after it, the API front
+                // controllers and the test bootstrap included, answered
+                // Maintenance Mode until somebody guessed which file to delete.
+                //
+                // And it went up with no reason, though startMaintenance() takes
+                // one and writes it into the file, so not even the file named the
+                // migration that stopped the site.
+                $weStartedMaintenance = !$this->isInMaintenance();
+                $this->startMaintenance(
+                    'Running migration ' . $class
+                    . ($object->version != '' ? ' (version ' . $object->version . ')' : '')
                 );
-                $this->database->query($sql);
-                \Pramnos\Logs\Logger::log("\n" . $sql . "\n\n", 'upgrades');
-                $this->stopMaintenance();
+
+                try {
+                    $object->up();
+                    $sql = $this->database->prepareQuery(
+                        "insert into `#PREFIX#schemaversion` (`key`) values (%s);",
+                        $object->version
+                    );
+                    $this->database->query($sql);
+                    \Pramnos\Logs\Logger::log("\n" . $sql . "\n\n", 'upgrades');
+
+                    // Recorded either way — a statement that merely repeats work
+                    // must not make a migration run for ever — but not silently.
+                    // This ledger has one column and cannot hold the detail, so
+                    // the detail goes somewhere an operator will actually meet it.
+                    //
+                    // Guarded on the base class rather than assumed: this loader
+                    // requires only that the class exists, so a legacy migration
+                    // that extends nothing is a shape it has always accepted.
+                    if ($object instanceof \Pramnos\Database\Migration
+                        && $object->hasFailedStatements()
+                    ) {
+                        \Pramnos\Logs\Logger::logError(
+                            'Migration ' . $class . ' completed but the database '
+                            . 'rejected statements: ' . $object->failedStatementSummary(),
+                            null,
+                            'upgradeerrors'
+                        );
+                    }
+                } finally {
+                    // Only ours to clear. startMaintenance() returns early when the
+                    // file is already there, so a flag an operator put up by hand
+                    // must survive a migration run rather than be lifted by it.
+                    if ($weStartedMaintenance) {
+                        $this->stopMaintenance();
+                    }
+                }
             }
         }
     }

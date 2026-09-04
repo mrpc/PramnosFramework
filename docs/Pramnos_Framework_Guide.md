@@ -1085,6 +1085,41 @@ the other, and nothing looked wrong. With no constructor argument it now watches
 Pass a path explicitly and that path is the only one watched, because an application
 that named its own file has said which file it means.
 
+#### The flag belongs to the process that raised it
+
+`Application::runMigration()` raises the flag before `up()` and clears it in a
+`finally`, so a migration that throws does not leave the site down behind it.
+That matters more than it sounds: `Application::__construct()` refuses to build
+an application at all while `var/MAINTENANCE` exists, so a flag left on disk puts
+*every* subsequent request into maintenance mode — the web application, the API
+front controllers, and the test bootstrap, which is how a whole suite starts
+answering with a page instead of a test result.
+
+It clears **only a flag it raised itself**. `startMaintenance()` returns early
+when the file already exists, so it never overwrites one somebody else put up;
+clearing unconditionally at the end would take the site *out* of a maintenance
+window that a person entered on purpose.
+
+#### What the page says
+
+The reason passed to `startMaintenance()` is written into the flag, and the page
+reads it back:
+
+```php
+$app->startMaintenance('Database migrations in progress');
+```
+
+`runMigration()` passes the migration's class and version, so the file names what
+stopped the site. The reason is HTML-escaped before it reaches the page — it is
+interpolated into the response, and one of its callers passes a class name
+through.
+
+**Under `DEVELOPMENT` the page also names the file to delete.** In production it
+shows the reason alone: a public visitor on a 503 has no use for a path, while
+the operator who needs it is the one running with `DEVELOPMENT` on, or reading the
+log. Without a reason and without `DEVELOPMENT` the page carries only its title —
+which is why passing a reason is worth the four words.
+
 `Retry-After` is an hour by default in the middleware, five minutes from
 `Application::showError()`. Define `PRAMNOS_MAINTENANCE_RETRY_AFTER` to set both:
 
