@@ -154,6 +154,11 @@ class Migrate extends Command
         $result = $runner->run($migrations, $options, function (string $event, string $slug, string $error) use ($output): void {
             if ($event === 'ran') {
                 $output->writeln('<info>Migrated:</info>   ' . $slug);
+            } elseif ($event === 'declined') {
+                // It looked at the data and refused. Not a failure, and not a
+                // success either — and it will be attempted again next time.
+                $output->writeln('<comment>Declined:</comment>   ' . $slug);
+                $output->writeln('           <comment>' . strtok(trim($error), "\n") . '</comment>');
             } elseif ($event === 'ran_with_errors') {
                 // It completed, so it is not a failure — but it is not a success
                 // either, and saying "Migrated" would be the lie this exists to
@@ -168,7 +173,13 @@ class Migrate extends Command
             }
         });
 
-        if (empty($result['ran']) && empty($result['failed'])) {
+        // A run whose only outcome was a decline has something to say, so the
+        // emptiness check has to know about it or it prints «Nothing to migrate»
+        // over the reason.
+        if (empty($result['ran'])
+            && empty($result['failed'])
+            && empty($result['declined'])
+        ) {
             $output->writeln('<info>Nothing to migrate.</info>');
             return 0;
         }
@@ -201,10 +212,14 @@ class Migrate extends Command
         $failedCount = count($result['failed']);
         $warned      = $result['warned'] ?? [];
         $warnedCount = count($warned);
+        $declined    = $result['declined'] ?? [];
 
         $line = sprintf('<info> ✓  %d migrated</info>', $ranCount);
         if ($warnedCount > 0) {
             $line .= sprintf('   <comment> *  %d with rejected statements </comment>', $warnedCount);
+        }
+        if (!empty($declined)) {
+            $line .= sprintf('   <comment> ⏭  %d declined </comment>', count($declined));
         }
         if ($failedCount > 0) {
             $line .= sprintf('   <error> ✗  %d failed </error>', $failedCount);
@@ -236,6 +251,30 @@ class Migrate extends Command
         $output->writeln(' <comment>Dirs:</comment>       ' . array_shift($dirs));
         foreach ($dirs as $dir) {
             $output->writeln('             ' . $dir);
+        }
+
+        // Declines, with the reason and what would clear it. This block is the
+        // whole point of the state: a guard that refused and said nothing would
+        // leave the schema wrong with nothing to read.
+        if (!empty($declined)) {
+            $output->writeln('');
+            $output->writeln('<comment>' . $sep . '</comment>');
+            $output->writeln('<comment> Declined — the data is not ready for these            </comment>');
+            $output->writeln('<comment>' . $sep . '</comment>');
+            foreach ($declined as $slug => $reason) {
+                $output->writeln(' <comment>⏭</comment> <options=bold>' . $slug . '</>');
+                foreach (explode("\n", trim($reason)) as $detailLine) {
+                    if (trim($detailLine) !== '') {
+                        $output->writeln('   <comment>' . $detailLine . '</comment>');
+                    }
+                }
+                $output->writeln('');
+            }
+            $output->writeln(
+                ' <comment>These stay pending: repair the rows and run'
+                . ' <info>migrate</info> again.</comment>'
+            );
+            $output->writeln('');
         }
 
         // Rejected-statement details. Printed in full here because the

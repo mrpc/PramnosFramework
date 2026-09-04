@@ -89,41 +89,165 @@ class AddTokenLookupToUsertokens extends Migration
     }
 
     /**
-     * Fill both columns from the plaintext currently in the table.
+     * How many rows to encrypt per round trip when there is a key.
      *
-     * Row by row rather than one UPDATE, because the encryption happens in PHP: there
-     * is no SQL expression for it, and a set-based statement could only write the
-     * lookup.
+     * Small enough that the buffer stays flat regardless of table size, large
+     * enough that the round trips do not dominate.
+     */
+    private const ENCRYPT_BATCH = 2000;
+
+    /**
+     * Fill the lookup, and encrypt the value when there is a key to do it with.
      *
-     * A row whose `token` is already encrypted is skipped — the migration is
-     * idempotent, and re-encrypting would change nothing but would cost a write per
-     * row on every run.
+     * ## Scope: only rows that can still authenticate
+     *
+     * The column exists so authentication can find a token by value. A token that
+     * is revoked or expired is never found that way again, so computing its
+     * digest is work for an answer nobody asks for — and on a long-lived
+     * installation those rows are most of the table, because `usertokens` is an
+     * audit trail as much as a credential store: `cleanupAllAuthTokens()` marks
+     * old tokens and keeps them, and there is a screen for listing the dead ones.
+     *
+     * Safe because nothing brings a token back: no path in the framework sets a
+     * row's `status` to active again, and every path that matches on
+     * `token_lookup` and then acts on the row checks `status` and `expires` too.
+     * The paths that do not filter treat a missing row as invalid, which is the
+     * same answer a dead row gives — `isAuthCodeRevoked()` returns true when
+     * nothing is found, and `introspect()` answers `{"active": false}` for a
+     * missing row and an inactive one alike, which is what RFC 7662 requires.
+     *
+     * **What this means, stated rather than left to be discovered:** rows outside
+     * the scope keep their token value as it is — plaintext, on an installation
+     * where the rest of the column is encrypted. They cannot authenticate and
+     * every lookup filters in SQL, so the exposure is smaller than it sounds, but
+     * it is a real difference from «the column is encrypted». An installation
+     * that wants the stronger claim wants a sweep it can run when it chooses, not
+     * a migration holding a deploy open to encrypt credentials that stopped
+     * working years ago.
+     *
+     * ## Two paths, because only one of them needs PHP
+     *
+     * The digest is `sha256` of the value, which both backends compute
+     * themselves. Measured by the reporter on 50 000 rows: 5 617 ms row by row in
+     * PHP, 130 ms as one statement — and the shape matters more than the ratio,
+     * because the row-by-row version also read the whole table into memory first
+     * (48 MB at 50 000 rows, so around a gigabyte at a million). That is what
+     * turns «slow» into «the deploy died».
+     *
+     * Encryption genuinely needs PHP — `Encrypter::encrypt()` uses a fresh nonce
+     * per value, so there is no SQL expression for it. But it only applies when
+     * `APP_KEY` is set, so **an installation without a key does the whole backfill
+     * in one statement**, and that includes every installation that has not run
+     * `key:generate` yet.
+     *
+     * Both paths take only rows whose `token_lookup` is still empty, so a second
+     * deploy costs one statement that matches nothing rather than the whole table
+     * again.
      */
     private function backfill($db): void
     {
-        $rows = $db->queryBuilder()
-            ->table('usertokens')
-            ->select(['tokenid', 'token', 'token_lookup'])
-            ->get();
+        $caps = $db->schema()->getCapabilities();
 
-        while ($rows && $rows->fetch()) {
-            $token = (string) ($rows->fields['token'] ?? '');
+        if (!\Pramnos\Security\Encrypter::isAvailable()) {
+            $this->backfillLookupsInSql($db, $caps);
 
-            if ($token === '' || Encrypter::isEncrypted($token)) {
-                continue;
-            }
-
-            $update = ['token_lookup' => hash('sha256', $token)];
-
-            if (Encrypter::isAvailable()) {
-                $update['token'] = Encrypter::encrypt($token);
-            }
-
-            $db->queryBuilder()
-                ->table('usertokens')
-                ->where('tokenid', (int) $rows->fields['tokenid'])
-                ->update($update);
+            return;
         }
+
+        $this->backfillInBatches($db);
+    }
+
+    /**
+     * The whole backfill as one statement, for an installation with no `APP_KEY`.
+     *
+     * @param object $db
+     * @param object $caps
+     */
+    private function backfillLookupsInSql($db, $caps): void
+    {
+        $digest = $caps->isPostgreSQL()
+            ? "encode(sha256(token::bytea), 'hex')"
+            : 'LOWER(SHA2(token, 256))';
+
+        $table = $db->prefix . 'usertokens';
+        $quote = $caps->isPostgreSQL() ? '"' : '`';
+
+        $db->query(
+            'UPDATE ' . $quote . $table . $quote
+            . ' SET token_lookup = ' . $digest
+            . ' WHERE token_lookup IS NULL'
+            . "   AND token IS NOT NULL AND token <> ''"
+            // A value already encrypted has no plaintext to digest. It cannot
+            // happen without a key, but a key that was removed leaves rows behind.
+            . "   AND token NOT LIKE '" . \Pramnos\Security\Encrypter::PREFIX . "%'"
+            . '   AND ' . $this->liveTokenPredicate()
+        );
+    }
+
+    /**
+     * Encrypt and digest the live rows, a bounded number at a time.
+     *
+     * A keyset cursor on `tokenid` rather than `LIMIT`/`OFFSET`: the rows being
+     * read are the rows being written, and an offset walk over a table that is
+     * changing underneath skips rows. It also stays flat — the buffer holds one
+     * batch, not the table.
+     *
+     * @param object $db
+     */
+    private function backfillInBatches($db): void
+    {
+        $after = 0;
+
+        while (true) {
+            $rows = $db->queryBuilder()
+                ->table('usertokens')
+                ->select(['tokenid', 'token'])
+                ->whereNull('token_lookup')
+                ->where('tokenid', '>', $after)
+                ->whereRaw($this->liveTokenPredicate())
+                ->orderBy('tokenid')
+                ->limit(self::ENCRYPT_BATCH)
+                ->get();
+
+            $seen = 0;
+
+            while ($rows && $rows->fetch()) {
+                $seen++;
+                $after = (int) $rows->fields['tokenid'];
+                $token = (string) ($rows->fields['token'] ?? '');
+
+                if ($token === '' || \Pramnos\Security\Encrypter::isEncrypted($token)) {
+                    continue;
+                }
+
+                $db->queryBuilder()
+                    ->table('usertokens')
+                    ->where('tokenid', $after)
+                    ->update(array(
+                        'token_lookup' => \Pramnos\User\Token::lookup($token),
+                        'token'        => \Pramnos\Security\Encrypter::encrypt($token),
+                    ));
+            }
+
+            if ($seen < self::ENCRYPT_BATCH) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * The rows a lookup could still have to find.
+     *
+     * `expires` is a unix timestamp, `0` means «never», and `Token::save()` writes
+     * `NULL` for that case — so all three shapes are the same thing and all three
+     * have to be matched.
+     *
+     * @return string
+     */
+    private function liveTokenPredicate(): string
+    {
+        return '(status = 1 AND (expires IS NULL OR expires = 0 OR expires > '
+            . time() . '))';
     }
 
     /**

@@ -126,6 +126,7 @@ class MigrateStatus extends Command
         $hasPending  = false;
         $skippedRows = [];
         $withErrors  = [];
+        $declinedRows = [];
 
         // Rows for known migration classes (may or may not have a history entry)
         foreach ($migrations as $migration) {
@@ -135,6 +136,13 @@ class MigrateStatus extends Command
                 $status = $this->statusLabel((int) $row['result']);
                 if ((int) $row['result'] === MigrationRunner::RESULT_RAN_WITH_ERRORS) {
                     $withErrors[$slug] = (string) ($row['error_message'] ?? '');
+                }
+                if ((int) $row['result'] === MigrationRunner::RESULT_DECLINED) {
+                    $declinedRows[$slug] = (string) ($row['error_message'] ?? '');
+                    // Declined and still pending are the same thing: it refused,
+                    // and `migrate` will attempt it again. Counting it as pending
+                    // is what makes the closing hint true.
+                    $hasPending = true;
                 }
                 $table->addRow([
                     $slug,
@@ -241,6 +249,25 @@ class MigrateStatus extends Command
             }
         }
 
+        // A decline is only useful if the reason travels with it. `Declined` in a
+        // column with nothing underneath would be the silence the state exists to
+        // avoid.
+        if (!empty($declinedRows)) {
+            $output->writeln('');
+            $output->writeln(sprintf(
+                '<comment>%d migration(s) declined — the data is not ready:</comment>',
+                count($declinedRows)
+            ));
+            foreach ($declinedRows as $slug => $reason) {
+                $output->writeln(' <options=bold>' . $slug . '</>');
+                foreach (explode("\n", trim($reason)) as $line) {
+                    if (trim($line) !== '') {
+                        $output->writeln('   <comment>' . $line . '</comment>');
+                    }
+                }
+            }
+        }
+
         if ($hasPending) {
             $output->writeln('<comment>Run <info>migrate</info> to execute pending migrations.</comment>');
         }
@@ -251,15 +278,18 @@ class MigrateStatus extends Command
     /**
      * The Status cell for a history row's `result`.
      *
-     * The third state is why this is a method: `Ran` and `Failed` alone could not
-     * describe a migration that completed while the database rejected some of its
-     * statements, and that is exactly the case that used to read as `Ran`.
+     * `Ran` and `Failed` alone could not describe a migration that completed
+     * while the database rejected some of its statements — the case that used to
+     * read as `Ran` — nor one that looked at the data and refused, which is
+     * neither. Note that `Declined` is not the same as the `Skipped (cutoff)` a
+     * row can carry: those never ran, this one ran and said no.
      */
     private function statusLabel(int $result): string
     {
         return match ($result) {
             MigrationRunner::RESULT_OK               => '<info>Ran</info>',
             MigrationRunner::RESULT_RAN_WITH_ERRORS  => '<error>Ran with errors</error>',
+            MigrationRunner::RESULT_DECLINED         => '<comment>Declined</comment>',
             default                                  => '<error>Failed</error>',
         };
     }

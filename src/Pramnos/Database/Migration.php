@@ -136,6 +136,13 @@ abstract class Migration extends \Pramnos\Framework\Base
     protected $attemptedStatements = 0;
 
     /**
+     * Why this migration declined to do its work, or '' when it did not.
+     *
+     * @var string
+     */
+    protected $declinedReason = '';
+
+    /**
      * Application instance providing the database connection.
      * @var \Pramnos\Application\Application
      */
@@ -482,6 +489,212 @@ abstract class Migration extends \Pramnos\Framework\Base
         }
 
         return $summary;
+    }
+
+    // =========================================================================
+    // Declining, and the counts worth declining on
+    // =========================================================================
+
+    /**
+     * Decline to do this migration's work, and say why.
+     *
+     * `AddMissingForeignKeysToExistingTables` established the shape: check the
+     * data before issuing a statement that validates it, and when the data will
+     * not take the change, refuse and name what has to be repaired. The
+     * alternative is a statement that aborts on one bad row — and, where a
+     * migration drops an old index before creating a new one, an installation
+     * left with neither.
+     *
+     * **A decline is recorded, not swallowed.** `MigrationRunner` writes it as
+     * `RESULT_DECLINED` with this reason in `error_message`, `migrate` prints it,
+     * and `migrate:status` shows `Declined` with the reason underneath. A guard
+     * that quietly does nothing is worse than the failure it replaces, because
+     * the schema is then wrong and nothing says so.
+     *
+     * **And it stays pending.** `getRanSlugs()` counts only `RESULT_OK`, so a
+     * declined migration is attempted again by the next `migrate` — which is the
+     * point: the operator repairs the rows and it applies itself.
+     *
+     * Call it and return; it does not throw, because a decline is not a failure.
+     *
+     * @param  string $reason What is in the way, and what would clear it.
+     * @return void
+     */
+    protected function decline($reason)
+    {
+        $this->declinedReason = (string) $reason;
+
+        \Pramnos\Logs\Logger::log(
+            'Migration ' . $this->getSlug() . ' declined: ' . $reason,
+            'migrations'
+        );
+    }
+
+    /**
+     * Did this migration decline?
+     *
+     * @return bool
+     */
+    public function hasDeclined(): bool
+    {
+        return $this->declinedReason !== '';
+    }
+
+    /**
+     * Why it declined, or '' when it did not.
+     *
+     * @return string
+     */
+    public function declinedReason(): string
+    {
+        return $this->declinedReason;
+    }
+
+    /**
+     * How many rows would violate a foreign key if it were added now.
+     *
+     * The shape checks ask whether the *schema* allows a constraint. This asks
+     * whether the *data* does, and it is the one that gets forgotten:
+     * `ALTER TABLE … ADD CONSTRAINT` validates every existing row, so one orphan
+     * aborts the statement and, with it, the batch — on every later `migrate`.
+     *
+     * The installations this hurts are the ones the migration is for. A database
+     * that has run without a key is exactly where a deleted parent can have left
+     * a child row behind; a fresh one has nothing to orphan. So the migration
+     * would refuse on old data and succeed on new, which is the wrong way round.
+     *
+     * A `NULL` child value is not an orphan: a nullable foreign key means «no
+     * parent», and every backend accepts it.
+     *
+     * **A count that cannot be taken is 0, not "orphans found".** Refusing on a
+     * permission error or a view standing in for a table would make an unrelated
+     * failure look like dirty data and send an operator hunting rows that are not
+     * there. The statement itself is the check of last resort either way.
+     *
+     * @param  string $table           Child table, possibly schema-qualified
+     * @param  string $column          Child column
+     * @param  string $referencedTable Parent table
+     * @param  string $onColumn        Parent column
+     * @return int
+     */
+    protected function orphanCount($table, $column, $referencedTable, $onColumn)
+    {
+        $schema = $this->schema('public');
+
+        try {
+            $child  = $schema->quoteTable($table);
+            $parent = $schema->quoteTable($referencedTable);
+
+            $row = $this->DB()->selectOne(
+                'SELECT COUNT(*) AS orphans FROM ' . $child . ' c'
+                . ' LEFT JOIN ' . $parent . ' p ON c.' . $column . ' = p.' . $onColumn
+                . ' WHERE c.' . $column . ' IS NOT NULL AND p.' . $onColumn . ' IS NULL'
+            );
+        } catch (\Throwable $exception) {
+            return 0;
+        }
+
+        return self::firstCount($row, 'orphans');
+    }
+
+    /**
+     * Values of `$column` that appear more than once, with how often.
+     *
+     * The counterpart to {@see orphanCount()} for a unique index: `CREATE UNIQUE
+     * INDEX` validates every row the same way `ADD CONSTRAINT` does, and a table
+     * that predates the constraint is exactly the table that may hold two rows
+     * for one value — that is *why* the constraint is being added.
+     *
+     * Returns the values rather than only a count, because «two rows share a
+     * name» is not actionable and «`sitename` appears twice» is. Capped, because
+     * a message an operator reads has to end.
+     *
+     * Rows where the column is `NULL` are not duplicates of each other: a unique
+     * index accepts any number of them on both backends.
+     *
+     * An unaskable count is an **empty** result, for the same reason
+     * `orphanCount()` returns 0 — see there.
+     *
+     * @param  string $table  Table, possibly schema-qualified
+     * @param  string $column Column that is about to become unique
+     * @param  int    $limit  How many offending values to bring back
+     * @return array<int, array{value: string, rows: int}>
+     */
+    protected function duplicateGroups($table, $column, $limit = 5)
+    {
+        try {
+            $quoted = $this->schema('public')->quoteTable($table);
+            $result = $this->DB()->query(
+                'SELECT ' . $column . ' AS value, COUNT(*) AS rows FROM ' . $quoted
+                . ' WHERE ' . $column . ' IS NOT NULL'
+                . ' GROUP BY ' . $column . ' HAVING COUNT(*) > 1'
+                . ' ORDER BY COUNT(*) DESC LIMIT ' . (int) $limit
+            );
+        } catch (\Throwable $exception) {
+            return array();
+        }
+
+        $groups = array();
+
+        while ($result && $result->fetch()) {
+            $groups[] = array(
+                'value' => (string) ($result->fields['value'] ?? ''),
+                'rows'  => (int) ($result->fields['rows'] ?? 0),
+            );
+        }
+
+        return $groups;
+    }
+
+    /**
+     * How many values of `$column` appear more than once.
+     *
+     * `duplicateGroups()` is the one to call when the answer goes into a message;
+     * this is for a plain «is it safe» test.
+     *
+     * @param  string $table
+     * @param  string $column
+     * @return int
+     */
+    protected function duplicateCount($table, $column)
+    {
+        try {
+            $quoted = $this->schema('public')->quoteTable($table);
+            $row = $this->DB()->selectOne(
+                'SELECT COUNT(*) AS duplicates FROM ('
+                . 'SELECT ' . $column . ' FROM ' . $quoted
+                . ' WHERE ' . $column . ' IS NOT NULL'
+                . ' GROUP BY ' . $column . ' HAVING COUNT(*) > 1'
+                . ') d'
+            );
+        } catch (\Throwable $exception) {
+            return 0;
+        }
+
+        return self::firstCount($row, 'duplicates');
+    }
+
+    /**
+     * Read a count out of whatever `selectOne()` handed back.
+     *
+     * It returns an array on one driver and an object on another, and a bare
+     * value in some paths, so every caller of a `COUNT(*)` needs this.
+     *
+     * @param  mixed  $row
+     * @param  string $key Column alias the count was given
+     * @return int
+     */
+    private static function firstCount($row, string $key): int
+    {
+        if (is_array($row)) {
+            return (int) ($row[$key] ?? reset($row));
+        }
+
+        if (is_object($row)) {
+            return (int) ($row->$key ?? 0);
+        }
+
+        return (int) $row;
     }
 
     // =========================================================================

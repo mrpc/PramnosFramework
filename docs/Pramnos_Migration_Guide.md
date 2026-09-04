@@ -9,6 +9,8 @@ use_cases:
   - Configuring migration_cutoff or the features gate for an existing schema
   - Finding out whether a migration's statements actually succeeded
   - Reading a Ran with errors row, or deciding a migration's outcome in its own code
+  - Writing a migration that alters a table which may hold data it cannot accept
+  - Backfilling a new column without running the deploy out of memory
 ---
 
 # Pramnos Migration Guide
@@ -266,6 +268,113 @@ cross dependencies pay nothing.
 
 This works on both paths: the standalone/auto-run (`Application::migrate()`) and
 the explicit `migrate` console command wire the same pool.
+
+## Check the data before you change it
+
+A statement that validates existing rows — `ADD CONSTRAINT`, `CREATE UNIQUE
+INDEX` — succeeds on a fresh database and fails on the one the migration was
+written for. A database that has run without a foreign key is exactly where a
+deleted parent left a child row behind; a table that predates a unique index is
+exactly where two rows share a value, because that is *why* the index is being
+added.
+
+Failing there is bad enough. Failing **halfway** is worse: a migration that drops
+the old index before creating the new one leaves the installation with neither,
+on a column every read uses.
+
+So check first, and decline when the data is not ready.
+
+```php
+public function up(): void
+{
+    $duplicates = $this->duplicateGroups('#PREFIX#settings', 'setting');
+
+    if ($duplicates !== []) {
+        $named = [];
+        foreach ($duplicates as $group) {
+            $named[] = "'" . $group['value'] . "' (" . $group['rows'] . ' rows)';
+        }
+
+        $this->decline(
+            'settings.setting has duplicate values, so a unique index cannot be created: '
+            . implode(', ', $named)
+            . '. Decide which row is correct, delete the others, and run migrate again.'
+        );
+
+        return;                 // nothing was changed
+    }
+
+    // … safe to proceed
+}
+```
+
+### What the base class gives you
+
+| Method | Answers |
+|---|---|
+| `orphanCount($table, $column, $refTable, $refColumn)` | how many rows would violate a foreign key |
+| `duplicateGroups($table, $column, $limit = 5)` | which values repeat, and how often |
+| `duplicateCount($table, $column)` | how many values repeat |
+| `decline($reason)` | refuse, and record why |
+
+`NULL` is not a violation in either: a nullable foreign key means «no parent» and
+a unique index accepts any number of `NULL`s, so counting them would decline a
+migration that would have worked.
+
+**A count that cannot be taken is zero, not a refusal.** A missing table, a
+permission, a view standing in for a table — declining on any of those would make
+an unrelated fault look like dirty data and send an operator hunting rows that do
+not exist. The statement itself is the check of last resort.
+
+### A decline is loud, and it comes back
+
+This is the part that separates a guard from a silence. `decline()` records
+`RESULT_DECLINED` with the reason in `error_message`, so:
+
+- `migrate` prints `Declined:` with the reason and a closing line saying these
+  stay pending;
+- `migrate:status` shows `Declined` in the Status column and prints the reason
+  under the table;
+- and because `getRanSlugs()` counts only `RESULT_OK`, **the migration is
+  attempted again by the next `migrate`** — repair the rows and it applies itself.
+
+`Declined` is not the same as the `Skipped (cutoff)` or `Skipped (feature: …)`
+that `migrate:status` computes from scope. Those never ran. This one ran, looked
+at the data, and said no.
+
+**Decline; do not repair.** Deleting rows is not a migration's decision to take on
+an operator's behalf. Two rows for `sitename` may mean the wrong one has been in
+effect for months, and an orphaned audit row is a record of something that
+happened. Name what is wrong and let a person choose.
+
+### Backfills: scope them, bound them, and let SQL do what SQL can
+
+A migration that fills a new column from an old one is where deploys die. Three
+things, in ascending order of what they cost:
+
+- **Say what you do not need.** A digest for a token that is revoked or expired is
+  work for an answer nobody asks for, and on a long-lived installation those rows
+  are most of the table.
+- **Add the `WHERE` that makes it re-runnable.** Without `WHERE new_column IS
+  NULL`, the second deploy pays the whole cost again.
+- **Do not read the table into PHP.** Selecting every row before writing anything
+  is what turns «slow» into «out of memory» — measured at 48 MB for 50 000 rows,
+  so around a gigabyte at a million. Use a keyset cursor on the primary key, in
+  batches, so the buffer stays flat and a table changing underneath cannot make an
+  offset walk skip rows.
+
+And when the value needs no PHP, one statement does it:
+
+```php
+// 130 ms where row-by-row PHP took 5 617 ms, on 50 000 rows
+$digest = $caps->isPostgreSQL()
+    ? "encode(sha256(token::bytea), 'hex')"
+    : 'LOWER(SHA2(token, 256))';
+```
+
+Whatever expression you use, **assert in a test that it equals what PHP computes**.
+A digest the database writes and the application does not match on is an
+authentication outage, and nothing else in the suite would notice.
 
 ## When a statement is refused
 

@@ -30,6 +30,17 @@ class MigrationRunner
     public const RESULT_OK = 1;
 
     /**
+     * History `result`: the migration looked at the data and refused.
+     *
+     * Distinct from `RESULT_FAILED`, which is a statement that blew up, and from
+     * the `Skipped (cutoff)` / `Skipped (feature: …)` that `migrate:status`
+     * computes from scope — those never ran at all. This one ran, checked, and
+     * declined with a reason, and stays pending so the next `migrate` retries it
+     * once the data is repaired.
+     */
+    public const RESULT_DECLINED = 3;
+
+    /**
      * History `result`: `up()` returned, but the database rejected statements.
      *
      * The third state exists because the first two could not tell a migration
@@ -245,10 +256,11 @@ class MigrationRunner
      * @param callable|null $onProgress Optional callback invoked immediately after each migration.
      *   Signature: fn(string $event, string $slug, string $errorMessage): void
      *   Events: 'ran' (success) | 'ran_with_errors' ($errorMessage names the rejected
-     *   statements) | 'failed' (error — $errorMessage is non-empty).
-     * @return array{ran: string[], failed: array<string,string>, warned: array<string,string>}
-     *   ran = slugs that completed (including those with rejected statements);
-     *   failed = slug → error message; warned = slug → what was rejected.
+     *   statements) | 'declined' ($errorMessage is the reason) | 'failed' (error).
+     * @return array{ran: string[], failed: array<string,string>, warned: array<string,string>, declined: array<string,string>}
+     *   ran = slugs that completed (including those with rejected statements and
+     *   those that declined); failed = slug → error message; warned = slug → what
+     *   was rejected; declined = slug → why it refused.
      */
     public function run(array $migrations, array $options = [], ?callable $onProgress = null): array
     {
@@ -275,6 +287,7 @@ class MigrationRunner
         $ran    = [];
         $failed = [];
         $warned = [];
+        $declined = [];
 
         // Only one process may run a batch. The maintenance flag below cannot
         // provide that: `!file_exists()` then `startMaintenance()` is two steps,
@@ -293,7 +306,7 @@ class MigrationRunner
                 $onProgress('skipped', '', 'another process is already running migrations');
             }
 
-            return ['ran' => [], 'failed' => [], 'warned' => []];
+            return ['ran' => [], 'failed' => [], 'warned' => [], 'declined' => []];
         }
 
         // Maintenance mode still goes up, for the different job of telling
@@ -326,6 +339,28 @@ class MigrationRunner
 
                     if ($useTransaction) {
                         $db->query('COMMIT');
+                    }
+
+                    // A migration that declined did not do its work, and must not
+                    // be recorded as though it had — so it is reported in
+                    // `declined` and **not** in `ran`, which means «completed».
+                    // `getRanSlugs()` counts only RESULT_OK, so the next migrate
+                    // attempts it again once the data is repaired.
+                    if ($migration->hasDeclined()) {
+                        $reason = $migration->declinedReason();
+                        $this->recordHistory(
+                            $migration,
+                            $slug,
+                            $batch,
+                            $elapsed,
+                            self::RESULT_DECLINED,
+                            $reason
+                        );
+                        $declined[$slug] = $reason;
+                        if ($onProgress !== null) {
+                            $onProgress('declined', $slug, $reason, round($elapsed * 1000, 2));
+                        }
+                        continue;
                     }
 
                     // `up()` returning is not the same thing as the migration
@@ -384,7 +419,7 @@ class MigrationRunner
             $lock?->release('finished');
         }
 
-        return ['ran' => $ran, 'failed' => $failed, 'warned' => $warned];
+        return ['ran' => $ran, 'failed' => $failed, 'warned' => $warned, 'declined' => $declined];
     }
 
     /**
