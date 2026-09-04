@@ -317,6 +317,107 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     }
 
     /**
+     * A clamped rendition is found again by the request that produced it.
+     *
+     * WHAT: the same `get()` twice, on a source smaller than the box. The second
+     *       call returns the stored rendition and appends nothing.
+     * WHY:  the lookup compared the request against `x`/`y` — what came *out* —
+     *       while the write recorded the clamped result under those same fields.
+     *       So every source smaller than the requested box missed its own cache
+     *       entry for ever: rebuilt, appended, saved, on every call. `ResizeTools`
+     *       prefixes `rand(1,9999)_` when the filename it wants exists, so it was
+     *       a new file on disk **and** a new entry in the column each time,
+     *       neither bounded. Reported against real data as 46% of images — 467 of
+     *       1023 — rebuilt on every page view.
+     *
+     * The test above this one stops one line short of it: it asserts the clamp
+     * and never asks twice, which is why a green suite shipped the defect.
+     */
+    public function testAClampedRenditionIsFoundAgainAndNotRebuilt(): void
+    {
+        // Arrange — 40×40 source, asked for a 512×512 box
+        $media = new MediaObject();
+        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->save();
+
+        $first = $media->get(512, 512);
+        $countAfterFirst = count($media->thumbnails);
+        $this->assertSame(40, $first->x, 'precondition: the request was clamped');
+
+        // Act — the identical request again
+        $second = $media->get(512, 512);
+
+        // Assert — nothing was appended, and the same file came back
+        $this->assertCount(
+            $countAfterFirst,
+            $media->thumbnails,
+            'the second identical request must not append another entry'
+        );
+        $this->assertSame(
+            $first->filename,
+            $second->filename,
+            'and must not write a second file for the same rendition'
+        );
+
+        // Assert — a third, because the count growing by one per call is the shape
+        // of the bug and two calls cannot tell that from an off-by-one.
+        $media->get(512, 512);
+        $this->assertCount($countAfterFirst, $media->thumbnails);
+    }
+
+    /**
+     * The entry records both what was asked for and what came out.
+     *
+     * They are different numbers here, which is the whole reason the lookup
+     * needed something other than the result to compare against. Keeping the
+     * requested box is what preserves «what was asked for» — the information the
+     * clamp used to discard.
+     */
+    public function testAClampedRenditionRecordsTheRequestedBoxAndTheResult(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->save();
+
+        // Act
+        $rendition = $media->get(512, 512);
+
+        // Assert
+        $this->assertSame(40, $rendition->x, 'what came out');
+        $this->assertSame(40, $rendition->y);
+        $this->assertSame(512, $rendition->requestedX, 'what was asked for');
+        $this->assertSame(512, $rendition->requestedY);
+    }
+
+    /**
+     * A request that needed no clamping still round-trips.
+     *
+     * The complement: if the matcher only ever compared the requested box, an
+     * entry from before this field existed would stop being found — and those are
+     * every entry in every existing installation.
+     */
+    public function testAnUnclampedRenditionIsAlsoFoundAgain(): void
+    {
+        // Arrange — 200×200 source, a box well inside it
+        $media = new MediaObject();
+        $media->addImage($this->png(200, 200), 'media_policy');
+        $media->save();
+
+        $first = $media->get(50, 50);
+        $count = count($media->thumbnails);
+
+        // Act
+        $second = $media->get(50, 50);
+
+        // Assert
+        $this->assertCount($count, $media->thumbnails);
+        $this->assertSame($first->filename, $second->filename);
+        $this->assertSame(50, $first->x, 'no clamping was needed here');
+        $this->assertSame(50, $first->requestedX);
+    }
+
+    /**
      * An SVG is stored as itself, and asking it for a size answers with the original.
      *
      * The whole failure in one assertion: `get()` used to return a `Thumbnail` whose `url` ended

@@ -4,6 +4,7 @@ use_cases:
   - Generating thumbnails or processing images
   - Organising stored media, or querying its schema
   - Setting memory_limit for image processing on a constrained host
+  - Asking for a thumbnail size and getting different dimensions back
 ---
 
 # Pramnos Framework - Media System Guide
@@ -381,6 +382,53 @@ $original = $media->getOriginal(); // Original size
 // Get custom size (creates if doesn't exist)
 $custom = $media->get(300, 200, true); // 300x200, cropped
 ```
+
+### What was asked for, and what came out
+
+`get($width, $height)` is a request for a **box**, not a promise of those exact
+dimensions. With `allowUpscale` off — the default — a source smaller than the box
+comes back at the source's own size: `get(177, 222)` against a 150×150 image
+answers 120×150, because inventing pixels and recording them as a rendition is
+worse than a smaller image.
+
+So a stored rendition carries both numbers:
+
+| Property | Meaning |
+|---|---|
+| `x`, `y` | what the rendition actually is — the size of the file on disk |
+| `requestedX`, `requestedY` | the box that produced it |
+
+```php
+$rendition = $media->get(177, 222);   // 150×150 source
+
+$rendition->x;           // 120  — read this to lay out a page
+$rendition->y;           // 150
+$rendition->requestedX;  // 177  — this is what the cache is keyed on
+$rendition->requestedY;  // 222
+```
+
+**Why both, rather than just the result.** The lookup has to find the entry again
+from the same request, and the request is the only thing the caller has. Keyed on
+the result, `get(177, 222)` never matched the 120×150 entry it had just written,
+so every call rebuilt the image, appended another entry and saved the row — and
+because the resizer prefixes a random number when the filename it wants already
+exists, that was an unbounded number of files on disk and entries in the column,
+for one image at one size.
+
+`requestedX`/`requestedY` are `0` on entries written before they existed, and on
+entries belonging to an application's own thumbnail class, which the reader hands
+back unconverted. Those are matched on `x`/`y` as they always were, so nothing
+stored has to be migrated — the `thumbnails` column is JSON of the declared
+fields, and a field absent from a row reads back as the class default.
+
+If you need the rendition to fill the box, ask for it:
+
+```php
+$media->allowUpscale = true;   // then x/y and requestedX/Y agree again
+```
+
+which is the right call when the caller is a template with a fixed frame, and the
+wrong one when you are producing derivatives to store.
 
 ### Custom Thumbnail Creation
 

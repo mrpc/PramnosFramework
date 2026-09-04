@@ -501,8 +501,58 @@ class MediaObject extends \Pramnos\Framework\Base
      * back, and what {@see Thumbnail} actually has. Adding a property to that class and forgetting
      * one of the three is how a value starts disappearing on save.
      */
+    /**
+     * Does this stored entry answer a request for `$width` × `$height`?
+     *
+     * The lookup used to compare the request against `x`/`y`, which is what the
+     * rendition **came out** as, while the write recorded the same `x`/`y` after
+     * clamping. So for every source smaller than the requested box — with
+     * upscaling off, which is the default — the next identical request matched
+     * nothing: the image was rebuilt, an entry appended and the row saved, on
+     * every call. `ResizeTools` prefixes a random number when the filename it
+     * wants exists, so it was a new file on disk and a new entry in the column
+     * each time, neither of them bounded. Reported against real data as 46% of
+     * images rebuilt on every page view.
+     *
+     * Two shapes have to match, and the fallback is not a nicety:
+     *
+     *  - an entry that records what was asked for is compared on that;
+     *  - an entry that does not — written before this field existed, or an
+     *    object of an **application's own** thumbnail class, which
+     *    `readLegacyThumbnails()` deliberately hands back as it is rather than
+     *    converting — is compared on the result, exactly as before.
+     *
+     * Read through `isset` rather than `property_exists`, for the same reason
+     * `encodeThumbnails()` does: the entry may be an object of another class
+     * entirely, and reading an undeclared property off one of those is a warning
+     * and a null.
+     *
+     * @param  object $thumb  A stored entry; not necessarily a {@see Thumbnail}.
+     * @param  int    $width  Requested width.
+     * @param  int    $height Requested height.
+     * @return bool
+     */
+    private static function thumbnailMatchesRequest($thumb, $width, $height): bool
+    {
+        $requestedX = isset($thumb->requestedX) ? (int) $thumb->requestedX : 0;
+        $requestedY = isset($thumb->requestedY) ? (int) $thumb->requestedY : 0;
+
+        if ($requestedX > 0 && $requestedY > 0) {
+            return $requestedX == (int) $width && $requestedY == (int) $height;
+        }
+
+        return isset($thumb->x, $thumb->y)
+            && $thumb->x == $width
+            && $thumb->y == $height;
+    }
+
     private const THUMBNAIL_FIELDS = array(
         'filename', 'x', 'y', 'views', 'filesize', 'reason', 'url', 'createdTxt',
+        // The box that was asked for, which is not always the box that came out.
+        // Absent from every row written before this, and `hydrateThumbnails()`
+        // starts from `new Thumbnail()`, so those read back as 0 — which
+        // `thumbnailMatchesRequest()` treats as "not recorded".
+        'requestedX', 'requestedY',
     );
 
     /**
@@ -2297,7 +2347,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->mediatype == 1 or $this->mediatype == 2) {
             if ($force == false) {
                 foreach ($this->thumbnails as $key => $thumb) {
-                    if ($thumb->x == $width and $thumb->y == $height) {
+                    if (self::thumbnailMatchesRequest($thumb, $width, $height)) {
 
                         if (file_exists($thumb->filename)) {
                             return $thumb;
@@ -2316,7 +2366,7 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             } else {
                 foreach ($this->thumbnails as $key => $thumb) {
-                    if ($thumb->x == $width and $thumb->y == $height) {
+                    if (self::thumbnailMatchesRequest($thumb, $width, $height)) {
                         if ($debug == true) {
                             echo '<br />Deleting existing thumbnail';
                         }
@@ -2412,6 +2462,11 @@ class MediaObject extends \Pramnos\Framework\Base
             );
             $tmThumb->x = $tmpWidth;
             $tmThumb->y = $tmpHeight;
+            // What came out is above; what was asked for is here, and the two
+            // differ whenever the source was smaller than the box. Without this
+            // the entry cannot be found by the request that produced it.
+            $tmThumb->requestedX = (int) $width;
+            $tmThumb->requestedY = (int) $height;
             $tmThumb->views = 0;
             $tmThumb->filesize = filesize($tfile);
             if ($reason == '') {

@@ -52,4 +52,26 @@ class Thumbnail
      * @var string
      */
     public $createdTxt = 0;
+    /**
+     * Width that was **asked for**, as opposed to {@see $x}, which is what came out.
+     *
+     * The two differ whenever the source is smaller than the requested box and
+     * upscaling is off, which is the default: a request for 177×222 against a
+     * 150×150 source produces a 120×150 rendition. Recording only the result meant
+     * the next identical request found nothing, rebuilt the image, appended another
+     * entry and saved — on every call, without limit, because the resizer prefixes
+     * a random number when the filename it wants already exists.
+     *
+     * `0` means "not recorded": an entry written before this existed, or one
+     * belonging to an application's own thumbnail class. Those are matched on
+     * {@see $x}/{@see $y} as they always were.
+     *
+     * @var int
+     */
+    public $requestedX = 0;
+    /**
+     * Height that was asked for. See {@see $requestedX}.
+     * @var int
+     */
+    public $requestedY = 0;
 }
