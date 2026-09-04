@@ -7,6 +7,8 @@ use_cases:
   - Writing a migration that must coexist with an application's own tables and views
   - Working out why migrate:status reports migrations that will never run
   - Configuring migration_cutoff or the features gate for an existing schema
+  - Finding out whether a migration's statements actually succeeded
+  - Reading a Ran with errors row, or deciding a migration's outcome in its own code
 ---
 
 # Pramnos Migration Guide
@@ -264,6 +266,93 @@ cross dependencies pay nothing.
 
 This works on both paths: the standalone/auto-run (`Application::migrate()`) and
 the explicit `migrate` console command wire the same pool.
+
+## When a statement is refused
+
+`addQuery()` queues statements and `executeQueries()` runs them **tolerantly**: a
+statement the database rejects does not stop the ones behind it. That is
+deliberate and has to stay. A re-run of a migration whose
+`ALTER TABLE … ADD COLUMN` is already applied must not abandon the eleven
+statements after it, and installations exist with a hundred-odd numbered
+migrations relying on exactly that.
+
+What is *not* deliberate is losing the fact that it happened. `up()` returning
+was once the only thing either ledger looked at, so a migration whose **every**
+statement was rejected was indistinguishable from one that worked — recorded as
+applied, reported by `migrate:status` as `Ran`, with the only trace in
+`var/logs/upgradeerrors.log`, which nothing points at.
+
+### The third state
+
+`MigrationRunner` records one of three results:
+
+| Constant | `result` | Meaning |
+|---|---|---|
+| `RESULT_OK` | `1` | completed, every statement accepted |
+| `RESULT_RAN_WITH_ERRORS` | `2` | `up()` returned, but statements were rejected |
+| `RESULT_FAILED` | `0` | `up()` threw; the migration did not complete |
+
+`migrate:status` shows the middle one as `Ran with errors` and prints what was
+rejected underneath the table. `migrate` prints `Migrated*` for it and lists the
+statements in its summary. The `error_message` column carries the detail, so it is
+reachable from the ledger rather than from a log file.
+
+A migration in this state is still **recorded and still counted as run**, and
+`migrate` still exits `0`. Both are deliberate: a redundant statement must not
+make a migration re-run for ever, and must not break a deploy script that has
+been re-running the same migrations for years. The change is that the report no
+longer claims something that did not happen.
+
+### Deciding for yourself
+
+A migration can inspect its own outcome instead of verifying its work against the
+schema afterwards to find out whether the framework's report of it was true:
+
+```php
+public function up(): void
+{
+    $this->addQuery('DROP MATERIALIZED VIEW reports.usage CASCADE');
+    $failures = $this->executeQueries();   // number rejected
+
+    if ($this->hasFailedStatements()) {
+        // Every entry is ['query' => …, 'error' => …, 'benign' => bool]
+        foreach ($this->getFailedStatements() as $failure) {
+            if (!$failure['benign']) {
+                throw new \RuntimeException(
+                    'reports.usage was not dropped: ' . $failure['error']
+                );
+            }
+        }
+    }
+}
+```
+
+`failedStatementSummary()` is the one-line form the runner puts in the ledger, and
+is empty when nothing failed — so it works as the condition.
+
+### `benign` is a label, not a decision
+
+`benign` marks a failure that looks like work already applied — a duplicate
+column, a table that exists. **Nothing is skipped or failed on the strength of
+it.** It exists so a report can separate the eleven redundant `ADD COLUMN`s of a
+re-run from the one statement naming a table nobody created.
+
+It cannot be more than a label, because it cannot be trusted enough to be one.
+Only MySQL supplies an error code: its `mysqli_sql_exception` propagates with the
+real errno (`1050`, `1060`, `1061`, `1091`, …). PostgreSQL failures arrive as a
+plain `Exception` whose code is `0` — `Database::setError()` is called with error
+number `0` on that driver and no SQLSTATE is captured anywhere — so on that side
+the only discriminator is the message text, and message text is localisable. Gate
+on it and a database running a non-English `lc_messages` would start failing
+migrations whose statements were merely redundant, which is the one outcome the
+tolerance exists to prevent.
+
+### Two ways a statement fails
+
+`Database::query()` throws for an execution error, but it also has one path that
+returns `false` without throwing — a statement that cannot be prepared.
+`executeQueries()` counts both. A check that only caught exceptions kept missing
+the quieter one.
 
 ## Migration Features
 

@@ -125,13 +125,17 @@ class MigrateStatus extends Command
 
         $hasPending  = false;
         $skippedRows = [];
+        $withErrors  = [];
 
         // Rows for known migration classes (may or may not have a history entry)
         foreach ($migrations as $migration) {
             $slug = $migration->getSlug();
             if (isset($historyMap[$slug])) {
                 $row    = $historyMap[$slug];
-                $status = (int) $row['result'] === 1 ? '<info>Ran</info>' : '<error>Failed</error>';
+                $status = $this->statusLabel((int) $row['result']);
+                if ((int) $row['result'] === MigrationRunner::RESULT_RAN_WITH_ERRORS) {
+                    $withErrors[$slug] = (string) ($row['error_message'] ?? '');
+                }
                 $table->addRow([
                     $slug,
                     $row['scope']    ?? $migration->scope,
@@ -190,7 +194,7 @@ class MigrateStatus extends Command
         if (!empty($historyMap)) {
             $table->addRow(new TableSeparator());
             foreach ($historyMap as $slug => $row) {
-                $status = (int) $row['result'] === 1 ? '<info>Ran</info>' : '<error>Failed</error>';
+                $status = $this->statusLabel((int) $row['result']);
                 $table->addRow([
                     $slug . ' <comment>(removed)</comment>',
                     $row['scope']   ?? '-',
@@ -219,11 +223,45 @@ class MigrateStatus extends Command
             }
         }
 
+        // The whole point of the third state: what was rejected is readable here,
+        // rather than in var/logs/upgradeerrors.log, which nothing points at.
+        if (!empty($withErrors)) {
+            $output->writeln('');
+            $output->writeln(sprintf(
+                '<error>%d migration(s) completed with rejected statements:</error>',
+                count($withErrors)
+            ));
+            foreach ($withErrors as $slug => $message) {
+                $output->writeln(' <options=bold>' . $slug . '</>');
+                foreach (explode("\n", trim($message)) as $line) {
+                    if (trim($line) !== '') {
+                        $output->writeln('   <comment>' . $line . '</comment>');
+                    }
+                }
+            }
+        }
+
         if ($hasPending) {
             $output->writeln('<comment>Run <info>migrate</info> to execute pending migrations.</comment>');
         }
 
         return 0;
+    }
+
+    /**
+     * The Status cell for a history row's `result`.
+     *
+     * The third state is why this is a method: `Ran` and `Failed` alone could not
+     * describe a migration that completed while the database rejected some of its
+     * statements, and that is exactly the case that used to read as `Ran`.
+     */
+    private function statusLabel(int $result): string
+    {
+        return match ($result) {
+            MigrationRunner::RESULT_OK               => '<info>Ran</info>',
+            MigrationRunner::RESULT_RAN_WITH_ERRORS  => '<error>Ran with errors</error>',
+            default                                  => '<error>Failed</error>',
+        };
     }
 
     /**

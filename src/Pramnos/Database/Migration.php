@@ -119,6 +119,23 @@ abstract class Migration extends \Pramnos\Framework\Base
     protected $queriesToExecute = array();
 
     /**
+     * Statements that `executeQueries()` ran and the database rejected.
+     *
+     * Kept so the ledger can stop reporting a migration whose statements all
+     * failed as one that worked. Each entry is
+     * `['query' => string, 'error' => string, 'benign' => bool]`.
+     *
+     * @var array<int, array{query: string, error: string, benign: bool}>
+     */
+    protected $failedStatements = array();
+
+    /**
+     * How many statements `executeQueries()` has attempted, across all calls.
+     * @var int
+     */
+    protected $attemptedStatements = 0;
+
+    /**
      * Application instance providing the database connection.
      * @var \Pramnos\Application\Application
      */
@@ -293,22 +310,178 @@ abstract class Migration extends \Pramnos\Framework\Base
 
     /**
      * Executes all queued queries in insertion order.
-     * Each query is logged; failures are swallowed and logged separately so
-     * that a broken statement does not prevent subsequent queries from running.
+     *
+     * A statement the database rejects does not stop the ones after it. That
+     * tolerance is deliberate and load-bearing: a re-run of a migration whose
+     * `ALTER TABLE … ADD COLUMN` has already been applied must not abandon the
+     * eleven statements behind it, and installations exist with a hundred-odd
+     * numbered migrations relying on exactly that.
+     *
+     * What is *not* deliberate is losing the fact that it happened. Every
+     * failure is now recorded on the migration as well as logged, so the
+     * runner can record "ran, with N statements rejected" instead of plain
+     * success, and `migrate:status` can say so. Nothing here throws, and no
+     * statement that merely repeats work stops running.
+     *
+     * Note the two ways a statement can fail. `Database::query()` throws for an
+     * execution error — a `mysqli_sql_exception` carrying the real errno on
+     * MySQL, a plain `Exception` on PostgreSQL — but it also has one path that
+     * returns false without throwing, when a statement cannot even be prepared.
+     * Only checking the exception would have kept missing that one.
+     *
+     * @return int Number of statements the database rejected in this call.
      */
     protected function executeQueries()
     {
+        $failures = 0;
+
         foreach ($this->queriesToExecute as $query) {
+            $this->attemptedStatements++;
             try {
-                $this->application->database->query($query);
+                $result = $this->application->database->query($query);
+                if ($result === false) {
+                    $failures++;
+                    $this->recordFailedStatement(
+                        $query,
+                        'the statement could not be prepared or executed',
+                        0
+                    );
+                    continue;
+                }
                 \Pramnos\Logs\Logger::log("\n" . $query . "\n\n", 'upgrades');
             } catch (\Exception $exception) {
+                $failures++;
+                $this->recordFailedStatement(
+                    $query,
+                    $exception->getMessage(),
+                    (int) $exception->getCode()
+                );
                 \Pramnos\Logs\Logger::log(
                     $exception->getMessage() . "\n\n" . $query, 'upgradeerrors'
                 );
             }
         }
         $this->queriesToExecute = [];
+
+        return $failures;
+    }
+
+    /**
+     * Remember one rejected statement.
+     *
+     * @param  string $query
+     * @param  string $error
+     * @param  int    $code Driver error code where there is one; 0 otherwise.
+     * @return void
+     */
+    private function recordFailedStatement(string $query, string $error, int $code): void
+    {
+        $this->failedStatements[] = array(
+            'query'  => $query,
+            'error'  => $error,
+            'benign' => static::statementFailureLooksBenign($error, $code),
+        );
+    }
+
+    /**
+     * Does this failure look like "already done" rather than a defect?
+     *
+     * **This labels; it does not decide anything.** No statement is skipped and
+     * no migration is failed on the strength of it — it exists so a report can
+     * separate the eleven redundant `ADD COLUMN`s of a re-run from the one
+     * statement that names a table nobody created.
+     *
+     * It has to be a label rather than a gate because it cannot be trusted
+     * enough to be one. Only MySQL supplies an error code here: its own
+     * `mysqli_sql_exception` propagates with the real errno (1050, 1060, …).
+     * PostgreSQL failures arrive as a plain `Exception` whose code is `0` —
+     * `Database::setError()` is called with error number `0` on that driver and
+     * no SQLSTATE is captured anywhere — so the only discriminator left is the
+     * message text, and message text is localisable. Gate on that and a
+     * database running with a non-English `lc_messages` would start failing
+     * migrations whose statements were merely redundant, which is the one
+     * outcome the tolerance exists to prevent.
+     *
+     * @param  string $error Driver message.
+     * @param  int    $code  Driver error code, or 0 when the driver gave none.
+     * @return bool
+     */
+    protected static function statementFailureLooksBenign(string $error, int $code): bool
+    {
+        // MySQL, where the errno is actually available.
+        //   1050 table exists · 1060 duplicate column · 1061 duplicate key
+        //   1091 cannot drop, it is not there · 1022/1826 duplicate key name
+        if (in_array($code, array(1050, 1060, 1061, 1091, 1022, 1826), true)) {
+            return true;
+        }
+
+        // PostgreSQL, and MySQL messages that reached us without a code.
+        $haystack = strtolower($error);
+        foreach (array('already exists', 'duplicate column', 'duplicate key name') as $needle) {
+            if (str_contains($haystack, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Statements the database rejected, in the order they were attempted.
+     *
+     * @return array<int, array{query: string, error: string, benign: bool}>
+     */
+    public function getFailedStatements(): array
+    {
+        return $this->failedStatements;
+    }
+
+    /**
+     * Did anything queued through `addQuery()` get rejected?
+     *
+     * A migration can use this to decide its own outcome — throw, repair, or
+     * report — instead of verifying its work against the schema afterwards to
+     * find out whether the framework's own report of it was true.
+     *
+     * @return bool
+     */
+    public function hasFailedStatements(): bool
+    {
+        return $this->failedStatements !== array();
+    }
+
+    /**
+     * One line naming what was rejected, for a ledger row or a report.
+     *
+     * Empty when nothing failed, so a caller can use it as the condition.
+     *
+     * @return string
+     */
+    public function failedStatementSummary(): string
+    {
+        if ($this->failedStatements === array()) {
+            return '';
+        }
+
+        $benign = 0;
+        foreach ($this->failedStatements as $failure) {
+            if ($failure['benign']) {
+                $benign++;
+            }
+        }
+        $total = count($this->failedStatements);
+
+        $summary = $total . ' of ' . $this->attemptedStatements . ' statements failed';
+        if ($benign > 0) {
+            $summary .= ' (' . $benign . ' look like work already applied)';
+        }
+
+        foreach ($this->failedStatements as $failure) {
+            $summary .= "\n  " . ($failure['benign'] ? '~ ' : '! ')
+                . str_replace("\n", ' ', $failure['error']);
+        }
+
+        return $summary;
     }
 
     // =========================================================================

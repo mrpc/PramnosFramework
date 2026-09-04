@@ -23,6 +23,21 @@ class MigrationRunner
     private ?Database $db;
 
     /** @var string History table name. */
+    /** History `result`: the migration threw and did not complete. */
+    public const RESULT_FAILED = 0;
+
+    /** History `result`: the migration completed and every statement was accepted. */
+    public const RESULT_OK = 1;
+
+    /**
+     * History `result`: `up()` returned, but the database rejected statements.
+     *
+     * The third state exists because the first two could not tell a migration
+     * that worked from one whose every statement failed — `addQuery()` runs
+     * tolerantly, so both reach the end of `up()` the same way.
+     */
+    public const RESULT_RAN_WITH_ERRORS = 2;
+
     private string $historyTable;
 
     /** @var \Pramnos\Application\Application|null Optional application for maintenance-mode integration. */
@@ -229,8 +244,11 @@ class MigrationRunner
      *   - cutoff: YYYY_MM_DD_HHmmss string; skip migrations at or before this point.
      * @param callable|null $onProgress Optional callback invoked immediately after each migration.
      *   Signature: fn(string $event, string $slug, string $errorMessage): void
-     *   Events: 'ran' (success) | 'failed' (error — $errorMessage is non-empty).
-     * @return array{ran: string[], failed: array<string,string>} ran = slugs; failed = slug → error message.
+     *   Events: 'ran' (success) | 'ran_with_errors' ($errorMessage names the rejected
+     *   statements) | 'failed' (error — $errorMessage is non-empty).
+     * @return array{ran: string[], failed: array<string,string>, warned: array<string,string>}
+     *   ran = slugs that completed (including those with rejected statements);
+     *   failed = slug → error message; warned = slug → what was rejected.
      */
     public function run(array $migrations, array $options = [], ?callable $onProgress = null): array
     {
@@ -256,6 +274,7 @@ class MigrationRunner
 
         $ran    = [];
         $failed = [];
+        $warned = [];
 
         // Only one process may run a batch. The maintenance flag below cannot
         // provide that: `!file_exists()` then `startMaintenance()` is two steps,
@@ -274,7 +293,7 @@ class MigrationRunner
                 $onProgress('skipped', '', 'another process is already running migrations');
             }
 
-            return ['ran' => [], 'failed' => []];
+            return ['ran' => [], 'failed' => [], 'warned' => []];
         }
 
         // Maintenance mode still goes up, for the different job of telling
@@ -309,7 +328,32 @@ class MigrationRunner
                         $db->query('COMMIT');
                     }
 
-                    $this->recordHistory($migration, $slug, $batch, $elapsed, 1, null);
+                    // `up()` returning is not the same thing as the migration
+                    // having worked. Statements queued through addQuery() are run
+                    // tolerantly — a redundant one must not abandon the rest — so a
+                    // migration whose every statement was rejected used to reach
+                    // exactly this line and be recorded as a success, in this
+                    // ledger and in `migrate:status`, with the only trace in a log
+                    // nothing points at.
+                    $warning = $migration->failedStatementSummary();
+                    if ($warning !== '') {
+                        $this->recordHistory(
+                            $migration,
+                            $slug,
+                            $batch,
+                            $elapsed,
+                            self::RESULT_RAN_WITH_ERRORS,
+                            $warning
+                        );
+                        $ran[]           = $slug;
+                        $warned[$slug]   = $warning;
+                        if ($onProgress !== null) {
+                            $onProgress('ran_with_errors', $slug, $warning, round($elapsed * 1000, 2));
+                        }
+                        continue;
+                    }
+
+                    $this->recordHistory($migration, $slug, $batch, $elapsed, self::RESULT_OK, null);
                     $ran[] = $slug;
                     if ($onProgress !== null) {
                         // 4th arg is elapsed ms — extra args are silently ignored by
@@ -326,7 +370,7 @@ class MigrationRunner
         }
                     }
 
-                    $this->recordHistory($migration, $slug, $batch, $elapsed, 0, $e->getMessage());
+                    $this->recordHistory($migration, $slug, $batch, $elapsed, self::RESULT_FAILED, $e->getMessage());
                     $failed[$slug] = $e->getMessage();
                     if ($onProgress !== null) {
                         $onProgress('failed', $slug, $e->getMessage(), round($elapsed * 1000, 2));
@@ -340,7 +384,7 @@ class MigrationRunner
             $lock?->release('finished');
         }
 
-        return ['ran' => $ran, 'failed' => $failed];
+        return ['ran' => $ran, 'failed' => $failed, 'warned' => $warned];
     }
 
     /**

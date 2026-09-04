@@ -154,6 +154,12 @@ class Migrate extends Command
         $result = $runner->run($migrations, $options, function (string $event, string $slug, string $error) use ($output): void {
             if ($event === 'ran') {
                 $output->writeln('<info>Migrated:</info>   ' . $slug);
+            } elseif ($event === 'ran_with_errors') {
+                // It completed, so it is not a failure — but it is not a success
+                // either, and saying "Migrated" would be the lie this exists to
+                // stop telling.
+                $output->writeln('<comment>Migrated*:</comment>  ' . $slug);
+                $output->writeln('           <comment>' . strtok(trim($error), "\n") . '</comment>');
             } else {
                 $output->writeln('<error>Failed:  </error>   ' . $slug);
                 // Print the first line of the error inline (full detail in summary)
@@ -193,16 +199,17 @@ class Migrate extends Command
 
         $ranCount    = count($result['ran']);
         $failedCount = count($result['failed']);
+        $warned      = $result['warned'] ?? [];
+        $warnedCount = count($warned);
 
-        if ($failedCount === 0) {
-            $output->writeln(sprintf('<info> ✓  %d migrated</info>', $ranCount));
-        } else {
-            $output->writeln(sprintf(
-                '<info> ✓  %d migrated</info>   <error> ✗  %d failed </error>',
-                $ranCount,
-                $failedCount
-            ));
+        $line = sprintf('<info> ✓  %d migrated</info>', $ranCount);
+        if ($warnedCount > 0) {
+            $line .= sprintf('   <comment> *  %d with rejected statements </comment>', $warnedCount);
         }
+        if ($failedCount > 0) {
+            $line .= sprintf('   <error> ✗  %d failed </error>', $failedCount);
+        }
+        $output->writeln($line);
 
         $output->writeln('');
 
@@ -229,6 +236,24 @@ class Migrate extends Command
         $output->writeln(' <comment>Dirs:</comment>       ' . array_shift($dirs));
         foreach ($dirs as $dir) {
             $output->writeln('             ' . $dir);
+        }
+
+        // Rejected-statement details. Printed in full here because the
+        // alternative is var/logs/upgradeerrors.log, which is where this hid.
+        if (!empty($warned)) {
+            $output->writeln('');
+            $output->writeln('<comment>' . $sep . '</comment>');
+            $output->writeln('<comment> Completed, but the database rejected statements          </comment>');
+            $output->writeln('<comment>' . $sep . '</comment>');
+            foreach ($warned as $slug => $message) {
+                $output->writeln(' <comment>*</comment> <options=bold>' . $slug . '</>');
+                foreach (explode("\n", trim($message)) as $detailLine) {
+                    if (trim($detailLine) !== '') {
+                        $output->writeln('   <comment>' . $detailLine . '</comment>');
+                    }
+                }
+                $output->writeln('');
+            }
         }
 
         // Failed details
