@@ -5,6 +5,8 @@ use_cases:
   - Understanding batching, the migration cutoff, or how migrations are discovered
   - Fixing a migration that fails on an installation whose schema already has the object
   - Writing a migration that must coexist with an application's own tables and views
+  - Working out why migrate:status reports migrations that will never run
+  - Configuring migration_cutoff or the features gate for an existing schema
 ---
 
 # Pramnos Migration Guide
@@ -131,6 +133,25 @@ php vendor/bin/pramnos migrate:reset
 # Run specific migration
 php vendor/bin/pramnos migrate --target=2026_05_29_000001_create_users_table
 ```
+
+### The CLI and the request lifecycle answer the same question
+
+`migrate`, `migrate:status`, the MCP status tools and the dev panel's migration
+card all read the same answer to "which migrations apply to this installation"
+as auto-run does: `Application::migrationScope()`, reached through
+`MigrationLoader::scopeFor($app)`. Two filters come from `app.php`, and both
+apply on every one of those paths:
+
+- **`features`** gates the framework's per-feature migration directories. A
+  feature the application has not enabled contributes no migrations.
+- **`migration_cutoff`** excludes every migration whose filename timestamp is at
+  or before it. A migration with no timestamp in its name is never excluded by a
+  cutoff, on either path.
+
+This matters most on an installation whose schema predates the migration system.
+Such an installation sets a cutoff precisely so the baseline epoch is skipped —
+and a reader that ignored it would report the whole epoch as pending work and,
+worse, attempt it.
 
 ### Automatic Migration (Application Startup)
 

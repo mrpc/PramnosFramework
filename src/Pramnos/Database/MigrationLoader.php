@@ -84,6 +84,54 @@ class MigrationLoader
     }
 
     /**
+     * Which migrations apply to this installation — the safe way to ask.
+     *
+     * `Application::migrationScope()` is the answer; this is the accessor every
+     * caller should use, because the callers are console commands, MCP tools and
+     * a debug panel that each reach an application they did not construct. One
+     * of them may hold no application at all, and a test may hold a mock whose
+     * every method returns null. Both used to be somebody's `?? []`, which is how
+     * a missing key becomes a warning in the middle of a report.
+     *
+     * With nothing to ask, every directory on disk is returned with no cutoff:
+     * a report that lists too much can be read, while one that silently applies
+     * a gate it could not actually read cannot.
+     *
+     * @param  object|null $app Ideally a Pramnos application.
+     * @param  bool $includeConventionalAppDir See Application::migrationScope().
+     * @return array{dirs: string[], skipped: array<string, string>, cutoff: string}
+     */
+    public static function scopeFor(?object $app, bool $includeConventionalAppDir = false): array
+    {
+        $scope = null;
+        if ($app instanceof \Pramnos\Application\Application) {
+            $scope = $app->migrationScope($includeConventionalAppDir);
+        }
+
+        // Keyed on the presence of `dirs`, not on whether it is empty. An
+        // application that sets `migrations.framework => false` and declares no
+        // paths of its own answers `dirs => []` and means it, so emptiness cannot
+        // be the signal. A stub answers `[]` — no keys at all — because PHPUnit
+        // returns the return type's default for an unstubbed `array` method,
+        // which is why testing `is_array()` alone silently reported that an
+        // installation had no migrations anywhere.
+        if (!is_array($scope) || !array_key_exists('dirs', $scope)) {
+            return [
+                'dirs'    => static::resolveDefaultDirectories(),
+                'skipped' => [],
+                'cutoff'  => '',
+            ];
+        }
+
+        // Defaulted rather than trusted: a subclass may answer with less.
+        return [
+            'dirs'    => is_array($scope['dirs'] ?? null) ? $scope['dirs'] : [],
+            'skipped' => is_array($scope['skipped'] ?? null) ? $scope['skipped'] : [],
+            'cutoff'  => is_string($scope['cutoff'] ?? null) ? $scope['cutoff'] : '',
+        ];
+    }
+
+    /**
      * Scans directories for timestamped migration filenames and returns a
      * slug → timestamp map WITHOUT loading (require-ing) any PHP file.
      *

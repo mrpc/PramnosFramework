@@ -2699,6 +2699,85 @@ class Application extends Base
     }
 
     /**
+     * Which migrations apply to this installation, and which do not.
+     *
+     * There were two answers to that question in this codebase and they
+     * disagreed. Auto-run filtered the framework directories through the
+     * `features` gate and the migrations through `app.php`'s `migration_cutoff`;
+     * `MigrationLoader::resolveDefaultDirectories()` — what the CLI read —
+     * globbed every feature directory and knew nothing about a cutoff. On an
+     * installation whose schema predates the migration system that is the
+     * difference between "nothing to migrate" and 44 pending migrations, 42 of
+     * them the baseline epoch the cutoff exists to skip. `migrate` would have
+     * run them.
+     *
+     * So the filters live here, once, and everything that needs the answer reads
+     * it: auto-run, `migrate` and `migrate:status`.
+     *
+     * **Why this returns the skipped set and not just a directory list.** A
+     * report that quietly omitted the out-of-scope rows would mislead as badly
+     * as the one that counted them as pending — it is the only place an operator
+     * can find out *why* something is not going to run. `migrate` takes `dirs`;
+     * `migrate:status` reads both and labels the difference.
+     *
+     * Nothing here touches the database, so the console can ask before it has a
+     * connection.
+     *
+     * @param  bool $includeConventionalAppDir Also scan `app/Migrations` when the
+     *         application declares no `migrations.paths`. False for auto-run,
+     *         whose directories are exactly what `app.php` declares; true for the
+     *         CLI, which has always scanned the conventional directory and must
+     *         not start hiding what it finds there.
+     * @return array{dirs: string[], skipped: array<string, string>, cutoff: string}
+     *         dirs — eligible directories; skipped — directory path => reason;
+     *         cutoff — `YYYY_MM_DD_HHmmss`, or `''` when the app sets none.
+     */
+    public function migrationScope(bool $includeConventionalAppDir = false): array
+    {
+        $skipped = [];
+
+        $base = \Pramnos\Database\MigrationLoader::resolveFrameworkMigrationsBase();
+        $frameworkDirs = ($base !== null && is_dir($base))
+            ? (glob($base . '/*', GLOB_ONLYDIR) ?: [])
+            : [];
+
+        if ($this->autoMigrationsIncludeFramework()) {
+            // Through getFrameworkMigrationDirs() rather than the feature filter
+            // directly, because that method is the documented override point for
+            // what auto-run scans and a subclass that narrows it must still
+            // narrow this. `skipped` is then whatever is on disk but not in the
+            // answer, whoever decided it.
+            $dirs = $this->getFrameworkMigrationDirs();
+            foreach (array_diff($frameworkDirs, $dirs) as $dir) {
+                $skipped[$dir] = 'feature: ' . basename($dir);
+            }
+        } else {
+            // `migrations.framework => false`: the app manages a schema that
+            // collides with a framework table and runs only its own directories.
+            $dirs = [];
+            foreach ($frameworkDirs as $dir) {
+                $skipped[$dir] = 'framework migrations disabled';
+            }
+        }
+
+        $appDirs = $this->getApplicationMigrationDirs();
+        if (empty($appDirs) && $includeConventionalAppDir) {
+            $conventional = (defined('ROOT') ? ROOT : getcwd()) . '/app/Migrations';
+            if (is_dir($conventional)) {
+                $appDirs[] = realpath($conventional) ?: $conventional;
+            }
+        }
+
+        return [
+            'dirs'    => array_values(array_merge($dirs, $appDirs)),
+            'skipped' => $skipped,
+            'cutoff'  => $this->normalizeMigrationCutoff(
+                $this->applicationInfo['migration_cutoff'] ?? ''
+            ),
+        ];
+    }
+
+    /**
      * Whether auto-run should include the framework feature migration dirs.
      *
      * Reads app.php `'migrations' => ['framework' => bool]`; defaults to true so
@@ -2996,20 +3075,15 @@ class Application extends Base
         $this->autoMigrationsChecked = true;
 
         // Framework feature migrations (unless the app opts out) plus any
-        // application-declared directories (app.php 'migrations' => ...). An app
-        // that manages a schema colliding with a framework table (e.g. its own
-        // sessions layout) sets 'framework' => false and lists only its own dirs.
-        $dirs = $this->autoMigrationsIncludeFramework()
-            ? $this->getFrameworkMigrationDirs()
-            : [];
-        $dirs = array_merge($dirs, $this->getApplicationMigrationDirs());
+        // application-declared directories, and the cutoff — resolved by
+        // migrationScope(), which is also what the CLI reads, so the two cannot
+        // drift apart on which migrations apply here.
+        $scope  = $this->migrationScope();
+        $dirs   = $scope['dirs'];
+        $cutoff = $scope['cutoff'];
         if (empty($dirs)) {
             return;
         }
-
-        $cutoff = $this->normalizeMigrationCutoff(
-            $this->applicationInfo['migration_cutoff'] ?? ''
-        );
 
         // Phase 1: build slug→timestamp map from filenames (no PHP loading).
         $slugTimestamps = \Pramnos\Database\MigrationLoader::slugsFromDirectories($dirs);
