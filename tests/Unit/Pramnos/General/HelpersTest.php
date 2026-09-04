@@ -16,15 +16,16 @@ use Pramnos\General\Helpers;
  * Uncovered areas addressed here:
  *   - greeklish() non-URL-friendly mode (the default `else` branch)
  *   - getBrowser() when get_browser() returns engine_data array
- *   - fileGetContents() fakeRef=true path and array-return path
+ *   - fileGetContents() return-type contract (its behaviour lives in
+ *     Unit/Security/HardenedFileGetContentsTest)
  *   - varDumpToString() memory-high path (via reflection + ini override)
  *   - safePrintR() object-with-nested-object depth-limit and maxElements branches
  *   - checkJSON() delegation to Validator::isJson()
  *   - validateIpOrCidr() IPv6 CIDR valid path
  *   - shortenText() null text coercion (strip_tags on null)
  *
- * All tests are pure-unit (no DB, no network) except fileGetContents() which
- * is skipped if CURL is unavailable.
+ * All tests are pure-unit (no DB, no network). The checkUrlStatus() tests skip
+ * when CURL is unavailable; fileGetContents() no longer uses CURL at all.
  */
 #[CoversClass(Helpers::class)]
 class HelpersTest extends TestCase
@@ -460,83 +461,34 @@ class HelpersTest extends TestCase
     }
 
     // =========================================================================
-    // fileGetContents() — CURL fakeRef=true and array=true paths
+    // fileGetContents() — now a wrapper over the outbound checks
     // =========================================================================
 
     /**
-     * fileGetContents() with fakeRef=true must include a Referer header in the
-     * CURL request (covers the `if ($fakeRef == true)` branch, lines 405-418).
+     * The method returns a string or false, and never throws.
      *
-     * This test is skipped when CURL is unavailable. We don't actually make a
-     * network call — we use a localhost URL that will fail quickly and just
-     * verify that the function returns a value (either string or false) without
-     * throwing.
+     * The three tests that used to live here exercised curl branches: `$fakeRef`'s
+     * own option array, `curl_getinfo()` in the array return, and `curl_error()`
+     * in the debug echo. None of those branches exist any more — the method
+     * delegates to `\Pramnos\Security\OutboundUrl::fetch()`, so there is no curl
+     * handle to ask and nothing to skip when curl is absent.
+     *
+     * What the method does now — refusing private addresses and non-HTTP schemes,
+     * the array shape, the debug output and its escaping — is covered by
+     * `Pramnos\Tests\Unit\Security\HardenedFileGetContentsTest`, where it sits
+     * beside the reason it changed. The return-type contract stays pinned here.
      */
-    public function testFileGetContentsWithFakeRefDoesNotThrow(): void
+    public function testFileGetContentsReturnsAStringOrFalse(): void
     {
-        // Skip if CURL is not available
-        if (!function_exists('curl_version')) {
-            $this->markTestSkipped('CURL is not available in this environment');
-        }
+        // Act — refused before a socket is opened, so no network is involved
+        $result = Helpers::fileGetContents('http://127.0.0.1:65000/nonexistent');
 
-        // Act — use a non-routable address to fail fast without a real network call
-        // The key invariant is that the fakeRef=true branch is entered without throwing
-        $result = Helpers::fileGetContents('http://0.0.0.0:65000/nonexistent', false, false, true);
-
-        // Assert — must return either a string (body or empty string) or false
+        // Assert
         $this->assertTrue(
             is_string($result) || $result === false,
             'fileGetContents() must return a string or false, never throw'
         );
     }
-
-    /**
-     * fileGetContents() with $array=true must return an associative array with
-     * 'content' and 'info' keys (covers lines 443-447).
-     */
-    public function testFileGetContentsWithArrayTrueReturnsArrayWithInfoKey(): void
-    {
-        // Skip if CURL is not available
-        if (!function_exists('curl_version')) {
-            $this->markTestSkipped('CURL is not available in this environment');
-        }
-
-        // Act — non-routable address, array=true
-        $result = Helpers::fileGetContents('http://0.0.0.0:65000/', false, true, false);
-
-        if (is_array($result)) {
-            // Assert — array must contain the expected keys
-            $this->assertArrayHasKey('content', $result,
-                "fileGetContents(array=true) must return array with 'content' key");
-            $this->assertArrayHasKey('info', $result,
-                "fileGetContents(array=true) must return array with 'info' key");
-        } else {
-            // If CURL itself fails entirely (e.g. in a restricted sandbox) we get false
-            $this->assertFalse($result, 'fileGetContents() may return false on connection error');
-        }
-    }
-
-    /**
-     * fileGetContents() with $debug=true must echo the URL and CURL
-     * diagnostics (covers the debug echo block).
-     */
-    public function testFileGetContentsDebugEchoesDiagnostics(): void
-    {
-        // Skip if CURL is not available
-        if (!function_exists('curl_version')) {
-            $this->markTestSkipped('CURL is not available in this environment');
-        }
-
-        // Act — capture the debug output for a fast-failing URL
-        ob_start();
-        Helpers::fileGetContents('http://0.0.0.0:65000/dbg', true, false, false);
-        $output = ob_get_clean();
-
-        // Assert — the requested URL is echoed as part of the diagnostics
-        $this->assertStringContainsString('http://0.0.0.0:65000/dbg', $output,
-            'debug=true must echo the URL being fetched');
-    }
-
     // =========================================================================
     // checkUrlStatus()
     // =========================================================================

@@ -10,6 +10,21 @@ namespace Pramnos\General;
  */
 class Helpers
 {
+    /**
+     * Byte ceiling for {@see fileGetContents()}, enforced mid-stream.
+     *
+     * The old method had none: a server answering with a hundred gigabytes was a
+     * hundred gigabytes of memory. Ten mebibytes is `OutboundUrl::fetch()`'s own
+     * default and comfortably larger than the avatars and images this is used for.
+     */
+    public const REMOTE_FETCH_MAX_BYTES = 10485760;
+
+    /** Seconds, for connect and for read — what the method already allowed. */
+    public const REMOTE_FETCH_TIMEOUT = 10;
+
+    /** Redirect hops, each one re-checked before it is followed. */
+    public const REMOTE_FETCH_MAX_REDIRECTS = 10;
+
 
     /**
      * How much time has passed from a date
@@ -548,70 +563,89 @@ class Helpers
     }
 
     /**
-     * This function returns the same result with file_get_contents,
-     * but it uses
-     * CURL to get the content. However, if CURL is dissabled, it tries
-     * file_get_contents instead.
-     * @param string $url
-     * @param boolean $debug
-     * @param boolean $array If set to true, return an array
-     * @param boolean $fakeRef Should we have a fake referrer?
-     * @return string
+     * Fetch a URL, through the checks that make fetching a URL safe.
+     *
+     * @deprecated Use {@see \Pramnos\Security\OutboundUrl::fetch()} directly. It takes
+     *             the byte ceiling, the timeout and the redirect budget as arguments and
+     *             hands back a reason and a status, all of which this wrapper has to
+     *             decide on your behalf.
+     *
+     * **What this used to be.** A general HTTP helper with
+     * `CURLOPT_SSL_VERIFYPEER => false` — so no certificate was ever checked — that
+     * followed up to ten redirects to wherever the far end pointed, restricted no
+     * scheme, so `file:///etc/passwd` and every other protocol compiled into curl were
+     * reachable through it, and capped the response body nowhere. It had no caller
+     * inside the framework and was the obvious choice for the next person who wanted
+     * «download this URL».
+     *
+     * It now delegates to `OutboundUrl::fetch()`, which checks the scheme against an
+     * allow-list, resolves **every** A and AAAA record and refuses private, loopback and
+     * reserved addresses, connects to the address it approved and sends the name in
+     * `Host:` — so what was checked and what was dialled cannot differ — re-runs that
+     * check on each redirect hop, and stops reading at a byte ceiling mid-stream, so a
+     * server answering with a hundred gigabytes costs the ceiling and not the memory.
+     *
+     * Three behaviour changes worth knowing, none of them avoidable:
+     *
+     * - **A host on a private address is now refused.** That is the point, and it means
+     *   a caller fetching `sURL . $path` against its own site stops working: locally
+     *   that name resolves to a private address. Read the file, or serve it internally.
+     * - **`$fakeRef` no longer spoofs anything.** The parameter is kept so the signature
+     *   does not change, and it is ignored. Its purpose was a Google referer and a
+     *   Firefox user agent, which is hotlink-protection evasion, and re-adding header
+     *   injection to a hardened fetch path to preserve it is not a trade worth making.
+     * - **`allow_url_fopen` is now required.** `OutboundUrl` dials with a stream so it
+     *   can connect to an approved address rather than a name; curl was what used to
+     *   work without that ini setting. It fails closed — falling back to an unchecked
+     *   curl fetch would undo the whole change. `MediaObject::addRemoteImage()` has had
+     *   this dependency since it started using the same class.
+     *
+     * @param  string  $url     The URL to fetch.
+     * @param  boolean $debug   Echo the URL and the reason it failed.
+     * @param  boolean $array   Return `['content' => …, 'info' => […]]`. `info` is no
+     *                          longer `curl_getinfo()` output — it carries `url`,
+     *                          `http_code`, `size_download` and `error`.
+     * @param  boolean $fakeRef Ignored; see above.
+     * @return string|array|false The body, or false. An array when `$array` is true.
      */
     public static function fileGetContents($url, $debug = false,
         $array = false, $fakeRef = false)
     {
-        if (function_exists('curl_version')) {
-            if ($fakeRef == true) {
-                $optArray = array(
-                    CURLOPT_RETURNTRANSFER => 1,
-                    CURLOPT_TIMEOUT => 10,
-                    CURLOPT_URL => $url,
-                    CURLOPT_HEADER => 0,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_FOLLOWLOCATION => true,     // follow redirects
-                    CURLOPT_MAXREDIRS      => 10,
-                    CURLOPT_USERAGENT => 'Mozilla/5.0 '
-                    . '(Windows NT 6.2; WOW64; rv:17.0) '
-                    . 'Gecko/20100101 Firefox/17.0',
-                    CURLOPT_REFERER => 'https://www.google.com'
-                );
-            } else {
-                $optArray = array(
-                    CURLOPT_RETURNTRANSFER => 1,
-                    CURLOPT_TIMEOUT => 10,
-                    CURLOPT_URL => $url,
-                    CURLOPT_HEADER => 0,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_FOLLOWLOCATION => true,     // follow redirects
-                    CURLOPT_MAXREDIRS      => 10
-                );
-            }
-            $handler = curl_init($url);
-            curl_setopt_array(
-                $handler,
-                $optArray
-            );
-            $string = curl_exec($handler);
-            if ($debug == true) {
-                echo $url . "<br />";
-                echo curl_error($handler);
-                var_dump($string);
-                var_dump($handler);
-            }
+        $reason = null;
+        $status = null;
 
-            if ($array == true) {
-                $array = array();
-                $array['content'] = $string;
-                $array['info'] = curl_getinfo($handler);
-                return $array;
-            } else {
-                return $string;
+        $content = \Pramnos\Security\OutboundUrl::fetch(
+            (string) $url,
+            self::REMOTE_FETCH_MAX_BYTES,
+            $reason,
+            self::REMOTE_FETCH_TIMEOUT,
+            // Followed, but every hop goes back through the address check, which is what
+            // made following them unsafe before rather than the following itself. Ten,
+            // because that is what this method already allowed.
+            self::REMOTE_FETCH_MAX_REDIRECTS,
+            $status
+        );
+
+        if ($debug == true) {
+            echo htmlspecialchars((string) $url, ENT_QUOTES, 'UTF-8') . "<br />";
+            if ($content === false) {
+                echo htmlspecialchars((string) $reason, ENT_QUOTES, 'UTF-8') . "<br />";
             }
-        } elseif (ini_get('allow_url_fopen')) {
-            return file_get_contents($url);
         }
-        return false;
+
+        if ($array == true) {
+            return array(
+                'content' => $content,
+                'info'    => array(
+                    'url'           => (string) $url,
+                    'http_code'     => (int) ($status ?? 0),
+                    'size_download' => $content === false ? 0 : strlen($content),
+                    'error'         => $reason,
+                ),
+            );
+        }
+
+        return $content;
     }
 
     /**

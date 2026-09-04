@@ -7,6 +7,7 @@ use_cases:
   - Adding a human check to a public write endpoint
   - Storing a credential the application has to read back (SMTP, API token, signing key)
   - Fetching a URL a user supplied, from the server (SSRF)
+  - Auditing or replacing a helper that downloads a URL
 ---
 
 # Pramnos Security Guide
@@ -1178,6 +1179,58 @@ with what you read, and do not put fetched markup — SVG, HTML — on your own 
 is same-origin. [`MediaObject::addRemoteImage()`](Pramnos_Media_Guide.md) is worth reading as a worked
 example: it uses `fetch()`, caps the body, reads the mime with `finfo` from the buffer, and refuses
 SVG for exactly that reason.
+
+### `Helpers::fileGetContents()` is a thin wrapper over this, and deprecated
+
+There is a second way to fetch a URL in this framework, and it is not the one to reach
+for. `\Pramnos\General\Helpers::fileGetContents()` predates `OutboundUrl` and used to be
+a general HTTP helper with certificate verification switched off, ten followed redirects,
+no restriction on scheme and no cap on the body. It now delegates here, and carries an
+`@deprecated` tag pointing back at `fetch()`.
+
+Call `OutboundUrl::fetch()` directly in new code. The wrapper has to choose the byte
+ceiling, the timeout and the redirect budget on your behalf — they are
+`Helpers::REMOTE_FETCH_MAX_BYTES`, `REMOTE_FETCH_TIMEOUT` and
+`REMOTE_FETCH_MAX_REDIRECTS` — and it gives you neither the reason nor the status, which
+are the two things that tell you whether to retry an address or forget it.
+
+Three behaviour changes came with the delegation, and each of them can break a caller:
+
+- **A host on a private address is refused**, which is the point. A caller fetching
+  `sURL . $path` against its own site stops working, because that name resolves locally to
+  a private address. Read the file from disk instead.
+- **`$fakeRef` is ignored.** It sent a Google referer and a Firefox user agent, which is
+  hotlink-protection evasion; re-adding header injection to a checked fetch path to keep
+  it is not a trade worth making. The parameter stays so the signature does not change.
+- **`allow_url_fopen` is now required.** `fetch()` dials with a stream because it has to
+  connect to an *address* it approved rather than to a name — that is the property the
+  whole class exists for, and curl is what used to work without the ini setting. It fails
+  closed: falling back to an unchecked curl fetch would undo the change.
+
+### `Helpers::checkUrlStatus()` is **not** guarded, deliberately
+
+`checkUrlStatus($url)` reports `['online' => bool, 'status' => int]` and does **not** go
+through any of this. It never disabled certificate verification and it follows no
+redirects, so it is not the same defect — but it will happily tell you whether something
+is listening on a private address, which makes it a host and port probe for anything that
+can influence its argument.
+
+That is left as it is because «is this URL up» is a question people legitimately ask about
+internal addresses — a health check for a service on the same subnet is the ordinary use.
+So the guard cannot be moved inside it without breaking the honest callers.
+
+**If the URL comes from outside your application, check it first:**
+
+```php
+if (!\Pramnos\Security\OutboundUrl::isPublic($url, $reason)) {
+    // refuse; $reason says why, without naming the address
+}
+$status = \Pramnos\General\Helpers::checkUrlStatus($url);
+```
+
+Note also that it buffers the whole response into memory to throw it away —
+`CURLOPT_RETURNTRANSFER` with no ceiling — so a URL that answers with an endless stream
+costs the process its memory even though the body is never read.
 
 ## Dependency Security
 
