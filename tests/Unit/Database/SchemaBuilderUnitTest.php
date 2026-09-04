@@ -1397,6 +1397,113 @@ class SchemaBuilderUnitTest extends TestCase
     }
 
     // =========================================================================
+    // createTable() puts a qualified table in its schema
+    // =========================================================================
+
+    /**
+     * A schema-qualified createTable() creates the schema first, on PostgreSQL.
+     *
+     * WHAT: `createTable('pramnos.changelog')` emits `CREATE SCHEMA IF NOT EXISTS
+     *       "pramnos"` before the `CREATE TABLE`.
+     * WHY:  `CREATE TABLE pramnos.x` fails outright when the schema is absent, and
+     *       "some earlier migration made it" holds only while every migration runs
+     *       in order from the start. Twenty-five of the twenty-six framework
+     *       migrations creating a qualified table carried that assumption, and it
+     *       breaks whenever one feature's migrations run alone — which an
+     *       installation enabling a feature later does, and every integration test
+     *       for that feature does.
+     */
+    public function testCreateTableEnsuresTheSchemaOfAQualifiedNameOnPostgreSQL(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('postgresql');
+        $captured = [];
+        $db->method('query')->willReturnCallback(function ($sql) use (&$captured) {
+            $captured[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $sb->createTable('pramnos.changelog', function (Blueprint $bp) {
+            $bp->increments('logid');
+        });
+
+        // Assert — the schema is created, and before the table
+        $all = implode(' | ', $captured);
+        $this->assertStringContainsString('CREATE SCHEMA IF NOT EXISTS "pramnos"', $all);
+        $schemaAt = null;
+        $tableAt  = null;
+        foreach ($captured as $i => $sql) {
+            if ($schemaAt === null && str_contains($sql, 'CREATE SCHEMA')) { $schemaAt = $i; }
+            if ($tableAt === null && str_contains($sql, 'CREATE TABLE')) { $tableAt = $i; }
+        }
+        $this->assertNotNull($schemaAt);
+        $this->assertNotNull($tableAt);
+        $this->assertLessThan($tableAt, $schemaAt, 'the schema has to exist before the table');
+    }
+
+    /**
+     * An unqualified table, and `public`, ask for no schema.
+     *
+     * `public` always exists, so asking would be one wasted statement per table.
+     */
+    public function testCreateTableDoesNotAskForPublicOrUnqualifiedSchemas(): void
+    {
+        foreach (['plain_table', 'public.plain_table'] as $name) {
+            // Arrange
+            $db = $this->makeDBMock('postgresql');
+            $captured = [];
+            $db->method('query')->willReturnCallback(function ($sql) use (&$captured) {
+                $captured[] = $sql;
+                return null;
+            });
+            $sb = new SchemaBuilder($db);
+
+            // Act
+            $sb->createTable($name, function (Blueprint $bp) {
+                $bp->increments('id');
+            });
+
+            // Assert
+            $this->assertStringNotContainsString(
+                'CREATE SCHEMA',
+                implode(' ', $captured),
+                $name . ' must not trigger a CREATE SCHEMA'
+            );
+        }
+    }
+
+    /**
+     * On MySQL there is no schema to create.
+     *
+     * `resolveTable()` has already flattened `pramnos.changelog` into
+     * `pramnos_changelog` by then, so there is not even a dot left to read — which
+     * is the right answer on a backend where a schema is a database.
+     */
+    public function testCreateTableAsksForNoSchemaOnMySQL(): void
+    {
+        // Arrange
+        $db = $this->makeDBMock('mysql');
+        $captured = [];
+        $db->method('query')->willReturnCallback(function ($sql) use (&$captured) {
+            $captured[] = $sql;
+            return null;
+        });
+        $sb = new SchemaBuilder($db);
+
+        // Act
+        $sb->createTable('pramnos.changelog', function (Blueprint $bp) {
+            $bp->increments('logid');
+        });
+
+        // Assert
+        $all = implode(' ', $captured);
+        $this->assertStringNotContainsString('CREATE SCHEMA', $all);
+        $this->assertStringContainsString('pramnos_changelog', $all);
+    }
+
+    // =========================================================================
     // getRelationKind() — which of the things sharing the name a name is
     // =========================================================================
 

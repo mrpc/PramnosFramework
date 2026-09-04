@@ -137,6 +137,27 @@ class SchemaBuilder
         $callback($blueprint);
 
         $resolved = $this->resolveTable($table);
+
+        // A qualified name says which schema the table belongs in, so put it
+        // there rather than requiring that something else already did.
+        //
+        // `CREATE TABLE pramnos.x` fails outright on PostgreSQL when the schema
+        // is absent, and "the core migration made it" is an assumption that holds
+        // only while every migration runs in order, from the start, on the same
+        // database. It stops holding the moment one feature's migrations are run
+        // on their own — which is what an installation enabling a feature after
+        // the fact does, and what every integration test touching that feature
+        // does. Twenty-five of the twenty-six framework migrations that create a
+        // schema-qualified table carried the assumption; one guard here is what
+        // covers all of them and the next one.
+        //
+        // `moveToSchema()` already did exactly this before a `SET SCHEMA`, for
+        // the same reason. A no-op on MySQL, where the schema is flattened into
+        // the table name and there is nothing to create, and quiet when the role
+        // may not create schemas — the CREATE TABLE below is then the better
+        // error to report.
+        $this->ensureSchemaFor($resolved);
+
         // Disable FK checks on MySQL during CREATE TABLE so that pre-existing broken
         // FK constraints (dangling references from previous test teardowns) do not
         // prevent the new table from being created. The FK constraints defined in
@@ -1971,6 +1992,36 @@ class SchemaBuilder
      * does. A no-op on MySQL, where a schema is flattened into the table name and there is
      * nothing to create.
      */
+    /**
+     * Ensure the schema a resolved table name is qualified with exists.
+     *
+     * Reads the schema off the already-resolved name, so it sees what the
+     * database will see: on MySQL `resolveTable()` has flattened `a.b` into
+     * `a_b` and there is no dot left to find, which is the correct answer there.
+     *
+     * `public` is skipped because it always exists and asking would be a
+     * statement per table for nothing.
+     *
+     * @param  string $resolvedTable Name as it will appear in the DDL.
+     * @return void
+     */
+    protected function ensureSchemaFor(string $resolvedTable): void
+    {
+        if (!$this->capabilities->isPostgreSQL()) {
+            return;
+        }
+        if (!str_contains($resolvedTable, '.')) {
+            return;
+        }
+
+        $schema = trim(explode('.', $resolvedTable, 2)[0], '"');
+        if ($schema === '' || $schema === 'public') {
+            return;
+        }
+
+        $this->ensureSchema($schema);
+    }
+
     public function ensureSchema(string $name): bool
     {
         if (!$this->capabilities->isPostgreSQL()) {
