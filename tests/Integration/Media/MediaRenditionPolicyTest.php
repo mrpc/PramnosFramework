@@ -509,6 +509,131 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     }
 
     /**
+     * A cropped rendition is not served to a caller that asked for the whole picture.
+     *
+     * WHAT: the same media and the same box, once with `$crop = true` and once
+     *       without, are two entries and each request gets its own.
+     * WHY:  `$crop` reaches `ResizeTools` and changes what the image *depicts* —
+     *       cropping keeps the aspect and discards the edges, fitting keeps
+     *       everything. Both record the same requested box and the same
+     *       dimensions, so a lookup that ignored it returned whichever was
+     *       written first. Reported with a real caller on both sides of one `if`:
+     *       two admin templates asking `get(155, 148, true, true)` in one branch
+     *       and `get(155, 148)` in the other, for the same media.
+     *
+     * The source has vertical bands and a marker near one edge on purpose: a
+     * centre crop of a horizontally symmetric image is indistinguishable from a
+     * squash, which is how a first attempt at measuring this concluded — wrongly
+     * — that crop changed nothing.
+     */
+    public function testACroppedRenditionIsNotServedToACallerThatWantedTheWholePicture(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->addImage($this->bandedJpeg(800, 400), 'media_policy');
+        $media->save();
+
+        // Act — cropped first, then the same box uncropped
+        $cropped   = $media->get(155, 148, true);
+        $uncropped = $media->get(155, 148, false);
+
+        // Assert — two entries, two files, and neither is the other
+        $this->assertNotSame(
+            $cropped->filename,
+            $uncropped->filename,
+            'a caller that asked for the whole picture must not get the cropped one'
+        );
+        $this->assertNotSame(
+            md5_file($cropped->filename),
+            md5_file($uncropped->filename),
+            'and they really are different images, not two names for one'
+        );
+        $this->assertTrue((bool) $cropped->crop);
+        $this->assertFalse((bool) $uncropped->crop);
+    }
+
+    /**
+     * `$resample` is recorded too, and chooses between letterbox and stretch.
+     *
+     * Measured on this source: with `crop = false`, `resample = true` fits the
+     * whole image into the box and `false` distorts it to fill — the same
+     * dimensions and a different picture. It changes nothing when cropping, and
+     * is recorded anyway, because an entry is identified by what was *asked for*
+     * and a lookup cannot know that this particular source made the answer moot.
+     */
+    public function testResampleIsPartOfTheIdentityToo(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->addImage($this->bandedJpeg(800, 400), 'media_policy');
+        $media->save();
+
+        // Act — no cropping either way, so resample is what differs
+        $fitted    = $media->get(155, 148, false, false, false, true);
+        $stretched = $media->get(155, 148, false, false, false, false);
+
+        // Assert
+        $this->assertNotSame($fitted->filename, $stretched->filename);
+        $this->assertNotSame(
+            md5_file($fitted->filename),
+            md5_file($stretched->filename),
+            'letterboxing and stretching are different pictures'
+        );
+        $this->assertTrue((bool) $fitted->resample);
+        $this->assertFalse((bool) $stretched->resample);
+    }
+
+    /**
+     * Each variant is still found again rather than rebuilt.
+     *
+     * The FW-055 guarantee has to hold across every axis of the identity, or
+     * adding one reopens that bug for the requests that use it.
+     */
+    public function testEachCropVariantIsCachedAndNotRebuilt(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->addImage($this->bandedJpeg(800, 400), 'media_policy');
+        $media->save();
+        $media->get(155, 148, true);
+        $media->get(155, 148, false);
+        $count = count($media->thumbnails);
+
+        // Act
+        for ($i = 0; $i < 2; $i++) {
+            $media->get(155, 148, true);
+            $media->get(155, 148, false);
+        }
+
+        // Assert
+        $this->assertCount($count, $media->thumbnails);
+    }
+
+    /**
+     * A JPEG whose content survives being cropped.
+     *
+     * Vertical bands plus a marker near the left edge: a centre crop discards the
+     * marker and part of one band, so the bytes differ from a squash of the whole
+     * frame. A horizontally symmetric image would not show the difference.
+     */
+    private function bandedJpeg(int $width, int $height): string
+    {
+        $im = imagecreatetruecolor($width, $height);
+        imagefilledrectangle($im, 0, 0, (int) ($width / 2) - 1, $height - 1,
+            (int) imagecolorallocate($im, 220, 30, 30));
+        imagefilledrectangle($im, (int) ($width / 2), 0, $width - 1, $height - 1,
+            (int) imagecolorallocate($im, 30, 30, 220));
+        imagefilledrectangle($im, 5, 5, 60, 60,
+            (int) imagecolorallocate($im, 255, 255, 0));
+
+        $path = sys_get_temp_dir() . '/banded_' . bin2hex(random_bytes(4)) . '.jpg';
+        imagejpeg($im, $path, 95);
+        // No imagedestroy(): deprecated since PHP 8.5, and a no-op since 8.0.
+
+        return $path;
+    }
+
+    /**
      * An SVG is stored as itself, and asking it for a size answers with the original.
      *
      * The whole failure in one assertion: `get()` used to return a `Thumbnail` whose `url` ended

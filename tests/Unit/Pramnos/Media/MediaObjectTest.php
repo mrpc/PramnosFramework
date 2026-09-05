@@ -1075,9 +1075,18 @@ class MediaObjectTest extends TestCase
         $this->assertEquals(50, $custom->x);
         $this->assertEquals(50, $custom->y);
 
-        // Second call with the same size should return the existing thumbnail
-        $existing = $media->get(50, 50);
+        // Second call with the same **arguments** returns the existing thumbnail.
+        //
+        // It used to pass `crop = true` on the first call and leave it default on
+        // the second, and assert both got the same file — which is the defect
+        // FW-057 reported rather than the caching this test is about. `crop`
+        // changes what the image depicts, so the two calls are two renditions;
+        // asking for the cropped one twice is what tests the cache.
+        $existing = $media->get(50, 50, true);
         $this->assertSame($custom->filename, $existing->filename);
+
+        // And the uncropped one is its own entry, not this one.
+        $this->assertNotSame($custom->filename, $media->get(50, 50)->filename);
     }
 
     /**
@@ -2793,12 +2802,16 @@ class MediaObjectTest extends TestCase
         $media->addImage($src, 'test_media_module');
         $media->save();
 
-        // Generate a 60×60 thumbnail and capture the filename
+        // Generate a 60×60 cropped thumbnail and capture the filename
         $first      = $media->get(60, 60, true);
         $cachedFile = $first->filename;
 
-        // Act – second call, same dimensions, force==false (default)
-        $second = $media->get(60, 60);
+        // Act – second call, same dimensions *and the same crop*, force==false
+        //
+        // The crop argument used to be dropped here, so this asserted that a
+        // cropped rendition is handed to a caller that asked for an uncropped
+        // one — the FW-057 defect, not the caching this test is named for.
+        $second = $media->get(60, 60, true);
 
         // Assert – same file returned, no new file created
         $this->assertSame($cachedFile, $second->filename);

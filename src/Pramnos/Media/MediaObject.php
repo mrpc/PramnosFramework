@@ -532,15 +532,44 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param  int    $height Requested height.
      * @return bool
      */
-    private static function thumbnailMatchesRequest($thumb, $width, $height, $allowUpscale = false): bool
-    {
-        // Upscaling is part of what was asked for, so an entry made under the
-        // other setting is a different image and must not be handed back. An
-        // entry from before the flag existed reads false, which is what it was.
-        $entryUpscaled = isset($thumb->upscaled) ? (bool) $thumb->upscaled : false;
+    private static function thumbnailMatchesRequest(
+        $thumb,
+        $width,
+        $height,
+        $allowUpscale = false,
+        $crop = false,
+        $resample = true
+    ): bool {
+        /*
+         * How the rendition was made is part of what was asked for, so an entry
+         * made under different settings is a different image and must not be
+         * handed back — however well its dimensions match.
+         *
+         * **What an entry written before these fields existed reads back as, and
+         * why that is an assumption rather than a fact.** It gets the class
+         * defaults, which are `get()`'s own defaults, so it is treated as the
+         * commonest call. That is a guess: an entry produced with `crop = true`,
+         * or by an application that had switched `allowUpscale` on, is
+         * indistinguishable from one that was not, because nothing recorded it at
+         * the time. The cost of guessing wrong is bounded and self-healing — one
+         * request does not find its entry, rebuilds it once, and adds one row —
+         * and it is the only option available: the alternative is to trust
+         * dimensions alone, which is the defect these fields exist to close.
+         */
+        $settings = array(
+            'upscaled' => (bool) $allowUpscale,
+            'crop'     => (bool) $crop,
+            'resample' => (bool) $resample,
+        );
 
-        if ($entryUpscaled !== (bool) $allowUpscale) {
-            return false;
+        foreach ($settings as $field => $requested) {
+            $recorded = isset($thumb->$field)
+                ? (bool) $thumb->$field
+                : self::defaultRenditionSetting($field);
+
+            if ($recorded !== $requested) {
+                return false;
+            }
         }
 
         $requestedX = isset($thumb->requestedX) ? (int) $thumb->requestedX : 0;
@@ -555,6 +584,21 @@ class MediaObject extends \Pramnos\Framework\Base
             && $thumb->y == $height;
     }
 
+    /**
+     * What an entry that predates a rendition setting is assumed to have used.
+     *
+     * `get()`'s own defaults, because the commonest call is the likeliest
+     * provenance. Kept in one place so the assumption is stated once rather than
+     * repeated as literals in the matcher.
+     *
+     * @param  string $field
+     * @return bool
+     */
+    private static function defaultRenditionSetting(string $field): bool
+    {
+        return $field === 'resample';
+    }
+
     private const THUMBNAIL_FIELDS = array(
         'filename', 'x', 'y', 'views', 'filesize', 'reason', 'url', 'createdTxt',
         // The box that was asked for, which is not always the box that came out.
@@ -562,9 +606,10 @@ class MediaObject extends \Pramnos\Framework\Base
         // starts from `new Thumbnail()`, so those read back as 0 — which
         // `thumbnailMatchesRequest()` treats as "not recorded".
         'requestedX', 'requestedY',
-        // Part of the entry's identity: the same box with and without upscaling
-        // is two different images. See Thumbnail::$upscaled.
-        'upscaled',
+        // Part of the entry's identity: the same box asked for with different
+        // settings is a different image at identical dimensions. Measured — see
+        // Thumbnail::$crop for the four md5s.
+        'upscaled', 'crop', 'resample',
     );
 
     /**
@@ -2377,7 +2422,9 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->mediatype == 1 or $this->mediatype == 2) {
             if ($force == false) {
                 foreach ($this->thumbnails as $key => $thumb) {
-                    if (self::thumbnailMatchesRequest($thumb, $width, $height, $allowUpscale)) {
+                    if (self::thumbnailMatchesRequest(
+                        $thumb, $width, $height, $allowUpscale, $crop, $resample
+                    )) {
 
                         if (file_exists($thumb->filename)) {
                             return $thumb;
@@ -2396,7 +2443,9 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             } else {
                 foreach ($this->thumbnails as $key => $thumb) {
-                    if (self::thumbnailMatchesRequest($thumb, $width, $height, $allowUpscale)) {
+                    if (self::thumbnailMatchesRequest(
+                        $thumb, $width, $height, $allowUpscale, $crop, $resample
+                    )) {
                         if ($debug == true) {
                             echo '<br />Deleting existing thumbnail';
                         }
@@ -2498,6 +2547,8 @@ class MediaObject extends \Pramnos\Framework\Base
             $tmThumb->requestedX = (int) $width;
             $tmThumb->requestedY = (int) $height;
             $tmThumb->upscaled   = $allowUpscale;
+            $tmThumb->crop       = (bool) $crop;
+            $tmThumb->resample   = (bool) $resample;
             $tmThumb->views = 0;
             $tmThumb->filesize = filesize($tfile);
             if ($reason == '') {

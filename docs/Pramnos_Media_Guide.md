@@ -443,10 +443,37 @@ Which to use:
 | a template with a fixed frame | **yes** — a gap is worse than a soft image |
 | producing a derivative to store | **no** — a rendition larger than its source is not a thumbnail |
 
-**The two are cached separately.** A box asked for both ways produces two different
-images that record the same requested box, so `Thumbnail::$upscaled` is part of the
-entry's identity and a lookup will not hand one to a caller that asked for the other.
-Entries written before the flag existed read `false`, which is what they were.
+### What identifies a rendition
+
+Dimensions do not. The same box asked for with different settings produces
+different images at identical dimensions, so three of `get()`'s arguments are part
+of an entry's identity and a lookup will not hand one to a caller that asked for
+another. Measured, 155×148 from an 800×400 source:
+
+| `crop` | `resample` | result | image |
+|---|---|---|---|
+| `true` | `true` | 155×148 | `6116aa5c` |
+| `true` | `false` | 155×148 | `6116aa5c` — cropping ignores resample |
+| `false` | `true` | 155×148 | `d94b13a9` — the whole image, letterboxed |
+| `false` | `false` | 155×148 | `6f320215` — the whole image, stretched |
+
+Three different pictures, one size. So `Thumbnail` records `crop`, `resample` and
+`upscaled` beside `requestedX`/`requestedY`, and all five have to agree before an
+entry is reused. The direction that matters is the one a lookup would otherwise
+get wrong: serving a cropped image to a caller that asked for the whole picture,
+or stretched blur to one that asked for no upscaling.
+
+`resample` is recorded even though it changes nothing when `crop` is true. An
+entry is identified by what was *asked for*; a lookup cannot know that this
+particular source made the answer moot.
+
+**Entries written before these fields existed get the class defaults**, which are
+`get()`'s own — so they are treated as having come from the commonest call. That
+is an assumption, not a fact: nothing recorded these at the time, so an entry
+produced with `crop = true` is indistinguishable from one that was not. Guessing
+wrong costs one rebuild and one extra row, once, and then the entry carries its
+own settings. The alternative is to trust dimensions alone, which is the defect
+these fields close.
 
 ### Custom Thumbnail Creation
 
