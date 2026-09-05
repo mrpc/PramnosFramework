@@ -47,6 +47,26 @@ class WhoAmIToolTest extends TestCase
     }
 
     /**
+     * It says what it is for, and takes no input.
+     *
+     * The description is the entire basis on which a model decides to call a tool,
+     * and an empty-properties object rather than an empty array is what keeps the
+     * schema encoding as `{}` instead of `[]` — which some clients reject.
+     */
+    public function testItDescribesItselfAndTakesNoInput(): void
+    {
+        // Act
+        $tool   = new WhoAmITool();
+        $schema = $tool->inputSchema();
+
+        // Assert
+        $this->assertStringContainsString('scopes', $tool->description());
+        $this->assertSame('object', $schema['type']);
+        $this->assertInstanceOf(\stdClass::class, $schema['properties']);
+        $this->assertSame('{}', json_encode($schema['properties']));
+    }
+
+    /**
      * It is registrable on the public endpoint, which the development tools are
      * not — `PublicRegistry` refuses anything that is not a `ScopedMcpTool`, and
      * this is the first thing that satisfies it.

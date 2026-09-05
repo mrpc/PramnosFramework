@@ -142,6 +142,39 @@ class DbInspectToolTest extends TestCase
     }
 
     /**
+     * A reachable read-only account is actually used, on a second connection.
+     *
+     * The path that only a real server can execute, and the one that matters most:
+     * where an installation has done the `GRANT` work, the boundary stops being our
+     * lexer and becomes the database. A tool that parsed the DSN and then quietly
+     * queried the original handle would pass every other test in this file.
+     *
+     * The DSN here points at the same database with the same credentials — this
+     * installation has no separate read-only role — so what is proved is the
+     * mechanism: the DSN is parsed, a second `Database` is opened from it, and the
+     * query runs on that one.
+     */
+    public function testAReachableReadOnlyAccountIsUsed(): void
+    {
+        // Arrange — the same server, reached the way a read-only account would be
+        $settings = Settings::getSetting('database');
+        $dsn = $this->db->user . ':' . $this->db->password
+            . '@' . $this->db->server . ':' . ($this->db->port ?: 3306)
+            . '/' . $this->db->database;
+        Settings::setSetting('database_readonly_dsn', $dsn, false);
+
+        $tool = new DbInspectTool($this->db);
+
+        // Act
+        $answer = $tool->execute(array('sql' => 'SELECT 1 AS one'));
+
+        // Assert — it connected and answered, rather than refusing or falling back
+        $this->assertArrayNotHasKey('error', $answer, json_encode($answer));
+        $this->assertSame(1, $answer['row_count']);
+        $this->assertSame(1, (int) $answer['rows'][0]['one']);
+    }
+
+    /**
      * A read-only account that cannot be reached refuses the call rather than
      * quietly using the writable connection.
      *

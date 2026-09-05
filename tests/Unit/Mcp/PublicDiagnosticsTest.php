@@ -24,6 +24,7 @@ use Pramnos\Mcp\ScopedTool;
  */
 #[CoversClass(ScopedTool::class)]
 #[CoversClass(McpServiceProvider::class)]
+#[CoversClass(PublicRegistry::class)]
 class PublicDiagnosticsTest extends TestCase
 {
     protected function setUp(): void
@@ -259,6 +260,114 @@ class PublicDiagnosticsTest extends TestCase
             PublicRegistry::visibleTo(array('mcp:logs', 'mcp:diagnostics'))
         );
         $this->assertNotContains('db-inspect', $bothNames);
+    }
+
+    /**
+     * With an application, the readers that need one are offered too — including
+     * `db-inspect`, which needs its database.
+     *
+     * The half of the catalogue a log-only installation never reaches, and the half
+     * that carries the `mcp:db_read` scope with it.
+     */
+    public function testWithAnApplicationTheWholeCatalogueIsOffered(): void
+    {
+        // Arrange
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->getMock();
+        $app->database = $this->createMock(\Pramnos\Database\Database::class);
+
+        // Act
+        $offered = McpServiceProvider::offerDiagnostics($app);
+
+        // Assert — every classified tool, and nothing that is not classified
+        $this->assertSame(
+            array_keys(McpServiceProvider::DIAGNOSTIC_SCOPES),
+            array_values(array_intersect(array_keys(McpServiceProvider::DIAGNOSTIC_SCOPES), $offered)),
+            'the catalogue and what was offered have drifted apart'
+        );
+        $this->assertContains('status', $offered);
+        $this->assertContains('db-inspect', $offered);
+        $this->assertCount(1, PublicRegistry::visibleTo(array('mcp:db_read')));
+    }
+
+    /**
+     * An application without a database still offers everything that does not need
+     * one.
+     *
+     * The state a broken installation is in, which is when somebody is asking.
+     */
+    public function testAnApplicationWithNoDatabaseStillOffersTheRest(): void
+    {
+        // Arrange
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->getMock();
+        $app->database = null;
+
+        // Act
+        $offered = McpServiceProvider::offerDiagnostics($app);
+
+        // Assert
+        $this->assertContains('status', $offered);
+        $this->assertContains('migration-status', $offered);
+        $this->assertNotContains('db-inspect', $offered);
+        $this->assertNotContains('list-tables', $offered);
+    }
+
+    /**
+     * A tool can be withdrawn by name, without taking the rest with it.
+     *
+     * `reset()` is the other door and it is the wrong one for an application that
+     * wants one of the framework's tools gone: it would drop that application's own
+     * registrations too, and the order in which providers boot is not something
+     * anybody should have to reason about to remove a tool.
+     */
+    public function testAToolCanBeWithdrawnByName(): void
+    {
+        // Arrange
+        McpServiceProvider::offerDiagnostics(null);
+        $before = count(PublicRegistry::visibleTo(array('mcp:logs')));
+
+        // Act
+        $removed = PublicRegistry::remove('log-errors');
+
+        // Assert
+        $this->assertTrue($removed);
+        $this->assertCount($before - 1, PublicRegistry::visibleTo(array('mcp:logs')));
+        // and withdrawing something that was never there says so rather than throwing
+        $this->assertFalse(PublicRegistry::remove('log-errors'));
+        $this->assertFalse(PublicRegistry::remove('never-registered'));
+    }
+
+    /**
+     * A token holding a child scope reaches a tool that asks for the parent.
+     *
+     * Resolved through `Scopes` rather than by a second rule here — the router
+     * applies the same one, and two implementations of scope inheritance drift.
+     * Concretely: `mcp:db_read` inherits `mcp`, so the token that can query the
+     * database can also call `whoami` and find out what it is holding, which is the
+     * first thing anybody does when a tool is missing from a list.
+     */
+    public function testAChildScopeReachesAToolAskingForItsParent(): void
+    {
+        // Arrange — offering db-inspect is what registers `mcp:db_read` at all
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->getMock();
+        $app->database = $this->createMock(\Pramnos\Database\Database::class);
+        McpServiceProvider::offerDiagnostics($app);
+        PublicRegistry::add(new \Pramnos\Mcp\Tools\WhoAmITool());
+
+        // Act — a token holding only the child
+        $names = array_map(
+            static fn (ScopedMcpTool $t): string => $t->name(),
+            PublicRegistry::visibleTo(array('mcp:db_read'))
+        );
+
+        // Assert
+        $this->assertContains('db-inspect', $names, 'the scope it asks for directly');
+        $this->assertContains('whoami', $names, 'and `mcp`, reached by inheritance');
+        // but not the sibling groups, which are not ancestors of this one
+        $this->assertNotContains('log-errors', $names);
+        $this->assertNotContains('status', $names);
     }
 
     /**

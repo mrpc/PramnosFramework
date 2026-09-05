@@ -344,6 +344,72 @@ class DbInspectToolTest extends TestCase
     }
 
     /**
+     * A driver handing back something that is not a row array stops the loop.
+     *
+     * `fields` is whatever the driver put there. A `false` or a string — which is
+     * what a `pg_*` call answers on a result it cannot read — would otherwise be
+     * appended as a row and reach the caller as a malformed answer, or be indexed
+     * into further down.
+     */
+    public function testANonArrayRowStopsTheFetchLoop(): void
+    {
+        // Arrange — a result whose fields are not a row
+        $db = $this->createMock(Database::class);
+        $db->method('query')->willReturn(new class {
+            public mixed $fields = 'not a row';
+            private int $calls = 0;
+            public function fetch(): bool
+            {
+                $this->calls++;
+                return $this->calls < 3;
+            }
+        });
+
+        // Act
+        $answer = (new DbInspectTool($db))->execute(array('sql' => 'SELECT id FROM images'));
+
+        // Assert
+        $this->assertSame(0, $answer['row_count']);
+        $this->assertSame(array(), $answer['rows']);
+    }
+
+    /**
+     * A read-only DSN with nothing that parses as a host is refused by name.
+     *
+     * Separate from the connection failure below it: this one never dials, and the
+     * message has to say which setting is wrong rather than report a network error
+     * for a string that was never a network address.
+     */
+    public function testAReadOnlyDsnWithNoHostIsNamed(): void
+    {
+        // Arrange — a path with no authority at all
+        \Pramnos\Application\Settings::setSetting('database_readonly_dsn', '/', false);
+        $tool = new DbInspectTool($this->db(array()));
+
+        // Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/user:pass@host:port\/name/');
+
+        // Act
+        $tool->execute(array('sql' => 'SELECT 1'));
+    }
+
+    /**
+     * The tool says what it is for, in the sentence a model reads when deciding
+     * whether to call it — and that sentence has to mention the withholding, or a
+     * model asks for rows it will not get and reports the count as a failure.
+     */
+    public function testItDescribesWhatItWithholds(): void
+    {
+        // Act
+        $description = (new DbInspectTool($this->db(array())))->description();
+
+        // Assert
+        $this->assertStringContainsString('read-only', $description);
+        $this->assertStringContainsString('personal data', $description);
+    }
+
+    /**
      * An empty result set is an empty answer, not a crash — `columns` has nothing
      * to read off when there is no first row.
      */

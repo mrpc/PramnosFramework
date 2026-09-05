@@ -268,11 +268,16 @@ class McpToken extends Command
     /**
      * The user this token acts as, by id, email or username.
      *
+     * `protected` for the same reason {@see signingKey()} is: both refusal paths in
+     * `execute()` depend on something a test cannot arrange — a database that is not
+     * there, and an installation with no key — and a refusal nothing exercises is a
+     * refusal that has never been read back.
+     *
      * The builder rather than a hand-built statement, because it is the only layer
      * that knows the prefix and the dialect, and it binds the reference instead of
      * interpolating it — this value comes off a command line.
      */
-    private function findUser(string $reference): ?\Pramnos\User\User
+    protected function findUser(string $reference): ?\Pramnos\User\User
     {
         $user = new \Pramnos\User\User();
 
@@ -307,8 +312,13 @@ class McpToken extends Command
      * refusal: without `sURL` the derivation reduces to a hash of a version string
      * that defaults to `edge`, so every installation in that state would sign with
      * the same publicly computable constant.
+     *
+     * `protected` so a test can put the command in that state. The refusal is the
+     * most important line in this file — it is what stops a convenience command
+     * minting a credential under a world-known key — and it is unreachable from a
+     * working installation, which is every installation the suite runs against.
      */
-    private function signingKey(): string
+    protected function signingKey(): string
     {
         $app = \Pramnos\Application\Application::currentInstance();
 
