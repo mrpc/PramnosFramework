@@ -26,6 +26,21 @@ class Application extends Base
      * @var string
      */
     public $applicationInfo = array();
+
+    /** @var bool Whether this process is the console rather than a request */
+    private static $consoleContext = false;
+
+    /** Maintenance raised by a person, through `maintenance:on`. */
+    public const MAINTENANCE_MANUAL = 'manual';
+
+    /** Maintenance raised by the framework for the duration of some work. */
+    public const MAINTENANCE_AUTOMATIC = 'automatic';
+
+    /** A flag file written before the origin was recorded. */
+    public const MAINTENANCE_UNKNOWN = 'unknown';
+
+    /** How the origin is written into the flag file. */
+    public const MAINTENANCE_ORIGIN_PREFIX = 'Origin: ';
     /**
      * Current Language name
      * @var string
@@ -156,7 +171,28 @@ class Application extends Base
         if ($this->breadcrumbs === null) {
             $this->breadcrumbs = new \Pramnos\Html\Breadcrumb();
         }
-        if (file_exists($this->maintenanceFlagFile())) {
+        /*
+         * The maintenance flag stops **traffic**, and the console is not traffic.
+         *
+         * Answering the HTML page here made every console command exit with a web
+         * page the moment the flag went up — including `migrate`, which is the
+         * work maintenance is usually raised *for*, and `maintenance:off`, which
+         * is the way back. The only way out was deleting the file by hand, which
+         * is the state this whole feature exists to replace.
+         *
+         * Keyed on a marker `Pramnos\Console\Application` sets before it builds
+         * this, rather than on `PHP_SAPI`: a cron worker or a deploy script
+         * booting an application under the CLI *should* still be held off a schema
+         * in flux, and it does not set the marker.
+         *
+         * A resettable static and not a constant, which was the first attempt: a
+         * constant cannot be undefined, so one test constructing a console
+         * application disabled this guard for every test after it in the same
+         * process, and the suite started depending on its own order.
+         */
+        if (!self::inConsoleContext()
+            && file_exists($this->maintenanceFlagFile())
+        ) {
             $this->showError($this->maintenanceMessage());
         }
         if (!defined('PRAMNOS_DEFINES')) {
@@ -1517,9 +1553,68 @@ class Application extends Base
      *
      * @return string
      */
+    /**
+     * Say that this process is the console, not a request.
+     *
+     * `Pramnos\Console\Application` calls this before it builds an application.
+     * The maintenance flag stops traffic, and a command is not traffic — without
+     * this, raising maintenance made every console command answer an HTML page
+     * and exit, `maintenance:off` included.
+     *
+     * @param  bool $inConsole
+     * @return void
+     */
+    public static function markConsoleContext(bool $inConsole = true): void
+    {
+        self::$consoleContext = $inConsole;
+    }
+
+    /**
+     * Is this the console?
+     *
+     * @return bool
+     */
+    public static function inConsoleContext(): bool
+    {
+        return self::$consoleContext;
+    }
+
     protected function maintenanceFlagFile(): string
     {
         return ROOT . '/var/MAINTENANCE';
+    }
+
+    /**
+     * Who raised the maintenance flag, or '' when it is not raised.
+     *
+     * The distinction exists so that taking it down can be refused. A flag a
+     * migration raised means a schema is in flux; a flag a person raised means a
+     * person decided. Clearing the first because you meant to clear the second is
+     * the mistake worth making impossible.
+     *
+     * A flag with no origin line predates this and reads
+     * {@see MAINTENANCE_UNKNOWN} — deliberately not «manual», so it is not
+     * cleared by a command that only clears its own.
+     *
+     * @return string One of the MAINTENANCE_* constants, or '' when not in maintenance.
+     */
+    public function maintenanceOrigin(): string
+    {
+        $file = $this->maintenanceFlagFile();
+
+        if (!file_exists($file)) {
+            return '';
+        }
+
+        $contents = is_readable($file) ? (string) @file_get_contents($file) : '';
+
+        foreach (preg_split('/\r?\n/', $contents) ?: [] as $line) {
+            if (str_starts_with($line, self::MAINTENANCE_ORIGIN_PREFIX)) {
+                return trim(substr($line, strlen(self::MAINTENANCE_ORIGIN_PREFIX)));
+            }
+        }
+
+        return self::MAINTENANCE_UNKNOWN;
     }
 
     /**
@@ -1548,6 +1643,14 @@ class Application extends Base
     {
         $file   = $this->maintenanceFlagFile();
         $reason = is_readable($file) ? trim((string) @file_get_contents($file)) : '';
+
+        // The origin line is bookkeeping for whoever may clear the flag, not
+        // something a visitor on a 503 has any use for.
+        $reason = trim(implode("\n", array_filter(
+            preg_split('/\r?\n/', $reason) ?: [],
+            static fn(string $line): bool
+                => !str_starts_with($line, self::MAINTENANCE_ORIGIN_PREFIX)
+        )));
 
         $parts = [];
         if ($reason !== '') {
@@ -3201,6 +3304,22 @@ class Application extends Base
         }
         $this->autoMigrationsChecked = true;
 
+        /*
+         * Not while the site is deliberately down.
+         *
+         * Raising maintenance to run a heavy migration by hand, and having the
+         * next request start migrating underneath you, is the opposite of what
+         * the flag is for. An explicit `migrate` is unaffected — it goes through
+         * MigrationRunner directly, and clears only a flag it raised itself.
+         *
+         * A flag the runner raised for its own batch is also a reason to stand
+         * down: it means another process is mid-migration, which the batch lock
+         * would refuse anyway.
+         */
+        if ($this->isInMaintenance()) {
+            return;
+        }
+
         // Framework feature migrations (unless the app opts out) plus any
         // application-declared directories, and the cutoff — resolved by
         // migrationScope(), which is also what the CLI reads, so the two cannot
@@ -3407,7 +3526,7 @@ class Application extends Base
      * Switch to maintenance mode. Mostly used by the upgrade script
      * @param   string  $reason Reason of maintainance mode
      */
-    public function startMaintenance($reason = '')
+    public function startMaintenance($reason = '', $origin = self::MAINTENANCE_AUTOMATIC)
     {
         if (file_exists($this->maintenanceFlagFile())) {
             return;
@@ -3429,6 +3548,10 @@ class Application extends Base
         } else {
             fwrite($file, "Maintenance started at: " . date('d/m/Y H:i') . ".");
         }
+        // Who raised it, on its own line. `maintenanceOrigin()` reads it back and
+        // `maintenanceMessage()` keeps it off the page: it is bookkeeping for
+        // whoever might take the flag down, not something a visitor needs.
+        fwrite($file, "\n" . self::MAINTENANCE_ORIGIN_PREFIX . $origin);
         fclose($file);
     }
 

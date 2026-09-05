@@ -1085,6 +1085,54 @@ the other, and nothing looked wrong. With no constructor argument it now watches
 Pass a path explicitly and that path is the only one watched, because an application
 that named its own file has said which file it means.
 
+#### Raising and clearing it by hand
+
+```bash
+php pramnos maintenance:on --reason="Adding an index to usertokens, ~20 minutes"
+php pramnos maintenance:off
+```
+
+`maintenance:on` is for the case where you are about to do the work yourself — a
+heavy migration, a data repair — and two things have to be true for that to be
+usable:
+
+- **Automatic migrations stand down.** `runAutoMigrations()` returns as soon as it
+  sees the flag. Raising maintenance to run a migration by hand, and having the
+  next request start migrating underneath you, is the opposite of what the flag is
+  for. An explicit `migrate` is unaffected: it goes through `MigrationRunner`
+  directly and clears only a flag it raised itself.
+- **The console keeps working.** It is not traffic. `Application::__construct()`
+  skips the maintenance page when `PRAMNOS_CONSOLE` is defined, which
+  `Pramnos\Console\Application` does before it builds the application — keyed on
+  that rather than on `PHP_SAPI`, because a cron worker or a deploy script booting
+  an application under the CLI *should* still be held off a schema in flux, and it
+  does not define it.
+
+`maintenance:off` **takes down only a flag a person raised.** The flag records who
+raised it, on its own line:
+
+```
+Maintenance started at: 05/09/2026 10:53. Reason: Adding an index
+Origin: manual
+```
+
+| Origin | Written by | `maintenance:off` |
+|---|---|---|
+| `manual` | `maintenance:on` | clears it |
+| `automatic` | `runMigration()`, `MigrationRunner` | refuses |
+| `unknown` | a flag written before the origin was recorded | refuses |
+
+The refusal is the point. A flag the framework raised means a schema is in flux
+and something is either still running or died half way; clearing it because you
+meant to clear your own is the mistake worth making impossible. `--force` is for
+the second case, and says that it forced.
+
+`unknown` is refused rather than assumed to be yours: there is no way to tell who
+raised it, and the safe reading of "no way to tell" is "not yours".
+
+The origin line is kept off the maintenance page — it is bookkeeping for whoever
+may clear the flag, not something a visitor on a 503 has any use for.
+
 #### The flag belongs to the process that raised it
 
 `Application::runMigration()` raises the flag before `up()` and clears it in a

@@ -244,6 +244,13 @@ class ApplicationTest extends TestCase
      */
     public function testConstructInMaintenanceModeThrowsException(): void
     {
+        // The guard is for requests, and a console application marks the process
+        // as the console for as long as it lives — so any earlier test that built
+        // one leaves that marker set. Cleared here, and restored afterwards, so
+        // this test asserts the request behaviour whatever ran before it.
+        $wasConsole = Application::inConsoleContext();
+        Application::markConsoleContext(false);
+
         $this->app->startMaintenance('Maintenance construct test');
         $this->expectException(\Exception::class);
         $this->expectExceptionMessage("Application::close() called with msg: "); // showError calls close()
@@ -252,6 +259,7 @@ class ApplicationTest extends TestCase
             new Application();
         } finally {
             $this->app->stopMaintenance();
+            Application::markConsoleContext($wasConsole);
         }
     }
 

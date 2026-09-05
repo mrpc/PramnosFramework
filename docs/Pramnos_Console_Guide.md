@@ -26,6 +26,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 |---|---|---|
 | `create:` | Code generation (models, controllers, views, screens, components, APIs, migrations, tasks, commands, …) | `create:model`, `create:crud`, `create:screen`, `create:component`, `create:command`, `create:task` |
 | `migrate`, `migrate:` | Database schema migrations | `migrate`, `migrate:status`, `migrate:rollback` |
+| `maintenance:` | Put the site up or down by hand | `maintenance:on`, `maintenance:off` |
 | `project:` | **Set up / reconfigure an existing project** without re-running `init` | `project:reconfigure`, `project:install`, `project:publish-views`, `project:git-webhook` |
 | `logs:` | Log-file tooling | `logs:convert` |
 | `db:` | Database operations | `db:seed`, `db:fresh`, `db:wipe` |

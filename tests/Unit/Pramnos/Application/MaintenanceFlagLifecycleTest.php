@@ -235,6 +235,143 @@ class MaintenanceFlagLifecycleTest extends TestCase
         }
     }
 
+    // =========================================================================
+    // Who raised it, and who may take it down
+    // =========================================================================
+
+    /**
+     * The flag records who raised it.
+     *
+     * The distinction is the whole basis of `maintenance:off` refusing: a flag a
+     * migration raised means a schema is in flux, a flag a person raised means a
+     * person decided, and clearing the first because you meant to clear the
+     * second is the mistake worth making impossible.
+     */
+    public function testTheFlagRecordsWhoRaisedIt(): void
+    {
+        // Arrange
+        $app = new MaintenanceProbeApplication();
+
+        // Act
+        $app->startMaintenance('by hand', Application::MAINTENANCE_MANUAL);
+
+        // Assert
+        $this->assertSame(Application::MAINTENANCE_MANUAL, $app->maintenanceOrigin());
+    }
+
+    /**
+     * Raising it without saying who defaults to the framework's own.
+     *
+     * Every existing caller — `runMigration()`, `MigrationRunner` — passes a
+     * reason and no origin, and none of them is a person. Defaulting the other
+     * way would make `maintenance:off` clear a flag raised by a migration that is
+     * still running.
+     */
+    public function testAnUnattributedFlagIsTreatedAsTheFrameworksOwn(): void
+    {
+        // Arrange
+        $app = new MaintenanceProbeApplication();
+
+        // Act — the signature every existing caller uses
+        $app->startMaintenance('Database migrations in progress');
+
+        // Assert
+        $this->assertSame(Application::MAINTENANCE_AUTOMATIC, $app->maintenanceOrigin());
+    }
+
+    /**
+     * A flag written before the origin existed reads `unknown`, not `manual`.
+     *
+     * Deliberately not `manual`: a command that only clears its own must not
+     * clear one whose provenance nobody recorded.
+     */
+    public function testAFlagWithNoOriginLineReadsUnknown(): void
+    {
+        // Arrange — what startMaintenance() used to write
+        file_put_contents($this->flag, 'Maintenance started at: 05/09/2026 11:00.');
+        $app = new MaintenanceProbeApplication();
+
+        // Act + Assert
+        $this->assertSame(Application::MAINTENANCE_UNKNOWN, $app->maintenanceOrigin());
+        $this->assertNotSame(Application::MAINTENANCE_MANUAL, $app->maintenanceOrigin());
+    }
+
+    /**
+     * No flag means no origin, so callers can use it as the "is it on" question.
+     */
+    public function testNoFlagMeansNoOrigin(): void
+    {
+        // Act + Assert
+        $this->assertSame('', (new MaintenanceProbeApplication())->maintenanceOrigin());
+    }
+
+    /**
+     * The origin line does not reach the page.
+     *
+     * It is bookkeeping for whoever might take the flag down. A visitor on a 503
+     * has no use for it, and the reason — which is operator-authored text — is
+     * what the page is for.
+     */
+    public function testTheOriginLineIsKeptOffThePage(): void
+    {
+        // Arrange
+        $app = new MaintenanceProbeApplication();
+        $app->startMaintenance('Adding an index, back in 20 minutes', Application::MAINTENANCE_MANUAL);
+
+        // Act
+        $message = (new \ReflectionMethod($app, 'maintenanceMessage'))->invoke($app);
+
+        // Assert
+        $this->assertStringContainsString('Adding an index, back in 20 minutes', $message);
+        $this->assertStringNotContainsString('Origin:', $message);
+        $this->assertStringNotContainsString('manual', $message);
+    }
+
+    // =========================================================================
+    // Automatic migrations stand down
+    // =========================================================================
+
+    /**
+     * Auto-migrations do not run while the site is deliberately down.
+     *
+     * WHAT: `runAutoMigrations()` returns before doing any work when the flag is
+     *       up, and proceeds when it is not.
+     * WHY:  raising maintenance to run a heavy migration by hand, and having the
+     *       next request start migrating underneath you, is the opposite of what
+     *       the flag is for. An explicit `migrate` is unaffected: it goes through
+     *       MigrationRunner directly.
+     */
+    public function testAutoMigrationsStandDownWhileMaintenanceIsUp(): void
+    {
+        // Arrange
+        $app = new MaintenanceProbeApplication();
+        $app->database = $this->getMockBuilder(\Pramnos\Database\Database::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+
+        // Act — flag up
+        $app->startMaintenance('by hand', Application::MAINTENANCE_MANUAL);
+        $app->runAutoMigrationsNow();
+
+        // Assert
+        $this->assertFalse(
+            $app->reachedTheScopeLookup,
+            'it must return before deciding which migrations apply'
+        );
+
+        // Act — flag down, same application
+        $app->stopMaintenance();
+        $app->resetAutoMigrationGuard();
+        $app->runAutoMigrationsNow();
+
+        // Assert — the complement, or the test above would pass on a method that
+        // never does anything at all
+        $this->assertTrue(
+            $app->reachedTheScopeLookup,
+            'with no flag it must get on with it'
+        );
+    }
+
     /**
      * The page shows the reason from the flag rather than an empty array.
      */
@@ -366,6 +503,34 @@ class MaintenanceProbeApplication extends Application
 
     /** @var bool Stands in for the DEVELOPMENT constant */
     public bool $development = false;
+
+    /** @var bool Whether runAutoMigrations() got past its guards */
+    public bool $reachedTheScopeLookup = false;
+
+    /** Run the real runAutoMigrations(), which is protected. */
+    public function runAutoMigrationsNow(): void
+    {
+        $this->runAutoMigrations();
+    }
+
+    /** The guard is per instance; clear it so one object can be asked twice. */
+    public function resetAutoMigrationGuard(): void
+    {
+        $this->autoMigrationsChecked = false;
+    }
+
+    /**
+     * The first thing runAutoMigrations() does after its guards.
+     *
+     * Overridden to record that the guards were passed and to stop there, so the
+     * test does not need a real migration tree or a real database behind it.
+     */
+    public function migrationScope(bool $includeConventionalAppDir = false): array
+    {
+        $this->reachedTheScopeLookup = true;
+
+        return ['dirs' => [], 'skipped' => [], 'cutoff' => ''];
+    }
 
     protected function inDevelopmentMode(): bool
     {

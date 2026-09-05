@@ -45,6 +45,16 @@ class Application extends \Symfony\Component\Console\Application
         if (!defined('sURL')) {
             define('sURL', 'https://pramnosframework.test'); //MainURL
         }
+        /*
+         * Tell the application it is being built by the console.
+         *
+         * Application::__construct() answers the maintenance page and exits when
+         * the flag is up, which is right for a request and wrong here: it made
+         * every command — `migrate` included, and `maintenance:off` — print a web
+         * page and stop the moment maintenance was raised. Set before
+         * getInstance() below, because that is what builds the application.
+         */
+        \Pramnos\Application\Application::markConsoleContext();
         parent::__construct($name, $version);
         $this->registerCommands();
         $this->internalApplication
@@ -120,6 +130,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MigrateRefresh());
         $this->add(new \Pramnos\Console\Commands\MigrateStatus());
         $this->add(new \Pramnos\Console\Commands\MigrateAdoptLegacy());
+        $this->add(new \Pramnos\Console\Commands\MaintenanceOn());
+        $this->add(new \Pramnos\Console\Commands\MaintenanceOff());
         // Health check (Phase 4)
         $this->add(new \Pramnos\Console\Commands\HealthCheck());
         // Routing introspection
