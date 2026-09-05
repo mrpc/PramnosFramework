@@ -838,6 +838,96 @@ class MigrationRunner
     }
 
     /**
+     * Record migrations the legacy version ledger says already ran.
+     *
+     * Both systems write to the same table and key it differently. The legacy
+     * one — `Application::runMigration()` — inserts the migration's `$version`
+     * (`0.010`); the runner inserts its slug (`migration0010`). So an application
+     * that has been migrating for years through the old path has a full ledger
+     * that the runner cannot read a single row of: `migrate:status` reports every
+     * one of those migrations as pending, and `migrate` would re-run them.
+     *
+     * The mapping is derivable rather than something each application has to
+     * hand-write: a migration object knows both its `$version` and its
+     * `getSlug()`, so «which of these already ran» is a lookup of the first and a
+     * write of the second.
+     *
+     * **This records; it does not run.** That is the whole point — the work was
+     * done years ago by the other path — and it is also why it will only ever
+     * write a slug whose *version* is present. A migration the legacy ledger has
+     * never heard of is left pending, because the only evidence that it ran would
+     * be this method inventing it.
+     *
+     * @param  Migration[] $migrations The application's own migrations.
+     * @param  bool        $dryRun     Report what would be recorded, write nothing.
+     * @return array<string, string>   slug => the legacy version it was matched by
+     */
+    public function adoptLegacyVersions(array $migrations, bool $dryRun = false): array
+    {
+        $this->ensureHistoryTable();
+
+        $known    = $this->historyKeys();
+        $adopted  = [];
+        $batch    = $dryRun ? 0 : $this->nextBatch();
+
+        foreach ($migrations as $migration) {
+            $version = (string) ($migration->version ?? '');
+            $slug    = $migration->getSlug();
+
+            // No version to match on, or the runner already knows this slug.
+            if ($version === '' || $version === $slug || isset($known[$slug])) {
+                continue;
+            }
+
+            if (!isset($known[$version])) {
+                continue;
+            }
+
+            $adopted[$slug] = $version;
+
+            if (!$dryRun) {
+                $this->recordHistory(
+                    $migration,
+                    $slug,
+                    $batch,
+                    0.0,
+                    self::RESULT_OK,
+                    'Adopted from the legacy version ledger, where it is recorded as '
+                    . $version . '. Not executed.'
+                );
+            }
+        }
+
+        return $adopted;
+    }
+
+    /**
+     * Every key the history table holds, as a set.
+     *
+     * Both conventions at once — legacy versions and slugs — because
+     * {@see adoptLegacyVersions()} has to ask about both and the table does not
+     * distinguish them.
+     *
+     * @return array<string, true>
+     */
+    private function historyKeys(): array
+    {
+        $db    = $this->requireDb();
+        $quote = $db->type === 'postgresql' ? '"' : '`';
+
+        $result = $db->query(
+            "SELECT {$quote}key{$quote} FROM {$quote}{$this->historyTable}{$quote}"
+        );
+
+        $keys = [];
+        while ($result && $result->fetch()) {
+            $keys[(string) $result->fields['key']] = true;
+        }
+
+        return $keys;
+    }
+
+    /**
      * Returns the highest batch number currently in the history table, or null
      * when the table is empty.
      */

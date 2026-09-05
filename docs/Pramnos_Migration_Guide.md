@@ -11,6 +11,8 @@ use_cases:
   - Reading a Ran with errors row, or deciding a migration's outcome in its own code
   - Writing a migration that alters a table which may hold data it cannot accept
   - Backfilling a new column without running the deploy out of memory
+  - Adopting a single framework migration without running the rest
+  - Moving an application off the legacy schemaversion version ledger
 ---
 
 # Pramnos Migration Guide
@@ -268,6 +270,62 @@ cross dependencies pay nothing.
 
 This works on both paths: the standalone/auto-run (`Application::migrate()`) and
 the explicit `migrate` console command wire the same pool.
+
+**An adopter can be empty, and that is the point.** A migration whose entire body
+is a `$dependencies` list is a legitimate and supported way to say «this
+application needs that framework migration, and nothing else»:
+
+```php
+// app/Migrations/2026_09_05_000001_adopt_delayed_jobs.php
+class AdoptDelayedJobs extends \Pramnos\Database\Migration
+{
+    public array $dependencies = ['create_delayed_jobs_table'];
+
+    // No up(). The base class's is a no-op, and there is nothing to add:
+    // the dependency does the work and is ordered before this.
+}
+```
+
+The runner pulls the dependency from the pool, runs it first, and records both —
+so neither runs again, and the adopter is a permanent record of *why* that
+framework table exists in an application that does not run the framework's
+migrations wholesale. Verified by
+`LegacyLedgerAdoptionTest::testAnEmptyMigrationCanAdoptAFrameworkMigrationByDependency()`.
+
+### Coming from the legacy version ledger
+
+Both migration systems write to `schemaversion` and key it differently. The legacy
+path — `Application::runMigration()` — stores a migration's `$version` (`0.010`);
+the runner stores its slug (`migration0010`). An application that migrated for
+years through the old path therefore has a full ledger that the runner cannot read
+a single row of: `migrate:status` reports every one of those migrations as
+pending, and `migrate` would run them again against a schema that already has
+their changes.
+
+`migration_cutoff` does not help, and it is worth knowing why: it filters on the
+filename timestamp, and a legacy `MigrationNNNN` class has none — `filterCutoff()`
+lets a migration with no timestamp through by design.
+
+```bash
+php pramnos migrate:adopt-legacy --dry-run   # what would be recorded
+php pramnos migrate:adopt-legacy             # record it
+```
+
+For each of the application's migrations it looks up the `$version` the object
+declares, and where the ledger already holds that version it records the object's
+slug. **It records; it never executes** — the work was done by the other path
+years ago, and running it again is the outcome this exists to prevent.
+
+Two things it will not do, both deliberate:
+
+- **A migration the ledger has never heard of stays pending.** The only evidence
+  that it ran would be this inventing it, and a migration wrongly marked as
+  applied is a schema change that silently never happens.
+- **A slug the runner already knows is left alone**, so running it twice is a
+  no-op.
+
+A migration with no `$version` — every modern, timestamped one — is skipped, so
+pointing this at a mixed directory is safe.
 
 ## Check the data before you change it
 
