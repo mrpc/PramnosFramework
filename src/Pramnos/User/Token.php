@@ -94,6 +94,12 @@ class Token extends \Pramnos\Framework\Base
      * @var int
      */
     public $status = 0;
+
+    /**
+     * Whether `usertokens.token_lookup` exists, or null before it has been asked.
+     * @var bool|null
+     */
+    private static $hasLookupColumn = null;
     /**
      * Parent token (if parent gets deleted, some children will be deleted too)
      * @var int
@@ -258,27 +264,78 @@ class Token extends \Pramnos\Framework\Base
     }
 
     /**
-     * Load a token from the database
-     * @param int|string $tokenid
+     * Load a token, by id or by the token value itself.
+     *
+     * **By value means by digest.** The column holds the value encrypted, and
+     * encryption is non-deterministic — the same token produces different
+     * ciphertext every time — so `WHERE token = <presented>` cannot match on any
+     * installation that has an `APP_KEY`. It matched only where nothing was
+     * encrypted, which is why this went unnoticed: it works until the day the
+     * installation is secured, and then quietly stops finding anything.
+     * `token_lookup` is the deterministic half and is what the other fifteen
+     * authentication lookups already use.
+     *
+     * The plaintext comparison stays as a fallback, and it earns its place: rows
+     * written before the column existed have no digest, and on an installation
+     * with no key their value is still the token. It costs a second query only
+     * when the first finds nothing.
+     *
+     * @param  int|string $tokenid Token id, or the token value.
      * @return Token
      */
     public function load($tokenid)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+
         if (is_numeric($tokenid)) {
-            $sql = $database->prepareQuery(
-                "SELECT * FROM `#PREFIX#usertokens` "
-                    . "WHERE `tokenid` = %d limit 1",
-                $tokenid
+            $result = $database->query(
+                $database->prepareQuery(
+                    "SELECT * FROM `#PREFIX#usertokens` "
+                        . "WHERE `tokenid` = %d limit 1",
+                    $tokenid
+                ),
+                true,
+                3600,
+                'usertokens'
             );
-        } else {
-            $sql = $database->prepareQuery(
-                "SELECT * FROM `#PREFIX#usertokens` "
-                    . "WHERE `token` = %s limit 1",
-                $tokenid
+
+            if ($result->numRows != 0) {
+                $this->fillProperties($result->fields);
+            }
+
+            return $this;
+        }
+
+        $result = null;
+
+        if (self::usertokensHasLookupColumn($database)) {
+            $result = $database->query(
+                $database->prepareQuery(
+                    "SELECT * FROM `#PREFIX#usertokens` "
+                        . "WHERE `token_lookup` = %s limit 1",
+                    self::lookup((string) $tokenid)
+                ),
+                true,
+                3600,
+                'usertokens'
             );
         }
-        $result = $database->query($sql, true, 3600, 'usertokens');
+
+        if ($result === null || $result->numRows == 0) {
+            // No digest on this row: written before the column existed, on an
+            // installation where the value is still the value.
+            $result = $database->query(
+                $database->prepareQuery(
+                    "SELECT * FROM `#PREFIX#usertokens` "
+                        . "WHERE `token` = %s limit 1",
+                    $tokenid
+                ),
+                true,
+                3600,
+                'usertokens'
+            );
+        }
+
         if ($result->numRows != 0) {
             $this->fillProperties($result->fields);
         }
@@ -514,6 +571,41 @@ class Token extends \Pramnos\Framework\Base
     public static function lookup(string $token): string
     {
         return hash('sha256', $token);
+    }
+
+    /**
+     * Whether this installation's `usertokens` has the lookup column yet.
+     *
+     * `add_token_lookup_to_usertokens` adds it, and an installation that has not
+     * run migrations does not have it. Writing to it unconditionally is an
+     * `Unknown column 'token_lookup'` on the save path, which is how a token save
+     * turns into a failed request on a database that is merely out of date.
+     *
+     * Cached for the life of the process because this sits on the authentication
+     * path — `save()` runs whenever a token's last-used moment is persisted, and
+     * an `information_schema` query per request is not a thing to add there. One
+     * query per process is the cost. A column cannot disappear underneath us, and
+     * auto-migration runs early enough in a request that a `false` cached here
+     * cannot outlive the migration that would change it.
+     *
+     * @param  \Pramnos\Database\Database $database
+     * @return bool
+     */
+    private static function usertokensHasLookupColumn($database): bool
+    {
+        if (self::$hasLookupColumn === null) {
+            try {
+                self::$hasLookupColumn = $database->schema()
+                    ->hasColumn('usertokens', 'token_lookup');
+            } catch (\Throwable) {
+                // Unable to ask is treated as absent: the fallbacks below all work
+                // without the column, and a failed introspection must not take a
+                // request with it.
+                self::$hasLookupColumn = false;
+            }
+        }
+
+        return self::$hasLookupColumn;
     }
 
     /**
@@ -1061,6 +1153,41 @@ class Token extends \Pramnos\Framework\Base
         if ($this->expires == 0) {
             $this->expires = null;
         }
+        /*
+         * The two storage columns come from one place, and this is that place for
+         * anything saved through the model.
+         *
+         * `storageFor()` produces the encrypted value and the digest
+         * authentication matches on, and `save()` did not call it: it wrote
+         * `$this->token` as it stood and never wrote `token_lookup` at all. A
+         * token inserted through the model was therefore stored in plaintext and
+         * could not be found by the lookup every authentication path uses — while
+         * `User::addToken()`, which INSERTs directly, had it right.
+         *
+         * Derived **only from a plaintext value**. `fillProperties()` copies the
+         * row as it is, so a loaded token holds ciphertext, and re-encrypting that
+         * would produce a value nothing can decrypt and a digest of the
+         * ciphertext — which is an authentication outage rather than a bug. An
+         * already-encrypted value is written back untouched and its existing
+         * `token_lookup` is left alone, because the plaintext needed to recompute
+         * it is not in hand.
+         */
+        $storedToken = $this->token;
+        $storedLookup = null;
+
+        if (is_string($this->token)
+            && $this->token !== ''
+            && !\Pramnos\Security\Encrypter::isEncrypted($this->token)
+        ) {
+            $storage      = self::storageFor($this->token);
+            $storedToken  = $storage['token'];
+            $storedLookup = $storage['token_lookup'];
+            // So a second save() does not encrypt the plaintext again — a fresh
+            // nonce each time would rewrite the column for no change — and so the
+            // object reflects what is stored, which is what load() would give.
+            $this->token  = $storedToken;
+        }
+
         $itemdata = array(
             array(
                 'fieldName' => 'userid',
@@ -1074,7 +1201,7 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'token',
-                'value' => $this->token,
+                'value' => $storedToken,
                 'type' => 'string'
             ),
             array(
@@ -1141,6 +1268,15 @@ class Token extends \Pramnos\Framework\Base
                 'type' => 'integer'
             );
         }
+        // Only when there was a plaintext value to derive it from; see above.
+        if ($storedLookup !== null && self::usertokensHasLookupColumn($database)) {
+            $itemdata[] = array(
+                'fieldName' => 'token_lookup',
+                'value' => $storedLookup,
+                'type' => 'string'
+            );
+        }
+
         // Evict cached usertokens reads (Token::load caches by id for 3600s) so
         // status/expiry changes are visible immediately, not after the TTL.
         $database->cacheflush('usertokens');

@@ -499,6 +499,46 @@ server had issued, and `OAuth2Middleware::loadTokenFromDatabase()` refused every
 `TokenAtRestTest::testNoLookupMatchesOnTheTokenColumn()` reads `src/` and fails on any surviving
 comparison, alias or not. Add a sixteenth lookup and it will tell you.
 
+**Both columns come from one place, and saving a token goes through it.**
+`Token::storageFor($value)` produces the pair — the value encrypted and the digest —
+and `Token::save()` calls it. It did not: it wrote `$this->token` as it stood and
+never wrote `token_lookup` at all, so a token inserted through the model was stored
+in plaintext and could not be found by any of those fifteen lookups. `User::addToken()`,
+which INSERTs directly, had it right, which is why nothing in the framework noticed.
+
+```php
+$token = new \Pramnos\User\Token();
+$token->userid = $userid;
+$token->token  = $plainValue;     // plaintext in, encrypted + digested on save
+$token->save();
+```
+
+Two properties of that, both deliberate:
+
+- **Only a plaintext value is converted.** `fillProperties()` copies the row as it
+  is, so a *loaded* token holds ciphertext. Re-encrypting that would store something
+  nothing can decrypt and a digest of the ciphertext — an authentication outage, not
+  a bug — so an already-encrypted value is written back untouched and its existing
+  digest left alone.
+- **`$this->token` becomes the stored value after a save.** So a second `save()` does
+  not encrypt the plaintext again under a fresh nonce, rewriting the column for no
+  change, and the object matches what a `load()` would give.
+
+**Loading by value means loading by digest.** `Token::load($value)` matched
+`WHERE token = %s`, which cannot work on any installation that has an `APP_KEY`:
+encryption is non-deterministic, so the stored ciphertext never equals the presented
+value. It worked only where nothing was encrypted — which is why it survived. It now
+looks up the digest, and falls back to the plaintext comparison only when that finds
+nothing, for rows written before the column existed.
+
+**Both paths check that the column exists first**, cached once per process. The
+lookup column arrives with a migration, and an installation that has not run it yet
+would otherwise get `Unknown column 'token_lookup'` on the save path — a token save
+turning into a failed request on a database that is merely out of date. `hasColumn()`
+issues a query, and `save()` runs on the authentication path whenever a token's
+last-used moment is persisted, so asking once per process is the difference between
+a guard and a tax.
+
 The mocked unit tests over `introspect()` and `revoke()` stayed green through both, which is the
 other half of the lesson: a mocked query builder returns the prepared row whatever the `WHERE`
 says, so it cannot answer a question about a column.
