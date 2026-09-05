@@ -30,6 +30,12 @@ use Pramnos\Auth\Scopes;
 #[CoversClass(Scopes::class)]
 class ScopesTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        \Pramnos\Mcp\PublicRegistry::reset();
+        parent::tearDown();
+    }
+
     // -------------------------------------------------------------------------
     // getScopes()
     // -------------------------------------------------------------------------
@@ -388,5 +394,118 @@ class ScopesTest extends TestCase
             count($resultScopes),
             'addDefaultScopesToToken must not produce duplicate scope identifiers'
         );
+    }
+
+    /**
+     * Nothing about MCP is advertised on an installation that offers no MCP tool.
+     *
+     * `scopes_supported` is served from `/.well-known/oauth-authorization-server` to
+     * anybody who asks, with each scope's description attached. A permanently
+     * registered `mcp:db_read` would announce to the internet that every Pramnos site
+     * has a capability for running SELECTs against its live database — including the
+     * great majority that never offered one.
+     */
+    public function testNoMcpScopeIsAdvertisedWhenNothingIsOffered(): void
+    {
+        // Arrange
+        \Pramnos\Mcp\PublicRegistry::reset();
+
+        // Act
+        $advertised = array_keys(Scopes::getScopeDescriptions());
+
+        // Assert
+        $this->assertNotContains('mcp', $advertised);
+        $this->assertNotContains('mcp:db_read', $advertised);
+    }
+
+    /**
+     * Offering `whoami` registers `mcp` and nothing else.
+     *
+     * The endpoint's own scope becomes grantable because there is now something to
+     * reach — but `mcp:db_read` stays invisible, because no tool asks for it here.
+     */
+    public function testOfferingWhoamiAdvertisesOnlyTheBaseScope(): void
+    {
+        // Arrange
+        \Pramnos\Mcp\PublicRegistry::reset();
+        \Pramnos\Mcp\PublicRegistry::add(new \Pramnos\Mcp\Tools\WhoAmITool());
+
+        // Act
+        $advertised = array_keys(Scopes::getScopeDescriptions());
+
+        // Assert
+        $this->assertContains('mcp', $advertised);
+        $this->assertNotContains('mcp:db_read', $advertised);
+    }
+
+    /**
+     * Offering `db-inspect` is what makes its scope grantable at all.
+     *
+     * `hasInvalidScopes()` rejects anything not in the list, so without this the
+     * capability could be registered on the endpoint and no token could ever be
+     * issued that reaches it — the endpoint would answer every caller with an empty
+     * tool list and nothing would say why.
+     */
+    public function testOfferingDbInspectMakesItsScopeGrantable(): void
+    {
+        // Arrange
+        \Pramnos\Mcp\PublicRegistry::reset();
+        \Pramnos\Mcp\PublicRegistry::add(
+            new \Pramnos\Mcp\Tools\DbInspectTool(
+                new \Pramnos\Database\Database()
+            )
+        );
+
+        // Act
+        [$hasInvalid, $invalid] = Scopes::hasInvalidScopes('mcp mcp:db_read');
+
+        // Assert — and `mcp` came with it, unasked, because db_read inherits it
+        $this->assertFalse($hasInvalid, 'unknown: ' . implode(', ', $invalid));
+        $this->assertContains('mcp', Scopes::resolveInheritedScopes('mcp:db_read'));
+        $this->assertContains('mcp:db_read', Scopes::resolveInheritedScopes('mcp:db_read'));
+    }
+
+    /**
+     * An administrator is not automatically allowed to read production tables from
+     * another machine.
+     *
+     * `system:admin` inherits every standard scope, which is exactly why this has to
+     * be asserted rather than assumed: adding `mcp:db_read` to that list would hand
+     * remote database access to every admin token already issued, and nothing about
+     * granting `system:admin` would say so.
+     */
+    public function testSystemAdminDoesNotReachTheDatabaseTool(): void
+    {
+        // Arrange — with the capability offered, so the scopes exist to be inherited
+        \Pramnos\Mcp\PublicRegistry::reset();
+        \Pramnos\Mcp\PublicRegistry::add(
+            new \Pramnos\Mcp\Tools\DbInspectTool(new \Pramnos\Database\Database())
+        );
+
+        // Act
+        $resolved = Scopes::resolveInheritedScopes('system:admin');
+
+        // Assert
+        $this->assertNotContains('mcp:db_read', $resolved);
+        $this->assertNotContains('mcp', $resolved);
+    }
+
+    /**
+     * Neither is granted by default, so no existing token acquires them.
+     */
+    public function testTheMcpScopesAreNotDefaults(): void
+    {
+        // Arrange
+        \Pramnos\Mcp\PublicRegistry::reset();
+        \Pramnos\Mcp\PublicRegistry::add(
+            new \Pramnos\Mcp\Tools\DbInspectTool(new \Pramnos\Database\Database())
+        );
+
+        // Act
+        $defaults = Scopes::getDefaultScopes();
+
+        // Assert
+        $this->assertNotContains('mcp', $defaults);
+        $this->assertNotContains('mcp:db_read', $defaults);
     }
 }

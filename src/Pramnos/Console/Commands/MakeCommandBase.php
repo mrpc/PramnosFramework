@@ -1008,6 +1008,7 @@ abstract class MakeCommandBase extends Command
 
         // ── Tables loop — each iteration collects one table definition ────────
         $tables = [];  // array of [{tableName, hasPk, columns, timestamps, softDeletes, foreignKeys}]
+        $personalTables = [];  // tables the author said hold personal data
 
         $firstTable = true;
         do {
@@ -1033,6 +1034,23 @@ abstract class MakeCommandBase extends Command
                 // @codeCoverageIgnoreEnd
             }
             $firstTable = false;
+
+            // ── Personal data ─────────────────────────────────────────────────
+            //
+            // Asked at creation because this is the one moment somebody knows the
+            // answer. `PersonalDataRegistry` is a denial list, so a table nobody
+            // classifies is readable in full by anything that reads the database on
+            // a developer's behalf — `db-inspect` over MCP today. Asking here is what
+            // keeps it from being a list somebody has to remember to update later,
+            // which is the standing weakness of denial lists.
+            $q = new ConfirmationQuestion(
+                ' Does this table hold <info>personal data</info>'
+                . ' (anything about an identifiable person)? [<comment>no</comment>] ',
+                false
+            );
+            if ($helper->ask($input, $output, $q)) {
+                $personalTables[] = str_replace('#PREFIX#', '', (string) $tableName);
+            }
 
             $columns = [];
 
@@ -1350,6 +1368,29 @@ abstract class MakeCommandBase extends Command
         $output->writeln('');
         $output->writeln(" <info>✓ Migration created:</info> {$filePath}");
         $output->writeln('');
+
+        if ($personalTables !== []) {
+            $output->writeln(
+                ' <comment>Personal data — add this to your application config'
+                . ' (app.php), or those rows</comment>'
+            );
+            $output->writeln(
+                ' <comment>are readable by every diagnostic tool that reads the'
+                . ' database:</comment>'
+            );
+            $output->writeln('');
+            $output->writeln(
+                "     <info>'personal_data' => ['tables' => ['"
+                . implode("', '", $personalTables)
+                . "']],</info>"
+            );
+            $output->writeln('');
+            $output->writeln(
+                ' <comment>See docs/Pramnos_Security_Guide.md — "Personal data and'
+                . ' the denial list".</comment>'
+            );
+            $output->writeln('');
+        }
 
         // ── Run migration now? ────────────────────────────────────────────────
         $q = new ConfirmationQuestion(

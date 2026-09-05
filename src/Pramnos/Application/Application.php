@@ -785,6 +785,35 @@ class Application extends Base
         \Pramnos\Database\HypertableRegistry::loadOverridesFromConfig(
             $this->applicationInfo['hypertables'] ?? []
         );
+        \Pramnos\Security\PersonalDataRegistry::loadFromConfig(
+            $this->applicationInfo['personal_data'] ?? []
+        );
+        /*
+         * The one tool the framework offers on the *public* MCP endpoint, and the
+         * exception to `PublicRegistry`'s own rule that a tool is there «only
+         * because an application put it here».
+         *
+         * The rule is about disclosure and this discloses nothing: it answers with
+         * the id and scopes of the token the caller already holds. What it buys is
+         * that the endpoint is testable at all — a client that connects,
+         * authenticates and receives an empty tool list cannot tell working wiring
+         * from a wrong token from scopes nobody granted.
+         *
+         * Here rather than in `McpServiceProvider`, because that provider builds
+         * the *internal* stdio server and never runs in a web request — which is
+         * the only place the public endpoint is answered from. It is before
+         * bootServiceProviders() so an application that wants even this gone can
+         * call `PublicRegistry::remove('whoami')` in its own provider.
+         *
+         * Behind the `authserver` gate because that is what scaffolds `POST /mcp`:
+         * with no endpoint there is nothing to smoke-test, and registering it anyway
+         * would put `mcp` into the `scopes_supported` that
+         * `/.well-known/oauth-authorization-server` serves to anybody — announcing an
+         * MCP endpoint on installations that do not have one.
+         */
+        if (FeatureRegistry::isEnabled('authserver')) {
+            \Pramnos\Mcp\PublicRegistry::add(new \Pramnos\Mcp\Tools\WhoAmITool());
+        }
 
         $providersStart = microtime(true);
         $this->bootServiceProviders();

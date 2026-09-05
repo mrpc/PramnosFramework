@@ -100,7 +100,68 @@ class Scopes
                     'inherits'    => ['system:notifications_read'],
                 ],
             ],
+        ] + static::mcpScopes();
+    }
+
+    /**
+     * The MCP scopes, and only while something asks for them.
+     *
+     * Returned as its own category so that a scope appears in `scopes_supported` —
+     * which is served to anybody from `/.well-known/oauth-authorization-server` —
+     * exactly when this installation has a tool behind it. A permanently-registered
+     * `mcp:db_read` would tell the internet that every Pramnos site has a capability
+     * for running SELECTs against its live database, including the great majority
+     * that never offered one.
+     *
+     * `mcp:db_read` inherits `mcp`, so a token that may query can also call `whoami`
+     * and check itself. Neither is inherited by `system:admin`, deliberately:
+     * administering the application and reading its production tables from another
+     * machine are two decisions, and one grant covering both is how the second gets
+     * made without ever being taken.
+     *
+     * @return array<string, array<string, array<string, mixed>>>
+     */
+    protected static function mcpScopes(): array
+    {
+        $offered = \Pramnos\Mcp\PublicRegistry::scopesInUse();
+
+        if ($offered === []) {
+            return [];
+        }
+
+        $known = [
+            'mcp' => [
+                'description' => 'Reach this installation\'s MCP endpoint.',
+                'is_default'  => false,
+                'inherits'    => [],
+            ],
+            'mcp:db_read' => [
+                'description' => 'Run one read-only SELECT against the live database, '
+                    . 'with rows from tables holding personal data withheld.',
+                'is_default'  => false,
+                'inherits'    => ['mcp'],
+            ],
         ];
+
+        $scopes = [];
+
+        foreach ($offered as $scope) {
+            if (isset($known[$scope])) {
+                $scopes[$scope] = $known[$scope];
+            }
+        }
+
+        /*
+         * A tool asking for `mcp:db_read` needs `mcp` registered as well, or the
+         * inheritance it declares points at a scope `hasInvalidScopes()` rejects —
+         * and the token that could call the tool could not call `whoami` to find out
+         * why anything else was missing.
+         */
+        if (isset($scopes['mcp:db_read'])) {
+            $scopes['mcp'] = $known['mcp'];
+        }
+
+        return $scopes === [] ? [] : ['MCP' => $scopes];
     }
 
     /**

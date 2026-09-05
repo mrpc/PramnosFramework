@@ -8,10 +8,16 @@ namespace Pramnos\Mcp;
  * The tools an application offers to an authenticated caller outside this machine.
  *
  * Deliberately **not** the same collection the internal server uses. That one is populated by
- * `McpServiceProvider` with nineteen development tools — coverage, docs, the style checker — and
- * filtering a shared list would mean every future tool is public until somebody remembers to
- * exclude it. The default has to be the safe one, so these are two collections and a tool is in
- * this one only because an application put it here.
+ * `McpServiceProvider` with twenty development tools — coverage, docs, the style checker, the
+ * local database — and filtering a shared list would mean every future tool is public until
+ * somebody remembers to exclude it. The default has to be the safe one, so these are two
+ * collections and a tool is in this one only because an application put it here.
+ *
+ * With one exception, registered by {@see \Pramnos\Application\Application::init()}:
+ * {@see \Pramnos\Mcp\Tools\WhoAmITool}, which reports the id and scopes of the token the
+ * call arrived with. It discloses nothing the caller did not already present, and it is
+ * what makes the endpoint testable — an empty tool list cannot be told apart from a broken
+ * one. `PublicRegistry::remove('whoami')` withdraws it.
  *
  * ```php
  * // app/providers or a ServiceProvider
@@ -194,10 +200,62 @@ class PublicRegistry
         ));
     }
 
+    /**
+     * The scopes the currently-offered tools ask for.
+     *
+     * Read by {@see \Pramnos\Auth\Scopes} so that an MCP scope is grantable — and
+     * advertised in `scopes_supported` — **only while a tool actually asks for it**.
+     *
+     * That matters because `scopes_supported` is served from
+     * `/.well-known/oauth-authorization-server`, to anybody, with the scope's
+     * description attached. A permanently-registered `mcp:db_read` would announce to
+     * the internet that this site has a tool which runs SELECTs against its live
+     * database, on every installation, including the ones that never offered it.
+     * Deriving the list from what is registered means an installation discloses a
+     * capability exactly when it has one.
+     *
+     * @return list<string>
+     */
+    public static function scopesInUse(): array
+    {
+        $scopes = array();
+
+        foreach (self::$tools as $tool) {
+            $scope = trim($tool->requiredScope());
+
+            if ($scope !== '') {
+                $scopes[$scope] = true;
+            }
+        }
+
+        return array_keys($scopes);
+    }
+
     /** Is anything offered at all? */
     public static function hasTools(): bool
     {
         return self::$tools !== [];
+    }
+
+    /**
+     * Withdraw a tool by name.
+     *
+     * For an application that wants one of the framework's public tools gone —
+     * `whoami` is the only one — without {@see reset()}, which would take its own
+     * with it.
+     *
+     * @param  string $name The tool's `name()`.
+     * @return bool   Whether there was one to withdraw.
+     */
+    public static function remove(string $name): bool
+    {
+        if (!isset(static::$tools[$name])) {
+            return false;
+        }
+
+        unset(static::$tools[$name]);
+
+        return true;
     }
 
     /** Forget everything. For tests, and for an application that rebuilds its own registry. */

@@ -8,6 +8,9 @@ use_cases:
   - Storing a credential the application has to read back (SMTP, API token, signing key)
   - Fetching a URL a user supplied, from the server (SSRF)
   - Auditing or replacing a helper that downloads a URL
+  - Letting a developer query a production database without giving them a shell
+  - Declaring which of your tables hold personal data
+  - Deciding whether to set up a read-only database account
 ---
 
 # Pramnos Security Guide
@@ -1271,6 +1274,143 @@ $status = \Pramnos\General\Helpers::checkUrlStatus($url);
 Note also that it buffers the whole response into memory to throw it away —
 `CURLOPT_RETURNTRANSFER` with no ceiling — so a URL that answers with an endless stream
 costs the process its memory even though the body is never read.
+
+## Personal data and the denial list
+
+Diagnosing a production problem used to mean SSH, and SSH gives a shell: everything the
+account can do, no record of what was *read*, and one mistyped `DELETE` away from an
+incident. The narrower thing is a single capability — `db-inspect`, an MCP tool that runs
+one read-only `SELECT` — and what makes it narrower is entirely what it refuses.
+
+It runs on the stdio server by default, where a shell is already required. Putting it on the
+public HTTP endpoint is one line and a deliberate one —
+[the four steps are in the MCP guide](Pramnos_MCP_Guide.md#reaching-it-from-off-the-box).
+
+`Pramnos\Security\PersonalDataRegistry` decides what comes back.
+
+| The query touches | You get |
+|---|---|
+| ordinary tables | rows, with personal-looking columns replaced by `[withheld]` |
+| a table declared as holding personal data | the row **count** and the column names, no rows |
+
+The second is not a lesser answer for most questions. *How many live tokens have no
+digest*, *are there duplicate settings names*, *how many images are under this size* are
+all counts, and a count exposes nobody. Asking for the rows themselves is a different
+request with a different risk, and one somebody should make deliberately rather than
+discover they have made.
+
+### Declaring your own tables
+
+```php
+// app.php
+'personal_data' => [
+    'tables'  => ['customers', 'support_tickets'],
+    'columns' => ['tax_number'],
+    // Start from nothing instead of adding to the framework's lists. Rarely right:
+    // the framework's entries are its own tables, and replacing them is an
+    // application asserting it knows better about `usertokens`.
+    'replace' => false,
+],
+```
+
+A declaration is matched on the bare name, so it survives a table prefix and a schema
+qualifier: `customers` covers `pramnos_customers` and `authserver.customers` without
+anybody repeating the installation's own configuration.
+
+`create:migration` asks whether each table it generates holds personal data and prints the
+line to paste — see the
+[Console guide](Pramnos_Console_Guide.md#the-personal-data-question). That is the one
+moment somebody knows the answer.
+
+### Why a denial list, and what it costs
+
+The framework's `PublicRegistry` argues the opposite case for *tools*, and correctly:
+filtering a shared list would mean every future tool is public until somebody remembers to
+exclude it.
+
+Tables are not tools. An unknown tool is dangerous by definition; an unknown table is
+usually mundane, and an allow-list would mean nothing new can be looked at until a person
+adds it — friction on exactly the diagnosis the tool exists for.
+
+So the cost of that choice is paid by the second half of the registry: **column names are
+matched wherever they appear**. A table nobody thought to list still has its `email`,
+`password`, `token` and `phone` withheld, matched on the whole name and on a `_`-separated
+head or tail — `billing_email` and `user_phone` are caught by declaring `email` and
+`phone`. It is a heuristic and it is stated as one: it reduces what leaks from a table
+nobody classified, and it is not a substitute for classifying it.
+
+The framework declares its own twenty tables — credentials, identity, the GDPR
+record-keeping that exists precisely because these are personal, and `tokenactions`,
+because a request log keyed to a token is a record of what one person did and when. Those
+apply with nothing loaded and nothing configured.
+
+### The four boundaries, and which one is load-bearing
+
+1. **The scope.** `db-inspect` requires `mcp:db_read`, which no token carries unless
+   somebody granted it — and which is not a grantable scope at all until an application
+   registers the tool, so an installation that never offered it does not advertise it in
+   `scopes_supported` either. It is checked when the tool list is built and again when the
+   call arrives. It inherits `mcp`; `system:admin` deliberately does **not** inherit it,
+   because administering the application and reading its production tables from another
+   machine are two decisions and should be granted as two.
+2. **A read-only database account**, when the installation has configured one. Where it
+   exists this is the real boundary, because PostgreSQL enforces it and we do not.
+3. **`Pramnos\Security\ReadOnlyQuery`**, which refuses anything that is not a read. Where
+   there is no read-only account **this is the only boundary there is**.
+4. **The registry above**, which decides what the rows contain.
+
+`ReadOnlyQuery` does not check the first keyword, because that check is defeated by a
+statement that is genuinely a `SELECT`:
+
+```sql
+WITH gone AS (DELETE FROM usertokens RETURNING *) SELECT count(*) FROM gone;
+```
+
+That begins with `WITH`, ends as a `SELECT` and empties a table. So the rule is the other
+way round: a statement is refused if a writing keyword appears **anywhere** outside a
+string literal or a comment. Literals, `--` and `/* … */` comments, dollar quoting and
+double-quoted identifiers are blanked — blanked rather than removed, so `'a' delete` cannot
+collapse into `adelete` and slip past a word boundary.
+
+It is a lexer, not a parser, and it errs towards refusal: a column genuinely called
+`update_count` is refused. That trade is deliberate — a false refusal costs a rephrased
+query, and a false acceptance costs somebody's data.
+
+### The read-only account, if you want one
+
+Optional, and the framework does not require it. Setting one up is real work, and an
+installation may reasonably decide that somebody with development access to the box is
+already trusted — in which case the lexer above is the boundary and it is worth knowing
+that.
+
+Where you do want the stronger version:
+
+```sql
+CREATE USER app_readonly WITH PASSWORD '…';
+GRANT CONNECT ON DATABASE app TO app_readonly;
+GRANT USAGE ON SCHEMA public TO app_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO app_readonly;
+```
+
+Then set one setting — `user:password@host:port/database`, the same shape the rest of the
+settings use:
+
+```php
+Settings::setSetting('database_readonly_dsn', 'app_readonly:secret@localhost:5432/app');
+```
+
+It is stored encrypted, like `smtp_pass`, because it is a credential.
+
+**An account that is configured and unusable is an error, never a quiet fall back to the
+writable connection.** That is the failure where somebody believes they have a boundary and
+does not, and it is invisible — which is worse than either of the two honest outcomes.
+
+### What is logged
+
+Every call is written to `mcpqueries` with its statement, **before** the query runs and
+whether or not it succeeds — a record that only survives success is not a record of what
+was asked. Where the statement touched a declared-personal table, the log line says so.
 
 ## Dependency Security
 

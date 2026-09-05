@@ -16,6 +16,8 @@ use_cases:
   - Finding the test that covers a class, before writing a second one somewhere else
   - Checking a change against the framework's rules, or its coverage, without the noise of the
     whole project
+  - Asking a live database a question without opening a shell on the server
+  - Checking that a public MCP endpoint, its token and its scopes are what you think they are
 ---
 
 # MCP server
@@ -139,6 +141,7 @@ day it is registered rather than the day somebody writes a test for it. What it 
 | `status` | **Is anything broken, and what is waiting** — see below |
 | `schema-drift` | **The schema on disk against the schema in the database** — see below |
 | `request-debug` | **What a request that died actually did** — see below |
+| `db-inspect` | **One read-only SELECT against the live database** — see below |
 
 `find-symbol` reads source files and needs neither, so it works when nothing boots — which is
 when it is most likely to be wanted.
@@ -156,6 +159,104 @@ which is exactly when somebody is asking why.
 They all come from one list, `McpServiceProvider::registerDefaults()`. `mcp:serve` calls it
 when no container has a server, which is the normal case; a second copy of that list is how
 two tools once ended up registered and unreachable at the same time.
+
+### `db-inspect`
+
+One read-only `SELECT`, against whatever database this installation is configured with —
+including a production one, which is the case it was written for.
+
+```
+db-inspect { "sql": "SELECT count(*) FROM usertokens WHERE token_lookup IS NULL" }
+```
+
+It replaces SSH for one narrow purpose, and the reason that is an improvement is entirely
+in what it refuses:
+
+- a statement that writes is refused **before it reaches the database**, including a
+  data-modifying CTE that is technically a `SELECT`;
+- rows from a table declared as holding personal data are not returned — those answer with
+  a count and the column names;
+- columns that look personal (`email`, `phone`, `token`, `password`, …) come back as
+  `[withheld]` in every table, declared or not;
+- at most 200 rows, whatever the statement asks for;
+- every call is logged to `mcpqueries` with its statement, before it runs.
+
+It is on the **stdio** server by default, which already requires a shell on this machine.
+
+#### Reaching it from off the box
+
+Which is the whole point — SSH is what this is meant to replace. Four steps, none of them
+a new subsystem:
+
+**1. The endpoint has to exist.** `POST /mcp` is scaffolded by `init` when the `authserver`
+feature is on. If the route is not there, that is why.
+
+**2. Offer the tool.** In a `ServiceProvider`, or `app/providers.php`:
+
+```php
+use Pramnos\Mcp\PublicRegistry;
+use Pramnos\Mcp\Tools\DbInspectTool;
+
+PublicRegistry::add(new DbInspectTool(\Pramnos\Framework\Factory::getDatabase()));
+```
+
+One line, and a deliberate one. The framework will not put a tool that reads data onto a
+public endpoint on your behalf.
+
+**3. Issue a token carrying `mcp:db_read`.** Step 2 is what makes that possible: the scope
+is registered **because** a tool asks for it, so the ordinary OAuth2 flow grants it like any
+other — see the [Authentication guide](Pramnos_Authentication_Guide.md). Three things about
+it are worth knowing:
+
+- **It does not exist until you offer the tool.** `scopes_supported` is served from
+  `/.well-known/oauth-authorization-server` to anybody who asks, with each scope's
+  description attached. A permanently registered `mcp:db_read` would announce that every
+  Pramnos site has a capability for running SELECTs against its live database — including
+  the great majority that never offered one. So the list is derived from `PublicRegistry`,
+  and an installation discloses the capability exactly when it has one.
+- It **inherits `mcp`**, so a token holding it also reaches `whoami`. That is how you check
+  the token before trusting an empty answer from anything else.
+- **`system:admin` does not inherit it.** An administrator of the application is not
+  automatically somebody who may read its production tables from another machine, and the
+  two being one grant is how the second gets handed out without ever being decided.
+
+**4. Point the client at it.**
+
+```json
+{
+  "mcpServers": {
+    "production": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer <the token>" }
+    }
+  }
+}
+```
+
+A client that calls without a token gets `401` and a `WWW-Authenticate` header naming the
+authorization server, which is the discovery mechanism — see
+[Authentication is the one this server already does](#authentication-is-the-one-this-server-already-does).
+
+**Start by calling `whoami`.** If `mcp:db_read` is not in the scopes it reports back, that
+is the whole diagnosis and nothing else needs looking at.
+
+#### What you are trusting when you do this
+
+Honestly stated, because the answer differs by installation:
+
+| | |
+|---|---|
+| The scope | A boundary, enforced per request, revocable by revoking the token |
+| A read-only database account | A boundary **PostgreSQL** enforces — the strongest one available, and optional |
+| `ReadOnlyQuery` | A lexer. Where there is no read-only account, **this is the only thing between a token and a write** |
+| The denial list | Decides what the rows contain, not whether the query runs |
+
+The read-only account is worth setting up before the endpoint faces the internet, and it is
+five `GRANT`s — the script is in the
+[Security guide](Pramnos_Security_Guide.md#the-read-only-account-if-you-want-one), along
+with the denial list, declaring your own tables, and what the lexer does and does not
+promise.
 
 ### `framework-docs`
 
@@ -1000,9 +1101,9 @@ resource that disappears degrades to absent instead of breaking the session.
 
 ## Serving it over HTTP, to somebody else's assistant
 
-Everything above is the **internal** server: `mcp:serve` over stdio, nineteen tools that read
-coverage reports and run the style checker, for an assistant working alongside you on this
-machine. None of it should ever answer a stranger.
+Everything above is the **internal** server: `mcp:serve` over stdio, twenty tools that read
+coverage reports, run the style checker and query the local database, for an assistant working
+alongside you on this machine. None of it should ever answer a stranger.
 
 The public endpoint is a separate thing that happens to speak the same protocol.
 
@@ -1014,8 +1115,40 @@ use Pramnos\Mcp\Tools\SearchTool;
 PublicRegistry::add(new SearchTool());
 ```
 
-That is the whole of it. `init` scaffolds `POST /mcp` when the `authserver` feature is on, and the
-endpoint answers with an empty tool list until an application registers something.
+That is the whole of it. `init` scaffolds `POST /mcp` when the `authserver` feature is on.
+
+### `whoami`, the one tool the framework offers publicly
+
+The endpoint used to answer with an **empty** tool list until an application registered
+something, and an empty tool list is indistinguishable from a broken one: a client that
+connects, authenticates and receives nothing cannot tell working wiring from a wrong token
+from scopes nobody granted.
+
+So one tool ships registered — when the `authserver` feature is on, which is what scaffolds
+the endpoint in the first place. With no endpoint there is nothing to smoke-test, and
+registering it anyway would put `mcp` into the `scopes_supported` served from
+`/.well-known/oauth-authorization-server`, announcing an MCP endpoint on installations that
+do not have one.
+
+It asks for the scope `mcp`, and answers with the id and scopes of the token the call arrived
+with:
+
+```json
+{ "user_id": 4242, "authenticated": true, "scopes": ["mcp", "orders.read"], "server": "pramnos-mcp" }
+```
+
+It discloses nothing the caller did not already present — no name, no email address. This is
+a production endpoint whose answers travel, and an id is what identifies a row in a log.
+
+It is also the first thing to reach for when a tool is "not showing up": if the scope that
+tool needs is missing from this answer, that is the whole diagnosis.
+
+An application that wants even this gone withdraws it in its own provider, which runs after
+the framework registers it:
+
+```php
+PublicRegistry::remove('whoami');
+```
 
 ### Offering a capability: the short way
 

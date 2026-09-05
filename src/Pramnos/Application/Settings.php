@@ -188,6 +188,9 @@ class Settings extends \Pramnos\Framework\Base
      */
     protected const ENCRYPTED_SETTINGS = [
         'smtp_pass',
+        // user:pass@host/db for the optional read-only account db-inspect uses.
+        // A password in a settings row is a password in a settings row.
+        'database_readonly_dsn',
     ];
 
     /**

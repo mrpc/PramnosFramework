@@ -77,6 +77,14 @@ class Application extends \Symfony\Component\Console\Application
             \Pramnos\Application\FeatureRegistry::loadFromConfig(
                 $this->internalApplication->applicationInfo['features'] ?? []
             );
+            // Same reasoning, and here it decides what `db-inspect` will hand
+            // back: an application's `personal_data` declarations are read from
+            // app.php in init(), which no console command runs. Without this the
+            // framework's own defaults would be the whole list, and every table
+            // the application declared would be dumped in full.
+            \Pramnos\Security\PersonalDataRegistry::loadFromConfig(
+                $this->internalApplication->applicationInfo['personal_data'] ?? []
+            );
         }
     }
 

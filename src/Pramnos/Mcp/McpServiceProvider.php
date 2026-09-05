@@ -207,6 +207,20 @@ class McpServiceProvider extends ServiceProvider
         if ($db !== null) {
             $server->addTool(new ListTablesTool($db));
             $server->addTool(new QuerySchemaTool($db));
+
+            /*
+             * Reads data, not just structure — so it is here, on the stdio server,
+             * which already requires a shell on the box.
+             *
+             * Exposing it over HTTP is a deliberate act and one line:
+             *
+             *     PublicRegistry::add(new DbInspectTool($db));
+             *
+             * It is scoped `mcp:db_read`, which no token carries unless somebody
+             * granted it. See the Security guide for what it withholds and what
+             * the read-only account buys.
+             */
+            $server->addTool(new \Pramnos\Mcp\Tools\DbInspectTool($db));
         }
 
         $server->addTool(new MigrationStatusTool($app));

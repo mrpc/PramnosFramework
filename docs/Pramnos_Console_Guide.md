@@ -2332,6 +2332,7 @@ The wizard collects the full schema definition — columns, types, nullable/defa
 ```
  Migration description: create users table
  Table name: #PREFIX#users
+ Does this table hold personal data (anything about an identifiable person)? [no] yes
  Add auto-increment primary key id? [yes]
 
  ── Columns ──────────────────────────────────────────────────────────
@@ -2349,6 +2350,13 @@ The wizard collects the full schema definition — columns, types, nullable/defa
 
  ✓ Migration created: app/migrations/2026_05_06_120000_create_users_table.php
 
+ Personal data — add this to your application config (app.php), or those rows
+ are readable by every diagnostic tool that reads the database:
+
+     'personal_data' => ['tables' => ['users']],
+
+ See docs/Pramnos_Security_Guide.md — "Personal data and the denial list".
+
  Run this migration now? [yes]
 
  ── Also create ───────────────────────────────────────────────────────
@@ -2357,6 +2365,26 @@ The wizard collects the full schema definition — columns, types, nullable/defa
  Create API Controller (UsersApiController)? [yes]
  Create Seeder (UsersSeeder with fake data)? [yes]
 ```
+
+### The personal-data question
+
+Asked once per table, and the answer is not written into the migration — it is
+printed as a line to paste into `app.php`. That is deliberate: the declaration has
+to live where the application is configured, because it is read at boot by
+processes that never load a migration file.
+
+The question is there because the list it feeds is a **denial** list. A table
+nobody classifies is readable in full by anything that reads the database on a
+developer's behalf, and the standing weakness of a denial list is that it is a
+list somebody has to remember to update later. Creating the table is the one
+moment somebody knows the answer.
+
+Answering `no`, or ignoring the printed line, is not a hole in the floor: column
+names like `email`, `phone` and `token` are withheld wherever they appear,
+whatever table they are in. That is a heuristic and it is stated as one — it
+reduces what leaks from a table nobody classified, and it does not replace
+classifying it. See the
+[Security guide](Pramnos_Security_Guide.md#personal-data-and-the-denial-list).
 
 ### UI-aware controller and view generation
 
