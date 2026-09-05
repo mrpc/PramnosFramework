@@ -74,4 +74,20 @@ class Thumbnail
      * @var int
      */
     public $requestedY = 0;
+    /**
+     * Was this rendition allowed to be larger than the file it came from?
+     *
+     * Part of the entry's identity, not a note about it. The same box asked for
+     * with and without upscaling produces two different images — 177×222 of
+     * stretched source, or 120×150 of clamped source — and both record the same
+     * requested box, so without this a lookup could hand back the wrong one. The
+     * dangerous direction is serving the upscaled blur to a caller that asked for
+     * it not to happen.
+     *
+     * `false` on every entry written before this existed, which is correct: they
+     * were produced when clamping was the only behaviour.
+     *
+     * @var bool
+     */
+    public $upscaled = false;
 }

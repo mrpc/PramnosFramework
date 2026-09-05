@@ -421,14 +421,32 @@ back unconverted. Those are matched on `x`/`y` as they always were, so nothing
 stored has to be migrated — the `thumbnails` column is JSON of the declared
 fields, and a field absent from a row reads back as the class default.
 
-If you need the rendition to fill the box, ask for it:
+If you need the rendition to fill the box, ask for it **on the call**:
 
 ```php
-$media->allowUpscale = true;   // then x/y and requestedX/Y agree again
+$filled = $media->get(177, 222, false, false, false, true, true);
+//                                                          ^ allowUpscale
+$filled->x;   // 177 — stretched to the frame
 ```
 
-which is the right call when the caller is a template with a fixed frame, and the
-wrong one when you are producing derivatives to store.
+The seventh argument overrides `$media->allowUpscale` for that call and leaves the
+object alone. That distinction is the point: the property also governs the
+derivatives `processImage()` generates, so turning it on for a template that wants
+its frame filled used to mean turning it on for everything, including the images
+being produced to store. Pass `null` — the default — and the object's setting
+applies, so nothing that does not pass it changes.
+
+Which to use:
+
+| Caller | Upscale |
+|---|---|
+| a template with a fixed frame | **yes** — a gap is worse than a soft image |
+| producing a derivative to store | **no** — a rendition larger than its source is not a thumbnail |
+
+**The two are cached separately.** A box asked for both ways produces two different
+images that record the same requested box, so `Thumbnail::$upscaled` is part of the
+entry's identity and a lookup will not hand one to a caller that asked for the other.
+Entries written before the flag existed read `false`, which is what they were.
 
 ### Custom Thumbnail Creation
 

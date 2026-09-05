@@ -532,8 +532,17 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param  int    $height Requested height.
      * @return bool
      */
-    private static function thumbnailMatchesRequest($thumb, $width, $height): bool
+    private static function thumbnailMatchesRequest($thumb, $width, $height, $allowUpscale = false): bool
     {
+        // Upscaling is part of what was asked for, so an entry made under the
+        // other setting is a different image and must not be handed back. An
+        // entry from before the flag existed reads false, which is what it was.
+        $entryUpscaled = isset($thumb->upscaled) ? (bool) $thumb->upscaled : false;
+
+        if ($entryUpscaled !== (bool) $allowUpscale) {
+            return false;
+        }
+
         $requestedX = isset($thumb->requestedX) ? (int) $thumb->requestedX : 0;
         $requestedY = isset($thumb->requestedY) ? (int) $thumb->requestedY : 0;
 
@@ -553,6 +562,9 @@ class MediaObject extends \Pramnos\Framework\Base
         // starts from `new Thumbnail()`, so those read back as 0 — which
         // `thumbnailMatchesRequest()` treats as "not recorded".
         'requestedX', 'requestedY',
+        // Part of the entry's identity: the same box with and without upscaling
+        // is two different images. See Thumbnail::$upscaled.
+        'upscaled',
     );
 
     /**
@@ -2308,8 +2320,26 @@ class MediaObject extends \Pramnos\Framework\Base
      * @throws \Exception
      */
     function get($width, $height, $crop = false,
-        $force = false, $debug = false, $resample = true)
+        $force = false, $debug = false, $resample = true, $allowUpscale = null)
     {
+        /*
+         * Per call, because the two kinds of caller want opposite things.
+         *
+         * A template with a fixed frame wants the box filled — a 150×150 avatar
+         * in a 177×222 slot should stretch rather than leave a gap. A call that
+         * produces a derivative to store wants the opposite: inventing pixels and
+         * recording them as a rendition is what the clamp exists to stop.
+         *
+         * Before this, the only control was `$this->allowUpscale`, which is set on
+         * the object and therefore applies to `processImage()`'s derivatives too —
+         * so an application that wanted its templates to fill the frame had to
+         * turn it on for everything. `null` means «whatever the object says», so
+         * nothing that does not pass it changes behaviour.
+         */
+        $allowUpscale = ($allowUpscale === null)
+            ? (bool) $this->allowUpscale
+            : (bool) $allowUpscale;
+
         if ($debug ==true) {
             echo '<br />Media ID: ' . $this->mediaid
                 . '<br />Usage ID: ' . $this->usageid
@@ -2347,7 +2377,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->mediatype == 1 or $this->mediatype == 2) {
             if ($force == false) {
                 foreach ($this->thumbnails as $key => $thumb) {
-                    if (self::thumbnailMatchesRequest($thumb, $width, $height)) {
+                    if (self::thumbnailMatchesRequest($thumb, $width, $height, $allowUpscale)) {
 
                         if (file_exists($thumb->filename)) {
                             return $thumb;
@@ -2366,7 +2396,7 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             } else {
                 foreach ($this->thumbnails as $key => $thumb) {
-                    if (self::thumbnailMatchesRequest($thumb, $width, $height)) {
+                    if (self::thumbnailMatchesRequest($thumb, $width, $height, $allowUpscale)) {
                         if ($debug == true) {
                             echo '<br />Deleting existing thumbnail';
                         }
@@ -2409,7 +2439,7 @@ class MediaObject extends \Pramnos\Framework\Base
             $thumb->exportpath = $this->createPath($this->module);
             $thumb->crop = $crop;
             $thumb->debug = $debug;
-            $thumb->allowUpscale = $this->allowUpscale;
+            $thumb->allowUpscale = $allowUpscale;
 
             if ($thumb->resize($this->filename, $width, $height) === false) {
                 /*
@@ -2467,6 +2497,7 @@ class MediaObject extends \Pramnos\Framework\Base
             // the entry cannot be found by the request that produced it.
             $tmThumb->requestedX = (int) $width;
             $tmThumb->requestedY = (int) $height;
+            $tmThumb->upscaled   = $allowUpscale;
             $tmThumb->views = 0;
             $tmThumb->filesize = filesize($tfile);
             if ($reason == '') {

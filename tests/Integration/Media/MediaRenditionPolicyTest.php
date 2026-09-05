@@ -418,6 +418,97 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     }
 
     /**
+     * `get()` takes upscaling per call, without touching the object.
+     *
+     * WHAT: the seventh argument fills the box; the object's own `allowUpscale`
+     *       is left alone.
+     * WHY:  the two kinds of caller want opposite things. A template with a fixed
+     *       frame wants a 150×150 avatar to fill a 177×222 slot rather than leave
+     *       a gap; a call producing a derivative to store wants the clamp. The
+     *       only control was the object property, which also governs
+     *       `processImage()`'s derivatives — so wanting the first meant accepting
+     *       the second, which is exactly the trade a consuming application had to
+     *       make.
+     */
+    public function testUpscalingCanBeAskedForPerCall(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->save();
+
+        // Act
+        $clamped  = $media->get(200, 200);
+        $upscaled = $media->get(200, 200, false, false, false, true, true);
+
+        // Assert
+        $this->assertSame(40, $clamped->x, 'the default still clamps');
+        $this->assertSame(200, $upscaled->x, 'and the box can be filled on request');
+        $this->assertSame(200, $upscaled->y);
+        $this->assertFalse(
+            (bool) $media->allowUpscale,
+            'the object property must be untouched: it also governs processImage()'
+        );
+    }
+
+    /**
+     * The two are cached apart, and the clamped one is never served as upscaled.
+     *
+     * They record the same requested box, so without `upscaled` being part of the
+     * entry's identity a lookup would return whichever was written first. The
+     * dangerous direction is the second assertion: handing stretched blur to a
+     * caller that asked for it not to happen.
+     */
+    public function testAnUpscaledRenditionIsNotServedToACallerThatDidNotAskForOne(): void
+    {
+        // Arrange — the upscaled one exists first
+        $media = new MediaObject();
+        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->save();
+        $upscaled = $media->get(200, 200, false, false, false, true, true);
+        $this->assertSame(200, $upscaled->x, 'precondition');
+
+        // Act — the same box, this time asking for no upscaling
+        $clamped = $media->get(200, 200, false, false, false, true, false);
+
+        // Assert
+        $this->assertSame(40, $clamped->x,
+            'a caller that declined upscaling must not be handed the upscaled entry');
+        $this->assertNotSame($upscaled->filename, $clamped->filename);
+
+        // Assert — and the other direction, from the same stored pair
+        $this->assertSame(200, $media->get(200, 200, false, false, false, true, true)->x);
+        $this->assertSame(40, $media->get(200, 200, false, false, false, true, false)->x);
+    }
+
+    /**
+     * Each of the two is still found again rather than rebuilt.
+     *
+     * The FW-055 guarantee has to hold on both sides of the new flag, or asking
+     * for one of them repeatedly reopens the bug for that half.
+     */
+    public function testBothVariantsAreCachedAndNeitherIsRebuilt(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->save();
+        $media->get(200, 200, false, false, false, true, true);
+        $media->get(200, 200, false, false, false, true, false);
+        $count = count($media->thumbnails);
+
+        // Act — ask for both again, twice
+        for ($i = 0; $i < 2; $i++) {
+            $media->get(200, 200, false, false, false, true, true);
+            $media->get(200, 200, false, false, false, true, false);
+        }
+
+        // Assert
+        $this->assertCount($count, $media->thumbnails,
+            'neither variant may append another entry');
+    }
+
+    /**
      * An SVG is stored as itself, and asking it for a size answers with the original.
      *
      * The whole failure in one assertion: `get()` used to return a `Thumbnail` whose `url` ended
