@@ -135,6 +135,19 @@ class Scopes
                 'is_default'  => false,
                 'inherits'    => [],
             ],
+            'mcp:diagnostics' => [
+                'description' => 'Read this installation\'s health, pending migrations, '
+                    . 'schema drift, tables, routes and models — structure and state, '
+                    . 'not data.',
+                'is_default'  => false,
+                'inherits'    => ['mcp'],
+            ],
+            'mcp:logs' => [
+                'description' => 'Read this installation\'s error logs and failed-request '
+                    . 'traces. Log lines are free text and are not redacted.',
+                'is_default'  => false,
+                'inherits'    => ['mcp'],
+            ],
             'mcp:db_read' => [
                 'description' => 'Run one read-only SELECT against the live database, '
                     . 'with rows from tables holding personal data withheld.',
@@ -152,12 +165,12 @@ class Scopes
         }
 
         /*
-         * A tool asking for `mcp:db_read` needs `mcp` registered as well, or the
-         * inheritance it declares points at a scope `hasInvalidScopes()` rejects —
-         * and the token that could call the tool could not call `whoami` to find out
-         * why anything else was missing.
+         * Every one of these inherits `mcp`, so registering any of them without it
+         * would leave the inheritance pointing at a scope `hasInvalidScopes()`
+         * rejects — and the token that could call the tool could not call `whoami` to
+         * find out why anything else was missing.
          */
-        if (isset($scopes['mcp:db_read'])) {
+        if ($scopes !== [] && !isset($scopes['mcp'])) {
             $scopes['mcp'] = $known['mcp'];
         }
 

@@ -18,6 +18,8 @@ use_cases:
     whole project
   - Asking a live database a question without opening a shell on the server
   - Checking that a public MCP endpoint, its token and its scopes are what you think they are
+  - Diagnosing a production installation — logs, migrations, schema drift — without SSH
+  - Deciding which framework tools are safe to expose over HTTP, and behind which scope
 ---
 
 # MCP server
@@ -201,12 +203,30 @@ PublicRegistry::add(new DbInspectTool(\Pramnos\Framework\Factory::getDatabase())
 ```
 
 One line, and a deliberate one. The framework will not put a tool that reads data onto a
-public endpoint on your behalf.
+network-reachable endpoint on your behalf.
 
-**3. Issue a token carrying `mcp:db_read`.** Step 2 is what makes that possible: the scope
-is registered **because** a tool asks for it, so the ordinary OAuth2 flow grants it like any
-other — see the [Authentication guide](Pramnos_Authentication_Guide.md). Three things about
-it are worth knowing:
+Most installations want the rest of the diagnostic readers at the same time —
+`McpServiceProvider::offerDiagnostics($app)` offers all eleven, `db-inspect` included, behind
+three separate scopes. See
+[Offering the diagnostic tools](#offering-the-diagnostic-tools-the-ones-that-replace-ssh).
+
+**3. Issue a token.** One command, run **on the installation you want to reach** — minting a
+token means writing a row into its `usertokens`:
+
+```bash
+php <cli> mcp:token --user=you@example.com --scopes=diagnostics,logs,db --days=30
+```
+
+It prints the token **once** (the column is encrypted at rest) and the `.mcp.json` block to
+paste, already filled in. `--scopes` takes the short names `diagnostics`, `logs`, `db`, or
+full scope names; `mcp` is added whether you ask or not, so `whoami` is always reachable.
+
+The ordinary OAuth2 authorization flow grants the same scopes if you would rather go that
+way — see the [Authentication guide](Pramnos_Authentication_Guide.md). The command exists
+because that is a browser round-trip for a capability whose whole point is that somebody is
+at a terminal.
+
+Three things about the scopes are worth knowing:
 
 - **It does not exist until you offer the tool.** `scopes_supported` is served from
   `/.well-known/oauth-authorization-server` to anybody who asks, with each scope's
@@ -240,6 +260,12 @@ authorization server, which is the discovery mechanism — see
 
 **Start by calling `whoami`.** If `mcp:db_read` is not in the scopes it reports back, that
 is the whole diagnosis and nothing else needs looking at.
+
+> `mcp:token` cannot tell you whether the endpoint offers a scope, and says so rather than
+> guessing. The call that offers the tools runs in an application `ServiceProvider`, booted
+> by `Application::init()` — which a web request runs and a console command does not, so the
+> scope registry looks empty from a terminal on **every** installation, including the ones
+> that offer everything. The endpoint decides at request time; `whoami` is what reports it.
 
 #### What you are trusting when you do this
 
@@ -1105,6 +1131,15 @@ Everything above is the **internal** server: `mcp:serve` over stdio, twenty tool
 coverage reports, run the style checker and query the local database, for an assistant working
 alongside you on this machine. None of it should ever answer a stranger.
 
+> **What "public" means here, because the word does double duty.** It means *reachable over
+> the network from off this machine* — as opposed to the stdio server, which requires a shell.
+> It does **not** mean unauthenticated and it does not mean open. Every call to this endpoint
+> carries a bearer token that `UnifiedAuthMiddleware` has validated, every tool declares a
+> scope that token must hold, and the tool list is built per request from what that token
+> reaches — a caller sees nothing they cannot call. `PublicRegistry` is named for the first
+> sense, not the second. "Externally reachable, always authenticated, always scoped" is the
+> accurate long form.
+
 The public endpoint is a separate thing that happens to speak the same protocol.
 
 ```php
@@ -1149,6 +1184,79 @@ the framework registers it:
 ```php
 PublicRegistry::remove('whoami');
 ```
+
+### Offering the diagnostic tools — the ones that replace SSH
+
+`db-inspect` answers *what is in the data*. The rest of the questions somebody
+opens a shell for — is anything broken, what migrations are pending, does the schema
+match, what is failing and how often — are answered by tools that already exist on the
+internal server. One deliberate call offers them:
+
+```php
+use Pramnos\Mcp\McpServiceProvider;
+
+McpServiceProvider::offerDiagnostics($app);
+```
+
+Eleven tools, behind **three separate scopes**, because they disclose different things:
+
+| Scope | Tools | What it discloses |
+|---|---|---|
+| `mcp:diagnostics` | `status`, `migration-status`, `schema-drift`, `list-tables`, `query-schema`, `route-list`, `model-inspect` | Structure and state — names and shapes, no rows, no free text |
+| `mcp:logs` | `log-errors`, `log-analytics`, `request-debug` | What has been happening, **as free text** |
+| `mcp:db_read` | `db-inspect` | Rows, with the denial list applied |
+
+Three rather than one because reading the schema, reading the logs and reading the rows
+are different questions. An installation granting the first must not silently be granting
+the third.
+
+`offerDiagnostics()` takes the application, and without one still offers the readers that
+need none — the log tools work when nothing boots, which is exactly when somebody wants
+them. Narrow it with the second argument:
+
+```php
+McpServiceProvider::offerDiagnostics($app, ['status', 'migration-status']);
+```
+
+#### Before you grant `mcp:logs`
+
+**Log lines are free text, and free text is not redacted.**
+[`PersonalDataRegistry`](Pramnos_Security_Guide.md#personal-data-and-the-denial-list)
+withholds *columns*. It cannot see an email address inside a stack trace, a request body
+captured by the debugger, or a token somebody logged in a URL. `mcp:diagnostics` and
+`mcp:db_read` have boundaries; `mcp:logs` has the same exposure as handing somebody the
+log directory, and is worth granting on that understanding rather than by analogy with
+the other two.
+
+#### What is deliberately not offered, and why
+
+Not taste — each omission is a different reason:
+
+| Not offered | Why |
+|---|---|
+| `changelog-add` | It **writes files**. A public endpoint that edits the repository on a production box is a different risk class, and no incident needs it. |
+| `coverage`, `find-tests` | They read test artefacts a deployment does not have. |
+| `framework-docs`, `find-symbol`, `console-commands`, `api-docs`, `theme-info`, `pramnos-check` | They answer questions about the **codebase**, which whoever is asking has checked out locally. Over HTTP they disclose source structure and buy nothing. |
+
+None of them is blocked. If your installation disagrees, one line offers any of them:
+
+```php
+use Pramnos\Mcp\ScopedTool;
+
+PublicRegistry::add(ScopedTool::wrap(new FrameworkDocsTool(), 'mcp:diagnostics'));
+```
+
+#### Why a wrapper rather than a `requiredScope()` on each tool
+
+Because the property that protects this endpoint is that a development tool is **not**
+publicly registrable. Adding the method to the diagnostic tools would make every one of
+them offerable from then on, and a twenty-first tool would reach the internet by being
+written rather than by being chosen.
+
+`ScopedTool` keeps the decision at the call site, where it shows up in a diff. It also
+makes the scope a property of *this exposure* rather than of the tool, so the same reader
+can sit behind different scopes on different installations without either of them editing
+the framework.
 
 ### Offering a capability: the short way
 
@@ -1270,6 +1378,13 @@ A tool that does not implement it cannot be added to `PublicRegistry`, and no co
 can override that. A tool that implements it but returns an empty scope is refused at registration
 with an exception rather than skipped — a tool quietly dropped at boot is absent at run time for a
 reason nobody can see.
+
+`ScopedTool` is the door through that, and it does not weaken the rule: it is code somebody
+writes, naming the tool and choosing its scope, rather than a flag on the tool itself. The
+difference is what happens to the *next* tool written — with a flag it is exposed by default
+until somebody remembers otherwise; with a wrapper it is not offered until somebody says so in
+a diff. An empty scope is still refused through the wrapper, because the refusal lives in
+`PublicRegistry` and the wrapper adds no exemption.
 
 ### Authentication is the one this server already does
 

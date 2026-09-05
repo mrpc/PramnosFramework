@@ -1533,6 +1533,52 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
     public function addToken($tokentype, $token, $notes='',
         $parentToken = null, $expires = null)
     {
+        return $this->writeToken($tokentype, $token, $notes, $parentToken, $expires, []);
+    }
+
+    /**
+     * Add a token that carries OAuth scopes.
+     *
+     * A separate method rather than a sixth parameter on {@see addToken()}, and the
+     * reason is overriding rather than calling. An optional trailing parameter is
+     * safe for every *caller* and fatal for every *subclass that overrides the
+     * method* — PHP refuses to load a child whose signature no longer matches, so an
+     * application with its own `User::addToken()` would stop booting on upgrade. The
+     * framework's own test suite has one, which is how this was found rather than
+     * reported.
+     *
+     * @param string      $tokentype
+     * @param string      $token
+     * @param string[]    $scope     Scopes to record, stored as the JSON array
+     *                               {@see \Pramnos\User\Token} decodes on the way back.
+     * @param string      $notes
+     * @param int|null    $expires   Absolute expiry as a UNIX timestamp; null never expires.
+     * @return $this
+     */
+    public function addScopedToken(
+        $tokentype,
+        $token,
+        array $scope,
+        $notes = '',
+        $expires = null
+    ) {
+        return $this->writeToken($tokentype, $token, $notes, null, $expires, $scope);
+    }
+
+    /**
+     * The insert both doors share.
+     *
+     * @param string[] $scope
+     * @return $this
+     */
+    private function writeToken(
+        $tokentype,
+        $token,
+        $notes,
+        $parentToken,
+        $expires,
+        array $scope
+    ) {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
         // A token is a fresh, unique value, so this is a plain INSERT. (The old
@@ -1552,7 +1598,7 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             'actions'     => 0,
             'removedate'  => 0,
             'deviceinfo'  => self::currentDeviceInfo(),
-            'scope'       => '',
+            'scope'       => $scope === [] ? '' : (string) json_encode(array_values($scope)),
         ];
         // MySQL historically also wrote parentToken here; PostgreSQL omitted it.
         if ($database->type != 'postgresql') {

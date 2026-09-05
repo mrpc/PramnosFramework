@@ -282,4 +282,141 @@ class McpServiceProvider extends ServiceProvider
 
         return $resources;
     }
+
+    /**
+     * The scopes the diagnostic readers are offered behind, and which tool goes where.
+     *
+     * Three groups rather than one, because they disclose different things and an
+     * installation may reasonably grant one and not the next:
+     *
+     * - `mcp:diagnostics` — **structure and state**: is anything broken, what
+     *   migrations are pending, does the schema on disk match the database, what
+     *   tables/routes/models exist. Names and shapes, no rows and no free text.
+     * - `mcp:logs` — **what has been happening**: error counts, the log lines
+     *   themselves, and what a request that died actually did. See the warning on
+     *   {@see offerDiagnostics()} about what log lines contain.
+     * - `mcp:db_read` — **data**, and only through {@see Tools\DbInspectTool}, which
+     *   withholds it. Separate because reading rows is a different question from
+     *   reading the schema, and somebody granting the first should not silently be
+     *   granting the second.
+     *
+     * @var array<string, string> tool name => scope
+     */
+    public const DIAGNOSTIC_SCOPES = [
+        'status'           => 'mcp:diagnostics',
+        'migration-status' => 'mcp:diagnostics',
+        'schema-drift'     => 'mcp:diagnostics',
+        'list-tables'      => 'mcp:diagnostics',
+        'query-schema'     => 'mcp:diagnostics',
+        'route-list'       => 'mcp:diagnostics',
+        'model-inspect'    => 'mcp:diagnostics',
+        'log-analytics'    => 'mcp:logs',
+        'log-errors'       => 'mcp:logs',
+        'request-debug'    => 'mcp:logs',
+        'db-inspect'       => 'mcp:db_read',
+    ];
+
+    /**
+     * Offer the diagnostic readers on the public HTTP endpoint.
+     *
+     * One deliberate call, in a `ServiceProvider` or `app/providers.php`:
+     *
+     * ```php
+     * McpServiceProvider::offerDiagnostics($app);
+     * ```
+     *
+     * This is the thing that replaces SSH. A developer with a token can then ask a
+     * production installation what is pending, what is drifting, what is failing and
+     * how often — the questions that previously required a shell, and got one,
+     * along with everything else a shell can do.
+     *
+     * ### What is deliberately *not* here
+     *
+     * Not a curated subset for taste. Each omission is a different reason:
+     *
+     * - **`changelog-add`** writes files. A public endpoint that edits the repository
+     *   on a production box is a different risk class from one that reads it, and
+     *   nothing about diagnosing an incident needs it.
+     * - **`coverage`, `find-tests`** read test artefacts a deployment does not have.
+     * - **`framework-docs`, `find-symbol`, `console-commands`, `api-docs`,
+     *   `theme-info`, `pramnos-check`** answer questions about the *codebase*, which
+     *   whoever is asking has checked out locally. Over HTTP they disclose source
+     *   structure and buy nothing.
+     *
+     * None of them is blocked — {@see ScopedTool} wraps any of them in one line if an
+     * installation decides otherwise. They are simply not the default, because a
+     * default is what nobody re-examines.
+     *
+     * ### The one thing to know before granting `mcp:logs`
+     *
+     * **Log lines are free text, and free text is not redacted.**
+     * {@see \Pramnos\Security\PersonalDataRegistry} withholds *columns* — it cannot
+     * see an email address inside a stack trace, a request body captured by the
+     * debugger, or a token in a URL somebody logged. `mcp:diagnostics` and
+     * `mcp:db_read` have boundaries; `mcp:logs` has the same exposure as handing
+     * somebody the log directory, and should be granted on that understanding.
+     *
+     * @param \Pramnos\Application\Application|null $app     The application; without one
+     *                                                        only the log readers are offered.
+     * @param list<string>|null                     $only    Tool names to offer, or null for
+     *                                                        every one in
+     *                                                        {@see DIAGNOSTIC_SCOPES}.
+     * @return list<string> The tool names actually offered.
+     */
+    public static function offerDiagnostics(
+        ?\Pramnos\Application\Application $app = null,
+        ?array $only = null
+    ): array {
+        $tools = [
+            // No application needed — they read the log directory, which is where a
+            // broken application's explanation is when the application is what broke.
+            new LogAnalyticsTool(),
+            new LogErrorsTool(),
+            new \Pramnos\Mcp\Tools\RequestDebugTool(),
+            new ModelInspectTool(),
+        ];
+
+        if ($app !== null) {
+            $tools[] = new MigrationStatusTool($app);
+            $tools[] = new RouteListTool($app);
+            $tools[] = new \Pramnos\Mcp\Tools\SchemaDriftTool($app);
+            $tools[] = new \Pramnos\Mcp\Tools\StatusTool($app);
+
+            $db = $app->database ?? null;
+
+            if ($db !== null) {
+                $tools[] = new ListTablesTool($db);
+                $tools[] = new QuerySchemaTool($db);
+                $tools[] = new \Pramnos\Mcp\Tools\DbInspectTool($db);
+            }
+        }
+
+        $offered = [];
+
+        foreach ($tools as $tool) {
+            $name  = $tool->name();
+            $scope = self::DIAGNOSTIC_SCOPES[$name] ?? '';
+
+            /*
+             * A tool with no entry is skipped rather than given a default scope.
+             *
+             * A default here would be the failure this whole arrangement is built to
+             * avoid: a tool added to the list above, nobody deciding what it may
+             * disclose, and it answering the internet behind whichever scope happened
+             * to be the fallback.
+             */
+            if ($scope === '') {
+                continue;
+            }
+
+            if ($only !== null && !in_array($name, $only, true)) {
+                continue;
+            }
+
+            PublicRegistry::add(ScopedTool::wrap($tool, $scope));
+            $offered[] = $name;
+        }
+
+        return $offered;
+    }
 }

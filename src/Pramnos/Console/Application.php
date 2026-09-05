@@ -211,6 +211,9 @@ class Application extends \Symfony\Component\Console\Application
         // Because `mcp:serve` is not something a person can debug: it speaks JSON-RPC on
         // stdio and blocks on STDIN. This calls one tool and prints what it returns.
         $this->add(new \Pramnos\Console\Commands\McpCall());
+        // The last step of reaching an installation from off the box: a credential,
+        // and the client configuration to paste beside it.
+        $this->add(new \Pramnos\Console\Commands\McpToken());
         $this->add(new \Pramnos\Console\Commands\DebugStatus());
         // Opens the toolbar for one browser on a server where it is off
         $this->add(new \Pramnos\Console\Commands\DebugToken());

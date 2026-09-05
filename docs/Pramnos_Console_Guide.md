@@ -8,6 +8,7 @@ use_cases:
   - Finding out what `init` scaffolds, including the files aimed at AI assistants
   - Starting the development server, or the SPA dev server and build
   - Checking whether a feature from app.php is active inside a command or daemon
+  - Issuing a token so an assistant can reach a production installation
 ---
 
 # Pramnos Console Commands Guide
@@ -2318,6 +2319,37 @@ class UsersSeeder extends Seeder
 Default seeds path: `ROOT . '/database/seeds/'`. Exit codes: `0` = success, `1` = failure.
 
 ---
+
+## `mcp:token` — a credential for this installation's MCP endpoint
+
+Run it **on the installation you want to reach**; paste what it prints into the client on the
+machine you work from.
+
+```bash
+php bin/pramnos mcp:token --user=you@example.com --scopes=diagnostics,logs,db --days=30
+```
+
+| Option | |
+|---|---|
+| `--user` | Id, email or username. **Required** — a token acts as somebody, and every call it makes is recorded as theirs. |
+| `--scopes` | `diagnostics`, `logs`, `db`, or full scope names. Default `diagnostics`. `mcp` is always added. |
+| `--days` | Days until expiry, default `30`. `0` never expires, which is rarely what you want. |
+| `--url` | Base URL for the printed config. Defaults to `sURL`. |
+| `--name` | What the server is called in `.mcp.json`. Default `production`. |
+
+It prints the token **once** — `usertokens.token` is encrypted at rest, so this is the only
+moment it is readable — followed by a ready `.mcp.json` block with the bearer header filled
+in. Losing it means minting another and revoking this one, which is cheap: a token is one
+revocable grant, not an identity.
+
+What it will **not** do is tell you whether the endpoint offers those scopes. The call that
+offers the tools runs in an application `ServiceProvider`, booted by `Application::init()`,
+which a web request runs and a console command does not — so from a terminal the scope
+registry looks empty on every installation. Ask the endpoint itself with the `whoami` tool.
+
+See [Reaching it from off the box](Pramnos_MCP_Guide.md#reaching-it-from-off-the-box) for the
+other three steps, and [the security guide](Pramnos_Security_Guide.md#personal-data-and-the-denial-list)
+for what each scope discloses.
 
 ## Interactive Migration Wizard
 

@@ -1283,8 +1283,19 @@ incident. The narrower thing is a single capability — `db-inspect`, an MCP too
 one read-only `SELECT` — and what makes it narrower is entirely what it refuses.
 
 It runs on the stdio server by default, where a shell is already required. Putting it on the
-public HTTP endpoint is one line and a deliberate one —
+HTTP endpoint is one line and a deliberate one —
 [the four steps are in the MCP guide](Pramnos_MCP_Guide.md#reaching-it-from-off-the-box).
+That endpoint is called the *public* one because it is reachable from off the machine, not
+because it is open: every call carries a validated bearer token and every tool declares a
+scope that token must hold.
+
+It is one of eleven diagnostic readers that can be offered that way, split across three
+scopes: `mcp:diagnostics` for structure and state, `mcp:logs` for what has been happening,
+and `mcp:db_read` for the rows. Three rather than one because they disclose different
+things — and **`mcp:logs` is the one without a boundary**: log lines are free text, and the
+denial list below withholds *columns*, so it cannot see an address inside a stack trace or a
+token somebody logged in a URL. Granting it is equivalent to handing over the log
+directory.
 
 `Pramnos\Security\PersonalDataRegistry` decides what comes back.
 
