@@ -130,7 +130,10 @@ class Api extends Application
      */
     public function exec($coontrollerName = '')
     {
-        if ($this->checkversion() !== true) {
+        // Gated at the call site, not inside upgrade(): that method is also the
+        // explicit path, and a gate inside it turns "do not run by yourself" into
+        // "do not run at all". See Application::autoMigrationsEnabled().
+        if ($this->autoMigrationsEnabled() && $this->checkversion() !== true) {
             $this->upgrade();
         }
 

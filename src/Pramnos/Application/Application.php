@@ -30,6 +30,9 @@ class Application extends Base
     /** @var bool Whether this process is the console rather than a request */
     private static $consoleContext = false;
 
+    /** @var bool Whether an explicit caller has lifted the migrations.auto gate */
+    private $autoMigrationsForced = false;
+
     /** Maintenance raised by a person, through `maintenance:on`. */
     public const MAINTENANCE_MANUAL = 'manual';
 
@@ -2084,9 +2087,17 @@ class Application extends Base
     {
         $this->cspNonce = base64_encode(random_bytes(16));
         /*
-         * Run any needed updates (legacy app migration system)
+         * Run any needed updates (legacy app migration system).
+         *
+         * Gated here rather than inside upgrade(), because upgrade() is also the
+         * explicit path — an application, a deploy script or
+         * runPendingMigrations() calls it on purpose, and a gate inside it would
+         * turn "do not run by yourself" into "do not run at all". That mistake
+         * has a measured cost: an installation that gated the method rather than
+         * this call site took 738 test errors from a bootstrap that was relying
+         * on the explicit call.
          */
-        if ($this->checkversion() !== true) {
+        if ($this->autoMigrationsEnabled() && $this->checkversion() !== true) {
             $this->upgrade();
         }
 
@@ -3016,6 +3027,41 @@ class Application extends Base
      * (for instance a bespoke `sessions` layout) sets it to false and declares
      * only its own directories via {@see getApplicationMigrationDirs()}.
      */
+    /**
+     * May the framework apply migrations **on its own**?
+     *
+     * `app.php`'s `'migrations' => ['auto' => false]`. It gates the entry points
+     * nobody asked for by name — `exec()`'s `checkversion()`/`upgrade()` pair, and
+     * {@see runAutoMigrations()}, which {@see migrate()} exists to reach — and
+     * nothing else.
+     *
+     * **«Do not run by yourself» is not «do not run at all».** An installation
+     * that applies migrations during a watched deploy window still wants
+     * `pramnos migrate` and {@see runPendingMigrations()} to do the whole job;
+     * what it does not want is the first visitor after a deploy discovering that
+     * a `CREATE INDEX` locks every chunk of a compressed hypertable while it
+     * builds.
+     *
+     * **`migrations.framework` is not this switch**, though it is the one that
+     * looks like it. That key answers «which directories are in scope», and
+     * {@see migrationScope()} is read by the CLI as well as by auto-run — so
+     * turning it off to stop the automatic run also empties the `pramnos migrate`
+     * it was turned off in order to perform. The two questions had one answer
+     * until this key existed.
+     *
+     * @return bool
+     */
+    protected function autoMigrationsEnabled(): bool
+    {
+        $config = $this->applicationInfo['migrations'] ?? null;
+
+        if (is_array($config) && array_key_exists('auto', $config)) {
+            return (bool) $config['auto'];
+        }
+
+        return true;
+    }
+
     protected function autoMigrationsIncludeFramework(): bool
     {
         $config = $this->applicationInfo['migrations'] ?? null;
@@ -3125,6 +3171,74 @@ class Application extends Base
             if (class_exists(\Pramnos\Logs\Logger::class)) {
                 \Pramnos\Logs\Logger::logError('Auto-migration skipped: ' . $e->getMessage(), $e);
             }
+        }
+    }
+
+    /**
+     * Apply every pending migration now, whatever `migrations.auto` says.
+     *
+     * The counterpart to {@see migrate()}. That one is the automatic path — it is
+     * what a front controller calls on every execution, and it stands down when
+     * an installation has said not to run by itself. This one is somebody asking,
+     * so it ignores that key and runs **both** systems: the legacy
+     * `migrations.php` ledger through {@see upgrade()}, and the framework's own
+     * through {@see runAutoMigrations()}.
+     *
+     * Both, because an installation that turned the automatic run off has two
+     * halves to catch up and no reason to remember that they are two. A deploy
+     * script calls this; `pramnos migrate` covers the framework half from the
+     * command line.
+     *
+     * Unlike `migrate()` it **does** let a failure out. A migration failing
+     * during a watched deploy window is the thing the operator is standing there
+     * to see, and swallowing it would be the opposite of why the automatic run
+     * was switched off.
+     *
+     * @return void
+     */
+    public function runPendingMigrations(): void
+    {
+        if ($this->database === null) {
+            if ($this->settings === null) {
+                $this->settings = Settings::getInstance();
+            }
+            $this->database = \Pramnos\Database\Database::getInstance($this->settings);
+            if (!$this->database->connected) {
+                $this->database->connect();
+            }
+            Settings::setDatabase($this->database);
+        }
+
+        FeatureRegistry::loadFromConfig($this->applicationInfo['features'] ?? []);
+
+        if ($this->checkversion() !== true) {
+            $this->upgrade();
+        }
+
+        // The per-instance guard is what stops one request migrating twice; an
+        // explicit call is a second request's worth of intent.
+        $this->autoMigrationsChecked = false;
+        $this->runAutoMigrationsExplicitly();
+    }
+
+    /**
+     * {@see runAutoMigrations()} with the `migrations.auto` gate lifted.
+     *
+     * The gate lives in `runAutoMigrations()` so that every automatic caller
+     * inherits it without having to remember; this is the one caller that is not
+     * automatic.
+     *
+     * @return void
+     */
+    private function runAutoMigrationsExplicitly(): void
+    {
+        $wasEnabled = $this->autoMigrationsForced;
+        $this->autoMigrationsForced = true;
+
+        try {
+            $this->runAutoMigrations();
+        } finally {
+            $this->autoMigrationsForced = $wasEnabled;
         }
     }
 
@@ -3303,6 +3417,12 @@ class Application extends Base
             return;
         }
         $this->autoMigrationsChecked = true;
+
+        // Switched off in app.php: this installation applies its migrations by
+        // hand. The explicit paths ignore this and still run everything.
+        if (!$this->autoMigrationsForced && !$this->autoMigrationsEnabled()) {
+            return;
+        }
 
         /*
          * Not while the site is deliberately down.

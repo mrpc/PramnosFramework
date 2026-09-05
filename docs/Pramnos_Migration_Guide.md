@@ -13,6 +13,7 @@ use_cases:
   - Backfilling a new column without running the deploy out of memory
   - Adopting a single framework migration without running the rest
   - Moving an application off the legacy schemaversion version ledger
+  - Stopping the framework from migrating on its own, without disabling migrate
 ---
 
 # Pramnos Migration Guide
@@ -220,6 +221,58 @@ return [
     'migration_cutoff' => '2025-01-01 00:00:01',
 ];
 ```
+
+#### Applying migrations by hand: `migrations.auto`
+
+An installation that applies its migrations during a watched deploy window — a
+large index build, anything somebody wants to see happen — says so with one key:
+
+```php
+// app.php
+'migrations' => [
+    'auto' => false,        // do not migrate on your own
+],
+```
+
+**«Do not run by yourself» is not «do not run at all».** With `auto => false`:
+
+| Path | Runs? |
+|---|---|
+| `exec()`'s `checkversion()` / `upgrade()` pair | no |
+| `runAutoMigrations()`, and `migrate()` which reaches it | no |
+| `pramnos migrate`, `migrate:status` | **yes**, and they see everything |
+| `Application::runPendingMigrations()` | **yes**, both systems |
+| `Application::upgrade()` called directly | **yes** |
+
+```php
+// a deploy script, in the window
+$app = \Pramnos\Application\Application::getInstance();
+$app->runPendingMigrations();   // legacy ledger + framework migrations
+```
+
+`runPendingMigrations()` is the counterpart to `migrate()`: that one is the
+automatic path and stands down, this one is somebody asking. It runs **both**
+systems, because an installation that switched the automatic run off has two
+halves to catch up and no reason to have to remember that they are two. It also
+lets a failure out, where `migrate()` swallows it — a migration failing in a
+watched window is what the operator is standing there to see.
+
+**`migrations.framework` is not this switch**, and it is the one that looks like
+it. That key answers *which directories are in scope*, and `migrationScope()` is
+read by the CLI as well as by auto-run — so turning it off to stop the automatic
+run also empties the `pramnos migrate` it was turned off in order to perform. The
+two questions had one answer until `auto` existed.
+
+##### Where the gate goes, and why it is not inside `upgrade()`
+
+The gate sits on the automatic **call site** in `exec()`, not inside
+`upgrade()`. Putting it inside the method turns the switch into «never run», and
+that has a measured cost: an installation that gated the method rather than the
+call site took **738 test errors** in one run from a bootstrap that was calling
+`upgrade()` on purpose. `MigrationsAutoKeyTest` pins the distinction from both
+directions, and the probe deliberately does **not** override `upgrade()` — an
+earlier version of it did, and passed against a framework broken in exactly that
+way.
 
 #### Standalone auto-migration (`Application::migrate()`)
 
