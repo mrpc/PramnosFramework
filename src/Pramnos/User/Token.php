@@ -254,13 +254,82 @@ class Token extends \Pramnos\Framework\Base
         } else {
             $this->deviceinfo = array();
         }
-        if (is_string($this->scope) && json_decode($this->scope) !== null) {
-            $this->scope = json_decode($this->scope, true);
-        } elseif (is_string($this->scope) && strpos($this->scope, ',') !== false) {
-            $this->scope = explode(',', $this->scope);
-        } elseif (!is_array($this->scope)) {
-            $this->scope = empty($this->scope) ? array() : array($this->scope);
+        $this->scope = self::parseScopes($this->scope);
+    }
+
+    /**
+     * Whatever the `scope` column holds, as a list of scope names.
+     *
+     * Three shapes are in that column across installations and the framework writes
+     * two of them itself: `AccessTokenRepository` writes the space-separated form
+     * RFC 6749 §3.3 requires, and {@see save()} writes JSON when handed an array.
+     * Comma-separated rows exist from before either. Reading has to accept all
+     * three, because the rows are already written and nobody is going to migrate
+     * somebody else's database.
+     *
+     * **The space-separated form was the one that did not parse**, which is to say
+     * the standard one, which is to say every token this framework's own OAuth2
+     * server issues. It arrived as a single element holding the whole string, so a
+     * token with four scopes satisfied no scope check at all and `tools/list` came
+     * back empty with nothing anywhere to say why.
+     *
+     * Four other shapes were wrong in quieter ways, and they are why this is a
+     * parser rather than one more `elseif`: a numeric scope came back as an `int`
+     * and a JSON string scope as a `string` — neither of them a list — and
+     * `'a, b'` produced `' b'`, with the space, which matches nothing and looks
+     * right in a var_dump.
+     *
+     * @param  mixed $raw The column value, or an array that has already been decoded
+     * @return array<int, string>
+     */
+    public static function parseScopes($raw): array
+    {
+        if (is_array($raw)) {
+            $names = $raw;
+        } elseif (is_string($raw)) {
+            $trimmed = trim($raw);
+
+            if ($trimmed === '') {
+                return array();
+            }
+
+            $decoded = null;
+
+            // Only a JSON *array* counts. `json_decode('123')` is a valid document
+            // and an int, and taking it would put a scalar where a list belongs.
+            if (str_starts_with($trimmed, '[')) {
+                $decoded = json_decode($trimmed, true);
+            }
+
+            if (is_array($decoded)) {
+                $names = $decoded;
+            } elseif (str_contains($trimmed, ',')) {
+                $names = explode(',', $trimmed);
+            } else {
+                // Splitting on *whitespace* rather than a single space: the standard
+                // says space-delimited, and a value that has been through a form, a
+                // config file or a copy-paste has tabs and doubled spaces in it.
+                $names = preg_split('/\s+/', $trimmed) ?: array();
+            }
+        } else {
+            // A number, an object, null. None of them is a scope list, and inventing
+            // one from a scalar is how `123` became a permission.
+            return array();
         }
+
+        $clean = array();
+
+        foreach ($names as $name) {
+            if (is_string($name) || is_numeric($name)) {
+                $name = trim((string) $name);
+
+                if ($name !== '' && !in_array($name, $clean, true)) {
+                    $clean[] = $name;
+                }
+            }
+        }
+
+        return $clean;
     }
 
     /**
@@ -1246,7 +1315,17 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'scope',
-                'value' => is_array($this->scope) ? json_encode($this->scope) : $this->scope,
+                /*
+                 * Space-separated, which is what RFC 6749 §3.3 says and what this
+                 * framework's own `AccessTokenRepository` has always written.
+                 *
+                 * This wrote JSON for an array, so the framework emitted two shapes
+                 * into one column and every naive reader got one of them right. The
+                 * read side accepts all three forever — those rows exist and nobody
+                 * is migrating somebody else's database — but there is no reason to
+                 * keep making new ones.
+                 */
+                'value' => implode(' ', self::parseScopes($this->scope)),
                 'type' => 'string'
             )
         );

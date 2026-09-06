@@ -46,10 +46,31 @@ The script ensures the Docker containers are up, dependencies are installed, and
 - Every logical unit of work (bug fix, feature, doc update) is a separate commit.
 - Commit message format: `type(scope): short description` — e.g. `feat(querybuilder): add whereNull/whereNotNull`, `fix(database): prepare() skips string literals for %X`.
 - Never commit debug `error_log()` calls.
+- **A change that can break a consuming application takes `!` and the scope of what
+  actually changed** — `fix(database)!: …`, not `feat(console): …` for a change to
+  `Application`. Somebody reading the commit list before upgrading has nothing else to go
+  on, and the repo already uses the convention (`608db23f`).
 
 ### 6. BC is a hard constraint
 
 No existing public method signature may change. New capabilities are additive.
+
+**Adding an optional parameter is not additive if the method can be overridden.** PHP
+refuses to load a subclass whose signature no longer matches the parent, so a sixth
+argument on a public method is a fatal at class load for every application that overrides
+it — not a page, not a route: the whole site and the whole suite, before anything runs.
+Both of the framework's consuming applications have been bitten, once each:
+
+```
+Fatal error: Declaration of Nannuka\Application::startMaintenance($reason = '')
+must be compatible with Pramnos\Application\Application::startMaintenance(
+$reason = '', $origin = self::MAINTENANCE_AUTOMATIC)
+```
+
+So: add a **new method** instead (`addScopedToken()` beside `addToken()`), and where there
+is genuinely no compatible way to do it, the commit takes `!` and the day's changelog post
+gets a **"What breaks in subclasses"** section carrying the one line somebody with an
+override needs — usually "delete it, the base class now does what yours did".
 
 ### 7. Tests have detailed explanatory comments
 

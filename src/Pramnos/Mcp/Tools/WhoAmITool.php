@@ -64,12 +64,12 @@ class WhoAmITool implements ScopedMcpTool
         $user  = \Pramnos\User\User::getCurrentUser();
         $token = $_SESSION['usertoken'] ?? null;
 
-        $scopes = array();
-        if (is_object($token) && isset($token->scope)) {
-            $scopes = is_array($token->scope)
-                ? $token->scope
-                : array_filter(array_map('trim', explode(' ', (string) $token->scope)));
-        }
+        // The same parser the controller uses to decide what this caller may reach.
+        // Two readings of one column is how a diagnostic tool comes to report scopes
+        // the endpoint did not act on — which is worse than no diagnostic at all.
+        $scopes = is_object($token) && isset($token->scope)
+            ? \Pramnos\User\Token::parseScopes($token->scope)
+            : array();
 
         return array(
             // No email and no name: the caller knows who they are, and this is a

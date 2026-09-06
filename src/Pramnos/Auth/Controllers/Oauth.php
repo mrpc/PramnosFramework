@@ -302,7 +302,11 @@ class Oauth extends Controller
 
         return \Pramnos\Http\Response::json([
             'active'     => true,
-            'scope'      => $row['scope']     ?? '',
+            // RFC 7662 §2.2: `scope` is a space-delimited string. The row may hold
+            // JSON or a comma list, and handing either back verbatim gives a client
+            // something it cannot split — so it is normalised on the way out rather
+            // than echoed.
+            'scope'      => implode(' ', \Pramnos\User\Token::parseScopes($row['scope'] ?? '')),
             'client_id'  => $row['client_id'] ?? '',
             'username'   => $row['username']  ?? '',
             'token_type' => 'Bearer',
@@ -466,7 +470,11 @@ class Oauth extends Controller
         }
 
         $userId = (int) $result->fields['userid'];
-        $scopes = array_filter(explode(' ', (string) ($result->fields['scope'] ?? '')));
+        // Through the parser, not `explode(' ')`. The column holds three shapes across
+        // installations — this endpoint read only the standard one, so a token whose
+        // row was written as JSON answered `insufficient_scope` for an `openid` grant
+        // it actually had.
+        $scopes = \Pramnos\User\Token::parseScopes($result->fields['scope'] ?? '');
 
         if (!in_array('openid', $scopes, true)) {
             return \Pramnos\Http\Response::json([

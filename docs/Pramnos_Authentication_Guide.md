@@ -1400,6 +1400,51 @@ $details = $existingToken->getDetails();
 $existingToken->addAction(); // Logs the current request
 ```
 
+### Scopes on a token, and the shape of the column
+
+`$token->scope` is always a **list of strings**, whatever the row holds.
+
+```php
+$token = new \Pramnos\User\Token($tokenId);
+
+if (in_array('mcp:db_read', $token->scope, true)) {
+    // …
+}
+```
+
+To write scopes, either set the property and `save()`, or issue the token in one call:
+
+```php
+$user->addScopedToken('access_token', $jwt, ['mcp', 'mcp:logs'], 'notes', $expires);
+```
+
+**Three shapes are in that column across installations**, and the framework wrote two of
+them itself: space-separated (what [RFC 6749 §3.3](https://www.rfc-editor.org/rfc/rfc6749#section-3.3)
+defines and what `AccessTokenRepository` writes), JSON, and comma-separated from before
+either. The rule is asymmetric on purpose:
+
+| | |
+|---|---|
+| Reading | accepts all three, permanently — those rows exist and nobody is migrating somebody else's database |
+| Writing | emits the standard, space-separated form only |
+
+`Token::parseScopes()` is the one parser, and it is public so that anything reading the
+column directly uses the same one rather than writing a second:
+
+```php
+$scopes = \Pramnos\User\Token::parseScopes($row['scope']);
+```
+
+Do not `explode(' ', …)` a raw column value. That reads only one of the three shapes, and
+which one you get depends on how the row was written rather than on anything the caller
+did — a token issued through the OAuth2 endpoint and one issued through `addScopedToken()`
+looked different to the same reader.
+
+Anything that is not a scope list — `null`, an object, a bare number — parses to an empty
+list rather than to a list containing it. A scalar where a list belongs fails every
+`in_array($needed, $scopes, true)` regardless of what it holds, which is a refusal that
+looks like a missing grant.
+
 ## Permissions System
 
 There is **one** permission store: `authserver.permissions`. It is created by

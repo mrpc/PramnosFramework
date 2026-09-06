@@ -1598,7 +1598,9 @@ class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiLi
             'actions'     => 0,
             'removedate'  => 0,
             'deviceinfo'  => self::currentDeviceInfo(),
-            'scope'       => $scope === [] ? '' : (string) json_encode(array_values($scope)),
+            // Space-separated, the shape RFC 6749 §3.3 defines and the one this
+            // framework's OAuth2 server writes. See Token::parseScopes().
+            'scope'       => implode(' ', \Pramnos\User\Token::parseScopes($scope)),
         ];
         // MySQL historically also wrote parentToken here; PostgreSQL omitted it.
         if ($database->type != 'postgresql') {

@@ -175,11 +175,17 @@ class McpController extends Controller
             return [];
         }
 
-        $scope = $token->scope;
-
-        return is_array($scope)
-            ? array_values(array_map('strval', $scope))
-            : array_values(array_filter(explode(' ', (string) $scope)));
+        /*
+         * One parser, in `Token`, rather than a second reading here.
+         *
+         * This had its own: an array was taken as-is and anything else exploded on a
+         * single space. Both halves were right and neither was reached — `Token`
+         * normalises the column in its constructor, so by the time a token arrives
+         * here it is always an array, and for the space-separated form the standard
+         * requires that array held one element containing the whole string. The
+         * correct parse sat in the branch that could not run.
+         */
+        return \Pramnos\User\Token::parseScopes($token->scope);
     }
 
     /** What the server calls itself in `initialize`. */
