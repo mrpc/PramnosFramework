@@ -88,6 +88,13 @@ three themes — and **two of those are inside this framework**, on the path tha
 A per-object property covers six of the eight. Read at construction, one declaration covers all of
 them.
 
+**Read at construction has a consequence: the object must be built after `app.php`.** A component
+constructed earlier than that reads an `applicationInfo` that does not exist yet, and the framework's
+own hook wins silently — no warning that the key was ignored, and nothing to suggest that *when* it
+was read is the reason. `Application` builds its `Breadcrumb` immediately after loading the
+configuration for exactly this reason, and a test pins that ordering. If you construct a component
+during boot, construct it after the application's constructor has run, or set its property directly.
+
 ### 3. Replace the class on one object — where a property exists
 
 For one object rather than the project — a single breadcrumb that has to differ from the rest.

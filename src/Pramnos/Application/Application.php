@@ -171,9 +171,6 @@ class Application extends Base
      */
     public function __construct($appName = '')
     {
-        if ($this->breadcrumbs === null) {
-            $this->breadcrumbs = new \Pramnos\Html\Breadcrumb();
-        }
         /*
          * The maintenance flag stops **traffic**, and the console is not traffic.
          *
@@ -209,6 +206,27 @@ class Application extends Base
             $this->applicationInfo = self::loadApplicationInfo(
                 APP_PATH . DS . $appName . '.php'
             );
+        }
+
+        /*
+         * After `app.php`, because the breadcrumb reads it.
+         *
+         * `Breadcrumb::__construct()` seeds `listClass` from
+         * `ComponentClasses::get('breadcrumb')`, which reads `component_classes` out of
+         * `applicationInfo`. Built at the top of this constructor it ran twenty-eight
+         * lines before that array existed, so `currentInstance()` answered null, the
+         * `?->` swallowed it, and the framework's own `pf-breadcrumb` won whatever the
+         * application had configured.
+         *
+         * The failure was silent in both directions: no warning that the key had been
+         * ignored, and nothing to suggest that *timing* was the reason. An application
+         * upgrading from the hardcoded Bootstrap class lost its breadcrumb styling, found
+         * the documented setting, set it, and saw no change.
+         *
+         * Nothing between the old position and this one reads `$this->breadcrumbs`.
+         */
+        if ($this->breadcrumbs === null) {
+            $this->breadcrumbs = new \Pramnos\Html\Breadcrumb();
         }
         /*
          * Moved to here, after `app.php` is read, so the exemption below can be
