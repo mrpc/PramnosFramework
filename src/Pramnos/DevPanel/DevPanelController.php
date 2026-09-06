@@ -3413,13 +3413,20 @@ class DevPanelController extends Controller
         if (!FeatureRegistry::isEnabled('devpanel')) {
             $this->renderError(404, 'DevPanel feature is not enabled.');
         }
+        // Named in `app.php` as allowed on any deployment: checked before the environment,
+        // because that is exactly what it overrides. See allowedOnAnyDeployment().
+        if ($this->allowedOnAnyDeployment()) {
+            return false;
+        }
+
         if (!$this->isDevMode()) {
             $this->renderError(
                 403,
                 'The DevPanel opens only in a development environment: APP_DEBUG in .env, or '
                 . 'the DEVELOPMENT constant. It is deliberately not a setting — a tool that '
                 . 'browses the database is not something a checkbox should be able to open on '
-                . 'a live server.'
+                . 'a live server. To open it on a live one, name who may in app.php: '
+                . "'devpanel' => ['userids' => [7]]."
             );
         }
         return $this->guardUserType();
@@ -3454,6 +3461,86 @@ class DevPanelController extends Controller
     }
 
     /**
+     * May this person open the panel on **any** deployment, development or not?
+     *
+     * `APP_DEBUG` is the wrong switch for "let me see the DevPanel here": it also turns on
+     * error display, changes what a page carries and opens the toolbar for every visitor.
+     * Turning all of that on to reach one screen is a much larger statement than the one
+     * anybody means to make.
+     *
+     * So the environment stops being the only key, and the second one is a name in
+     * `app.php` — versioned, reviewed, and visible in the deployment rather than in a
+     * table. This is the arrangement {@see \Pramnos\Application\Controllers\Adminer}
+     * already has, in the more dangerous of the two tools: a floor that opens it on any
+     * deployment, configurable, sitting beside the development fallback.
+     *
+     * ```php
+     * 'devpanel' => [
+     *     'production_min_usertype' => 99,   // the default: Root, on any deployment
+     *     'usertypes'               => [95], // these types too, wherever they are
+     *     'userids'                 => [7],  // and these people, whatever their type
+     * ],
+     * ```
+     *
+     * Three ways in, and any one of them suffices — the lists **widen**, they never
+     * narrow. To restrict the panel to named people and nobody else, raise
+     * `production_min_usertype` out of reach and list the ids.
+     *
+     * ## Why 99 by default
+     *
+     * Because `Adminer::ROOT_USERTYPE` is already 99 and already works on production, so
+     * an owner can currently open a full database client on a live server and **not** the
+     * panel whose tab links to it. That is an inconsistency rather than a protection, and
+     * closing it is a smaller change than the one it looks like: the panel is strictly less
+     * powerful than the tool already reachable.
+     *
+     * Every such opening is logged. On a development machine the environment is the trace;
+     * on a live one nothing else would be.
+     */
+    protected function allowedOnAnyDeployment(): bool
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        // `!is_object()`, because an anonymous visitor is `false` here — see guardUserType().
+        if (!is_object($user) || !\Pramnos\Http\Session::staticIsLogged()) {
+            return false;
+        }
+
+        $usertype = (int) ($user->usertype ?? 0);
+        $userid   = (int) ($user->userid ?? 0);
+
+        $floor     = (int) static::config('production_min_usertype', 99);
+        $usertypes = array_map('intval', (array) static::config('usertypes', array()));
+        $userids   = array_map('intval', (array) static::config('userids', array()));
+
+        $allowed = ($floor > 0 && $usertype >= $floor)
+            || in_array($usertype, $usertypes, true)
+            || ($userid > 0 && in_array($userid, $userids, true));
+
+        if (!$allowed) {
+            return false;
+        }
+
+        /*
+         * Logged only when the environment would not have allowed it anyway.
+         *
+         * On a development machine this clause runs on every request to every tab, and a
+         * log line per tab is a log nobody reads. On a live server it is the only visible
+         * trace that the panel was opened at all.
+         */
+        if (!$this->isDevMode()) {
+            \Pramnos\Logs\Logger::log(
+                'DevPanel opened outside a development environment by user ' . $userid
+                . ' (usertype ' . $usertype . ') from '
+                . \Pramnos\Http\Request::clientIp('an unknown address'),
+                'auth'
+            );
+        }
+
+        return true;
+    }
+
+    /**
      * Checks that the current user meets the minimum usertype.
      * Returns true (and redirects) if access should be denied.
      */
@@ -3465,7 +3552,18 @@ class DevPanelController extends Controller
         }
 
         $user = \Pramnos\User\User::getCurrentUser();
-        if ($user === null || (int) ($user->usertype ?? 0) < $this->minUserType) {
+
+        /*
+         * `!is_object()` rather than `=== null`.
+         *
+         * `getCurrentUser()` answers **false** for an anonymous visitor, and
+         * `(false->usertype ?? 0)` raises "attempt to read property on bool" before the
+         * comparison it feeds. The outcome was right — it lands on 0 and the visitor is
+         * refused — and the warning is noise in the log of a route where a log entry is
+         * the only visible trace of somebody trying the door. The same slip is described
+         * on `Adminer::mayOpen()`, which had already fixed it one file over.
+         */
+        if (!is_object($user) || (int) ($user->usertype ?? 0) < $this->minUserType) {
             if (defined('sURL')) {
                 $this->redirect(sURL);
             }

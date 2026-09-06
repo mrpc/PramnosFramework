@@ -27,20 +27,47 @@ are complementary and neither replaces the other.
 'features' => ['devpanel', 'cache', 'queue'],
 ```
 
-Access requires **all** of:
+Access requires the `devpanel` feature enabled, and then **either** route in:
 
-- the `devpanel` feature enabled;
-- a **development environment** — `APP_DEBUG=1` in `.env`, or the `DEVELOPMENT` constant;
-- a signed-in user with `usertype >= 90`, or a policy callback that says yes.
+| Route | What it needs |
+|---|---|
+| Development | a **development environment** — `APP_DEBUG=1` in `.env`, or the `DEVELOPMENT` constant — **and** a signed-in user with `usertype >= 90`, or a policy callback that says yes |
+| Any deployment | a signed-in user named in `app.php`: `usertype >= 99`, or listed in `usertypes`, or listed in `userids` |
 
-Two optional keys, in `app.php` beside the feature list:
+The keys, in `app.php` beside the feature list:
 
 ```php
 'devpanel' => [
-    'mount'        => 'devpanel',  // path to mount on
-    'min_usertype' => 90,          // raise the floor above 90
+    'mount'                   => 'devpanel',  // path to mount on
+    'min_usertype'            => 90,          // the development floor
+    'production_min_usertype' => 99,          // opens it on any deployment
+    'usertypes'               => [95],        // these types too, wherever they are
+    'userids'                 => [7],         // and these people, whatever their type
 ],
 ```
+
+### Opening it on a server that is not a development one
+
+`APP_DEBUG` is the wrong switch for "let me see the DevPanel here". It also turns on error
+display, changes what a page carries and opens the debug toolbar for every visitor — a much
+larger statement than the one anybody means to make to reach one screen.
+
+So the environment is not the only key. The second is a **name in `app.php`**: versioned,
+reviewed, and visible in the deployment rather than in a table. Which is the arrangement
+[Adminer](#adminer-at-adminer) already had, in the more dangerous of the two tools — an owner
+could open a full database client on a live server and *not* the panel whose tab links to it.
+
+**The three ways in widen; they never narrow.** Any one of them suffices. To restrict the
+panel to named people and nobody else, raise `production_min_usertype` out of reach and list
+the ids:
+
+```php
+'devpanel' => ['production_min_usertype' => 9999, 'userids' => [7]],
+```
+
+Every opening outside a development environment is written to the `auth` log with the user,
+their type and the address. On a development machine the environment is the trace; on a live
+one nothing else would be.
 
 ### There is no setting that opens this panel
 
@@ -57,10 +84,29 @@ happens: PHP replaces the `.` in a form field name with `_`, so both inputs post
 name the controller never asked for, and every save wrote the default back. An installation
 that thought it had moved the mount point had not.)
 
-If you need the panel on a server that is not a development one, the answer is a deploy —
-`APP_DEBUG=1` and a restart — not a switch. For reading a live production request instead,
-use the [debug toolbar](Pramnos_Debug_Toolbar_Usage.md) with a signed one-browser token from
-`debug:token`, which expires on its own.
+The point stands for the *settings*: there is still no row anybody can tick to open this. What
+changed is that the alternative to `APP_DEBUG=1` is no longer "nothing" — it is a name in
+`app.php`, which is also a deploy, and a narrower one than turning the whole deployment into a
+development environment.
+
+For reading a live production request rather than opening the panel, the
+[debug toolbar](Pramnos_Debug_Toolbar_Usage.md) is the smaller tool: a signed one-browser
+grant from `debug:token` or `/debugbar`, which expires on its own.
+
+### Reaching it while the site is in maintenance
+
+Maintenance keeps traffic off a schema in flux — and the person who raised it is usually the
+one who needs to *look* at that schema. So `/adminer` is exempt by default:
+
+```php
+'maintenance' => ['exempt' => ['adminer', 'devpanel']],   // naming replaces the default
+```
+
+The exemption grants exactly one thing: that the application **boots** for that path. Every
+route's own authorisation still runs — for Adminer that is signed in plus `usertype >= 99`,
+or a development environment — so anybody else gets the same 404 they would get with the site
+up, and it is logged. Auto-migrations stay held off by the flag either way, so opening this
+cannot start the thing maintenance was raised to prevent.
 
 ## Adminer, at `/adminer`
 
