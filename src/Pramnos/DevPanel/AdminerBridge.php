@@ -492,6 +492,15 @@ class AdminerBridge
             // that is not ours is the kind of thing that surprises whatever runs next.
             session_name($previousName);
 
+            /*
+             * And the id, for the reason `Adminer::handOverSession()` sets out: a closed
+             * session leaves `session_id()` answering, and Adminer's own `session_start()`
+             * reuses whatever it finds there instead of reading its cookie. This method
+             * sets an id to do its repair, so it has to put that back too — otherwise the
+             * repair reintroduces exactly what the caller cleared before calling it.
+             */
+            @session_id('');
+
             if (is_string($savedUseCookies)) {
                 ini_set('session.use_cookies', $savedUseCookies);
             }

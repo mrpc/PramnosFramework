@@ -110,6 +110,15 @@ cannot start the thing maintenance was raised to prevent.
 
 ## Adminer, at `/adminer`
 
+> **Sessions.** This route hands its session over completely before Adminer boots: closed,
+> `$_SESSION` emptied, **and the session id cleared**. The third step matters —
+> `session_write_close()` leaves `session_id()` answering, and Adminer's own
+> `session_start()` finds an id already set and reuses it instead of reading its
+> `adminer_sid` cookie. When that happened the two shared one file: Adminer overwrote the
+> visitor's session, the next request replaced Adminer's token, and every `POST` answered
+> *«Invalid CSRF token»* while navigation kept working.
+
+
 Adminer is the database tool most people already use, and the usual way to have it on a server
 is a PHP file dropped in the web root: a URL anybody can guess, protected by whatever the
 database password happens to be, and forgotten after the afternoon it was needed.

@@ -321,9 +321,7 @@ class Adminer extends \Pramnos\Application\Controller
             ? \Pramnos\DevPanel\DevPanelController::returnUrlFor()
             : (defined('sURL') ? (string) sURL : '/');
 
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_write_close();
-        }
+        $this->handOverSession();
 
         /*
          * And emptied, not only closed.
@@ -338,8 +336,6 @@ class Adminer extends \Pramnos\Application\Controller
          * Ours is already saved and this response ends the request, so there is nothing to lose
          * by handing Adminer an empty array.
          */
-        $_SESSION = array();
-
         // And repair a session already poisoned by the first version of this route, which left
         // ours open for Adminer to write into. See AdminerBridge::repairSession().
         \Pramnos\DevPanel\AdminerBridge::repairSession();
@@ -464,6 +460,65 @@ class Adminer extends \Pramnos\Application\Controller
         \Pramnos\DevPanel\AdminerBridge::alignRequestUri($connection, $this->routePath());
 
         return true;
+    }
+
+    /**
+     * Let go of this request's session, completely, before Adminer starts its own.
+     *
+     * Three steps, and the third is the one that was missing for as long as this route
+     * has existed.
+     *
+     * **Close it.** The data is written and the handle released.
+     *
+     * **Empty `$_SESSION`.** `session_write_close()` leaves the array populated in
+     * memory, and Adminer reads and writes the same superglobal.
+     *
+     * **Clear the session id.** `session_write_close()` does *not* clear it, so
+     * `session_id()` still answers with this request's id — and Adminer's own
+     * `session_start()`, although it sets `session_name('adminer_sid')` first, finds an
+     * id already set and **reuses ours** instead of reading its cookie.
+     *
+     * That is not a tidiness problem. Measured on the installation that reported it:
+     *
+     *   - Adminer wrote its session over the framework's file — 78 bytes of session
+     *     replaced by 15 bytes of `token|i:…`, so the visitor's own session was
+     *     destroyed by opening the page;
+     *   - the next request's `Session::start()` found `token` as an integer, saw
+     *     `strlen()` under 32, and replaced it with a fresh hex string — destroying
+     *     Adminer's token in turn;
+     *   - so Adminer's CSRF token never survived a round trip, and **every POST**
+     *     answered *«Invalid CSRF token. Submit the form again.»* Navigation is `GET` and
+     *     is not checked, which is why the tool looked fine until somebody ran a query.
+     *
+     * The evidence that named it: of 18,463 session files on that machine, **zero** held
+     * an integer `token` and **zero** held Adminer's `pwds` slot, while 18,195 held the
+     * framework's string token. Adminer's session had never once been written under an id
+     * of its own.
+     *
+     * `AdminerBridge::repairSession()` was written against the same collision and fixed
+     * the symptom — a poisoned token *value* — on the understanding that closing our
+     * session was enough to keep Adminer out of it. Closing is not enough; the id
+     * outlives the handle.
+     */
+    protected function handOverSession(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        /*
+         * Emptied, not only closed.
+         *
+         * `session_write_close()` writes the data and closes the handle; `$_SESSION`
+         * keeps its contents in memory, and Adminer reads and writes the same array.
+         * Ours is already saved and this response ends the request, so there is nothing
+         * to lose by handing Adminer an empty one.
+         */
+        $_SESSION = array();
+
+        // The step that was missing. `@` because PHP warns if output has begun, and a
+        // warning here would be printed above Adminer's page.
+        @session_id('');
     }
 
     /**
