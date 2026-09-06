@@ -74,15 +74,32 @@ class RedisAdapter extends AbstractAdapter
         
         if ($this->redis === null) {
             try {
-                // Route connection creation through the central manager (one place
-                // for connect/auth/select); it throws on failure, which we map to
-                // the connected flag exactly as before.
-                $this->redis = (new \Pramnos\Redis\ConnectionManager([
+                /*
+                 * The **shared** connection for this endpoint, from the **pooled**
+                 * manager. Both halves matter and both were wrong.
+                 *
+                 * `newConnection()` is documented as being for a blocking `SUBSCRIBE`,
+                 * which monopolises its socket; a cache only gets and sets. And
+                 * `new ConnectionManager(...)` builds a manager with a pool of its own,
+                 * so even `connection()` on it would have opened a second socket.
+                 *
+                 * `Cache::getInstance()` keeps one instance per category — rightly, so
+                 * that `cache:clear --category=views` matches something — and each one
+                 * came here. In a request that is invisible, because the process exits.
+                 * In a daemon it is one socket per category, for the life of the worker:
+                 * 1,016 open connections in five minutes on the installation that
+                 * reported it, against a `LimitNOFILE` of 1024.
+                 *
+                 * No `__destruct` closing this, deliberately: the connection is shared
+                 * now, so an adapter going out of scope must not take it from the
+                 * adapters still using it.
+                 */
+                $this->redis = \Pramnos\Redis\ConnectionManager::forConfig([
                     'host'     => $this->host,
                     'port'     => $this->port,
                     'database' => $this->database,
                     'password' => $this->password,
-                ]))->newConnection();
+                ])->connection();
                 $this->connected = true;
             }
             catch (\Throwable $exc) {

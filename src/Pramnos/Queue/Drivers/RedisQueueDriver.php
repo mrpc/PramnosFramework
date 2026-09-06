@@ -203,13 +203,18 @@ class RedisQueueDriver implements QueueDriverInterface
 
     private function defaultConnection(): object
     {
-        // Route connection creation through the central manager so connect/auth/
-        // select lives in one place; honours this driver's own config.
-        return (new ConnectionManager([
+        /*
+         * The shared connection from the pooled manager, for the same reason
+         * `Cache\Adapter\RedisAdapter` uses it: `newConnection()` is for a blocking
+         * `SUBSCRIBE` that monopolises its socket, and this driver neither blocks nor
+         * closes — it pushes and pops. A dedicated socket here is one nothing will ever
+         * release, in the one process that runs for days.
+         */
+        return ConnectionManager::forConfig([
             'host'     => $this->host,
             'port'     => $this->port,
             'database' => $this->database,
             'password' => $this->password,
-        ]))->newConnection();
+        ])->connection();
     }
 }

@@ -41,6 +41,9 @@ class ConnectionManager
 
     private static ?self $instance = null;
 
+    /** @var array<string, self> One manager per endpoint. See forConfig(). */
+    private static array $pool = [];
+
     /**
      * @param array<string,mixed> $config  host, port, database, password, prefix,
      *                                      timeout (connect seconds), read_timeout
@@ -72,8 +75,56 @@ class ConnectionManager
     }
 
     /**
+     * The manager for one endpoint, shared by everything that asks for it.
+     *
+     * `new ConnectionManager($config)` gives an object with a pool of its own, so two
+     * callers naming the same server get two managers and two sockets. That is invisible
+     * in a request — the process exits — and it is a leak in a daemon.
+     *
+     * It cost a production incident. `Cache::getInstance()` keeps one instance per
+     * category and each one built its own manager, so a `queue:process --daemon` worker
+     * reached **1,016 open redis connections in five minutes**, against a default
+     * `LimitNOFILE` of 1024. What happens at that ceiling is the part worth knowing: with
+     * no descriptors left the autoloader cannot open a class file either, and PHP reports
+     * `Class "…\MemcachedAdapter" not found` — a class that is present, and that
+     * `class_exists()` confirms from a fresh process on the same machine while the error
+     * is being logged.
+     *
+     * Keyed on what actually determines the socket. The password is hashed into the key
+     * rather than placed in it: array keys end up in `var_dump`, in a stack trace, and in
+     * whatever prints one.
+     *
+     * @param array<string, mixed> $config
+     */
+    public static function forConfig(array $config): self
+    {
+        $key = implode("\0", array(
+            (string) ($config['host'] ?? ''),
+            (string) ($config['port'] ?? ''),
+            (string) ($config['database'] ?? ''),
+            ($config['password'] ?? '') === '' || ($config['password'] ?? null) === null
+                ? ''
+                : hash('sha256', (string) $config['password']),
+        ));
+
+        return self::$pool[$key] ??= new self($config);
+    }
+
+    /**
+     * Forget the pooled managers. For tests, and for a process rebuilding its world.
+     */
+    public static function resetPool(): void
+    {
+        self::$pool = array();
+    }
+
+    /**
      * A fresh, dedicated connection — for a blocking `SUBSCRIBE` loop, which
      * monopolises its connection and so must not share the pooled one.
+     *
+     * **Not for ordinary use.** Every caller that only needs to get and set should use
+     * {@see connection()}; this one opens a socket that nothing will close until the
+     * process ends.
      */
     public function newConnection(): object
     {

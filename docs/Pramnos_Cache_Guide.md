@@ -121,6 +121,30 @@ And a credential the cache or a tool needs is refused rather than stored in the 
 see [`KEY_REQUIRED_SETTINGS`](Pramnos_Security_Guide.md#the-read-only-account-if-you-want-one)
 for `database_readonly_dsn`, which needs an `APP_KEY` before it can be set at all.
 
+### One connection, however many categories
+
+`Cache::getInstance()` keeps an instance per category so `cache:clear --category=views`
+matches something. Those instances **share one redis connection per endpoint** — the
+category is a namespace for keys, not a reason for a second socket to the same server.
+
+It has to be said because it was not true, and the bill was large. Each instance used to
+build its own `ConnectionManager` and ask for `newConnection()`, which exists for a blocking
+`SUBSCRIBE`. In a request that is invisible: the process exits. In a daemon a worker reached
+**1,016 open connections in five minutes**, against a `LimitNOFILE` of 1024 — and with no
+descriptors left, the autoloader cannot open a class file either, so PHP reports a class as
+missing that is sitting on disk.
+
+If you write a redis client of your own, take the same route:
+
+```php
+$redis = \Pramnos\Redis\ConnectionManager::forConfig([
+    'host' => $host, 'port' => $port, 'database' => $db, 'password' => $password,
+])->connection();
+```
+
+`newConnection()` is for a blocking `SUBSCRIBE` and nothing else — it opens a socket that
+nothing will close until the process ends.
+
 ### Application Settings Integration
 
 The cache system automatically loads configuration from application settings:
