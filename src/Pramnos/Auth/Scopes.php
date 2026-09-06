@@ -224,10 +224,12 @@ class Scopes
      */
     public static function addDefaultScopesToToken(string $tokenScopesString): string
     {
-        if (preg_match('/^\[(.*)\]$/', $tokenScopesString, $matches)) {
-            $tokenScopesString = $matches[1];
-        }
-        $tokenScopes   = array_filter(preg_split('/\s+/', trim($tokenScopesString)));
+        // The bracket-stripping this method used to do itself now lives in
+        // `Token::parseScopes()`, with the other five shapes. It was the only reader in
+        // the framework that knew about `[profile email]`, which is why the canonical
+        // parser did not — and why a value this method accepted was refused everywhere
+        // else that read the same column.
+        $tokenScopes   = \Pramnos\User\Token::parseScopes($tokenScopesString);
         $defaultScopes = static::getDefaultScopes();
         return implode(' ', array_unique(array_merge($tokenScopes, $defaultScopes)));
     }
@@ -265,7 +267,10 @@ class Scopes
     public static function resolveInheritedScopes($scopes): array
     {
         if (is_string($scopes)) {
-            $scopes = array_filter(preg_split('/\s+/', trim($scopes)));
+            // A string here has usually come from a column by way of some caller, and
+            // this method cannot tell. Parsing it the forgiving way costs nothing when
+            // it was already the standard shape.
+            $scopes = \Pramnos\User\Token::parseScopes($scopes);
         }
 
         if (!is_array($scopes)) {
@@ -328,8 +333,10 @@ class Scopes
 
         $allowedScopes = [];
         if ($result && $result->numRows > 0) {
-            $raw           = (string) ($result->fields['scope'] ?? '');
-            $allowedScopes = array_filter(preg_split('/\s+/', trim($raw)));
+            // `applications.scope` is a column. Splitting it on whitespace reads one of
+            // the six shapes it can hold, and which one you get depends on how the row
+            // was written rather than on anything this caller did.
+            $allowedScopes = \Pramnos\User\Token::parseScopes($result->fields['scope'] ?? '');
         }
 
         $defaultScopes  = static::getDefaultScopes();

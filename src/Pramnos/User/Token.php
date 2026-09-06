@@ -293,23 +293,43 @@ class Token extends \Pramnos\Framework\Base
                 return array();
             }
 
-            $decoded = null;
-
             // Only a JSON *array* counts. `json_decode('123')` is a valid document
             // and an int, and taking it would put a scalar where a list belongs.
-            if (str_starts_with($trimmed, '[')) {
-                $decoded = json_decode($trimmed, true);
-            }
+            $decoded = str_starts_with($trimmed, '[')
+                ? json_decode($trimmed, true)
+                : null;
 
             if (is_array($decoded)) {
                 $names = $decoded;
-            } elseif (str_contains($trimmed, ',')) {
-                $names = explode(',', $trimmed);
             } else {
-                // Splitting on *whitespace* rather than a single space: the standard
-                // says space-delimited, and a value that has been through a form, a
-                // config file or a copy-paste has tabs and doubled spaces in it.
-                $names = preg_split('/\s+/', $trimmed) ?: array();
+                /*
+                 * `[profile email]` — brackets around a space-separated list.
+                 *
+                 * Not JSON, no comma, so the whitespace split yields `['[profile',
+                 * 'email]']`: two scopes nobody asked for and a refusal naming both.
+                 * It is in real data, and the framework already accepted it in exactly
+                 * one place — `Scopes::addDefaultScopesToToken()` has stripped these
+                 * brackets since before this parser existed. Accepting a shape in one
+                 * reader and refusing it in the canonical one is the defect this
+                 * parser was written to end, one level up.
+                 *
+                 * Only after the JSON attempt: `["a","b"]` is bracketed too, and
+                 * stripping first would leave `"a","b"` — scopes with quote marks in
+                 * them, which match nothing and are hard to see.
+                 */
+                if (str_starts_with($trimmed, '[') && str_ends_with($trimmed, ']')) {
+                    $trimmed = trim(substr($trimmed, 1, -1));
+                }
+
+                if (str_contains($trimmed, ',')) {
+                    $names = explode(',', $trimmed);
+                } else {
+                    // Whitespace rather than a single space: the standard says
+                    // space-delimited, and a value that has been through a form, a
+                    // config file or a copy-paste has tabs and doubled spaces in it.
+                    // An empty $trimmed splits to [''], which the loop below drops.
+                    $names = preg_split('/\s+/', $trimmed) ?: array();
+                }
             }
         } else {
             // A number, an object, null. None of them is a scope list, and inventing

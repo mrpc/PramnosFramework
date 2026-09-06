@@ -1061,7 +1061,9 @@ class Oauth extends Controller
             return false;
         }
 
-        $grantedScopes = array_filter(explode(' ', (string) ($result->fields['scope'] ?? '')));
+        // A stored consent that does not parse is a consent that never matches, so the
+        // user is asked again on every authorization — for a grant they already gave.
+        $grantedScopes = \Pramnos\User\Token::parseScopes($result->fields['scope'] ?? '');
 
         foreach ($requestedScopes as $scope) {
             if (!in_array($scope, $grantedScopes, true)) {
@@ -1092,10 +1094,13 @@ class Oauth extends Controller
             $existing = (string) ($result->fields['scope'] ?? '');
         }
 
-        $merged = implode(' ', array_unique(array_filter(array_merge(
-            explode(' ', $existing),
-            explode(' ', $scope)
-        ))));
+        // Both sides through the parser: `$existing` is a column and `$scope` is a
+        // request parameter, and merging them with two different readings is how a row
+        // ends up holding one shape's idea of the other's contents.
+        $merged = implode(' ', array_unique(array_merge(
+            \Pramnos\User\Token::parseScopes($existing),
+            \Pramnos\User\Token::parseScopes($scope)
+        )));
 
         if ($existing !== '') {
             $db->queryBuilder()

@@ -458,7 +458,9 @@ class Application extends \Pramnos\Application\Model
     /** Return allowed scopes as an array. */
     public function getScopes(): array
     {
-        return $this->scope ? explode(' ', trim($this->scope)) : [];
+        // Through the one parser: `applications.scope` is a column, and a column holds
+        // whatever was written into it — JSON, commas, or brackets round a space list.
+        return \Pramnos\User\Token::parseScopes($this->scope);
     }
 
     /** Check whether a given scope is allowed for this client. */

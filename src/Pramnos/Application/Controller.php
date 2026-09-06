@@ -485,7 +485,11 @@ class Controller extends \Pramnos\Framework\Base
     protected function _auth_normalizePermissions($permissions)
     {
         if (is_string($permissions)) {
-            return explode(' ', $permissions);
+            // Documented as `array|string`, and the string a caller has is usually a
+            // column it read somewhere. This method cannot tell, and the difference
+            // between the two readings is a working permission check and a silent
+            // refusal.
+            return \Pramnos\User\Token::parseScopes($permissions);
         }
         return (array) $permissions;
     }

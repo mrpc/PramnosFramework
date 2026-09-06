@@ -62,7 +62,14 @@ class OAuth2Middleware
             }
 
             if (!empty($requiredScopes)) {
-                $granted = json_decode($tokenInfo['scope'] ?? '[]', true) ?: explode(' ', $tokenInfo['scope'] ?? '');
+                /*
+                 * `json_decode(...) ?: explode(' ', ...)` was two of the six shapes and
+                 * a crash on a third: a column holding `123` decodes to the *int* 123,
+                 * which is truthy, so `$granted` became an int and `in_array($scope,
+                 * 123, true)` is a TypeError on PHP 8 — a 500 where a scope check
+                 * belongs.
+                 */
+                $granted = \Pramnos\User\Token::parseScopes($tokenInfo['scope'] ?? '');
                 foreach ($requiredScopes as $scope) {
                     if (!in_array($scope, $granted, true)) {
                         $this->sendForbidden('Insufficient scope');

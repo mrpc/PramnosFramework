@@ -1418,14 +1418,21 @@ To write scopes, either set the property and `save()`, or issue the token in one
 $user->addScopedToken('access_token', $jwt, ['mcp', 'mcp:logs'], 'notes', $expires);
 ```
 
-**Three shapes are in that column across installations**, and the framework wrote two of
-them itself: space-separated (what [RFC 6749 §3.3](https://www.rfc-editor.org/rfc/rfc6749#section-3.3)
-defines and what `AccessTokenRepository` writes), JSON, and comma-separated from before
-either. The rule is asymmetric on purpose:
+**Four shapes are in that column across installations**, and the framework wrote three of
+them itself:
+
+| Shape | Where it came from |
+|---|---|
+| `profile email` | [RFC 6749 §3.3](https://www.rfc-editor.org/rfc/rfc6749#section-3.3), and what `AccessTokenRepository` writes |
+| `["profile","email"]` | `Token::save()`, before it was made to write the standard form |
+| `profile,email` | rows predating both |
+| `[profile email]` | brackets round a space list — a stringified array somewhere upstream |
+
+The rule is asymmetric on purpose:
 
 | | |
 |---|---|
-| Reading | accepts all three, permanently — those rows exist and nobody is migrating somebody else's database |
+| Reading | accepts all four, permanently — those rows exist and nobody is migrating somebody else's database |
 | Writing | emits the standard, space-separated form only |
 
 `Token::parseScopes()` is the one parser, and it is public so that anything reading the
@@ -1435,10 +1442,28 @@ column directly uses the same one rather than writing a second:
 $scopes = \Pramnos\User\Token::parseScopes($row['scope']);
 ```
 
-Do not `explode(' ', …)` a raw column value. That reads only one of the three shapes, and
+**Do not `explode(' ', …)` a raw column value.** That reads one of the four shapes, and
 which one you get depends on how the row was written rather than on anything the caller
-did — a token issued through the OAuth2 endpoint and one issued through `addScopedToken()`
-looked different to the same reader.
+did. Eight readers in the framework did it their own way — five with `explode(' ', …)`,
+one with `json_decode(…) ?: explode(…)` — so the same installation answered differently
+depending on which code path reached the row first. They all delegate now.
+
+### Which values get the forgiving parse, and which do not
+
+| | |
+|---|---|
+| A **column**, or a stored token's scope | `Token::parseScopes()` |
+| An OAuth **request parameter** (`$_GET['scope']`, the token endpoint's `scope`) | space-delimited, as the RFC defines |
+
+The forgiveness exists for rows written years ago by code that has since been fixed. It is
+not a licence for a client to invent a syntax: a request is a live conversation with
+somebody who can be told they are wrong, so `Scopes::hasInvalidScopes()` still reads the
+standard form only and reports `profile,email` as one unknown scope.
+
+A value that is not a scope list at all — `null`, an object, a bare number — parses to an
+empty list rather than a list containing it. `json_decode('123')` is a valid document and
+an `int`, and a reader that took it put a scalar where a list belongs: `in_array($needed,
+123, true)` is a `TypeError` on PHP 8, which is a 500 where a scope check should be.
 
 Anything that is not a scope list — `null`, an object, a bare number — parses to an empty
 list rather than to a list containing it. A scalar where a list belongs fails every

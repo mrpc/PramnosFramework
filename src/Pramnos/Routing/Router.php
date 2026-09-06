@@ -664,12 +664,12 @@ class Router extends Base implements RouterInterface
         }
         
         if (is_string($permissions)) {
-            // Handle space-separated scopes (OAuth2 style)
-            if (strpos($permissions, ' ') !== false) {
-                return array_filter(explode(' ', trim($permissions)));
-            }
-            // Single permission
-            return array($permissions);
+            // One parser, because the single-permission fallback was the original bug in
+            // miniature: any string without a space became one permission, so
+            // `'mcp,mcp:logs'` was a permission literally named `mcp,mcp:logs` and
+            // matched nothing. These are the *caller's* permissions, so a shape that
+            // does not parse is a refusal of access somebody was granted.
+            return \Pramnos\User\Token::parseScopes($permissions);
         }
         
         return array();
