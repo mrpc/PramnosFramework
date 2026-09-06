@@ -51,6 +51,34 @@ return [
 ];
 ```
 
+### Turning it off
+
+Two ways, and both mean it.
+
+```php
+// No cache on this installation
+'cache' => ['method' => false],       // or 'none', 'off', 'false', 'disabled'
+
+// Same thing, said the other way
+'cache' => ['caching' => false],
+```
+
+`method` names the store and `caching` is the switch — either one reaching a value that
+means *off* leaves `method` as `'none'`, no adapter built, and no connection attempted.
+`save()` and `load()` answer `false`, which is the path every caller already takes on a
+miss, so nothing else has to change.
+
+A few notes on the edges, because each was a real bug:
+
+- **`false` is not the same as *nothing*.** An empty string or `null` — what every existing
+  caller passes for "I have no opinion" — still selects the default backend. Only a value
+  that spells *off* turns it off.
+- **`'0'` does not count.** It is what an unchecked checkbox posts, and a settings form
+  saving `'0'` into a method field must not silently take an installation's cache away. The
+  words are an enumerated list, not a falsiness test.
+- **`caching` is checked before the adapter is built**, not after. A cache that is off opens
+  no socket, which is the reason to reach for the switch during an incident.
+
 ### When nothing is configured
 
 An installation with no `cache` section still gets a cache: the first backend whose

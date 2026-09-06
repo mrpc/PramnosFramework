@@ -155,11 +155,37 @@ class Cache extends \Pramnos\Framework\Base
             }
         }
         
-        if ($method != '') {
+        if ($method !== null && $method !== '') {
             $this->method = $method;
         }
-        
-        if ($this->method == '') {
+
+        /*
+         * `false` means off, and for years it did not.
+         *
+         * The test was `$this->method == ''`, and `false == ''` is true in PHP — so a
+         * configuration saying `'method' => false` fell through to `defaultMethod()`,
+         * which answers with the most capable extension installed. An installation that
+         * had written `false` in `settings.php` to mean "no cache here" had been running
+         * on redis since the file was written, and nobody reading the line could have
+         * known.
+         *
+         * It surfaced during a redis incident, when the first mitigation — set the thing
+         * that says false to false — changed nothing.
+         *
+         * So the four spellings somebody actually writes are honoured, and the state they
+         * ask for already existed and already had a name: `disableCaching()` sets
+         * `method = 'none'`, which is what `load()` and `save()` check.
+         */
+        if ($this->isOffValue($this->method)) {
+            $this->requestedMethod = 'none';
+            $this->disableCaching('none');
+
+            parent::__construct();
+
+            return;
+        }
+
+        if ($this->method === '') {
             $this->method = $this->defaultMethod();
         }
 
@@ -203,6 +229,22 @@ class Cache extends \Pramnos\Framework\Base
         // fallback chain from here on, and the legacy _connect() needs the
         // original name.
         $this->requestedMethod = $this->method;
+
+        /*
+         * `'caching' => false` gates the adapter, which it looked like it always did.
+         *
+         * `$caching` is public and the loop above copies any settings key matching a
+         * property onto the object — so the flag was set and then the socket was opened
+         * anyway, a few lines later, unconditionally. A switch that is read and ignored
+         * is worse than one that is absent.
+         */
+        if (!$this->caching) {
+            $this->disableCaching($this->method);
+
+            parent::__construct();
+
+            return;
+        }
 
         // Create the appropriate adapter
         $this->initializeAdapter($this->method);
@@ -550,6 +592,25 @@ class Cache extends \Pramnos\Framework\Base
      * @param string $reason Why the first one could not be used
      * @return void
      */
+    /**
+     * Does this value ask for no cache at all?
+     *
+     * The spellings somebody writes when they mean it. `'0'` is deliberately **not**
+     * among them: it is what a checkbox posts, and a settings form saving `'0'` into a
+     * method field should not silently turn caching off for the installation.
+     *
+     * @param mixed $method
+     */
+    protected function isOffValue($method): bool
+    {
+        if ($method === false || $method === null) {
+            return true;
+        }
+
+        return is_string($method)
+            && in_array(strtolower(trim($method)), array('none', 'off', 'false', 'disabled'), true);
+    }
+
     /**
      * Caching off — the floor below `file`, reached only when the filesystem fails too.
      *
