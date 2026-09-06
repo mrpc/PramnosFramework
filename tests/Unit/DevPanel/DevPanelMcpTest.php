@@ -94,9 +94,18 @@ class DevPanelMcpTest extends TestCase
             ->getValue($controller);
 
         // Assert
+        // Tabs that are routes of their own rather than actions of this panel. Named
+        // rather than pattern-matched, so a tab added by mistake still fails here.
+        $elsewhere = array(
+            // A full application.
+            'adminer',
+            // The debug-toolbar grant screen. Its own controller because it enforces its
+            // own floor and, unlike this panel, works on a live server.
+            'debugbar',
+        );
+
         foreach ($tabs as $tab) {
-            if ($tab === 'adminer') {
-                // Its own route — a full application, not an action of this panel.
+            if (in_array($tab, $elsewhere, true)) {
                 continue;
             }
 
@@ -106,6 +115,28 @@ class DevPanelMcpTest extends TestCase
                 $expected,
                 $actions,
                 'the ' . $tab . ' tab points at an action nothing dispatches'
+            );
+        }
+
+        /*
+         * And the exempt ones point at a URL rather than nowhere.
+         *
+         * The exemption above says "this tab is not an action"; without this it would
+         * also say "nobody checks where it goes", which is the same 404 in the
+         * navigation by a different route.
+         */
+        $href = new \ReflectionMethod(DevPanelController::class, 'tabHref');
+
+        foreach ($elsewhere as $tab) {
+            if (!in_array($tab, $tabs, true)) {
+                // adminer is only a tab when there is something behind it.
+                continue;
+            }
+
+            $this->assertNotSame(
+                '',
+                (string) $href->invoke(null, $tab, 'https://example.com', 'devpanel'),
+                'the ' . $tab . ' tab is exempt from having an action and points nowhere'
             );
         }
 

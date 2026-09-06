@@ -3081,6 +3081,11 @@ class DevPanelController extends Controller
             // Beside MCP rather than at the end: both are things a developer opens while
             // something is wrong, and the log is the first of them.
             'logs'        => 'Logs',
+            // Beside Logs, and a route of its own rather than an action here — the same
+            // arrangement Adminer has. It is the screen that turns the debug toolbar on
+            // for your own browser, and it enforces its own floor: unlike this panel it
+            // works on a live server, which is the only place it is any use.
+            'debugbar'    => 'Debug toolbar',
             'phpinfo'     => 'PHP Info',
         ];
 
@@ -3105,6 +3110,10 @@ class DevPanelController extends Controller
     {
         if ($slug === 'adminer') {
             return (string) static::adminerTabUrl();
+        }
+
+        if ($slug === 'debugbar') {
+            return $baseUrl . '/debugbar';
         }
 
         return $slug === 'overview'

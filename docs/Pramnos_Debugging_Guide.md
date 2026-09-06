@@ -670,6 +670,49 @@ Open the link. A cookie is set, the toolbar appears, and it keeps appearing on
 every page — and on every request those pages make — until the token expires.
 Nobody else's requests are affected.
 
+### From a screen, without a shell
+
+`/debugbar` does the same thing with two buttons, and lands you back on the page you
+came from with the toolbar on. Reachable without the application registering anything —
+the framework resolves the controller itself, the way it does `/devpanel`.
+
+| | |
+|---|---|
+| Who | Signed in, **user type ≥ 90** by default |
+| Raise or lower it | `'debug' => ['grant_min_usertype' => 95]` in `app.php` |
+| How long | 15 minutes, 1 hour or 4 hours |
+| Recorded | Every grant and revocation goes to the `auth` log, with who and for how long |
+
+It issues the same signed token the CLI mints and redeems it through the same
+`?_debug=` parameter, so there is one way a grant is taken up rather than two that can
+drift apart.
+
+**Why the floor is a user type and not merely "signed in."** The query collector reports
+the SQL each request ran, and this framework interpolates values into statements — so
+the toolbar shows real column values, personal ones included, for the rows your own
+browsing touches. The session collector masks `password`, `token`, `secret` and friends;
+the query log does not.
+
+**Why this is not in the DevPanel.** That panel refuses to open unless `APP_DEBUG` or
+`DEVELOPMENT` says the deployment is a development one, and deliberately so: it browses
+the database, reads the cache and dumps the container. The toolbar is a smaller thing —
+it shows *this request* to the one browser that redeemed a grant — and its whole reason
+for existing is the server where `APP_DEBUG` is off. Behind the DevPanel's lock it would
+work only where nobody needs it.
+
+Both actions are `POST` with a CSRF field. A switch that turns on a query log must not be
+reachable by getting somebody to click a link.
+
+The DevPanel carries a **Debug toolbar** tab beside Logs that goes to the same screen —
+a route of its own rather than an action of the panel, the way Adminer is, because it
+enforces its own floor and works where the panel deliberately does not.
+
+Put it in your own admin menu with a plain link:
+
+```php
+<a href="<?php echo sURL; ?>debugbar">Debug toolbar</a>
+```
+
 `--ttl` accepts `90` (seconds), `30m`, `2h`, `1d`. Twelve hours is the ceiling: a
 debug token that lasts a month is a backdoor with a friendly name.
 
