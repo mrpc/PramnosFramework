@@ -2333,6 +2333,63 @@ class SecureUser extends \Pramnos\User\User
 
 `Pramnos\Auth\Scopes` — static scope registry for OAuth2 consent screens and validation.
 
+#### Your own catalogue
+
+Subclass, override `getScopes()`, and **name the class in `app.php`**:
+
+```php
+// app.php
+'scopes' => ['provider' => \App\Scopes::class],
+```
+
+The second half is not optional. Every internal call in `Scopes` is `static::`, so the
+subclass answers consistently for anything that names it — but ten sites in the framework
+write `Scopes::` literally, and those are the ones that face outward:
+
+| | |
+|---|---|
+| `Discovery` ×4 | `scopes_supported` in the `/.well-known/` documents |
+| `Oauth::authorize()` | whether a requested scope exists |
+| `Oauth` consent view | the description shown beside each grant |
+| `OAuth2\Repositories\ScopeRepository` | whether a scope is registered at all |
+| `Mcp\PublicRegistry` | which tools a token's scopes reach |
+| `mcp:token`, `init` | validation, and what the scaffolder offers |
+
+Without the config line an installation can define forty-four scopes, publish fifteen,
+render a consent screen with no description beside what the user is being asked to grant,
+and have its own identifiers refused as unknown.
+
+A class that is not a `Scopes` subclass is refused with an exception rather than ignored:
+a misspelt name that was quietly dropped is the same failure by a different route.
+
+#### Replace or merge — say which, in code
+
+The framework cannot pick, because a catalogue is not reliably a superset. The subclass
+says it:
+
+```php
+// Merge — the framework's standard scopes, plus yours
+public static function getScopes(): array
+{
+    return parent::getScopes() + ['Devices' => [/* … */]];
+}
+
+// Replace — this installation's vocabulary is the whole vocabulary
+public static function getScopes(): array
+{
+    return ['Devices' => [/* … */]];
+}
+```
+
+**Replacing drops `openid`, `profile`, `email` and `offline_access` unless you declare
+them**, and the OAuth2 server needs those to answer an OIDC request. Merging is the safer
+default; replacing is the honest one for an installation that has curated its own list.
+
+The MCP scopes are appended either way. They are derived from what
+[`PublicRegistry`](Pramnos_MCP_Guide.md#serving-it-over-http-to-somebody-elses-assistant)
+actually offers rather than declared anywhere, so a catalogue written before the endpoint
+existed cannot make it ungrantable.
+
 ```php
 use Pramnos\Auth\Scopes;
 

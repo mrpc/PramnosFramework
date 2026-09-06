@@ -13,20 +13,141 @@ namespace Pramnos\Auth;
  *   - 'inherits'     Scopes that are automatically included when this scope is granted
  *
  * Framework scopes defined here cover standard OpenID Connect / OAuth 2.0 scopes.
- * Application-specific scopes should extend or override getScopes() in a subclass.
  *
+ * ## An application's own catalogue
+ *
+ * Subclass and override {@see getScopes()}, then tell the framework which class to
+ * ask — in `app.php`:
+ *
+ * ```php
+ * 'scopes' => ['provider' => \App\Scopes::class],
+ * ```
+ *
+ * Without that line the subclass answers only the calls that name it. Every internal
+ * call here is `static::`, so overriding `getScopes()` gives the subclass's own callers
+ * a consistent view — but ten sites in the framework write `Scopes::` literally, and
+ * those are the ones that face outward: `scopes_supported` in the four `/.well-known/`
+ * documents, the consent screen's descriptions, the OAuth2 `ScopeRepository`, and what
+ * `init` offers. An installation could define forty-four scopes, publish fifteen, render
+ * a consent screen with no description beside what the user is being asked to grant, and
+ * have its own identifiers refused as unknown.
+ *
+ * ### Replace or merge is the subclass's decision, not the framework's
+ *
+ * Because it cannot be the framework's: a catalogue is not reliably a superset. Say
+ * which you mean in code:
+ *
+ * ```php
+ * // Replace — this installation's vocabulary is the whole vocabulary
+ * public static function getScopes(): array { return ['Ours' => [...]]; }
+ *
+ * // Merge — the framework's standard scopes, plus ours
+ * public static function getScopes(): array { return parent::getScopes() + ['Ours' => [...]]; }
+ * ```
+ *
+ * **Replacing drops `openid`, `profile`, `email` and `offline_access` unless you declare
+ * them**, and the OAuth2 server needs those to answer an OIDC request. Merging is the
+ * safer default and replacing is the honest one for an installation that has curated its
+ * own list; neither is right for everybody, which is why this is a sentence rather than a
+ * flag.
+ *
+ * The MCP scopes are the exception and are appended either way — they are computed from
+ * what {@see \Pramnos\Mcp\PublicRegistry} actually offers, so a replacing subclass
+ * cannot accidentally make the endpoint ungrantable.
  */
 class Scopes
 {
+    /**
+     * The class that answers for this installation's catalogue, or null for this one.
+     *
+     * @var class-string<Scopes>|null
+     */
+    private static ?string $provider = null;
+
+    /**
+     * Name the class that owns this installation's scope catalogue.
+     *
+     * Called from `Application::init()` with `app.php`'s `scopes` block, the way features
+     * and personal-data declarations are loaded. Calling it by hand is fine too — it is
+     * one assignment.
+     *
+     * @param array<string, mixed> $config
+     */
+    public static function loadFromConfig(array $config): void
+    {
+        $class = $config['provider'] ?? null;
+
+        if (!is_string($class) || $class === '') {
+            return;
+        }
+
+        /*
+         * Refused loudly rather than ignored.
+         *
+         * A misspelt class name that was quietly dropped would leave the installation
+         * publishing the framework's fifteen scopes while its own forty-four sat in a
+         * file nothing read — which is the exact failure this resolution point exists to
+         * end, arrived at by a different route and just as invisible.
+         */
+        if (!is_subclass_of($class, self::class)) {
+            throw new \InvalidArgumentException(
+                $class . ' is not a ' . self::class . ' subclass, so it cannot answer for '
+                . 'this installation\'s scopes.'
+            );
+        }
+
+        self::$provider = $class;
+    }
+
+    /**
+     * Forget the application's catalogue. For tests, and for an installation that
+     * rebuilds its own configuration.
+     */
+    public static function resetProvider(): void
+    {
+        self::$provider = null;
+    }
+
+    /** Which class is answering. */
+    public static function provider(): string
+    {
+        return self::$provider ?? self::class;
+    }
+
     /**
      * Return all available scopes grouped by category.
      *
      * Keys are scope identifier strings (space-safe, no special chars except ':').
      * Suitable for rendering a consent screen grouped by category.
      *
+     * Override this in a subclass and register it — see the class docblock. The
+     * delegation below is what makes `Scopes::` at the framework's ten call sites reach
+     * that subclass; it cannot recurse, because a subclass calling `parent::getScopes()`
+     * arrives here with `static::class` equal to the provider and takes the second branch.
+     *
      * @return array<string, array<string, array{description: string, is_default: bool, inherits: string[]}>>
      */
     public static function getScopes(): array
+    {
+        $provider = self::$provider;
+
+        $catalogue = ($provider !== null && $provider !== static::class)
+            ? $provider::getScopes()
+            : static::frameworkScopes();
+
+        // Appended outside the provider's answer, deliberately: these are derived from the
+        // tools actually offered rather than declared anywhere, so a replacing subclass
+        // must not be able to make the MCP endpoint ungrantable by not knowing about them.
+        return $catalogue + static::mcpScopes();
+    }
+
+    /**
+     * The framework's own catalogue: standard OpenID Connect and OAuth 2.0 scopes, plus
+     * the administrative ones it defines.
+     *
+     * @return array<string, array<string, array{description: string, is_default: bool, inherits: string[]}>>
+     */
+    protected static function frameworkScopes(): array
     {
         return [
             'Personal User Data' => [
@@ -100,7 +221,7 @@ class Scopes
                     'inherits'    => ['system:notifications_read'],
                 ],
             ],
-        ] + static::mcpScopes();
+        ];
     }
 
     /**

@@ -85,6 +85,12 @@ class Application extends \Symfony\Component\Console\Application
             \Pramnos\Security\PersonalDataRegistry::loadFromConfig(
                 $this->internalApplication->applicationInfo['personal_data'] ?? []
             );
+            // And the scope catalogue, for the same reason: `mcp:token` validates against
+            // it, and a console that answered from the framework's list would refuse an
+            // installation's own scope names.
+            \Pramnos\Auth\Scopes::loadFromConfig(
+                $this->internalApplication->applicationInfo['scopes'] ?? []
+            );
         }
     }
 

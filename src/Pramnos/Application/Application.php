@@ -788,6 +788,11 @@ class Application extends Base
         \Pramnos\Security\PersonalDataRegistry::loadFromConfig(
             $this->applicationInfo['personal_data'] ?? []
         );
+        // Which class owns this installation's scope catalogue. Without it a `Scopes`
+        // subclass answers only the calls that name it, and the framework's own ten —
+        // `scopes_supported`, the consent screen, the OAuth2 ScopeRepository — go on
+        // publishing the framework's list.
+        \Pramnos\Auth\Scopes::loadFromConfig($this->applicationInfo['scopes'] ?? []);
         /*
          * The one tool the framework offers on the *public* MCP endpoint, and the
          * exception to `PublicRegistry`'s own rule that a tool is there «only
