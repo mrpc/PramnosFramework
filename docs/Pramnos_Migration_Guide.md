@@ -345,6 +345,27 @@ framework table exists in an application that does not run the framework's
 migrations wholesale. Verified by
 `LegacyLedgerAdoptionTest::testAnEmptyMigrationCanAdoptAFrameworkMigrationByDependency()`.
 
+### The ledger's name, on an installation with a prefix
+
+`schemaversion` is resolved through the installation's table prefix, so on a site
+configured with `pramnos_` the ledger is `pramnos_schemaversion` — the same name the
+legacy `Application::runMigration()` path has always written.
+
+That is worth stating because it was not always true of the runner. Every raw statement
+in `MigrationRunner` used the name verbatim while `hasColumn()` resolved it, so a
+prefixed installation had **two** tables: a real one, and a bare one that
+`CREATE TABLE IF NOT EXISTS` made the first time `migrate:status` was run. The
+consequence was not only clutter — `hasColumn()` inspected the prefixed table, found a
+column missing, and the `ALTER` added it to the bare one, which already had it, so the
+command died with `Duplicate column name` and kept dying.
+
+**If you have a bare `schemaversion` beside a prefixed one, you do not need to do
+anything.** The first run under the fix renames a bare ledger into the prefixed name when
+there is no prefixed one yet — an installation whose history is in the bare table keeps
+it rather than replaying every migration — and leaves a real prefixed ledger untouched
+when a stray empty bare table is sitting beside it. Dropping the stray is then safe, and
+nothing will recreate it.
+
 ### Coming from the legacy version ledger
 
 Both migration systems write to `schemaversion` and key it differently. The legacy

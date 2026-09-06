@@ -51,6 +51,9 @@ class MigrationRunner
 
     private string $historyTable;
 
+    /** @var string|null The prefixed name, resolved once. */
+    private ?string $resolvedHistoryTable = null;
+
     /** @var \Pramnos\Application\Application|null Optional application for maintenance-mode integration. */
     private ?\Pramnos\Application\Application $app;
 
@@ -73,6 +76,130 @@ class MigrationRunner
         $this->db           = $db;
         $this->historyTable = $historyTable;
         $this->app          = $app;
+    }
+
+    /**
+     * Take over a history table that was written under the unprefixed name.
+     *
+     * Only on an installation with a prefix, and only when the prefixed table does not
+     * exist yet while an unprefixed one does — which is exactly the state this class
+     * left behind for as long as it wrote one name and checked another.
+     *
+     * Renamed rather than ignored, because ignoring it is the dangerous half: the
+     * runner would find no history under the name it now reads, conclude that nothing
+     * had ever run, and replay every migration on the installation. Renamed rather
+     * than copied, because two ledgers for one thing is how this started.
+     *
+     * A rename that fails is not fatal. The worst case is the state that already
+     * exists, and a `CREATE TABLE IF NOT EXISTS` follows immediately.
+     */
+    private function adoptUnprefixedHistory(string $historyTable): void
+    {
+        if ($historyTable === $this->historyTable || $this->db === null) {
+            return;
+        }
+
+        try {
+            /*
+             * Asked literally, not through the schema builder.
+             *
+             * `hasTable()` runs `resolveTable()` on what it is given, so asking it about
+             * the unprefixed name returns an answer about the prefixed one — the same
+             * substitution that produced this mess, applied to the check meant to detect
+             * it. Introspection is one of the cases the query-builder rule leaves raw,
+             * and here it has to be.
+             */
+            if ($this->tableExistsLiterally($historyTable)
+                || !$this->tableExistsLiterally($this->historyTable)
+            ) {
+                return;
+            }
+
+            $quoted = $this->db->type === 'postgresql'
+                ? '"' . $this->historyTable . '" RENAME TO "' . $historyTable . '"'
+                : '`' . $this->historyTable . '` RENAME TO `' . $historyTable . '`';
+
+            $this->db->query('ALTER TABLE ' . $quoted);
+
+            \Pramnos\Logs\Logger::log(
+                'Migration history table `' . $this->historyTable . '` was written without '
+                . 'this installation\'s prefix and has been renamed to `' . $historyTable
+                . '`. Every statement in MigrationRunner now uses the prefixed name; the '
+                . 'unprefixed one existed because CREATE and hasColumn() disagreed.',
+                'upgrades'
+            );
+        } catch (\Throwable) {
+            // See the docblock: the fallback is the state that is already there.
+        }
+    }
+
+    /**
+     * Does a table with exactly this name exist?
+     *
+     * No prefix substitution and no schema override: the point is to ask about the
+     * literal string, which is the one thing `SchemaBuilder::hasTable()` cannot do.
+     */
+    private function tableExistsLiterally(string $table): bool
+    {
+        $db = $this->requireDb();
+
+        if ($db->type === 'postgresql') {
+            $result = $db->query(
+                $db->prepareQuery('SELECT to_regclass(%s) AS oid', $table)
+            );
+
+            return $result && $result->numRows > 0 && !empty($result->fields['oid']);
+        }
+
+        $result = $db->query(
+            $db->prepareQuery(
+                'SELECT 1 FROM information_schema.tables '
+                . 'WHERE table_schema = DATABASE() AND table_name = %s',
+                $table
+            )
+        );
+
+        return $result && $result->numRows > 0;
+    }
+
+    /**
+     * The history table as the database actually calls it.
+     *
+     * Every raw statement in this class used the name verbatim while `hasColumn()`
+     * went through `SchemaBuilder::resolveTable()`, which applies the installation's
+     * prefix. On an installation that has one, those are two different tables, and the
+     * result was both failures at once:
+     *
+     *   - `CREATE TABLE IF NOT EXISTS` made a **second, bare** table beside the real
+     *     one — so `migrate:status`, a read-only command, created a table;
+     *   - `hasColumn()` then inspected the *prefixed* one, found a column missing,
+     *     and `ALTER` added it to the *bare* one, which already had it. The command
+     *     died with `Duplicate column name 'scope'`, and every later call died the
+     *     same way, because an asymmetry does not resolve itself on a retry.
+     *
+     * Resolved, so the prefixed name is the one name — which is also what the legacy
+     * `Application::runMigration()` ledger has always written (`#PREFIX#schemaversion`),
+     * so the two halves of the migration system stop disagreeing about where the
+     * history lives. Idempotent: `withPrefix()` will not prefix a name twice.
+     */
+    private function historyTableName(): string
+    {
+        if ($this->resolvedHistoryTable !== null) {
+            return $this->resolvedHistoryTable;
+        }
+
+        $name = $this->historyTable;
+
+        try {
+            if ($this->db !== null) {
+                $name = $this->db->schema()->resolveTableName($this->historyTable);
+            }
+        } catch (\Throwable) {
+            // A schema builder that cannot answer is not a reason to fail here; the
+            // unresolved name is what this class used for its whole life.
+        }
+
+        return $this->resolvedHistoryTable = $name;
     }
 
     /**
@@ -173,7 +300,10 @@ class MigrationRunner
      */
     public function ensureHistoryTable(): void
     {
+        $historyTable = $this->historyTableName();
         $db = $this->requireDb();
+
+        $this->adoptUnprefixedHistory($historyTable);
 
         // Schema matches the reference application schemaversion table (`when`, `key`, `extra`)
         // with additional columns for logging (scope, feature, batch, execution_time,
@@ -184,7 +314,7 @@ class MigrationRunner
         // only the original three columns.  After CREATE TABLE IF NOT EXISTS we add any
         // missing columns so old installs are upgraded transparently.
         if ($db->type === 'postgresql') {
-            $db->query("CREATE TABLE IF NOT EXISTS \"{$this->historyTable}\" (
+            $db->query("CREATE TABLE IF NOT EXISTS \"{$historyTable}\" (
                 \"when\"          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
                 \"key\"           VARCHAR(255)  PRIMARY KEY,
                 \"extra\"         VARCHAR(255)  NULL,
@@ -206,11 +336,11 @@ class MigrationRunner
             ];
             foreach ($newCols as $col => $def) {
                 $db->query(
-                    "ALTER TABLE \"{$this->historyTable}\" ADD COLUMN IF NOT EXISTS {$col} {$def}"
+                    "ALTER TABLE \"{$historyTable}\" ADD COLUMN IF NOT EXISTS {$col} {$def}"
                 );
             }
         } else {
-            $db->query("CREATE TABLE IF NOT EXISTS `{$this->historyTable}` (
+            $db->query("CREATE TABLE IF NOT EXISTS `{$historyTable}` (
                 `when`           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 `key`            VARCHAR(255)  NOT NULL PRIMARY KEY,
                 `extra`          VARCHAR(255)  NULL,
@@ -232,8 +362,8 @@ class MigrationRunner
                 'error_message'  => 'TEXT NULL',
             ];
             foreach ($newCols as $col => $def) {
-                if (!$schema->hasColumn($this->historyTable, $col)) {
-                    $db->query("ALTER TABLE `{$this->historyTable}` ADD COLUMN `{$col}` {$def}");
+                if (!$schema->hasColumn($historyTable, $col)) {
+                    $db->query("ALTER TABLE `{$historyTable}` ADD COLUMN `{$col}` {$def}");
                 }
             }
         }
@@ -521,13 +651,14 @@ class MigrationRunner
      */
     public function getHistory(): array
     {
+        $historyTable = $this->historyTableName();
         $db    = $this->requireDb();
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $this->ensureHistoryTable();
 
         $result = $db->query(
-            "SELECT * FROM {$quote}{$this->historyTable}{$quote} ORDER BY {$quote}batch{$quote} ASC, {$quote}when{$quote} ASC"
+            "SELECT * FROM {$quote}{$historyTable}{$quote} ORDER BY {$quote}batch{$quote} ASC, {$quote}when{$quote} ASC"
         );
 
         $rows = [];
@@ -822,11 +953,12 @@ class MigrationRunner
      */
     private function getRanSlugs(): array
     {
+        $historyTable = $this->historyTableName();
         $db = $this->requireDb();
 
         $quote = $db->type === 'postgresql' ? '"' : '`';
         $result = $db->query(
-            "SELECT {$quote}key{$quote} FROM {$quote}{$this->historyTable}{$quote} WHERE {$quote}result{$quote} = 1"
+            "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote} WHERE {$quote}result{$quote} = 1"
         );
 
         $slugs = [];
@@ -912,11 +1044,12 @@ class MigrationRunner
      */
     private function historyKeys(): array
     {
+        $historyTable = $this->historyTableName();
         $db    = $this->requireDb();
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $result = $db->query(
-            "SELECT {$quote}key{$quote} FROM {$quote}{$this->historyTable}{$quote}"
+            "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}"
         );
 
         $keys = [];
@@ -933,11 +1066,12 @@ class MigrationRunner
      */
     private function getLastBatch(): ?int
     {
+        $historyTable = $this->historyTableName();
         $db    = $this->requireDb();
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $result = $db->query(
-            "SELECT MAX({$quote}batch{$quote}) as max_batch FROM {$quote}{$this->historyTable}{$quote}"
+            "SELECT MAX({$quote}batch{$quote}) as max_batch FROM {$quote}{$historyTable}{$quote}"
         );
 
         $val = $result->fields['max_batch'] ?? null;
@@ -960,12 +1094,13 @@ class MigrationRunner
      */
     private function fetchBatchRows(int $batch): array
     {
+        $historyTable = $this->historyTableName();
         $db    = $this->requireDb();
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $result = $db->query(
             $db->prepareQuery(
-                "SELECT {$quote}key{$quote} FROM {$quote}{$this->historyTable}{$quote}
+                "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}
                  WHERE {$quote}batch{$quote} = %d ORDER BY {$quote}when{$quote} ASC",
                 $batch
             )
@@ -997,7 +1132,8 @@ class MigrationRunner
         int $result,
         ?string $errorMessage
     ): void {
-        $db    = $this->requireDb();
+        $db           = $this->requireDb();
+        $historyTable = $this->historyTableName();
 
         $feature      = $migration->feature      !== '' ? $migration->feature : null;
         $extra        = $migration->description  !== '' ? mb_substr($migration->description, 0, 255) : null;
@@ -1007,7 +1143,7 @@ class MigrationRunner
         if ($db->type === 'postgresql') {
             $db->query(
                 $db->prepareQuery(
-                    "INSERT INTO \"{$this->historyTable}\"
+                    "INSERT INTO \"{$historyTable}\"
                      (\"key\", \"extra\", \"scope\", \"feature\", \"batch\", \"execution_time\", \"result\", \"error_message\")
                      VALUES (%s, %s, %s, %s, %d, %s, %d, %s)
                      ON CONFLICT (\"key\") DO UPDATE SET
@@ -1021,7 +1157,7 @@ class MigrationRunner
         } else {
             $db->query(
                 $db->prepareQuery(
-                    "INSERT INTO `{$this->historyTable}`
+                    "INSERT INTO `{$historyTable}`
                      (`key`, `extra`, `scope`, `feature`, `batch`, `execution_time`, `result`, `error_message`)
                      VALUES (%s, %s, %s, %s, %d, %s, %d, %s)
                      ON DUPLICATE KEY UPDATE
@@ -1040,12 +1176,13 @@ class MigrationRunner
      */
     private function deleteHistoryRow(string $slug): void
     {
+        $historyTable = $this->historyTableName();
         $db    = $this->requireDb();
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
         $db->query(
             $db->prepareQuery(
-                "DELETE FROM {$quote}{$this->historyTable}{$quote} WHERE {$quote}key{$quote} = %s",
+                "DELETE FROM {$quote}{$historyTable}{$quote} WHERE {$quote}key{$quote} = %s",
                 $slug
             )
         );
