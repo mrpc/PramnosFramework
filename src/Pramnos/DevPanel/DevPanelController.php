@@ -3081,11 +3081,6 @@ class DevPanelController extends Controller
             // Beside MCP rather than at the end: both are things a developer opens while
             // something is wrong, and the log is the first of them.
             'logs'        => 'Logs',
-            // Beside Logs, and a route of its own rather than an action here — the same
-            // arrangement Adminer has. It is the screen that turns the debug toolbar on
-            // for your own browser, and it enforces its own floor: unlike this panel it
-            // works on a live server, which is the only place it is any use.
-            'debugbar'    => 'Debug toolbar',
             'phpinfo'     => 'PHP Info',
         ];
 
@@ -3110,10 +3105,6 @@ class DevPanelController extends Controller
     {
         if ($slug === 'adminer') {
             return (string) static::adminerTabUrl();
-        }
-
-        if ($slug === 'debugbar') {
-            return $baseUrl . '/debugbar';
         }
 
         return $slug === 'overview'
@@ -3210,6 +3201,19 @@ class DevPanelController extends Controller
      * Used for the referrer on the way in and for the remembered value on the way out, because the
      * session outlives the request that wrote it.
      */
+    /**
+     * Is this a URL another controller may redirect to?
+     *
+     * The same-site test, exposed. `isOnThisSite()` is `protected` and the answer is
+     * needed by anything that accepts a return address from a request — a check every
+     * such caller would otherwise write again, slightly differently, and one of those
+     * copies would be the open redirect.
+     */
+    public static function isReturnable(string $url, string $base): bool
+    {
+        return static::isOnThisSite($url, $base);
+    }
+
     protected static function isOnThisSite(string $url, string $base): bool
     {
         if ($url === '' || $base === '') {
@@ -3233,27 +3237,50 @@ class DevPanelController extends Controller
      * The same remembered referrer the panel's own Back button uses, so a visitor who came from
      * a screen returns to it whichever of the two they went through.
      */
-    public static function returnUrlFor(string $mountPoint = ''): string
+    public static function returnUrlFor(string $mountPoint = '', array $alsoExclude = []): string
     {
         $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
         $mount = $mountPoint !== '' ? $mountPoint : (string) static::config('mount', 'devpanel');
 
         $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
-        $panelUrl = $base . '/' . $mount;
-        $adminer  = $base . '/adminer';
 
-        if ($referrer !== ''
-            && $base !== ''
-            && static::isOnThisSite($referrer, $base)
-            && !static::isOnThisSite($referrer, $panelUrl)
-            && !static::isOnThisSite($referrer, $adminer)
-        ) {
+        /*
+         * Every developer page, not only this one.
+         *
+         * `$mountPoint` names the caller, so a second caller passing its own name used to
+         * *replace* the panel in the exclusions rather than join it — and "Back" from the
+         * debug-toolbar screen, reached from the panel's own tab, returned to the panel.
+         * That is a page which `echo`es its own HTML and therefore never carries the
+         * toolbar, so turning the toolbar on appeared to do nothing at all.
+         */
+        $excluded = array_merge(
+            array($base . '/' . $mount, $base . '/adminer', $base . '/' . (string) static::config('mount', 'devpanel')),
+            $alsoExclude
+        );
+
+        $fromElsewhere = $referrer !== '' && $base !== '' && static::isOnThisSite($referrer, $base);
+
+        foreach ($excluded as $developerPage) {
+            if ($fromElsewhere && static::isOnThisSite($referrer, (string) $developerPage)) {
+                $fromElsewhere = false;
+                break;
+            }
+        }
+
+        if ($fromElsewhere) {
             $_SESSION[static::RETURN_KEY] = $referrer;
         }
 
         $remembered = (string) ($_SESSION[static::RETURN_KEY] ?? '');
 
         if (static::isOnThisSite($remembered, $base)) {
+            foreach ($excluded as $developerPage) {
+                if (static::isOnThisSite($remembered, (string) $developerPage)) {
+                    // Remembered before this exclusion existed, or from another caller.
+                    return $base !== '' ? $base : '/';
+                }
+            }
+
             return $remembered;
         }
 
@@ -3315,6 +3342,70 @@ class DevPanelController extends Controller
     }
 
     /**
+     * The debug-toolbar switch, in the tab strip.
+     *
+     * A switch and not a tab, because it is not a place to go: it turns something on for
+     * this browser and leaves you where you are. It was a tab first, and that was wrong
+     * twice over — it navigated away from whatever you were looking at, and it landed you
+     * on a page that cannot show the thing it had just enabled.
+     *
+     * **Which is the reason it says the state in words.** `renderLayout()` ends in
+     * `echo $html`, bypassing the framework's document, so the toolbar is never drawn on
+     * this panel however granted it is. A switch that only changed a cookie would look
+     * exactly like a switch that did nothing. "on until 15:42" is the receipt.
+     *
+     * `POST` with a CSRF field, because it changes state, and it returns here rather than
+     * to the site: you were working in the panel, and the toolbar will be waiting on the
+     * next ordinary page you open.
+     *
+     * Rendered only for somebody who may actually use it — the grant screen enforces its
+     * own floor, and a control that 403s when pressed is worse than one that is absent.
+     */
+    protected static function debugToolbarSwitch(string $baseUrl, string $mountPoint, string $activeTab): string
+    {
+        if (!class_exists('\Pramnos\Debug\DebugGrantController')) {
+            return '';
+        }
+
+        $user = \Pramnos\User\User::getCurrentUser();
+        $floor = (int) \Pramnos\Debug\DebugGrantController::DEFAULT_MIN_USERTYPE;
+        $configured = static::config('grant_min_usertype', null);
+
+        if ($configured === null) {
+            $configured = \Pramnos\Application\Application::currentInstance()
+                ?->applicationInfo['debug']['grant_min_usertype'] ?? null;
+        }
+
+        if ($configured !== null && $configured !== '') {
+            $floor = (int) $configured;
+        }
+
+        if (!is_object($user) || (int) ($user->usertype ?? 0) < $floor) {
+            return '';
+        }
+
+        $expires = \Pramnos\Debug\DebugAccess::expiresAt();
+        $on      = $expires !== null;
+        $action  = htmlspecialchars(
+            $baseUrl . '/debugbar/' . ($on ? 'disable' : 'enable'),
+            ENT_QUOTES
+        );
+        $back = htmlspecialchars($baseUrl . '/' . $mountPoint
+            . ($activeTab === 'overview' ? '' : '/' . $activeTab), ENT_QUOTES);
+
+        $label = $on
+            ? 'Debug bar: on until ' . htmlspecialchars(date('H:i', (int) $expires))
+            : 'Debug bar: off';
+
+        return '<form method="post" action="' . $action . '" class="debugbar-switch">'
+            . \Pramnos\Http\Middleware\CsrfMiddleware::tokenField()
+            . '<input type="hidden" name="return" value="' . $back . '">'
+            . '<input type="hidden" name="ttl" value="3600">'
+            . '<button type="submit" title="Turns the toolbar on for this browser only">'
+            . $label . ($on ? ' — turn off' : ' — turn on') . '</button></form>';
+    }
+
+    /**
      * Outputs the full self-contained HTML page and exits.
      */
     protected function renderLayout(string $activeTab, string $content): void
@@ -3345,6 +3436,8 @@ class DevPanelController extends Controller
 
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
+
+        $tabHtml .= static::debugToolbarSwitch($baseUrl, $mountPoint, $activeTab);
 
         // Whatever the section renderers could not load. Rendered above the
         // content rather than in place of it: the parts that did work are still

@@ -256,7 +256,36 @@ class DebugGrantController extends Controller
      */
     protected function returnUrl(): string
     {
-        return \Pramnos\DevPanel\DevPanelController::returnUrlFor('debugbar');
+        /*
+         * An explicit `return`, when the caller named one and it is on this site.
+         *
+         * The DevPanel's switch does: it wants you left where you were working rather
+         * than sent to the site root, and it is the one caller that knows which of its
+         * own tabs you were on.
+         *
+         * Validated against `sURL` before it is used. A redirect target taken from a
+         * request without that check is an open redirect, and this one arrives in a POST
+         * field where anybody can put anything.
+         */
+        $asked = (string) ($_POST['return'] ?? '');
+        $base  = defined('sURL') ? rtrim((string) sURL, '/') : '';
+
+        if ($asked !== '' && $base !== ''
+            && \Pramnos\DevPanel\DevPanelController::isReturnable($asked, $base)
+        ) {
+            return $asked;
+        }
+
+        /*
+         * The DevPanel excluded too, and that omission is what made this feature look
+         * broken: its tab links here, so the referrer on the way in is the panel — a page
+         * that `echo`es its own HTML and never carries the toolbar. Enabling the grant
+         * then landed back on it, with nothing to show for the click.
+         */
+        return \Pramnos\DevPanel\DevPanelController::returnUrlFor(
+            'debugbar',
+            array((defined('sURL') ? rtrim((string) sURL, '/') : '') . '/debugbar')
+        );
     }
 
     /**

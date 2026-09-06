@@ -120,6 +120,12 @@ class DebugGrantControllerTest extends TestCase
             {
                 return 'https://example.com/orders?page=2';
             }
+
+            /** The real one, past this fixture's override. */
+            public function exposeRealReturnUrl(): string
+            {
+                return parent::returnUrl();
+            }
         };
     }
 
@@ -422,6 +428,132 @@ class DebugGrantControllerTest extends TestCase
             'https://example.com/a?b=1&_debug=x',
             $apply->invoke($controller, 'https://example.com/a?b=1', 'x')
         );
+    }
+
+    /**
+     * A `return` the caller named is honoured — the DevPanel's switch names one.
+     *
+     * The switch wants you left on the tab you were working on rather than sent to the
+     * site root, and it is the only caller that knows which tab that was.
+     */
+    public function testAnExplicitReturnOnThisSiteIsHonoured(): void
+    {
+        if (!defined('sURL')) {
+            $this->markTestSkipped('sURL is not defined in this process.');
+        }
+
+        // Arrange
+        $base = rtrim((string) sURL, '/');
+        $_POST['return'] = $base . '/devpanel/db';
+
+        try {
+            // Act — the real method, not this fixture's fixed override
+            $back = $this->controller(90)->exposeRealReturnUrl();
+
+            // Assert
+            $this->assertSame($base . '/devpanel/db', $back);
+        } finally {
+            unset($_POST['return']);
+        }
+    }
+
+    /**
+     * A `return` pointing somewhere else is ignored.
+     *
+     * It arrives in a POST field, where anybody can put anything. Honouring it unchecked
+     * is an open redirect on a URL that also hands out a debug grant — so the grant would
+     * be minted and the browser sent to somebody else's site carrying it in the query
+     * string.
+     */
+    public function testAnOffSiteReturnIsIgnored(): void
+    {
+        // Arrange
+        $_POST['return'] = 'https://elsewhere.example/collect';
+
+        try {
+            // Act
+            $back = $this->controller(90)->exposeRealReturnUrl();
+
+            // Assert
+            $this->assertStringNotContainsString(
+                'elsewhere.example',
+                $back,
+                'the grant would have been sent off-site'
+            );
+        } finally {
+            unset($_POST['return']);
+        }
+    }
+
+    /**
+     * Coming from the DevPanel, "back" is not the DevPanel.
+     *
+     * The reported failure, and it looked like the feature simply did nothing: the panel's
+     * tab links here, so the referrer on the way in is the panel — and the panel `echo`es
+     * its own HTML rather than going through the framework's document, so it never carries
+     * the toolbar. Enabling the grant landed back on it with nothing to show for the click.
+     *
+     * The grant was real the whole time. What was wrong was where it put you.
+     */
+    public function testComingFromTheDevPanelDoesNotSendYouBackToIt(): void
+    {
+        // Arrange
+        if (!defined('sURL')) {
+            $this->markTestSkipped('sURL is not defined in this process.');
+        }
+
+        $base = rtrim((string) sURL, '/');
+        $_SESSION = array();
+        $_SERVER['HTTP_REFERER'] = $base . '/devpanel';
+
+        try {
+            // Act
+            $back = \Pramnos\DevPanel\DevPanelController::returnUrlFor(
+                'debugbar',
+                array($base . '/debugbar')
+            );
+
+            // Assert
+            $this->assertStringNotContainsString('/devpanel', $back, 'sent back to the panel');
+            $this->assertStringNotContainsString('/debugbar', $back, 'sent back to this screen');
+        } finally {
+            unset($_SERVER['HTTP_REFERER'], $_SESSION[
+                \Pramnos\DevPanel\DevPanelController::RETURN_KEY
+            ]);
+        }
+    }
+
+    /**
+     * An ordinary page is still remembered, which is the half that has to keep working.
+     *
+     * Excluding every developer page would be easy to overdo into "always the site root",
+     * and then somebody deep in a listing loses their place for no reason.
+     */
+    public function testAnOrdinaryPageIsStillWhereYouGoBackTo(): void
+    {
+        // Arrange
+        if (!defined('sURL')) {
+            $this->markTestSkipped('sURL is not defined in this process.');
+        }
+
+        $base = rtrim((string) sURL, '/');
+        $_SESSION = array();
+        $_SERVER['HTTP_REFERER'] = $base . '/orders?page=2';
+
+        try {
+            // Act
+            $back = \Pramnos\DevPanel\DevPanelController::returnUrlFor(
+                'debugbar',
+                array($base . '/debugbar')
+            );
+
+            // Assert
+            $this->assertSame($base . '/orders?page=2', $back);
+        } finally {
+            unset($_SERVER['HTTP_REFERER'], $_SESSION[
+                \Pramnos\DevPanel\DevPanelController::RETURN_KEY
+            ]);
+        }
     }
 
     /**

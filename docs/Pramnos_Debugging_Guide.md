@@ -703,9 +703,20 @@ work only where nobody needs it.
 Both actions are `POST` with a CSRF field. A switch that turns on a query log must not be
 reachable by getting somebody to click a link.
 
-The DevPanel carries a **Debug toolbar** tab beside Logs that goes to the same screen —
-a route of its own rather than an action of the panel, the way Adminer is, because it
-enforces its own floor and works where the panel deliberately does not.
+After enabling, you land back on the page you came from — **not** on the DevPanel or on
+this screen. Both `echo` their own HTML rather than going through the framework's document,
+so neither carries the toolbar: landing on one of them would look exactly like the grant
+having failed. When the only page you came from is a developer page, you land on the site
+root instead.
+
+The DevPanel carries a **switch in its tab strip** rather than a tab: it is not a place to
+go, it turns something on and leaves you on the tab you were reading. The label says the
+state — `Debug bar: on until 15:42` — because `renderLayout()` echoes its own HTML and the
+toolbar is never drawn on the panel however granted it is. A switch that only changed a
+cookie would look exactly like a switch that did nothing.
+
+It appears only for somebody who may use it; a control that 403s when pressed is worse than
+one that is absent.
 
 Put it in your own admin menu with a plain link:
 
