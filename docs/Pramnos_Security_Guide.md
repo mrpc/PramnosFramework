@@ -1302,13 +1302,25 @@ directory.
 | The query touches | You get |
 |---|---|
 | ordinary tables | rows, with personal-looking columns replaced by `[withheld]` |
-| a table declared as holding personal data | the row **count** and the column names, no rows |
+| a personal table, projecting nothing but `COUNT()` | the counts, in full |
+| a personal table, anything else | the column names, no rows |
 
-The second is not a lesser answer for most questions. *How many live tokens have no
+The second row is not a lesser answer for most questions. *How many live tokens have no
 digest*, *are there duplicate settings names*, *how many images are under this size* are
 all counts, and a count exposes nobody. Asking for the rows themselves is a different
 request with a different risk, and one somebody should make deliberately rather than
 discover they have made.
+
+**`COUNT` and not "an aggregate", deliberately.** `MIN(email)` and `MAX(email)` return an
+address; `SUM(salary)` and `AVG(salary)` over a filter matching one row return that
+person's. A rule that accepted any aggregate would hand back exactly what the denial list
+withholds, behind syntax that reads as a summary.
+
+And a count is still an **oracle** over a narrow filter: `count(*) … WHERE email = '…'`
+answers whether that person exists. That is not prevented, because preventing it means
+refusing `WHERE token_lookup IS NULL`, which is the query somebody actually needs. This
+stops rows arriving in bulk; it does not stop a determined question from somebody who
+already holds `mcp:db_read` on a production database.
 
 ### Declaring your own tables
 

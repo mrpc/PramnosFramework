@@ -99,26 +99,75 @@ class DbInspectToolTest extends TestCase
     }
 
     /**
-     * A count over a declared-personal table is answerable, and the rows are not
-     * returned.
+     * A count over a declared-personal table comes back with its value.
      *
      * The shape the whole design rests on: «how many are there» is the question a
-     * diagnosis usually asks, and it exposes nobody. Run against the real table so
-     * that a driver returning its rows in some other shape would show up here.
+     * diagnosis usually asks, and it exposes nobody.
+     *
+     * This test used to assert the opposite, and it was wrong in the way a test can
+     * only be wrong once somebody reads it: the withheld branch reported `row_count`,
+     * which is the number of *result* rows and therefore `1` for every `SELECT
+     * count(*)`. So the number asked for was the one value never returned — while the
+     * class docblock gave this exact query as the example of what is allowed — and this
+     * test pinned it there, using that example.
+     *
+     * Against the real table, because the count has to be the database's answer and
+     * not one this fixture computed.
      */
-    public function testAPersonalTableAnswersACountAndWithholdsTheRows(): void
+    public function testACountOverAPersonalTableComesBackWithItsValue(): void
     {
-        // Arrange
-        $tool = new DbInspectTool($this->db);
+        // Arrange — a known number of rows of our own
+        $expected = (int) $this->db->queryBuilder()->table('#PREFIX#users')->count();
+        $tool     = new DbInspectTool($this->db);
 
         // Act
         $answer = $tool->execute(array('sql' => 'SELECT count(*) AS total FROM #PREFIX#users'));
 
         // Assert
         $this->assertTrue($answer['personal_data'], json_encode($answer));
-        $this->assertTrue($answer['rows_withheld']);
-        $this->assertArrayNotHasKey('rows', $answer);
+        $this->assertTrue($answer['aggregate']);
+        $this->assertFalse($answer['rows_withheld']);
+        $this->assertSame($expected, (int) $answer['rows'][0]['total']);
         $this->assertContains('users', $answer['tables']);
+    }
+
+    /**
+     * Anything that is not a count still withholds, and `MIN`/`MAX` are the reason the
+     * line is drawn at `COUNT` rather than at "an aggregate".
+     *
+     * `max(email)` returns an address. A check that accepted any aggregate would hand
+     * back exactly the data the denial list exists to withhold, behind syntax that looks
+     * like a summary — so the assertion here is on the *absence* of the value, taken
+     * from a row that really is in the table.
+     */
+    public function testAnAggregateThatReturnsAStoredValueIsStillWithheld(): void
+    {
+        // Arrange — a row whose value we can look for in the answer
+        $marker = 'fw-aggregate-probe-' . bin2hex(random_bytes(4)) . '@example.com';
+        $this->db->queryBuilder()->table('#PREFIX#users')->insert(array(
+            'username' => 'aggprobe_' . bin2hex(random_bytes(4)),
+            'email'    => $marker,
+            'password' => '',
+            'regdate'  => time(),
+            'active'   => 1,
+        ));
+
+        try {
+            $tool = new DbInspectTool($this->db);
+
+            // Act
+            $answer = $tool->execute(array(
+                'sql' => 'SELECT max(email) AS newest FROM #PREFIX#users',
+            ));
+
+            // Assert
+            $this->assertTrue($answer['rows_withheld'], json_encode($answer));
+            $this->assertArrayNotHasKey('rows', $answer);
+            $this->assertStringNotContainsString($marker, (string) json_encode($answer));
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#users')
+                ->where('email', $marker)->delete();
+        }
     }
 
     /**

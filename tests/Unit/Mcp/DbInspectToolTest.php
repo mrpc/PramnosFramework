@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Mcp;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Database\Database;
 use Pramnos\Mcp\Tools\DbInspectTool;
@@ -134,6 +135,125 @@ class DbInspectToolTest extends TestCase
         $this->assertArrayNotHasKey('rows', $answer);
         // The value itself must be nowhere in the answer, at any depth
         $this->assertStringNotContainsString('secret-value', json_encode($answer));
+    }
+
+    /**
+     * A projection of nothing but `COUNT()` is answered in full, in every spelling
+     * somebody actually writes.
+     *
+     * The promise the class docblock has always made — and it was broken, because the
+     * withheld branch reported `row_count`, the number of *result* rows, which is `1`
+     * for every count query. The number asked for was the one value never returned.
+     */
+    #[DataProvider('countProvider')]
+    public function testACountOnlyProjectionIsAnswered(string $sql): void
+    {
+        // Arrange
+        $tool = new DbInspectTool($this->db(array(array('total' => 42))));
+
+        // Act
+        $answer = $tool->execute(array('sql' => $sql));
+
+        // Assert
+        $this->assertTrue($answer['personal_data'], json_encode($answer));
+        $this->assertTrue($answer['aggregate']);
+        $this->assertFalse($answer['rows_withheld']);
+        $this->assertSame(42, $answer['rows'][0]['total']);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function countProvider(): array
+    {
+        return array(
+            'count star'          => array('SELECT count(*) FROM usertokens'),
+            'aliased'             => array('SELECT count(*) AS total FROM usertokens'),
+            'alias without AS'    => array('SELECT count(*) total FROM usertokens'),
+            'distinct'            => array('SELECT count(distinct userid) FROM usertokens'),
+            'two counts'          => array('SELECT count(*), count(token) FROM usertokens'),
+            'lower case, filtered' => array(
+                'select count(*) from usertokens where token_lookup is null',
+            ),
+            'derived table'       => array('SELECT count(*) FROM (SELECT 1 FROM usertokens) t'),
+        );
+    }
+
+    /**
+     * Everything else still withholds — and the list is the reason the line is `COUNT`
+     * rather than "an aggregate".
+     *
+     * `max(email)` returns an address and `avg(salary)` over a filter matching one row
+     * returns that person's salary. A check that accepted any aggregate would have
+     * handed back exactly what the denial list exists to withhold, behind syntax that
+     * reads as a summary. The rest are shapes a lexer should not claim to understand.
+     */
+    #[DataProvider('notACountProvider')]
+    public function testAnythingOtherThanACountStillWithholds(string $sql): void
+    {
+        // Arrange
+        $tool = new DbInspectTool($this->db(array(array('value' => 'someone@example.com'))));
+
+        // Act
+        $answer = $tool->execute(array('sql' => $sql));
+
+        // Assert
+        $this->assertTrue($answer['rows_withheld'], $sql . ' was answered in full');
+        $this->assertArrayNotHasKey('rows', $answer);
+        $this->assertStringNotContainsString('someone@example.com', (string) json_encode($answer));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function notACountProvider(): array
+    {
+        return array(
+            'max returns a stored value' => array('SELECT max(token) FROM usertokens'),
+            'min returns a stored value' => array('SELECT min(token) FROM usertokens'),
+            'avg over one row'           => array('SELECT avg(userid) FROM usertokens'),
+            'sum over one row'           => array('SELECT sum(userid) FROM usertokens'),
+            'a count and a column'       => array('SELECT count(*), token FROM usertokens'),
+            'everything'                 => array('SELECT * FROM usertokens'),
+            'a bare column'              => array('SELECT token FROM usertokens'),
+            'a window function'          => array('SELECT count(*) OVER () FROM usertokens'),
+            'arithmetic on the count'    => array('SELECT count(*) + 1 FROM usertokens'),
+            'a subquery in the count'    => array('SELECT count((SELECT 1)) FROM usertokens'),
+            'a WITH clause'              => array(
+                'WITH x AS (SELECT 1 AS n) SELECT count(*) FROM usertokens',
+            ),
+            // The personal table is reached only from inside a subquery, so the outer
+            // statement has no `FROM` of its own for the projection scan to stop at.
+            // Unreadable is withheld.
+            'the table only inside a subquery' => array(
+                'SELECT (SELECT count(*) FROM usertokens) AS n',
+            ),
+            // Unbalanced parentheses: the server will refuse it too, but this method
+            // must not decide it is a count on the way there.
+            'parentheses that do not close' => array('SELECT count(* FROM usertokens'),
+        );
+    }
+
+    /**
+     * A count over an ordinary table is unaffected: it was never withheld and it does
+     * not gain the aggregate flag.
+     *
+     * The control. A change that routed every count down the new branch would satisfy
+     * everything above and quietly stop withholding personal *columns* from ordinary
+     * tables.
+     */
+    public function testACountOverAnOrdinaryTableTakesTheOrdinaryPath(): void
+    {
+        // Arrange
+        $tool = new DbInspectTool($this->db(array(array('total' => 7))));
+
+        // Act
+        $answer = $tool->execute(array('sql' => 'SELECT count(*) AS total FROM images'));
+
+        // Assert
+        $this->assertFalse($answer['personal_data']);
+        $this->assertArrayNotHasKey('aggregate', $answer);
+        $this->assertSame(7, $answer['rows'][0]['total']);
     }
 
     /**

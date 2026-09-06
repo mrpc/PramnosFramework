@@ -184,8 +184,10 @@ in what it refuses:
 
 - a statement that writes is refused **before it reaches the database**, including a
   data-modifying CTE that is technically a `SELECT`;
-- rows from a table declared as holding personal data are not returned — those answer with
-  a count and the column names;
+- a table declared as holding personal data answers with its column names and no rows —
+  unless the projection is nothing but `COUNT()`, which comes back in full, because «how
+  many rows match» exposes nobody. `MIN`/`MAX`/`AVG`/`SUM` do **not** qualify: they return
+  stored values, and over a narrow filter they return one person's;
 - columns that look personal (`email`, `phone`, `token`, `password`, …) come back as
   `[withheld]` in every table, declared or not;
 - at most 200 rows, whatever the statement asks for;

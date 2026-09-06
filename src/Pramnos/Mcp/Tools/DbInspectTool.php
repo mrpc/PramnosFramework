@@ -36,13 +36,25 @@ use Pramnos\Security\ReadOnlyQuery;
  * | The query touches | You get |
  * |---|---|
  * | ordinary tables | rows, with personal-looking columns withheld |
- * | a table declared as holding personal data | the row **count** and the column names, no rows |
+ * | a personal table, projecting nothing but `COUNT()` | the counts, in full |
+ * | a personal table, anything else | the column names, no rows |
  *
- * The second is not a lesser answer for most questions. «How many live tokens
+ * The second row is not a lesser answer for most questions. «How many live tokens
  * have no digest», «are there duplicate settings names», «how many images are
  * under this size» are all counts, and a count exposes nobody. Asking for the
  * rows themselves is a different request with a different risk, and it is one a
  * person should make deliberately rather than discover they have made.
+ *
+ * **`COUNT` and not "an aggregate", deliberately.** `MIN(email)` and `MAX(email)`
+ * return an address; `SUM(salary)` and `AVG(salary)` over a filter matching one row
+ * return that person's. Accepting any aggregate would hand back exactly what the
+ * denial list withholds, behind syntax that reads as a summary.
+ *
+ * And a count is still an oracle over a narrow filter — `count(*) … WHERE email = '…'`
+ * answers whether that person exists. That is not prevented, because preventing it
+ * means refusing `WHERE token_lookup IS NULL`, which is the query somebody needs. This
+ * stops rows arriving in bulk; it does not stop a determined question from somebody who
+ * already holds `mcp:db_read` on a production database.
  *
  * @author  Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @license MIT
@@ -132,6 +144,27 @@ class DbInspectTool implements ScopedMcpTool
 
         $rows = $this->fetchRows($result, $limit);
 
+        if ($personal !== array() && $this->isCountOnly($sql)) {
+            /*
+             * A count over a declared-personal table is the answer, so hand it back.
+             *
+             * This is what the table above has always promised and what the note below
+             * told callers to do — «narrow the query to aggregates» — and it did not
+             * work: the withheld branch reported `row_count`, which is the number of
+             * *result* rows and therefore `1` for every `SELECT count(*)`. The number
+             * asked for was the one value never returned, and an integration test
+             * pinned that in place using the docblock's own example.
+             */
+            return array(
+                'personal_data' => true,
+                'tables'        => $personal,
+                'aggregate'     => true,
+                'row_count'     => count($rows),
+                'rows'          => $rows,
+                'rows_withheld' => false,
+            );
+        }
+
         if ($personal !== array()) {
             return array(
                 'personal_data'    => true,
@@ -140,8 +173,10 @@ class DbInspectTool implements ScopedMcpTool
                 'columns'          => $rows === array() ? array() : array_keys($rows[0]),
                 'rows_withheld'    => true,
                 'note'             => 'These tables are declared as holding personal data, so '
-                    . 'their rows are not returned. Counts and structure are. Narrow the query '
-                    . 'to aggregates, or ask somebody with database access if you need the rows.',
+                    . 'their rows are not returned. A projection of nothing but COUNT() is '
+                    . 'answered in full — «how many rows match» exposes nobody. Anything else, '
+                    . 'including MIN/MAX/AVG/SUM, comes back as structure only: those return '
+                    . 'stored values, and over a narrow filter they return one person\'s.',
             );
         }
 
@@ -154,6 +189,179 @@ class DbInspectTool implements ScopedMcpTool
             'columns_withheld'   => $withheld,
             'truncated'          => count($rows) >= $limit,
         );
+    }
+
+    /**
+     * Is this statement's projection nothing but `COUNT()`?
+     *
+     * ### Why only `COUNT`
+     *
+     * Because it is the one aggregate that cannot echo a stored value. `MIN(email)` and
+     * `MAX(email)` return an address; `SUM(salary)` and `AVG(salary)` over a filter that
+     * matches one row return that person's salary. A check that accepted "any aggregate"
+     * would have handed back exactly the data the whole denial list exists to withhold,
+     * behind syntax that looks like a summary.
+     *
+     * `COUNT` covers what the promise was for. All three of this class's own examples —
+     * «how many live tokens have no digest», «are there duplicate settings names», «how
+     * many images are under this size» — are counts.
+     *
+     * ### What it does not promise
+     *
+     * A count is still an oracle over a narrow filter: `count(*) … WHERE email = '…'`
+     * answers whether that person exists. That is a real disclosure and it is not
+     * prevented here, because preventing it would mean refusing
+     * `WHERE token_lookup IS NULL`, which is the query somebody actually needs. The
+     * caller holds `mcp:db_read` on a production database; this stops rows arriving in
+     * bulk, not a determined question.
+     *
+     * A lexer, not a parser, and it errs towards withholding: anything it cannot read
+     * confidently — a `WITH` clause, a subquery in the projection, a bare column, `*` —
+     * takes the withheld branch.
+     */
+    private function isCountOnly(string $sql): bool
+    {
+        $stripped = trim(ReadOnlyQuery::withoutStringsAndComments($sql));
+
+        // Only a plain SELECT. A `WITH` clause puts the projection somewhere this scan
+        // does not look, and guessing is the wrong instinct in this method.
+        if (stripos($stripped, 'select') !== 0) {
+            return false;
+        }
+
+        $projection = $this->projectionOf(substr($stripped, 6));
+
+        if ($projection === null || trim($projection) === '') {
+            return false;
+        }
+
+        foreach ($this->splitTopLevel($projection) as $item) {
+            if (!$this->isCountExpression($item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Everything between the projection's start and its own `FROM`.
+     *
+     * Depth-aware, so the `FROM` inside `count(*) FILTER (...)` or a scalar subquery is
+     * not mistaken for the statement's own. Null when there is no top-level `FROM`,
+     * which for this method's purpose is a statement it should not judge.
+     */
+    private function projectionOf(string $afterSelect): ?string
+    {
+        $depth  = 0;
+        $length = strlen($afterSelect);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $afterSelect[$i];
+
+            if ($char === '(') {
+                $depth++;
+                continue;
+            }
+
+            if ($char === ')') {
+                $depth--;
+                continue;
+            }
+
+            if ($depth === 0
+                && ($char === 'f' || $char === 'F')
+                && preg_match('/\Gfrom\b/i', $afterSelect, $m, 0, $i) === 1
+                && ($i === 0 || preg_match('/\s|\)/', $afterSelect[$i - 1]) === 1)
+            ) {
+                return substr($afterSelect, 0, $i);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Split on commas that are not inside parentheses.
+     *
+     * `count(a), count(b)` is two items; `count(coalesce(a, b))` is one.
+     *
+     * @return array<int, string>
+     */
+    private function splitTopLevel(string $projection): array
+    {
+        $items = array();
+        $depth = 0;
+        $start = 0;
+        $length = strlen($projection);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $projection[$i];
+
+            if ($char === '(') {
+                $depth++;
+            } elseif ($char === ')') {
+                $depth--;
+            } elseif ($char === ',' && $depth === 0) {
+                $items[] = substr($projection, $start, $i - $start);
+                $start   = $i + 1;
+            }
+        }
+
+        $items[] = substr($projection, $start);
+
+        return $items;
+    }
+
+    /**
+     * One projected expression that is a `COUNT()` and nothing else.
+     *
+     * The alias is allowed and the argument is not inspected beyond refusing a nested
+     * `SELECT` — `count(distinct userid)` is a count, and so is `count(*)`, but
+     * `count((SELECT …))` is a shape this method has no business approving.
+     */
+    private function isCountExpression(string $item): bool
+    {
+        $item = trim($item);
+
+        if (preg_match('/^count\s*\(/i', $item) !== 1) {
+            return false;
+        }
+
+        $open = strpos($item, '(');
+        $depth = 0;
+        $close = null;
+        $length = strlen($item);
+
+        for ($i = (int) $open; $i < $length; $i++) {
+            if ($item[$i] === '(') {
+                $depth++;
+            } elseif ($item[$i] === ')') {
+                $depth--;
+
+                if ($depth === 0) {
+                    $close = $i;
+                    break;
+                }
+            }
+        }
+
+        if ($close === null) {
+            return false;
+        }
+
+        $argument = substr($item, (int) $open + 1, $close - (int) $open - 1);
+
+        if (preg_match('/\bselect\b/i', $argument) === 1) {
+            return false;
+        }
+
+        // After the closing parenthesis: nothing, or an alias. Not arithmetic, not a
+        // second function, not a window clause — `count(*) OVER (…)` is per-row output.
+        $tail = trim(substr($item, $close + 1));
+
+        return $tail === ''
+            || preg_match('/^(?:as\s+)?["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?$/i', $tail) === 1;
     }
 
     /**
