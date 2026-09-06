@@ -502,7 +502,21 @@ class Adminer extends \Pramnos\Application\Controller
      */
     protected function handOverSession(): void
     {
+        $ours = (string) session_id();
+
         if (session_status() === PHP_SESSION_ACTIVE) {
+            /*
+             * A database password, out of the visitor's session file.
+             *
+             * While the two sessions were one, `AdminerBridge::plugin()` seeded
+             * `$_SESSION['pwds']` — the application's own database password, in cleartext —
+             * into the file holding `logged`, `uid` and the signed-in user's auth hash. That
+             * is a disclosure independent of anything else here, and it does not expire on
+             * its own. Removing it costs a line, on the one route the affected visitor is
+             * certain to reach.
+             */
+            unset($_SESSION['pwds']);
+
             session_write_close();
         }
 
@@ -516,9 +530,68 @@ class Adminer extends \Pramnos\Application\Controller
          */
         $_SESSION = array();
 
-        // The step that was missing. `@` because PHP warns if output has begun, and a
-        // warning here would be printed above Adminer's page.
-        @session_id('');
+        // `@` because PHP warns if output has begun, and a warning here would be printed
+        // above Adminer's page.
+        @session_id($this->adminerSessionId($ours));
+    }
+
+    /**
+     * The id Adminer should resume — its own, or none.
+     *
+     * **`session_id('')` does not mean "work it out from the cookie".** It means the id
+     * is set, to nothing, and PHP never consults the cookie again — so `session_start()`
+     * mints a fresh one. Measured on PHP 8.5, with `session.use_strict_mode` both on and
+     * off and the cookie present and valid:
+     *
+     * | before `session_start()`                    | result |
+     * |---|---|
+     * | nothing                                     | the cookie's session, resumed |
+     * | `session_id('')`                            | **a new session** |
+     * | a session started and closed, no `session_id()` | the closed session's id, inherited |
+     *
+     * Which is the whole shape of this route's history. Leaving the id alone handed
+     * Adminer *our* session — one file holding both applications, each destroying the
+     * other's `token`. Clearing it stopped that and started the opposite failure: a new
+     * Adminer session **per request**, so the CSRF token was written into a file nobody
+     * read again and every POST answered *«Invalid CSRF token»*. Navigation is `GET` and
+     * unchecked, which is why both bugs looked like a working tool until somebody ran a
+     * query.
+     *
+     * There is no third state. The id is either wrong, unset — which is also wrong — or
+     * correct, and only the cookie knows which one that is. So it is read here, and the
+     * two states below are refused:
+     *
+     *  - **anything that is not a session id**, which is a visitor editing their own
+     *    cookie;
+     *  - **our own id**, which is what the original collision wrote into that cookie. It
+     *    is still in the browser of everybody who used this route before the two sessions
+     *    were separated, and honouring it walks straight back into the collision — this
+     *    time deliberately.
+     *
+     * Refused means no id at all: Adminer starts a clean session and sets its own cookie
+     * over the stale one, so the poisoning clears itself on the next request.
+     *
+     * @param string $ours This request's session id, before it was handed over.
+     */
+    protected function adminerSessionId(string $ours): string
+    {
+        $name   = \Pramnos\DevPanel\AdminerBridge::SESSION_NAME;
+        $cookie = $_COOKIE[$name] ?? null;
+
+        // A session id is chosen by PHP and looks like one; `session_id()` rejects
+        // anything else noisily, above Adminer's page.
+        if (!is_string($cookie)
+            || preg_match('/^[a-zA-Z0-9,\-]{16,128}$/', $cookie) !== 1
+            || ($ours !== '' && $cookie === $ours)
+        ) {
+            // So that `AdminerBridge::repairSession()`, which reads the same cookie a few
+            // lines later, does not repair the session this just refused to hand over.
+            unset($_COOKIE[$name]);
+
+            return '';
+        }
+
+        return $cookie;
     }
 
     /**

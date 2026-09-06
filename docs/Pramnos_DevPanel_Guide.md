@@ -111,12 +111,20 @@ cannot start the thing maintenance was raised to prevent.
 ## Adminer, at `/adminer`
 
 > **Sessions.** This route hands its session over completely before Adminer boots: closed,
-> `$_SESSION` emptied, **and the session id cleared**. The third step matters —
-> `session_write_close()` leaves `session_id()` answering, and Adminer's own
-> `session_start()` finds an id already set and reuses it instead of reading its
-> `adminer_sid` cookie. When that happened the two shared one file: Adminer overwrote the
-> visitor's session, the next request replaced Adminer's token, and every `POST` answered
-> *«Invalid CSRF token»* while navigation kept working.
+> `$_SESSION` emptied, and the session id set to **Adminer's own**, from its `adminer_sid`
+> cookie. Two applications, two session files, and each keeps its own CSRF token.
+>
+> There is no third state to leave the id in. `session_write_close()` leaves `session_id()`
+> answering, so doing nothing hands Adminer *our* session — one file for both, each
+> destroying the other's `token`. And `session_id('')` does not mean *read the cookie*: it
+> means the id is set, to nothing, and PHP never consults the cookie again, so Adminer gets
+> a new session on every request and the token it just issued is never read back. Both
+> answer *«Invalid CSRF token»* on every `POST` while navigation keeps working, because
+> navigation is `GET` and Adminer does not check it.
+>
+> A cookie naming *this* session is refused and dropped — the earlier collision wrote one
+> into every affected browser, and honouring it walks back into the bug on an installation
+> that has been fixed. So is anything that is not a session id.
 
 
 Adminer is the database tool most people already use, and the usual way to have it on a server
@@ -194,11 +202,17 @@ Adminer into any host reachable from the server with any credentials the sender 
 route is permission to read *this* database, not a general-purpose database client. `permanent` goes
 with it — the field that asks Adminer to write an encrypted copy of the password into a cookie.
 
-**The session is closed *and emptied*.** `session_write_close()` writes the data and releases the
-handle; `$_SESSION` keeps its contents in memory. Adminer starts a session of its own only when none
-is active, and when it decides not to it reads and writes our keys. One of them is `token`: Adminer's
-CSRF token is `rand() ^ $_SESSION["token"]`, this framework's value is a hex string, and the result was
-«A non-numeric value encountered» twice per page and a CSRF check that could not work.
+**The session is closed, emptied, and replaced with Adminer's.** `session_write_close()` writes the
+data and releases the handle; `$_SESSION` keeps its contents in memory. Adminer starts a session of
+its own only when none is active, and when it decides not to it reads and writes our keys. One of them
+is `token`: Adminer's CSRF token is `rand() ^ $_SESSION["token"]`, this framework's value is a hex
+string, and the result is «A non-numeric value encountered» twice per page and a CSRF check that
+cannot work.
+
+The id is then set to what the `adminer_sid` cookie names, so Adminer resumes the session it wrote
+last time. `handOverSession()` also removes `pwds` from this session on the way out — the slot
+Adminer stores a database password in, in cleartext, which it could only have written there while the
+two sessions were one.
 
 **The URL rewrite is an output-buffer callback, not code after the include.** Adminer is a script and
 several of its paths end with `exit`, the login page among them — so post-include code never ran, PHP

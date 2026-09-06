@@ -52,11 +52,15 @@ class AdminerSessionHandoverTest extends TestCase
     }
 
     /**
-     * After the handover there is no session id left for Adminer to inherit.
+     * After the handover our session id is not what Adminer will find.
      *
-     * The whole of the fix, and the assertion the old code could not make: closing a
-     * session does not clear its id, so `session_start()` under a different name still
-     * lands on the same file.
+     * The assertion the old code could not make: closing a session does not clear its id,
+     * so `session_start()` under a different name still lands on the same file.
+     *
+     * With no `adminer_sid` cookie in the request — this fixture sends none — the id is
+     * left unset and Adminer starts a session of its own. What happens when the browser
+     * *does* send one is the subject of {@see AdminerSessionPerRequestTest}, and it is not
+     * "unset": an id explicitly set to nothing stops PHP consulting the cookie at all.
      */
     #[RunInSeparateProcess]
     public function testTheSessionIdIsCleared(): void
@@ -71,7 +75,8 @@ class AdminerSessionHandoverTest extends TestCase
 
         // Assert
         $this->assertNotSame('', $ours, 'the fixture never had a session to hand over');
-        $this->assertSame('', session_id(), 'Adminer would have inherited our session id');
+        $this->assertNotSame($ours, session_id(), 'Adminer would have inherited our session id');
+        $this->assertSame('', session_id(), 'with no cookie to resume, no id should be left');
         $this->assertSame(array(), $_SESSION, '$_SESSION was left populated');
         $this->assertNotSame(PHP_SESSION_ACTIVE, session_status());
     }

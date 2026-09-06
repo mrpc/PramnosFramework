@@ -449,6 +449,7 @@ class AdminerBridge
         }
 
         $previousName = session_name();
+        $previousId   = (string) session_id();
 
         /*
          * `use_cookies => false`, and **restored afterwards**.
@@ -493,13 +494,17 @@ class AdminerBridge
             session_name($previousName);
 
             /*
-             * And the id, for the reason `Adminer::handOverSession()` sets out: a closed
-             * session leaves `session_id()` answering, and Adminer's own `session_start()`
-             * reuses whatever it finds there instead of reading its cookie. This method
-             * sets an id to do its repair, so it has to put that back too — otherwise the
-             * repair reintroduces exactly what the caller cleared before calling it.
+             * And the id **back to what the caller left**, which is not the same as clearing
+             * it.
+             *
+             * `Adminer::handOverSession()` chooses the id Adminer is to resume, and it has
+             * already made that choice by the time this runs. Clearing it here overrode that
+             * choice with the one state PHP cannot recover from: an id explicitly set to
+             * nothing, which stops `session_start()` consulting the cookie at all and mints a
+             * fresh session on every request. This method sets an id of its own to do its
+             * repair, so it puts the caller's back — no more than that.
              */
-            @session_id('');
+            @session_id($previousId);
 
             if (is_string($savedUseCookies)) {
                 ini_set('session.use_cookies', $savedUseCookies);
