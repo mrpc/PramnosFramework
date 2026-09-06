@@ -1085,6 +1085,29 @@ the other, and nothing looked wrong. With no constructor argument it now watches
 Pass a path explicitly and that path is the only one watched, because an application
 that named its own file has said which file it means.
 
+#### Paths that still answer while it is up
+
+The application's constructor answers the maintenance page and stops, before a route is
+resolved — which is right for traffic and wrong for the person who raised the flag.
+Maintenance is usually up *because* a schema is in flux, and that is exactly when somebody
+needs to look at it. So a short list of paths boots anyway:
+
+```php
+'maintenance' => ['exempt' => ['adminer', 'devpanel']],
+```
+
+`['adminer']` by default. Naming the key **replaces** the default rather than adding to it,
+so an installation that means "the panel as well" lists both.
+
+**It grants one thing: that the application boots for that path.** Every route's own
+authorisation still runs — for Adminer that is signed in plus `usertype >= 99`, or a
+development environment plus the DevPanel's floor — so anybody else gets the 404 that route
+gives everybody, and it is logged. Matching is segment-wise on the request path, so
+`/adminerator` is not exempt and a subdirectory install needs no configuring.
+
+Auto-migrations are held off by the flag regardless (`runAutoMigrations()` returns early
+while it is up), so booting here cannot start the thing maintenance was raised to prevent.
+
 #### Raising and clearing it by hand
 
 ```bash

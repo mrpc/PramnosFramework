@@ -193,11 +193,6 @@ class Application extends Base
          * application disabled this guard for every test after it in the same
          * process, and the suite started depending on its own order.
          */
-        if (!self::inConsoleContext()
-            && file_exists($this->maintenanceFlagFile())
-        ) {
-            $this->showError($this->maintenanceMessage());
-        }
         if (!defined('PRAMNOS_DEFINES')) {
             $this->setDefines();
         }
@@ -215,6 +210,21 @@ class Application extends Base
                 APP_PATH . DS . $appName . '.php'
             );
         }
+        /*
+         * Moved to here, after `app.php` is read, so the exemption below can be
+         * configured. What runs before it now is `setDefines()` and one file read —
+         * both cheap, neither of them a request. The maintenance page's own path is a
+         * literal `/`, so nothing here depends on a constant that is not set yet; that
+         * dependency is what once made this a fatal, and moving later reduces the class
+         * of it rather than adding to it.
+         */
+        if (!self::inConsoleContext()
+            && file_exists($this->maintenanceFlagFile())
+            && !$this->requestIsMaintenanceExempt()
+        ) {
+            $this->showError($this->maintenanceMessage());
+        }
+
         // Before anything builds a Request, because that is when the path is
         // split into controller and action — and the prefix must be gone by then.
         $this->beginRequest();
@@ -1529,6 +1539,71 @@ class Application extends Base
      * Display an error
      * @param string $msg Message to add
      */
+    /**
+     * Paths that still answer while the site is stopped.
+     *
+     * Maintenance exists to keep traffic off a schema in flux — and the person who
+     * raised it is usually the one who needs to *look* at that schema. Adminer behind
+     * the same page as everybody else meant the tool for inspecting a half-finished
+     * migration was unreachable for exactly the duration of one.
+     *
+     * ```php
+     * 'maintenance' => ['exempt' => ['adminer', 'devpanel']],
+     * ```
+     *
+     * ### What this grants, and what it does not
+     *
+     * Only that the application **boots** for that path. Every route's own
+     * authorisation still runs, and for `adminer` that is
+     * {@see \Pramnos\Application\Controllers\Adminer::mayOpen()}: signed in, and
+     * either `usertype >= 99` or a development environment plus the DevPanel's floor.
+     * Anybody else gets the 404 that route gives everybody else, and it is logged.
+     *
+     * So the loose matching below is not a hole. The worst a stray URL can do is boot
+     * an application that then refuses it — which is what an ordinary request does.
+     *
+     * Auto-migrations are already held off by the flag ({@see runAutoMigrations()}
+     * returns early while it is up), so booting here cannot start the thing the flag
+     * was raised to prevent.
+     *
+     * @var array<int, string>
+     */
+    public const MAINTENANCE_EXEMPT_DEFAULT = array('adminer');
+
+    /**
+     * Does this request name an exempt path?
+     *
+     * Segment-wise on the raw `REQUEST_URI`, because the base path is not known yet:
+     * `beginRequest()` has not run and there is no Request to ask. A subdirectory
+     * install therefore matches on any segment rather than only the first, which is the
+     * looseness the constant's docblock accounts for.
+     */
+    protected function requestIsMaintenanceExempt(): bool
+    {
+        $exempt = $this->applicationInfo['maintenance']['exempt']
+            ?? self::MAINTENANCE_EXEMPT_DEFAULT;
+
+        if (!is_array($exempt) || $exempt === array()) {
+            return false;
+        }
+
+        $path = (string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+
+        if ($path === '') {
+            return false;
+        }
+
+        $segments = array_filter(explode('/', strtolower($path)));
+
+        foreach ($exempt as $name) {
+            if (is_string($name) && in_array(strtolower(trim($name)), $segments, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * Whether the client asked for JSON rather than a page.
      *
