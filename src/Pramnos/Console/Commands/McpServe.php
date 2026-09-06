@@ -192,7 +192,7 @@ class McpServe extends Command
         return defined('TITLE') && TITLE !== '' ? (string) TITLE : 'Pramnos App';
     }
 
-    private function resolveServer(?\Pramnos\Application\Application $app): McpServer
+    protected function resolveServer(?\Pramnos\Application\Application $app): McpServer
     {
         // Prefer the container-bound server (has app-specific tools registered
         // via McpServiceProvider::boot()).
@@ -217,8 +217,43 @@ class McpServe extends Command
         // disagrees with itself.
         $server = new McpServer(self::applicationName($app), defined('VERSION') ? VERSION : '1.0.0');
 
-        McpServiceProvider::registerDefaults($server, $app);
+        try {
+            $this->registerDefaults($server, $app);
+        } catch (\Throwable $exception) {
+            /*
+             * To stderr, and only stderr: this process speaks JSON-RPC on stdout, so a
+             * diagnostic written there is a protocol violation the client reports as
+             * something else entirely.
+             *
+             * Without it a throw here ends the process at exit 255 with nothing anywhere
+             * a person is looking — the same silence `mcp:call` had.
+             */
+            fwrite(
+                STDERR,
+                'mcp:serve: a tool could not be registered, so the server has none: '
+                . get_class($exception) . ': ' . $exception->getMessage() . PHP_EOL
+            );
+
+            throw $exception;
+        }
 
         return $server;
     }
+
+    /**
+     * The provider's tool list, behind a seam.
+     *
+     * `protected` for the same reason the server builder above is: the failure this
+     * method's caller handles — a tool that cannot be constructed — comes from a class
+     * with twenty-one constructors, and there is no argument a test can pass that makes
+     * one of them throw without also being the bug under test somewhere else.
+     *
+     * A refusal path nothing exercises is a refusal path nobody has read back, and this
+     * one existed precisely because the previous behaviour was silence.
+     */
+    protected function registerDefaults(McpServer $server, ?\Pramnos\Application\Application $app): void
+    {
+        McpServiceProvider::registerDefaults($server, $app);
+    }
+
 }

@@ -148,6 +148,14 @@ day it is registered rather than the day somebody writes a test for it. What it 
 `find-symbol` reads source files and needs neither, so it works when nothing boots — which is
 when it is most likely to be wanted.
 
+The three that read a database are offered only when `$app->database` **is** a
+`Pramnos\Database\Database`, not merely when it is non-null. An application part-way
+through migrating to this framework has its own `Database` class, and a null check handed it
+straight into constructors typed against ours — a `TypeError` that cost not those three tools
+but the whole server, because one call registers all twenty-one and the throw landed before
+anything was added. `mcp:call status`, which touches no database, exited 255 with nothing on
+stdout or stderr.
+
 **Start with `status`.** It answers the four questions a session opens with — is the database
 up, are there migrations to run, is anything stuck, when did something last go wrong — and the
 alternative is finding out from a failure ten minutes in.

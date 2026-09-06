@@ -129,10 +129,48 @@ class McpCall extends Command
             defined('VERSION') ? VERSION : '1.0.0'
         );
 
-        \Pramnos\Mcp\McpServiceProvider::registerDefaults($server, $app);
+        try {
+            $this->registerDefaults($server, $app);
+        } catch (\Throwable $exception) {
+            /*
+             * A tool that cannot be built must not cost the command its voice.
+             *
+             * `registerDefaults()` is one call, so anything thrown while constructing a
+             * tool happens before the command can report — and the process ended at exit
+             * 255 with nothing on stdout or stderr, the fatal reaching only
+             * `php_error.log`. Somebody asking `mcp:call status`, a tool that touches no
+             * database, got silence for a reason two subsystems away.
+             *
+             * Rethrown as a runtime exception the console formats, so the message and the
+             * class both reach the terminal.
+             */
+            throw new \RuntimeException(
+                'A tool could not be registered, so no tool is available: '
+                . get_class($exception) . ': ' . $exception->getMessage(),
+                0,
+                $exception
+            );
+        }
 
         return $server;
     }
+
+    /**
+     * The provider's tool list, behind a seam.
+     *
+     * `protected` for the same reason the server builder above is: the failure this
+     * method's caller handles — a tool that cannot be constructed — comes from a class
+     * with twenty-one constructors, and there is no argument a test can pass that makes
+     * one of them throw without also being the bug under test somewhere else.
+     *
+     * A refusal path nothing exercises is a refusal path nobody has read back, and this
+     * one existed precisely because the previous behaviour was silence.
+     */
+    protected function registerDefaults(McpServer $server, ?\Pramnos\Application\Application $app): void
+    {
+        \Pramnos\Mcp\McpServiceProvider::registerDefaults($server, $app);
+    }
+
 
     /**
      * Every tool, with the schema a caller has to satisfy.

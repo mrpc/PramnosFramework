@@ -200,9 +200,28 @@ class McpServiceProvider extends ServiceProvider
             return;
         }
 
-        // Application introspection: what exists in *this* project. Two of them need a
-        // database and are skipped without one.
-        $db = $app->database ?? null;
+        /*
+         * Application introspection: what exists in *this* project. Three of them need a
+         * database and are skipped without one.
+         *
+         * `instanceof` rather than `!== null`, because those are different questions and
+         * only one of them is the one the tools ask. An application part-way through
+         * migrating to this framework has its own `Database` class — and a null check
+         * passed it straight into constructors typed against ours:
+         *
+         *     TypeError: ListTablesTool::__construct(): Argument #1 ($db) must be of type
+         *     Pramnos\Database\Database, App\Database\Database given
+         *
+         * **And it did not cost the three tools, it cost the server.** `registerDefaults()`
+         * is one call, so the throw happened before anything was registered: `mcp:call
+         * status` — a tool that touches no database — exited 255 with nothing on stdout or
+         * stderr, because the process died before the command could report. The other
+         * eighteen tools work perfectly well without a connection, which is the case this
+         * check is supposed to describe.
+         */
+        $db = ($app->database ?? null) instanceof \Pramnos\Database\Database
+            ? $app->database
+            : null;
 
         if ($db !== null) {
             $server->addTool(new ListTablesTool($db));
