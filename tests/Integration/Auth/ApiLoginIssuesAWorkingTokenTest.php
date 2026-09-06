@@ -286,19 +286,29 @@ class ApiLoginIssuesAWorkingTokenTest extends BaseTestCase
      * seconds behind the server's — which is most of them, some of the time, and produces a
      * login that fails only for some users and only sometimes. Twelve hours is generous enough
      * that nobody meets it; the `exp` claim is what actually bounds the token.
+     *
+     * The window is read on both sides of the act rather than once before it. `nbf` is
+     * computed from the clock *inside* `login()`, so comparing it against a `time()` taken
+     * beforehand fails whenever the second happens to tick between the two — a red suite
+     * roughly one run in a few hundred, for no defect. Bracketing is also the stronger
+     * assertion: it pins the offset at twelve hours instead of merely at least twelve.
      */
     public function testTheNotBeforeClaimToleratesAClientClockBehindTheServer(): void
     {
         // Arrange
         $_POST = ['username' => self::USERNAME, 'password' => self::PASSWORD];
-        $issuedAt = time();
+        $before = time();
 
         // Act
         $token = (string) ($this->decode($this->controller()->login())['access_token'] ?? '');
+        $after = time();
 
-        // Assert
+        // Assert — minted at some instant in [$before, $after], and backdated exactly 12h
         $claims = (array) \Pramnos\Auth\JWT::decode($token, self::KEY, ['HS256']);
-        $this->assertLessThanOrEqual($issuedAt - (3600 * 12), (int) $claims['nbf']);
+        $nbf    = (int) $claims['nbf'];
+
+        $this->assertGreaterThanOrEqual($before - (3600 * 12), $nbf);
+        $this->assertLessThanOrEqual($after - (3600 * 12), $nbf);
     }
 
     // ── When the installation cannot sign ─────────────────────────────────────
