@@ -167,6 +167,33 @@ class PolicyEngineRetentionMySQLTest extends TestCase
     }
 
     /** Remove every policy this class registered, whatever a test did. */
+    /**
+     * This class's own result out of a run that may carry other classes' policies.
+     *
+     * `run()` executes every policy in the store, and `clearPolicies()` removes only the
+     * ones aimed at this table — deleting the rest would be this class reaching into
+     * fixtures it does not own. So a policy another class registered and left behind is
+     * also in the results, usually reporting `error` because its target table is gone by
+     * then, and taking the first result was taking whichever came first.
+     *
+     * That made the assertion a statement about test ordering. It passed for as long as
+     * this class ran first and failed the moment it did not, naming a retention defect
+     * that was not there.
+     *
+     * @param  array<int, array<string, mixed>> $results
+     * @return array<string, mixed>
+     */
+    protected function ourResult(array $results): array
+    {
+        foreach ($results as $result) {
+            if (($result['target'] ?? null) === static::$table) {
+                return $result;
+            }
+        }
+
+        return array('status' => 'missing', 'target' => static::$table);
+    }
+
     protected function clearPolicies(): void
     {
         $policies = $this->db->schema()->resolveTableName('pramnos.framework_policies');
@@ -229,7 +256,7 @@ class PolicyEngineRetentionMySQLTest extends TestCase
         $results = $this->engine->run();
 
         // Assert
-        $this->assertSame('ok', $results[0]['status'] ?? 'missing');
+        $this->assertSame('ok', $this->ourResult($results)['status']);
         $this->assertSame(5, $this->rowCount(), 'only the recent rows survive');
     }
 
@@ -249,7 +276,7 @@ class PolicyEngineRetentionMySQLTest extends TestCase
         $results = $this->engine->run();
 
         // Assert
-        $this->assertSame('ok', $results[0]['status'] ?? 'missing');
+        $this->assertSame('ok', $this->ourResult($results)['status']);
         $this->assertSame(20, $this->rowCount());
     }
 
@@ -269,7 +296,7 @@ class PolicyEngineRetentionMySQLTest extends TestCase
         $results = $this->engine->run();
 
         // Assert
-        $this->assertSame('ok', $results[0]['status'] ?? 'missing');
+        $this->assertSame('ok', $this->ourResult($results)['status']);
         $this->assertSame(0, $this->rowCount());
     }
 

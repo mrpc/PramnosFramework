@@ -67,6 +67,21 @@ class GdprTokenResolutionTest extends TestCase
         }
 
         \Pramnos\Application\Application::getInstance()->database = $database;
+
+        /*
+         * The tables this path reads, rather than the ones another class happened to
+         * leave behind.
+         *
+         * `userFromToken()` goes through `User::loadByToken()`, which queries
+         * `usertokens` — and asking a token to resolve to nobody still requires the
+         * table to be there to answer "no rows". Without this the class passed only on a
+         * database warmed by earlier tests and errored on a cold one with
+         * `Table 'usertokens' doesn't exist`, which reads as a schema defect and is not.
+         *
+         * `setupDb()` creates `users` and `usertokens` together and is `IF NOT EXISTS`,
+         * so it costs nothing on a warm database.
+         */
+        \Pramnos\User\User::setupDb();
     }
 
     protected function tearDown(): void

@@ -68,6 +68,22 @@ class NavPermissionStoreTest extends BaseTestCase
 
         Permissions::setupDb(false);
 
+        /*
+         * `users` as well, and it is not incidental.
+         *
+         * Which store `Permissions` uses is decided at run time: `authserver.permissions`
+         * when the auth migrations have created it, and the legacy `#PREFIX#permissions`
+         * otherwise — which is what `setupDb()` above makes. The legacy read path builds a
+         * `User` to answer, so it needs this table, and `NavRegistry` treats a store it
+         * cannot reach as no opinion and **shows** the item.
+         *
+         * So without this the test passed only on a database warm from other classes, and
+         * on a cold one it failed with "a denied permission still showed its menu item" —
+         * naming a defect that was not there. A test whose verdict depends on what ran
+         * before it is not reporting on the code.
+         */
+        \Pramnos\User\User::setupDb();
+
         NavRegistry::reset();
         $this->clearRules();
 
