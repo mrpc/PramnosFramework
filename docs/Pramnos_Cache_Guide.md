@@ -81,6 +81,46 @@ hostname is yours.
 > section asked for memcached, failed, walked down to memcache, failed, and cached to disk.
 > Reported from a project doing exactly that, with Redis running beside it the whole time.
 
+### When a cache that was working stops
+
+A configured backend that cannot be reached — a redis restart, a network blip — falls to
+the **local file cache**, rather than to the next network technology down. Two things follow
+from that, both deliberate:
+
+**A cache miss is never fatal.** Every rung of the ladder constructs a class, and anything
+thrown while doing so used to escape the cache, its caller and the request. It cost a
+production installation about a hundred queue tasks: the fatal killed the worker mid-task,
+the row stayed `processing` behind a lock nobody held, and systemd restarted the worker to
+do it again. A caching layer whose fault domain is larger than the thing it accelerates is
+not a caching layer, so any failure now lands on the file adapter and writes a log line. If
+the filesystem fails too, caching switches off — `load()` and `save()` return false on that,
+so callers take the path they take when nothing is cached.
+
+The floor is the local disk rather than an in-memory store, because an array cache is per
+*instance* and `Database::cacheflush()` would clear one object's memory while the data sat in
+another's; and rather than off, because features are built on the cache — one of them is
+single-use enforcement for a TOTP code, and removing a security control quietly is not a
+degradation.
+
+**Redis does not silently become memcached.** They hold different data. A worker that moves
+to a different, empty cache mid-run is reading a different world from the web requests
+beside it, and the only thing that says so is a log line nobody is watching at the time. A
+cache that is *absent* is a state every caller already handles; a cache that is *someone
+else's* is not.
+
+The ladder is still available for an installation that has weighed the trade:
+
+```php
+'cache' => ['method' => 'redis', 'fallback' => true],   // redis → memcached → memcache → file
+```
+
+Choosing a backend whose extension is missing is a configuration error rather than a
+runtime failure, and it takes the same path: a log line and the local file cache.
+
+And a credential the cache or a tool needs is refused rather than stored in the clear —
+see [`KEY_REQUIRED_SETTINGS`](Pramnos_Security_Guide.md#the-read-only-account-if-you-want-one)
+for `database_readonly_dsn`, which needs an `APP_KEY` before it can be set at all.
+
 ### Application Settings Integration
 
 The cache system automatically loads configuration from application settings:

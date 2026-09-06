@@ -25,6 +25,35 @@ class DbInspectToolTest extends TestCase
 {
     private \Pramnos\Database\Database $db;
 
+    /** @var string|null The APP_KEY as the environment had it */
+    private ?string $originalAppKey = null;
+
+    /**
+     * `database_readonly_dsn` is refused without one — see
+     * {@see \Pramnos\Application\Settings::KEY_REQUIRED_SETTINGS}. A real installation
+     * configuring a read-only account has a key, so a fixture that stores a DSN needs one
+     * too; without it these tests would be asserting against the refusal.
+     */
+    private function withAppKey(): void
+    {
+        $this->originalAppKey = getenv('APP_KEY') === false ? null : (string) getenv('APP_KEY');
+        putenv('APP_KEY=test-key-for-db-inspect');
+        $_ENV['APP_KEY'] = 'test-key-for-db-inspect';
+    }
+
+    private function restoreAppKey(): void
+    {
+        if ($this->originalAppKey === null) {
+            putenv('APP_KEY');
+            unset($_ENV['APP_KEY']);
+
+            return;
+        }
+
+        putenv('APP_KEY=' . $this->originalAppKey);
+        $_ENV['APP_KEY'] = $this->originalAppKey;
+    }
+
     protected function setUp(): void
     {
         Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
@@ -35,6 +64,7 @@ class DbInspectToolTest extends TestCase
             $this->db->connect(true);
         }
 
+        $this->withAppKey();
         PersonalDataRegistry::reset();
         Settings::setSetting('database_readonly_dsn', '', false);
 
@@ -45,6 +75,7 @@ class DbInspectToolTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->restoreAppKey();
         PersonalDataRegistry::reset();
         Settings::setSetting('database_readonly_dsn', '', false);
     }

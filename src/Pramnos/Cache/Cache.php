@@ -287,6 +287,89 @@ class Cache extends \Pramnos\Framework\Base
      */
     protected function initializeAdapter($method)
     {
+        try {
+            $this->buildAdapter($method);
+        } catch (\Throwable $exception) {
+            $this->recoverFromAdapterFailure($method, $exception);
+        }
+    }
+
+    /**
+     * A failed adapter becomes the local one, or nothing at all.
+     *
+     * Two attempts at this were wrong and the suite said so both times, which is worth
+     * recording because the wrong answers are the plausible ones.
+     *
+     * **`ArrayAdapter` was wrong**: per *instance*, so `Database::cacheflush()` clears one
+     * object's memory while the data sits in another's. A cached value a flush cannot
+     * reach is worse than a miss — caught by a controller test that dropped a table,
+     * flushed, and got the previous test's row.
+     *
+     * **Switching caching off was wrong too**, and worse. Nine features here are built on
+     * the cache, and one of them is `TotpReplayClaim` — single-use enforcement for a TOTP
+     * code. "No cache" silently removes a security control, which is not a degradation
+     * anybody would choose.
+     *
+     * `file` is the answer: local, so it is nobody else's data; shared across processes
+     * and flushable, so the semantics every caller was written against still hold; and
+     * the ladder's historic last rung, so no feature loses its cache. It is what the
+     * filing meant by "degrade to no cache and keep working" — the complaint was redis
+     * silently becoming *memcached*, a second network store holding different data, not
+     * redis becoming the local disk.
+     */
+    protected function recoverFromAdapterFailure($method, ?\Throwable $exception = null)
+    {
+        $reason = $exception === null
+            ? 'the adapter could not be built'
+            : get_class($exception) . ': ' . $exception->getMessage();
+
+        self::$_connected[strtolower((string) $method)] = false;
+
+        if (strtolower((string) $method) === 'file') {
+            // The floor itself failed. Nothing below it, and `caching = false` is a state
+            // the file branch has always been able to reach and every caller handles.
+            $this->logAdapterFallback((string) $method, 'none', $reason);
+            $this->disableCaching($method);
+
+            return;
+        }
+
+        $this->logAdapterFallback((string) $method, 'file', $reason);
+
+        try {
+            $this->buildAdapter('file');
+        } catch (\Throwable $inner) {
+            /*
+             * A cache must not be able to kill the process it serves.
+             *
+             * Every rung of the ladder below constructs a class, and any throw from one
+             * escaped this method and the caller and the request. On a production
+             * installation that arrived as
+             * `Error: Class "Pramnos\Cache\Adapter\MemcachedAdapter" not found` — from
+             * a redis blip taking the fallback path — inside `queue:process --daemon`.
+             *
+             * The cost was not the cache. The fatal killed the worker mid-task, so the
+             * task row stayed `processing` behind a lock nobody held and nothing picked
+             * it up again; systemd restarted the worker to do it again five seconds
+             * later. Two hours: 101 tasks orphaned, 34 failures recorded. The worker died
+             * before it could write its own failure, so the ledger under-reported by a
+             * factor of three and the queue looked slightly unwell rather than lossy.
+             *
+             * A caching layer whose fault domain is larger than the thing it accelerates
+             * is not a caching layer. So: degrade, loudly, and carry on.
+             */
+            $this->logAdapterFallback('file', 'none', get_class($inner) . ': ' . $inner->getMessage());
+            $this->disableCaching('file');
+        }
+    }
+
+    /**
+     * Build the adapter for one method, falling down the ladder as configured.
+     *
+     * @param string $method cache method
+     */
+    protected function buildAdapter($method)
+    {
         $methodKey = strtolower($method);
 
         switch ($methodKey) {
@@ -303,13 +386,12 @@ class Cache extends \Pramnos\Framework\Base
                     if (!$redisAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         // Don't set the failed adapter, fallback to memcached
-                        $this->logAdapterFallback(
+                        $this->fallbackOrDegrade(
                             'redis',
                             'memcached',
                             'could not connect to ' . $this->hostname
                             . ':' . $this->port
                         );
-                        $this->initializeAdapter('memcached');
                     } else {
                         self::$_connected[$methodKey] = true;
                         // Only set adapter if connection succeeded
@@ -320,11 +402,10 @@ class Cache extends \Pramnos\Framework\Base
                     // @codeCoverageIgnoreStart
                     // \Redis extension present in test env; this else-branch
                     // only runs when Redis is not installed.
-                    $this->logAdapterFallback(
+                    $this->fallbackOrDegrade(
                         'redis', 'memcached',
                         'the \Redis extension is not installed'
                     );
-                    $this->initializeAdapter('memcached');
                     // @codeCoverageIgnoreEnd
                 }
                 break;
@@ -350,13 +431,12 @@ class Cache extends \Pramnos\Framework\Base
                     if (!$memcachedAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
                         // Don't set the failed adapter, fallback to memcache
-                        $this->logAdapterFallback(
+                        $this->fallbackOrDegrade(
                             'memcached',
                             'memcache',
                             'could not connect to ' . $this->hostname
                             . ':' . $this->port
                         );
-                        $this->initializeAdapter('memcache');
                     } else {
                         self::$_connected[$methodKey] = true;
                         // Only set adapter if connection succeeded
@@ -365,11 +445,10 @@ class Cache extends \Pramnos\Framework\Base
                     }
                     // @codeCoverageIgnoreEnd
                 } else {
-                    $this->logAdapterFallback(
+                    $this->fallbackOrDegrade(
                         'memcached', 'memcache',
                         'the \Memcached extension is not installed'
                     );
-                    $this->initializeAdapter('memcache');
                 }
                 break;
 
@@ -387,13 +466,12 @@ class Cache extends \Pramnos\Framework\Base
 
                     if (!$memcacheAdapter->connect()) {
                         self::$_connected[$methodKey] = false;
-                        $this->logAdapterFallback(
+                        $this->fallbackOrDegrade(
                             'memcache',
                             'file',
                             'could not connect to ' . $this->hostname
                             . ':' . $this->port
                         );
-                        $this->initializeAdapter('file');
                     } else {
                         $this->adapter = $memcacheAdapter;
                         self::$_connected[$methodKey] = true;
@@ -401,11 +479,10 @@ class Cache extends \Pramnos\Framework\Base
                     }
                     // @codeCoverageIgnoreEnd
                 } else {
-                    $this->logAdapterFallback(
+                    $this->fallbackOrDegrade(
                         'memcache', 'file',
                         'the \Memcache extension is not installed'
                     );
-                    $this->initializeAdapter('file');
                 }
                 break;
 
@@ -473,6 +550,75 @@ class Cache extends \Pramnos\Framework\Base
      * @param string $reason Why the first one could not be used
      * @return void
      */
+    /**
+     * Caching off — the floor below `file`, reached only when the filesystem fails too.
+     *
+     * A state the file branch has always been able to reach and every caller already
+     * handles: `load()` and `save()` return false on it, so the code around them takes
+     * the path it takes when nothing is cached.
+     *
+     * Not the *first* thing tried, which two earlier versions of this got wrong — see
+     * {@see recoverFromAdapterFailure()} for why an in-memory store and an outright
+     * disable were both worse than the local disk.
+     */
+    protected function disableCaching($method)
+    {
+        self::$_connected[strtolower((string) $method)] = false;
+        $this->adapter = null;
+        $this->caching = false;
+        $this->method  = 'none';
+    }
+
+    /**
+     * May a failing cache be replaced by a different technology?
+     *
+     * **No, by default**, and that is a change. The ladder was redis → memcached →
+     * memcache → file, applied silently on a connection failure — so an installation
+     * configured for redis could become an installation running on memcached, mid-run,
+     * on a blip.
+     *
+     * They hold different data. A worker that moves to a different, empty cache while
+     * the web requests beside it keep reading the old one is reading a different world
+     * from theirs, and the only thing that says so is a log line nobody is watching at
+     * the time. A cache that is *absent* is a state every caller already handles; a cache
+     * that is *someone else's* is not.
+     *
+     * The ladder is still there for an installation that wants it:
+     *
+     * ```php
+     * // app.php
+     * 'cache' => ['fallback' => true],
+     * ```
+     */
+    protected function fallbackEnabled(): bool
+    {
+        $configured = \Pramnos\Application\Application::currentInstance()
+            ?->applicationInfo['cache']['fallback'] ?? null;
+
+        return $configured === true || $configured === 1 || $configured === '1';
+    }
+
+    /**
+     * Move down the ladder, or stop here.
+     *
+     * @param string $from   The method that could not be used
+     * @param string $to     The next rung
+     * @param string $reason What went wrong
+     */
+    protected function fallbackOrDegrade($from, $to, $reason)
+    {
+        if (!$this->fallbackEnabled()) {
+            $this->logAdapterFallback($from, 'file', $reason . ' (cross-technology '
+                . 'fallback is off; set cache.fallback to enable it)');
+            $this->initializeAdapter('file');
+
+            return;
+        }
+
+        $this->logAdapterFallback($from, $to, $reason);
+        $this->initializeAdapter($to);
+    }
+
     protected function logAdapterFallback($from, $to, $reason)
     {
         $key = $from . '>' . $to;

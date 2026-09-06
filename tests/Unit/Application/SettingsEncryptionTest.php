@@ -222,4 +222,113 @@ class SettingsEncryptionTest extends TestCase
         $this->assertIsArray($list);
         $this->assertContains('smtp_pass', $list);
     }
+
+    /**
+     * An optional credential is refused rather than stored in the clear.
+     *
+     * `ENCRYPTED_SETTINGS` means "encrypt this when there is something to encrypt with",
+     * and for `smtp_pass` that is right: an installation that never ran `key:generate`
+     * must still be able to save its mail settings, and an unreadable credential is worse
+     * than the exposure.
+     *
+     * That reasoning does not carry to `database_readonly_dsn`. It is **optional** —
+     * nothing stops working without it, `db-inspect` uses the ordinary connection — so
+     * "store it in plaintext rather than fail" trades a database password for a
+     * convenience nobody asked to pay for. And it failed the way that matters: silently,
+     * into a table, looking exactly like the encrypted case.
+     *
+     * Reported by an application that read the two lists together and worked out that
+     * configuring this on a production server with no `APP_KEY` would write a database
+     * password in the clear. It had not been written yet.
+     */
+    public function testAnOptionalCredentialIsRefusedWithNoKey(): void
+    {
+        // Arrange — an installation that never ran key:generate
+        putenv('APP_KEY');
+        unset($_ENV['APP_KEY']);
+
+        // Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/key:generate/');
+
+        // Act
+        \Pramnos\Application\Settings::setSetting(
+            'database_readonly_dsn',
+            'reader:secret@db:3306/app',
+            false
+        );
+    }
+
+    /**
+     * And nothing is left behind by the refusal — not even in memory.
+     *
+     * A value that reached `self::$settings` before the throw would be readable for the
+     * rest of the request by anything calling `getSetting()`, which is most of the
+     * exposure the refusal exists to prevent.
+     */
+    public function testTheRefusalStoresNothingAtAll(): void
+    {
+        // Arrange
+        putenv('APP_KEY');
+        unset($_ENV['APP_KEY']);
+
+        // Act
+        try {
+            \Pramnos\Application\Settings::setSetting(
+                'database_readonly_dsn',
+                'reader:secret@db:3306/app',
+                false
+            );
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        // Assert
+        $this->assertNotSame(
+            'reader:secret@db:3306/app',
+            \Pramnos\Application\Settings::getSetting('database_readonly_dsn')
+        );
+    }
+
+    /**
+     * With a key it stores normally, which is the control.
+     *
+     * Without it, a `setSetting()` that always threw for this key would satisfy both
+     * tests above and make the setting unusable.
+     */
+    public function testWithAKeyItStoresNormally(): void
+    {
+        // Act — setUp() has already put a key in place
+        \Pramnos\Application\Settings::setSetting(
+            'database_readonly_dsn',
+            'reader:secret@db:3306/app',
+            false
+        );
+
+        // Assert — readable back as the plaintext, decrypted on the way out
+        $this->assertSame(
+            'reader:secret@db:3306/app',
+            \Pramnos\Application\Settings::getSetting('database_readonly_dsn')
+        );
+    }
+
+    /**
+     * `smtp_pass` keeps the old behaviour, because its reasoning still holds.
+     *
+     * The distinction is the whole of this change: an installation with no key must still
+     * be able to save its mail settings. Asserted so that "refuse a credential without a
+     * key" cannot quietly grow to cover it.
+     */
+    public function testSmtpPasswordStillSavesWithoutAKey(): void
+    {
+        // Arrange
+        putenv('APP_KEY');
+        unset($_ENV['APP_KEY']);
+
+        // Act
+        \Pramnos\Application\Settings::setSetting('smtp_pass', 'mail-secret', false);
+
+        // Assert
+        $this->assertSame('mail-secret', \Pramnos\Application\Settings::getSetting('smtp_pass'));
+    }
 }

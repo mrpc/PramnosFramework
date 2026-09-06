@@ -385,16 +385,65 @@ class CacheTest extends TestCase
     }
 
     /**
-     * Tests fallback behavior for redis/memcached when extensions are absent.
+     * A cache that cannot be reached becomes a local one, not a different technology.
+     *
+     * This asserted the old ladder — redis → memcached → memcache → file, applied
+     * silently on a connection failure. They hold different data: an installation
+     * configured for redis becoming one running on memcached, mid-run, on a blip, means a
+     * worker reading a different world from the web requests beside it, with only a log
+     * line to say so.
+     *
+     * `file` is the answer — the local disk, not the next network store along. It is
+     * nobody else's data, it is shared across processes and flushable so the semantics
+     * every caller was written against still hold, and it is the ladder's historic last
+     * rung so no feature loses its cache.
+     *
+     * Two other answers were tried and both were worse. An in-memory store is per
+     * *instance*, so `Database::cacheflush()` clears one object's memory while the data
+     * sits in another's. Switching caching off removes features built on it, one of
+     * which is single-use enforcement for a TOTP code — a security control, gone quietly.
      */
-    public function testFallbackWhenExtensionsAbsent(): void
+    public function testAnUnreachableCacheFallsToTheLocalDiskNotToAnotherServer(): void
     {
-        // Redis should fall back to memcached -> memcache -> file when class/extension doesn't exist
+        // Act + Assert
         $cacheRedis = new Cache(null, null, 'redis');
         $this->assertSame('file', $cacheRedis->getAdapter()->getStats()['method']);
+        $this->assertTrue($cacheRedis->caching, 'caching was switched off rather than degraded');
 
         $cacheMemcache = new Cache(null, null, 'memcache');
         $this->assertSame('file', $cacheMemcache->getAdapter()->getStats()['method']);
+    }
+
+    /**
+     * The ladder is still there for an installation that asks for it.
+     *
+     * `'cache' => ['fallback' => true]` in `app.php`. Opt-in rather than removed: an
+     * installation that has weighed the trade and wants memcached when redis is gone can
+     * still say so.
+     */
+    public function testTheLadderStillWorksWhenTheInstallationAsksForIt(): void
+    {
+        // Arrange
+        $app = \Pramnos\Application\Application::getInstance();
+        $saved = $app->applicationInfo['cache'] ?? null;
+        $app->applicationInfo['cache'] = ['fallback' => true];
+
+        try {
+            // Act — no memcached/memcache extension here, so it walks the whole ladder
+            $cache = new Cache(null, null, 'redis');
+
+            // Assert — the same destination as without the ladder, which is the point:
+            // the difference is the rungs tried on the way, and with no memcached or
+            // memcache installed there is nothing to stop at.
+            $this->assertSame('file', $cache->getAdapter()->getStats()['method']);
+            $this->assertTrue($cache->caching);
+        } finally {
+            if ($saved === null) {
+                unset($app->applicationInfo['cache']);
+            } else {
+                $app->applicationInfo['cache'] = $saved;
+            }
+        }
     }
 
     /**
@@ -403,7 +452,8 @@ class CacheTest extends TestCase
     public function testConstructorWithEmptyMethod(): void
     {
         $cache = new Cache(null, null, null, ['method' => '']);
-        // method defaults to memcached, which falls back to file
+        // Defaults to memcached; with no extension it lands on the local disk directly
+        // rather than walking through memcache on the way.
         $this->assertSame('file', $cache->getAdapter()->getStats()['method']);
     }
 

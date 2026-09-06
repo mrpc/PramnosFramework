@@ -194,6 +194,32 @@ class Settings extends \Pramnos\Framework\Base
     ];
 
     /**
+     * Of those, the ones that must **not** be stored at all without a key.
+     *
+     * `ENCRYPTED_SETTINGS` means "encrypt this when there is something to encrypt
+     * with", and for `smtp_pass` that is right: an installation that never ran
+     * `key:generate` must still be able to save its mail settings, and an unreadable
+     * credential is worse than the exposure. The row converts itself once a key exists.
+     *
+     * That reasoning does not carry to every credential, and it did not carry to the one
+     * added beside it. `database_readonly_dsn` is **optional** — nothing stops working
+     * without it, `db-inspect` simply uses the ordinary connection — so "store it in
+     * plaintext rather than fail" trades a database password for a convenience nobody
+     * asked to pay for. And it fails the way that matters most: silently, into a table,
+     * looking exactly like the encrypted case.
+     *
+     * Reported by an application that read the two lists together and worked out that
+     * configuring this on a production server with no `APP_KEY` would write a database
+     * password in the clear. It had not been written yet.
+     *
+     * So these refuse instead. A refusal with `key:generate` in it is one command from
+     * being resolved; a password in a settings table is not something anybody notices.
+     */
+    protected const KEY_REQUIRED_SETTINGS = [
+        'database_readonly_dsn',
+    ];
+
+    /**
      * Get a setting
      *
      * Values named in {@see ENCRYPTED_SETTINGS} are decrypted here, so a caller
@@ -391,6 +417,26 @@ class Settings extends \Pramnos\Framework\Base
      */
     static function setSetting($setting, $value, $writeToDatabase = true)
     {
+        /*
+         * Refused before anything is stored, in memory or in the row.
+         *
+         * See KEY_REQUIRED_SETTINGS: for an optional credential, "store it in plaintext
+         * rather than fail" is the wrong trade, and it fails silently into a table where
+         * it looks exactly like the encrypted case.
+         */
+        if (is_string($value)
+            && $value !== ''
+            && in_array($setting, static::KEY_REQUIRED_SETTINGS, true)
+            && !\Pramnos\Security\Encrypter::isAvailable()
+        ) {
+            throw new \RuntimeException(
+                'Refusing to store `' . $setting . '`: it is a credential and this '
+                . 'installation has no APP_KEY to encrypt it with, so the value would go '
+                . 'into the settings table in plaintext. Run `php pramnos key:generate` '
+                . 'first.'
+            );
+        }
+
         // The in-memory store keeps whatever the caller passed; only the row is
         // encrypted, and getSetting() decrypts on the way back out. Storing the
         // ciphertext here too would mean the value read within this same request

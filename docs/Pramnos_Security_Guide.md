@@ -1423,7 +1423,12 @@ settings use:
 Settings::setSetting('database_readonly_dsn', 'app_readonly:secret@localhost:5432/app');
 ```
 
-It is stored encrypted, like `smtp_pass`, because it is a credential.
+It is stored encrypted, and **refused outright without an `APP_KEY`** — unlike
+`smtp_pass`, which is stored in the clear rather than lost, because an installation with no
+key must still be able to save its mail settings. This one is optional: nothing stops
+working without it, `db-inspect` uses the ordinary connection, so "plaintext rather than
+fail" would trade a database password for a convenience nobody asked to pay for. Run
+`php pramnos key:generate` first and the setting takes.
 
 **An account that is configured and unusable is an error, never a quiet fall back to the
 writable connection.** That is the failure where somebody believes they have a boundary and
