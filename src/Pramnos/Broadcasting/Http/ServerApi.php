@@ -96,6 +96,9 @@ final class ServerApi
             $method === 'GET' && $resource === 'metrics'
                 => ['status' => 200, 'body' => $this->server->stats()],
             $method === 'GET' && preg_match('#^channels/([^/]+)/users$#', $resource, $m) === 1
+                // Decoded on purpose: `$m[1]` is a segment of the **raw** request path, which
+                // is still percent-encoded — unlike anything from `$_GET`, which PHP has
+                // already decoded and where a second pass is a bug.
                 => $this->channelUsers(urldecode($m[1])),
             $method === 'GET' && preg_match('#^channels/([^/]+)$#', $resource, $m) === 1
                 => $this->channel(urldecode($m[1]), $query),

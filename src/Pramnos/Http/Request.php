@@ -54,6 +54,28 @@ class Request extends Base
      */
     public static $requestUri='';
 
+    /**
+     * This object's own request path, independent of the static above.
+     *
+     * **A static is only this request's until something else sets it.** Anything deciding
+     * *policy* from `self::$requestUri` is deciding from whatever was written last — a second
+     * request in a long-lived process, a `Request::create()` built for a different URL, a
+     * `resetInstance()` that never ran.
+     *
+     * That is not theoretical and it is not cosmetic: `CsrfMiddleware::isExempt()` reads the
+     * first path segment to decide whether a `POST` needs a token **at all**, so a leftover
+     * value whose first segment happens to be an exempt one turns the CSRF check off and
+     * nothing says so. It was demonstrable in this suite — a test asserting that a form
+     * without a token is refused passed alone and failed in the full run, because the path
+     * belonged to an earlier test.
+     *
+     * So each instance carries the path it was constructed for, and a caller with the object
+     * in its hand can ask *it* rather than the process.
+     *
+     * @var string
+     */
+    protected $ownUri = '';
+
     public static $requestMethod='GET';
 
     /**
@@ -168,6 +190,8 @@ class Request extends Base
     public static function resetInstance(): void
     {
         self::$instance = null;
+        // The instances' own `$ownUri` needs no reset: it belongs to the object, which is the
+        // whole point of it. {@see $ownUri}
         self::$requestUri = '';
         self::$requestMethod = 'GET';
         self::$rawInput = null;
@@ -222,8 +246,13 @@ class Request extends Base
     public static function create($uri, $method="GET")
     {
         $request = new Request();
-        self::$requestUri = trim((string) $uri, '/');
+
+        // The instance carries the URI it was created for, so a caller holding this object
+        // can ask it rather than the process. {@see $ownUri}
+        $request->ownUri     = trim((string) $uri, '/');
+        self::$requestUri    = $request->ownUri;
         self::$requestMethod = strtoupper($method);
+
         return $request;
     }
 
@@ -597,8 +626,102 @@ class Request extends Base
     /**
      * Class constructor
      */
+    /**
+     * The path of **this** request, computed now rather than remembered.
+     *
+     * `self::$requestUri` is a static, and a static is only this request's until something
+     * else sets it — a second request in a long-lived process, a test that constructed a
+     * `Request` for a different URL, a `resetInstance()` that never ran. Anything deciding
+     * *policy* from it is deciding from whatever was there last.
+     *
+     * That is not hypothetical and it is not cosmetic: `CsrfMiddleware::isExempt()` reads the
+     * first path segment to decide whether a `POST` needs a token at all, so a stale value
+     * whose first segment happens to be an exempt one **silently turns the CSRF check off**.
+     * Two tests in this suite demonstrate the leak — they pass alone and fail behind a
+     * broader filter, because the value belonged to an earlier test.
+     *
+     * The same transformation the constructor applies, in one place so the two cannot
+     * disagree: the front controller's directory is stripped for a subdirectory install, and
+     * only when the request really starts with it. Reading `$_SERVER['REQUEST_URI']` raw
+     * instead would leave `/myapp/www` as the first segment on such an install and stop
+     * exempting the paths that must stay exempt.
+     */
+    public static function currentUri(): string
+    {
+        if (!isset($_SERVER['REQUEST_URI'])) {
+            return '';
+        }
+
+        $uri = trim((string) $_SERVER['REQUEST_URI'], '/');
+
+        if (!isset($_SERVER['PHP_SELF'])) {
+            return $uri;
+        }
+
+        $directory = rtrim(
+            str_replace('\\', '/', dirname((string) $_SERVER['PHP_SELF'])),
+            '/'
+        );
+
+        if ($directory !== ''
+            && $directory !== '.'
+            && str_starts_with((string) $_SERVER['REQUEST_URI'], $directory . '/')
+        ) {
+            return trim(substr((string) $_SERVER['REQUEST_URI'], strlen($directory)), '/');
+        }
+
+        return $uri;
+    }
+
+    /**
+     * Is this value safe to put in a `Location` header without leaving this site?
+     *
+     * **A local path, and only a local path.** Five ways for something to look like one and
+     * not be, each of which has been an open redirect somewhere:
+     *
+     * | | |
+     * |---|---|
+     * | `https://evil.example/x` | another origin, said plainly |
+     * | `//evil.example/x` | **protocol-relative** — a browser reads it as another host, and it begins with a slash |
+     * | `/\evil.example/x` | the same trick with a backslash, which browsers normalise |
+     * | `javascript:alert(1)` | a scheme needs no slashes to be one |
+     * | `/x%0d%0aSet-Cookie:…` | a newline in a `Location` header is **response splitting** |
+     *
+     * The CR/LF rule is the one that is easy to leave out and the only one that is not merely
+     * a redirect: a header value containing a newline ends the header and starts another, so
+     * the caller writes the rest of the response.
+     *
+     * **There is deliberately no rule about a colon.** The filing that prompted this asked
+     * for one — reject a `:` before the first `/`, which is what `javascript:` looks like —
+     * and once a leading slash is *required* it cannot help: `javascript:alert(1)` has no
+     * leading slash and is already refused, and `/https://evil.example` is resolved by a
+     * browser against this origin, so it is a path on this site and harmless. What such a
+     * rule would do is refuse a legitimate path that contains a colon — `/media/urn:isbn:1` —
+     * and send the user to the site root instead, which is the same silent misdirection this
+     * method exists to prevent.
+     *
+     * Callers fall back to `sURL` on a false, which is the destination they already use when
+     * there is nothing to redirect to at all.
+     */
+    public static function isLocalPath(string $url): bool
+    {
+        if ($url === '' || $url[0] !== '/') {
+            return false;
+        }
+
+        // Protocol-relative, in both spellings.
+        if (isset($url[1]) && ($url[1] === '/' || $url[1] === '\\')) {
+            return false;
+        }
+
+        // A newline anywhere is response splitting, not navigation.
+        return !preg_match('/[\r\n\x00]/', $url);
+    }
+
     public function __construct()
     {
+        $this->ownUri = static::currentUri();
+
         if (isset($_SERVER['REQUEST_URI'])) {
             self::$requestUri = trim($_SERVER['REQUEST_URI'], '/');
             /**
@@ -1103,7 +1226,36 @@ class Request extends Base
      */
     public function getRequestUri()
     {
-        return self::$requestUri;
+        // This object's own path, falling back to the process's when it has none — which is
+        // every CLI caller, where `$_SERVER['REQUEST_URI']` does not exist. Convenient here
+        // and **wrong for a security decision**: {@see ownRequestUri()}.
+        return $this->ownUri !== '' ? $this->ownUri : self::$requestUri;
+    }
+
+    /**
+     * This object's path and nothing else — empty when it has none.
+     *
+     * The difference from {@see getRequestUri()} is the fallback, and the fallback is the
+     * leak. `self::$requestUri` is a static, so falling back to it means answering with
+     * whatever was written last: a second request in a long-lived process, a
+     * `Request::create()` built for another URL.
+     *
+     * For a *convenience* reader that is the friendly behaviour. For anything deciding
+     * **policy** it is not, and `CsrfMiddleware::isExempt()` decides whether a `POST` needs a
+     * token at all — so a leftover path whose first segment happens to be an exempt one turns
+     * the CSRF check off with nothing to show for it.
+     *
+     * Demonstrated in this suite rather than argued: a test asserting that a form without a
+     * token is refused passes on its own and fails beside the CSRF tests, because those build
+     * a request for `/unsubscribe` — an exempt path — and the static still said so afterwards.
+     *
+     * Empty is the honest answer where there is no request, and a caller deciding policy
+     * should read it as *"I cannot tell"* and take the safe branch. `isExempt()` does: no
+     * segment means not exempt, so the check runs.
+     */
+    public function ownRequestUri(): string
+    {
+        return $this->ownUri;
     }
 
     /**

@@ -209,6 +209,10 @@ class PasskeyService implements PasskeyServiceInterface
             ->table(self::TABLE)
             ->where('credentialid', $credentialId)
             ->update(['is_active' => false]);
+
+        // The memoised list is now wrong for this user. {@see activeCredentialIds()}
+        $this->forgetCredentialIds($userId);
+
         return true;
     }
 
@@ -322,6 +326,38 @@ class PasskeyService implements PasskeyServiceInterface
      */
     protected function activeCredentialIds(int $userId): array
     {
+        /*
+         * Memoised per user, on the instance.
+         *
+         * Three callers in the framework alone — `FactorEnrolment` twice and `LoginFlow` once
+         * — and each is right to ask; **none can know another already did.** So one page load
+         * ran the same statement three times:
+         *
+         * ```
+         * 0.29ms  SELECT credential_id FROM passkey_credentials WHERE userid = 2 AND is_active
+         * 0.13ms  SELECT credential_id FROM passkey_credentials WHERE userid = 2 AND is_active
+         * 0.13ms  SELECT credential_id FROM passkey_credentials WHERE userid = 2 AND is_active
+         * ```
+         *
+         * **None of them is slow, which is why it survived.** A tenth of a millisecond appears
+         * in no profile and neither do three of them. What made it visible was the debug
+         * toolbar listing the queries, where *the same row, three times* reads as a mistake in
+         * a way that 0.55 ms of total time never will — and the installation that reported it
+         * found the identical shape in its own `isTwoFactorEnabled()`.
+         *
+         * **Inside the method rather than at the call sites**, because the callers are right to
+         * ask and the next one will not know the previous asked. Per instance rather than
+         * `static`: this service is constructed per use, and a static would additionally have
+         * to be keyed by user id *and* invalidated across instances, for no gain.
+         *
+         * Cleared by {@see revokeCredential()} and {@see persistCredential()}, which are the
+         * only two things here that change what the answer should be — and both already have
+         * the user id in hand.
+         */
+        if (array_key_exists($userId, $this->activeCredentialIds)) {
+            return $this->activeCredentialIds[$userId];
+        }
+
         $rows = $this->database->queryBuilder()
             ->table(self::TABLE)
             ->select('credential_id')
@@ -333,7 +369,30 @@ class PasskeyService implements PasskeyServiceInterface
         while ($rows && $rows->fetch()) {
             $ids[] = (string) $rows->fields['credential_id'];
         }
-        return $ids;
+
+        return $this->activeCredentialIds[$userId] = $ids;
+    }
+
+    /**
+     * Answers already given, per user id.
+     *
+     * `array_key_exists` rather than a truthiness test, because **an empty list is an answer**
+     * — a user with no passkeys is the common case, and `[] ?: query()` would re-ask for
+     * exactly those users on every call, which is the majority of them.
+     *
+     * @var array<int, list<string>>
+     */
+    private $activeCredentialIds = [];
+
+    /**
+     * Forget what was asked about this user.
+     *
+     * Called where the answer changes. Keyed, so revoking one user's passkey does not make the
+     * request re-ask about everybody else's.
+     */
+    protected function forgetCredentialIds(int $userId): void
+    {
+        unset($this->activeCredentialIds[$userId]);
     }
 
     /** Find an active stored credential by its base64url id, or null. */
@@ -377,6 +436,10 @@ class PasskeyService implements PasskeyServiceInterface
                 'is_active'       => true,
                 'created_at'      => date('Y-m-d H:i:s'),
             ]);
+
+        // A new passkey changes what `activeCredentialIds()` should answer for this user.
+        // {@see activeCredentialIds()}
+        $this->forgetCredentialIds($credential->userId);
 
         $row = $this->database->queryBuilder()
             ->table(self::TABLE)

@@ -2410,7 +2410,34 @@ class Application extends Base
             $_SESSION['_validation_errors'] = $exception->errors();
             $_SESSION['_old_input'] = $request->allCurrent();
 
-            $redirectTo = $_SERVER['HTTP_REFERER'] ?? sURL;
+            /*
+             * **`HTTP_REFERER` is chosen by whoever made the request.**
+             *
+             * On a `POST` that fails validation, that means the sender picks where the
+             * framework sends the user — and nothing opts in to this: every controller that
+             * throws `ValidationException` reaches these lines, so an application that has
+             * never written a redirect of its own still had this one.
+             *
+             * Worse than an ordinary open redirect because of the two lines above it. They
+             * write `_validation_errors` and `_old_input` — `allCurrent()`, the whole
+             * submitted request — so the user arrives at the sender's chosen destination
+             * having just posted a form, with their session holding a copy of what they
+             * typed. On a login or a payment form that is the interesting part. The
+             * destination cannot read the session across origins, but it now controls the
+             * page the user believes they were returned to, having proved the framework will
+             * send them there.
+             *
+             * A local path only. `sURL` is the fallback, which is already the behaviour when
+             * there is no referer at all, so the failure mode is one the framework accepts.
+             * {@see \Pramnos\Http\Request::isLocalPath()} for the five shapes that look
+             * like a path and are not — including a newline, which in a `Location` header is
+             * response splitting rather than navigation.
+             */
+            $referer    = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+            $redirectTo = \Pramnos\Http\Request::isLocalPath($referer)
+                ? $referer
+                : $this->localPathOf($referer);
+
             $this->redirect($redirectTo);
         } catch (\Exception $exception) {
             \Pramnos\Debug\DebugBar::stopTimer('controller');
@@ -2429,6 +2456,57 @@ class Application extends Base
             \Pramnos\Http\ExceptionHandler::render($exception, $format, $debug)->send();
             $this->close();
         }
+    }
+
+    /**
+     * The path of a referer that is on this site, or the site root.
+     *
+     * A browser sends an **absolute** `Referer`, so refusing everything that is not already a
+     * path would send every validation failure to the front page and lose the form the user
+     * was on. So a referer whose origin is this site is reduced to its path — which is then
+     * local by construction — and anything else falls back to `sURL`.
+     *
+     * Compared by origin rather than by string prefix: `sURL` and the referer can disagree
+     * about the scheme behind a proxy, about `www`, or about an explicit `:443`, and a prefix
+     * comparison refuses all three. That exact mistake sent the debug-bar switch to the front
+     * page on an installation behind a proxy.
+     */
+    protected function localPathOf(string $referer): string
+    {
+        $siteRoot = defined('sURL') ? (string) sURL : '/';
+
+        if ($referer === '') {
+            return $siteRoot;
+        }
+
+        $refererParts = parse_url($referer);
+        $siteParts    = parse_url($siteRoot);
+
+        if (!is_array($refererParts) || !is_array($siteParts)) {
+            return $siteRoot;
+        }
+
+        $refHost  = strtolower((string) ($refererParts['host'] ?? ''));
+        $siteHost = strtolower((string) ($siteParts['host'] ?? ''));
+
+        // `www.` either way is the same site for this purpose; the scheme and the port are
+        // not compared at all, because a proxy routinely changes both.
+        $normalise = static fn(string $host): string => preg_replace('/^www\./', '', $host);
+
+        if ($refHost === '' || $siteHost === ''
+            || $normalise($refHost) !== $normalise($siteHost)
+        ) {
+            return $siteRoot;
+        }
+
+        $path = (string) ($refererParts['path'] ?? '/');
+        $path = $path === '' ? '/' : $path;
+
+        if (isset($refererParts['query']) && $refererParts['query'] !== '') {
+            $path .= '?' . $refererParts['query'];
+        }
+
+        return \Pramnos\Http\Request::isLocalPath($path) ? $path : $siteRoot;
     }
 
     /**

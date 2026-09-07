@@ -71,7 +71,7 @@ class CsrfMiddleware implements MiddlewareInterface
             return $next($request);
         }
 
-        if ($this->isExempt()) {
+        if ($this->isExempt($request)) {
             return $next($request);
         }
 
@@ -93,9 +93,28 @@ class CsrfMiddleware implements MiddlewareInterface
      * The first segment only, matched exactly: `unsubscribe` must not also exempt
      * `unsubscribe-everything` or an application route that merely starts with those letters.
      */
-    private function isExempt(): bool
+    private function isExempt(Request $request): bool
     {
-        $path    = trim((string) Request::$requestUri, '/');
+        /*
+         * Asked of **the request object this middleware was handed**, not of the process.
+         *
+         * `Request::$requestUri` is a static, so it holds whatever was written last — a second
+         * request in a long-lived process, a `Request::create()` built for another URL. And
+         * this decides *whether a `POST` needs a CSRF token at all*, so a leftover value whose
+         * first segment happens to be an exempt one turns the check off with nothing to show
+         * for it.
+         *
+         * `ownRequestUri()` rather than `getRequestUri()`, and the difference is the whole fix:
+         * the second **falls back to the static** when the object has no path of its own, which
+         * is the leak wearing a helpful face. Recomputing from `$_SERVER` does not help either
+         * — that superglobal is process-wide too.
+         *
+         * Demonstrated rather than argued: a test asserting that a form without a token is
+         * refused passes on its own and fails beside the CSRF tests, which build a request for
+         * `/unsubscribe`. An empty answer means *cannot tell*, and the safe branch is taken —
+         * no segment is not exempt, so the check runs.
+         */
+        $path    = trim($request->ownRequestUri(), '/');
         $segment = strtolower(explode('/', explode('?', $path)[0])[0]);
 
         if ($segment === '') {

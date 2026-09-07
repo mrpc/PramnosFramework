@@ -272,7 +272,9 @@ class LogController extends Controller
         $maxLines = Request::staticGet('maxLines', 20, 'get', 'int');  // Changed from 'post' to 'get'
         $reverse = (bool)Request::staticGet('reverse', 1, 'get', 'int');
         $page = max(1, Request::staticGet('page', 1, 'get', 'int'));
-        $search = str_replace('{space}', ' ', trim(urldecode(Request::staticGet('search', '', 'get'))));
+        // Already decoded by PHP, and `LogViewer::setParameters()` handles `{space}` and the
+        // trim — this line did both again, so a search arrived decoded three times.
+        $search = (string) Request::staticGet('search', '', 'get');
         $level = Request::staticGet('level', '', 'get');
 
         try {

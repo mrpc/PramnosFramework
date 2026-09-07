@@ -189,7 +189,21 @@ class LogViewer
         $this->reverse = $reverse;
         $this->page = max(1, $page);
         $this->maxLines = max(1, $maxLines);
-        $this->search = str_replace('{space}', ' ', trim(urldecode($search)));
+        /*
+         * **No `urldecode()`.** Every caller of this method takes the value from `$_GET`, and
+         * PHP has already decoded a query parameter by the time it is there. Decoding again:
+         *
+         *  - turns `+` into a space, so a search for `C++` or `+30 210…` cannot be expressed;
+         *  - strips a second layer, so `%2520` arrives as a space rather than as `%20`.
+         *
+         * **`{space}` beside it was the tell** — a caller had to write a placeholder because a
+         * real space could not survive the round trip, so the workaround and the bug were on
+         * the same line. It stays, for anybody already using it, and a space is now a space.
+         *
+         * Two of the three callers decoded *again* before calling this, so those searches were
+         * decoded three times.
+         */
+        $this->search = str_replace('{space}', ' ', trim($search));
         return $this;
     }
 

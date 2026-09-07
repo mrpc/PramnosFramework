@@ -479,6 +479,9 @@ class DbInspectTool implements ScopedMcpTool
         $db->type     = $this->db->type;
         $db->server   = $parts['host'];
         $db->port     = (int) ($parts['port'] ?? $this->db->port);
+        // Decoded on purpose: these come from `parse_url()` of a DSN, where credentials are
+        // percent-encoded so that a `@` or a `:` in a password does not end the field.
+        // Nothing here came from `$_GET`, where a second decode would be a bug.
         $db->user     = urldecode((string) ($parts['user'] ?? ''));
         $db->password = urldecode((string) ($parts['pass'] ?? ''));
         $db->database = ltrim((string) ($parts['path'] ?? ''), '/') ?: $this->db->database;

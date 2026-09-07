@@ -57,7 +57,16 @@ final class ApiListQuery
 
         if (is_string($search)) {
             // Check if the string is a JSON object with field-specific searches
-            $decodedSearch = json_decode(urldecode($search), true);
+            /*
+             * No `urldecode()`: `$_GET` is decoded by PHP already, and here the second pass
+             * **changes results** rather than merely rejecting input.
+             *
+             * These accept a JSON object of per-field searches, so the values inside are user
+             * data — a phone number `+302102345678`, a URL, a base64 value. The `+` becomes a
+             * space, and because that happens *before* `json_decode()` the JSON still parses:
+             * the caller gets a successful response with the wrong rows and nothing says so.
+             */
+            $decodedSearch = json_decode($search, true);
             if (json_last_error() === JSON_ERROR_NONE && is_array($decodedSearch)) {
                 $fieldSearches = $decodedSearch;
             } else {
@@ -69,7 +78,8 @@ final class ApiListQuery
 
         if (is_string($fields) && trim($fields) != '') {
             // check if it's a json array
-            $decodedFields = json_decode(urldecode($fields), true);
+            // Same as `search` above.
+            $decodedFields = json_decode($fields, true);
             if (json_last_error() === JSON_ERROR_NONE && is_array($decodedFields)) {
                 $fields = $decodedFields;
             } else {

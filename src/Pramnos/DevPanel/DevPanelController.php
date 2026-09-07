@@ -505,11 +505,9 @@ class DevPanelController extends Controller
             return null;
         }
 
-        $search = str_replace(
-            '{space}',
-            ' ',
-            trim(urldecode((string) $request->get('search', '', 'get')))
-        );
+        // As in `LogController`: `$_GET` is already decoded, and `setParameters()` does
+        // `{space}` and the trim. Doing both here decoded a search three times.
+        $search = (string) $request->get('search', '', 'get');
         $level = trim((string) $request->get('level', '', 'get'));
 
         try {
@@ -2566,7 +2564,9 @@ class DevPanelController extends Controller
     private function handleCacheItemInspect(): void
     {
         header('Content-Type: application/json');
-        $rawKey = urldecode((string) ($_GET['key'] ?? ''));
+        // `$_GET` is decoded by PHP already; decoding again turns a `+` in a cache key into a
+        // space, so the entry the operator clicked is not the one that is looked up.
+        $rawKey = (string) ($_GET['key'] ?? '');
 
         if ($rawKey === '') {
             echo json_encode(['ok' => false, 'error' => 'No key specified']);

@@ -74,6 +74,7 @@ class DebugSwitchEndToEndTest extends TestCase
 
         Request::$requestMethod = $this->savedMethod;
         $_POST = array();
+        unset($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI']);
 
         Application::getInstance()->currentUser = null;
         unset(
@@ -133,7 +134,23 @@ class DebugSwitchEndToEndTest extends TestCase
      */
     private function postSwitch(string $action, array $fields): array
     {
-        Request::$requestMethod = 'POST';
+        /*
+         * The **superglobals** as well as the statics, and that took a while to learn.
+         *
+         * `Controller::_runThroughMiddleware()` constructs a fresh `Request` before running
+         * the pipeline, and `Request::__construct()` re-reads `$_SERVER['REQUEST_METHOD']`.
+         * So setting only `Request::$requestMethod` was undone the moment the pipeline
+         * started: `CsrfMiddleware` saw the `GET` an earlier test had left in `$_SERVER`,
+         * treated it as a safe method, and passed the request straight through.
+         *
+         * Which made this class's "a form with no token is refused" pass alone and fail beside
+         * `CsrfTest` — and I read that as a CSRF exemption leak in the framework before
+         * measuring it. It is neither: in production `$_SERVER` is this request's, and the
+         * middleware is right to read it. It was this test not arranging a whole request.
+         */
+        Request::$requestMethod    = 'POST';
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI']    = '/debugbar/' . $action;
         $_POST = $fields;
 
         $controller = new class extends DebugGrantController {

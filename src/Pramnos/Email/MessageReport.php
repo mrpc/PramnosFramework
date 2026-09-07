@@ -239,6 +239,8 @@ class MessageReport
             $link = ['url' => $href, 'count' => 1, 'wrapped' => false];
 
             if (str_contains($href, Tracking::CLICK_PATH . '?c=')) {
+                // Decoded on purpose: `$href` is a URL out of the message's HTML, so its query
+                // is still encoded. Not a `$_GET` value, which PHP has already decoded.
                 $token = urldecode(explode('c=', $href, 2)[1] ?? '');
                 $claim = MailAction::verify($token);
 
