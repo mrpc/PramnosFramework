@@ -203,6 +203,26 @@ class RedisAdapter extends AbstractAdapter
     }
 
     /**
+     * Every key matching a pattern, without blocking the server.
+     *
+     * **`KEYS` is O(the whole database) and single-threaded**: redis serves nothing else
+     * while it runs, so a diagnostic screen on a large instance stalls production for
+     * everything sharing it. `SCAN` walks the same keyspace in bounded pieces and lets other
+     * clients in between them.
+     *
+     * It is not free and it is not meant to be: this is for the screens that genuinely mean
+     * *everything* — a listing with no category, a total — and it is still proportional to
+     * the database. `$limit` stops early where the caller only wants a page.
+     *
+     * The trade `SCAN` makes for that: a key added or removed mid-walk may or may not appear,
+     * and a key may appear twice. For a dashboard that is the right trade; for anything that
+     * must be exact, ask the category index instead.
+     *
+     * @param  string $pattern
+     * @param  int    $limit 0 for everything
+     * @return array<int, string>
+     */
+    /**
      * Slowest tolerable keyspace sweep before it is worth a log line, in seconds.
      */
     protected const SWEEP_REPORT_SECONDS = 0.25;
@@ -294,6 +314,10 @@ class RedisAdapter extends AbstractAdapter
 
         $this->redis->sAdd($index, $key);
 
+        // And the category's *name*, in the one set that lists them. See
+        // categoryNamesKey() for why a set per category was not enough.
+        $this->redis->sAdd($this->categoryNamesKey(), $this->sanitizeCategory($this->category));
+
         if ($timeout > 0) {
             $this->redis->expire($index, $timeout + 3600);
         } else {
@@ -328,6 +352,27 @@ class RedisAdapter extends AbstractAdapter
     protected function categoryIndexKey($category)
     {
         return $this->prefix . 'catindex:' . $this->sanitizeCategory($category);
+    }
+
+    /**
+     * The one set that names every category this installation has written to.
+     *
+     * **Why this exists at all**, since a set per category already does: enumerating those
+     * sets meant asking redis which keys match `catindex:*`, and that is a keyspace walk —
+     * `KEYS`, which *blocks the server* for its duration, on every cache dashboard load and
+     * every `getStats()`. The per-category index answers *what is in this category*; nothing
+     * answered *which categories are there* without scanning past everything else.
+     *
+     * Bounded by the schema rather than by the data, which is the difference from the
+     * `catindexed:` markers this replaces the last use of: one member per category name — a
+     * table, a screen, `settings` — not one per cached entity. And pruned, so a category
+     * whose entries have all gone stops being named.
+     *
+     * @return string
+     */
+    protected function categoryNamesKey()
+    {
+        return $this->prefix . 'catnames';
     }
 
     /**
@@ -698,6 +743,34 @@ class RedisAdapter extends AbstractAdapter
      * @param  string $pattern Redis glob pattern, already prefixed
      * @return bool   True when the sweep completed
      */
+    protected function scanKeys(string $pattern, int $limit = 0): array
+    {
+        $keys   = [];
+        $cursor = null;
+
+        try {
+            do {
+                $found = $this->redis->scan($cursor, $pattern, self::SCAN_COUNT);
+
+                if ($found === false) {
+                    break;
+                }
+
+                foreach ($found as $key) {
+                    $keys[] = (string) $key;
+
+                    if ($limit > 0 && count($keys) >= $limit) {
+                        return $keys;
+                    }
+                }
+            } while ($cursor !== 0 && $cursor !== null);
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+
+        return $keys;
+    }
+
     protected function deleteByPattern(string $pattern): bool
     {
         try {
@@ -890,6 +963,16 @@ class RedisAdapter extends AbstractAdapter
 
         $this->redis->del($index);
 
+        /*
+         * And the name, because an emptied category is not a category.
+         *
+         * Without this the names set only grows — which is how the `catindexed:` markers it
+         * replaces became 95% of a keyspace. A name left behind is not *wrong*: reading it
+         * finds a missing index and answers empty. It is just a listing that reports
+         * categories nobody has, and a set that never shrinks.
+         */
+        $this->redis->sRem($this->categoryNamesKey(), $this->sanitizeCategory($category));
+
         return true;
     }
     
@@ -926,19 +1009,46 @@ class RedisAdapter extends AbstractAdapter
          */
         try {
             $base = ($prefix !== '' ? $prefix : $this->prefix);
-            $markerPrefix = $base . 'catindex:';
-            $keys = $this->redis->keys($markerPrefix . '*');
-            if (!is_array($keys)) {
+
+            /*
+             * `SMEMBERS` of one set, not `KEYS catindex:*`.
+             *
+             * `KEYS` is O(the whole database) **and it blocks the server** for its duration —
+             * so a cache dashboard and every `getStats()` stalled redis for everything else
+             * on the instance, in proportion to how much was in it. That is the same mistake
+             * as the invalidation sweep, one screen further out.
+             *
+             * A category with entries is in this set; one whose entries have gone is removed
+             * by {@see clearCategory()}. A name that outlives its index — an entry that
+             * expired rather than being cleared — is filtered out below rather than reported,
+             * so the listing stops naming categories nobody has.
+             */
+            $names = $this->redis->sMembers($base . 'catnames');
+
+            if (!is_array($names)) {
                 return [];
             }
 
             $categories = [];
-            foreach ($keys as $key) {
-                $name = substr((string) $key, strlen($markerPrefix));
-                if ($name !== '' && $name !== false) {
-                    $categories[] = $name;
+
+            foreach ($names as $name) {
+                $name = (string) $name;
+
+                if ($name === '') {
+                    continue;
                 }
+
+                if ($this->redis->exists($base . 'catindex:' . $name)) {
+                    $categories[] = $name;
+
+                    continue;
+                }
+
+                // Its last entry expired on its own. Nothing cleared it, so nothing removed
+                // the name; do it here rather than leave the set growing.
+                $this->redis->sRem($base . 'catnames', $name);
             }
+
             sort($categories);
 
             return $categories;
@@ -983,20 +1093,25 @@ class RedisAdapter extends AbstractAdapter
              * category count. It also subtracted one for the `memcachedtags` key,
              * which nothing writes.
              *
-             * The cost is a `keys()` scan, which `dbSize()` avoided. Two things
-             * make that the right trade here: the screen this feeds already
-             * scans — `getAllItems()` cannot list without one — and it is an
-             * authenticated dashboard somebody opens occasionally, not a request
-             * path.
+             * It counted them with `keys($prefix . '*')`, which is **O(the whole
+             * database) and blocks the server** — so opening a cache dashboard
+             * stalled redis for everything sharing the instance, in proportion to
+             * how much was in it. Adding a key to exclude from that count, which
+             * is what a bookkeeping key needs, made it slightly wronger each time.
+             *
+             * Summed from the category indexes instead: `sCard` per category, no
+             * keyspace walk, and the bookkeeping keys are not in the sets so there
+             * is nothing to exclude.
+             *
+             * **An entry written with no category is not counted.** It is in no
+             * index, so nothing can find it without a walk — and the honest choice
+             * is a number that is slightly low over a screen that can stall
+             * production. Every framework caller supplies a category.
              */
-            $keys = $this->redis->keys($this->prefix . '*');
             $stats['items'] = 0;
-            if (is_array($keys)) {
-                foreach ($keys as $key) {
-                    if (!str_starts_with((string) $key, $this->prefix . 'catindex')) {
-                        $stats['items']++;
-                    }
-                }
+
+            foreach ($this->getCategories() as $category) {
+                $stats['items'] += (int) $this->redis->sCard($this->categoryIndexKey($category));
             }
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
@@ -1035,8 +1150,9 @@ class RedisAdapter extends AbstractAdapter
                 $keys = $this->redis->sMembers($this->categoryIndexKey($category));
                 $keys = is_array($keys) ? $keys : array();
             } else {
-                $keys = $this->redis->keys($this->prefix . '*');
-                $keys = is_array($keys) ? $keys : array();
+                // `SCAN`, not `KEYS`: this is a diagnostic screen and it must not be able
+                // to stall redis for everything else on the instance. {@see scanKeys()}
+                $keys = $this->scanKeys($this->prefix . '*');
             }
             
             // Filter out the tags key

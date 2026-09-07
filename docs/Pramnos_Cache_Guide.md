@@ -149,6 +149,46 @@ And a credential the cache or a tool needs is refused rather than stored in the 
 see [`KEY_REQUIRED_SETTINGS`](Pramnos_Security_Guide.md#the-read-only-account-if-you-want-one)
 for `database_readonly_dsn`, which needs an `APP_KEY` before it can be set at all.
 
+### What redis keeps, and why nothing scans
+
+Three keys per installation prefix, and none of them is found by looking:
+
+| key | what it is | bounded by |
+|---|---|---|
+| `<prefix>_<category>_<id>.…` | a cache entry | its own TTL |
+| `<prefix>catindex:<category>` | a **set** of that category's keys | its members' TTLs — each save pushes the set's expiry an hour past the newest |
+| `<prefix>catnames` | a **set** of the category names | the schema: one member per category, removed when the category is emptied |
+
+So invalidating a category is `SMEMBERS` + `DEL`, and listing the categories is one
+`SMEMBERS`. Neither asks redis to find anything.
+
+**Why that is worth spelling out:** the obvious way to answer *"which keys are in this
+category"* is a pattern — and `SCAN … MATCH` **filters what it returns, not what it
+traverses**, so it costs the size of the whole database however narrow the pattern looks.
+`KEYS` is worse: same cost, and it **blocks the server** for the duration, so a cache
+dashboard on a large instance stalls everything sharing it.
+
+Both were in here. Invalidation swept a pattern on every `Model::save()`; enumeration used
+`KEYS catindex:*` on every dashboard load and every `getStats()`. The per-category set fixed
+the first; `catnames` is what the second needed and did not have.
+
+**And a central index has to be pruned or it becomes the problem.** The structure this
+replaced was a marker key per category-clear, with no TTL — one installation reached 275,000
+of them, each making the sweeps they existed to avoid slower. `catnames` holds *names*, not
+entities, and it shrinks: a cleared category is removed by the clear, and a category whose
+last entry simply expired is removed the next time the list is read.
+
+What still walks the keyspace, deliberately:
+
+- **`cache:clear` with no category.** It means *everything*, including entries written with no
+  category at all, which are in no index. One deliberate sweep by an operator.
+- **The "all items" listing** on the cache dashboard, for the same reason. It uses `SCAN`
+  rather than `KEYS`, so it cannot stall the instance.
+
+`getStats()`' item count is summed from the category sets, so **an entry written with no
+category is not counted**. A number that is slightly low, over a tile that can stall
+production.
+
 ### Turning a model's cache off — and when to
 
 `Model` has two properties, both `protected`, and list caching is **off by default**:

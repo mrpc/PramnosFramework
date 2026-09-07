@@ -266,4 +266,115 @@ class SettingsCacheEvictionTest extends TestCase
         $this->assertFalse($settings->load('probe-id'));
         $this->assertSame('theirs', $rows->load('probe-id'), 'a neighbour category was cleared');
     }
+
+    /**
+     * Listing the categories asks one set, and walks nothing.
+     *
+     * The answer to *"why do we scan instead of keeping a central index key?"* — for
+     * invalidation we do keep one, and for **enumeration** there was none. `getCategories()`
+     * asked redis which keys match `catindex:*`, and `getStats()` counted
+     * `keys(<prefix>*)`. Both are `KEYS`, which is O(the whole database) **and blocks the
+     * server**, so opening a cache dashboard stalled redis for everything sharing the
+     * instance.
+     *
+     * `<prefix>catnames` is that central key: one member per category name, bounded by the
+     * schema rather than by the data — which is the difference from the `catindexed:` markers
+     * that became 95% of one installation's keyspace at one per entity.
+     */
+    public function testListingCategoriesDoesNotWalkTheKeyspace(): void
+    {
+        // Arrange
+        $settings = $this->cache('settings');
+        $rows     = $this->cache('rows');
+        $settings->save('a', 'one');
+        $rows->save('b', 'two');
+
+        $adapter = $settings->getAdapter();
+        $before  = $this->scanCalls();
+
+        // Act
+        $categories = $adapter->getCategories();
+        $stats      = $adapter->getStats();
+
+        // Assert — both answers, no keyspace walk
+        $this->assertSame($before, $this->scanCalls(), 'listing the categories walked the keyspace');
+        $this->assertContains('settings', $categories);
+        $this->assertContains('rows', $categories);
+        $this->assertSame(2, (int) $stats['items'], 'the bookkeeping keys were counted as entries');
+    }
+
+    /**
+     * An emptied category stops being named, so the central set does not only grow.
+     *
+     * The lesson from the markers, applied to their replacement: a set that is added to and
+     * never removed from is the same unbounded structure with a different name. A category
+     * cleared explicitly is removed by the clear; one whose last entry simply expired is
+     * removed the next time the list is read.
+     */
+    public function testAnEmptiedCategoryStopsBeingNamed(): void
+    {
+        // Arrange
+        $settings = $this->cache('settings');
+        $settings->save('a', 'one');
+
+        $adapter = $settings->getAdapter();
+        $this->assertContains('settings', $adapter->getCategories());
+
+        // Act
+        $settings->clear('settings');
+
+        /*
+         * Assert on the set **before** listing, because `getCategories()` prunes a name
+         * whose index has gone — so reading the list first would hide whether the clear
+         * removed it. The first version of this test did exactly that, and removing the
+         * `sRem()` from `clearCategory()` left it green.
+         *
+         * Both matter: the clear keeps the set correct immediately, and the lazy prune
+         * catches a category whose last entry expired rather than being cleared. Without the
+         * first, an installation with no cache dashboard never lists, so the set grows with
+         * every category ever cleared and never shrinks — which is the `catindexed:` mistake
+         * with a different key name.
+         */
+        $redis = new \Redis();
+        $redis->connect('redis', 6379, 1);
+        $names = (array) $redis->sMembers(self::PREFIX . 'catnames');
+        $redis->close();
+
+        $this->assertNotContains('settings', $names, 'the clear left the name behind');
+
+        // and the listing agrees
+        $this->assertNotContains('settings', $adapter->getCategories());
+    }
+
+    /**
+     * A category whose last entry simply expired is pruned when the list is read.
+     *
+     * The other half of keeping the names set bounded. Nothing cleared this category — the
+     * entry's own TTL took it — so no `sRem` ran, and the name would sit there for ever
+     * naming a category with nothing in it.
+     */
+    public function testANameLeftByAnExpiredEntryIsPrunedOnRead(): void
+    {
+        // Arrange — a name in the set whose index does not exist, which is what an expired
+        // entry leaves behind
+        $redis = new \Redis();
+        $redis->connect('redis', 6379, 1);
+        $redis->sAdd(self::PREFIX . 'catnames', 'expired_one');
+        $redis->close();
+
+        $adapter = $this->cache('settings')->getAdapter();
+
+        // Act
+        $listed = $adapter->getCategories();
+
+        // Assert
+        $this->assertNotContains('expired_one', $listed, 'a category with no entries was listed');
+
+        $redis = new \Redis();
+        $redis->connect('redis', 6379, 1);
+        $names = (array) $redis->sMembers(self::PREFIX . 'catnames');
+        $redis->close();
+
+        $this->assertNotContains('expired_one', $names, 'the stale name was left in the set');
+    }
 }

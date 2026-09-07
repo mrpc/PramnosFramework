@@ -1103,12 +1103,13 @@ class RedisAdapterTest extends TestCase
      */
     public function testClearCategorySurvivesAnIndexThatIsNotAnArray(): void
     {
-        // Arrange — the marker exists (so no crossover scan), the set does not.
+        // Arrange — a connection that answers `false` where a set is expected.
         $adapter = new RedisAdapter();
         $mock = new class {
             public function exists(mixed ...$args): mixed   { return 1; }
             public function sMembers(mixed ...$args): mixed { return false; }
             public function del(mixed ...$args): mixed      { return 1; }
+            public function sRem(mixed ...$args): mixed     { return 1; }
         };
 
         (new \ReflectionProperty($adapter, 'redis'))->setValue($adapter, $mock);
