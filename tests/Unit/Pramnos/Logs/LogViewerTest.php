@@ -214,7 +214,7 @@ class LogViewerTest extends TestCase
     public function testSetParametersStoresOptionsAndReturnsFluentSelf(): void
     {
         // Act
-        $result = $this->viewer->setParameters(true, 3, 50, 'hello%20world');
+        $result = $this->viewer->setParameters(true, 3, 50, 'hello world');
 
         // Assert – fluent return
         $this->assertSame($this->viewer, $result);
@@ -230,7 +230,52 @@ class LogViewerTest extends TestCase
 
         $search = $ref->getProperty('search');
         $this->assertSame('hello world', $search->getValue($this->viewer),
-            'URL-encoded search term must be decoded');
+            'the search term must be stored as it was given');
+    }
+
+    /**
+     * The value arrives **already decoded**, and is not decoded again.
+     *
+     * This asserted the opposite until 2026-09-07: it passed `hello%20world` and expected
+     * `hello world`, pinning a `urldecode()` that every caller's value had already been
+     * through — PHP decodes a query parameter when it populates `$_GET`. The second pass
+     * turned `+` into a space, so a search for `C++` or `+30 210…` could not be expressed,
+     * and stripped a layer so `%2520` arrived as a space rather than as `%20`.
+     *
+     * Two of the three callers decoded *again* before calling this, so those searches were
+     * decoded three times.
+     */
+    public function testTheSearchTermIsNotDecodedAgain(): void
+    {
+        // Act — what `$_GET` delivers for `?search=C%2B%2B`
+        $this->viewer->setParameters(true, 1, 20, 'C++');
+
+        // Assert
+        $search = (new \ReflectionClass(LogViewer::class))->getProperty('search');
+
+        $this->assertSame(
+            'C++',
+            $search->getValue($this->viewer),
+            'the pluses became spaces, so this search cannot be expressed'
+        );
+    }
+
+    /**
+     * And `{space}` still works, for anyone already using it.
+     *
+     * It was the workaround for the bug above — a caller had to write a placeholder because
+     * a real space could not survive the round trip — so removing the decode makes it
+     * unnecessary rather than wrong. Somebody has that string in a bookmark.
+     */
+    public function testThePlaceholderForASpaceStillWorks(): void
+    {
+        // Act
+        $this->viewer->setParameters(true, 1, 20, 'hello{space}world');
+
+        // Assert
+        $search = (new \ReflectionClass(LogViewer::class))->getProperty('search');
+
+        $this->assertSame('hello world', $search->getValue($this->viewer));
     }
 
     /**

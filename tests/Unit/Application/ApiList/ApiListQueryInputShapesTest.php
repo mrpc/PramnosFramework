@@ -59,7 +59,10 @@ class ApiListQueryInputShapesTest extends TestCase
     {
         // Act
         $source = $this->source();
-        $answer = ApiListQuery::run($source, urlencode('["userid","email"]'));
+        // As `$_GET` delivers it: PHP has already decoded the query parameter, so the JSON
+        // arrives as JSON. This passed `urlencode(...)` until 2026-09-07 and pinned a second
+        // `urldecode()` — see testAPlusInASearchValueSurvives() for what that cost.
+        $answer = ApiListQuery::run($source, '["userid","email"]');
 
         // Assert
         $this->assertSame(['userid', 'email'], $answer['fields']);
@@ -199,7 +202,8 @@ class ApiListQueryInputShapesTest extends TestCase
     {
         // Act
         $source = $this->source();
-        ApiListQuery::run($source, '', urlencode('{"username":"yan","email":"example"}'));
+        // Already decoded, as `$_GET` delivers it. See testAPlusInASearchValueSurvives().
+        ApiListQuery::run($source, '', '{"username":"yan","email":"example"}');
 
         // Assert
         $this->assertSame('', $source->globalSearch);
@@ -496,5 +500,33 @@ class ApiListQueryInputShapesTest extends TestCase
                 return $this->recordsTotal;
             }
         };
+    }
+
+    /**
+     * A `+` inside a per-field search survives, which it did not.
+     *
+     * The reported defect, and the reason it is worse here than in the log search: these
+     * accept a JSON object of per-field searches, so the values inside are **user data** — a
+     * phone number `+302102345678`, a URL, a base64 value. `urldecode()` on a value PHP had
+     * already decoded turned every `+` into a space.
+     *
+     * And because the corruption happened **before** `json_decode()`, the JSON still parsed:
+     * the caller got a `200` with the wrong rows, and nothing anywhere said so. A rejection
+     * would have been kinder.
+     */
+    public function testAPlusInASearchValueSurvives(): void
+    {
+        // Arrange — what `$_GET` delivers for `?search={"phone":"+302102345678"}`
+        $source = $this->source();
+
+        // Act
+        ApiListQuery::run($source, '', '{"phone":"+302102345678"}');
+
+        // Assert
+        $this->assertSame(
+            array('phone' => '+302102345678'),
+            $source->fieldSearches,
+            'the pluses became spaces, so the wrong rows were searched for'
+        );
     }
 }
