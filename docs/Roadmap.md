@@ -106,8 +106,10 @@ Two things are deliberately *not* planned:
 numbers: [Test suite performance](Pramnos_Test_Suite_Performance.md). From a
 JUnit-logged run on 2026-08-13 (`1471dc9a`):
 
-- `./dockertest` 17:02 with coverage, **14:58 without** — instrumentation is ~12%, real
-  but not the lever;
+- `./dockertest` **9:50 with coverage, 2:56 without** — instrumentation is **3.3×**, and it
+  is the largest single item left. (The 2026-08-13 reading of ~12% compared a
+  coverage-collecting run against one where Xdebug was still instrumenting; see
+  [Test suite performance](Pramnos_Test_Suite_Performance.md).);
 - **`tests/bootstrap.php` touches no database at all**, so there is no fixed setup cost
   to remove. The suspicion that database setup dominates does not survive contact;
 - **203 tests (2.2%) account for 46% of the run.** The other 7646 cost eleven seconds
@@ -135,7 +137,8 @@ Together ≈5–6 minutes, without removing a test, a database or the coverage r
 
 **Not to be done:** dropping a database from the matrix (the query-builder bugs this
 framework has shipped were dialect-specific — a `?` only MySQL tolerated, a backtick only
-MySQL accepts) or making coverage opt-in (12%, and `--no-coverage` already exists).
+MySQL accepts). Coverage stays declared in `phpunit.xml`, but `--nocoverage` is the flag for
+an ordinary run — it is 70% of the wall clock, not 12%.
 Parallelism is the *next* step and becomes cheaper once item 3 has moved schema creation
 into one place, since each worker then needs its own schema.
 

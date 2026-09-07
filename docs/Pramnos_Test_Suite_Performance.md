@@ -7,9 +7,10 @@ use_cases:
 
 # Keeping the test suite fast
 
-The suite runs ~11,600 tests against MySQL and PostgreSQL, with coverage on by default, in
-under ten minutes. It was three times that for a third of the tests, and everything below is
-what keeps it where it is.
+The suite runs ~15,700 tests against MySQL, PostgreSQL and TimescaleDB. The tests themselves
+take **under three minutes**; the default `./dockertest` takes **just under ten**, and the
+difference is Xdebug instrumenting every line of `src/`. Everything below is what keeps the
+three minutes where they are, and what the other seven are for.
 
 ## Measure before you plan
 
@@ -115,12 +116,41 @@ thousands of fast tests is worth less than one class fixed.
 | **A cache walked per write.** Invalidating by scanning is invisible until a test writes a thousand rows. | Invalidate by key or category. |
 | **`sleep()` and real timeouts.** | Inject the clock, or assert on what would have been waited for. |
 
+## Coverage is not 12% — it is most of the run
+
+The image sets `xdebug.mode=coverage`, so a plain `./dockertest` instruments every line of
+`src/` whether or not anybody reads the report. Same commit, same 15,693 tests, runs minutes
+apart:
+
+| Run | Wall clock | What PHPUnit itself reports |
+| --- | --- | --- |
+| `./dockertest` | **9:50** | — |
+| `./dockertest --nocoverage` | **2:56** | 149.5 s of test time |
+
+**Instrumentation is 3.3× — about 70% of the default run.** A subset reproduces the ratio at
+a smaller scale: `tests/Unit/Console` is 88 s by default and 27 s with `--nocoverage`, and
+part of that 27 s is Docker start-up rather than tests.
+
+An earlier reading of the same question said 12%, and that number is quoted in two places
+this page used to be one of. It compared a coverage-collecting run with one where Xdebug was
+still loaded in coverage mode — so it measured PHPUnit's collection and report, not the
+instrumentation, which is where the time actually is. That is the trap this whole page is
+about: the second measurement has to change the thing you think is expensive, not the flag
+that names it.
+
+What follows from it:
+
+- **For an ordinary run, use `--nocoverage`.** Three minutes is a different working rhythm
+  from ten, and nothing about a red test needs a clover file.
+- **For rule 11, use `--coverage`.** That is the run whose seven extra minutes buy something.
+- The always-on `<coverage>` block still earns its place — a coverage report that has to be
+  asked for is one nobody has — but the ordinary loop should not be paying for it.
+
 ## What not to do
 
-- **Do not remove the always-on `<coverage>` block.** It costs about 12% of whatever the
-  suite still does, and `--no-coverage` already exists for a run that does not need it.
-  Rule 11 requires coverage on new code, and a coverage report that has to be asked for is a
-  coverage report nobody has.
+- **Do not remove the always-on `<coverage>` block** — but know what it costs, because it is
+  not 12%. See below: it is most of the run, and it is the one number worth re-measuring
+  before believing anything else about this suite.
 - **Do not drop a database from the matrix.** The bugs this framework has shipped in the
   query builder were dialect-specific — a `?` placeholder only MySQL tolerated, a backtick
   only MySQL accepts. The repetition *is* the test.
