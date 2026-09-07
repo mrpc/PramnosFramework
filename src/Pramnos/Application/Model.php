@@ -546,28 +546,50 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 }
 
                 /*
-                 * One flush, not two: these are the branches of one `if`.
+                 * Two flushes on an update, and it used to be one — the wrong one.
                  *
-                 * Worth saying because a filing read them as both running and measured the
-                 * cost accordingly. What was true is that **either** of them used to walk the
-                 * whole redis keyspace — `cacheflush()` takes a *category*, this passes a
-                 * per-entity *key*, and the adapter's category clear fell back to
-                 * `SCAN … MATCH` for any name it had no index for. Which was every save.
+                 * A filing read the old code as two calls and measured the cost accordingly;
+                 * they were the branches of one `if`. What was true is that **either** of them
+                 * walked the whole redis keyspace: `cacheflush()` takes a *category*, one
+                 * branch passes a per-entity *key*, and the adapter's category clear fell back
+                 * to `SCAN … MATCH` for any name it had no index for. Which was every save.
                  * See `RedisAdapter::clearCategory()`.
                  *
-                 * The specific-key flush is kept rather than dropped as dead work.
-                 * `_load()` passes `false` for caching, so nothing in the framework writes
-                 * under that name — but a subclass that turns per-entity caching on needs
-                 * exactly this invalidation, and it now costs one `SMEMBERS` on a key that
-                 * is not there.
+                 * The specific-key flush is kept rather than dropped as dead work. `_load()`
+                 * passes `false` for caching, so nothing in the framework writes under that
+                 * name — but a subclass that turns per-entity caching on needs exactly this
+                 * invalidation, and it now costs one `SMEMBERS` on a key that is not there.
                  */
-                // Clear only the specific record's cache, not the entire category
+                /*
+                 * The category too, and that is the fix: **a list is not the record, and it
+                 * contains it.**
+                 *
+                 * This cleared *only* `<id>-<table>` when there was a primary key — the
+                 * comment said "clear only the specific record's cache, not the entire
+                 * category", which is the right instinct and the wrong conclusion. Nothing
+                 * writes to that per-entity category (`_load()` passes `false` for caching),
+                 * so the ordinary path — load a row, change a field, save — invalidated
+                 * **nothing at all**, and a list cached under `$useCacheInLists` kept serving
+                 * the value the row used to have.
+                 *
+                 * Invisible because it is cheap to not notice: the default TTL is 60 seconds,
+                 * so the page is right again by the second reload. The same shape as the
+                 * settings cache reported separately — a write that saved and a screen that
+                 * redrew from before it.
+                 *
+                 * Affordable because of what it costs now. A category flush was a
+                 * `SCAN … MATCH` over the whole redis keyspace; it is a `SMEMBERS` and a
+                 * `DEL` of that category's own keys. Adding this call before that change
+                 * would have doubled the very cost that made the cache unusable.
+                 *
+                 * And it only happens when something changed: `save()` returns early above
+                 * when `getChanges()` is empty, so a no-op save still flushes nothing.
+                 */
                 if (isset($this->$primarykey) && $this->$primarykey !== null) {
                     $database->cacheflush($this->_generateSpecificCacheKey($this->$primarykey));
-                } else {
-                    // Fallback: if primary key is not available, clear entire category
-                    $database->cacheflush($this->_cacheKey);
                 }
+
+                $database->cacheflush($this->_cacheKey);
 
             }
             

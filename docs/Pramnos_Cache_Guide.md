@@ -149,6 +149,51 @@ And a credential the cache or a tool needs is refused rather than stored in the 
 see [`KEY_REQUIRED_SETTINGS`](Pramnos_Security_Guide.md#the-read-only-account-if-you-want-one)
 for `database_readonly_dsn`, which needs an `APP_KEY` before it can be set at all.
 
+### Turning a model's cache off — and when to
+
+`Model` has two properties, both `protected`, and list caching is **off by default**:
+
+```php
+class Reading extends \Pramnos\Application\Model
+{
+    protected $useCacheInLists = true;   // cache _getList / getCount / _getPaginated
+    protected $cacheInListsTime = 60;    // seconds
+}
+```
+
+`$useCacheInLists = false` is the switch, per model. Turn it off — or leave it off — on a
+**write-heavy** table: every row that changes invalidates every cached list for that table,
+because a list contains the row. Pay for the entry and throw it away before anything reads it,
+and you have added work for nothing. The cost is now proportional to what the category holds
+rather than to the whole keyspace, but it is still a cost.
+
+A rule of thumb rather than a number: caching a listing pays when the table is read far more
+often than it is written, and the reads are of the *same* listing. A per-user or heavily
+filtered list produces a distinct cache entry per variation, so it accumulates entries and
+serves few of them twice.
+
+`_load()` is never cached — it passes `false` — so a single-row read by primary key is a
+database read every time, whatever these properties say.
+
+### When a change invalidates what
+
+| | |
+|---|---|
+| insert | the whole category — a new row changes every list |
+| update | the whole category **and** the row's own key |
+| delete | both |
+| a `save()` that changed nothing | **nothing**, and no `UPDATE` either |
+
+That last row is the one worth knowing about: `save()` compares against what was loaded and
+returns early when nothing differs, so calling it liberally costs one comparison rather than a
+write and a flush.
+
+An update used to clear **only** the row's own key — a category nothing writes to — so the
+ordinary path of loading a row, changing a field and saving it invalidated nothing at all and a
+cached list served the old value until its TTL. That was cheap to not notice at a 60-second
+default, and it is the same shape as a settings write that saved while the screen redrew from
+before it.
+
 ### What invalidation costs, and the shape that made it ruinous
 
 `cacheflush($category)` — which `Model::save()` calls, and `Settings` on every write — is
