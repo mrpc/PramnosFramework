@@ -134,6 +134,121 @@ class ProcessQueueGracefulStopTest extends TestCase
     }
 
     /**
+     * A lock file removed under the worker stops it, inside the batch.
+     *
+     * How an orchestrator reclaims a slot: it deletes the lock and expects the holder to
+     * leave. The daemon loop checked for it and `shouldStop()` did not — so a worker inside
+     * a batch kept claiming for up to twenty more tasks after its lock had been taken away.
+     *
+     * Driven through the real `WorkerLock` and a real file, because the condition *is* a
+     * file existing.
+     */
+    public function testAVanishedLockFileStopsTheBatch(): void
+    {
+        // Arrange — a worker holding a lock, with two tasks waiting
+        $path = sys_get_temp_dir() . '/pramnos-stop-probe-' . bin2hex(random_bytes(4)) . '.lock';
+
+        $command = new class ($path) extends ProcessQueue {
+            public int $claims = 0;
+
+            public function __construct(private readonly string $path)
+            {
+                parent::__construct();
+            }
+
+            protected function getJobLockFilePath(): string
+            {
+                return $this->path;
+            }
+
+            public function take(): bool
+            {
+                return $this->workerLock()->acquire();
+            }
+
+            public function ask(): bool
+            {
+                return $this->shouldStop();
+            }
+
+            public function runBatch(Worker $worker, int $limit): int
+            {
+                return $this->processBatch($worker, new BufferedOutput(), $limit, null, null, false);
+            }
+
+            public function claimed(): void
+            {
+                $this->claims++;
+
+                // The orchestrator takes the slot back while the first task is in hand.
+                if ($this->claims === 1) {
+                    @unlink($this->path);
+                }
+            }
+        };
+
+        try {
+            $this->assertTrue($command->take(), 'the fixture could not take a lock');
+            $this->assertFalse($command->ask(), 'a held lock already read as a stop');
+
+            // Act
+            $processed = $command->runBatch($this->worker($command), 20);
+
+            // Assert
+            $this->assertSame(1, $command->claims, 'claiming continued without a lock');
+            $this->assertSame(1, $processed);
+            $this->assertTrue($command->ask());
+        } finally {
+            @unlink($path);
+            @unlink($path . '.stop');
+        }
+    }
+
+    /**
+     * A one-shot run that never took a lock is not stopped by its absence.
+     *
+     * The guard, and it is not a detail: read literally, "no lock file" says *stop* from the
+     * first check onwards, so a CLI run or a test would process one task and report the
+     * queue empty. A consuming application hit exactly that and its own suite caught it —
+     * a batch that should have processed two tasks processed one.
+     */
+    public function testAOneShotRunWithNoLockIsNotStopped(): void
+    {
+        // Arrange — no lock taken, and a path that does not exist
+        $path = sys_get_temp_dir() . '/pramnos-absent-' . bin2hex(random_bytes(4)) . '.lock';
+
+        $command = new class ($path) extends ProcessQueue {
+            public int $claims = 0;
+
+            public function __construct(private readonly string $path)
+            {
+                parent::__construct();
+            }
+
+            protected function getJobLockFilePath(): string
+            {
+                return $this->path;
+            }
+
+            public function runBatch(Worker $worker, int $limit): int
+            {
+                return $this->processBatch($worker, new BufferedOutput(), $limit, null, null, false);
+            }
+
+            public function claimed(): void
+            {
+                $this->claims++;
+            }
+        };
+
+        // Act
+        $processed = $command->runBatch($this->worker($command), 3);
+
+        // Assert
+        $this->assertSame(3, $processed, 'a run that never took a lock stopped itself');
+    }
+
+    /**
      * With no stop requested, the batch runs to its limit.
      *
      * The control. A check that answered "stop" too eagerly would pass both tests above

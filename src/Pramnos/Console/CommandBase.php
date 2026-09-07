@@ -235,12 +235,33 @@ abstract class CommandBase extends Command
     }
 
     /**
-     * Whether a long-running loop should stop now: an OS signal (SIGTERM/SIGINT)
-     * was received, or the supervisor dropped the `.stop` sentinel by the lock.
+     * Whether a long-running loop should stop now.
+     *
+     * Three ways a stop can be asked for, and a supervisor uses all of them:
+     *
+     *  - an OS signal — `SIGTERM` (a `systemctl stop`, a deploy) or `SIGINT`;
+     *  - the `.stop` sentinel dropped beside the lock;
+     *  - **the lock file being removed**, which is how an orchestrator reclaims a slot.
+     *
+     * The third was checked by `ProcessQueue`'s daemon loop and by nothing else, so a
+     * worker inside a batch kept claiming tasks after its lock had been taken away — and a
+     * supervisor that deletes a lock to free a slot expects the holder to leave, not to run
+     * another twenty tasks. Asked here so every loop that consults this honours it.
+     *
+     * **Only for a worker that took a lock in the first place.** `isHeld()` is the guard,
+     * and it is not a detail: a one-shot run from the CLI or a test never writes a job
+     * file, and read literally that absence says "stop" from the first check onwards. A
+     * consuming application hit exactly that and its own suite caught it — a batch that
+     * should have processed two tasks processed one.
      */
     protected function shouldStop(): bool
     {
-        return $this->signalStop()->requested() || $this->workerLock()->stopRequested();
+        if ($this->signalStop()->requested() || $this->workerLock()->stopRequested()) {
+            return true;
+        }
+
+        return $this->workerLock()->isHeld()
+            && !file_exists($this->resolvedJobLockFilePath());
     }
 
     protected function checkIfRunning(): bool

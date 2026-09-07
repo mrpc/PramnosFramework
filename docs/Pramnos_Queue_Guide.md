@@ -283,6 +283,12 @@ already has. A conditional update needs nothing and cannot deadlock.
 and `SIGINT` raise a flag; nothing is torn down inside the handler. A supervisor can also
 drop a `.stop` sentinel beside the lock file.
 
+A stop can be asked for three ways, and a supervisor uses all of them: a signal, a `.stop`
+sentinel, or **the lock file being removed** — which is how an orchestrator reclaims a slot.
+All three are answered the same way, and the third only counts for a worker that actually
+took a lock: a one-shot CLI run never writes a job file, and reading that absence as *stop*
+would make it process one task and report the queue empty.
+
 The flag is checked in two places, and the second is the one that matters under systemd:
 the daemon loop on each pass, **and between tasks inside a batch**. With the default
 `--batch=20`, checking only at the batch boundary means up to twenty more tasks claimed
