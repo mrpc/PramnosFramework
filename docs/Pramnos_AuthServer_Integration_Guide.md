@@ -294,12 +294,23 @@ Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
 only the scopes the user approves.
 
-### The redirect URI must be registered, and matched exactly
+### Register your redirect URI — recommended, and matched exactly
 
-`/oauth/authorize` compares the `redirect_uri` in the request against the
-registered list (`applications.callback`) and **refuses the request outright** if it is
-not there — RFC 6749 §3.1.2. A client with nothing registered cannot complete an
-authorization request at all; the error page says so and names the fix.
+Registering a client's callback (`applications.callback`) is **optional and strongly
+recommended**, the way it is on every large authorization server. It is what buys you two
+things:
+
+- `/oauth/authorize` **refuses any `redirect_uri` that is not on the list** — RFC 6749
+  §3.1.2, and the reason the RFC asks for it is that the destination is a URL an
+  authorization **code** is delivered to.
+- The server widens its `form-action` policy for that origin, so a login that goes through
+  the sign-in form completes (see the note below).
+
+A client with nothing registered still works exactly as it did. The server records the
+condition in `oauth.log` with the recommendation, and does **not** widen `form-action` for
+it — there is no registration to vouch for the destination, so such a client keeps precisely
+the policy it had and nothing new becomes possible. Whether to register is the operator's
+call about their own clients, not the framework's.
 
 The comparison is an **exact string match**, so register the URI your application will
 actually send, character for character. All of these are different registrations:
@@ -319,7 +330,7 @@ published attack, and the destination is a URL an authorization **code** is deli
 
 Register several by storing a comma-separated list or a JSON array; any one of them is
 accepted, exactly. A native application registers its custom scheme URI in full
-(`myapp://oauth`).
+(`myapp://oauth`). An empty `callback`, a lone comma and `[]` all mean *not registered*.
 
 ---
 
@@ -367,8 +378,12 @@ clients, approves the requested scopes. The server redirects back to your
     passes through**, and the last hop here is your origin. The authorization server adds
     your registered callback's origin to the policy of the pages whose forms start the
     chain — the login screen, the second-factor screen and the consent screen — after it
-    has checked the `redirect_uri` against your registration. Nothing is required of you,
-    and there is nothing to configure on the server either.
+    has checked the `redirect_uri` against your registration. Nothing is required of you
+    beyond having registered the callback, and there is nothing to configure on the server.
+
+    **This is the practical reason to register.** With no `callback` on file the server has
+    nothing to vouch for the destination, so it leaves `form-action 'self'` in place and a
+    sign-in that goes through the login form is cancelled at the last hop.
 
     Worth knowing because of how it fails if it is ever missing: the code is issued and
     the `Location` header is sent, and the browser then cancels the navigation. The server
@@ -444,6 +459,8 @@ token endpoint refused | endpoint=token status=400 grant_type=authorization_code
   client_id=3ad1d008… error=invalid_client error_description=Missing client_secret ip=…
 authorize refused | endpoint=authorize error_description=The redirect_uri is not registered
   for this application. client_id=… redirect_uri=… ip=…
+client has no registered redirect URI — recommended: set `applications.callback` to the exact
+  URL this client sends… | endpoint=authorize client_id=… redirect_uri=… ip=…
 consent form shown (no redirect) | endpoint=authorize client_id=… userid=… scope=…
 denied by user | endpoint=authorize client_id=… userid=… scope=…
 ```

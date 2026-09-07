@@ -24,6 +24,12 @@ use Pramnos\Database\QueryBuilder;
  * RFC 6749 §3.1.2 requires registration and an exact match, and the exact match is the
  * point of most of what is below: every near miss a prefix or host comparison would have
  * accepted is a working attack.
+ *
+ * A client with **nothing** registered is a separate question, and the answer here is not
+ * to refuse it: there is no registration to check against, and refusing would stop
+ * authorization requests that work today on every installation whose `callback` column is
+ * empty. It is recorded, and it gets no `form-action` widening — so it keeps exactly the
+ * policy it had, and nothing it could not do before becomes possible.
  */
 #[CoversClass(Oauth::class)]
 class OauthRedirectUriRegistrationTest extends TestCase
@@ -220,14 +226,16 @@ class OauthRedirectUriRegistrationTest extends TestCase
     }
 
     /**
-     * A client with nothing registered cannot complete an authorization request.
+     * A client with nothing registered keeps working, and is recorded.
      *
-     * The behaviour change, stated as a test: before, such a client could name its own
-     * destination. Refusing it is the only answer that is not the vulnerability, and the
-     * message has to say what to fix, because an authorization server that declines
-     * without a reason is a support ticket rather than a configuration error.
+     * Deliberately **not** refused. There is no registration to check against, and
+     * refusing would stop authorization requests that work today on every installation
+     * whose `callback` column is empty — a behaviour change on the strength of a rule the
+     * framework has never enforced. So the condition is written down instead, naming the
+     * client, so somebody can fill the registration in deliberately rather than under a
+     * login that has stopped working.
      */
-    public function testAClientWithNoRegisteredCallbackIsRefused(): void
+    public function testAClientWithNoRegisteredCallbackStillWorks(): void
     {
         // Arrange
         $this->clientRegisters(null);
@@ -236,17 +244,42 @@ class OauthRedirectUriRegistrationTest extends TestCase
         $out = $this->authorizeWith('https://client.example/cb');
 
         // Assert
-        $this->assertStringContainsString('Authorization Error', $out);
-        $this->assertStringContainsString('no registered redirect URI', $out);
-        $this->assertStringContainsString('Register the callback URL', $out);
+        $this->assertStringNotContainsString('Authorization Error', $out);
+        $this->assertStringContainsString('REDIRECTED_TO:', $out);
     }
 
     /**
-     * An empty string, a comma and whitespace are not registrations either.
+     * And it gets no `form-action` widening, so nothing new becomes possible.
      *
-     * A `callback` column holding `,` would otherwise parse into two empty entries, and an
-     * empty entry matches a request that sent nothing — which `validateAuthorizeParams()`
-     * already rejects, but only because of the order these two checks happen to run in.
+     * This is what keeps the previous test from being a hole. `form-action 'self'` has
+     * been accidentally preventing an unregistered client's delivery all along — badly,
+     * at the cost of blocking every legitimate login that goes through the form, but
+     * preventing it. Widening the policy for a destination no registration vouches for
+     * would convert a broken feature into a working attack, which is the ordering problem
+     * the report was explicit about.
+     *
+     * The distinction worth keeping in view: the CSP is not being used to block a redirect
+     * the OAuth layer permits. It is simply not being opened for one the OAuth layer
+     * cannot vouch for.
+     */
+    public function testAnUnregisteredClientGetsNoPolicyWidening(): void
+    {
+        // Arrange
+        $this->clientRegisters(null);
+
+        // Act
+        $this->authorizeWith('https://client.example/cb');
+
+        // Assert
+        $this->assertArrayNotHasKey(Oauth::FORM_ACTION_SESSION_KEY, $_SESSION);
+    }
+
+    /**
+     * An empty string, a comma and whitespace are no registration either.
+     *
+     * A `callback` column holding `,` parses into two empty entries, and an empty entry
+     * would match a request that sent nothing. `validateAuthorizeParams()` also rejects an
+     * empty `redirect_uri`, but only because of the order the two checks happen to run in.
      *
      * @param string $callback The stored column value
      */
@@ -257,10 +290,10 @@ class OauthRedirectUriRegistrationTest extends TestCase
         $this->clientRegisters($callback);
 
         // Act
-        $out = $this->authorizeWith('https://client.example/cb');
+        $this->authorizeWith('https://client.example/cb');
 
-        // Assert
-        $this->assertStringContainsString('no registered redirect URI', $out);
+        // Assert — treated as unregistered: allowed through, and no widening
+        $this->assertArrayNotHasKey(Oauth::FORM_ACTION_SESSION_KEY, $_SESSION);
     }
 
     /**

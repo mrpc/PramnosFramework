@@ -131,10 +131,16 @@ class Oauth extends Controller
             $client      = $this->loadClient($params['client_id']);
 
             // Before anything else touches `redirect_uri`, and before the user is sent
-            // anywhere: this is the only place that can refuse an unregistered callback
-            // while the request is still cheap and nothing has been issued.
-            $this->assertRegisteredRedirectUri($client, $params['redirect_uri']);
-            $this->allowFormActionTo($params['redirect_uri']);
+            // anywhere: this is the only place that can refuse a callback the client's
+            // registration disagrees with, while the request is still cheap and nothing
+            // has been issued.
+            //
+            // The policy is widened only for a URI a registration vouched for. A client
+            // with nothing registered is not refused — see the method — and gets no
+            // widening either, so it keeps exactly the policy it had.
+            if ($this->redirectUriIsRegistered($client, $params['redirect_uri'])) {
+                $this->allowFormActionTo($params['redirect_uri']);
+            }
 
             $user        = $this->getLoggedInUser();
 
@@ -806,14 +812,14 @@ class Oauth extends Controller
     // ── Authorize helpers ─────────────────────────────────────────────────────
 
     /**
-     * Refuse a `redirect_uri` the client has not registered — RFC 6749 §3.1.2.
+     * Is this `redirect_uri` one the client registered — RFC 6749 §3.1.2?
      *
-     * Without this the endpoint was an open redirect **with an authorization code
-     * attached**: a crafted `authorize` link named any destination, the user saw their
-     * own authorization server's login form on the way, and a real code was delivered to
-     * whoever asked. The registry has existed all along — `applications.callback`, which
-     * the admin screen writes and {@see \Pramnos\Auth\Application::getRedirectUris()}
-     * reads — and this endpoint simply never consulted it.
+     * The endpoint was an open redirect **with an authorization code attached**: a crafted
+     * `authorize` link named any destination, the user saw their own authorization server's
+     * login form on the way, and a real code was delivered to whoever asked. The registry
+     * has existed all along — `applications.callback`, which the admin screen writes and
+     * {@see \Pramnos\Auth\Application::getRedirectUris()} reads — and this endpoint
+     * simply never consulted it.
      *
      * **Exact string match**, which is what the RFC requires and what the near misses
      * need: a prefix test accepts `https://client.example.attacker.test`, a host test
@@ -822,38 +828,58 @@ class Oauth extends Controller
      * default ports, dot segments and percent-encoding. Registering the URI a client
      * actually uses is cheaper than being right about all of that.
      *
-     * **A client with no registered callback is refused**, rather than allowed to name its
-     * own destination, and that is the behaviour change: an installation whose clients
-     * have an empty `callback` column has been relying on the missing check. The message
-     * says so in the terms of the fix, because the alternative is an authorization server
-     * that cannot say why it declined.
+     * **Registration is optional, and recommended — not enforced.** Whether a client has a
+     * `callback` on file is the application's decision about its own clients, the way it is
+     * on every large authorization server: the registration is what buys exact-match
+     * protection, and an operator who has not made it has not asked the framework to
+     * refuse traffic on their behalf. Refusing would stop authorization requests that work
+     * today on every installation whose `callback` column is empty, on the strength of a
+     * rule this framework has never enforced.
+     *
+     * So an unregistered client is recorded once per request, with the recommendation in
+     * the line, and the caller declines to widen `form-action` for it. It keeps exactly the
+     * policy it had, so nothing it could not do before becomes possible now — and filling
+     * the registration in is a deliberate improvement rather than an emergency under a
+     * login that has stopped working.
      *
      * @param  array<string,mixed> $client   The row from {@see loadClient()}
      * @param  string              $redirect The `redirect_uri` this request asked for
-     * @throws \InvalidArgumentException when it is not registered
+     * @return bool                          Whether a registration vouched for it
+     * @throws \InvalidArgumentException     When there is a registration and it disagrees
      */
-    private function assertRegisteredRedirectUri(array $client, string $redirect): void
+    protected function redirectUriIsRegistered(array $client, string $redirect): bool
     {
         $registered = \Pramnos\Auth\Application::parseRedirectUris(
             isset($client['callback']) ? (string) $client['callback'] : null
         );
 
         if ($registered === []) {
-            throw new \InvalidArgumentException(
-                'This application has no registered redirect URI, so no authorization '
-                . 'request can be completed for it. Register the callback URL on the '
-                . 'application before using the authorization endpoint.'
+            $this->logDecision(
+                'client has no registered redirect URI — recommended: set '
+                . '`applications.callback` to the exact URL this client sends, so the '
+                . 'server can vouch for the destination and widen form-action for it',
+                [
+                'endpoint'     => 'authorize',
+                'client_id'    => (string) ($client['apikey'] ?? ''),
+                'redirect_uri' => $redirect,
+                'ip'           => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+                ]
             );
+
+            return false;
         }
 
         if (!in_array($redirect, $registered, true)) {
             // The requested URI is deliberately absent from the message. It is
             // attacker-controlled on the request that matters, and an error page that
-            // echoes it turns a refusal into a place to put a link.
+            // echoes it turns a refusal into a place to put a link. It is in the log line
+            // above the throw, which is a file rather than a page.
             throw new \InvalidArgumentException(
                 'The redirect_uri is not registered for this application.'
             );
         }
+
+        return true;
     }
 
     /**
