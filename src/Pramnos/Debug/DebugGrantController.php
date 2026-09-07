@@ -71,10 +71,27 @@ class DebugGrantController extends Controller
         ?\Pramnos\Application\Application $application = null,
         $userPermissions = array()
     ) {
-        // All three require a session. `enable` and `disable` are reached by POST, so
-        // `CsrfMiddleware` validates them — a state change behind a GET link is a link
-        // somebody else can get you to click.
+        // All three require a session, and the two that change something are POST-only —
+        // a state change behind a GET link is a link somebody else can get you to click.
         $this->addAuthAction(array('display', 'enable', 'disable'));
+
+        /*
+         * And the CSRF check is *registered*, which it was not.
+         *
+         * The comment here used to say `CsrfMiddleware` validated these two, and nothing
+         * did: `Controller::_runThroughMiddleware()` runs what a controller has registered,
+         * this one registered none, and the token field the form has always carried was
+         * read by nobody. A claimed check is worse than an absent one — it is the reason
+         * nobody looks.
+         *
+         * Keyed on the dispatched name: `exec()` resolves `POST enable` to `postenable`
+         * and passes *that* to the pipeline, so a middleware filed under `enable` never
+         * runs.
+         */
+        $this->addMiddleware(
+            array('postenable', 'postdisable'),
+            new CsrfMiddleware()
+        );
 
         // Both arguments forwarded, because `getFrameworkController()` passes both and a
         // constructor that quietly dropped the second would leave `user_permissions`
@@ -94,6 +111,51 @@ class DebugGrantController extends Controller
         }
 
         echo $this->screen();
+
+        return null;
+    }
+
+    /**
+     * `GET /debugbar/enable` — the address exists, the method does not.
+     *
+     * `exec()` looks for `postEnable` only when the request is not a `GET`; on a `GET` it
+     * falls through to calling `$this->enable()` because the action is registered, and
+     * before this existed that was a **fatal** — `Call to undefined method`, so a bookmark
+     * of the form's own address, or a crawler following one, answered 500 on a live server.
+     *
+     * A 405 and the screen, rather than a redirect to it: the address is right and the
+     * method is wrong, which is exactly what 405 means, and the screen has the buttons
+     * that do work.
+     */
+    public function enable(): mixed
+    {
+        return $this->methodNotAllowed();
+    }
+
+    /**
+     * `GET /debugbar/disable` — as above.
+     */
+    public function disable(): mixed
+    {
+        return $this->methodNotAllowed();
+    }
+
+    /**
+     * The address is right, the method is not.
+     */
+    protected function methodNotAllowed(): mixed
+    {
+        if (!$this->mayGrant()) {
+            return $this->refuse();
+        }
+
+        http_response_code(405);
+
+        if (!headers_sent()) {
+            header('Allow: POST');
+        }
+
+        echo $this->screen('That address only answers a POST — use the buttons below.');
 
         return null;
     }

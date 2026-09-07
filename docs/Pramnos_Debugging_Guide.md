@@ -700,8 +700,10 @@ it shows *this request* to the one browser that redeemed a grant — and its who
 for existing is the server where `APP_DEBUG` is off. Behind the DevPanel's lock it would
 work only where nobody needs it.
 
-Both actions are `POST` with a CSRF field. A switch that turns on a query log must not be
-reachable by getting somebody to click a link.
+Both actions are `POST` and the CSRF token is **checked** — `CsrfMiddleware` is registered on
+them, so a form without the field is refused with a 419. A switch that turns on a query log
+must not be reachable by getting somebody to click a link. A `GET` on either address answers
+`405` with the screen: the address is right and the method is wrong.
 
 After enabling, you land back on the page you came from — **not** on the DevPanel or on
 this screen. Both `echo` their own HTML rather than going through the framework's document,
@@ -709,11 +711,18 @@ so neither carries the toolbar: landing on one of them would look exactly like t
 having failed. When the only page you came from is a developer page, you land on the site
 root instead.
 
-The DevPanel carries a **switch in its tab strip** rather than a tab: it is not a place to
-go, it turns something on and leaves you on the tab you were reading. The label says the
-state — `Debug bar: on until 15:42` — because `renderLayout()` echoes its own HTML and the
-toolbar is never drawn on the panel however granted it is. A switch that only changed a
-cookie would look exactly like a switch that did nothing.
+The DevPanel carries a **switch beside its Back button** rather than a tab: it is not a place
+to go, it turns something on and leaves you on the tab you were reading. Beside rather than
+inside the tab strip, because that strip is a flex row of a dozen items that scrolls — a
+control in it is pushed past the right edge on a narrow window, present in the markup and
+unreachable with a mouse.
+
+**The panel can never draw the toolbar.** `renderLayout()` ends in `echo $html` and bypasses
+the framework's document, which is where the toolbar is injected. So the panel says the state
+in two places instead: the switch reads `● Debug bar on until 15:42 — turn off`, and a notice
+above the content says it is on and that the toolbar is drawn on the site's own pages. A
+control whose only receipt is one word in its own caption has no receipt — and this one was
+reported as doing nothing twice while working.
 
 It appears only for somebody who may use it; a control that 403s when pressed is worse than
 one that is absent.

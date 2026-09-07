@@ -3393,16 +3393,57 @@ class DevPanelController extends Controller
         $back = htmlspecialchars($baseUrl . '/' . $mountPoint
             . ($activeTab === 'overview' ? '' : '/' . $activeTab), ENT_QUOTES);
 
+        /*
+         * The caption is an action when it is off and a state plus an action when it is on.
+         *
+         * `Debug bar: off` was neither — a status line with a button's chrome, which reads
+         * as a label somebody forgot to make clickable.
+         */
         $label = $on
-            ? 'Debug bar: on until ' . htmlspecialchars(date('H:i', (int) $expires))
-            : 'Debug bar: off';
+            ? '● Debug bar on until ' . htmlspecialchars(date('H:i', (int) $expires))
+                . ' — turn off'
+            : 'Turn debug bar on';
 
-        return '<form method="post" action="' . $action . '" class="debugbar-switch">'
+        return '<form method="post" action="' . $action . '" class="debugbar-switch'
+            . ($on ? ' is-on' : '') . '">'
             . \Pramnos\Http\Middleware\CsrfMiddleware::tokenField()
             . '<input type="hidden" name="return" value="' . $back . '">'
             . '<input type="hidden" name="ttl" value="3600">'
-            . '<button type="submit" title="Turns the toolbar on for this browser only">'
-            . $label . ($on ? ' — turn off' : ' — turn on') . '</button></form>';
+            . '<button type="submit" title="'
+            . ($on
+                ? 'Ends the grant for this browser now'
+                : 'Turns the toolbar on for this browser only, for an hour')
+            . '">' . $label . '</button></form>';
+    }
+
+    /**
+     * What a live grant looks like from inside the panel.
+     *
+     * **The panel cannot draw the toolbar and never will.** `renderLayout()` ends in
+     * `echo $html` — it bypasses the framework's document, which is where the toolbar is
+     * injected. So the successful outcome of pressing the switch, seen from the page you
+     * pressed it on, is a changed word in a label; and that is indistinguishable from a
+     * switch that did nothing, which is what it was reported as twice.
+     *
+     * So the panel says it in a sentence, and says where to look. A control whose only
+     * receipt is a two-letter word in its own caption has no receipt.
+     */
+    protected static function debugToolbarNotice(): string
+    {
+        if (!class_exists('\Pramnos\Debug\DebugAccess')) {
+            return '';
+        }
+
+        $expires = \Pramnos\Debug\DebugAccess::expiresAt();
+
+        if ($expires === null) {
+            return '';
+        }
+
+        return '<div class="debugbar-notice">Debug toolbar <strong>on</strong> for this '
+            . 'browser until ' . htmlspecialchars(date('H:i', (int) $expires))
+            . '. It is drawn on the site\'s own pages — this panel renders its own HTML '
+            . 'and never carries it.</div>';
     }
 
     /**
@@ -3437,12 +3478,22 @@ class DevPanelController extends Controller
             $tabHtml .= "<a href=\"{$href}\"{$active}>" . htmlspecialchars($label) . "</a>";
         }
 
-        $tabHtml .= static::debugToolbarSwitch($baseUrl, $mountPoint, $activeTab);
 
         // Whatever the section renderers could not load. Rendered above the
         // content rather than in place of it: the parts that did work are still
         // worth reading, and the parts that did not must not look like emptiness.
         $errors = $this->panelErrorsHtml();
+
+        /*
+         * The switch sits in the header **beside** the Back button, not inside `<nav>`.
+         *
+         * Inside it, it was a flex item in a row of a dozen tabs that neither wraps nor
+         * scrolls, so on a narrow window it was pushed past the right edge — present in the
+         * markup, unreachable with a mouse. `nav` scrolls on its own now, and the two
+         * controls that are not tabs keep their place.
+         */
+        $switchHtml = static::debugToolbarSwitch($baseUrl, $mountPoint, $activeTab);
+        $notice     = static::debugToolbarNotice();
 
         $css   = $this->panelCss();
         $nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
@@ -3461,10 +3512,12 @@ class DevPanelController extends Controller
             <header>
               <span class="logo">⚙ DevPanel</span>
               <nav>{$tabHtml}</nav>
+              {$switchHtml}
               <a href="{$returnUrl}" class="back-btn">&#8592; Back</a>
             </header>
             <main>
               <div class="panel-content">
+                {$notice}
                 {$errors}
                 {$content}
               </div>
@@ -3785,7 +3838,8 @@ class DevPanelController extends Controller
         header { background: var(--bg2); border-bottom: 1px solid var(--surface2);
                  display: flex; align-items: center; padding: 0 16px; gap: 24px; }
         .logo { font-weight: bold; font-size: 16px; color: var(--mauve); padding: 12px 0; }
-        nav { display: flex; gap: 2px; }
+        nav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+        nav::-webkit-scrollbar { display: none; }
         nav a { color: var(--subtext); text-decoration: none; padding: 14px 14px; font-size: 13px;
                 border-bottom: 3px solid transparent; }
         nav a:hover { color: var(--text); }
@@ -3794,6 +3848,18 @@ class DevPanelController extends Controller
                     font-size: 12px; padding: 5px 10px; border: 1px solid var(--surface2);
                     border-radius: 4px; white-space: nowrap; }
         .back-btn:hover { color: var(--text); border-color: var(--blue); }
+        .debugbar-switch { margin-left: auto; flex: none; }
+        .debugbar-switch button { font: inherit; font-size: 12px; cursor: pointer;
+                    color: var(--subtext); background: transparent; padding: 5px 10px;
+                    border: 1px solid var(--surface2); border-radius: 4px;
+                    white-space: nowrap; }
+        .debugbar-switch button:hover { color: var(--text); border-color: var(--blue); }
+        .debugbar-switch.is-on button { color: var(--green); border-color: var(--green); }
+        /* `margin-left: auto` on both would split the gap between them. */
+        .debugbar-switch + .back-btn { margin-left: 0; }
+        .debugbar-notice { background: var(--surface); border-left: 3px solid var(--green);
+                    padding: 8px 12px; border-radius: 4px; margin-bottom: 16px;
+                    font-size: 13px; }
         main { flex: 1; padding: 20px; }
         footer { background: var(--bg2); border-top: 1px solid var(--surface2);
                  padding: 8px 16px; font-size: 12px; color: var(--subtext); text-align: center; }
