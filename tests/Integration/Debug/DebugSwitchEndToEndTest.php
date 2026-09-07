@@ -480,4 +480,105 @@ class DebugSwitchEndToEndTest extends TestCase
 
         $this->assertSame(array(), $recorded, 'an accepted address was reported as refused');
     }
+
+    /**
+     * The grant holds without anybody consuming `?_debug=` — which is the whole bug.
+     *
+     * Reported a fourth time as *"it says it was enabled but it does not work; only the
+     * console enables it properly"*, and everything above passed throughout, because every
+     * test here simulated the browser following the redirect **and then called
+     * `isGranted()`**. That call is what writes the cookie, and on the page the switch
+     * actually returns to, nothing makes it.
+     *
+     * The DevPanel `echo`es its own HTML and reads the grant's state with `expiresAt()`,
+     * which verifies the offered token and reports an expiry **without persisting
+     * anything**. So the panel drew the switch as on — the grant was real, for that one
+     * request — no `Set-Cookie` ever went out, and the next normal page had nothing. The
+     * console works because it hands you a URL you open on an ordinary page, and an ordinary
+     * page renders through the framework, which calls `isGranted()`.
+     *
+     * So the assertion is not "the redirect carries a token that verifies" (it always did)
+     * but "the grant survives the request that issued it".
+     */
+    public function testTheGrantSurvivesWithoutTheLandingPageConsumingIt(): void
+    {
+        // Arrange
+        $html = $this->renderPanel();
+
+        // Act
+        $this->postSwitch('enable', array(
+            '_csrf_token' => $this->fieldValue($html, '_csrf_token'),
+            'return'      => $this->fieldValue($html, 'return'),
+            'ttl'         => '3600',
+        ));
+
+        // The next request: no `?_debug=`, because the browser is on some other page by now
+        unset($_GET[DebugAccess::PARAM]);
+        DebugAccess::reset();
+
+        // Assert
+        $this->assertTrue(
+            DebugAccess::isGranted(),
+            'the grant only existed inside the redirect: nothing established it'
+        );
+    }
+
+    /**
+     * And turning it off holds the same way, for the same reason.
+     *
+     * `postDisable()` relied on the landing page reading `?_debug=off` and clearing the
+     * cookie — so disabling from the panel reported success and left the toolbar on
+     * everywhere else. The mirror image of the bug above, in the half of the switch that was
+     * reported as *"it does NOT do anything"*.
+     */
+    public function testTurningItOffHoldsWithoutTheLandingPageConsumingIt(): void
+    {
+        // Arrange — a live grant
+        $_COOKIE[DebugAccess::COOKIE] = DebugAccess::issue(3600);
+        DebugAccess::reset();
+        $html = $this->renderPanel();
+
+        // Act
+        $this->postSwitch('disable', array(
+            '_csrf_token' => $this->fieldValue($html, '_csrf_token'),
+            'return'      => $this->fieldValue($html, 'return'),
+        ));
+
+        unset($_GET[DebugAccess::PARAM]);
+        DebugAccess::reset();
+
+        // Assert
+        $this->assertFalse(
+            DebugAccess::isGranted(),
+            'the revocation only existed inside the redirect: the toolbar stayed on'
+        );
+        $this->assertArrayNotHasKey(DebugAccess::COOKIE, $_COOKIE);
+    }
+
+    /**
+     * Reading the panel while a token is offered persists it too.
+     *
+     * The console path lands here as well: `debug:token` prints a URL, and a developer
+     * pastes it while already looking at the panel. That request drew the switch as on and
+     * left the browser with nothing, which is the same report from the other direction.
+     */
+    public function testOpeningThePanelWithATokenPersistsTheGrant(): void
+    {
+        // Arrange — the URL `debug:token` prints, opened on the panel
+        $_GET[DebugAccess::PARAM] = DebugAccess::issue(3600);
+        DebugAccess::reset();
+
+        // Act
+        $this->renderPanel();
+
+        // The next request carries only what the browser kept
+        unset($_GET[DebugAccess::PARAM]);
+        DebugAccess::reset();
+
+        // Assert
+        $this->assertTrue(
+            DebugAccess::isGranted(),
+            'the panel reported the grant without keeping it'
+        );
+    }
 }

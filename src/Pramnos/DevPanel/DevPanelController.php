@@ -3415,6 +3415,18 @@ class DevPanelController extends Controller
             return '';
         }
 
+        /*
+         * `isGranted()` first, and it is not redundant.
+         *
+         * `expiresAt()` verifies an offered `?_debug=` token and reports its expiry
+         * **without persisting it**. This page `echo`es its own HTML and is the page the
+         * switch returns to, and the page a developer pastes a `debug:token` URL onto — so
+         * it drew the switch as on, sent no `Set-Cookie`, and the next ordinary page had
+         * nothing to show. `isGranted()` is the one call that turns an offered token into a
+         * cookie, and reading the state is the moment this page has to make it.
+         */
+        \Pramnos\Debug\DebugAccess::isGranted();
+
         $expires = \Pramnos\Debug\DebugAccess::expiresAt();
         $on      = $expires !== null;
         $action  = htmlspecialchars(

@@ -683,9 +683,20 @@ the framework resolves the controller itself, the way it does `/devpanel`.
 | How long | 15 minutes, 1 hour or 4 hours |
 | Recorded | Every grant and revocation goes to the `auth` log, with who and for how long |
 
-It issues the same signed token the CLI mints and redeems it through the same
-`?_debug=` parameter, so there is one way a grant is taken up rather than two that can
-drift apart.
+It issues the same signed token the CLI mints, and **establishes the grant on the response
+that issues it** — the cookie is set before the redirect goes out. The `?_debug=` parameter
+is still on that redirect, so the first page works even if the cookie is refused, but
+nothing depends on the page you land on doing anything.
+
+That last part is the whole of it. `?_debug=` becomes a cookie inside
+`DebugAccess::isGranted()`, and the pages a developer lands on after pressing the switch —
+the DevPanel, this screen — `echo` their own HTML and read the grant's state with
+`expiresAt()`, which verifies the token and reports its expiry **without persisting it**.
+So the switch reported success, no `Set-Cookie` went out, and the next ordinary page had
+nothing: *"it says it was enabled but it does not work; only the console enables it
+properly."* Turning it off had the mirror of the same fault. Both halves now act on their
+own response, and reading the state on a developer page persists an offered token rather
+than merely reporting it.
 
 **Why the floor is a user type and not merely "signed in."** The query collector reports
 the SQL each request ran, and this framework interpolates values into statements — so

@@ -193,6 +193,10 @@ class DebugGrantController extends Controller
             return $this->respond(500, $this->screen($exception->getMessage()));
         }
 
+        // Before the redirect, because the page it returns to may not consume the token.
+        // The DevPanel is exactly such a page — see DebugAccess::establish().
+        DebugAccess::establish($token);
+
         \Pramnos\Logs\Logger::log(
             'Debug toolbar grant issued for ' . $ttl . 's to user '
             . (int) ($this->getUserId()) . ' from ' . $this->clientIp(),
@@ -212,6 +216,10 @@ class DebugGrantController extends Controller
         if (!$this->mayGrant()) {
             return $this->refuse();
         }
+
+        // As above, and for the same reason: leaving it to the landing page meant turning
+        // the toolbar off reported success and left it on.
+        DebugAccess::revoke();
 
         \Pramnos\Logs\Logger::log(
             'Debug toolbar grant revoked by user ' . (int) ($this->getUserId()),

@@ -424,4 +424,72 @@ class DebugAccessTest extends TestCase
             \Pramnos\Application\Settings::setSetting('debug_token_secret', $original, false);
         }
     }
+
+    /**
+     * `establish()` makes a grant hold on its own, without a landing page consuming it.
+     *
+     * The grant used to exist only as a `?_debug=` parameter, and only became a cookie when
+     * something called `isGranted()`. The page the DevPanel's switch returns to never does:
+     * it `echo`es its own HTML and reads the state with `expiresAt()`, which verifies and
+     * reports without persisting. So the switch reported success and the next ordinary page
+     * had nothing — reported four times.
+     */
+    public function testEstablishPutsAGrantIntoEffect(): void
+    {
+        // Arrange
+        $token = DebugAccess::issue(3600);
+        DebugAccess::reset();
+
+        // Act
+        DebugAccess::establish($token);
+
+        // Assert — and with no `?_debug=` anywhere, so it is the cookie answering
+        $this->assertSame($token, $_COOKIE[DebugAccess::COOKIE] ?? null);
+        $this->assertArrayNotHasKey(DebugAccess::PARAM, $_GET);
+
+        DebugAccess::reset();
+        $this->assertTrue(DebugAccess::isGranted());
+    }
+
+    /**
+     * A token that does not verify establishes nothing.
+     *
+     * This is a public method that writes the cookie the whole guard rests on, so it
+     * verifies rather than trusting its caller. The caller today is
+     * `DebugGrantController::postEnable()`, which has just minted the token — but a method
+     * that would set any string as a valid grant is one call away from being the way in.
+     */
+    public function testEstablishRefusesATokenThatDoesNotVerify(): void
+    {
+        // Act — a forged token with a plausible shape
+        DebugAccess::establish((string) (time() + 3600) . '.' . str_repeat('a', 64));
+
+        // Assert
+        $this->assertArrayNotHasKey(DebugAccess::COOKIE, $_COOKIE);
+
+        DebugAccess::reset();
+        $this->assertFalse(DebugAccess::isGranted());
+    }
+
+    /**
+     * `revoke()` ends a grant on the response that decides to end it.
+     *
+     * `postDisable()` redirected with `?_debug=off` and left the clearing to the landing
+     * page, so turning the toolbar off from the panel reported success and left it on
+     * everywhere else — the half of the switch reported as doing nothing.
+     */
+    public function testRevokeEndsTheGrant(): void
+    {
+        // Arrange — a live grant
+        $_COOKIE[DebugAccess::COOKIE] = DebugAccess::issue(3600);
+        DebugAccess::reset();
+        $this->assertTrue(DebugAccess::isGranted(), 'the arrangement did not grant anything');
+
+        // Act
+        DebugAccess::revoke();
+
+        // Assert
+        $this->assertArrayNotHasKey(DebugAccess::COOKIE, $_COOKIE);
+        $this->assertFalse(DebugAccess::isGranted(), 'and this request already knows');
+    }
 }

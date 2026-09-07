@@ -200,6 +200,50 @@ class DebugAccess
     }
 
     /**
+     * Put a freshly issued token into effect, now, on this response.
+     *
+     * **The grant used to depend on which page you landed on.** {@see issue()} mints a
+     * token and {@see decide()} is what turns an offered one into a cookie — so a grant
+     * only stuck if the next request called {@see isGranted()}. The DevPanel's switch
+     * returns to the DevPanel, which `echo`es its own HTML and reads the state with
+     * {@see expiresAt()}: that verifies the token and reports an expiry **without
+     * persisting anything**. So the panel drew the switch as on, no `Set-Cookie` went out,
+     * and the next ordinary page had nothing. Reported four times, most precisely as *"it
+     * says it was enabled but it does not work; only the console enables it properly"* —
+     * the console works because it prints a URL you open on an ordinary page, and an
+     * ordinary page renders through the framework, which calls `isGranted()`.
+     *
+     * So whoever issues a grant establishes it, rather than hoping the next page will.
+     * The `?_debug=` parameter stays on the redirect — it costs nothing and covers the
+     * first page if the cookie is somehow refused — but nothing depends on it any more.
+     *
+     * @param string $token A token from {@see issue()}
+     */
+    public static function establish(string $token): void
+    {
+        if (!static::verify($token)) {
+            return;
+        }
+
+        static::setCookie($token);
+        static::$granted = true;
+    }
+
+    /**
+     * End a grant now, on this response, for the same reason as {@see establish()}.
+     *
+     * `postDisable()` redirected with `?_debug=off` and left the clearing to the landing
+     * page — so turning the toolbar off from the panel reported success and left it on
+     * everywhere else. That is the half of the switch reported as *"I press it and it does
+     * NOT do anything"*.
+     */
+    public static function revoke(): void
+    {
+        static::clearCookie();
+        static::$granted = false;
+    }
+
+    /**
      * Forget this request's decision.
      *
      * For tests, and for a long-running process that handles more than one
