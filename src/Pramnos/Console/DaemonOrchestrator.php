@@ -1189,8 +1189,11 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function findRunningPidsByWorkerSignature(string $workerId): array
     {
-        $pids   = [];
-        $needle = '--worker-id ' . $workerId;
+        $pids = [];
+
+        if ($workerId === '') {
+            return $pids;
+        }
 
         if (is_dir('/proc')) {
             $entries = @scandir('/proc');
@@ -1205,7 +1208,8 @@ abstract class DaemonOrchestrator extends CommandBase
                 if ($raw === false || $raw === '') {
                     continue;
                 }
-                if (strpos(str_replace("\0", ' ', $raw), $needle) !== false) {
+                // `cmdline` is NUL-separated, so the arguments arrive already delimited.
+                if ($this->argumentsNameWorker(explode("\0", $raw), $workerId)) {
                     $pids[] = (int)$entry;
                 }
             }
@@ -1216,7 +1220,9 @@ abstract class DaemonOrchestrator extends CommandBase
         $lines = [];
         exec('ps aux 2>/dev/null', $lines);
         foreach ($lines as $line) {
-            if (strpos($line, $needle) === false) {
+            // `ps` has already joined the arguments with spaces, so the delimiters are gone
+            // and only a bounded match can tell `-1` from `-10`.
+            if (!$this->commandLineNamesWorker($line, $workerId)) {
                 continue;
             }
             if (preg_match('/^\S+\s+(\d+)/', $line, $m)) {
@@ -1225,6 +1231,75 @@ abstract class DaemonOrchestrator extends CommandBase
         }
         return $pids;
         // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Do these command-line arguments name **this** worker, and not one whose id starts the
+     * same way?
+     *
+     * **This was `strpos($cmdline, '--worker-id ' . $workerId)`, and it capped every pool at
+     * nine workers per profile.** A substring test matches a prefix: `queue-x-1` is found in
+     * `queue-x-10`, `queue-x-11`, `queue-x-12` — so `deduplicateRunningProcesses()`, whose job
+     * is killing genuine double-spawns, killed workers 10 and above as duplicates of worker 1
+     * within a cycle of being spawned. Reported from an installation with ceilings of 15 and
+     * 20 configured, where the journal repeated this every 31 seconds for hours:
+     *
+     * ```
+     * [started] queue-getnetworkserverdata-10 pid=293679
+     * [started] queue-getnetworkserverdata-11 pid=294639
+     * [dedup]   killed duplicate queue-getnetworkserverdata-1 pid=293679
+     * [dedup]   killed duplicate queue-getnetworkserverdata-1 pid=294639
+     * ```
+     *
+     * **Nine is not a special number.** It is only the boundary because ids are decimal, and
+     * any identifier that is a prefix of another has the same hole — no separator convention
+     * closes it while the test is a substring search.
+     *
+     * And the symptom pointed at the wrong place entirely: *"burst is not working"* was
+     * investigated three times against the thresholds, the load gate and the stored settings,
+     * and each investigation correctly confirmed the policy and concluded the configuration
+     * must be wrong. The policy was asking for eleven workers and getting them; something else
+     * was killing two of them every cycle.
+     *
+     * `cmdline` is NUL-separated, so the arguments arrive already delimited: **comparing them
+     * as values removes the question rather than answering it.** Both spellings are accepted,
+     * because `--worker-id=x` and `--worker-id x` are the same request.
+     *
+     * @param array<int, string> $arguments
+     */
+    protected function argumentsNameWorker(array $arguments, string $workerId): bool
+    {
+        $count = count($arguments);
+
+        for ($i = 0; $i < $count; $i++) {
+            $argument = (string) $arguments[$i];
+
+            if ($argument === '--worker-id') {
+                return isset($arguments[$i + 1]) && (string) $arguments[$i + 1] === $workerId;
+            }
+
+            if (str_starts_with($argument, '--worker-id=')) {
+                return substr($argument, strlen('--worker-id=')) === $workerId;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The same question against a command line whose delimiters have been lost.
+     *
+     * The `ps aux` fallback — for a platform with no `/proc` — gets one string with the
+     * arguments joined by spaces, so there is nothing to compare as a value. A bounded match
+     * is the best available: the id must be followed by whitespace or the end of the line, so
+     * `-1` no longer matches `-10`.
+     */
+    protected function commandLineNamesWorker(string $line, string $workerId): bool
+    {
+        return preg_match(
+            '/--worker-id[= ]' . preg_quote($workerId, '/') . '(\s|$)/',
+            $line
+        ) === 1;
     }
 
     /**

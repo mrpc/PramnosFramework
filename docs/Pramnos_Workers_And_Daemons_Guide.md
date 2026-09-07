@@ -477,6 +477,37 @@ final class MyDaemons extends DaemonOrchestrator
 }
 ```
 
+### Worker ids are compared, not searched for
+
+The orchestrator recognises its own processes by the `--worker-id` it passed, reading
+`/proc/<pid>/cmdline` (or `ps aux` where there is no `/proc`). **It compares the argument's
+value.** That matters more than it sounds, because the obvious implementation is a substring
+search and a substring search matches a prefix:
+
+```
+--worker-id worker-1   found inside   --worker-id worker-10
+```
+
+Which capped every pool at **nine workers per profile**, silently, whatever the ceiling said:
+`deduplicateRunningProcesses()` — whose whole job is killing genuine double-spawns — killed
+workers 10 and above as duplicates of worker 1 within a cycle of being spawned.
+
+Nine is not a special number; it is the boundary only because ids are decimal. **Any id that
+is a prefix of another has the same hole**, and no separator convention closes it while the
+test is a substring search. `cmdline` is NUL-separated, so the arguments arrive already
+delimited — comparing them as values removes the question rather than answering it. Both
+`--worker-id x` and `--worker-id=x` are understood.
+
+**Worth knowing because of where the symptom points.** "Burst is not working" was
+investigated three times against the thresholds, the load gate and the stored settings on the
+installation that found it, and each investigation correctly confirmed the policy and
+concluded the configuration must be wrong. The policy was asking for eleven workers and
+getting them; something else was killing two of them every cycle.
+
+If you build a scaling policy on this, **log the decision and the resulting process count on
+the same line.** A supervisor that undoes its own decisions is otherwise indistinguishable
+from one that never makes them.
+
 ### The schedule comes with it
 
 The list above is the application's daemons. The orchestrator supervises one more
