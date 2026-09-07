@@ -19,6 +19,16 @@ class Request extends Base
      */
     protected static $_controller = '';
     protected static $action = '';
+
+    /**
+     * The `$_GET` keys the last `calcParams()` wrote.
+     *
+     * So the next call can take back what it put there without touching anything
+     * else. {@see calcParams()} for why the difference matters.
+     *
+     * @var list<string>
+     */
+    protected static $derivedParams = array();
     /**
      * Original $_GET request
      * @var string
@@ -165,6 +175,7 @@ class Request extends Base
         self::$originalRequestNoChange = '';
         self::$_controller = '';
         self::$action = '';
+        self::$derivedParams = array();
         self::$putData = array();
         self::$deleteData = array();
         self::$patchData = array();
@@ -438,6 +449,32 @@ class Request extends Base
         $preserved = is_array($_GET) ? $_GET : array();
         unset($preserved['r']);
         $_GET = $preserved;
+
+        /*
+         * Except the keys **this method itself** put there last time, which go.
+         *
+         * Keeping `$_GET` was right about foreign keys and wrong about its own. An
+         * application that rewrites the request and calls this again — the documented way
+         * to strip a language prefix or resolve a slug — inherited the previous parse:
+         *
+         *     el/parent/skipjobpost      1st: _option='skipjobpost'   2nd: 'skipjobpost'
+         *
+         * On the second parse `parent/skipjobpost` has two segments and produces no
+         * `_option` at all, so the correct answer is *absent*. Instead it kept the action's
+         * own name, from the parse where the language prefix had shifted every index by one
+         * — and an action whose `_option` names itself routes to itself. Reported from an
+         * application making **nine** such calls per request, one for the language and the
+         * rest for slug rewrites.
+         *
+         * Recorded rather than guessed at, because "the keys this produces" is not a fixed
+         * list: `_option`, and one key per pair of trailing path segments, named by the URL.
+         * A pattern would either miss them or take somebody else's.
+         */
+        foreach (self::$derivedParams as $derived) {
+            unset($_GET[$derived], $_REQUEST[$derived]);
+        }
+
+        self::$derivedParams = array();
         if ($requestParam == null){
             $requestParam=self::$originalRequest;
         }
@@ -523,7 +560,8 @@ class Request extends Base
                  *
                  * The two branches below already remove them; this one was the outlier.
                  */
-                $_GET['_option'] = $parts[2];
+                $_GET['_option']       = $parts[2];
+                self::$derivedParams[] = '_option';
                 unset($parts[0], $parts[1], $parts[2]);
             } elseif ($slashes > 0) {
                 unset($parts[0], $parts[1]);
@@ -533,17 +571,21 @@ class Request extends Base
             foreach ($parts as $part) {
 
                 if (isset($varname) && !isset($_GET[$varname]) && trim($varname) != '') {
-                    $_GET[$varname] = $part;
-                    $_REQUEST[$varname] = $part;
+                    $_GET[$varname]        = $part;
+                    $_REQUEST[$varname]    = $part;
+                    self::$derivedParams[] = $varname;
                     unset($varname);
                 } else {
                     $varname = $part;
                 }
             }
             if (isset($varname)) {
-                $_GET[$varname] = null;
+                $_GET[$varname]        = null;
+                self::$derivedParams[] = $varname;
+
                 if (!isset($_GET['_option'])){
-                    $_GET['_option'] = $varname;
+                    $_GET['_option']       = $varname;
+                    self::$derivedParams[] = '_option';
                 }
                 unset($varname);
             }
