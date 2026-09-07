@@ -1738,30 +1738,48 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function getCurrentGitHash(): string
     {
-        $base     = defined('ROOT') ? ROOT : getcwd();
-        $headFile = $base . '/.git/HEAD';
-        if (!file_exists($headFile)) {
+        /*
+         * Through `GitInfo`, and **not** by reading `.git/refs/heads/<branch>` here.
+         *
+         * That is what this did, and it is right until `git gc` packs the refs into
+         * `.git/packed-refs` and deletes the loose files — which `git gc --auto` does
+         * unattended, after enough loose objects accumulate, on a schedule nobody chose.
+         *
+         * **What makes it worth a comment is the failure shape, not the parsing.** Nothing
+         * errors. An unreadable hash is correctly treated as "cannot tell", the guard below
+         * keeps the last known value, and so deploys simply stop restarting anything: no
+         * exception, no log line, no failed deploy — just new code sitting on disk while the
+         * old process runs. Reported from an installation where this feature had been working
+         * for months.
+         *
+         * `GitInfo::getHash()` already falls back to `packed-refs`, and already skips its `#`
+         * header and the `^<sha>` peel lines that annotated tags add — neither of which can
+         * collide with a branch name, so a suffix comparison is enough and no git plumbing has
+         * to be invoked.
+         *
+         * Worth knowing that **any** code inferring a deployed version from the filesystem has
+         * this hole, not only a supervisor: a version banner, a cache-busting key, a health
+         * endpoint reporting a build. `GitInfo` is the answer for all of them.
+         */
+        try {
+            $hash = (new \Pramnos\Framework\GitInfo($this->repoRootForGit()))->getHash();
+        } catch (\Throwable) {
             return '';
         }
 
-        $head = trim((string)file_get_contents($headFile));
+        return is_string($hash) && strlen($hash) === 40 && ctype_xdigit($hash) ? $hash : '';
+    }
 
-        if (strlen($head) === 40 && ctype_xdigit($head)) {
-            return $head;
-        }
-
-        if (str_starts_with($head, 'ref: ')) {
-            $ref     = substr($head, 5);
-            $refFile = $base . '/.git/' . $ref;
-            if (file_exists($refFile)) {
-                $sha = trim((string)file_get_contents($refFile));
-                if (strlen($sha) === 40 && ctype_xdigit($sha)) {
-                    return $sha;
-                }
-            }
-        }
-
-        return '';
+    /**
+     * Which working copy the deployed version is read from.
+     *
+     * A seam, because `ROOT` is a constant and a constant is not something a test can vary —
+     * so without it the only way to cover both git layouts would be to pack the refs of the
+     * repository the suite is running in.
+     */
+    protected function repoRootForGit(): string
+    {
+        return defined('ROOT') ? ROOT : getcwd();
     }
 
     // ── Interactive dashboard ─────────────────────────────────────────────────

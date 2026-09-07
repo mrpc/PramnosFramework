@@ -230,9 +230,58 @@ abstract class CommandBase extends Command
      */
     protected function installStopSignals(?callable $onStop = null): void
     {
-        $this->signalStop = new SignalStop([], $onStop);
+        $this->signalStop = new SignalStop($this->stopSignals(), $onStop);
         $this->signalStop->install();
+
+        /*
+         * **`SIGINT` is ignored on a supervised worker**, and that is not the same as
+         * trapping it.
+         *
+         * `SIGTERM` is how an orchestrator or `systemctl stop` asks a worker to leave, and it
+         * is trapped. Ctrl+C is not: a supervised worker has no terminal, so a `SIGINT`
+         * reaching it came from somewhere it was not addressed — an operator interrupting a
+         * shell that happens to share the process group, a script that signals a group rather
+         * than a pid — and stopping the whole pool because somebody pressed Ctrl+C in a
+         * neighbouring window is a pool that goes down for a keystroke.
+         *
+         * `SIG_IGN` rather than a trap that does nothing, because the default action for
+         * `SIGINT` is termination: an untrapped one kills the process outright, mid-task, and
+         * the row it was holding is left `processing` behind a lock nobody holds. Which is the
+         * leak `queue:reclaim` exists to clean up.
+         *
+         * Contributed by a consuming application that had built this on its own side. Only
+         * when supervised — an interactive run keeps Ctrl+C, because there it is the operator
+         * talking to this process and it should stop.
+         */
+        if ($this->isSupervised() && function_exists('pcntl_signal') && defined('SIGINT')) {
+            pcntl_signal(SIGINT, SIG_IGN);
+        }
     }
+
+    /**
+     * Which signals mean *finish what you are doing and leave*.
+     *
+     * `SIGTERM` always. `SIGINT` only when nobody is supervising: see
+     * {@see installStopSignals()} for why a supervised worker ignores it instead.
+     *
+     * *Supervised* is {@see isSupervised()}, which reads `PRAMNOS_JOB_LOCK_FILE` — the
+     * framework's own signal rather than a guess, since that is how a supervisor hands the
+     * lock path down. So the definition this needed already existed here; it just had nothing
+     * asking.
+     *
+     * @return int[]
+     */
+    protected function stopSignals(): array
+    {
+        if (!function_exists('pcntl_signal')) {
+            return [];
+        }
+
+        return $this->isSupervised()
+            ? [SIGTERM]
+            : [SIGTERM, SIGINT];
+    }
+
 
     /**
      * Whether a long-running loop should stop now.

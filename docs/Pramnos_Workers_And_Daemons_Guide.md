@@ -477,6 +477,63 @@ final class MyDaemons extends DaemonOrchestrator
 }
 ```
 
+### Sizing the pool — `BurstPolicy`
+
+The orchestrator decides *which* processes should exist; `Console\BurstPolicy` decides **how
+many** of one kind. It is deliberately pure — floor, ceiling, running count, backlog,
+thresholds and load in, a number out — with no queue, no database, no process table and no
+clock, because a scaling decision that can only be exercised by arranging a real overloaded
+system is one nobody dares change.
+
+```php
+$policy = \Pramnos\Console\BurstPolicy::fromConfig([
+    'floor'        => 1,      // always running
+    'ceiling'      => 8,      // never more, whatever the backlog says
+    'grow_above'   => 1000,   // pending items at which to add one
+    'shrink_below' => 200,    // pending items at which to remove one
+    'load_ceiling' => 0.75,   // load per core past which nothing is added
+    'cooldown'     => 3,      // cycles to wait after a change
+]);
+
+$target = $policy->target($running, $backlog, $loadPerCore, $cyclesSinceChange);
+$output->writeln($policy->explain($running, $backlog, $loadPerCore, $cyclesSinceChange));
+```
+
+Five rules, and each one is a failure somebody already had:
+
+- **One step per cycle**, never a jump to a computed target. That is the whole load
+  protection: a policy that leaps has to be right about capacity in advance, an incremental
+  one only about the *direction*. Ten seconds a step turns one worker into eight in eighty.
+- **Two thresholds with a gap.** One threshold oscillates by construction — scaling up drops
+  the backlog under it, which scales down, which raises it again, every cycle for ever.
+- **A cooldown.** Without it the pool keeps stepping while the backlog still describes the
+  world *before* the last step landed, so it overshoots and then corrects. Simulated: a load
+  three workers can serve produced `2,3,4,5,6,7,8,8,7,6,5,4,3,2,2,2,2,3,4,4` — the ceiling,
+  then the floor, at the reconcile interval.
+- **Load gates growth, never shrinking.** Past the ceiling nothing is added however deep the
+  queue; but load alone never sheds a worker, because the load may not be the queue's at all
+  and shedding would fail to fix that while making the backlog worse. Getting this backwards
+  gives a pool that abandons its work whenever anything else on the machine is busy.
+- **A backlog that cannot be read is no backlog** — the pool holds at its floor. Not "grow to
+  be safe": the query most likely failed because the database is in trouble, and adding
+  workers to it makes an outage worse.
+
+**What "settled" can mean.** A pool is a whole number of workers and the load it serves
+usually is not, so when the load needs three-point-something the pool *must* walk 3,4,3,2,3,4…
+for ever. The guarantee is a **bound, not a fixed point**: within one worker either side of
+what the load needs. That bound is what the cooldown buys — a span of two instead of six.
+
+**Log `explain()` beside the process count.** A scaling controller needs its decision and the
+resulting number of processes on the same line, or a supervisor that undoes its own decisions
+is indistinguishable from one that never makes them. An installation investigated "burst is
+not working" three times against the thresholds and the load gate — each time correctly
+confirming the policy — while a prefix-matching deduplicator killed two workers every cycle.
+
+**And it is unsafe without the rest.** Every shrink stops a worker, so `queue:reclaim` and the
+cooperative stop are prerequisites rather than companions: an autoscaler over a queue that
+abandons what a stopped worker held is a machine for losing work in proportion to how much it
+scales.
+
 ### Worker ids are compared, not searched for
 
 The orchestrator recognises its own processes by the `--worker-id` it passed, reading
