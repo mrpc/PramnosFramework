@@ -3211,7 +3211,38 @@ class DevPanelController extends Controller
      */
     public static function isReturnable(string $url, string $base): bool
     {
-        return static::isOnThisSite($url, $base);
+        return static::isOnThisSite($url, $base) || static::isSameSitePath($url);
+    }
+
+    /**
+     * Is this a path on this site — and not a way out of it?
+     *
+     * A path is the safer shape for a return address that arrives in a request: it names no
+     * host, so it cannot disagree with one, and it cannot be pointed somewhere else. But
+     * only if it is really a path, and there are three ways for something to look like one
+     * and not be:
+     *
+     *  - `//evil.example/x` is **protocol-relative**: a browser reads it as another host, so
+     *    it is an open redirect that begins with a slash;
+     *  - `/\evil.example` is the same trick with a backslash, which some browsers normalise;
+     *  - `https://evil.example` contains a scheme, and a check that only looked at the first
+     *    character would not notice.
+     *
+     * So: one leading slash, no second slash or backslash after it, and no colon before the
+     * first slash of the rest.
+     */
+    protected static function isSameSitePath(string $url): bool
+    {
+        if ($url === '' || $url[0] !== '/') {
+            return false;
+        }
+
+        if (isset($url[1]) && ($url[1] === '/' || $url[1] === '\\')) {
+            return false;
+        }
+
+        // A scheme cannot appear in a path, and `mailto:` needs no slashes to be one.
+        return !preg_match('~^/[^/?#]*:~', $url);
     }
 
     protected static function isOnThisSite(string $url, string $base): bool
@@ -3390,7 +3421,27 @@ class DevPanelController extends Controller
             $baseUrl . '/debugbar/' . ($on ? 'disable' : 'enable'),
             ENT_QUOTES
         );
-        $back = htmlspecialchars($baseUrl . '/' . $mountPoint
+        /*
+         * A **path**, not an absolute URL — and that is the fix for "it throws me to the
+         * front end of the site".
+         *
+         * `DebugGrantController::returnUrl()` refuses a return address that is not on this
+         * site, which it has to: a redirect target arriving in a POST field is an open
+         * redirect otherwise. It checked that by comparing the value against `sURL` as a
+         * string prefix, and this field carried an absolute URL — so **any** difference
+         * between the `sURL` of the render and the `sURL` of the POST refused it:
+         *
+         * | posted | compared against | |
+         * |---|---|---|
+         * | `http://host/devpanel`      | `https://host` | refused |
+         * | `https://www.host/devpanel` | `https://host` | refused |
+         * | `https://host:443/devpanel` | `https://host` | refused |
+         *
+         * Behind a proxy those are ordinary — `X-Forwarded-Proto`, a `www` redirect, an
+         * explicit port — and a refused return falls back to the site root, which is exactly
+         * what was reported. A path cannot disagree with a host it does not name.
+         */
+        $back = htmlspecialchars('/' . $mountPoint
             . ($activeTab === 'overview' ? '' : '/' . $activeTab), ENT_QUOTES);
 
         /*

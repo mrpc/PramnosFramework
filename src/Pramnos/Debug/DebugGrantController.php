@@ -329,7 +329,28 @@ class DebugGrantController extends Controller
         if ($asked !== '' && $base !== ''
             && \Pramnos\DevPanel\DevPanelController::isReturnable($asked, $base)
         ) {
-            return $asked;
+            /*
+             * A path is turned into a URL here rather than at the caller.
+             *
+             * The switch posts `/devpanel` and not `https://host/devpanel`, because comparing
+             * an absolute URL against `sURL` refuses it whenever the two disagree about the
+             * scheme, the host or the port — which behind a proxy they routinely do, and a
+             * refused return lands the browser on the site root. That was reported as *"it
+             * throws me to the front end of the site"*.
+             */
+            return str_starts_with($asked, '/') ? $base . $asked : $asked;
+        }
+
+        if ($asked !== '') {
+            /*
+             * Say so, because the fallback is indistinguishable from the feature not working.
+             *
+             * A refused return address sends the browser to the site root — the switch appears
+             * to do nothing, or to throw you out of the panel — and nothing anywhere said
+             * which of the two it was. One line turns that into a ten-second diagnosis, and
+             * it took considerably longer than that twice.
+             */
+            $this->reportRefusedReturn($asked, $base);
         }
 
         /*
@@ -341,6 +362,27 @@ class DebugGrantController extends Controller
         return \Pramnos\DevPanel\DevPanelController::returnUrlFor(
             'debugbar',
             array((defined('sURL') ? rtrim((string) sURL, '/') : '') . '/debugbar')
+        );
+    }
+
+    /**
+     * Record a return address that was refused.
+     *
+     * Its own method so a test can watch it and an application can route it — the same seam
+     * `Cache::logAdapterFallback()` has, for the same reason: a fallback that is correct and
+     * silent is indistinguishable from a feature that does not work.
+     *
+     * The first version of the test for this read the log **file**, which accumulates across
+     * runs — so it found the string from an earlier run and passed with the reporting removed.
+     * A seam cannot be satisfied by history.
+     */
+    protected function reportRefusedReturn(string $asked, string $base): void
+    {
+        \Pramnos\Logs\Logger::log(
+            'Refused a debug-grant return address as off-site: ' . $asked
+            . ' (this site is ' . ($base === '' ? 'unknown' : $base) . '). '
+            . 'The browser will land on the site root instead.',
+            'debug'
         );
     }
 

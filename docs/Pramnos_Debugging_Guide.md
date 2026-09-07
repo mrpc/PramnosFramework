@@ -736,6 +736,22 @@ reported as doing nothing twice while working.
 It appears only for somebody who may use it; a control that 403s when pressed is worse than
 one that is absent.
 
+**The return address is a path**, not an absolute URL — `/devpanel`, not
+`https://host/devpanel`. `returnUrl()` refuses an address that is not on this site, which it
+has to: a redirect target arriving in a POST field is an open redirect otherwise. Comparing an
+absolute URL against `sURL` refuses it whenever the two disagree about the scheme, the host or
+the port, and **behind a proxy they routinely do** — `X-Forwarded-Proto`, a `www` redirect, an
+explicit `:443`. A refused address falls back to the site root, so the switch appears to throw
+you out of the panel.
+
+A path names no host, so it cannot disagree with one. It still has to *be* a path: `//host/x`
+is protocol-relative and a browser reads it as another site, `/\host/x` is the same trick with
+a backslash, and a scheme can hide after the slash. All three are refused.
+
+**And a refusal is logged** under `debug`, saying what was refused and what the site is.
+Landing on the site root is otherwise indistinguishable from the feature not working, which is
+how it was reported twice.
+
 Put it in your own admin menu with a plain link:
 
 ```php
