@@ -71,7 +71,13 @@ class OauthTest extends TestCase
                 `apisecret` varchar(255) DEFAULT NULL,
                 `status` tinyint(1) NOT NULL DEFAULT 1,
                 `added` int(11) NOT NULL DEFAULT 0,
-                `redirect_uri` varchar(255) DEFAULT NULL,
+                -- `callback`, which is the column the migration creates and the
+                -- authorization endpoint reads to decide whether a `redirect_uri` is
+                -- registered. This fixture used to declare `redirect_uri`, a column no
+                -- migration has ever created, which is the disagreement the comment
+                -- above warns about: the mock-based tests set a field nothing consulted
+                -- and passed.
+                `callback` text DEFAULT NULL,
                 `public_key` text DEFAULT NULL,
                 `systemuser` int(11) DEFAULT NULL,
                 PRIMARY KEY (`appid`)
@@ -238,8 +244,8 @@ class OauthTest extends TestCase
     
     public function testDisplayShowsApps(): void
     {
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'key1', 'apisecret' => '']);
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 2, 'name' => 'App 2', 'status' => 1, 'apikey' => 'key2', 'apisecret' => '']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'key1', 'apisecret' => '', 'callback' => 'https://example.com/cb']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 2, 'name' => 'App 2', 'status' => 1, 'apikey' => 'key2', 'apisecret' => '', 'callback' => 'https://example.com/cb']);
         
         // Mock getView
         $mockView = $this->createMock(\Pramnos\Application\View::class);
@@ -275,14 +281,14 @@ class OauthTest extends TestCase
         $_GET['state'] = 'abc';
         $_GET['redirect_uri'] = 'https://example.com/cb';
         
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '', 'callback' => 'https://example.com/cb']);
 
         $controller = $this->getMockBuilder(Oauth::class)
             ->setConstructorArgs([new Application()])
             ->onlyMethods(['redirect'])
             ->getMock();
             
-        $controller->expects($this->once())->method('redirect')->with($this->stringContains('login?return_url='));
+        $controller->expects($this->once())->method('redirect')->with($this->stringContains('login?return='));
         
         $controller->authorize();
     }
@@ -307,7 +313,7 @@ class OauthTest extends TestCase
         $user->language = \Pramnos\Framework\Factory::getLanguage()->currentlang();
         
         $this->db->queryBuilder()->table('users')->insert(['userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '', 'callback' => 'https://example.com/cb']);
         
         $app = \Pramnos\Application\Application::getInstance();
         if ($app) {
@@ -435,7 +441,7 @@ class OauthTest extends TestCase
         $_POST['client_id'] = 'test_client_id';
         $_POST['scope'] = 'profile';
         
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '', 'callback' => 'https://example.com/cb']);
         
         $response = $this->controller->deviceauthorization();
         $this->assertEquals(200, $response->getStatusCode());

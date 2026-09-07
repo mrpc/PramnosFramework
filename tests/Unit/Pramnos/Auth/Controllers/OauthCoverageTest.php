@@ -347,7 +347,7 @@ class OauthCoverageTest extends TestCase
             'userid' => 77, 'username' => 'family_user', 'email' => 'fam@test.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 3, 'name' => 'Family App', 'status' => 1, 'apikey' => 'fam_key', 'apisecret' => ''
+            'appid' => 3, 'name' => 'Family App', 'status' => 1, 'apikey' => 'fam_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
 
         // The access token we will present.
@@ -414,7 +414,7 @@ class OauthCoverageTest extends TestCase
             'userid' => 78, 'username' => 'refresh_user', 'email' => 'ref@test.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 4, 'name' => 'Refresh App', 'status' => 1, 'apikey' => 'ref_key', 'apisecret' => ''
+            'appid' => 4, 'name' => 'Refresh App', 'status' => 1, 'apikey' => 'ref_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 78, 'applicationid' => 4, 'tokentype' => 'access_token',
@@ -460,7 +460,7 @@ class OauthCoverageTest extends TestCase
         $_POST['scope']     = 'openid profile';
 
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 4, 'name' => 'Dev App', 'status' => 1, 'apikey' => 'dev_client', 'apisecret' => ''
+            'appid' => 4, 'name' => 'Dev App', 'status' => 1, 'apikey' => 'dev_client', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
 
         // Act
@@ -619,7 +619,7 @@ class OauthCoverageTest extends TestCase
             'userid' => 99, 'username' => 'state_user', 'email' => 'su@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 6, 'name' => 'State App', 'status' => 1, 'apikey' => 'state_key', 'apisecret' => ''
+            'appid' => 6, 'name' => 'State App', 'status' => 1, 'apikey' => 'state_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
 
         $params = [
@@ -803,7 +803,7 @@ class OauthCoverageTest extends TestCase
             'userid' => 110, 'username' => 'revdui', 'email' => 'revui@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 7, 'name' => 'Ui App', 'status' => 1, 'apikey' => 'ui_key', 'apisecret' => ''
+            'appid' => 7, 'name' => 'Ui App', 'status' => 1, 'apikey' => 'ui_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 110, 'applicationid' => 7, 'tokentype' => 'access_token',
@@ -833,7 +833,7 @@ class OauthCoverageTest extends TestCase
             'userid' => 111, 'username' => 'expui', 'email' => 'expui@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
-            'appid' => 8, 'name' => 'Exp Ui App', 'status' => 1, 'apikey' => 'exp_ui_key', 'apisecret' => ''
+            'appid' => 8, 'name' => 'Exp Ui App', 'status' => 1, 'apikey' => 'exp_ui_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 111, 'applicationid' => 8, 'tokentype' => 'access_token',
@@ -956,7 +956,7 @@ class OauthCoverageTest extends TestCase
 
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 11, 'name' => 'Basic JWT App', 'status' => 1,
-            'apikey' => 'basic_jwt_client', 'apisecret' => '', 'public_key' => $pubKey
+            'apikey' => 'basic_jwt_client', 'apisecret' => '', 'callback' => 'https://example.com/cb', 'public_key' => $pubKey
         ]);
 
         $assertion = JWT::encode([
@@ -1015,7 +1015,7 @@ class OauthCoverageTest extends TestCase
         // Application already references systemuser = 150
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 12, 'name' => 'Reuse App', 'status' => 1,
-            'apikey' => 'reuse_jwt_client', 'apisecret' => '', 'public_key' => $pubKey, 'systemuser' => 150
+            'apikey' => 'reuse_jwt_client', 'apisecret' => '', 'callback' => 'https://example.com/cb', 'public_key' => $pubKey, 'systemuser' => 150
         ]);
 
         $assertion = JWT::encode([
@@ -1083,7 +1083,7 @@ class OauthCoverageTest extends TestCase
 
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 13, 'name' => 'Sub Mismatch App', 'status' => 1,
-            'apikey' => 'sub_mismatch_client', 'apisecret' => '', 'public_key' => $pubKey
+            'apikey' => 'sub_mismatch_client', 'apisecret' => '', 'callback' => 'https://example.com/cb', 'public_key' => $pubKey
         ]);
 
         // sub = 'wrong_client', but we're authenticating as 'sub_mismatch_client'
@@ -1122,7 +1122,7 @@ class OauthCoverageTest extends TestCase
 
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 14, 'name' => 'Exp App', 'status' => 1,
-            'apikey' => 'exp_check_client', 'apisecret' => '', 'public_key' => $pubKey
+            'apikey' => 'exp_check_client', 'apisecret' => '', 'callback' => 'https://example.com/cb', 'public_key' => $pubKey
         ]);
 
         // Build a JWT with exp in the past
@@ -1153,7 +1153,7 @@ class OauthCoverageTest extends TestCase
         // Arrange — application without a public key
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 15, 'name' => 'No PK App', 'status' => 1,
-            'apikey' => 'nopk_client', 'apisecret' => '', 'public_key' => ''
+            'apikey' => 'nopk_client', 'apisecret' => '', 'callback' => 'https://example.com/cb', 'public_key' => ''
         ]);
 
         // Act — assertion content is irrelevant; it will be rejected before decoding
@@ -1273,7 +1273,7 @@ class OauthCoverageTest extends TestCase
 
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 16, 'name' => 'Scope Err App', 'status' => 1,
-            'apikey' => 'scope_err_client', 'apisecret' => ''
+            'apikey' => 'scope_err_client', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
 
         // Act
@@ -1319,7 +1319,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 17, 'name' => 'Rethrow App', 'status' => 1,
-            'apikey' => 'rethrow_client', 'apisecret' => ''
+            'apikey' => 'rethrow_client', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
 
         $user = new \Pramnos\User\User();
@@ -1439,7 +1439,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 19, 'name' => 'Userinfo App', 'status' => 1,
-            'apikey' => 'ui_app_key', 'apisecret' => ''
+            'apikey' => 'ui_app_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 160, 'applicationid' => 19, 'tokentype' => 'access_token',
@@ -1470,7 +1470,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 20, 'name' => 'NoScope App', 'status' => 1,
-            'apikey' => 'ns_key', 'apisecret' => ''
+            'apikey' => 'ns_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 161, 'applicationid' => 20, 'tokentype' => 'access_token',
@@ -1731,7 +1731,7 @@ class OauthCoverageTest extends TestCase
 
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 26, 'name' => 'Sym App', 'status' => 1,
-            'apikey' => 'sym_client', 'apisecret' => '', 'public_key' => $pubKey
+            'apikey' => 'sym_client', 'apisecret' => '', 'callback' => 'https://example.com/cb', 'public_key' => $pubKey
         ]);
 
         $assertion = JWT::encode([
@@ -1789,7 +1789,7 @@ class OauthCoverageTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 27, 'name' => 'State Deny App', 'status' => 1,
-            'apikey' => 'state_deny_key', 'apisecret' => ''
+            'apikey' => 'state_deny_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
         ]);
 
         $user = new \Pramnos\User\User();

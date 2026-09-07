@@ -29,6 +29,15 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 class Oauth extends Controller
 {
     /**
+     * Where the validated `form-action` source for this flow is kept between requests.
+     *
+     * The login form and the consent form are on different requests, and only this
+     * endpoint knows — and has verified — where the chain is allowed to end.
+     * {@see \Pramnos\Auth\Controllers\Account::allowOauthFormAction()} reads it.
+     */
+    public const FORM_ACTION_SESSION_KEY = 'pramnos_oauth_form_action';
+
+    /**
      * Terminate execution. Overridden in tests to prevent exit.
      */
     protected function terminate(): void
@@ -120,11 +129,24 @@ class Oauth extends Controller
             $this->validateAuthorizeParams($params);
 
             $client      = $this->loadClient($params['client_id']);
+
+            // Before anything else touches `redirect_uri`, and before the user is sent
+            // anywhere: this is the only place that can refuse an unregistered callback
+            // while the request is still cheap and nothing has been issued.
+            $this->assertRegisteredRedirectUri($client, $params['redirect_uri']);
+            $this->allowFormActionTo($params['redirect_uri']);
+
             $user        = $this->getLoggedInUser();
 
             if ($user === null) {
                 $returnUrl = sURL . 'oauth/authorize?' . http_build_query($params);
-                $this->redirect(sURL . 'login?' . http_build_query(['return_url' => $returnUrl]));
+                // `return`, not `return_url`: that is the field name
+                // {@see \Pramnos\Auth\Controllers\Account::returnUrl()} reads and the
+                // bundled login view posts back. With the other spelling the parameter
+                // arrived, was ignored, and a user who signed in here landed on the
+                // dashboard instead of back at the authorization request — the flow
+                // completed and lost its purpose on the way.
+                $this->redirect(sURL . 'login?' . http_build_query(['return' => $returnUrl]));
                 return;
             }
 
@@ -748,6 +770,99 @@ class Oauth extends Controller
     // ── Authorize helpers ─────────────────────────────────────────────────────
 
     /**
+     * Refuse a `redirect_uri` the client has not registered — RFC 6749 §3.1.2.
+     *
+     * Without this the endpoint was an open redirect **with an authorization code
+     * attached**: a crafted `authorize` link named any destination, the user saw their
+     * own authorization server's login form on the way, and a real code was delivered to
+     * whoever asked. The registry has existed all along — `applications.callback`, which
+     * the admin screen writes and {@see \Pramnos\Auth\Application::getRedirectUris()}
+     * reads — and this endpoint simply never consulted it.
+     *
+     * **Exact string match**, which is what the RFC requires and what the near misses
+     * need: a prefix test accepts `https://client.example.attacker.test`, a host test
+     * accepts any path on the client's domain including one that reflects the query, and
+     * anything that normalises first has to be as correct as a browser about case,
+     * default ports, dot segments and percent-encoding. Registering the URI a client
+     * actually uses is cheaper than being right about all of that.
+     *
+     * **A client with no registered callback is refused**, rather than allowed to name its
+     * own destination, and that is the behaviour change: an installation whose clients
+     * have an empty `callback` column has been relying on the missing check. The message
+     * says so in the terms of the fix, because the alternative is an authorization server
+     * that cannot say why it declined.
+     *
+     * @param  array<string,mixed> $client   The row from {@see loadClient()}
+     * @param  string              $redirect The `redirect_uri` this request asked for
+     * @throws \InvalidArgumentException when it is not registered
+     */
+    private function assertRegisteredRedirectUri(array $client, string $redirect): void
+    {
+        $registered = \Pramnos\Auth\Application::parseRedirectUris(
+            isset($client['callback']) ? (string) $client['callback'] : null
+        );
+
+        if ($registered === []) {
+            throw new \InvalidArgumentException(
+                'This application has no registered redirect URI, so no authorization '
+                . 'request can be completed for it. Register the callback URL on the '
+                . 'application before using the authorization endpoint.'
+            );
+        }
+
+        if (!in_array($redirect, $registered, true)) {
+            // The requested URI is deliberately absent from the message. It is
+            // attacker-controlled on the request that matters, and an error page that
+            // echoes it turns a refusal into a place to put a link.
+            throw new \InvalidArgumentException(
+                'The redirect_uri is not registered for this application.'
+            );
+        }
+    }
+
+    /**
+     * Let the policy carry the destination a form submission will end at.
+     *
+     * `form-action 'self'` is the right default and cancels this flow, because a browser
+     * applies it to **every redirect in the chain**: the consent form posts to this
+     * endpoint, which answers `302 <client callback>`, and the last hop is another origin.
+     * Nothing server-side sees it — the code is generated, stored and named in a
+     * `Location` header, and the navigation is cancelled after that. The violation is even
+     * reported against the *initial*, same-origin URL, so the console message reads as a
+     * paradox.
+     *
+     * Called only after {@see assertRegisteredRedirectUri()}, and that order is the whole
+     * of its safety: the policy is widened to a URI the client registered, never to one
+     * the request asked for. Reversed, it would turn the refusal above into a permission.
+     *
+     * The value is also kept in the session, because the form that starts the chain is on
+     * a **different request** — the login page, rendered by
+     * {@see \Pramnos\Auth\Controllers\Account::renderLogin()} after the redirect below,
+     * whose own policy is built long after this one. Storing the source that has already
+     * been validated here is what lets that page widen its policy without re-deriving,
+     * re-parsing or re-querying anything.
+     */
+    private function allowFormActionTo(string $redirect): void
+    {
+        $source = \Pramnos\Application\Application::cspSourceForUri($redirect);
+        if ($source === '') {
+            return;
+        }
+
+        // `currentInstance()`, never `getInstance()`: this runs on an authorization
+        // request that already has an application, and the factory would *construct* one
+        // — a database, a language and a session — if it somehow did not. A policy
+        // widening is not worth booting an application for, and
+        // `ApplicationFactoryPurityTest` says so for this whole layer.
+        $app = $this->application ?? \Pramnos\Application\Application::currentInstance();
+        if ($app instanceof \Pramnos\Application\Application) {
+            $app->allowCspSource('form-action', $source);
+        }
+
+        \Pramnos\Http\Session::getInstance()->set(self::FORM_ACTION_SESSION_KEY, $source);
+    }
+
+    /**
      * Collect and sanitize GET/POST parameters for the authorization endpoint.
      *
      * @return array<string, string>
@@ -827,9 +942,26 @@ class Oauth extends Controller
             if ($params['state'] !== '') {
                 $redirectParams['state'] = $params['state'];
             }
+            $this->clearFormActionAllowance();
             header('Location: ' . $params['redirect_uri'] . '?' . http_build_query($redirectParams));
             $this->terminate(); return;
         }
+    }
+
+    /**
+     * Drop the stored `form-action` source once the flow it was for has ended.
+     *
+     * Not a security boundary — it names a callback the client had registered, and the
+     * request it covered is over. It is hygiene: without this, the next login form this
+     * visitor sees carries a policy widened for a flow that finished, and a directive that
+     * accumulates sources nobody can account for is one nobody will dare tighten.
+     */
+    private function clearFormActionAllowance(): void
+    {
+        // Directly, rather than through a new `Session::remove()` for one caller: the
+        // class has no removal method, and there is nothing to remove when no session
+        // was ever started.
+        unset($_SESSION[self::FORM_ACTION_SESSION_KEY]);
     }
 
     /**
@@ -850,6 +982,7 @@ class Oauth extends Controller
         if ($params['state'] !== '') {
             $redirectParams['state'] = $params['state'];
         }
+        $this->clearFormActionAllowance();
         header('Location: ' . $params['redirect_uri'] . '?' . http_build_query($redirectParams));
         $this->terminate(); return;
     }

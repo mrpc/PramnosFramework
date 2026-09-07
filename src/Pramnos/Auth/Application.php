@@ -405,28 +405,55 @@ class Application extends \Pramnos\Application\Model
      */
     public function getRedirectUri(): string
     {
-        if (empty($this->callback)) {
-            return '';
-        }
-        $decoded = json_decode($this->callback, true);
-        if (is_array($decoded)) {
-            return $decoded[0] ?? '';
-        }
-        $parts = array_map('trim', explode(',', $this->callback));
-        return $parts[0];
+        return self::parseRedirectUris($this->callback)[0] ?? '';
     }
 
     /** Return all registered redirect URIs as an array. */
     public function getRedirectUris(): array
     {
-        if (empty($this->callback)) {
+        return self::parseRedirectUris($this->callback);
+    }
+
+    /**
+     * The registered redirect URIs held in an `applications.callback` value.
+     *
+     * Static, and separate from the two accessors above, because the authorization
+     * endpoint has to answer the same question from a raw database row: it loads the
+     * client with one query and must decide whether the `redirect_uri` it was handed is
+     * registered *before* it does anything else. Hydrating a model to ask would be a
+     * second query for a string that is already in hand — and two parsers for one column
+     * is how the endpoint and the repository come to disagree about what is registered.
+     *
+     * The column is historically either a JSON array or a comma-separated list, so both
+     * are read. Empty entries are dropped: a trailing comma is not a registration, and an
+     * empty string that survived into the list would match a request that sent nothing.
+     *
+     * @param  string|null $callback The raw column value
+     * @return list<string>
+     */
+    public static function parseRedirectUris(?string $callback): array
+    {
+        if ($callback === null || trim($callback) === '') {
             return [];
         }
-        $decoded = json_decode($this->callback, true);
-        if (is_array($decoded)) {
-            return $decoded;
+
+        $decoded = json_decode($callback, true);
+        $uris = is_array($decoded)
+            ? $decoded
+            : explode(',', $callback);
+
+        $clean = [];
+        foreach ($uris as $uri) {
+            if (!is_string($uri)) {
+                continue;
+            }
+            $uri = trim($uri);
+            if ($uri !== '') {
+                $clean[] = $uri;
+            }
         }
-        return array_map('trim', explode(',', $this->callback));
+
+        return $clean;
     }
 
     /**

@@ -2996,15 +2996,94 @@ class Application extends Base
      */
     public function allowUnsafeInline(string $directive)
     {
+        $this->allowCspSource($directive, "'unsafe-inline'");
+    }
+
+    /**
+     * Add one source to a CSP directive for this request only.
+     *
+     * The generalisation of {@see allowUnsafeInline()}, which now calls it. What needed it
+     * was a request that only discovers its own policy while running: the authorization
+     * endpoint knows the registered callback a form submission will end at, and no
+     * `app.php` can — a `form-action` list naming every client of an authorization server
+     * would be the union of everything anyone might be authorising, on every page.
+     *
+     * Safe to call from a controller because {@see render()} sends the header after the
+     * controller has run. It does not reach a response that has already left, which is the
+     * one case worth knowing about: a page served from
+     * {@see \Pramnos\Cache\Page\PageCache::serveEarly()} never runs a controller, and a
+     * page whose policy varies per request is not a page to cache.
+     *
+     * Only directives in {@see CSP_CONFIGURABLE} reach the header; anything else is
+     * reported by {@see reportUnusedCspKeys()} rather than silently dropped.
+     *
+     * @param  string $directive A CSP directive, e.g. `form-action`
+     * @param  string $source    One source expression, e.g. `https://client.example`
+     * @return void
+     */
+    public function allowCspSource(string $directive, string $source): void
+    {
+        if ($source === '') {
+            return;
+        }
         if (!isset($this->applicationInfo['csp'])) {
             $this->applicationInfo['csp'] = [];
         }
         if (!isset($this->applicationInfo['csp'][$directive])) {
             $this->applicationInfo['csp'][$directive] = [];
         }
-        if (!in_array("'unsafe-inline'", $this->applicationInfo['csp'][$directive])) {
-            $this->applicationInfo['csp'][$directive][] = "'unsafe-inline'";
+        if (!in_array($source, $this->applicationInfo['csp'][$directive], true)) {
+            $this->applicationInfo['csp'][$directive][] = $source;
         }
+    }
+
+    /**
+     * The CSP source expression that covers a URL — its origin, and nothing more.
+     *
+     * A policy names origins, not URLs. Handing `form-action` a full callback with its
+     * path and query would be both wider than it looks in one direction (a browser matches
+     * the path as a prefix) and narrower in another (a client that appends its own
+     * parameters no longer matches), so the origin is the honest unit.
+     *
+     * **A non-`http(s)` scheme contributes `scheme:` alone.** `parse_url('hwmapp://oauth')`
+     * reports `oauth` as the host, which is true of the string and useless as a policy —
+     * a custom scheme registered by a mobile application has no authority worth matching,
+     * and `hwmapp://oauth` and `hwmapp://callback` are the same app. This is the shape a
+     * native OAuth client actually needs.
+     *
+     * The default port is left off: a browser treats `https://host` and `https://host:443`
+     * as the same origin, and writing the port only when it is explicit keeps the source
+     * identical to what the client registered.
+     *
+     * @param  string $uri A URL, typically a registered OAuth2 callback
+     * @return string A source expression, or '' when there is nothing usable to name
+     */
+    public static function cspSourceForUri(string $uri): string
+    {
+        $uri = trim($uri);
+        if ($uri === '') {
+            return '';
+        }
+
+        $scheme = parse_url($uri, PHP_URL_SCHEME);
+        if (!is_string($scheme) || $scheme === '') {
+            return '';
+        }
+        $scheme = strtolower($scheme);
+
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return $scheme . ':';
+        }
+
+        $host = parse_url($uri, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            return '';
+        }
+
+        $port = parse_url($uri, PHP_URL_PORT);
+
+        return $scheme . '://' . strtolower($host)
+            . ($port === null ? '' : ':' . $port);
     }
 
     /**

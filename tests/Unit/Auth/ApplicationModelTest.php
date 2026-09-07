@@ -254,4 +254,59 @@ class ApplicationModelTest extends TestCase
         // Act + Assert — no DB query should be attempted
         $this->assertFalse($app->assignSystemUser(42));
     }
+
+    // ── parseRedirectUris() ──────────────────────────────────────────────────
+
+    /**
+     * The static parser is what the authorization endpoint asks, so it has to answer the
+     * shapes production data actually holds — and refuse the ones that would let a request
+     * with no `redirect_uri` match a registration.
+     *
+     * An empty entry is the dangerous one: a `callback` of `,` parses into two empty
+     * strings, and an empty string equals an absent parameter. That the endpoint also
+     * rejects an empty `redirect_uri` earlier is not a reason to leave it — the two checks
+     * would then only be safe in the order they happen to run in.
+     *
+     * @param string|null   $callback The raw column value
+     * @param array<string> $expected What is registered
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('callbackColumns')]
+    public function testParseRedirectUrisReadsBothStoredShapes(?string $callback, array $expected): void
+    {
+        // Act & Assert
+        $this->assertSame(
+            $expected,
+            \Pramnos\Auth\Application::parseRedirectUris($callback)
+        );
+    }
+
+    /**
+     * @return array<string,array{string|null,array<string>}>
+     */
+    public static function callbackColumns(): array
+    {
+        return [
+            'null'              => [null, []],
+            'empty'             => ['', []],
+            'whitespace'        => ['   ', []],
+            'one uri'           => ['https://a.example/cb', ['https://a.example/cb']],
+            'comma list'        => ['https://a.example/cb,https://b.example/cb',
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            'comma list spaced' => [' https://a.example/cb , https://b.example/cb ',
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            'trailing comma'    => ['https://a.example/cb,', ['https://a.example/cb']],
+            'commas only'       => [',,', []],
+            'json array'        => ['["https://a.example/cb","https://b.example/cb"]',
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            'json with blanks'  => ['["https://a.example/cb","","  "]', ['https://a.example/cb']],
+            'json empty array'  => ['[]', []],
+            // A malformed column should not produce a registration nobody wrote: a JSON
+            // array of numbers is not a list of URIs, and casting one to a string would
+            // register `1`.
+            'json of numbers'   => ['[1,2]', []],
+            'json object'       => ['{"a":"https://a.example/cb"}', ['https://a.example/cb']],
+            // Not JSON, so it is read as the comma list it looks like.
+            'broken json'       => ['["https://a.example/cb"', ['["https://a.example/cb"']],
+        ];
+    }
 }

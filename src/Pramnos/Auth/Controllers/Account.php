@@ -563,6 +563,43 @@ class Account extends Controller
      * The requested post-login return target, sanitised against open redirects.
      * Empty string when none / rejected (caller falls back to the dashboard).
      */
+    /**
+     * Let this form post into an OAuth2 flow that ends at a registered callback.
+     *
+     * The login form is where the chain starts and the only page a browser will judge:
+     * `form-action` governs the document containing the form, and it applies to **every
+     * redirect the submission goes through**. So `POST /login` → 302 `/oauth/authorize`
+     * → 302 `https://client.example/…` is cancelled at the last hop under
+     * `form-action 'self'`, and the console blames the same-origin URL it started at.
+     * Nothing server-side sees it: the authorization code is issued and stored, and the
+     * navigation is dropped afterwards.
+     *
+     * The source comes from the session rather than from `?return=`, and that is the
+     * point. {@see \Pramnos\Auth\Controllers\Oauth::authorize()} put it there *after*
+     * checking the `redirect_uri` against the client's registered callbacks, so this page
+     * widens its policy to a destination that has already been verified. Reading the
+     * origin out of the return URL instead would let a crafted `?return=` name any
+     * destination and be believed — the open redirect this flow was just closed against,
+     * re-entering through the policy.
+     *
+     * A stale key costs nothing: it names one client's registered callback, which is a
+     * destination that flow was already allowed to reach.
+     */
+    protected function allowOauthFormAction(): void
+    {
+        $session = \Pramnos\Http\Session::getInstance();
+        if (!$session->has(\Pramnos\Auth\Controllers\Oauth::FORM_ACTION_SESSION_KEY)) {
+            return;
+        }
+
+        $source = (string) $session->get(\Pramnos\Auth\Controllers\Oauth::FORM_ACTION_SESSION_KEY);
+        if ($source === '' || !$this->application instanceof \Pramnos\Application\Application) {
+            return;
+        }
+
+        $this->application->allowCspSource('form-action', $source);
+    }
+
     protected function returnUrl(): string
     {
         $return = (string) ($_POST['return'] ?? $_GET['return'] ?? '');
@@ -768,6 +805,7 @@ class Account extends Controller
     {
         $doc        = $this->document();
         $doc->title = t('Login');
+        $this->allowOauthFormAction();
         $this->useStandaloneLayout();
 
         $view            = $this->getView('login');
@@ -814,6 +852,7 @@ class Account extends Controller
     {
         $doc        = $this->document();
         $doc->title = t('Two-step verification');
+        $this->allowOauthFormAction();
         $this->useStandaloneLayout();
 
         $view                = $this->getView('login');

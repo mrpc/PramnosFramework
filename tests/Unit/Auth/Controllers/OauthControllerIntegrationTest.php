@@ -172,7 +172,7 @@ class OauthControllerIntegrationTest extends TestCase
 
         $mockClient = new \stdClass();
         $mockClient->numRows = 1;
-        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'redirect_uris' => 'http://localhost/callback'];
+        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'callback' => 'http://localhost/callback'];
 
         $this->queryBuilderMock->method('first')->willReturn($mockClient);
 
@@ -181,7 +181,7 @@ class OauthControllerIntegrationTest extends TestCase
         $echoed = ob_get_clean();
 
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
-        $this->assertStringContainsString('login?return_url=', $echoed);
+        $this->assertStringContainsString('login?return=', $echoed);
     }
 
     public function testAuthorizeWithLogin()
@@ -194,7 +194,7 @@ class OauthControllerIntegrationTest extends TestCase
 
         $mockClient = new \stdClass();
         $mockClient->numRows = 1;
-        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'redirect_uris' => 'http://localhost/callback', 'scope' => 'profile'];
+        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'callback' => 'http://localhost/callback', 'scope' => 'profile'];
 
         $this->queryBuilderMock->method('first')->willReturn($mockClient);
 
@@ -227,7 +227,7 @@ class OauthControllerIntegrationTest extends TestCase
         $mockClient->fields  = [
             'appid'         => 123,
             'name'          => 'Trusted App',
-            'redirect_uris' => 'http://localhost/callback',
+            'callback' => 'http://localhost/callback',
             'scope'         => 'profile',
             'trusted'       => 1,
         ];
@@ -266,7 +266,7 @@ class OauthControllerIntegrationTest extends TestCase
 
         $mockClient = new \stdClass();
         $mockClient->numRows = 1;
-        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'redirect_uris' => 'http://localhost/callback', 'scope' => 'profile'];
+        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'callback' => 'http://localhost/callback', 'scope' => 'profile'];
 
         $this->queryBuilderMock->method('first')->willReturn($mockClient);
 

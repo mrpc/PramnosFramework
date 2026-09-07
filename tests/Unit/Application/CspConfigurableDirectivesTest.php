@@ -258,4 +258,151 @@ class CspConfigurableDirectivesTest extends TestCase
         // Assert
         $this->assertStringNotContainsString('CSP:', $logged);
     }
+
+    /**
+     * A request can add a source the configuration could not have known.
+     *
+     * The case that needed it: an authorization endpoint knows the registered callback a
+     * form submission will end at, and `app.php` cannot — a `form-action` list naming
+     * every client of an authorization server would be the union of everything anybody
+     * might be authorising, applied to every page of the site.
+     */
+    public function testAControllerCanAddASourceForThisRequestOnly(): void
+    {
+        // Arrange
+        $app = $this->application();
+
+        // Act
+        $app->allowCspSource('form-action', 'https://client.example');
+
+        // Assert
+        $this->assertSame(
+            ["'self'", 'https://client.example'],
+            $this->directives($app->cspPolicy())['form-action']
+        );
+    }
+
+    /**
+     * The same source twice is one source.
+     *
+     * A flow can pass through the same allowance more than once in a request — the
+     * consent screen and the decision it posts are the same endpoint — and a directive
+     * that repeats itself is a header that grows for no reason.
+     */
+    public function testTheSameSourceIsNotAddedTwice(): void
+    {
+        // Arrange
+        $app = $this->application();
+
+        // Act
+        $app->allowCspSource('form-action', 'https://client.example');
+        $app->allowCspSource('form-action', 'https://client.example');
+
+        // Assert
+        $this->assertSame(
+            ["'self'", 'https://client.example'],
+            $this->directives($app->cspPolicy())['form-action']
+        );
+    }
+
+    /**
+     * `allowUnsafeInline()` still does what it did, now through the general method.
+     *
+     * It is public and applications call it, so the delegation has to be invisible.
+     */
+    public function testAllowUnsafeInlineStillWorksThroughTheGeneralMethod(): void
+    {
+        // Arrange
+        $app = $this->application();
+
+        // Act
+        $app->allowUnsafeInline('style-src');
+
+        // Assert — and `'unsafe-inline'` cancels the nonce, which is the documented
+        // behaviour of the builder rather than of this method
+        $this->assertContains(
+            "'unsafe-inline'",
+            $this->directives($app->cspPolicy())['style-src']
+        );
+    }
+
+    /**
+     * An empty source is not a source.
+     *
+     * Guards the caller that derives one from a URL: `cspSourceForUri()` returns '' when
+     * there is nothing usable to name, and a policy segment ending in a stray space is
+     * how a directive comes to look like it has a source it does not.
+     */
+    public function testAnEmptySourceIsIgnored(): void
+    {
+        // Arrange
+        $app = $this->application();
+
+        // Act
+        $app->allowCspSource('form-action', '');
+
+        // Assert
+        $this->assertSame(["'self'"], $this->directives($app->cspPolicy())['form-action']);
+    }
+
+    /**
+     * A URL becomes its origin, and only its origin.
+     *
+     * A policy names origins, not URLs: a browser matches a path as a *prefix*, so
+     * handing `form-action` a full callback is wider than it looks, and a client that
+     * appends its own query parameters stops matching. The origin is the honest unit.
+     *
+     * @param string $uri      What a client registered
+     * @param string $expected The source expression that covers it
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('uriSources')]
+    public function testAUrlBecomesItsOrigin(string $uri, string $expected): void
+    {
+        // Act & Assert
+        $this->assertSame($expected, Application::cspSourceForUri($uri));
+    }
+
+    /**
+     * @return array<string,array{string,string}>
+     */
+    public static function uriSources(): array
+    {
+        return [
+            'plain https'          => ['https://client.example/login-sso', 'https://client.example'],
+            'path and query drop'  => ['https://client.example/cb?x=1#f', 'https://client.example'],
+            'explicit port kept'   => ['https://client.example:8443/cb', 'https://client.example:8443'],
+            'localhost with port'  => ['http://localhost:3000/callback', 'http://localhost:3000'],
+            'host is lowercased'   => ['https://Client.EXAMPLE/cb', 'https://client.example'],
+            'scheme is lowercased' => ['HTTPS://client.example/cb', 'https://client.example'],
+            // A custom scheme has no authority worth matching: `parse_url` reports
+            // `oauth` as the *host* of `hwmapp://oauth`, which is true of the string and
+            // useless as a policy — `hwmapp://oauth` and `hwmapp://callback` are one app.
+            'custom scheme'        => ['hwmapp://oauth/callback', 'hwmapp:'],
+            'custom scheme, bare'  => ['hwmapp://oauth', 'hwmapp:'],
+            'no scheme'            => ['client.example/cb', ''],
+            'relative path'        => ['/callback', ''],
+            'empty'                => ['', ''],
+            'whitespace'           => ['   ', ''],
+            // Two different refusals: `https:///cb` has no scheme *as far as parse_url is
+            // concerned* (it rejects the whole string), while `https:` parses a scheme and
+            // no host. Both have to answer '' or the directive gets a source that is a
+            // bare scheme where an origin was meant.
+            'parse_url refuses'    => ['https:///cb', ''],
+            'scheme, no host'      => ['https:', ''],
+            'empty authority'      => ['https://:8443/cb', ''],
+        ];
+    }
+
+    /**
+     * An application stand-in with no boot: the constructor is what reads configuration,
+     * starts a database and a session, and none of that is needed to build a header.
+     */
+    private function application(): Application
+    {
+        return new class extends Application {
+            public function __construct()
+            {
+            }
+        };
+    }
 }

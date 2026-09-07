@@ -2,6 +2,7 @@
 use_cases:
   - Connecting a third-party application to the auth server
   - Implementing an OAuth2 Authorization Code + PKCE flow against it
+  - Registering a client's redirect URI, or debugging one the server refuses
   - Reading a user's permissions from another application
   - Reacting to instant invalidation webhooks
 ---
@@ -292,6 +293,33 @@ Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
 only the scopes the user approves.
 
+### The redirect URI must be registered, and matched exactly
+
+`/oauth/authorize` compares the `redirect_uri` in the request against the
+registered list (`applications.callback`) and **refuses the request outright** if it is
+not there — RFC 6749 §3.1.2. A client with nothing registered cannot complete an
+authorization request at all; the error page says so and names the fix.
+
+The comparison is an **exact string match**, so register the URI your application will
+actually send, character for character. All of these are different registrations:
+
+```
+https://app.example/callback
+https://app.example/callback/          ← trailing slash
+https://app.example/callback?x=1       ← query string
+http://app.example/callback            ← scheme
+https://app.example:443/callback       ← explicit default port
+```
+
+Exact is the point rather than an inconvenience: a prefix comparison accepts
+`https://app.example.attacker.test/callback`, and a host comparison accepts any path on
+your domain — including one that reflects the query somewhere else. Each near miss is a
+published attack, and the destination is a URL an authorization **code** is delivered to.
+
+Register several by storing a comma-separated list or a JSON array; any one of them is
+accepted, exactly. A native application registers its custom scheme URI in full
+(`myapp://oauth`).
+
 ---
 
 ### Deleting a client revokes its tokens
@@ -332,6 +360,19 @@ GET /oauth/authorize
 The user authenticates (password + optional 2FA/passkey) and, for untrusted
 clients, approves the requested scopes. The server redirects back to your
 `redirect_uri` with `?code=…&state=…`.
+
+!!! note "The server widens its own `form-action` for you"
+    A browser applies the `form-action` directive to **every redirect a form submission
+    passes through**, and the last hop here is your origin. The authorization server adds
+    your registered callback's origin to the policy of the pages whose forms start the
+    chain — the login screen, the second-factor screen and the consent screen — after it
+    has checked the `redirect_uri` against your registration. Nothing is required of you,
+    and there is nothing to configure on the server either.
+
+    Worth knowing because of how it fails if it is ever missing: the code is issued and
+    the `Location` header is sent, and the browser then cancels the navigation. The server
+    logs a completed authorization, the user sees a page that did not move, and the
+    console reports a violation against a **same-origin** URL.
 
 **Step 2 — exchange the code for tokens:**
 
