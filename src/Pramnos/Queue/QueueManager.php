@@ -944,15 +944,117 @@ class QueueManager
         $pending    = $this->countWhere($taskTypes, null, null, array('pending'));
         $processing = $this->countWhere($taskTypes, null, null, array('processing'));
 
+        $window = max(1, $windowSeconds);
+        $effort = $this->effortIn($window, $taskTypes);
+
         return array(
-            'window'      => max(1, $windowSeconds),
+            'window'      => $window,
             'arrivals'    => $arrivals,
             'completions' => $completions,
             'net'         => $completions - $arrivals,
             'pending'     => $pending,
             'processing'  => $processing,
             'losing'      => $completions < $arrivals,
+            'wall'        => $effort['wall'],
+            'cpu'         => $effort['cpu'],
+            'computing'   => $effort['computing'],
+            'clears_in'   => $this->clearsIn($pending, $completions, $arrivals, $window),
         );
+    }
+
+    /**
+     * How much of the window's wall clock was actually computing.
+     *
+     * **The number nobody had, and the reason four wrong diagnoses all looked right.**
+     * `execution_time` is wall clock around the handler, so a task taking 0.9 seconds reads
+     * the same whether it is working or waiting — and an installation chasing queue
+     * throughput ruled in an atomic claim, a missing index, TimescaleDB compression and a
+     * CPU-bound handler over four hours. The tasks were at 1.6% CPU, waiting on a cache
+     * invalidation that scanned the whole redis keyspace per save.
+     *
+     * `computing` is the ratio, and it is the diagnosis in one figure: near 1, the handlers
+     * are working and the answer is faster code or more cores; near 0, they are waiting and
+     * the answer is somewhere else entirely — and no amount of workers will help, because
+     * whatever they are waiting for is already saturated.
+     *
+     * `null` where nothing recorded CPU — an older row, or a platform without `getrusage()`.
+     * Reported as unknown rather than as zero, because *nobody measured* and *did no work*
+     * are opposite conclusions.
+     *
+     * @param  string|string[]|null $taskTypes
+     * @return array{wall: float|null, cpu: float|null, computing: float|null}
+     */
+    protected function effortIn(int $window, string|array|null $taskTypes): array
+    {
+        $since = date('Y-m-d H:i:s', time() - $window);
+
+        $query = $this->controller->application->database->queryBuilder()
+            ->table($this->getQueueTableName())
+            // Aggregates the builder has no verb for; `raw()` is its own escape hatch and
+            // these name only columns this class declares.
+            ->select(array(
+                $this->controller->application->database->queryBuilder()
+                    ->raw('SUM(execution_time) AS wall'),
+                $this->controller->application->database->queryBuilder()
+                    ->raw('SUM(cpu_time) AS cpu'),
+                $this->controller->application->database->queryBuilder()
+                    ->raw('COUNT(cpu_time) AS measured'),
+            ))
+            ->where('completedat', '>=', $since)
+            ->whereIn('status', array('completed', 'warning', 'failed'));
+
+        if ($taskTypes !== null) {
+            $query->whereIn('type', is_array($taskTypes) ? $taskTypes : array($taskTypes));
+        }
+
+        try {
+            $result = $query->get();
+        } catch (\Throwable) {
+            // The column arrives with a migration; an installation that has not run it yet
+            // gets the rest of the report rather than an error.
+            return array('wall' => null, 'cpu' => null, 'computing' => null);
+        }
+
+        $wall     = $result && $result->numRows > 0 ? $result->fields['wall'] : null;
+        $cpu      = $result && $result->numRows > 0 ? $result->fields['cpu'] : null;
+        $measured = $result && $result->numRows > 0 ? (int) $result->fields['measured'] : 0;
+
+        if ($measured === 0 || $wall === null || $cpu === null || (float) $wall <= 0.0) {
+            return array(
+                'wall'      => $wall === null ? null : (float) $wall,
+                'cpu'       => $cpu === null ? null : (float) $cpu,
+                'computing' => null,
+            );
+        }
+
+        return array(
+            'wall'      => (float) $wall,
+            'cpu'       => (float) $cpu,
+            'computing' => (float) $cpu / (float) $wall,
+        );
+    }
+
+    /**
+     * Seconds until the backlog clears, or **null when it will not**.
+     *
+     * Null is the useful answer and the one an estimate usually refuses to give. Dividing the
+     * backlog by the completion rate alone produces a figure that recedes every time it is
+     * refreshed — a queue that reads as nearly finished right up until it obviously is not.
+     * If arrivals are winning there is no completion time, and saying so is more informative
+     * than any number.
+     *
+     * The rate is the **net** rate for the same reason: work arriving during the drain is work
+     * that has to be drained.
+     */
+    protected function clearsIn(int $pending, int $completions, int $arrivals, int $window): ?int
+    {
+        $net = $completions - $arrivals;
+
+        if ($net <= 0 || $pending <= 0) {
+            return $pending <= 0 ? 0 : null;
+        }
+
+        return (int) ceil($pending / ($net / $window));
     }
 
     /**

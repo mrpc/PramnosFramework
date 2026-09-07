@@ -249,13 +249,53 @@ Completions count every terminal state, failures included — a task that failed
 queue is no longer carrying. A *retryable* failure is not a departure: `markTaskAsFailed()`
 returns it to `pending` while attempts remain, and the queue is still carrying it.
 
-The numbers are available directly, for a screen of your own:
+### Waiting is not working — `cpu_time` beside `execution_time`
+
+**`execution_time` is wall clock around the handler, and on its own it is misleading.** A task
+taking 0.9 seconds reads the same whether it is computing or waiting, and an installation
+chasing queue throughput ruled in an atomic claim, a missing index, TimescaleDB compression
+and a CPU-bound handler over four hours — every one of them fitted the wall clock. The tasks
+were at **1.6% CPU**, waiting on a cache invalidation that scanned the whole redis keyspace
+per model save, and only `/proc/<pid>/wchan` said so.
+
+So the worker records `cpu_time` — user plus system CPU across the handler — beside it, and
+`throughput()` reports the ratio:
 
 ```php
 $numbers = $queueManager->throughput(300, 'imports');
 // ['window' => 300, 'arrivals' => 1830, 'completions' => 1320, 'net' => -510,
-//  'pending' => 175_000, 'processing' => 1, 'losing' => true]
+//  'pending' => 175_000, 'processing' => 1, 'losing' => true,
+//  'wall' => 1194.2, 'cpu' => 19.1, 'computing' => 0.016, 'clears_in' => null]
 ```
+
+`computing` is the diagnosis in one figure, and the two answers point in **opposite**
+directions:
+
+| | |
+|---|---|
+| near 1 | the handlers are working. Faster code, or more cores. |
+| near 0 | they are waiting — a database, redis, an HTTP call. **More workers will not help**, because whatever they wait for is already the limit. |
+
+`queue:health` prints it, and says the second one in words rather than leaving it to be read
+off a decimal.
+
+`null` where nothing recorded CPU — a row from before the migration, or a platform without
+`getrusage()`. Reported as unknown rather than as zero, because *nobody measured* and *did no
+work* are opposite conclusions and the second sends somebody hunting a phantom.
+
+### `clears_in` — and why it is often null
+
+`null` is the useful answer, and an estimate usually refuses to give it. Dividing the backlog
+by the completion rate produces a figure that recedes on every refresh, so a queue reads as
+nearly finished right up until it obviously is not. If arrivals are winning there is **no**
+completion time; saying so is more informative than any number.
+
+The rate is the **net** rate for the same reason: work arriving during the drain has to be
+drained too.
+
+And read it per type. An installation that aggregated got *"about a month"* out of one queue
+draining in nine hours and another that never cleared — describing neither and pointing at
+nothing.
 
 ### One claim, one worker
 

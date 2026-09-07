@@ -31,6 +31,7 @@ namespace Pramnos\Queue;
  * @property string|null $lockexpires
  * @property string|null $task_hash      SHA-256 for deduplication
  * @property float|null  $execution_time Wall-clock seconds
+ * @property float|null  $cpu_time       CPU seconds the handler used, or null
  * @property string|null $success_message
  */
 class QueueItem extends \Pramnos\Application\Model
@@ -67,6 +68,18 @@ class QueueItem extends \Pramnos\Application\Model
     public $task_hash;
     /** @var float|null  Execution time in seconds */
     public $execution_time;
+
+    /**
+     * CPU seconds (user + system) the handler used, or null when unmeasurable.
+     *
+     * The other half of `execution_time`, and neither number says anything alone. Wall clock
+     * of 0.9 s looks identical whether a task is working or waiting; the pair says which. An
+     * installation spent four hours on four diagnoses that all fitted the wall clock, and the
+     * answer was 1.6% CPU on a cache invalidation scanning redis.
+     *
+     * @var float|null
+     */
+    public $cpu_time;
     /** @var string|null  Human-readable success/warning message */
     public $success_message;
 

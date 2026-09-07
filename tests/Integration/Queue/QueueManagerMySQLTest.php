@@ -1194,6 +1194,210 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Telling waiting from working
+    // =========================================================================
+
+    /**
+     * The pair of numbers that separates a slow handler from a waiting one.
+     *
+     * The one thing the reporting installation asked for and could not build. `execution_time`
+     * is wall clock around the handler, so a task taking 0.9 seconds reads the same whether it
+     * is working or waiting — and four wrong diagnoses all fitted it over four hours: an atomic
+     * claim, a missing index, TimescaleDB compression, a CPU-bound handler. The tasks were at
+     * **1.6% CPU**, waiting on a cache invalidation that scanned the whole redis keyspace per
+     * model save.
+     *
+     * Their conclusion: *"A queue that recorded CPU time beside wall time per task would have
+     * said 'these tasks are not computing' in the first ten minutes."*
+     *
+     * Written straight into the rows here rather than run through a handler, because a test
+     * cannot spend a second of wall clock waiting to prove the arithmetic — and the arithmetic
+     * is what is under test.
+     */
+    public function testItReportsHowMuchOfTheWallClockWasComputing(): void
+    {
+        // Arrange — a second of wall clock, 20ms of it computing: the reported shape
+        $this->completedRow('effort', 1.000, 0.020);
+        $this->completedRow('effort', 1.000, 0.020);
+
+        // Act
+        $numbers = $this->manager->throughput(300, 'effort');
+
+        // Assert
+        $this->assertSame(2.0, round((float) $numbers['wall'], 3));
+        $this->assertSame(0.04, round((float) $numbers['cpu'], 3));
+        $this->assertSame(0.02, round((float) $numbers['computing'], 3), 'the ratio is the diagnosis');
+    }
+
+    /**
+     * A busy handler reads as busy, which is the other half of the diagnosis.
+     *
+     * The control, and it matters because the two answers point in opposite directions:
+     * computing means faster code or more cores, waiting means adding workers will not help
+     * because whatever they wait for is already the limit. A measure that always said
+     * "waiting" would send everybody the same wrong way.
+     */
+    public function testAComputingHandlerReadsAsComputing(): void
+    {
+        // Arrange
+        $this->completedRow('effort', 0.500, 0.480);
+
+        // Act
+        $numbers = $this->manager->throughput(300, 'effort');
+
+        // Assert
+        $this->assertGreaterThan(0.9, (float) $numbers['computing']);
+    }
+
+    /**
+     * Unmeasured is reported as unknown, not as zero.
+     *
+     * `null` where nothing recorded CPU — a row from before the column existed, a platform
+     * with no `getrusage()`. Zero would read as *this task did no work*, which is the opposite
+     * conclusion from *nobody measured*, and it is the reading that would send somebody
+     * hunting for a phantom bottleneck.
+     */
+    public function testUnmeasuredEffortIsUnknownRatherThanZero(): void
+    {
+        // Arrange — wall clock recorded, CPU not
+        $this->completedRow('effort', 1.000, null);
+
+        // Act
+        $numbers = $this->manager->throughput(300, 'effort');
+
+        // Assert
+        $this->assertNull($numbers['computing'], 'unmeasured CPU was reported as no work');
+        $this->assertNull($numbers['cpu']);
+    }
+
+    /**
+     * `Worker` measures it, which is the half that has to actually happen.
+     *
+     * Everything above tests the arithmetic over rows somebody else wrote. This drives a real
+     * handler through `processNextTask()` and asserts the number arrives — on the task, in the
+     * returned info, and in the row.
+     */
+    public function testTheWorkerRecordsTheCpuItUsed(): void
+    {
+        if (!function_exists('getrusage')) {
+            $this->markTestSkipped('No getrusage() here, so nothing can be measured.');
+        }
+
+        // Arrange — a handler that burns a measurable amount of CPU
+        $this->manager->addTask('effort', array('n' => 1));
+
+        $worker = new \Pramnos\Queue\Worker($this->controller, 'cpu-worker');
+        $worker->registerTaskHandler('effort', BusyProbeTask::class);
+
+        // Act
+        $info = $worker->processNextTask('effort');
+
+        // Assert
+        $this->assertIsArray($info);
+        $this->assertSame('completed', $info['status'], (string) ($info['message'] ?? ''));
+        $this->assertArrayHasKey('cpu_time', $info, 'the worker measured no CPU');
+        $this->assertGreaterThan(0.0, (float) $info['cpu_time']);
+
+        // and it is on the row, not only in the return value
+        $row = $this->db->query("SELECT cpu_time FROM queueitems WHERE type = 'effort' LIMIT 1");
+        $this->assertNotNull($row->fields['cpu_time'], 'the CPU time was not stored');
+        $this->assertGreaterThan(0.0, (float) $row->fields['cpu_time']);
+    }
+
+    /**
+     * An honest completion time: a number when it will clear, nothing when it will not.
+     *
+     * **"never" is the useful answer**, and an estimate usually refuses to give it. Dividing
+     * the backlog by the completion rate alone produces a figure that recedes every refresh,
+     * so a queue reads as nearly finished right until it obviously is not. The rate has to be
+     * the *net* rate, because work arriving during the drain has to be drained too.
+     */
+    public function testItGivesNoCompletionTimeForAQueueThatIsLosing(): void
+    {
+        // Arrange — three in, one out: losing
+        $this->manager->addTask('eta', array('n' => 1));
+        $this->manager->addTask('eta', array('n' => 2));
+        $this->manager->addTask('eta', array('n' => 3));
+        $task = $this->manager->getNextTask('eta');
+        $this->manager->markTaskAsCompleted($task, 'done', 0.1);
+
+        // Act
+        $numbers = $this->manager->throughput(300, 'eta');
+
+        // Assert
+        $this->assertNull($numbers['clears_in'], 'a losing queue was given a completion time');
+    }
+
+    /**
+     * And a draining queue gets one, from the net rate.
+     *
+     * The control. An estimate that is always "never" is as useless as one that always
+     * recedes.
+     */
+    public function testADrainingQueueGetsACompletionTime(): void
+    {
+        // Arrange — two waiting, two completed in the window, nothing new arriving
+        $this->manager->addTask('eta', array('n' => 1));
+        $this->manager->addTask('eta', array('n' => 2));
+        $this->completedRow('eta', 0.1, 0.1);
+        $this->completedRow('eta', 0.1, 0.1);
+
+        // Backdate the arrivals out of the window so completions win
+        $this->db->query(
+            $this->db->prepareQuery(
+                "UPDATE queueitems SET createdat = %s WHERE type = 'eta' AND status = 'pending'",
+                date('Y-m-d H:i:s', time() - 7200)
+            )
+        );
+
+        // Act
+        $numbers = $this->manager->throughput(300, 'eta');
+
+        // Assert
+        $this->assertNotNull($numbers['clears_in'], 'a draining queue was given no estimate');
+        $this->assertGreaterThan(0, (int) $numbers['clears_in']);
+    }
+
+    /**
+     * An empty queue clears now, which is neither null nor an arithmetic error.
+     *
+     * Zero pending over any rate is zero seconds; the naive expression divides by a rate that
+     * may itself be zero.
+     */
+    public function testAnEmptyQueueClearsImmediately(): void
+    {
+        // Act
+        $numbers = $this->manager->throughput(300, 'nothing-here');
+
+        // Assert
+        $this->assertSame(0, $numbers['clears_in']);
+    }
+
+    /**
+     * A finished row with the timings somebody else's worker would have written.
+     *
+     * **`createdat` is backdated out of the window on purpose.** It is the realistic shape —
+     * a task completed now was enqueued earlier — and without it these rows count as
+     * *arrivals* too, so two completions and two arrivals net to zero and a draining queue
+     * looks like a level one. Which is exactly how the first version of the completion-time
+     * test failed.
+     */
+    private function completedRow(string $type, float $wall, ?float $cpu): void
+    {
+        $this->db->query(
+            $this->db->prepareQuery(
+                'INSERT INTO queueitems (type, payload, status, priority, attempts, maxattempts,'
+                . ' createdat, completedat, execution_time, cpu_time)'
+                . " VALUES (%s, '{}', 'completed', 10, 1, 3, %s, %s, %f, "
+                . ($cpu === null ? 'NULL' : '%f') . ')',
+                ...($cpu === null
+                    ? array($type, date('Y-m-d H:i:s', time() - 7200), date('Y-m-d H:i:s'), $wall)
+                    : array($type, date('Y-m-d H:i:s', time() - 7200), date('Y-m-d H:i:s'), $wall, $cpu))
+            )
+        );
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
@@ -1241,5 +1445,30 @@ class QueueManagerMySQLTest extends TestCase
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `queueitems`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+}
+
+/**
+ * A handler that spends real CPU, so `cpu_time` has something to measure.
+ *
+ * Busy rather than asleep, which is the whole point: a `usleep()` would accrue wall clock
+ * and no CPU and prove the opposite of what this fixture is for.
+ */
+class BusyProbeTask extends \Pramnos\Queue\AbstractTask
+{
+    public function getDescription(\Pramnos\Queue\QueueItem $queueItem): string
+    {
+        return 'Burns a measurable amount of CPU so cpu_time has something to record';
+    }
+
+    public function execute(\Pramnos\Queue\QueueItem $task): mixed
+    {
+        $sum = 0.0;
+
+        for ($i = 0; $i < 200000; $i++) {
+            $sum += sqrt($i);
+        }
+
+        return array('message' => 'burned ' . (int) $sum);
     }
 }

@@ -106,6 +106,7 @@ class Worker
         }
 
         $startTime = microtime(true);
+        $startCpu  = $this->cpuSeconds();
 
         try {
             /** @var TaskInterface $handler */
@@ -120,6 +121,7 @@ class Worker
 
             $result        = $handler->execute($task);
             $executionTime = (float)(microtime(true) - $startTime);
+            $this->recordCpu($task, $taskInfo, $startCpu);
 
             if (is_array($result)) {
                 if (isset($result['warning'])) {
@@ -148,6 +150,7 @@ class Worker
             }
         } catch (\Throwable $e) {
             $executionTime = (float)(microtime(true) - $startTime);
+            $this->recordCpu($task, $taskInfo, $startCpu);
 
             $shouldRetry = true;
             if (isset($handler)) {
@@ -167,6 +170,70 @@ class Worker
         }
 
         return $taskInfo;
+    }
+
+    /**
+     * CPU seconds this process has used, or null where that cannot be known.
+     *
+     * `getrusage()` is POSIX and absent on some builds; null rather than 0.0, because a zero
+     * reads as *this task did no work* where the truth is *nobody measured*.
+     *
+     * User **and** system time, added: a task blocked in a `read()` accrues neither, which is
+     * the whole point, but one that is busy in the kernel — writing a large payload, resolving
+     * a name — is working and should say so.
+     *
+     * @return float|null
+     */
+    protected function cpuSeconds(): ?float
+    {
+        if (!function_exists('getrusage')) {
+            return null;
+        }
+
+        $usage = getrusage();
+
+        if (!is_array($usage)) {
+            return null;
+        }
+
+        return ($usage['ru_utime.tv_sec'] ?? 0) + (($usage['ru_utime.tv_usec'] ?? 0) / 1e6)
+            + ($usage['ru_stime.tv_sec'] ?? 0) + (($usage['ru_stime.tv_usec'] ?? 0) / 1e6);
+    }
+
+    /**
+     * Note how much of this task's wall clock was actually computing.
+     *
+     * **Wall clock alone is why four wrong diagnoses all looked right.** A task taking 0.9
+     * seconds looks the same whether it is working or waiting, and `execution_time` is wall
+     * clock around the handler — so an installation chasing queue throughput ruled in an
+     * atomic claim, a missing index, TimescaleDB compression and a CPU-bound handler, in that
+     * order, over four hours. The tasks were at **1.6% CPU**, waiting on a cache invalidation
+     * that scanned the whole redis keyspace per model save, and only `/proc/<pid>/wchan`
+     * said so.
+     *
+     * Their conclusion, and it is right: a queue that recorded CPU time beside wall time
+     * *"would have said 'these tasks are not computing' in the first ten minutes."*
+     *
+     * Written onto the task rather than passed to `markTaskAsCompleted()`, which is public
+     * and overridable — a fifth argument there is a fatal at class load for every application
+     * that has its own.
+     *
+     * @param array<string, mixed> $taskInfo
+     */
+    protected function recordCpu(QueueItem $task, array &$taskInfo, ?float $startCpu): void
+    {
+        $endCpu = $this->cpuSeconds();
+
+        if ($startCpu === null || $endCpu === null) {
+            return;
+        }
+
+        // Never negative: a counter that appears to go backwards is a measurement to discard,
+        // not a number to store.
+        $cpu = max(0.0, $endCpu - $startCpu);
+
+        $task->cpu_time     = $cpu;
+        $taskInfo['cpu_time'] = $cpu;
     }
 
     /**

@@ -154,11 +154,61 @@ class QueueHealth extends Command
                 '<error>The queue is losing: more arrived than finished.</error> '
                 . 'Either the arrival rate rose or there are not enough workers for it.'
             );
+        } else {
+            $output->writeln('<info>Keeping up.</info>');
+        }
+
+        $this->renderEffort($output, $report['overall']);
+    }
+
+    /**
+     * Whether the workers are computing or waiting — and it is the more useful line.
+     *
+     * `execution_time` is wall clock around the handler, so a task taking 0.9 seconds reads
+     * the same whether it is working or waiting. An installation chasing queue throughput
+     * ruled in an atomic claim, a missing index, TimescaleDB compression and a CPU-bound
+     * handler over four hours, because every one of those fitted the wall clock. The tasks
+     * were at 1.6% CPU, waiting on a cache invalidation that scanned the whole redis
+     * keyspace per model save, and only `/proc/<pid>/wchan` said so.
+     *
+     * So the ratio is printed with the next step attached, because the two answers point in
+     * opposite directions: computing means faster code or more cores, waiting means adding
+     * workers will not help and the thing being waited on is already saturated.
+     *
+     * @param array<string, mixed> $numbers
+     */
+    private function renderEffort(OutputInterface $output, array $numbers): void
+    {
+        $computing = $numbers['computing'] ?? null;
+
+        if ($computing === null) {
+            $output->writeln(
+                '<comment>No CPU time recorded for this window</comment> — run the framework '
+                . 'migrations, or this platform has no getrusage(). Without it, waiting and '
+                . 'working look the same.'
+            );
 
             return;
         }
 
-        $output->writeln('<info>Keeping up.</info>');
+        $percent = round($computing * 100, 1);
+
+        if ($computing < 0.2) {
+            $output->writeln(sprintf(
+                '<error>These tasks are not computing: %.1f%% of their wall clock was CPU.</error> '
+                . 'They are waiting on something — a database, redis, an HTTP call. More '
+                . 'workers will not help; whatever they wait for is already the limit.',
+                $percent
+            ));
+
+            return;
+        }
+
+        $output->writeln(sprintf(
+            'Computing %.1f%% of wall clock%s',
+            $percent,
+            $computing < 0.6 ? ' — a fair share of it is waiting.' : '.'
+        ));
     }
 
     /**
@@ -174,14 +224,56 @@ class QueueHealth extends Command
         $shown = $net < 0 ? '<error>' . $shown . '</error>' : $shown;
 
         return sprintf(
-            '  %-24s in %-7d out %-7d net %s pending %-8d processing %d',
+            '  %-24s in %-7d out %-7d net %s pending %-8d processing %-4d %s',
             $label,
             (int) $numbers['arrivals'],
             (int) $numbers['completions'],
             $shown,
             (int) $numbers['pending'],
-            (int) $numbers['processing']
+            (int) $numbers['processing'],
+            $this->clears($numbers)
         );
+    }
+
+    /**
+     * When this queue clears, or that it will not.
+     *
+     * **"never" is the useful answer**, and an estimate usually refuses to give it: dividing
+     * the backlog by the completion rate alone produces a figure that recedes every time it
+     * is refreshed, so a queue reads as nearly finished right up until it obviously is not.
+     *
+     * The installation that asked for this had aggregated across types and got *"about a
+     * month"* out of one queue draining in nine hours and another that never cleared —
+     * describing neither and pointing at nothing. Which is the same lesson as `--per-type`,
+     * one column over.
+     *
+     * @param array<string, mixed> $numbers
+     */
+    private function clears(array $numbers): string
+    {
+        if (!array_key_exists('clears_in', $numbers)) {
+            return '';
+        }
+
+        $seconds = $numbers['clears_in'];
+
+        if ($seconds === null) {
+            return 'clears never at this rate';
+        }
+
+        if ($seconds === 0) {
+            return 'empty';
+        }
+
+        if ($seconds < 3600) {
+            return 'clears in ' . (int) ceil($seconds / 60) . 'm';
+        }
+
+        if ($seconds < 86400) {
+            return 'clears in ' . round($seconds / 3600, 1) . 'h';
+        }
+
+        return 'clears in ' . round($seconds / 86400, 1) . 'd';
     }
 
     // ── Configurable hooks ────────────────────────────────────────────────────
