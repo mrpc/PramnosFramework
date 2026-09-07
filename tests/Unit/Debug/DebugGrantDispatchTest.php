@@ -109,6 +109,17 @@ class DebugGrantDispatchTest extends TestCase
             {
                 return true;
             }
+
+            /**
+             * These screens are the whole response now, and end it with `exit`.
+             *
+             * {@see DebugGrantController::respond()} — the seam exists because `exit` in a
+             * test run takes the runner with it, which is exactly what happened when the
+             * screens stopped being echoed into the application's own document.
+             */
+            protected function terminate(): void
+            {
+            }
         };
     }
 
@@ -222,6 +233,58 @@ class DebugGrantDispatchTest extends TestCase
 
         $this->assertCount(1, $controller->went);
         $this->assertStringContainsString(DebugAccess::REVOKE, $controller->went[0]);
+    }
+
+    /**
+     * The screen is the whole response, not content wrapped in the application's page.
+     *
+     * `screen()` and `refuse()` return complete `<!doctype html>` documents, and each one was
+     * echoed and then returned — so the framework rendered the application's own document
+     * around it. Reported with a screenshot: an admin theme's sidebar and breadcrumb wrapped
+     * around the debug screen's `<html>`, two documents in one response, with the buttons
+     * somewhere in the middle of a page that reads as broken rather than as an answer.
+     *
+     * The assertion is that the response **ends** — `respond()` calls `terminate()`, which is
+     * `exit` outside a test.
+     */
+    public function testTheScreenEndsTheResponse(): void
+    {
+        // Arrange
+        $stopped    = false;
+        $controller = new class ($stopped) extends DebugGrantController {
+            public function __construct(private bool &$stopped)
+            {
+            }
+
+            protected function mayGrant(): bool
+            {
+                return true;
+            }
+
+            protected function terminate(): void
+            {
+                $this->stopped = true;
+            }
+
+            public function exposeDisplay(): mixed
+            {
+                return $this->display();
+            }
+        };
+
+        // Act
+        ob_start();
+
+        try {
+            $controller->exposeDisplay();
+        } finally {
+            $html = (string) ob_get_clean();
+        }
+
+        // Assert
+        $this->assertTrue($stopped, 'the screen was echoed and the request carried on');
+        $this->assertStringContainsString('<!doctype html>', $html);
+        $this->assertSame(1, substr_count($html, '<!doctype html>'), 'more than one document');
     }
 
     /**

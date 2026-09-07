@@ -90,6 +90,17 @@ class DebugGrantControllerTest extends TestCase
                 return $this->floor;
             }
 
+            /**
+             * These screens are the whole response now, and end it with `exit`.
+             *
+             * {@see DebugGrantController::respond()} — the seam exists because `exit` in a
+             * test run takes the runner with it, which is exactly what happened when the
+             * screens stopped being echoed into the application's own document.
+             */
+            protected function terminate(): void
+            {
+            }
+
             public function exposeMayGrant(): bool
             {
                 return $this->mayGrant();

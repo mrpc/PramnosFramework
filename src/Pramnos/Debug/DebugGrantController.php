@@ -110,9 +110,7 @@ class DebugGrantController extends Controller
             return $this->refuse();
         }
 
-        echo $this->screen();
-
-        return null;
+        return $this->respond(200, $this->screen());
     }
 
     /**
@@ -149,15 +147,14 @@ class DebugGrantController extends Controller
             return $this->refuse();
         }
 
-        http_response_code(405);
-
         if (!headers_sent()) {
             header('Allow: POST');
         }
 
-        echo $this->screen('That address only answers a POST — use the buttons below.');
-
-        return null;
+        return $this->respond(
+            405,
+            $this->screen('That address only answers a POST — use the buttons below.')
+        );
     }
 
     /**
@@ -193,9 +190,7 @@ class DebugGrantController extends Controller
              * produces: a branch that could not run, standing in for handling that was
              * not there.
              */
-            echo $this->screen($exception->getMessage());
-
-            return null;
+            return $this->respond(500, $this->screen($exception->getMessage()));
         }
 
         \Pramnos\Logs\Logger::log(
@@ -294,13 +289,12 @@ class DebugGrantController extends Controller
      */
     private function refuse(): mixed
     {
-        http_response_code(403);
-        header('Content-Type: text/html; charset=UTF-8');
-        echo '<!doctype html><meta charset="utf-8"><title>403</title><h1>403</h1>'
+        return $this->respond(
+            403,
+            '<!doctype html><meta charset="utf-8"><title>403</title><h1>403</h1>'
             . '<p>Issuing a debug toolbar grant needs user type '
-            . (int) $this->minUserType() . ' or above on this installation.</p>';
-
-        return null;
+            . (int) $this->minUserType() . ' or above on this installation.</p>'
+        );
     }
 
     // =========================================================================
@@ -406,6 +400,43 @@ class DebugGrantController extends Controller
             . 'run, with their values. Every grant is recorded in the auth log.</p>';
 
         return $html;
+    }
+
+    /**
+     * Send one of these pages as the **whole** response, and stop.
+     *
+     * `screen()` and `refuse()` return complete `<!doctype html>` documents, and every one
+     * of them was `echo`ed and then returned — so the framework carried on and rendered the
+     * application's document around it. On the installation that reported it that produced
+     * the admin theme's sidebar and breadcrumb wrapped around the debug screen's own
+     * `<html>`: two documents in one response, the buttons somewhere in the middle of a
+     * page that reads as broken rather than as an answer.
+     *
+     * The same shape `DevPanelController::renderLayout()` has, for the same reason, with
+     * the same seam: `terminate()` is overridable so a test can drive these without `exit`
+     * taking the runner with it.
+     */
+    protected function respond(int $status, string $html): mixed
+    {
+        http_response_code($status);
+
+        if (!headers_sent()) {
+            header('Content-Type: text/html; charset=UTF-8');
+            header('X-Robots-Tag: noindex, nofollow');
+        }
+
+        echo $html;
+        $this->terminate();
+
+        return null;
+    }
+
+    /**
+     * Overridable so tests do not exit. {@see respond()}
+     */
+    protected function terminate(): void
+    {
+        exit;
     }
 
     private function baseUrl(): string

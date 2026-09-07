@@ -700,6 +700,15 @@ it shows *this request* to the one browser that redeemed a grant — and its who
 for existing is the server where `APP_DEBUG` is off. Behind the DevPanel's lock it would
 work only where nobody needs it.
 
+`/debugbar` and its two actions send their page as the **whole** response and stop, the way the
+DevPanel does. They return complete documents, so echoing one and letting the request carry on
+put the application's own page around it — an admin theme's sidebar and breadcrumb wrapped around
+the screen's `<html>`, with the buttons somewhere in the middle.
+
+**If it answers *«No application key»***, that is the framework refusing to sign a grant with a
+predictable secret rather than a failure of this screen. Run `php pramnos key:generate`. A default
+there would hand the query log of a live server to anybody who guessed it.
+
 Both actions are `POST` and the CSRF token is **checked** — `CsrfMiddleware` is registered on
 them, so a form without the field is refused with a 419. A switch that turns on a query log
 must not be reachable by getting somebody to click a link. A `GET` on either address answers
