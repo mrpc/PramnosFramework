@@ -3,6 +3,7 @@ use_cases:
   - Connecting a third-party application to the auth server
   - Implementing an OAuth2 Authorization Code + PKCE flow against it
   - Registering a client's redirect URI, or debugging one the server refuses
+  - Finding out why the server refused a token or authorization request
   - Reading a user's permissions from another application
   - Reacting to instant invalidation webhooks
 ---
@@ -432,6 +433,51 @@ audience, optionally roles. They **do not** carry permissions. Do not try to
 derive what a user may do from the token; fetch it (next section) and cache it.
 
 ---
+
+## When a sign-in fails: the decision log
+
+`/oauth/authorize` and `/oauth/token` write what they decided to **`oauth.log`**, under
+`LOG_PATH/logs`. Refusals are always written; the successful half is behind a setting.
+
+```
+token endpoint refused | endpoint=token status=400 grant_type=authorization_code
+  client_id=3ad1d008… error=invalid_client error_description=Missing client_secret ip=…
+authorize refused | endpoint=authorize error_description=The redirect_uri is not registered
+  for this application. client_id=… redirect_uri=… ip=…
+consent form shown (no redirect) | endpoint=authorize client_id=… userid=… scope=…
+denied by user | endpoint=authorize client_id=… userid=… scope=…
+```
+
+**No credential is ever written.** Not an authorization code, an access or refresh token, a
+`client_secret` or a `code_verifier`: the file is readable by anyone with the server, and a
+code in it is a code somebody can replay inside its lifetime. The line is built from a
+fixed list of keys, so a call site cannot add one by accident. `client_id` and
+`redirect_uri` are public by construction and already in the access log — they are what
+makes a line worth reading.
+
+### Turning the successful half on
+
+An issued code or token is only logged when the `oauth_decision_log` setting is truthy
+(`1`, `true`, `yes`, `on`):
+
+| setting | what is written |
+| --- | --- |
+| absent / off (default) | refusals, consent shown, denials |
+| on | the above, plus `code issued` and `token issued` |
+
+The setting is read **forced on every request**, so it takes effect on the next request
+rather than whenever a cache expires — a switch nobody can see take effect is a switch
+nobody trusts. A scaffolded application already has a settings screen that edits the table
+generically, so no interface work is needed to flip it.
+
+Leave it off by default on purpose. `usertokens` already holds every issued row with its
+timestamp, user, application and scope, and `user_activity_log` already holds
+`application_authorized`; a user id and a destination per sign-in kept for ever is a
+retention decision rather than a diagnostic. Turn it on for the afternoon a complaint is
+open, and off again afterwards.
+
+`oauth.log` is rotated automatically like every other log — see
+[Logging](Pramnos_Logging_Guide.md#file-rotation).
 
 ## 4. Reading a user's permissions
 

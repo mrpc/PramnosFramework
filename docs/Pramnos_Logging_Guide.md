@@ -274,6 +274,30 @@ where the entry is written changes.
 
 ### File Rotation
 
+**Rotation is automatic, and nothing has to be scheduled for it to happen.** Before a line
+is appended, `Logger::log()` checks the file's size and rotates it if it is over the cap —
+10 MiB by default, keeping 5 backups (`app.log.1` … `app.log.5`, oldest dropped).
+
+```bash
+PRAMNOS_LOG_MAX_SIZE=10485760   # bytes; 0 disables rotation entirely
+PRAMNOS_LOG_MAX_BACKUPS=5
+```
+
+`LOG_MAX_SIZE` and `LOG_MAX_BACKUPS` constants work too, and
+`Logger::setMaxSize()` / `Logger::setMaxBackups()` override both for the current process.
+**Set the size to `0` if something else rotates these files** — an external `logrotate`
+and this one both renaming the file the application is appending to is worse than neither.
+
+Rotating on write rather than from a scheduled sweep is deliberate. A task in
+`FrameworkSchedule` is the tidier design and only works where something actually runs
+`schedule:run`; a framework default has to hold where nothing was set up. The cost in the
+common case is one `stat` and a return.
+
+The rotated file gets a first line saying what happened and which backup holds what came
+before it.
+
+For an explicit rotation — a maintenance script, or a cap that differs per file:
+
 ```php
 use Pramnos\Logs\Logger;
 

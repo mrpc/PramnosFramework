@@ -173,6 +173,13 @@ class Oauth extends Controller
             }
 
             // Show consent form
+            $this->logDecision('consent form shown (no redirect)', [
+                'endpoint'     => 'authorize',
+                'client_id'    => $params['client_id'],
+                'userid'       => $user->userid,
+                'scope'        => $params['scope'],
+                'redirect_uri' => $params['redirect_uri'],
+            ]);
             $this->showConsentForm($user, $client, $params);
 
         } catch (\Pramnos\Application\ApplicationClosedException $ex) {
@@ -191,13 +198,42 @@ class Oauth extends Controller
             // Same reasoning: the framework's own way of saying "go here".
             throw $ex;
         } catch (OAuthServerException $ex) {
+            $this->logAuthorizeRefusal($ex->getMessage());
             $this->showErrorPage($ex->getMessage());
         } catch (\Exception $ex) {
             if ($ex->getMessage() === 'OAuth controller terminated') {
                 throw $ex;
             }
+            $this->logAuthorizeRefusal($ex->getMessage());
             $this->showErrorPage($ex->getMessage());
         }
+    }
+
+    /**
+     * Record an authorization request that ended on the error page.
+     *
+     * Reads the request rather than `$params`, because the interesting refusals happen
+     * *before* the parameters are collected or while collecting them — an unknown client,
+     * a `redirect_uri` that is not registered, an unsupported `response_type` — and a
+     * refusal whose line cannot say which client asked is the one that took a day.
+     *
+     * `redirect_uri` is included even though it may be the reason for the refusal: it is
+     * attacker-controlled on the request that matters, which is exactly why an operator
+     * needs to see what was sent. It is written to a file, not to a page, so it cannot
+     * become a link somebody clicks — the error page deliberately does not echo it.
+     */
+    private function logAuthorizeRefusal(string $reason): void
+    {
+        $request = array_merge($_GET, $_POST);
+
+        $this->logDecision('authorize refused', [
+            'endpoint'          => 'authorize',
+            'error_description' => $reason,
+            'client_id'         => (string) ($request['client_id'] ?? ''),
+            'redirect_uri'      => (string) ($request['redirect_uri'] ?? ''),
+            'scope'             => (string) ($request['scope'] ?? ''),
+            'ip'                => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+        ]);
     }
 
     // ── Token endpoint ────────────────────────────────────────────────────────
@@ -237,7 +273,7 @@ class Oauth extends Controller
         } catch (OAuthServerException $ex) {
             return $this->emitPsrResponse($ex->generateHttpResponse(new Psr17Factory()->createResponse()));
         } catch (\Exception $ex) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error'             => 'server_error',
                 'error_description' => $ex->getMessage(),
             ], 500);
@@ -255,12 +291,12 @@ class Oauth extends Controller
     public function revoke(): mixed
     {
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            return \Pramnos\Http\Response::json(['error' => 'method_not_allowed'], 405);
+            return $this->respondJson(['error' => 'method_not_allowed'], 405);
         }
 
         $token = $_POST['token'] ?? '';
         if ($token === '') {
-            return \Pramnos\Http\Response::json(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
+            return $this->respondJson(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
         // RFC 7009: revocation always answers 200, even for a token that does not
@@ -280,7 +316,7 @@ class Oauth extends Controller
             ->where('status', 1)
             ->update(['status' => 0]);
 
-        return \Pramnos\Http\Response::json(['success' => true]);
+        return $this->respondJson(['success' => true]);
     }
 
     // ── Introspection ─────────────────────────────────────────────────────────
@@ -294,24 +330,24 @@ class Oauth extends Controller
     public function introspect(): mixed
     {
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-            return \Pramnos\Http\Response::json(['error' => 'method_not_allowed'], 405);
+            return $this->respondJson(['error' => 'method_not_allowed'], 405);
         }
 
         $credentials = $this->extractClientCredentials();
         if ($credentials === null || !$this->validateClientCredentials($credentials)) {
-            return \Pramnos\Http\Response::json(['error' => 'invalid_client'], 401)
+            return $this->respondJson(['error' => 'invalid_client'], 401)
                 ->withHeader('WWW-Authenticate', 'Basic realm="OAuth2"');
         }
 
         $token = $_POST['token'] ?? '';
         if ($token === '') {
-            return \Pramnos\Http\Response::json(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
+            return $this->respondJson(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
         $result = $this->findIntrospectableToken($token);
 
         if ($result === null) {
-            return \Pramnos\Http\Response::json(['active' => false]);
+            return $this->respondJson(['active' => false]);
         }
 
         $row      = $result;
@@ -319,10 +355,10 @@ class Oauth extends Controller
                  && ((int) $row['expires'] === 0 || (int) $row['expires'] > time());
 
         if (!$isActive) {
-            return \Pramnos\Http\Response::json(['active' => false]);
+            return $this->respondJson(['active' => false]);
         }
 
-        return \Pramnos\Http\Response::json([
+        return $this->respondJson([
             'active'     => true,
             // RFC 7662 §2.2: `scope` is a space-delimited string. The row may hold
             // JSON or a comma list, and handing either back verbatim gives a client
@@ -470,7 +506,7 @@ class Oauth extends Controller
     {
         $token = $this->extractBearerToken();
         if ($token === null) {
-            return \Pramnos\Http\Response::json(['error' => 'invalid_token'], 401)
+            return $this->respondJson(['error' => 'invalid_token'], 401)
                 ->withHeader('WWW-Authenticate', 'Bearer realm="oauth"');
         }
 
@@ -485,7 +521,7 @@ class Oauth extends Controller
         if (!$result || $result->numRows == 0
             || (int) $result->fields['status'] !== 1
             || ((int) $result->fields['expires'] > 0 && (int) $result->fields['expires'] < time())) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error' => 'invalid_token',
                 'error_description' => 'Token expired or invalid'
             ], 401);
@@ -499,14 +535,14 @@ class Oauth extends Controller
         $scopes = \Pramnos\User\Token::parseScopes($result->fields['scope'] ?? '');
 
         if (!in_array('openid', $scopes, true)) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error' => 'insufficient_scope',
                 'error_description' => 'The openid scope is required'
             ], 403);
         }
 
         $payload = $this->buildUserInfoPayload($userId, $scopes);
-        return \Pramnos\Http\Response::json($payload);
+        return $this->respondJson($payload);
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
@@ -550,13 +586,13 @@ class Oauth extends Controller
     {
         $token = $this->extractBearerToken();
         if ($token === null) {
-            return \Pramnos\Http\Response::json(['error' => 'invalid_token'], 401);
+            return $this->respondJson(['error' => 'invalid_token'], 401);
         }
 
         $row = $this->findTokenRow($token);
 
         if ($row === null) {
-            return \Pramnos\Http\Response::json(['success' => true]);
+            return $this->respondJson(['success' => true]);
         }
 
         $userId  = (int) $row['userid'];
@@ -578,7 +614,7 @@ class Oauth extends Controller
 
         $this->recordLogout($userId);
 
-        return \Pramnos\Http\Response::json([
+        return $this->respondJson([
             'success'        => true,
             'user_id'        => $userId,
             'tokens_revoked' => $revoked,
@@ -724,7 +760,7 @@ class Oauth extends Controller
         $scope    = $_POST['scope']     ?? '';
 
         if ($clientId === null) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error' => 'invalid_request',
                 'error_description' => 'Missing client_id'
             ], 400);
@@ -751,7 +787,7 @@ class Oauth extends Controller
 
             $verificationUri = sURL . 'device';
 
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'device_code'              => $deviceCode,
                 'user_code'                => $userCode,
                 'verification_uri'         => $verificationUri,
@@ -760,7 +796,7 @@ class Oauth extends Controller
                 'interval'                 => 5,
             ]);
         } catch (\Exception $ex) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error' => 'invalid_request',
                 'error_description' => $ex->getMessage()
             ], 400);
@@ -938,6 +974,13 @@ class Oauth extends Controller
             ]);
             $this->issueCodeAndRedirect($user->userid, $params);
         } else {
+            $this->logDecision('denied by user', [
+                'endpoint'     => 'authorize',
+                'client_id'    => $params['client_id'],
+                'userid'       => $user->userid,
+                'scope'        => $params['scope'],
+                'redirect_uri' => $params['redirect_uri'],
+            ]);
             $redirectParams = ['error' => 'access_denied'];
             if ($params['state'] !== '') {
                 $redirectParams['state'] = $params['state'];
@@ -977,6 +1020,17 @@ class Oauth extends Controller
             $params['code_challenge']     !== '' ? $params['code_challenge']     : null,
             $params['code_challenge_method'] !== '' ? $params['code_challenge_method'] : null
         );
+
+        // Verbose-only, and never the code itself: `usertokens` already holds the row with
+        // its timestamp, user, application and scope, so this line is for the afternoon a
+        // complaint is open rather than for the record.
+        $this->logDecision('code issued', [
+            'endpoint'     => 'authorize',
+            'client_id'    => $params['client_id'],
+            'userid'       => $userId,
+            'scope'        => $params['scope'],
+            'redirect_uri' => $params['redirect_uri'],
+        ], true);
 
         $redirectParams = ['code' => $authCode];
         if ($params['state'] !== '') {
@@ -1019,6 +1073,154 @@ class Oauth extends Controller
         \Pramnos\Framework\Factory::getDocument()->addContent(
             (string) $view->display('authorize')
         );
+    }
+
+    /**
+     * The settings key that turns the successful half of the decision log on.
+     *
+     * A row rather than a constant, because the questions this answers arrive as "a user
+     * says it did not work" and a release is too slow to be the way you turn a diagnostic
+     * on. Read forced on every request, so flipping it takes effect on the next one — a
+     * switch nobody can see take effect is a switch nobody trusts.
+     */
+    public const DECISION_LOG_SETTING = 'oauth_decision_log';
+
+    /** The log file the decisions go to: `oauth.log`, not the framework's own. */
+    public const DECISION_LOG_FILE = 'oauth';
+
+    /**
+     * The only context keys that reach the log, and the reason it is a list.
+     *
+     * A log that answers *why did this fail* must not also answer *what was the secret*:
+     * the file is readable by anyone with the server, and an authorization code in it is a
+     * code somebody can replay inside its lifetime. An allow-list rather than a deny-list
+     * because the next person to add a call site does not have to remember the rule —
+     * `code`, `access_token`, `client_secret` and `code_verifier` are dropped whether or
+     * not anybody thought about them.
+     *
+     * `client_id` and `redirect_uri` are public by construction and already in the access
+     * log; they are what makes a line worth reading.
+     */
+    private const LOGGED_CONTEXT_KEYS = [
+        'endpoint',
+        'status',
+        'error',
+        'error_description',
+        'grant_type',
+        'client_id',
+        'userid',
+        'scope',
+        'redirect_uri',
+        'ip',
+    ];
+
+    /** @var bool|null Memoised per request: the verbose half is one settings read. */
+    private ?bool $verboseDecisionLog = null;
+
+    /**
+     * Write down what this endpoint decided, and what it decided it from.
+     *
+     * The controller could end a request four ways without the client getting a code —
+     * the token endpoint refusing, the consent form being shown, the user denying, a
+     * parameter being rejected — and **recorded none of them**. Measured on one
+     * installation in one day: 23 responses of 4xx from the token endpoint, and not one
+     * explainable afterwards. Diagnosing a single failure came down to comparing the byte
+     * counts of two 302s in an access log, which is arithmetic with a hypothesis attached
+     * rather than diagnosis.
+     *
+     * Refusals are always logged: they are the diagnostic, and a refusal carries no
+     * retention question. **Successes are logged only when
+     * {@see DECISION_LOG_SETTING} is on**, because a user id and a destination per
+     * sign-in, kept for ever, is not a diagnostic — `usertokens` already holds the row and
+     * `user_activity_log` already holds `application_authorized`. It is a retention
+     * decision, and it should be one somebody made.
+     *
+     * The inputs go in the line, not just the outcome, because the reports worth
+     * investigating are the ones where the request looked fine.
+     *
+     * `protected` rather than `private`: an application that ships its logs somewhere
+     * structured has one method to override, and the four call sites keep working. New
+     * methods, so nothing that overrides the class today is affected.
+     *
+     * @param string               $outcome     What happened, in the endpoint's terms
+     * @param array<string,mixed>  $context     Inputs; filtered by LOGGED_CONTEXT_KEYS
+     * @param bool                 $verboseOnly Log only when the setting is on
+     */
+    protected function logDecision(string $outcome, array $context = [], bool $verboseOnly = false): void
+    {
+        if ($verboseOnly && !$this->decisionLogIsVerbose()) {
+            return;
+        }
+
+        $pairs = [];
+        foreach (self::LOGGED_CONTEXT_KEYS as $key) {
+            if (!isset($context[$key]) || $context[$key] === '' || $context[$key] === null) {
+                continue;
+            }
+            $pairs[] = $key . '=' . str_replace(["\n", "\r"], ' ', (string) $context[$key]);
+        }
+
+        \Pramnos\Logs\Logger::log(
+            $outcome . ($pairs === [] ? '' : ' | ' . implode(' ', $pairs)),
+            self::DECISION_LOG_FILE
+        );
+    }
+
+    /**
+     * Is the successful half of the log switched on for this request?
+     *
+     * Forced, so the setting takes effect on the next request rather than whenever a cache
+     * expires, and memoised, so a request that issues several tokens reads it once.
+     * Fail-closed: a settings table that cannot be reached leaves the verbose half off,
+     * which is the same answer as an installation that never turned it on.
+     */
+    protected function decisionLogIsVerbose(): bool
+    {
+        if ($this->verboseDecisionLog !== null) {
+            return $this->verboseDecisionLog;
+        }
+
+        try {
+            $value = \Pramnos\Application\Settings::getSetting(self::DECISION_LOG_SETTING, false, true);
+        } catch (\Throwable) {
+            $value = false;
+        }
+
+        return $this->verboseDecisionLog = in_array(
+            is_string($value) ? strtolower(trim($value)) : $value,
+            [true, 1, '1', 'true', 'yes', 'on'],
+            true
+        );
+    }
+
+    /**
+     * A JSON response, and the log line that says why it was that one.
+     *
+     * Every refusal in this controller goes through here rather than calling
+     * `Response::json()` directly, and that is the point: instrumenting the shared error
+     * *helper* looked complete and was not, because an unknown client throws before the
+     * helper is reached and the catch-all answers inline with its own status and body. So
+     * a refusal that appeared instrumented wrote nothing. With one exit there is no site
+     * to miss.
+     *
+     * `$context` carries the inputs — grant type, client, the endpoint's own name — that a
+     * status code alone does not.
+     *
+     * @param array<string,mixed> $body
+     * @param array<string,mixed> $context
+     */
+    protected function respondJson(array $body, int $status = 200, array $context = []): \Pramnos\Http\Response
+    {
+        if ($status >= 400) {
+            $this->logDecision('refused', array_merge([
+                'status'            => $status,
+                'error'             => $body['error'] ?? '',
+                'error_description' => $body['error_description'] ?? '',
+                'ip'                => $_SERVER['REMOTE_ADDR'] ?? '',
+            ], $context));
+        }
+
+        return \Pramnos\Http\Response::json($body, $status);
     }
 
     /**
@@ -1350,7 +1552,7 @@ class Oauth extends Controller
         }
 
         if (!$clientId) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error'             => 'invalid_request',
                 'error_description' => 'Missing client_id',
             ], 400);
@@ -1360,7 +1562,7 @@ class Oauth extends Controller
         // already have systemuser without a second SELECT (regression fix UW-461).
         $app = $this->validateJwtClientAssertion($assertion, $clientId);
         if ($app === null) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error'             => 'invalid_client',
                 'error_description' => 'JWT client assertion validation failed',
             ], 401);
@@ -1378,7 +1580,7 @@ class Oauth extends Controller
         $systemUserId = $app->systemUserId();
 
         if ($systemUserId <= 0) {
-            return \Pramnos\Http\Response::json([
+            return $this->respondJson([
                 'error'             => 'server_error',
                 'error_description' => 'Failed to assign system user to application',
             ], 500);
@@ -1424,7 +1626,7 @@ class Oauth extends Controller
                 'deviceinfo'    => 'jwt_bearer',
             ]);
 
-        return \Pramnos\Http\Response::json([
+        return $this->respondJson([
             'access_token'       => $token,
             'token_type'         => 'Bearer',
             'expires_in'         => 3600,
@@ -1595,12 +1797,55 @@ class Oauth extends Controller
     // ── PSR-7 response emitter ────────────────────────────────────────────────
 
     /**
+     * Record what the token endpoint answered — the eight refusals nobody could explain.
+     *
+     * Every response the League server produces leaves through {@see emitPsrResponse()},
+     * refusals included: `OAuthServerException::generateHttpResponse()` is emitted the same
+     * way as a successful grant. So one line here covers what would otherwise be eight call
+     * sites, and a ninth added by a library upgrade is covered too.
+     *
+     * The client receives `{"error": "invalid_client"}` and a 401; what was missing on the
+     * server was **which** client, which grant, and which of the sites produced it. The
+     * body already says the last of those, and it is a machine-readable JSON object, so it
+     * is read rather than guessed at.
+     *
+     * The token itself is never touched: on success only the grant type and client reach
+     * the line, and only when the verbose half is on.
+     */
+    protected function logTokenEndpointOutcome(int $status, string $body): void
+    {
+        $context = [
+            'endpoint'   => 'token',
+            'status'     => $status,
+            'grant_type' => (string) ($_POST['grant_type'] ?? ''),
+            'client_id'  => (string) ($_POST['client_id'] ?? ''),
+            'ip'         => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+        ];
+
+        if ($status < 400) {
+            $this->logDecision('token issued', $context, true);
+            return;
+        }
+
+        $decoded = json_decode($body, true);
+        if (is_array($decoded)) {
+            $context['error']             = (string) ($decoded['error'] ?? '');
+            $context['error_description'] = (string) ($decoded['error_description'] ?? '');
+        }
+
+        $this->logDecision('token endpoint refused', $context);
+    }
+
+    /**
      * Emit a PSR-7 response as a framework Response.
      */
     private function emitPsrResponse(\Psr\Http\Message\ResponseInterface $psrResponse): \Pramnos\Http\Response
     {
+        $body = (string) $psrResponse->getBody();
+        $this->logTokenEndpointOutcome($psrResponse->getStatusCode(), $body);
+
         $response = \Pramnos\Http\Response::make(
-            (string) $psrResponse->getBody(),
+            $body,
             $psrResponse->getStatusCode()
         );
         foreach ($psrResponse->getHeaders() as $name => $values) {

@@ -88,6 +88,21 @@ class Logger
     /** @var resource|null Target stream for stream/both modes; defaults to STDERR lazily. */
     private static $streamTarget = null;
 
+    /** Default size a log file may reach before it is rotated: 10 MiB. */
+    public const DEFAULT_MAX_SIZE = 10485760;
+
+    /** Default number of rotated files kept beside the live one. */
+    public const DEFAULT_MAX_BACKUPS = 5;
+
+    /** Explicit size cap override; null = resolve from env / constant / default. */
+    private static ?int $maxSize = null;
+
+    /** Explicit backup-count override; null = resolve from env / constant / default. */
+    private static ?int $maxBackups = null;
+
+    /** Re-entry guard: rotation logs a notice, and a notice writes a log. */
+    private static bool $rotating = false;
+
     /**
      * Set the log output mode: 'file' (default), 'stream' (STDERR), or 'both'.
      * Dockerised apps typically use 'both' — files keep the LogViewer working
@@ -126,6 +141,105 @@ class Logger
     public static function setStreamTarget($stream): void
     {
         self::$streamTarget = $stream;
+    }
+
+    /**
+     * The size a log file may reach before {@see log()} rotates it. `0` never rotates.
+     *
+     * Resolved the same way as the output mode — an explicit override first, then
+     * `PRAMNOS_LOG_MAX_SIZE`, then a `LOG_MAX_SIZE` constant — because an installation
+     * that already runs `logrotate` needs a way to say so, and that way is `0`.
+     */
+    public static function getMaxSize(): int
+    {
+        if (self::$maxSize !== null) {
+            return self::$maxSize;
+        }
+        $env = getenv('PRAMNOS_LOG_MAX_SIZE');
+        if (is_string($env) && $env !== '' && ctype_digit($env)) {
+            return (int) $env;
+        }
+        if (defined('LOG_MAX_SIZE') && is_int(\LOG_MAX_SIZE)) {
+            return \LOG_MAX_SIZE;
+        }
+        return self::DEFAULT_MAX_SIZE;
+    }
+
+    /** How many rotated files are kept. See {@see getMaxSize()} for how it resolves. */
+    public static function getMaxBackups(): int
+    {
+        if (self::$maxBackups !== null) {
+            return self::$maxBackups;
+        }
+        $env = getenv('PRAMNOS_LOG_MAX_BACKUPS');
+        if (is_string($env) && $env !== '' && ctype_digit($env)) {
+            return (int) $env;
+        }
+        if (defined('LOG_MAX_BACKUPS') && is_int(\LOG_MAX_BACKUPS)) {
+            return \LOG_MAX_BACKUPS;
+        }
+        return self::DEFAULT_MAX_BACKUPS;
+    }
+
+    /** Override the size cap. Pass null to resolve from the environment again. */
+    public static function setMaxSize(?int $bytes): void
+    {
+        self::$maxSize = $bytes;
+    }
+
+    /** Override the backup count. Pass null to resolve from the environment again. */
+    public static function setMaxBackups(?int $count): void
+    {
+        self::$maxBackups = $count;
+    }
+
+    /**
+     * Rotate this log file if it has grown past the cap, before the next line is written.
+     *
+     * {@see truncateLogFile()} has done size-capped rotation with backups all along and had
+     * **one caller in the framework**: the log viewer's manual button. So every log every
+     * application writes grew without limit, in every installation, and nobody found out
+     * until a disk did.
+     *
+     * Rotating here rather than from a scheduled task is deliberate. A sweep through
+     * `FrameworkSchedule` is the tidier design and only works where something actually runs
+     * `schedule:run` — the installation that reported this had the scheduler unrun for the
+     * life of the project. A framework default has to hold where nothing was set up, and
+     * the cost is one `stat` on a method that already returns immediately below the cap.
+     *
+     * **The re-entry guard is belt and braces, and it is worth knowing that it is.**
+     * Rotation writes a notice saying it rotated, and that notice comes back through
+     * {@see log()} — but by then `truncateLogFile()` has already renamed the file away, so
+     * the `is_file()` below is what actually stops the recursion. Removing the guard
+     * reddens nothing, which is exactly why it stays: the thing protecting against
+     * unbounded recursion is otherwise the statement order inside another method, and the
+     * symptom of getting that wrong is a stack overflow rather than a log line.
+     */
+    private static function rotateIfNeeded(string $file, string $ext): void
+    {
+        $maxSize = self::getMaxSize();
+        if ($maxSize <= 0 || self::$rotating) {
+            return;
+        }
+
+        $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
+        if (!is_file($filepath)) {
+            return;
+        }
+
+        // The size PHP has cached is the size before this request's earlier writes, which
+        // would leave a file one whole request over the cap.
+        clearstatcache(true, $filepath);
+        if ((int) @filesize($filepath) <= $maxSize) {
+            return;
+        }
+
+        self::$rotating = true;
+        try {
+            self::truncateLogFile($file, $ext, $maxSize, true, self::getMaxBackups());
+        } finally {
+            self::$rotating = false;
+        }
     }
 
     /**
@@ -258,6 +372,7 @@ class Logger
 
         if ($writeFile) {
             self::ensureLogDirectories();
+            self::rotateIfNeeded($file, $ext);
             $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
 
             if ($startoffile && file_exists($filepath)) {
@@ -542,10 +657,13 @@ class Logger
             
             @rename($filepath, $filepath . '.1');
             
-            // Add a notice about rotation in the new log file
+            // Into the file that was rotated, not the default one. Without `$file` the
+            // notice about rotating `oauth.log` landed in `pramnosframework.log`, which is
+            // the one place nobody looks when asking why a log starts where it does.
             self::notice(
                 "Log file rotated due to size exceeding " . \Pramnos\General\Helpers::formatBytes($maxSize),
-                ['previous_file' => $file . '.' . $ext . '.1']
+                ['previous_file' => $file . '.' . $ext . '.1'],
+                $file
             );
             
             return true;
