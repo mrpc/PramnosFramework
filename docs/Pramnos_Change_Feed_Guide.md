@@ -366,6 +366,28 @@ layout. The obvious alternative layout stores the same rows in 822 MB, because
 compression there makes the table *larger*; see
 [choosing `segmentby`](Pramnos_Hypertable_Guide.md#choosing-segmentby-a-measurement-worth-repeating).
 
+### And what the drain costs, which is nothing on a backend you do not use
+
+`spool:drain` runs `everyMinute` on the framework schedule, so anything it does per pass it
+does sixty times an hour, for ever. Two things follow, and both were once wrong:
+
+**It finds the Redis lists from a set of table names**, `spool:tables`, written when a row is
+pushed — not from `KEYS spool:*`. `KEYS` is O(the whole database) and **blocks the server**
+for its duration. Measured on an installation that had just turned the schedule on: 8.3 ms
+average, and **118 of the 128 slowest commands the server had recorded** were this one call —
+with the slowlog at its cap, so it had stopped saying anything about anything else.
+
+`SCAN … MATCH` is not the substitute: `MATCH` filters what is returned, not what is
+traversed, so it trades one stall for a walk of the whole database. A set of names is
+O(tables).
+
+**And it does not ask Redis at all when the spool is `file`**, which is the default. That
+installation spools to files — the rows never reach Redis, and the drain was stalling the
+server for 8 ms every minute to be told so. A backend nobody enabled should cost nothing.
+
+The check is *could rows be there*, not *is that the configured driver*: a driver changed from
+`redis` to `file` leaves whatever was already pushed, and refusing to look would strand it.
+
 ---
 
 ## Broadcasting model changes

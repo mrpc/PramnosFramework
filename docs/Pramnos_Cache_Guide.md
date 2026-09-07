@@ -157,7 +157,7 @@ Three keys per installation prefix, and none of them is found by looking:
 |---|---|---|
 | `<prefix>_<category>_<id>.…` | a cache entry | its own TTL |
 | `<prefix>catindex:<category>` | a **set** of that category's keys | its members' TTLs — each save pushes the set's expiry an hour past the newest |
-| `<prefix>catnames` | a **set** of the category names | the schema: one member per category, removed when the category is emptied |
+| `<prefix>catnames` | a **set** of the category names | its own expiry, pushed an hour past its newest member — plus removal when a category is cleared |
 
 So invalidating a category is `SMEMBERS` + `DEL`, and listing the categories is one
 `SMEMBERS`. Neither asks redis to find anything.
@@ -174,9 +174,18 @@ the first; `catnames` is what the second needed and did not have.
 
 **And a central index has to be pruned or it becomes the problem.** The structure this
 replaced was a marker key per category-clear, with no TTL — one installation reached 275,000
-of them, each making the sweeps they existed to avoid slower. `catnames` holds *names*, not
-entities, and it shrinks: a cleared category is removed by the clear, and a category whose
-last entry simply expired is removed the next time the list is read.
+of them, each making the sweeps they existed to avoid slower.
+
+`catnames` holds *names* rather than entities, and it goes away three ways: a cleared category
+is removed by the clear, a category whose last entry expired is removed the next time the list
+is read, and **the set itself expires** an hour past its newest member's own TTL.
+
+The expiry was added after the first version shipped without one, and the numbers are why: an
+installation reported 5,304 members after seven hours — **88% of its keyspace** — and the
+slowest single command on the server at 26.7 ms. `clearCategory()` does remove a name, so a
+category that is *cleared* leaves nothing; but the ordinary life of a cached read is to expire
+on its own TTL, and nothing clears that. A permanent index of a thing that is not itself
+bounded is the same shape as the markers, one level up.
 
 What still walks the keyspace, deliberately:
 

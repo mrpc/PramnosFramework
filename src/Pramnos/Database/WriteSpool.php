@@ -533,7 +533,14 @@ class WriteSpool
             return false;
         }
 
-        return (bool) static::redis()->rPush(static::redisKey($table), $payload);
+        $pushed = (bool) static::redis()->rPush(static::redisKey($table), $payload);
+
+        if ($pushed) {
+            // So the drain can find this list without asking redis to look for it.
+            static::redis()->sAdd(static::redisNamesKey(), $table);
+        }
+
+        return $pushed;
     }
 
     /**
@@ -612,6 +619,25 @@ class WriteSpool
                     // twice helps nobody.
                 }
             }
+
+            /*
+             * And forget the table if nothing is waiting under it now.
+             *
+             * This is the moment it is knowable: the list was renamed away, drained and
+             * deleted, so unless a row arrived during the drain — or one came back above —
+             * there is nothing there. Asked rather than assumed, because both of those
+             * happen.
+             *
+             * A name that outlives its list is not wrong; `lLen` on a missing key answers 0.
+             * It is a set that only grows, which is the structure this replaced.
+             */
+            try {
+                if ((int) $redis->exists($key) === 0) {
+                    static::pruneRedisName($table);
+                }
+            } catch (\Throwable) {
+                // Nothing to prune on a Redis that has gone away.
+            }
         }
     }
 
@@ -622,21 +648,119 @@ class WriteSpool
      */
     protected static function redisKeys(): array
     {
+        /*
+         * From a set of table names, **not** `KEYS spool:*`.
+         *
+         * `KEYS` is O(the whole database) and **blocks the server** for its duration, and
+         * `spool:drain` is scheduled `everyMinute` — so on any installation running the
+         * framework schedule this was a blocking keyspace walk sixty times an hour, for ever.
+         *
+         * Measured on the installation that reported it, seven hours after turning the
+         * schedule on:
+         *
+         * ```
+         * cmdstat_keys  calls=649  usec_per_call=8,344     ← 8.3 ms, average
+         * slowlog: 118 of 128 entries are KEYS spool:*
+         * ```
+         *
+         * **118 of the 128 slowest commands the server had recorded were this one call**, and
+         * the slowlog was at its cap — so it had stopped saying anything about anything else:
+         * a real slow query would have had to displace a probe to be seen.
+         *
+         * And that installation's spool backend is `file`. The rows never reached redis at
+         * all; the drain probed the redis backend anyway, stalled the server for 8 ms, and got
+         * an empty list. The whole cost with none of the purpose — {@see spoolsToRedis()} for
+         * the other half of that.
+         *
+         * `SCAN … MATCH` was the obvious substitute and is not the answer: `MATCH` filters
+         * what is **returned**, not what is traversed, so it trades one 8 ms stall for a walk
+         * of the whole database. A set of names is O(tables) and is the shape this codebase
+         * settled on for the cache's categories the same morning — the reporting filing said
+         * so, and it was right.
+         *
+         * @return list<string>
+         */
+        if (!static::spoolsToRedis()) {
+            return [];
+        }
+
         try {
-            $keys = static::redis()->keys(static::redisKey('*'));
+            $tables = static::redis()->sMembers(static::redisNamesKey());
         } catch (\Throwable) {
             return [];
         }
 
-        if (!is_array($keys)) {
+        if (!is_array($tables)) {
             return [];
         }
 
-        // A list mid-drain belongs to whoever is draining it.
-        return array_values(array_filter(
-            $keys,
-            static fn($key): bool => !str_contains((string) $key, ':draining:')
-        ));
+        $keys = [];
+
+        foreach ($tables as $table) {
+            $table = (string) $table;
+
+            if ($table === '') {
+                continue;
+            }
+
+            $keys[] = static::redisKey($table);
+        }
+
+        return $keys;
+    }
+
+    /**
+     * The set naming every table with rows in Redis.
+     *
+     * Bounded by the schema — one member per table that has ever been spooled — rather than
+     * by the traffic, which is what makes it safe to keep. {@see pruneRedisName()} removes a
+     * name once its list is gone, so it shrinks as well as grows.
+     */
+    protected static function redisNamesKey(): string
+    {
+        return \Pramnos\Redis\ConnectionManager::getInstance()->prefix() . 'spool:tables';
+    }
+
+    /**
+     * Forget a table whose list is empty.
+     *
+     * A name left behind is not *wrong* — reading it finds no list and `lLen` answers 0 — but
+     * a set that only grows is the structure this replaced, one level up. Called from the
+     * drain, which is the moment a list is known to be gone.
+     */
+    protected static function pruneRedisName(string $table): void
+    {
+        try {
+            static::redis()->sRem(static::redisNamesKey(), $table);
+        } catch (\Throwable) {
+            // Nothing to prune on a Redis that has gone away.
+        }
+    }
+
+    /**
+     * Is Redis where rows are spooled on this installation?
+     *
+     * **A backend nobody enabled should cost nothing.** The drain asked both unconditionally,
+     * so an installation on the `file` backend — which is the default — paid a blocking
+     * keyspace walk every minute to be told redis held nothing. That is not a small waste
+     * because it is small work: it is work that is *certain* to be pointless.
+     *
+     * Asked as "could rows be there", not "is that the configured driver": a driver changed
+     * from `redis` to `file` leaves whatever was already pushed, and refusing to look would
+     * strand it. So the answer is yes when redis is configured **or** when the names set says
+     * something is waiting.
+     */
+    protected static function spoolsToRedis(): bool
+    {
+        if (static::driver() === static::DRIVER_REDIS) {
+            return true;
+        }
+
+        try {
+            return (int) static::redis()->sCard(static::redisNamesKey()) > 0;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

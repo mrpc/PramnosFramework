@@ -314,9 +314,44 @@ class RedisAdapter extends AbstractAdapter
 
         $this->redis->sAdd($index, $key);
 
-        // And the category's *name*, in the one set that lists them. See
-        // categoryNamesKey() for why a set per category was not enough.
-        $this->redis->sAdd($this->categoryNamesKey(), $this->sanitizeCategory($this->category));
+        /*
+         * And the category's *name*, in the one set that lists them — **with an expiry**.
+         *
+         * See `categoryNamesKey()` for why a set per category was not enough. The expiry is
+         * the part that was missing, and the numbers came back seven hours later from the
+         * installation that adopted this:
+         *
+         * ```
+         * SCARD catnames   5,304      TTL -1
+         * dbsize           6,029      → the names set was 88% of the keyspace
+         * SMEMBERS catnames  26.7 ms  → the slowest single entry in the slowlog
+         * ```
+         *
+         * `clearCategory()` removes a name, so a category that is *cleared* leaves nothing
+         * behind. But the ordinary life of a cached read is to **expire on its own TTL**, and
+         * nothing clears that — so the set accumulated one entry per distinct category ever
+         * cached, which on this codebase is per entity id.
+         *
+         * Not the `catindexed:` problem it replaced — that was read once per save on the hot
+         * path, this is read when somebody opens a page — but the same shape one level up: a
+         * permanent index of a thing that is not itself bounded.
+         *
+         * The expiry is pushed forward on every save, exactly as each category's own index set
+         * does, so the set always outlives its newest member. A name that is wrong for an hour
+         * costs one listed category that answers empty, which is the behaviour
+         * `clearCategory()` already documents as acceptable.
+         */
+        $names = $this->categoryNamesKey();
+
+        $this->redis->sAdd($names, $this->sanitizeCategory($this->category));
+
+        if ($timeout > 0) {
+            $this->redis->expire($names, $timeout + static::NAMES_TTL_MARGIN);
+        } else {
+            // A member that never expires makes the set permanent too, since there is then a
+            // name that will never stop being true.
+            $this->redis->persist($names);
+        }
 
         if ($timeout > 0) {
             $this->redis->expire($index, $timeout + 3600);
@@ -374,6 +409,16 @@ class RedisAdapter extends AbstractAdapter
     {
         return $this->prefix . 'catnames';
     }
+
+    /**
+     * How far past its newest member's own expiry the names set survives.
+     *
+     * An hour, the same margin each category's index set uses. Long enough that the set is
+     * never the first thing to go — a listing that has forgotten a live category is worse
+     * than one that names a dead one — and short enough that a category nobody writes to
+     * stops being named within the hour.
+     */
+    protected const NAMES_TTL_MARGIN = 3600;
 
     /**
      * The marker that says a category's set is authoritative.
