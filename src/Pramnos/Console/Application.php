@@ -168,6 +168,8 @@ class Application extends \Symfony\Component\Console\Application
         // Queue System (Phase 2)
         $this->add(new \Pramnos\Console\Commands\ProcessQueue());
         $this->add(new \Pramnos\Console\Commands\CleanupQueue());
+        $this->add(new \Pramnos\Console\Commands\QueueReclaim());
+        $this->add(new \Pramnos\Console\Commands\QueueHealth());
         $this->add(new \Pramnos\Console\Commands\AuthTokenCleanup());
         $this->add(new \Pramnos\Console\Commands\AuthTwoFactorCleanup());
         $this->add(new \Pramnos\Console\Commands\MessagesDispatch());

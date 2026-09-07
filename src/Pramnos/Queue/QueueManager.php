@@ -358,6 +358,246 @@ class QueueManager
     }
 
     /**
+     * Give back the tasks whose worker died holding them.
+     *
+     * A worker sets `status = 'processing'` with a lock expiry and then, if it dies —
+     * a fatal, an OOM kill, a `SIGKILL`, a machine going away — nothing writes the end
+     * of that story. **A process that dies cannot record its own failure.**
+     *
+     * `getNextTask()` does pick up a stalled row, and that covers the ordinary case. It
+     * does not cover the two that hurt:
+     *
+     *  - **Nobody is polling that type.** The reclaim there is a side effect of somebody
+     *    asking for work, so a type whose workers are all dead reclaims nothing. That is
+     *    exactly the moment it is needed.
+     *  - **`attempts` has reached `maxattempts`.** The stalled branch requires attempts
+     *    remaining, so a row that has exhausted them stays `processing` for ever: never
+     *    claimed, never failed, counted as *in progress* by `getStats()`, and not looked at
+     *    by `purgeOldTasks()`, which only reads terminal states.
+     *
+     * The measured cost of the second one, from the installation that filed it: a fatal
+     * killing workers leaked **101 tasks** at one to three a minute, and only **34** were
+     * recorded as failed. The ledger under-reported the damage threefold, so the incident
+     * read as a slow queue rather than a queue losing work.
+     *
+     * **The lock expiry is the entire safety condition**, which is what makes this safe to
+     * run against a live queue: a worker that is alive holds a lock that has not expired,
+     * so nothing running can have its task taken away. `attempts` is left alone, so a task
+     * whose worker keeps dying still walks up to `maxattempts` and stops rather than
+     * looping for ever.
+     *
+     * @param  int                  $graceSeconds Extra seconds past expiry before a row is
+     *                                            eligible. `0` is correct for a scheduled
+     *                                            run; raise it if worker clocks disagree.
+     * @param  string|string[]|null $taskTypes    Restrict to these type(s)
+     * @return array{requeued:int,failed:int}
+     */
+    public function reclaimAbandonedTasks(
+        int $graceSeconds = 0,
+        string|array|null $taskTypes = null
+    ): array {
+        $this->refreshDatabaseConnection();
+
+        $cutoff = date('Y-m-d H:i:s', time() - max(0, $graceSeconds));
+        $now    = date('Y-m-d H:i:s');
+
+        // Retries left: back to the queue, lock cleared, as if never claimed.
+        $requeued = $this->reclaimWhere(
+            $cutoff,
+            $taskTypes,
+            'attempts < maxattempts',
+            array(
+                'status'      => 'pending',
+                'startedat'   => null,
+                'lockedby'    => null,
+                'lockexpires' => null,
+                'updatedat'   => $now,
+            )
+        );
+
+        /*
+         * Out of retries: failed, with a reason.
+         *
+         * Said in the row rather than left as `processing`, because the difference between
+         * "still working on it" and "the worker died three days ago" is the whole value of
+         * the ledger — and this is the state nothing else in the framework resolves.
+         */
+        $failed = $this->reclaimWhere(
+            $cutoff,
+            $taskTypes,
+            'attempts >= maxattempts',
+            array(
+                'status'      => 'failed',
+                'error'       => 'Abandoned: the worker holding this task stopped without '
+                    . 'recording an outcome, and no attempts remain.',
+                'completedat' => $now,
+                'updatedat'   => $now,
+                'lockedby'    => null,
+                'lockexpires' => null,
+            )
+        );
+
+        return array('requeued' => $requeued, 'failed' => $failed);
+    }
+
+    /**
+     * One reclaim statement, and the reason it is half query builder.
+     *
+     * The builder resolves the table, quotes per driver and binds the values — so the
+     * status, the timestamps and the type list all go through it. What it cannot express is
+     * `attempts < maxattempts`: a comparison between two **columns**, where a placeholder
+     * would bind the string `'maxattempts'` rather than read the column. That one clause is
+     * raw, and it names only column identifiers this class declares.
+     *
+     * @param  string|string[]|null $taskTypes
+     * @param  array<string, mixed> $values
+     */
+    private function reclaimWhere(
+        string $cutoff,
+        string|array|null $taskTypes,
+        string $attemptsClause,
+        array $values
+    ): int {
+        $query = $this->controller->application->database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->where('status', 'processing')
+            ->whereNotNull('lockexpires')
+            ->where('lockexpires', '<', $cutoff)
+            ->whereRaw($attemptsClause);
+
+        if ($taskTypes !== null) {
+            $query->whereIn('type', is_array($taskTypes) ? $taskTypes : array($taskTypes));
+        }
+
+        $result = $query->update($values);
+
+        return is_object($result) && method_exists($result, 'getAffectedRows')
+            ? (int) $result->getAffectedRows()
+            : 0;
+    }
+
+    /**
+     * Is this queue keeping up? Arrivals against completions, over a window.
+     *
+     * The one number the installation that filed this did not have. A queue served by one
+     * worker against **6.1 arrivals a second**, where a single worker tops out at 4.4, grew
+     * by 1.7 a second for four hours and reached a backlog of 175,000 — and the dashboard
+     * said "a few thousand pending" for most of it, because a depth is a level and this is
+     * a rate. A level tells you where you are; only the rate tells you which way you are
+     * going.
+     *
+     * `net` is the answer: **below zero, the queue is losing**, whatever the depth happens
+     * to be. Everything else — a screen, an alert, an autoscaler — can be built on that
+     * number, and none of it can be built without it.
+     *
+     * Completions count every terminal state, failures included: a task that failed is one
+     * the queue is no longer carrying, and counting only successes reports a losing queue
+     * during an outage where the work is in fact draining away.
+     *
+     * @param  int                  $windowSeconds How far back to measure
+     * @param  string|string[]|null $taskTypes     Restrict to these type(s)
+     * @return array{window:int,arrivals:int,completions:int,net:int,pending:int,processing:int,losing:bool}
+     */
+    public function throughput(
+        int $windowSeconds = 300,
+        string|array|null $taskTypes = null
+    ): array {
+        $this->refreshDatabaseConnection();
+
+        $since = date('Y-m-d H:i:s', time() - max(1, $windowSeconds));
+
+        $arrivals    = $this->countWhere($taskTypes, 'createdat', $since);
+        $completions = $this->countWhere(
+            $taskTypes,
+            'completedat',
+            $since,
+            array('completed', 'warning', 'failed')
+        );
+        $pending    = $this->countWhere($taskTypes, null, null, array('pending'));
+        $processing = $this->countWhere($taskTypes, null, null, array('processing'));
+
+        return array(
+            'window'      => max(1, $windowSeconds),
+            'arrivals'    => $arrivals,
+            'completions' => $completions,
+            'net'         => $completions - $arrivals,
+            'pending'     => $pending,
+            'processing'  => $processing,
+            'losing'      => $completions < $arrivals,
+        );
+    }
+
+    /**
+     * The task types the queue has actually carried, newest activity first.
+     *
+     * Read from the table rather than from {@see getTaskTypes()}, which scans a directory
+     * of handler classes. The two answer different questions, and for "which queues are
+     * moving" this is the right one: a type with a handler and no traffic is noise, and a
+     * type with traffic and **no** handler is the thing somebody needs to see — the worker
+     * fails every one of those with "No handler registered", and a directory scan cannot
+     * show it.
+     *
+     * @param  int $windowSeconds Only types touched within this many seconds; 0 for all
+     * @return string[]
+     */
+    public function activeTaskTypes(int $windowSeconds = 86400): array
+    {
+        $this->refreshDatabaseConnection();
+
+        $query = $this->controller->application->database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->groupBy('type')
+            ->orderBy('type', 'ASC');
+
+        if ($windowSeconds > 0) {
+            $query->where('createdat', '>=', date('Y-m-d H:i:s', time() - $windowSeconds));
+        }
+
+        /*
+         * `pluck()`, not `get()`.
+         *
+         * `get()` returns a `Result`, not rows — and casting one to an array yields the
+         * object's own properties, so the first version of this answered with the driver
+         * name in the middle of the list. `pluck()` fetches the rows and takes the column.
+         */
+        return array_values(array_filter(
+            $query->pluck('type'),
+            static fn($type): bool => is_string($type) && $type !== ''
+        ));
+    }
+
+    /**
+     * One counting query for {@see throughput()}.
+     *
+     * @param  string|string[]|null $taskTypes
+     * @param  string|null          $column Timestamp column to bound, or none
+     * @param  string[]|null        $statuses
+     */
+    private function countWhere(
+        string|array|null $taskTypes,
+        ?string $column,
+        ?string $since,
+        ?array $statuses = null
+    ): int {
+        $query = $this->controller->application->database->queryBuilder()
+            ->table($this->getQueueTableName());
+
+        if ($column !== null && $since !== null) {
+            $query->where($column, '>=', $since);
+        }
+
+        if ($statuses !== null) {
+            $query->whereIn('status', $statuses);
+        }
+
+        if ($taskTypes !== null) {
+            $query->whereIn('type', is_array($taskTypes) ? $taskTypes : array($taskTypes));
+        }
+
+        return $query->count();
+    }
+
+    /**
      * Delete old terminal-state tasks to keep the table lean.
      *
      * @param  int      $hours    Tasks completed more than this many hours ago are eligible

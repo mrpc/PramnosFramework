@@ -286,6 +286,9 @@ class TestableCleanupQueue extends CleanupQueue
     /** Arguments passed to each purgeOldTasks() call: [[statuses, hours], ...] */
     public array $purgeCallArgs = [];
 
+    /** The grace value each reclaimAbandonedTasks() call received. */
+    public array $reclaimCallArgs = [];
+
     /** @param array<int, int> $purgeReturns  Values returned by successive purgeOldTasks() calls. */
     public function __construct(private readonly array $purgeReturns = [0, 0])
     {
@@ -322,6 +325,22 @@ class TestableCleanupQueue extends CleanupQueue
                 return ['total' => 10, 'completed' => 8, 'failed' => 2];
             }
 
+            /**
+             * The reclaim `queue:cleanup` now runs before it purges.
+             *
+             * Stubbed rather than allowed through: the real one talks to a database, and
+             * what this class tests is the purge. What it *does* assert about the reclaim
+             * is that it happened, and that `--no-reclaim` stops it.
+             */
+            public function reclaimAbandonedTasks(
+                int $graceSeconds = 0,
+                string|array|null $taskTypes = null
+            ): array {
+                $this->cmd->reclaimCallArgs[] = $graceSeconds;
+
+                return ['requeued' => 4, 'failed' => 1];
+            }
+
             public function purgeOldTasks(int $hours = 24, array $statuses = ['completed', 'failed'], int $limit = 0): int
             {
                 $this->cmd->purgeCallCount++;
@@ -331,6 +350,69 @@ class TestableCleanupQueue extends CleanupQueue
                 return $result;
             }
         };
+    }
+
+    /**
+     * The cleanup reclaims abandoned tasks before purging, and reports both.
+     *
+     * Wired in here because this is the command already on a schedule. A task abandoned by
+     * a worker that died sits in `processing` for ever once its attempts run out — never
+     * claimed, never failed, and invisible to the purge, which reads only terminal states.
+     * So the command whose job is keeping this table honest was walking past the rows that
+     * made it dishonest.
+     *
+     * Doing it here means an installation that already schedules a cleanup gets the fix
+     * without editing its crontab, which is where a fix like this is otherwise lost.
+     */
+    public function testItReclaimsAbandonedTasksBeforePurging(): void
+    {
+        // Arrange
+        $command = new TestableCleanupQueue([3, 0]);
+        $command->setApplication(new TestCQConsoleApplication());
+
+        $output = new BufferedOutput();
+        $input  = new ArrayInput([], $command->getDefinition());
+
+        // Act
+        $command->runExecute($input, $output);
+        $text = $output->fetch();
+
+        // Assert
+        $this->assertSame([0], $command->reclaimCallArgs, 'the reclaim did not run');
+        $this->assertStringContainsString('Reclaimed 4', $text);
+        $this->assertStringContainsString('1 as failed', $text);
+    }
+
+    /**
+     * `--no-reclaim` skips it, and `--reclaim-grace` reaches the manager.
+     *
+     * An installation that schedules `queue:reclaim` separately, with its own timing, opts
+     * out here rather than doing it twice.
+     */
+    public function testTheReclaimCanBeSkippedOrGiven(): void
+    {
+        // Arrange
+        $skipped = new TestableCleanupQueue([0, 0]);
+        $skipped->setApplication(new TestCQConsoleApplication());
+
+        // Act
+        $skipped->runExecute(
+            new ArrayInput(['--no-reclaim' => true], $skipped->getDefinition()),
+            new BufferedOutput()
+        );
+
+        // Assert
+        $this->assertSame([], $skipped->reclaimCallArgs, '--no-reclaim reclaimed anyway');
+
+        // and the grace is passed through
+        $graced = new TestableCleanupQueue([0, 0]);
+        $graced->setApplication(new TestCQConsoleApplication());
+        $graced->runExecute(
+            new ArrayInput(['--reclaim-grace' => '120'], $graced->getDefinition()),
+            new BufferedOutput()
+        );
+
+        $this->assertSame([120], $graced->reclaimCallArgs);
     }
 }
 

@@ -53,6 +53,20 @@ class CleanupQueue extends Command
                 InputOption::VALUE_OPTIONAL,
                 'Maximum rows to delete per run (0 = unlimited)',
                 0
+            )
+            ->addOption(
+                'reclaim',
+                null,
+                InputOption::VALUE_NEGATABLE,
+                'Also reclaim tasks abandoned by a dead worker (use --no-reclaim to skip)',
+                true
+            )
+            ->addOption(
+                'reclaim-grace',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Extra seconds past the lock expiry before an abandoned task is eligible',
+                0
             );
     }
 
@@ -83,6 +97,32 @@ class CleanupQueue extends Command
 
         $before = $queueManager->getStats();
         $output->writeln('Before: ' . json_encode($before));
+
+        /*
+         * Reclaim before purging, and here because this is the command already on a
+         * schedule.
+         *
+         * A task abandoned by a worker that died sits in `processing` for ever once its
+         * attempts run out — never claimed again, never failed, and invisible to the purge
+         * below, which reads only terminal states. So the command whose job is keeping this
+         * table honest was walking past the rows that made it dishonest.
+         *
+         * Doing it here rather than only in `queue:reclaim` means an installation that
+         * already schedules a cleanup gets the fix without editing its crontab, which is
+         * where a fix like this is otherwise lost. `--no-reclaim` opts out.
+         */
+        if ($input->getOption('reclaim')) {
+            $reclaimed = $queueManager->reclaimAbandonedTasks(
+                (int) $input->getOption('reclaim-grace')
+            );
+
+            if ($reclaimed['requeued'] > 0 || $reclaimed['failed'] > 0) {
+                $output->writeln(
+                    '<info>Reclaimed ' . $reclaimed['requeued'] . ' abandoned task(s); '
+                    . 'recorded ' . $reclaimed['failed'] . ' as failed (no attempts left)</info>'
+                );
+            }
+        }
 
         $deleted = $queueManager->purgeOldTasks($hours, $statuses, $limit);
         $output->writeln('<info>Deleted ' . $deleted . ' task(s)</info>');
