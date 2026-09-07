@@ -31,11 +31,20 @@ Before modifying any of `Auth`, `User`, `Logs`, `Adjacencylist`, `Migration`, en
 **Never** run `vendor/bin/phpunit` directly. Always use:
 
 ```bash
-./dockertest                         # full suite
-./dockertest --filter TestName       # single test / class
-./dockertest --coverage              # with HTML coverage report
-./dockertest --testdox               # human-readable output
+./dockertest --nocoverage                     # full suite — the default way to run it
+./dockertest --nocoverage --filter TestName   # single test / class
+./dockertest --coverage                       # only when the coverage number is the point
+./dockertest --testdox                        # human-readable output
 ```
+
+**`--nocoverage` is the default choice.** Add `--coverage` only when you actually need the
+number — verifying rule 11 on new code, or investigating a coverage gap.
+
+**Why:** the image sets `xdebug.mode=coverage`, so a plain `./dockertest` instruments every
+line of `src/` whether or not anybody opens the report. Measured on the same commit, same
+15,693 tests: **9:50 by default, 2:56 with `--nocoverage`** — the instrumentation is 3.3×,
+about 70% of the run, against 149.5 s of actual test time. A red test does not need a clover
+file, and a ten-minute loop paces every change.
 
 The script ensures the Docker containers are up, dependencies are installed, and the PHP environment inside the container is used (PHP 8.5 + correct extensions). Running phpunit outside Docker may use a different PHP version, miss extensions, or skip database integration tests entirely.
 
@@ -109,7 +118,8 @@ A feature is not considered **done** until it has integration tests that run aga
 ### 11. Code coverage — >95% on all new/changed code
 
 Every new or modified unit of production code must reach **>95% line coverage**. No feature or
-phase is considered **done** below this threshold. Verify with `./dockertest --coverage`.
+phase is considered **done** below this threshold. Verify with `./dockertest --coverage` — this
+is the one case that warrants the flag; see rule 4 for why every other run should not use it.
 
 Coverage must be **meaningful**: it has to exercise error and edge paths (invalid input, adapter/
 dependency failures, replay/conflict cases, condition mismatches), not only the happy path.
