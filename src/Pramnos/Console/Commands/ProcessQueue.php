@@ -231,8 +231,12 @@ class ProcessQueue extends CommandBase
 
         $output->writeln('');
         // Cooperative graceful stop: SIGTERM (systemctl stop / deploy) and SIGINT
-        // raise a flag that the loops below check via shouldStop(); the current
-        // batch finishes before the process exits.
+        // raise a flag that the loops below check via shouldStop() — the daemon loop on
+        // each pass, and processBatch() between tasks, so the task in hand finishes and
+        // nothing new is claimed. Checked inside the batch as well as around it: with a
+        // batch of twenty, "the batch finishes" is up to twenty more tasks claimed after
+        // the signal, and long enough for systemd to lose patience and SIGKILL the worker
+        // mid-task.
         $this->installStopSignals();
 
         $taskCount = 0;
@@ -443,6 +447,25 @@ class ProcessQueue extends CommandBase
         $max       = $limit > 0 ? $limit : 1;
 
         for ($i = 0; $i < $max; $i++) {
+            /*
+             * Between tasks, not only between batches.
+             *
+             * The daemon loop checks `shouldStop()` on each pass, which was described as
+             * "the current batch finishes before the process exits" — and with the default
+             * `--batch=20` that is up to twenty more tasks claimed *after* being asked to
+             * stop. systemd's `TimeoutStopSec` is 90 seconds by default, so a batch that
+             * outlasts it is `SIGKILL`ed mid-task, and the row it was holding is left
+             * `processing` behind a lock nobody holds — the leak `queue:reclaim` exists to
+             * clean up, caused here.
+             *
+             * Checked before claiming rather than after finishing, so the task in hand
+             * always completes and nothing new is taken. Which is what a graceful stop
+             * means, and what the comment above already claimed.
+             */
+            if ($this->shouldStop()) {
+                break;
+            }
+
             $output->write("Processing task... \r");
             $taskInfo = $worker->processNextTask($taskTypes, $startFromTimestamp, $reverseOrder);
             if (!$taskInfo) {

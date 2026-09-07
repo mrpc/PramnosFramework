@@ -257,12 +257,49 @@ $numbers = $queueManager->throughput(300, 'imports');
 //  'pending' => 175_000, 'processing' => 1, 'losing' => true]
 ```
 
+### One claim, one worker
+
+`getNextTask()` claims a row with a **guarded `UPDATE`**: the state the row was read in
+becomes the `WHERE` clause, and the database decides who got it. Zero rows affected means
+somebody else was first, which is not an error — the worker moves to the next candidate and
+looks at a few per pass, so losing a race is not mistaken for an empty queue.
+
+For a stalled row the lock we read is part of the condition, not just the status: status is
+`processing` either way, and only the lock says whose the row is. It is compared **by value**
+against the snapshot rather than re-tested against `NOW()`, because the question is *is this
+still the claim I read?*, not *is some claim expired?*
+
+`attempts` is incremented in the database (`attempts + 1`), never read-and-written in PHP —
+two workers both writing `read + 1` lose one of the increments, and `markTaskAsFailed()`
+compares `attempts` against `maxattempts` to choose between a retry and a permanent failure.
+
+Not `SELECT … FOR UPDATE SKIP LOCKED`, which both backends support: that needs a transaction
+held across the claim, and this method is called from inside whatever transaction the caller
+already has. A conditional update needs nothing and cannot deadlock.
+
+### Stopping a worker
+
+`queue:process --daemon` stops **cooperatively**. `SIGTERM` (a `systemctl stop`, a deploy)
+and `SIGINT` raise a flag; nothing is torn down inside the handler. A supervisor can also
+drop a `.stop` sentinel beside the lock file.
+
+The flag is checked in two places, and the second is the one that matters under systemd:
+the daemon loop on each pass, **and between tasks inside a batch**. With the default
+`--batch=20`, checking only at the batch boundary means up to twenty more tasks claimed
+after the signal — long enough for `TimeoutStopSec` (90 seconds by default) to expire and
+`SIGKILL` the worker mid-task, leaving the row it held `processing` behind a lock nobody
+holds. Which is the leak `queue:reclaim` exists to clean up, produced by the code whose job
+is to stop cleanly.
+
+The check is before each claim rather than after each task, so **the task in hand always
+finishes and nothing new is taken**.
+
 ### How many workers, and elasticity
 
 **The framework ships the worker, not the pool.** `queue:process --daemon` is a complete
-worker — signals, lock file, graceful stop on `SIGTERM` and `SIGINT` with the task in hand
-finished first — and deciding how many of them run, noticing when one dies and restarting
-it belongs to a supervisor: systemd, supervisord, or an application's own orchestrator.
+worker — signals, lock file, cooperative stop as above — and deciding how many of them run,
+noticing when one dies and restarting it belongs to a supervisor: systemd, supervisord, or
+an application's own orchestrator.
 
 If you build an autoscaler on top, three constraints are worth having from somebody who
 did:

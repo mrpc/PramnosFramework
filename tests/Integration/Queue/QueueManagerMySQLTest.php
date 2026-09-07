@@ -297,6 +297,219 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     // =========================================================================
+    // Claiming, under contention
+    // =========================================================================
+
+    /**
+     * A claim is refused when the row moved between the read and the write.
+     *
+     * The race the old code had, reproduced deterministically rather than with threads: read
+     * a candidate, let "another worker" change it, then try to claim with the snapshot we
+     * hold. `SELECT` then `$task->save()` wrote every column back regardless, so both
+     * workers ran the task, the second one's `lockedby` won, and the row recorded a single
+     * `attempts` increment for two executions — nothing in the data said it had happened.
+     */
+    public function testAClaimIsRefusedWhenTheRowMovedUnderIt(): void
+    {
+        // Arrange — a candidate as a worker would have read it
+        $this->manager->addTask('contended', array('n' => 1));
+        $candidates = $this->readPending('contended');
+        $this->assertCount(1, $candidates, 'the fixture produced no candidate');
+
+        // Act — somebody else claims it first, then we try with our snapshot
+        $this->db->query(
+            "UPDATE queueitems SET status = 'processing', lockedby = 'other-worker',"
+            . " lockexpires = '" . date('Y-m-d H:i:s', time() + 300) . "'"
+            . " WHERE type = 'contended'"
+        );
+
+        $won = $this->exposedClaim($candidates[0]);
+
+        // Assert
+        $this->assertFalse($won, 'the claim overwrote another worker');
+        $this->assertSame('other-worker', (string) $this->rowByType('contended')['lockedby']);
+    }
+
+    /**
+     * Losing a race is not an empty queue.
+     *
+     * With one candidate per pass, a worker that loses a race answers "nothing to do" and
+     * sleeps while work is waiting — which on a busy queue is most of its polls. It looks at
+     * the next few instead.
+     *
+     * Driven by refusing the first candidate through the `claimRow()` seam, because the real
+     * cause is another process and a test has only one.
+     */
+    public function testLosingARaceMovesToTheNextCandidate(): void
+    {
+        // Arrange — two waiting tasks, and a worker that loses the first race
+        $first  = $this->manager->addTask('contended', array('n' => 1));
+        $second = $this->manager->addTask('contended', array('n' => 2));
+
+        $manager = new class ($this->controller, (int) $first) extends QueueManager {
+            public function __construct($controller, private readonly int $loseThis)
+            {
+                parent::__construct($controller, 'unlucky-worker');
+            }
+
+            protected function claimRow(QueueItem $candidate, string $now, string $lockExpiry): bool
+            {
+                if ((int) $candidate->taskid === $this->loseThis) {
+                    return false;
+                }
+
+                return parent::claimRow($candidate, $now, $lockExpiry);
+            }
+        };
+
+        // Act
+        $task = $manager->getNextTask('contended');
+
+        // Assert
+        $this->assertNotFalse($task, 'a lost race was reported as an empty queue');
+        $this->assertSame((int) $second, (int) $task->taskid);
+    }
+
+    /**
+     * A stalled row is not taken from a worker that re-claimed it in the meantime.
+     *
+     * The subtler half of the guard. Status is `processing` either way, so only the lock says
+     * whose the row is — and it is compared **by value** against the snapshot rather than
+     * re-tested against `NOW()`, because the question is "is this still the claim I read?",
+     * not "is some claim expired?".
+     */
+    public function testAStalledRowIsNotTakenFromItsNewOwner(): void
+    {
+        // Arrange — an abandoned row, read as a worker would read it
+        $this->abandonedRow('contended', 1, 3, 60);
+        $stale = $this->readStalled('contended');
+        $this->assertCount(1, $stale, 'the fixture produced no stalled candidate');
+
+        // Act — a live worker takes it, then we try with the expired snapshot
+        $this->db->query(
+            "UPDATE queueitems SET lockedby = 'fresh-worker', lockexpires = '"
+            . date('Y-m-d H:i:s', time() + 300) . "' WHERE type = 'contended'"
+        );
+
+        $won = $this->exposedClaim($stale[0]);
+
+        // Assert
+        $this->assertFalse($won);
+        $this->assertSame('fresh-worker', (string) $this->rowByType('contended')['lockedby']);
+    }
+
+    /**
+     * `attempts` is incremented by the database, once, and the caller sees the new value.
+     *
+     * Two workers reading `attempts` and both writing `read + 1` lose one of the increments —
+     * the same race one level down. And the value has to come back from the database, because
+     * `markTaskAsFailed()` compares `attempts` against `maxattempts` to choose between a retry
+     * and a permanent failure: off by one there is a task that retries for ever, or one that
+     * never retries at all.
+     */
+    public function testAttemptsIsIncrementedByTheDatabaseAndReturned(): void
+    {
+        // Arrange
+        $this->manager->addTask('contended', array('n' => 1));
+
+        // Act
+        $task = $this->manager->getNextTask('contended');
+
+        // Assert
+        $this->assertNotFalse($task);
+        $this->assertSame(1, (int) $task->attempts, 'the claimed task carries a stale attempts');
+        $this->assertSame(1, (int) $this->rowByType('contended')['attempts']);
+        $this->assertSame('processing', (string) $task->status);
+    }
+
+    /**
+     * Two workers polling one task: exactly one gets it.
+     *
+     * The outcome, asserted at the level somebody cares about. Sequential — the interleaving
+     * is covered above — but it pins the thing the whole change is for.
+     */
+    public function testOnlyOneWorkerGetsAGivenTask(): void
+    {
+        // Arrange
+        $this->manager->addTask('contended', array('n' => 1));
+
+        $a = new QueueManager($this->controller, 'worker-a');
+        $b = new QueueManager($this->controller, 'worker-b');
+
+        // Act
+        $first  = $a->getNextTask('contended');
+        $second = $b->getNextTask('contended');
+
+        // Assert
+        $this->assertNotFalse($first);
+        $this->assertFalse($second, 'two workers were handed the same task');
+        // `hostname:workerid`, which is what the column documents — so the id is the tail
+        $this->assertStringEndsWith(
+            ':worker-a',
+            (string) $this->rowByType('contended')['lockedby'],
+            'the loser wrote its own id over the winner\'s'
+        );
+    }
+
+    /**
+     * Pending candidates, as a worker reads them.
+     *
+     * @return array<int, QueueItem>
+     */
+    private function readPending(string $type): array
+    {
+        return array_values((array) (new QueueItem($this->controller))->getList(
+            "WHERE status = 'pending' AND type = '" . $type . "'",
+            'ORDER BY priority ASC, createdat ASC LIMIT 5'
+        ));
+    }
+
+    /**
+     * Stalled candidates, as a worker reads them.
+     *
+     * @return array<int, QueueItem>
+     */
+    private function readStalled(string $type): array
+    {
+        return array_values((array) (new QueueItem($this->controller))->getList(
+            "WHERE status = 'processing' AND type = '" . $type . "'",
+            'ORDER BY priority ASC, createdat ASC LIMIT 5'
+        ));
+    }
+
+    /** `claimRow()` reachable from a test, with the manager's own worker id. */
+    private function exposedClaim(QueueItem $candidate): bool
+    {
+        $manager = new class ($this->controller) extends QueueManager {
+            public function __construct($controller)
+            {
+                parent::__construct($controller, 'test-worker');
+            }
+
+            public function exposeClaim(QueueItem $candidate): bool
+            {
+                return $this->claimRow(
+                    $candidate,
+                    date('Y-m-d H:i:s'),
+                    date('Y-m-d H:i:s', time() + 300)
+                );
+            }
+        };
+
+        return $manager->exposeClaim($candidate);
+    }
+
+    /** @return array<string, mixed> */
+    private function rowByType(string $type): array
+    {
+        $result = $this->db->query(
+            $this->db->prepareQuery('SELECT * FROM queueitems WHERE type = %s LIMIT 1', $type)
+        );
+
+        return (array) $result->fields;
+    }
+
+    // =========================================================================
     // reclaimAbandonedTasks
     // =========================================================================
 

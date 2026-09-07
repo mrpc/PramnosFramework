@@ -36,6 +36,17 @@ class QueueManager
     protected $controller;
 
     /**
+     * How many rows to look at before giving up on this pass.
+     *
+     * One was enough while claiming was a blind write. Now that a claim can be refused,
+     * a single candidate means a worker that loses a race reports "queue empty" and goes
+     * to sleep with work waiting — so it looks at the next few instead. Small, because a
+     * contended queue drains anyway on the next poll and a long list is a long lock-free
+     * scan repeated per worker.
+     */
+    protected const CLAIM_CANDIDATES = 5;
+
+    /**
      * Worker identifier written to the lockedby column so stalled tasks can
      * be attributed to the worker that held them.
      *
@@ -133,12 +144,18 @@ class QueueManager
     }
 
     /**
-     * Claim and return the next available task, atomically marking it as
-     * 'processing' with a lock expiry.
+     * Claim and return the next available task, marking it as 'processing' with a lock
+     * expiry.
      *
      * The method first looks for pending tasks (fast path) and only falls back
      * to scanning for stalled processing tasks (slow path) when nothing is
      * pending. This split avoids OR conditions that defeat composite indexes.
+     *
+     * **The claim is atomic, and for a long time the docblock said so without it being
+     * true.** It read a row and then wrote every column of it back, so two workers could
+     * read the same row and both save over it — both running the task, the second one's
+     * `lockedby` winning, and a single `attempts` increment recorded for two executions.
+     * {@see claimFirstOf()} for what replaced it and why not `FOR UPDATE SKIP LOCKED`.
      *
      * @param  string|string[]|null $taskTypes     Restrict to these type(s)
      * @param  int                  $lockSeconds   Lock duration in seconds
@@ -161,53 +178,155 @@ class QueueManager
             ? ' AND type IN (' . $this->buildTypeList($taskTypes) . ')'
             : '';
 
-        $task = false;
+        $order = $reverse ? 'ORDER BY priority ASC, createdat DESC LIMIT ' . static::CLAIM_CANDIDATES
+                          : 'ORDER BY priority ASC, createdat ASC LIMIT ' . static::CLAIM_CANDIDATES;
 
         // High-priority recent tasks if $startfrom is set
         if ($startfrom > 0) {
             $startDate = date('Y-m-d H:i:s', $startfrom);
-            $rows = $model->getList(
-                "WHERE status = 'pending' AND createdat >= '$startDate' AND priority <= 10" . $typeClause,
-                'ORDER BY priority ASC, createdat ASC LIMIT 1'
+            $claimed   = $this->claimFirstOf(
+                $model->getList(
+                    "WHERE status = 'pending' AND createdat >= '$startDate' AND priority <= 10" . $typeClause,
+                    'ORDER BY priority ASC, createdat ASC LIMIT ' . static::CLAIM_CANDIDATES
+                ),
+                $now,
+                $lockExpiry
             );
-            if (!empty($rows)) {
-                $task = reset($rows);
+
+            if ($claimed !== false) {
+                return $claimed;
             }
         }
 
-        if ($task === false) {
-            $order = $reverse ? 'ORDER BY priority ASC, createdat DESC LIMIT 1'
-                              : 'ORDER BY priority ASC, createdat ASC LIMIT 1';
-            $pending = $model->getList("WHERE status = 'pending'" . $typeClause, $order);
-            if (!empty($pending)) {
-                $task = reset($pending);
-            }
+        $claimed = $this->claimFirstOf(
+            $model->getList("WHERE status = 'pending'" . $typeClause, $order),
+            $now,
+            $lockExpiry
+        );
+
+        if ($claimed !== false) {
+            return $claimed;
         }
 
         // Stalled processing tasks (lock expired, attempts remaining)
-        if ($task === false) {
-            $stalled = $model->getList(
-                "WHERE status = 'processing' AND attempts < maxattempts AND lockexpires < '$now'" . $typeClause,
-                'ORDER BY priority ASC, createdat ASC LIMIT 1'
-            );
-            if (!empty($stalled)) {
-                $task = reset($stalled);
+        return $this->claimFirstOf(
+            $model->getList(
+                "WHERE status = 'processing' AND attempts < maxattempts AND lockexpires < '$now'"
+                . $typeClause,
+                'ORDER BY priority ASC, createdat ASC LIMIT ' . static::CLAIM_CANDIDATES
+            ),
+            $now,
+            $lockExpiry
+        );
+    }
+
+    /**
+     * Claim the first of these candidates that is still in the state we read it in.
+     *
+     * **The claim used to be a blind write, and the docblock said "atomically".** It was
+     * `SELECT`, then `$task->save()` — which writes every column of the loaded model. Two
+     * workers polling the same queue could read the same row and both save over it, so
+     * both ran the task, the second one's `lockedby` won, and the row carried a single
+     * `attempts` increment for two executions. Nothing in the data said it had happened.
+     *
+     * The window is the gap between the read and the write, which is small and is entered
+     * by every worker on every poll — so it closes on load rather than on luck, and the
+     * more workers a queue has, the more often.
+     *
+     * A guarded `UPDATE` is the whole fix: the state the row was read in becomes the `WHERE`
+     * clause, and the database decides. Zero rows affected means somebody else got there
+     * first, which is not an error — it is the next candidate's turn.
+     *
+     * Chosen over `SELECT … FOR UPDATE SKIP LOCKED`, which both backends support: that
+     * needs a transaction held across the claim, and this method is called from inside
+     * whatever transaction the caller already has. A conditional update needs nothing and
+     * cannot deadlock.
+     *
+     * @param  array<int, QueueItem> $candidates Rows as they were read
+     * @return QueueItem|false
+     */
+    protected function claimFirstOf(array $candidates, string $now, string $lockExpiry): QueueItem|false
+    {
+        foreach ($candidates as $candidate) {
+            $taskId = (int) $candidate->taskid;
+
+            if ($taskId <= 0) {
+                continue;
+            }
+
+            if (!$this->claimRow($candidate, $now, $lockExpiry)) {
+                // Somebody else claimed it between the read and here. Ordinary, under load.
+                continue;
+            }
+
+            /*
+             * Reloaded rather than adjusted in memory.
+             *
+             * `attempts` is incremented by the database (`attempts + 1`), so the value the
+             * caller gets has to come back from there — and `markTaskAsFailed()` compares
+             * `attempts` against `maxattempts` to decide between a retry and a permanent
+             * failure. An off-by-one there is a task that retries for ever or one that
+             * never retries at all.
+             */
+            $claimed = $this->createQueueItemModel();
+            $claimed->load($taskId);
+
+            if ((int) $claimed->taskid === $taskId) {
+                return $claimed;
             }
         }
 
-        if ($task === false) {
-            return false;
+        return false;
+    }
+
+    /**
+     * One guarded claim. True when this worker got the row.
+     */
+    protected function claimRow(QueueItem $candidate, string $now, string $lockExpiry): bool
+    {
+        $database = $this->controller->application->database;
+
+        $query = $database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->where('taskid', (int) $candidate->taskid)
+            ->where('status', (string) $candidate->status);
+
+        /*
+         * For a stalled row, the lock we saw is part of the condition.
+         *
+         * Without it a worker could take a row from a *live* worker that claimed it in the
+         * meantime: the status is `processing` either way, and only the lock says whose it
+         * is and whether it has expired. Compared by value rather than re-tested against
+         * `NOW()`, because the question is "is this still the claim I read?", not "is some
+         * claim expired?".
+         */
+        if ((string) $candidate->status === 'processing') {
+            if ($candidate->lockedby === null || (string) $candidate->lockedby === '') {
+                $query->whereNull('lockedby');
+            } else {
+                $query->where('lockedby', (string) $candidate->lockedby);
+            }
+
+            if ($candidate->lockexpires === null) {
+                $query->whereNull('lockexpires');
+            } else {
+                $query->where('lockexpires', (string) $candidate->lockexpires);
+            }
         }
 
-        // Atomically claim the task
-        $task->status      = 'processing';
-        $task->attempts    = (int)$task->attempts + 1;
-        $task->startedat   = $now;
-        $task->lockedby    = $this->workerId;
-        $task->lockexpires = $lockExpiry;
-        $task->save();
+        $result = $query->update(array(
+            'status' => 'processing',
+            // In the database, not in PHP: two workers reading `attempts` and both writing
+            // `read + 1` lose one of the increments, which is the same race one level down.
+            'attempts'    => $database->queryBuilder()->raw('attempts + 1'),
+            'startedat'   => $now,
+            'updatedat'   => $now,
+            'lockedby'    => $this->workerId,
+            'lockexpires' => $lockExpiry,
+        ));
 
-        return $task;
+        return is_object($result) && method_exists($result, 'getAffectedRows')
+            && (int) $result->getAffectedRows() === 1;
     }
 
     // ── Status transitions ────────────────────────────────────────────────────
