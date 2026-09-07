@@ -224,4 +224,154 @@ class LanguageTranslateTest extends TestCase
         // Act / Assert
         $this->assertSame('', $this->lang->_());
     }
+
+    // ── A key that is not a string ──────────────────────────────────────────
+
+    /**
+     * `_(null)` is an empty translation, not a white page.
+     *
+     * The signature is `_($string = '')` — no type and a default, which says *anything is
+     * accepted and nothing is fine*. The body then used the value as an array offset and
+     * handed it to `onMissingString(string $string)`, so `null` was a deprecation followed by
+     * a `TypeError`:
+     *
+     * ```
+     * Deprecated:  Using null as an array offset
+     * Fatal error: onMissingString(): Argument #1 ($string) must be of type string, null given
+     * ```
+     *
+     * Reported from an application whose signed-in search page answered `500` because of it:
+     * fifteen templates unserialise a model property, wrap a non-array in `array($value)`,
+     * and translate each item — and the property is `null` whenever the user left the field
+     * empty, because the values live in a separate key/value table and *blank* means *no
+     * row*. On the legacy class the same call came back empty and the page rendered.
+     */
+    public function testANullKeyTranslatesToAnEmptyString(): void
+    {
+        // Act
+        $translated = $this->lang->_(null);
+
+        // Assert
+        $this->assertSame('', $translated);
+    }
+
+    /**
+     * And with arguments it is still empty rather than a formatting error.
+     *
+     * `vsprintf('', ['x'])` raises `ValueError` on PHP 8 for too many arguments, so the empty
+     * key had to reach the same catch every other mismatch does — which the filing's own
+     * regression test pins on their side too.
+     */
+    public function testANullKeyWithArgumentsIsStillEmpty(): void
+    {
+        // Act
+        $translated = $this->lang->_(null, 'ignored');
+
+        // Assert
+        $this->assertSame('', $translated);
+    }
+
+    /**
+     * `false` and `''` are the same absence as `null`.
+     *
+     * Which is how a template spells it: `$x ?: false`, an `unserialize()` that failed, a
+     * model property that was never set. Absence is absence however it was written, and none
+     * of the three is a call site worth a log line.
+     */
+    public function testTheOtherSpellingsOfAbsenceAreEmptyToo(): void
+    {
+        // Assert
+        $this->assertSame('', $this->lang->_(false));
+        $this->assertSame('', $this->lang->_(''));
+    }
+
+    /**
+     * A number is a usable key and becomes its own string.
+     *
+     * The control for the coercion: a catalogue may legitimately be keyed by number, and
+     * treating every non-string as absence would silently stop translating those. `0` is the
+     * one to watch — it is falsy, and a falsiness test would have made it disappear.
+     *
+     * This is also the test that found `addlang()` losing numeric keys. PHP stores `'7'` in an
+     * array literal as the integer `7`, and `array_merge()` **renumbers** integer keys rather
+     * than preserving them — so the entry was filed under whatever index came next and could
+     * never be looked up. Invisible until `_()` started asking for `'7'` correctly.
+     */
+    public function testANumericKeyIsUsedAsItsOwnString(): void
+    {
+        // Arrange
+        $this->lang->addlang(['7' => 'επτά', '0' => 'μηδέν']);
+
+        // Assert
+        $this->assertSame('επτά', $this->lang->_(7));
+        $this->assertSame('μηδέν', $this->lang->_(0), 'a zero key was read as absence');
+        $this->assertSame('12', $this->lang->_(12), 'an untranslated number lost its own value');
+    }
+
+    /**
+     * A stringable object is asked for its string.
+     *
+     * Cheap and it is what a caller means. A key arriving as a value object is a shape worth
+     * accepting rather than logging.
+     */
+    public function testAStringableKeyIsAsked(): void
+    {
+        // Arrange
+        $key = new class {
+            public function __toString(): string
+            {
+                return 'plain';
+            }
+        };
+
+        // Assert
+        $this->assertSame('Καλημέρα', $this->lang->_($key));
+    }
+
+    /**
+     * What cannot be a key at all: empty answer, and a log line rather than a fatal.
+     *
+     * A call site passing the wrong thing, which is worth *seeing* — so it is recorded — and
+     * not worth *serving*, so it does not take the page down. `true` is here rather than with
+     * the absences above: it returns the same empty string, and unlike `false` it is nobody's
+     * way of spelling "no value", so it is the one boolean worth a log line.
+     */
+    public function testWhatCannotBeAKeyIsRefusedWithoutRaising(): void
+    {
+        // Assert
+        $this->assertSame('', $this->lang->_(['plain']));
+        $this->assertSame('', $this->lang->_(true));
+        $this->assertSame('', $this->lang->_(new \stdClass()));
+    }
+
+    /**
+     * `onMissingString()` is only ever handed a string, whatever `_()` was given.
+     *
+     * The invariant the fix exists to restore, asserted at the seam rather than through the
+     * symptom: the hook is typed, an application may override it, and it must not have to
+     * defend itself against a `null` the framework let through.
+     */
+    public function testTheMissingStringHookOnlyEverSeesAString(): void
+    {
+        // Arrange
+        $lang = new class ('english', __DIR__) extends Language {
+            /** @var list<mixed> */
+            public array $seen = [];
+
+            protected function onMissingString(string $string): string
+            {
+                $this->seen[] = $string;
+
+                return $string;
+            }
+        };
+
+        // Act
+        foreach ([null, false, true, ['x'], 12] as $key) {
+            $lang->_($key);
+        }
+
+        // Assert
+        $this->assertSame(['', '', '', '', '12'], $lang->seen);
+    }
 }

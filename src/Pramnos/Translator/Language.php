@@ -99,7 +99,24 @@ class Language extends Base
      */
     public function addlang($strings)
     {
-        $this->_strings = array_merge($this->_strings, $strings);
+        /*
+         * `+` rather than `array_merge()`, because of what merge does to a numeric key.
+         *
+         * `array_merge()` **renumbers** integer keys instead of preserving them, so a
+         * catalogue entry keyed `'7'` — which PHP stores as the integer `7` in an array
+         * literal or a `return array(...)` language file — arrived under whatever index came
+         * next. It was not a missing translation; it was a translation filed under a key
+         * nobody would ever look up.
+         *
+         * Found while making `_()` accept a non-string key: `_(7)` now correctly asks for
+         * `'7'`, which made the entry's absence visible for the first time.
+         *
+         * The operators differ in which side wins a collision, and `+` keeps the **left**
+         * one — so the new strings go on the left. For string keys that is exactly what
+         * `array_merge($this->_strings, $strings)` did: the caller's strings override what is
+         * already loaded, which is what "add a language" means.
+         */
+        $this->_strings = ((array) $strings) + $this->_strings;
     }
 
     /**
@@ -214,13 +231,20 @@ class Language extends Base
      * able to take a page down; the unformatted translation is returned and the
      * mismatch is logged.
      *
-     * @param string $string Key to translate.
+     * **A key that is not a string does not raise.** The signature accepts anything and the
+     * body used it as an array offset and passed it to a typed method, so `_(null)` was a
+     * fatal — see {@see translationKey()} for what an application paid for that. An empty key
+     * gets an empty answer.
+     *
+     * @param mixed  $string Key to translate. Anything empty translates to `''`.
      * @param mixed  $args   First format argument; further arguments are read
      *                       with func_get_args().
      * @return string
      */
     public function _($string = '', $args = '')
     {
+        $string = $this->translationKey($string);
+
         if (!isset($this->_strings[$string])) {
             // A miss is formatted like a hit. The key *is* a translation — the framework's
             // own keys are the English wording — so `_('Tokens: %s', $username)` with no
@@ -257,6 +281,80 @@ class Language extends Base
 
             return $translation;
         }
+    }
+
+    /**
+     * Whatever was passed as a key, as a key.
+     *
+     * `_()` is declared `_($string = '')` — no type, and a default — which says *anything is
+     * accepted and nothing is fine*. It then used the value as an array offset and handed it
+     * to `onMissingString(string $string)`, which is typed. So `_(null)` was:
+     *
+     * ```
+     * Deprecated:  Using null as an array offset
+     * Fatal error: onMissingString(): Argument #1 ($string) must be of type string, null given
+     * ```
+     *
+     * A white page, for a key. The declaration and the behaviour said different things, and
+     * the cost of the difference was the whole response rather than one wrong word.
+     *
+     * **Not theoretical.** An application reported `500` on a signed-in page from fifteen
+     * templates of this shape:
+     *
+     * ```php
+     * $x = @unserialize($this->model->something);
+     * if (!is_array($x)) { $x = array(); $x[] = $this->model->something; }
+     * foreach ($x as $item) { $lang->_($item); }
+     * ```
+     *
+     * The property is `null` whenever the user left the field empty — the values live in a
+     * separate key/value table, so *blank* means *no row*. On the framework it takes the page
+     * down; on the legacy class it came back empty and the page rendered.
+     *
+     * So: an empty key gets an empty answer, and that is the whole rule. `null`, `false` and
+     * `''` are the same absence spelled three ways — which is how a template spells it, so
+     * they are silent. A number is a usable key and becomes its own string, because a
+     * catalogue may legitimately have one. Everything else — an array, `true`, a
+     * non-stringable object — cannot be a key at all: still `''`, because a page must not go
+     * down for it, and logged, because that call site has a real bug.
+     *
+     * @param  mixed $string
+     */
+    protected function translationKey($string): string
+    {
+        if (is_string($string)) {
+            return $string;
+        }
+
+        if ($string === null || $string === false) {
+            /*
+             * `false` with `null`, and **not** `true`.
+             *
+             * `false` is how a template spells absence — `$x ?: false`, an `unserialize()`
+             * that failed, a model property that was never set — so it is the same silent
+             * empty answer. `true` is nobody's idea of a translation key, so it falls through
+             * to the branch below and is logged: both return `''`, and only one of them is a
+             * call site worth looking at.
+             */
+            return '';
+        }
+
+        if (is_int($string) || is_float($string)) {
+            return (string) $string;
+        }
+
+        if (is_object($string) && method_exists($string, '__toString')) {
+            return (string) $string;
+        }
+
+        \Pramnos\Logs\Logger::log(
+            'A translation key of type ' . get_debug_type($string) . ' was passed to _() and '
+            . 'cannot be one; an empty string was translated instead. This is a call site '
+            . 'passing the wrong thing, not a missing translation.',
+            'language'
+        );
+
+        return '';
     }
 
     /**

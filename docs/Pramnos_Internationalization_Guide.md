@@ -136,6 +136,29 @@ Two things produce it:
 `$lang->currentlang()` tells you which language was resolved, which separates the two in
 one line.
 
+### A key that is not a string
+
+`_()` accepts anything and an **empty key gets an empty answer**. `null`, `false` and `''`
+are the same absence — which is how a template spells it: a property that was never set, an
+`unserialize()` that failed, a `?:` that fell through. They translate to `''` silently.
+
+```php
+$values = @unserialize($this->model->extras);
+if (!is_array($values)) { $values = array($this->model->extras); }
+foreach ($values as $value) { echo $lang->_($value); }   // safe when extras is null
+```
+
+A **number** is a usable key and becomes its own string, so a catalogue may be keyed by one.
+Anything else — an array, `true`, a non-stringable object — cannot be a key: still `''`,
+because a page must not go down for it, and **logged** under `language`, because that call
+site has a real bug.
+
+If you override `onMissingString()`, it is still only ever handed a string.
+
+> Keys in a language file are stored as PHP array keys, so `'7' => '…'` becomes the
+> **integer** `7`. That is fine — `_(7)` and `_('7')` both find it — but it is worth knowing
+> if you build a catalogue programmatically.
+
 ### Text that is not for whoever made the request
 
 An email is the case. The language of a request belongs to the person who made it; the
