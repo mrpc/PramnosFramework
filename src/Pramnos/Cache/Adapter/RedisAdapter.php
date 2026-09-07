@@ -203,6 +203,50 @@ class RedisAdapter extends AbstractAdapter
     }
 
     /**
+     * Slowest tolerable keyspace sweep before it is worth a log line, in seconds.
+     */
+    protected const SWEEP_REPORT_SECONDS = 0.25;
+
+    /**
+     * Say when a keyspace sweep was expensive, because nothing else will.
+     *
+     * **`SCAN … MATCH` filters what is returned, not what is traversed**: every call walks
+     * the whole keyspace, so a sweep costs what the database is large rather than what the
+     * pattern matches. That is fine for the one thing this is still used for — an explicit
+     * `cache:clear` with no category — and it was ruinous when it ran twice per
+     * `Model::save()`.
+     *
+     * The installation that found that spent four hours on four other explanations, all of
+     * which fitted the evidence, because the only visible symptom was wall-clock time in a
+     * handler that was using 1.6% of a core. Their own note is the reason this method
+     * exists: *"a slow-operation log line above some threshold, or a counter, would have
+     * turned four hours into ten minutes."*
+     *
+     * Above the threshold, not on every sweep: a line nobody reads is the same as no line,
+     * and a routine deploy-time clear on a large cache is meant to be slow.
+     */
+    protected function reportSweep(string $pattern, int $trips, int $deleted, float $seconds): void
+    {
+        if ($seconds < static::SWEEP_REPORT_SECONDS) {
+            return;
+        }
+
+        \Pramnos\Logs\Logger::log(
+            sprintf(
+                'Cache sweep of "%s" walked the keyspace in %d round trips and removed %d '
+                . 'key(s) in %.3fs. SCAN filters what it returns, not what it traverses, so '
+                . 'this costs the size of the whole database. If it is happening on a write '
+                . 'path rather than from cache:clear, that is the thing to fix.',
+                $pattern,
+                $trips,
+                $deleted,
+                $seconds
+            ),
+            'cache'
+        );
+    }
+
+    /**
      * Record this key as a member of its category, so the category can later be
      * cleared without asking Redis to look for it.
      *
@@ -256,11 +300,17 @@ class RedisAdapter extends AbstractAdapter
             $this->redis->persist($index);
         }
 
-        // The marker says "this category is indexed, do not go looking". It
-        // outlives the set itself — an empty category must still take the fast
-        // path — and it is what makes the one-time crossover in clear() happen
-        // once rather than on every call.
-        $this->redis->set($this->categoryMarkerKey($this->category), 1);
+        /*
+         * **No marker.** There used to be one per category here — `catindexed:<name>` — set
+         * on every save so that `clear()` could tell "indexed" from "never indexed" and skip
+         * a pattern sweep. It was written for a category with no members too, because
+         * `Model::save()` invalidates a *key* as though it were a category, and it had no
+         * TTL. That is how one installation reached 288,706 redis keys of which 95% never
+         * expired, each one making the sweeps it was meant to avoid slower.
+         *
+         * `clear()` reads this set and nothing else now, so there is nothing left for a
+         * marker to answer.
+         */
     }
 
     /**
@@ -289,6 +339,30 @@ class RedisAdapter extends AbstractAdapter
     protected function categoryMarkerKey($category)
     {
         return $this->prefix . 'catindexed:' . $this->sanitizeCategory($category);
+    }
+
+    /**
+     * Remove the `catindexed:` keys an older build left behind.
+     *
+     * They were written one per category-clear, with no TTL, and one installation reached
+     * 275,000 of them — 95% of its keyspace — because `Model::save()` clears a *key* as
+     * though it were a category and each of those wrote a marker for a category that never
+     * had a member. Nothing reads them now.
+     *
+     * `cache:clear` with no category removes them along with everything else, which is the
+     * ordinary upgrade step. This exists for an installation that wants them gone **without**
+     * throwing away a warm cache — the sweep is one deliberate keyspace walk instead of two
+     * per save.
+     *
+     * @return bool
+     */
+    public function purgeCategoryMarkers(): bool
+    {
+        if (!$this->caching || !$this->connected) {
+            return false;
+        }
+
+        return $this->deleteByPattern($this->prefix . 'catindexed:*');
     }
 
     /**
@@ -627,16 +701,21 @@ class RedisAdapter extends AbstractAdapter
     protected function deleteByPattern(string $pattern): bool
     {
         try {
-            $batch  = [];
-            $cursor = null;
+            $batch   = [];
+            $cursor  = null;
+            $started = microtime(true);
+            $trips   = 0;
+            $deleted = 0;
 
             do {
+                $trips++;
                 $found = $this->redis->scan($cursor, $pattern, self::SCAN_COUNT);
                 if ($found === false) {
                     break;
                 }
                 foreach ($found as $key) {
                     $batch[] = (string) $key;
+                    $deleted++;
                     if (count($batch) >= self::DELETE_BATCH) {
                         $this->redis->del($batch);
                         $batch = [];
@@ -647,6 +726,8 @@ class RedisAdapter extends AbstractAdapter
             if ($batch !== []) {
                 $this->redis->del($batch);
             }
+
+            $this->reportSweep($pattern, $trips, $deleted, microtime(true) - $started);
 
             return true;
         } catch (\Exception $ex) {
@@ -759,30 +840,46 @@ class RedisAdapter extends AbstractAdapter
      * otherwise sit there for ever. Then write the marker, and no category is
      * ever scanned twice.
      *
-     * The marker deliberately outlives the set. Redis removes a set when its
-     * last member goes, so "the set is gone" cannot distinguish *cleared* from
-     * *never indexed* — the marker is the thing that can.
+     * **There is no pattern sweep here any more, and no marker.** Both existed for a
+     * crossover — the keys an older build wrote before the index existed can only be found
+     * by looking — and the arrangement cost more than the thing it was helping.
+     *
+     * `Model::save()` calls `cacheflush($specificKey)`: a *key* where a *category* is
+     * expected. No index or marker ever existed for that name, so every save took the
+     * crossover branch, walked the whole keyspace with `SCAN`, and then wrote **a permanent
+     * marker for a category with no members**. One key per entity ever saved, with no TTL,
+     * for ever.
+     *
+     * Measured on the installation that reported it: **288,706 keys, only 13,792 with a
+     * TTL** — so 95% of that keyspace was markers left by sweeps that found nothing. Each
+     * sweep was about 1,443 round trips at `COUNT 200`, two per save, and the sweeps got
+     * slower as the markers accumulated. The structure that existed to make category
+     * invalidation possible was the structure that made it unaffordable.
+     *
+     * What it looked like: queue workers in `do_poll` in 148 of 150 samples at **1.6% CPU**,
+     * twenty redis clients concurrently in `SCAN`, 0.932 s of wall clock per task — and
+     * throughput *falling* as workers were added, three moving 11 tasks a second where
+     * eighteen moved 8.6. Four other explanations fitted the evidence first, because the
+     * queue's `execution_time` measures wall clock around the handler and every wrong
+     * hypothesis explained a large number.
+     *
+     * So the crossover is gone rather than made cheaper: **an installation upgrading past
+     * this runs `cache:clear` once**, which is a single deliberate sweep by an operator and
+     * is on most deploy scripts already. Entries an older build wrote otherwise leave on
+     * their own TTL, and the markers themselves go with that one clear.
+     *
+     * The index sets are bounded and always were: each save pushes the set's expiry to an
+     * hour past the newest member's, so it outlives its members and dies when writing stops.
+     * The markers were the unbounded half.
      *
      * @param string $category
      * @return bool
      */
     protected function clearCategory($category)
     {
-        $sanitized = $this->sanitizeCategory($category);
-        $marker    = $this->categoryMarkerKey($category);
-        $index     = $this->categoryIndexKey($category);
-
-        if (!$this->redis->exists($marker)) {
-            // First clear of this category on this installation: the keys
-            // written before the index existed are only findable by looking.
-            $swept = $this->deleteByPattern($this->prefix . $sanitized . '_*');
-            $this->redis->del($index);
-            $this->redis->set($marker, 1);
-
-            return $swept;
-        }
-
+        $index   = $this->categoryIndexKey($category);
         $members = $this->redis->sMembers($index);
+
         if (!is_array($members)) {
             $members = array();
         }
@@ -816,15 +913,20 @@ class RedisAdapter extends AbstractAdapter
          * item count of thirteen: not an empty cache, a listing that could not
          * see one.
          *
-         * The real index is right here: {@see categoryMarkerKey()} writes a
-         * `catindexed:<category>` marker for every category the adapter touches,
-         * and {@see clear()} already trusts it. Enumerating the markers is
-         * therefore the same source of truth invalidation uses, rather than a
-         * second one that could disagree.
+         * The real index is right here: {@see indexInCategory()} adds every key it writes to
+         * a `catindex:<category>` set, and {@see clearCategory()} reads that set and nothing
+         * else. Enumerating those sets is therefore the same source of truth invalidation
+         * uses, rather than a second one that could disagree.
+         *
+         * This read the `catindexed:<category>` **markers** until those were removed —
+         * they were written per category-clear, never expired, and one installation reached
+         * 275,000 of them. A category with entries has an index set; that is the thing to
+         * count, and unlike a marker it goes away when the entries do, so the listing stops
+         * reporting categories that no longer hold anything.
          */
         try {
             $base = ($prefix !== '' ? $prefix : $this->prefix);
-            $markerPrefix = $base . 'catindexed:';
+            $markerPrefix = $base . 'catindex:';
             $keys = $this->redis->keys($markerPrefix . '*');
             if (!is_array($keys)) {
                 return [];
@@ -915,19 +1017,27 @@ class RedisAdapter extends AbstractAdapter
         }
         
         try {
-            // Get all keys from Redis
-            $pattern = $this->prefix . '*';
+            /*
+             * One category comes from its index; everything comes from a `KEYS` sweep.
+             *
+             * The pattern this used for a category — `<prefix><category>_*` — never matched
+             * anything. `Cache::_generateCacheName()` builds `<prefix>_<category>_<id>…`, so
+             * the underscore after the prefix was missing and the dashboard reported every
+             * category as empty. Reading the index is both correct and cheap, and it is the
+             * same set `clear()` uses, so a listing and a flush can no longer disagree about
+             * what is in a category.
+             *
+             * `KEYS` for the no-category case is left alone: it is a deliberate "show me
+             * everything" from a screen somebody is looking at, not something on a write
+             * path.
+             */
             if ($category !== '') {
-                // Sanitize the category name to match how keys are stored
-                $sanitizedCategory = preg_replace(
-                    array('/\s+/', '/[^\w\-]/'),
-                    array('_', ''),
-                    $category
-                );
-                $pattern = $this->prefix . $sanitizedCategory . '_*';
+                $keys = $this->redis->sMembers($this->categoryIndexKey($category));
+                $keys = is_array($keys) ? $keys : array();
+            } else {
+                $keys = $this->redis->keys($this->prefix . '*');
+                $keys = is_array($keys) ? $keys : array();
             }
-            
-            $keys = $this->redis->keys($pattern);
             
             // Filter out the tags key
             $tagsKey = $this->prefix . $this->tagsKey;

@@ -199,76 +199,99 @@ class RedisCategoryIndexTest extends TestCase
     // ── Crossing over from an installation with no indexes ──────────────────
 
     /**
-     * The first clear on an existing installation still finds the old keys.
+     * Keys written before the index existed are left for `cache:clear`, deliberately.
      *
-     * The upgrade case, and the one that would fail silently: keys written
-     * before this code existed are in no set, so an index-only clear would
-     * leave them — including entries saved with **no expiry**, which would then
-     * serve stale rows for ever.
+     * **This is a trade and it is worth naming.** An earlier version swept the category's
+     * namespace with `SCAN … MATCH` on the first clear, so a pre-upgrade key went once and
+     * automatically. That sweep cost the size of the **whole keyspace** — `MATCH` filters
+     * what is returned, not what is traversed — and it ran far more often than "once per
+     * category": `Model::save()` clears a per-entity *key* as though it were a category, so
+     * no marker ever existed for that name and the sweep ran on **every save**. One
+     * installation reached 288,706 keys, 95% of them permanent markers written by sweeps
+     * that found nothing, at ~1,443 round trips each, twice per save on delete.
      *
-     * With no marker present, the first clear falls back to the old scan. Every
-     * pre-upgrade key goes, once.
+     * So the automatic crossover is gone and the step is explicit: **`cache:clear` once on
+     * upgrade**, which is one deliberate sweep by an operator and is on most deploy scripts
+     * already. What this test pins is both halves — a category clear leaves them, and a full
+     * clear takes them.
      *
-     * The reversal that reddens this: delete the `exists($marker)` branch in
-     * `clearCategory()`.
+     * The cost of not doing it: an entry saved with **no expiry** would serve a stale value
+     * for ever. Entries with a TTL leave on their own.
      */
-    public function testTheFirstClearSweepsKeysWrittenBeforeTheIndexExisted(): void
+    public function testKeysWrittenBeforeTheIndexExistedAreLeftToCacheClear(): void
     {
-        // Arrange — exactly the state an upgraded installation is in: keys in
-        // the category's namespace, no set, no marker. One of them immortal.
+        // Arrange — exactly the state an upgraded installation is in: keys in the
+        // category's namespace, in no index. One of them immortal.
         $this->redis->set($this->key('mails', 'legacy_a'), 'A');
         $this->redis->setex($this->key('mails', 'legacy_b'), 600, 'B');
 
         $adapter = $this->adapter('mails');
 
-        // Act
+        // Act — a category clear reads the index, which does not know about them
         $this->assertTrue($adapter->clear('mails'));
 
-        // Assert
+        // Assert — still there, and no keyspace was walked to find that out
+        $this->assertSame(1, $this->redis->exists($this->key('mails', 'legacy_a')));
+        $this->assertSame(1, $this->redis->exists($this->key('mails', 'legacy_b')));
+
+        // and the documented upgrade step removes them
+        $this->assertTrue($adapter->clear());
+
         $this->assertSame(0, $this->redis->exists($this->key('mails', 'legacy_a')));
         $this->assertSame(0, $this->redis->exists($this->key('mails', 'legacy_b')));
     }
 
     /**
-     * And it only does that once.
+     * Clearing a category that has never been written writes nothing at all.
      *
-     * The marker is what makes the crossover a one-off. Deciding by "is the set
-     * empty?" instead would scan every time a category with nothing in it was
-     * cleared — which is the common case, and the one a test suite hits
-     * repeatedly.
+     * The defect in one assertion. This used to leave a permanent `catindexed:<name>` key
+     * behind — no TTL, one per name ever cleared — and `Model::save()` supplies a fresh name
+     * per entity. That is how 275,000 keys accumulated, each one making the sweeps they were
+     * meant to prevent slower.
+     *
+     * Every key under the prefix is checked, not just the marker: the point is that an
+     * invalidation of nothing costs nothing and leaves nothing.
      */
-    public function testTheCrossoverScanHappensOnlyOnce(): void
-    {
-        // Arrange
-        $this->redis->set($this->key('mails', 'legacy'), 'A');
-        $adapter = $this->adapter('mails');
-        $adapter->clear('mails');
-
-        // Act — a second stranger appears after the crossover.
-        $stranger = $this->key('mails', 'after_crossover');
-        $this->redis->set($stranger, 'x');
-        $adapter->clear('mails');
-
-        // Assert — untouched, because the second clear did not scan.
-        $this->assertSame(1, $this->redis->exists($stranger));
-    }
-
-    /**
-     * A category that has never been written is marked on its first clear, and
-     * does not scan again.
-     */
-    public function testAnEmptyCategoryIsMarkedOnFirstClear(): void
+    public function testClearingAnUnusedCategoryLeavesNothingBehind(): void
     {
         // Arrange
         $adapter = $this->adapter('never_used');
+        $before  = (array) $this->redis->keys(self::PREFIX . '*');
 
-        // Act
+        // Act — the shape `Model::save()` produces: a per-entity key as a category name
         $this->assertTrue($adapter->clear('never_used'));
+        $this->assertTrue($adapter->clear('4711-users'));
 
         // Assert
         $this->assertSame(
-            1, $this->redis->exists(self::PREFIX . 'catindexed:never_used')
+            $before,
+            (array) $this->redis->keys(self::PREFIX . '*'),
+            'invalidating a category with no entries wrote a key'
         );
+    }
+
+    /**
+     * Purging the markers an older build left does not take the cache with it.
+     *
+     * For an installation carrying 275,000 dead keys that does not want to discard a warm
+     * cache on the way to being rid of them. One deliberate sweep, and it is scoped: a live
+     * entry beside them stays.
+     */
+    public function testTheOldMarkersCanBePurgedWithoutLosingTheCache(): void
+    {
+        // Arrange — markers as an older build wrote them, and one live entry
+        $this->redis->set(self::PREFIX . 'catindexed:mails', 1);
+        $this->redis->set(self::PREFIX . 'catindexed:4711-users', 1);
+
+        $adapter = $this->adapter('mails');
+        $adapter->save($this->key('mails', 'live'), 'keep-me', 600);
+
+        // Act
+        $this->assertTrue($adapter->purgeCategoryMarkers());
+
+        // Assert
+        $this->assertSame(array(), (array) $this->redis->keys(self::PREFIX . 'catindexed:*'));
+        $this->assertSame('keep-me', $adapter->load($this->key('mails', 'live'), 600));
     }
 
     // ── Names ──────────────────────────────────────────────────────────────

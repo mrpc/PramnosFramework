@@ -529,8 +529,21 @@ class RedisAdapterTest extends TestCase
         $appA   = $this->makeConnectedAdapter('catA' . $suffix . ':');
         $appB   = $this->makeConnectedAdapter('catB' . $suffix . ':');
 
+        /*
+         * The category is **set** before each save, which is how `Cache` drives this: it
+         * builds the full key and tells the adapter which category the key belongs to.
+         *
+         * It was not set here, and the test passed anyway because `clear($category)` used to
+         * fall back to a keyspace `SCAN` for a pattern — inferring the category from the
+         * shape of the key. That sweep is gone (it cost 1,443 round trips per call, twice per
+         * `Model::save()`), and an adapter told nothing about a key's category now has no way
+         * to know: the index is the only record, and it is written at save time.
+         */
+        $appA->setCategory('news');
         $appA->save('catA' . $suffix . ':news_one', 'a-news', 60);
+        $appA->setCategory('users');
         $appA->save('catA' . $suffix . ':users_one', 'a-users', 60);
+        $appB->setCategory('news');
         $appB->save('catB' . $suffix . ':news_one', 'b-news', 60);
 
         // Act

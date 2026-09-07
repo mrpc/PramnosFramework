@@ -545,6 +545,22 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     return $this;
                 }
 
+                /*
+                 * One flush, not two: these are the branches of one `if`.
+                 *
+                 * Worth saying because a filing read them as both running and measured the
+                 * cost accordingly. What was true is that **either** of them used to walk the
+                 * whole redis keyspace — `cacheflush()` takes a *category*, this passes a
+                 * per-entity *key*, and the adapter's category clear fell back to
+                 * `SCAN … MATCH` for any name it had no index for. Which was every save.
+                 * See `RedisAdapter::clearCategory()`.
+                 *
+                 * The specific-key flush is kept rather than dropped as dead work.
+                 * `_load()` passes `false` for caching, so nothing in the framework writes
+                 * under that name — but a subclass that turns per-entity caching on needs
+                 * exactly this invalidation, and it now costs one `SMEMBERS` on a key that
+                 * is not there.
+                 */
                 // Clear only the specific record's cache, not the entire category
                 if (isset($this->$primarykey) && $this->$primarykey !== null) {
                     $database->cacheflush($this->_generateSpecificCacheKey($this->$primarykey));

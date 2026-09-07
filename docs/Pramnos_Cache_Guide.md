@@ -149,6 +149,49 @@ And a credential the cache or a tool needs is refused rather than stored in the 
 see [`KEY_REQUIRED_SETTINGS`](Pramnos_Security_Guide.md#the-read-only-account-if-you-want-one)
 for `database_readonly_dsn`, which needs an `APP_KEY` before it can be set at all.
 
+### What invalidation costs, and the shape that made it ruinous
+
+`cacheflush($category)` — which `Model::save()` calls, and `Settings` on every write — is
+**O(the category)**, not O(the keyspace). Redis keeps a set of the keys in each category, and
+a flush reads that set and deletes its members.
+
+That is worth stating plainly because the alternative was measured. Until this was fixed the
+adapter fell back to `SCAN … MATCH` for any category name it had no marker for, and
+**`SCAN … MATCH` filters what it returns, not what it traverses** — every call walks the
+whole database. `Model::save()` passes a per-entity *key* where a category is expected, so
+there was never a marker for that name and the fallback ran on every save. Worse, each
+fallback then wrote a permanent marker for a category with no members.
+
+On the installation that found it:
+
+```
+keys in the database          288,706
+keys with a TTL                13,792     ← 95% were markers left by sweeps that found nothing
+round trips per sweep          ~1,443     (COUNT 200)
+worker CPU                       1.6%     — in do_poll in 148 of 150 samples
+wall clock per task             0.932 s
+redis clients in SCAN               20    concurrently
+```
+
+And because the cost was per save and per worker, **adding workers made throughput worse**:
+three moved 11 tasks a second, eighteen moved 8.6. The cache was switched off there before it
+was understood.
+
+**If you see this shape** — workers waiting rather than computing, throughput falling as the
+pool grows — `cat /proc/<pid>/wchan` and `redis-cli client list` answer it in a minute where
+application timing cannot: the framework's `execution_time` measures wall clock around a
+handler, so a handler using 1.6% of a core and waiting on redis looks exactly like a slow
+handler. Four other explanations fitted that evidence first.
+
+A keyspace sweep now logs what it cost under `cache` when it takes longer than 250 ms, so the
+one place it still happens — an explicit `cache:clear` with no category — says so rather than
+being inferred.
+
+**Upgrading.** Run `cache:clear` once. The `catindexed:*` markers an older build accumulated
+are dead keys that nothing reads; that clear removes them along with everything else.
+`RedisAdapter::purgeCategoryMarkers()` removes only the markers, for an installation that does
+not want to throw away a warm cache.
+
 ### One connection, however many categories
 
 `Cache::getInstance()` keeps an instance per category so `cache:clear --category=views`
