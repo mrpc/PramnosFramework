@@ -363,17 +363,35 @@ on `md5($query)` alone: after reconnecting it handed back a plan name belonging 
 PostgreSQL had already forgotten. A plan does not outlive its session, so the cache is scoped to the
 connection that made it.
 
-The same holds for a plain `query()`, and by a slightly different route. That path asks
-`getConnection()` first, which probes the handle — so a connection that died while the process was idle
-is replaced *there*, before the statement is sent. What `runQuery()`'s own reconnect is for is the
-narrower window the probe cannot cover: the probe passed, the handle was handed over, and the server
-went away before the statement arrived. That is what a database restart or a failover during a request
-looks like, and on MySQL it used to come out as an uncaught `mysqli_sql_exception` for the same reason
-as above — the gate read `mysqli_errno()` after a call that throws. (On PostgreSQL that path already
-worked: a failed `pg_query` marks the connection immediately, unlike a failed `pg_execute`.)
+The same holds for a plain `query()`, and `runQuery()`'s reconnect is the whole of it: the statement
+fails, `isConnectionGone()` distinguishes a dead connection from a bad statement, the connection is
+replaced, and the statement is sent once more. On MySQL that used to come out as an uncaught
+`mysqli_sql_exception` for the same reason as above — the gate read `mysqli_errno()` after a call that
+throws. (On PostgreSQL that path already worked: a failed `pg_query` marks the connection immediately,
+unlike a failed `pg_execute`.)
 
-If you keep a `Database` handle across a long idle period yourself, you need nothing extra. If you
-hold a raw `mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
+**`getConnection()` does not probe the handle**, and on MySQL it must not. A probe there means a
+statement of the framework's own before every statement of yours, and that has two costs:
+
+- a round trip per query — measured by a consuming application at **355 pings in 476 statements** on
+  one page load;
+- **your second statement stops describing your first.** `FOUND_ROWS()`, `ROW_COUNT()` and
+  `LAST_INSERT_ID()` are per-connection state: they report on the *last* statement the connection ran,
+  and with a probe in between that is the probe. A limited select over seven rows reported a total of
+  **one**, and an `UPDATE` touching three rows reported `-1`.
+
+So liveness is **remembered, not asked**: `isConnectionGone()` already decides it at the one moment
+the answer is knowable — when a statement has just failed — and `getConnection()` replaces a link that
+has been marked. PostgreSQL additionally checks `pg_connection_status()`, which is a local read of a
+cached state rather than a statement, so it costs nothing.
+
+`isConnectionAlive()` is still there and still probes with `SELECT 1`. It is a reasonable thing to ask
+deliberately; just know that it costs a round trip and becomes the connection's last statement, so
+anything reading per-connection state afterwards describes the probe.
+
+If you keep a `Database` handle across a long idle period yourself, you need nothing extra — the first
+statement after the idle fails, reconnects and is retried. If you hold a raw
+`mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
 
 ### A paginated list that groups
 

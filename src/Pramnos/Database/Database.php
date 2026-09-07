@@ -432,19 +432,101 @@ class Database extends \Pramnos\Framework\Base
      */
     public function getConnection($isWrite = false)
     {
-        if ($isWrite) {
-            if (!$this->_writeConnection || !$this->isConnectionAlive($this->_writeConnection)) {
-                $this->connectToReplica('write');
-            }
-            $this->_dbConnection = $this->_writeConnection;
-            return $this->_writeConnection;
+        $role = $isWrite ? 'write' : 'read';
+        $link = $isWrite ? $this->_writeConnection : $this->_readConnection;
+
+        /*
+         * **No `SELECT 1` here.** This asked `isConnectionAlive()` on every call, and on
+         * MySQL that method sends a statement — so every query the application ran became
+         * two queries on the server.
+         *
+         * Measured by a consuming application with the MariaDB general log, on one page:
+         *
+         *     total_queries=476   select1_pings=355
+         *
+         * **75% of the statements were pings**, more than one per query because this method
+         * is called from outside `runQuery()` too.
+         *
+         * And the cost was not only the round trip. `FOUND_ROWS()` is **per-connection
+         * state**: it reports the row count of the *last* statement on that connection, and
+         * with a ping in between the last statement is always `SELECT 1` — one row. From
+         * that application's general log, in order, on one connection:
+         *
+         *     Query  select SQL_CALC_FOUND_ROWS *, c.* from … c …
+         *     Query  SELECT 1
+         *     Query  SELECT FOUND_ROWS() cnt
+         *
+         * The same pair answers `0` in the mysql client and `1` through the framework. It
+         * surfaced as a classified ad with no professionals in it reporting "All (1)" above
+         * an empty list. `LAST_INSERT_ID()`, `ROW_COUNT()` and `@user_variables` are the
+         * same shape: a silent statement between two of the caller's statements changes
+         * what the second one means.
+         *
+         * So liveness is not probed. It is **remembered**: `isConnectionGone()` already
+         * decides it at the one moment the answer is knowable — when a statement has just
+         * failed — and that answer was being thrown away, leaving every later caller to
+         * rediscover it with a round trip of its own.
+         *
+         * `pg_connection_status()` is a local read of a cached state rather than a
+         * statement, so PostgreSQL keeps it: it costs nothing, and it is the one engine
+         * where a free check exists.
+         */
+        $stale = $link === null || $link === false || !empty($this->connectionLost[$role]);
+
+        if (!$stale && $this->type === 'postgresql') {
+            $stale = pg_connection_status($link) !== PGSQL_CONNECTION_OK;
         }
 
-        if (!$this->_readConnection || !$this->isConnectionAlive($this->_readConnection)) {
-            $this->connectToReplica('read');
+        if ($stale) {
+            $this->connectToReplica($role);
         }
-        $this->_dbConnection = $this->_readConnection;
-        return $this->_readConnection;
+
+        $this->_dbConnection = $isWrite ? $this->_writeConnection : $this->_readConnection;
+
+        return $this->_dbConnection;
+    }
+
+    /**
+     * Connections a failed statement has shown to be gone, by role.
+     *
+     * Set by {@see noteConnectionLost()} where a statement has just failed, and cleared by
+     * {@see connectToReplica()}. The point of it is that the knowledge exists exactly once
+     * — when a statement fails — and everything after that either has to be told or has to
+     * ask the server again.
+     *
+     * Recorded by the **call sites** rather than inside `isConnectionGone()`, which is
+     * `protected` and therefore something an application may have overridden. Marking from
+     * inside it would have left such an override answering "gone" with nothing recording it,
+     * so `getConnection()` would hand the dead link straight back and the retry would fail —
+     * a reconnect broken for exactly the installations that cared enough to customise it.
+     *
+     * @var array<string, bool>
+     */
+    private $connectionLost = array();
+
+    /**
+     * Note that this link is gone, so the next `getConnection()` replaces it.
+     *
+     * Compared by identity against the two role links rather than taking the role as an
+     * argument, because the callers that detect a loss hold the connection and not the
+     * role — and marking the wrong one would drop a healthy connection while keeping a
+     * dead one.
+     *
+     * @param resource|object|\mysqli|null $connection
+     */
+    protected function noteConnectionLost($connection): void
+    {
+        if ($connection === null) {
+            return;
+        }
+
+        if ($this->_writeConnection === $connection) {
+            $this->connectionLost['write'] = true;
+        }
+
+        if ($this->_readConnection === $connection) {
+            $this->connectionLost['read'] = true;
+        }
     }
 
     /**
@@ -531,6 +613,15 @@ class Database extends \Pramnos\Framework\Base
     /**
      * Check if a connection is still alive.
      *
+     * **This costs a round trip on MySQL, and it disturbs per-connection state.** It asks
+     * with `SELECT 1`, which becomes the connection's last statement — so `FOUND_ROWS()`,
+     * `ROW_COUNT()` and `LAST_INSERT_ID()` read afterwards describe the probe rather than
+     * the caller's own query.
+     *
+     * Kept public and unchanged because it is a reasonable thing to ask deliberately, and
+     * an application may be calling it. What changed is that {@see getConnection()} no
+     * longer calls it on every query — see there for what that was costing.
+     *
      * @param \mysqli|\PgSql\Connection $connection
      * @return bool
      */
@@ -616,6 +707,9 @@ class Database extends \Pramnos\Framework\Base
             } else {
                 $this->_readConnection = $connection;
             }
+
+            // A new link is not the dead one, whatever the last failure said.
+            unset($this->connectionLost[$type]);
         } finally {
             // Restore original properties
             $this->server = $oldServer;
@@ -1346,6 +1440,10 @@ class Database extends \Pramnos\Framework\Base
                     if ($this->queryResult === false && $retry
                         && $this->isConnectionGone($connection, $pgError)
                     ) {
+                        // Recorded, so `getConnection()` replaces the link rather than
+                        // asking the server the same question. {@see noteConnectionLost()}
+                        $this->noteConnectionLost($connection);
+
                         $connection = $this->getConnection($isWrite);
                         $retry = false;
                         continue;
@@ -1383,6 +1481,10 @@ class Database extends \Pramnos\Framework\Base
                     if ($this->queryResult === false && $retry
                         && $this->isConnectionGone($connection, null, $queryException)
                     ) {
+                        // Recorded, so `getConnection()` replaces the link rather than
+                        // asking the server the same question. {@see noteConnectionLost()}
+                        $this->noteConnectionLost($connection);
+
                         $connection = $this->getConnection($isWrite);
                         $retry = false;
                         continue;
@@ -1804,6 +1906,10 @@ class Database extends \Pramnos\Framework\Base
                     if (!$dbResource && $retry
                         && $this->isConnectionGone($connection, $pgError)
                     ) {
+                        // Recorded, so `getConnection()` replaces the link rather than
+                        // asking the server the same question. {@see noteConnectionLost()}
+                        $this->noteConnectionLost($connection);
+
                         // Re-prepare on new connection
                         $statement = $this->prepare($stmtData['query']);
                         $stmtData = $this->statements[$statement->id];
@@ -1876,6 +1982,7 @@ class Database extends \Pramnos\Framework\Base
                     } else {
                         $dbResource = null;
                         if ($retry && $this->isConnectionGone($connection, null, $exception ?? null)) {
+                            $this->noteConnectionLost($connection);
                             // Re-prepare on new connection
                             $statement = $this->prepare($stmtData['query']);
                             $stmtData = $this->statements[$statement->id];

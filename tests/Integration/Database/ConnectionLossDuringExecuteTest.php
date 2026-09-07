@@ -224,11 +224,11 @@ class ConnectionLossDuringExecuteTest extends DatabaseTestCase
      * contrived race — it is precisely what a database restart or a failover during a request looks
      * like.
      */
-    private function dyingConnection(): \Pramnos\Database\Database
+    private function dyingConnection(?\Pramnos\Database\Database $prebuilt = null): \Pramnos\Database\Database
     {
         $config = static::connectionConfig();
 
-        $db = new class extends \Pramnos\Database\Database {
+        $db = $prebuilt ?? new class extends \Pramnos\Database\Database {
             public bool $killNext = false;
 
             /** @var callable(mixed):void */
@@ -315,6 +315,87 @@ class ConnectionLossDuringExecuteTest extends DatabaseTestCase
             $after->fields['label'],
             'the retry reconnected and returned nothing, which reads as an empty table'
         );
+
+        $db->close();
+    }
+
+    /**
+     * An application that overrode `isConnectionGone()` still reconnects.
+     *
+     * The BC assertion for the change that stopped probing on every query. Liveness is
+     * remembered now rather than asked, and the obvious place to record it was inside
+     * `isConnectionGone()` — which is `protected`, so an application may have replaced it.
+     * Recorded there, an override would answer "gone" with nothing writing it down:
+     * `getConnection()` would hand the dead link straight back and the retry would fail.
+     *
+     * A reconnect broken for exactly the installations that cared enough to customise it,
+     * and invisible in the diff. So the call sites record it, and this drives the whole path
+     * through a subclass that answers the question itself.
+     */
+    public function testASubclassThatOverridesTheGoneCheckStillReconnects(): void
+    {
+        // Arrange — a Database whose own answer replaces the framework's
+        $db = $this->dyingConnection(new class extends \Pramnos\Database\Database {
+            public bool $killNext = false;
+
+            /** @var callable(mixed):void */
+            public $killer;
+
+            public int $asked = 0;
+
+            public function getConnection($isWrite = false)
+            {
+                $connection = parent::getConnection($isWrite);
+
+                if ($this->killNext) {
+                    $this->killNext = false;
+                    ($this->killer)($connection);
+                }
+
+                return $connection;
+            }
+
+            protected function isConnectionGone(
+                $connection,
+                ?string $error = null,
+                ?\mysqli_sql_exception $exception = null
+            ): bool {
+                $this->asked++;
+
+                /*
+                 * An application's own rule. Deliberately not calling the parent, which is
+                 * the whole point: this must be the only thing deciding.
+                 *
+                 * Both engines' shapes, because the PostgreSQL subclass inherits this test
+                 * and there the failure arrives as error *text* rather than an exception —
+                 * the first version of this override read only the exception and left that
+                 * lane asserting nothing at all.
+                 */
+                $text = strtolower((string) $error . ' ' . ($exception?->getMessage() ?? ''));
+
+                foreach (array('gone away', 'lost connection', 'server closed the connection',
+                    'terminating connection') as $marker) {
+                    if (str_contains($text, $marker)) {
+                        return true;
+                    }
+                }
+
+                return $exception !== null
+                    && in_array((int) $exception->getCode(), array(2006, 2013), true);
+            }
+        });
+
+        $this->assertSame('before', $db->query('SELECT label FROM reconnect_probe WHERE id = 1')
+            ->fields['label']);
+
+        // Act
+        $db->killNext = true;
+        $after = $db->query('SELECT label FROM reconnect_probe WHERE id = 1');
+
+        // Assert
+        $this->assertGreaterThan(0, $db->asked, 'the override was never consulted');
+        $this->assertNotFalse($after, 'the override answered "gone" and nothing reconnected');
+        $this->assertSame('before', $after->fields['label']);
 
         $db->close();
     }
