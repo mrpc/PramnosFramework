@@ -312,6 +312,49 @@ it — there is no registration to vouch for the destination, so such a client k
 the policy it had and nothing new becomes possible. Whether to register is the operator's
 call about their own clients, not the framework's.
 
+#### Two ways to stop `form-action` cancelling an SSO login
+
+Both work; they differ in who names the origin and how narrowly.
+
+| | 1. Register the callback | 2. List it in `app.php` |
+| --- | --- | --- |
+| Where | `applications.callback` on the client | `csp: form-action` in `app/app.php` |
+| Scope | That client, that origin, on the pages of the OAuth flow | Every page of the application |
+| Effect | The server widens the policy itself, per request | The origin is in the header everywhere |
+| Also gives you | Exact-match refusal of an unregistered `redirect_uri` | Nothing beyond the policy |
+| Needs a deploy | No — it is a database row | Yes — it is configuration |
+| Recommended | **Yes**, for an authorization server | When registration is not an option |
+
+**1 — register the callback.** Nothing else to do; this is the route the log line
+recommends.
+
+```sql
+UPDATE applications SET callback = 'https://client.example/login-sso' WHERE apikey = '…';
+```
+
+**2 — name the origins in the application's own policy**, which is what an application with
+no access to its clients' registrations does:
+
+```php
+// app/app.php
+'csp' => [
+    'form-action' => [
+        'https://client-one.example',
+        'https://client-two.example',
+    ],
+],
+```
+
+Route 2 is deliberately available and is **not** a workaround: it is the same extension
+point `img-src` and `connect-src` have, and an application is entitled to widen its own
+policy. What it does not do is check anything — the origin is trusted because you wrote it
+down, not because a client registration vouches for it. That is the whole difference, and
+it is why route 1 is the recommendation for a server whose job is issuing authorization
+codes.
+
+Doing both is harmless. The server appends to the list `app.php` provides, and an entry
+identical to one already there is not added twice.
+
 The comparison is an **exact string match**, so register the URI your application will
 actually send, character for character. All of these are different registrations:
 
