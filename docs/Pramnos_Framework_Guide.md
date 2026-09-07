@@ -7,6 +7,8 @@ use_cases:
   - Handling errors or registering an exception handler
   - Telling the user what happened after a redirect (flash messages)
   - Reading application configuration in app/app.php
+  - Allowing an external domain the Content-Security-Policy is blocking
+  - Diagnosing a form POST or SSO redirect the browser cancels
   - Serving anonymous traffic from cache when the framework starts a session
   - Turning off framework behaviour an application does not want
   - Shortening text for a listing, a column or a meta description
@@ -290,7 +292,72 @@ While the framework provides secure defaults, you must explicitly whitelist exte
 ]
 ```
 
-#### 3. Apache Configuration
+**Which directives take sources**, in full — the list is
+`Application::CSP_CONFIGURABLE`, and a test asserts every entry in it actually reaches
+the header:
+
+| Directive | Default | What another origin there is for |
+| --- | --- | --- |
+| `script-src` | `'self'` + nonce | A CDN or a map SDK |
+| `style-src` | `'self'` + nonce | Web fonts, an icon stylesheet |
+| `img-src` | `'self' data:` | Tiles, avatars, a media host |
+| `font-src` | `'self' data:` | `fonts.gstatic.com` |
+| `connect-src` | `'self'` | An API or a WebSocket you call |
+| `media-src` | `'self'` | Audio or video served elsewhere |
+| `worker-src` | `'self' blob:` | A worker script from a CDN |
+| `frame-src` | `'self'` | What you embed — a video, a map, a payment frame |
+| `frame-ancestors` | `'self'` | Who may embed **you** — a partner portal |
+| `form-action` | `'self'` | Where a form POST may end up, including after a redirect |
+
+Everything else in the policy is deliberately fixed. `default-src 'none'` is the floor the
+rest is measured against, `object-src 'none'` and `base-uri 'self'` are worth keeping
+absolute, `style-src-attr` and `upgrade-insecure-requests` take no sources, and a web
+manifest a browser will fetch is same-origin in practice.
+
+**A `csp` key that is not in that table is logged and ignored.** It is not a boot failure,
+because the same policy is built on a page-cache hit before there is an application to
+refuse on behalf of — but it will not silently look applied either. If a directive appears
+in the header without the sources you set, the log line naming it is the first place to
+look.
+
+#### 3. `form-action` and an OAuth2 authorization server
+
+If your application is an authorization server, it must name its registered client
+callbacks:
+
+```php
+'csp' => [
+    'form-action' => [
+        'https://client-one.example',
+        'https://client-two.example',
+    ],
+]
+```
+
+Without them, SSO logins that go **through the login form** fail in a way that leaves no
+server-side trace. A browser applies `form-action` to every redirect in the chain, not just
+the form's `action` attribute, so:
+
+```
+POST /Home/login                                  same origin   → allowed
+  → 302 /oauth/authorize?…                        same origin   → allowed
+  → 302 https://client.example/login-sso?code=…   other origin   → BLOCKED
+```
+
+The authorization code is generated, written and named in a `Location` header; the browser
+then cancels the navigation. Chrome reports the violation against the *initial*,
+same-origin URL, so the console message reads as a paradox — and the user sees a page that
+simply did not go anywhere.
+
+It is also intermittent, for the same reason: a user who still holds a session takes
+`GET /oauth/authorize` → 302 → client, which is no form submission and which works. Only
+the attempt that passes through the login form is blocked, so the same client succeeds or
+fails on whether the session had expired.
+
+Keep `'self'` as the base — it is the mitigation for a form injected by an XSS that would
+otherwise post credentials off-site — and add only the callbacks you have registered.
+
+#### 4. Apache Configuration
 When using the framework's built-in CSP, ensure you remove any manual `Content-Security-Policy` headers from your Apache `.htaccess` or VirtualHost files to prevent header duplication or conflicts.
 
 ---

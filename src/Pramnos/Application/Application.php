@@ -2684,6 +2684,44 @@ class Application extends Base
     }
 
     /**
+     * The directives {@see buildCspPolicy()} extends from the application's `csp` block.
+     *
+     * Written down because four times now a directive in that list has been hard-coded,
+     * has forbidden something a real deployment needed, and the application's attempt to
+     * permit it from `app.php` was read, discarded and never mentioned — which is the
+     * worst shape a configuration option can have, because it looks applied. In order:
+     * `media-src` blocked third-party audio, `worker-src 'none'` refused the service
+     * worker the scaffolder itself writes, then the Blob worker `pf-humancheck.js`
+     * builds, then `form-action 'self'` cancelled every SSO login that went through the
+     * login form.
+     *
+     * A key outside this list is reported once per process by
+     * {@see reportUnusedCspKeys()}, so the fifth one is a log line rather than a day
+     * spent in a browser console.
+     *
+     * The ones deliberately absent are absent on one test — whether a legitimate
+     * deployment can need another origin there. `default-src 'none'` is the floor every
+     * other directive is measured against; `object-src 'none'` and `base-uri 'self'` are
+     * worth keeping absolute; `style-src-attr` and `upgrade-insecure-requests` take no
+     * sources at all; and a web manifest a browser will fetch is same-origin in
+     * practice.
+     *
+     * @var list<string>
+     */
+    public const CSP_CONFIGURABLE = [
+        'script-src',
+        'style-src',
+        'img-src',
+        'font-src',
+        'connect-src',
+        'media-src',
+        'worker-src',
+        'frame-src',
+        'frame-ancestors',
+        'form-action',
+    ];
+
+    /**
      * The same policy, from a `csp` block and a nonce, with no application.
      *
      * Static because the two callers that need it most have no instance to ask.
@@ -2707,6 +2745,8 @@ class Application extends Base
      */
     public static function buildCspPolicy(array $csp, string $nonce = ''): string
     {
+        self::reportUnusedCspKeys($csp);
+
         $scriptDomains = self::cspDomains($csp, 'script-src');
         $styleDomains = self::cspDomains($csp, 'style-src');
 
@@ -2756,8 +2796,13 @@ class Application extends Base
             // it; a site that streams from elsewhere adds its hosts under
             // `csp: media-src` in app.php, exactly like `img-src`.
             "media-src 'self'" . self::cspDomains($csp, 'media-src'),
-            "frame-src 'self'",
-            "frame-ancestors 'self'",
+            "frame-src 'self'" . self::cspDomains($csp, 'frame-src'),
+            // **`frame-ancestors` decides who may embed *this* application**, and it
+            // was the only directive in this list an application could not answer for
+            // itself. It has no fallback to `default-src`, so `'self'` is absolute:
+            // a deployment embedded in a partner's page — a dashboard inside a
+            // customer portal, a widget inside a CMS — is refused with nothing to set.
+            "frame-ancestors 'self'" . self::cspDomains($csp, 'frame-ancestors'),
             "object-src 'none'",
             // **`worker-src` was `'none'`, which forbade a feature this framework
             // scaffolds.** `init --service-worker=y` writes `sw.js` and the lines that
@@ -2789,7 +2834,31 @@ class Application extends Base
             // governs. An attacker who can do that does not need a worker.
             "worker-src 'self' blob:" . self::cspDomains($csp, 'worker-src'),
             "base-uri 'self'",
-            "form-action 'self'",
+            // **`form-action 'self'` forbids an OAuth2 authorization server its whole
+            // purpose.** Such a server exists to send a user, after a form POST, to a
+            // registered third-party callback — and Chrome applies `form-action` to
+            // *every redirect in the chain*, not only the form's `action` attribute.
+            // So `POST /Home/login` → 302 `/oauth/authorize` → 302 `https://client/…`
+            // is cancelled at the last hop, and the violation is reported against the
+            // *initial*, same-origin URL, which reads as a paradox in the console.
+            //
+            // Nothing on the server knows: the authorization code is generated, stored
+            // and named in a `Location` header, and the browser then declines to
+            // navigate. The reporting user saw no `Location` and no error, and the
+            // database said five of six codes had been redeemed — a login the server
+            // believes it completed.
+            //
+            // Intermittent, too, and that is the same cause: only the attempt that
+            // goes *through the login form* is a form submission. A user who still
+            // holds a session takes `GET /oauth/authorize` → 302 → client, which no
+            // form governs and which works. So the same client succeeds or fails on
+            // whether the session had expired.
+            //
+            // `'self'` stays the default and is the right one — it is the mitigation
+            // for a form injected by an XSS that would otherwise post credentials
+            // off-site, and most applications never need more. The defect was that an
+            // application which demonstrably needs more had no way to say so.
+            "form-action 'self'" . self::cspDomains($csp, 'form-action'),
             "upgrade-insecure-requests"
         ];
 
@@ -2822,6 +2891,49 @@ class Application extends Base
      *
      * @param array<string,mixed> $csp
      */
+    /**
+     * Say so, once, when the `csp` block names a directive the policy never consults.
+     *
+     * Not a refusal at boot, which is what the report that prompted it asked for: this
+     * runs on a page-cache hit too, from {@see \Pramnos\Cache\Page\PageCache::serveEarly()},
+     * before there is an application to refuse on behalf of — and a policy that stops
+     * serving because of a stale key in `app.php` is a worse failure than the one it
+     * would be warning about. A log line is the strongest thing available in both
+     * places.
+     *
+     * Once per process per directive, because {@see buildCspPolicy()} can run more than
+     * once in a request and a warning repeated is a warning skipped.
+     *
+     * @param array<array-key,mixed> $csp
+     */
+    private static function reportUnusedCspKeys(array $csp): void
+    {
+        /** @var array<string,true> $reported */
+        static $reported = [];
+
+        foreach (array_keys($csp) as $key) {
+            $directive = (string) $key;
+            if (in_array($directive, self::CSP_CONFIGURABLE, true)
+                || isset($reported[$directive])
+            ) {
+                continue;
+            }
+            $reported[$directive] = true;
+
+            // Bare, like every other Logger call in this class: `Logger::logDirectory()`
+            // falls back to the system temp directory when `LOG_PATH` is undefined, which
+            // is the only reason this could fail from `serveEarly()`, and the write itself
+            // warns rather than throws. A try/catch here would be a branch no test can
+            // reach.
+            \Pramnos\Logs\Logger::log(
+                "CSP: the application's `csp` block sets `" . $directive
+                . '`, which the policy does not consult — those sources are ignored. '
+                . 'Configurable directives: '
+                . implode(', ', self::CSP_CONFIGURABLE) . '.'
+            );
+        }
+    }
+
     private static function cspDomains(array $csp, string $directive): string
     {
         if (isset($csp[$directive]) && is_array($csp[$directive]) && !empty($csp[$directive])) {
