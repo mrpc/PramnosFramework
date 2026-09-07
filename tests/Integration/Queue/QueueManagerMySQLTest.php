@@ -301,6 +301,284 @@ class QueueManagerMySQLTest extends TestCase
     // =========================================================================
 
     /**
+     * Eleven workers, eleven tasks, eleven different rows, nobody empty-handed.
+     *
+     * The outcome the whole claim path exists for, and the one the reporting installation
+     * measured both ways. Selection is deterministic — `ORDER BY priority ASC, createdat
+     * ASC` hands every worker the same oldest row — so:
+     *
+     *  - before the claim was atomic, all eleven "won" it and ran the same task eleven
+     *    times, which looked fast because it was the same work repeated;
+     *  - with an atomic claim and a lost race spelled `false`, ten of eleven were told the
+     *    queue was empty and went to sleep with ten tasks waiting.
+     *
+     * Sequential here, which is the honest limit of a PHP test — but not a weak assertion:
+     * each manager is a separate `QueueManager` with its own worker id, and the invariant
+     * that fails under either bug above is *distinct rows, none refused*.
+     */
+    public function testElevenWorkersTakeElevenDifferentTasks(): void
+    {
+        // Arrange
+        for ($i = 1; $i <= 11; $i++) {
+            $this->manager->addTask('spread', array('n' => $i));
+        }
+
+        // Act
+        $taken = array();
+
+        for ($i = 1; $i <= 11; $i++) {
+            $task = (new QueueManager($this->controller, 'worker-' . $i))->getNextTask('spread');
+
+            $this->assertNotFalse($task, 'worker ' . $i . ' was told the queue was empty');
+
+            $taken[] = (int) $task->taskid;
+        }
+
+        // Assert
+        $this->assertCount(11, array_unique($taken), 'two workers were handed the same task');
+
+        // and the twelfth finds it genuinely empty
+        $this->assertFalse(
+            (new QueueManager($this->controller, 'worker-12'))->getNextTask('spread'),
+            'an empty queue answered with a task'
+        );
+    }
+
+    /**
+     * A lost race asks again instead of reporting an empty queue.
+     *
+     * The distinction that cost the reporting installation most of its throughput: `false`
+     * travels up through `processNextTask()` to `processBatch()`, which reads it as *nothing
+     * left*, breaks out of the batch and sleeps. Ten of eleven workers spent their lives
+     * losing races and sleeping, with work waiting.
+     *
+     * Driven through the **real** `attemptClaim()` with `claimRow()` refusing everything —
+     * which is what a worker that loses every race sees — because that is the line the fix
+     * is on. Refusing from `attemptClaim()` instead would have the test supplying the very
+     * answer it is meant to be checking, and a first version of it did exactly that: the
+     * production line could be replaced with `return false` and the test stayed green.
+     */
+    public function testALostRaceRetriesRatherThanReportingEmpty(): void
+    {
+        // Arrange — work waiting, and a worker that wins none of it
+        $this->manager->addTask('contended', array('n' => 1));
+        $this->manager->addTask('contended', array('n' => 2));
+
+        $manager = new class ($this->controller) extends QueueManager {
+            public int $passes = 0;
+
+            public function __construct($controller)
+            {
+                parent::__construct($controller, 'unlucky-worker');
+            }
+
+            /** The single statement cannot be made to lose from here; this is about the loop. */
+            protected function claimWithSkipLocked(
+                string|array|null $taskTypes,
+                int $lockSeconds
+            ): ?\Pramnos\Queue\QueueItem {
+                return null;
+            }
+
+            protected function attemptClaim(
+                string|array|null $taskTypes,
+                string $typeClause,
+                int $lockSeconds,
+                bool $reverse,
+                int $startfrom
+            ): \Pramnos\Queue\QueueItem|false|null {
+                $this->passes++;
+
+                return parent::attemptClaim($taskTypes, $typeClause, $lockSeconds, $reverse, $startfrom);
+            }
+
+            /** Somebody else got there first, every time. */
+            protected function claimRow(
+                \Pramnos\Queue\QueueItem $candidate,
+                string $now,
+                string $lockExpiry
+            ): bool {
+                return false;
+            }
+        };
+
+        // Act
+        $task = $manager->getNextTask('contended');
+
+        // Assert — every pass used, because rows were on offer and none was won
+        $this->assertSame(
+            10,
+            $manager->passes,
+            'a pass that lost every row was read as an empty queue and not retried'
+        );
+        $this->assertFalse($task, 'a worker that won nothing was handed a task');
+    }
+
+    /**
+     * And a worker that loses one pass wins on the next.
+     *
+     * The other half: the winner has already marked its row `processing`, so the next
+     * selection skips it and offers the one below. The pool converges on distinct rows
+     * instead of colliding for ever — which is why a bounded retry is enough and a backoff
+     * is not needed.
+     */
+    public function testAWorkerThatLosesOnePassWinsOnTheNext(): void
+    {
+        // Arrange
+        $this->manager->addTask('contended', array('n' => 1));
+        $this->manager->addTask('contended', array('n' => 2));
+
+        $manager = new class ($this->controller) extends QueueManager {
+            public int $passes = 0;
+
+            public function __construct($controller)
+            {
+                parent::__construct($controller, 'second-time-lucky');
+            }
+
+            protected function claimWithSkipLocked(
+                string|array|null $taskTypes,
+                int $lockSeconds
+            ): ?\Pramnos\Queue\QueueItem {
+                return null;
+            }
+
+            protected function attemptClaim(
+                string|array|null $taskTypes,
+                string $typeClause,
+                int $lockSeconds,
+                bool $reverse,
+                int $startfrom
+            ): \Pramnos\Queue\QueueItem|false|null {
+                $this->passes++;
+
+                return parent::attemptClaim($taskTypes, $typeClause, $lockSeconds, $reverse, $startfrom);
+            }
+
+            protected function claimRow(
+                \Pramnos\Queue\QueueItem $candidate,
+                string $now,
+                string $lockExpiry
+            ): bool {
+                // Lost the first pass, won the second.
+                return $this->passes > 1
+                    && parent::claimRow($candidate, $now, $lockExpiry);
+            }
+        };
+
+        // Act
+        $task = $manager->getNextTask('contended');
+
+        // Assert
+        $this->assertSame(2, $manager->passes);
+        $this->assertNotFalse($task, 'a lost pass was not retried');
+    }
+
+    /**
+     * And an empty queue is still answered immediately, not ten times over.
+     *
+     * The control for the retry. A loop that could not tell "nothing there" from "somebody
+     * else took it" would run every idle poll ten times — and an idle poll is what a worker
+     * does most of the time.
+     */
+    public function testAnEmptyQueueIsNotRetried(): void
+    {
+        // Arrange
+        $manager = new class ($this->controller) extends QueueManager {
+            public int $passes = 0;
+
+            public function __construct($controller)
+            {
+                parent::__construct($controller, 'idle-worker');
+            }
+
+            protected function attemptClaim(
+                string|array|null $taskTypes,
+                string $typeClause,
+                int $lockSeconds,
+                bool $reverse,
+                int $startfrom
+            ): \Pramnos\Queue\QueueItem|false|null {
+                $this->passes++;
+
+                return parent::attemptClaim($taskTypes, $typeClause, $lockSeconds, $reverse, $startfrom);
+            }
+        };
+
+        // Act
+        $task = $manager->getNextTask('nothing-of-this-type');
+
+        // Assert
+        $this->assertFalse($task);
+        $this->assertLessThanOrEqual(1, $manager->passes, 'an empty queue was polled repeatedly');
+    }
+
+    /**
+     * The single-statement path is the one that actually runs on the ordinary claim.
+     *
+     * Asserted because everything above passes with it disabled — select-then-claim is a
+     * complete fallback, so the fast path could be dead code and nothing would fail. And
+     * dead is what it becomes on a server without `SKIP LOCKED`: the first refusal is
+     * remembered for the process, which is right, and would also hide a mistake that makes
+     * every claim throw.
+     */
+    public function testTheSingleStatementPathIsUsed(): void
+    {
+        // Arrange
+        QueueManager::resetSkipLockedSupport();
+        $this->manager->addTask('fastpath', array('n' => 1));
+
+        $manager = new class ($this->controller) extends QueueManager {
+            public bool $fellBack = false;
+
+            public function __construct($controller)
+            {
+                parent::__construct($controller, 'fast-worker');
+            }
+
+            protected function attemptClaim(
+                string|array|null $taskTypes,
+                string $typeClause,
+                int $lockSeconds,
+                bool $reverse,
+                int $startfrom
+            ): \Pramnos\Queue\QueueItem|false|null {
+                $this->fellBack = true;
+
+                return parent::attemptClaim($taskTypes, $typeClause, $lockSeconds, $reverse, $startfrom);
+            }
+        };
+
+        // Act
+        $task = $manager->getNextTask('fastpath');
+
+        // Assert
+        $this->assertNotFalse($task, 'nothing was claimed at all');
+        $this->assertFalse($this->fellBackOrUnsupported($manager), 'the fast path did not run');
+        $this->assertSame('processing', (string) $task->status);
+        $this->assertSame(1, (int) $task->attempts, 'the fast path did not count the attempt');
+    }
+
+    /**
+     * Did that claim come from the fallback, or is the fast path simply unavailable here?
+     *
+     * Reported as one answer so the assertion above stays readable, and separated in the
+     * message so a failure says which of the two it was.
+     */
+    private function fellBackOrUnsupported(object $manager): bool
+    {
+        $unavailable = (new \ReflectionProperty(QueueManager::class, 'skipLockedUnavailable'))
+            ->getValue();
+
+        $this->assertFalse(
+            (bool) $unavailable,
+            'this server refused FOR UPDATE SKIP LOCKED, so the fast path could not be tested'
+        );
+
+        return $manager->fellBack;
+    }
+
+    /**
      * A claim is refused when the row moved between the read and the write.
      *
      * The race the old code had, reproduced deterministically rather than with threads: read
@@ -350,6 +628,17 @@ class QueueManagerMySQLTest extends TestCase
             public function __construct($controller, private readonly int $loseThis)
             {
                 parent::__construct($controller, 'unlucky-worker');
+            }
+
+            /**
+             * This test is about the select-then-claim loop, so the single-statement path is
+             * turned off — otherwise it claims the row before `claimRow()` is ever consulted
+             * and the test asserts nothing. Which is what it did the moment the fast path
+             * landed, on PostgreSQL only, because that is where the fast path works.
+             */
+            protected function claimWithSkipLocked(string|array|null $taskTypes, int $lockSeconds): ?QueueItem
+            {
+                return null;
             }
 
             protected function claimRow(QueueItem $candidate, string $now, string $lockExpiry): bool

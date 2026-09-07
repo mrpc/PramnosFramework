@@ -47,6 +47,16 @@ class QueueManager
     protected const CLAIM_CANDIDATES = 5;
 
     /**
+     * How many full passes before a worker gives up and goes back to its loop.
+     *
+     * A pass is a fresh selection, so the winner's row is already `processing` and the next
+     * pass sees the one below it. Ten is generous for a pool of any sane size and is not a
+     * throughput knob: a worker that wins nothing in ten passes is in a queue busy enough
+     * that its loop will hand it work immediately.
+     */
+    protected const CLAIM_ATTEMPTS = 10;
+
+    /**
      * Worker identifier written to the lockedby column so stalled tasks can
      * be attributed to the worker that held them.
      *
@@ -171,53 +181,352 @@ class QueueManager
     ): QueueItem|false {
         $this->refreshDatabaseConnection();
 
-        $model      = $this->createQueueItemModel();
-        $now        = date('Y-m-d H:i:s');
-        $lockExpiry = date('Y-m-d H:i:s', time() + $lockSeconds);
+        /*
+         * The ordinary path takes the row in **one** statement, and cannot collide.
+         *
+         * `SELECT` then claim is correct and, under contention, slower than the race it
+         * fixes. Measured by the installation that reported it: three workers on the old
+         * non-atomic write moved 11 tasks a second; **twelve** workers on a select-then-claim
+         * with a retry loop moved 9.2 — worse, with four times the workers. Every lost race
+         * threw away a whole selection and did it again, and none of that cost appears in
+         * `execution_time`, which times only the handler, so the slowdown was invisible in
+         * the number everybody was quoting.
+         *
+         * `FOR UPDATE SKIP LOCKED` removes the collision instead of recovering from it: the
+         * subquery locks the row it picks, and a worker arriving while that lock is held is
+         * neither queued behind it nor a loser — it is offered the next unlocked row. Twelve
+         * workers take twelve different rows on the first attempt.
+         *
+         * Only the ordinary path, because that is the one that is hot. `--reverse`, the
+         * recent-high-priority window and stalled rows keep the select-then-claim loop
+         * below: they are rare, and the last of them needs a `WHERE` no single statement can
+         * express against the row it is also updating.
+         */
+        if (!$reverse && $startfrom <= 0) {
+            $claimed = $this->claimWithSkipLocked($taskTypes, $lockSeconds);
+
+            if ($claimed !== null) {
+                return $claimed;
+            }
+        }
+
         $typeClause = $taskTypes !== null
             ? ' AND type IN (' . $this->buildTypeList($taskTypes) . ')'
             : '';
 
-        $order = $reverse ? 'ORDER BY priority ASC, createdat DESC LIMIT ' . static::CLAIM_CANDIDATES
-                          : 'ORDER BY priority ASC, createdat ASC LIMIT ' . static::CLAIM_CANDIDATES;
+        /*
+         * **A lost race is not an empty queue**, and spelling them the same way cost the
+         * reporting installation most of its throughput.
+         *
+         * Selection is deterministic — `ORDER BY priority ASC, createdat ASC` hands every
+         * worker the same oldest row — so making the claim atomic turned "everybody wins"
+         * into ten losers per eleven asks. A loser received `false`, `processNextTask()`
+         * passed it up, and `processBatch()` reads `false` as *nothing left*: it broke out of
+         * the batch and the worker slept. Ten of eleven workers spent their lives losing
+         * races and sleeping, with work waiting.
+         *
+         * So the whole selection is retried rather than returned as empty. The winner has
+         * already marked its row `processing`, so the next pass skips it and is offered the
+         * one below — the pool converges on distinct rows instead of colliding for ever.
+         * Bounded, because a worker that wins nothing after this many passes is in a queue
+         * busy enough that going back to its loop is the right answer.
+         */
+        for ($attempt = 0; $attempt < static::CLAIM_ATTEMPTS; $attempt++) {
+            $claimed = $this->attemptClaim($taskTypes, $typeClause, $lockSeconds, $reverse, $startfrom);
+
+            if ($claimed instanceof QueueItem) {
+                return $claimed;
+            }
+
+            // `false` is an empty queue and is final; `null` is a lost race, so ask again.
+            if ($claimed === false) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * One pass of select-then-claim.
+     *
+     * @param  string|string[]|null $taskTypes
+     * @return QueueItem|false|null A task, an empty queue (`false`), or a lost race (`null`)
+     */
+    protected function attemptClaim(
+        string|array|null $taskTypes,
+        string $typeClause,
+        int $lockSeconds,
+        bool $reverse,
+        int $startfrom
+    ): QueueItem|false|null {
+        $model      = $this->createQueueItemModel();
+        $now        = date('Y-m-d H:i:s');
+        $lockExpiry = date('Y-m-d H:i:s', time() + $lockSeconds);
+        $limit      = ' LIMIT ' . static::CLAIM_CANDIDATES;
+
+        $order = $reverse ? 'ORDER BY priority ASC, createdat DESC' . $limit
+                          : 'ORDER BY priority ASC, createdat ASC' . $limit;
+
+        $offered = 0;
 
         // High-priority recent tasks if $startfrom is set
         if ($startfrom > 0) {
             $startDate = date('Y-m-d H:i:s', $startfrom);
-            $claimed   = $this->claimFirstOf(
-                $model->getList(
-                    "WHERE status = 'pending' AND createdat >= '$startDate' AND priority <= 10" . $typeClause,
-                    'ORDER BY priority ASC, createdat ASC LIMIT ' . static::CLAIM_CANDIDATES
-                ),
-                $now,
-                $lockExpiry
+            $recent    = $model->getList(
+                "WHERE status = 'pending' AND createdat >= '$startDate' AND priority <= 10" . $typeClause,
+                'ORDER BY priority ASC, createdat ASC' . $limit
             );
+            $offered += count($recent);
+            $claimed  = $this->claimFirstOf($recent, $now, $lockExpiry);
 
             if ($claimed !== false) {
                 return $claimed;
             }
         }
 
-        $claimed = $this->claimFirstOf(
-            $model->getList("WHERE status = 'pending'" . $typeClause, $order),
-            $now,
-            $lockExpiry
-        );
+        $pending  = $model->getList("WHERE status = 'pending'" . $typeClause, $order);
+        $offered += count($pending);
+        $claimed  = $this->claimFirstOf($pending, $now, $lockExpiry);
 
         if ($claimed !== false) {
             return $claimed;
         }
 
         // Stalled processing tasks (lock expired, attempts remaining)
-        return $this->claimFirstOf(
-            $model->getList(
-                "WHERE status = 'processing' AND attempts < maxattempts AND lockexpires < '$now'"
-                . $typeClause,
-                'ORDER BY priority ASC, createdat ASC LIMIT ' . static::CLAIM_CANDIDATES
-            ),
-            $now,
-            $lockExpiry
+        $stalled  = $model->getList(
+            "WHERE status = 'processing' AND attempts < maxattempts AND lockexpires < '$now'"
+            . $typeClause,
+            'ORDER BY priority ASC, createdat ASC' . $limit
         );
+        $offered += count($stalled);
+        $claimed  = $this->claimFirstOf($stalled, $now, $lockExpiry);
+
+        if ($claimed !== false) {
+            return $claimed;
+        }
+
+        /*
+         * Nothing offered means nothing there; something offered and nothing won means
+         * somebody else took all of it. The second is the case worth asking again about, and
+         * telling them apart is the whole of the fix above.
+         */
+        return $offered === 0 ? false : null;
+    }
+
+    /**
+     * Pick a row and take it in one statement, skipping whatever other workers hold.
+     *
+     * `FOR UPDATE SKIP LOCKED` is the operation this needs and the two engines expose it
+     * differently, so there are two shapes and one of them is not available at all:
+     *
+     * | | |
+     * |---|---|
+     * | **PostgreSQL** | `UPDATE … WHERE taskid = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING taskid` — one statement, and `RETURNING` says which row was taken |
+     * | **MySQL / MariaDB** | error 1093: *you can't specify target table for update in FROM clause*, and there is no `UPDATE … RETURNING`. So: `SELECT … FOR UPDATE SKIP LOCKED`, then a guarded `UPDATE`, inside a transaction of its own |
+     *
+     * A derived table (`SELECT … FROM (SELECT … FOR UPDATE SKIP LOCKED) x`) gets past 1093
+     * on MySQL and is **wrong**: the subquery is materialised, so the lock is taken on a
+     * copy and `SKIP LOCKED` means nothing. It is not used here for that reason.
+     *
+     * The MySQL path opens a transaction, which is why it is skipped when the caller already
+     * has one — committing there would commit the caller's work. That case falls through to
+     * select-then-claim, which is correct and only slower.
+     *
+     * @param  string|string[]|null $taskTypes
+     * @return QueueItem|null The claimed task, or null when this path could not be used or
+     *                        found nothing — the caller falls through to select-then-claim.
+     */
+    protected function claimWithSkipLocked(string|array|null $taskTypes, int $lockSeconds): ?QueueItem
+    {
+        if (!$this->supportsSkipLocked()) {
+            return null;
+        }
+
+        $database   = $this->controller->application->database;
+        $table      = $this->getQueueTableName();
+        $typeClause = $taskTypes !== null
+            ? ' AND type IN (' . $this->buildTypeList($taskTypes) . ')'
+            : '';
+
+        $now        = date('Y-m-d H:i:s');
+        $lockExpiry = date('Y-m-d H:i:s', time() + $lockSeconds);
+
+        try {
+            $taskId = $database->type === 'postgresql'
+                ? $this->claimOneStatement($table, $typeClause, $now, $lockExpiry)
+                : $this->claimInOwnTransaction($table, $typeClause, $now, $lockExpiry);
+        } catch (\Throwable $exception) {
+            /*
+             * A server that does not have `SKIP LOCKED` — MariaDB before 10.6, MySQL before
+             * 8.0 — answers with a syntax error, and this is the only place that finds out.
+             * Remembered so the next call does not pay for the discovery, and the loop below
+             * does the work: an installation on an older server loses the fast path and
+             * nothing else.
+             */
+            static::$skipLockedUnavailable = true;
+
+            \Pramnos\Logs\Logger::log(
+                'The queue could not use FOR UPDATE SKIP LOCKED and will select-then-claim '
+                . 'instead: ' . $exception->getMessage(),
+                'queue'
+            );
+
+            return null;
+        }
+
+        if ($taskId <= 0) {
+            return null;
+        }
+
+        /*
+         * Reloaded, because `attempts` was incremented by the database and
+         * `markTaskAsFailed()` compares it against `maxattempts` to choose between a retry
+         * and a permanent failure. `RETURNING taskid` rather than `RETURNING *` for the same
+         * reason it is reloaded anyway: one shape of row-building, not two.
+         */
+        $task = $this->createQueueItemModel();
+        $task->load($taskId);
+
+        return (int) $task->taskid === $taskId ? $task : null;
+    }
+
+    /**
+     * PostgreSQL: pick, lock, claim and report, in one statement.
+     */
+    private function claimOneStatement(
+        string $table,
+        string $typeClause,
+        string $now,
+        string $lockExpiry
+    ): int {
+        $database = $this->controller->application->database;
+
+        $result = $database->query(
+            $database->prepareQuery(
+                'UPDATE ' . $table . "
+                    SET status = 'processing',
+                        attempts = attempts + 1,
+                        startedat = %s,
+                        updatedat = %s,
+                        lockedby = %s,
+                        lockexpires = %s
+                  WHERE taskid = (
+                        SELECT taskid FROM " . $table . "
+                         WHERE status = 'pending'" . $typeClause . '
+                         ORDER BY priority ASC, createdat ASC
+                         FOR UPDATE SKIP LOCKED
+                         LIMIT 1
+                  )
+              RETURNING taskid',
+                $now,
+                $now,
+                (string) $this->workerId,
+                $lockExpiry
+            )
+        );
+
+        return $result && $result->numRows > 0 ? (int) $result->fields['taskid'] : 0;
+    }
+
+    /**
+     * MySQL / MariaDB: lock a row, claim it, commit — in a transaction of this method's own.
+     *
+     * Two statements, because error 1093 forbids the single one and there is no
+     * `UPDATE … RETURNING`. The transaction is what holds the lock between them, and it is
+     * this method's to open only because the caller does not have one — checked by the
+     * caller.
+     */
+    private function claimInOwnTransaction(
+        string $table,
+        string $typeClause,
+        string $now,
+        string $lockExpiry
+    ): int {
+        $database = $this->controller->application->database;
+
+        $database->startTransaction();
+
+        try {
+            $picked = $database->query(
+                'SELECT taskid FROM ' . $table . " WHERE status = 'pending'" . $typeClause
+                . ' ORDER BY priority ASC, createdat ASC LIMIT 1 FOR UPDATE SKIP LOCKED'
+            );
+
+            if (!$picked || $picked->numRows === 0) {
+                $database->commitTransaction();
+
+                return 0;
+            }
+
+            $taskId = (int) $picked->fields['taskid'];
+
+            $database->query(
+                $database->prepareQuery(
+                    'UPDATE ' . $table . " SET status = 'processing', attempts = attempts + 1,"
+                    . ' startedat = %s, updatedat = %s, lockedby = %s, lockexpires = %s'
+                    . ' WHERE taskid = %d',
+                    $now,
+                    $now,
+                    (string) $this->workerId,
+                    $lockExpiry,
+                    $taskId
+                )
+            );
+
+            $database->commitTransaction();
+
+            return $taskId;
+        } catch (\Throwable $exception) {
+            $database->rollbackTransaction();
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Whether this connection can be asked for a locking read that skips.
+     *
+     * A negative answer is remembered for the process: the only way to find out is to try,
+     * and an installation on a server without it should pay for that discovery once rather
+     * than on every claim.
+     *
+     * A caller's open transaction disqualifies the MySQL path specifically — it needs one of
+     * its own, and committing inside somebody else's would commit their work. PostgreSQL's
+     * single statement needs no transaction, so it is unaffected.
+     */
+    protected function supportsSkipLocked(): bool
+    {
+        if (static::$skipLockedUnavailable) {
+            return false;
+        }
+
+        $database = $this->controller->application->database;
+
+        if (!is_object($database)) {
+            return false;
+        }
+
+        if ($database->type === 'postgresql') {
+            return true;
+        }
+
+        return !(method_exists($database, 'inTransaction') && $database->inTransaction());
+    }
+
+    /**
+     * Set once, by the first claim this server refuses. {@see supportsSkipLocked()}
+     *
+     * @var bool
+     */
+    protected static $skipLockedUnavailable = false;
+
+    /**
+     * Forget that discovery — for tests, and for a process that changes connection.
+     */
+    public static function resetSkipLockedSupport(): void
+    {
+        static::$skipLockedUnavailable = false;
     }
 
     /**

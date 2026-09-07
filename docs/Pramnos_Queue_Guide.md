@@ -259,23 +259,64 @@ $numbers = $queueManager->throughput(300, 'imports');
 
 ### One claim, one worker
 
-`getNextTask()` claims a row with a **guarded `UPDATE`**: the state the row was read in
-becomes the `WHERE` clause, and the database decides who got it. Zero rows affected means
-somebody else was first, which is not an error — the worker moves to the next candidate and
-looks at a few per pass, so losing a race is not mistaken for an empty queue.
+The ordinary claim is **one statement, and it cannot collide**:
+
+```sql
+UPDATE queueitems
+   SET status = 'processing', attempts = attempts + 1, lockedby = …, lockexpires = …
+ WHERE taskid = (SELECT taskid FROM queueitems WHERE status = 'pending'
+                  ORDER BY priority ASC, createdat ASC
+                  FOR UPDATE SKIP LOCKED LIMIT 1)
+RETURNING taskid
+```
+
+`FOR UPDATE SKIP LOCKED` removes the collision rather than recovering from it: the subquery
+locks the row it picks, and a worker arriving while that lock is held is neither queued behind
+it nor a loser — it is offered the next unlocked row. Twelve workers take twelve different
+rows on the first attempt, one round trip each.
+
+Which matters more than it sounds, because select-then-claim is *correct* and, under
+contention, slower than the race it fixes. Measured on the installation that reported it:
+three workers on the old non-atomic write moved **11 tasks a second**; twelve workers on
+select-then-claim with a retry loop moved **9.2** — worse, with four times the workers, and
+invisible in `execution_time`, which times only the handler.
+
+**Engine differences.** PostgreSQL takes the statement above. MySQL and MariaDB reject it —
+error 1093, *you can't specify target table for update in FROM clause* — and have no
+`UPDATE … RETURNING`, so there it is a locking `SELECT` and a guarded `UPDATE` inside a
+transaction of the queue's own. That transaction is why the fast path steps aside when the
+**caller** already has one open: committing inside somebody else's transaction would commit
+their work. A server without `SKIP LOCKED` (MariaDB before 10.6, MySQL before 8.0) refuses
+once, the refusal is remembered for the process, and everything falls back to the loop below.
+
+Do **not** write the MySQL form as a derived table (`… FROM (SELECT … FOR UPDATE SKIP LOCKED)
+x`). It gets past error 1093 and is wrong: the subquery is materialised, so the lock is taken
+on a copy and `SKIP LOCKED` means nothing.
+
+### When the fast path does not apply
+
+`--reverse`, the recent-high-priority window and stalled rows keep select-then-claim: they are
+rare, and the last of them needs an `attempts < maxattempts` comparison against the row it is
+also updating. There the claim is a **guarded `UPDATE`** — the state the row was read in
+becomes the `WHERE` clause, and the database decides who got it.
 
 For a stalled row the lock we read is part of the condition, not just the status: status is
 `processing` either way, and only the lock says whose the row is. It is compared **by value**
 against the snapshot rather than re-tested against `NOW()`, because the question is *is this
 still the claim I read?*, not *is some claim expired?*
 
+**A lost race is not an empty queue**, and spelling them the same way is expensive. Selection
+is deterministic, so an atomic claim turns "everybody wins" into ten losers per eleven asks —
+and a loser that answers `false` reaches `processBatch()`, which reads `false` as *nothing
+left*, breaks out of the batch and sleeps five seconds. Ten of eleven workers spent their
+lives losing races and sleeping. So a pass that was offered rows and won none is retried, up
+to ten passes: the winner has already marked its row `processing`, so the next pass is offered
+the one below and the pool converges. A pass offered **nothing** answers `false` immediately —
+an idle poll must not cost ten selections.
+
 `attempts` is incremented in the database (`attempts + 1`), never read-and-written in PHP —
 two workers both writing `read + 1` lose one of the increments, and `markTaskAsFailed()`
 compares `attempts` against `maxattempts` to choose between a retry and a permanent failure.
-
-Not `SELECT … FOR UPDATE SKIP LOCKED`, which both backends support: that needs a transaction
-held across the claim, and this method is called from inside whatever transaction the caller
-already has. A conditional update needs nothing and cannot deadlock.
 
 ### Stopping a worker
 
