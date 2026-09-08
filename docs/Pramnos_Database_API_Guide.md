@@ -872,11 +872,50 @@ $db->throwOnError = true; // process-wide, opt-in — default stays false (backw
 try {
     $db->getQueryBuilder()->table('accounts')->insert(['balance' => 100]);
 } catch (\Pramnos\Database\QueryException $e) {
-    // $e->getMessage() carries the driver error; $e->getQuery() returns the failing SQL.
-    \Pramnos\Logs\Logger::log($e->getMessage(), 'billing');
+    // getDetail() is the whole thing — driver text and SQL. For a log.
+    \Pramnos\Logs\Logger::log($e->getDetail(), 'billing');
     throw $e; // don't pretend the write happened
 }
 ```
+
+##### `getMessage()` is safe to print. The driver's text is not.
+
+This is the whole point of the class, and it used to be the other way round.
+
+| | carries | print it? |
+|---|---|---|
+| `getMessage()` | a short sentence naming nothing — or what the call site chose, like *«Could not save App\Models\Token.»* | **yes** |
+| `getDriverMessage()` | the driver's own text: the table, the index that was violated, the value that violated it | log only |
+| `getQuery()` | the failing SQL, values and all | log only |
+| `getDetail()` | all of the above in one string | log only |
+
+The driver volunteers more than anyone expects. A PostgreSQL duplicate key reads:
+
+```
+0:ERROR:  duplicate key value violates unique constraint "idx_usertokens_token_lookup"
+DETAIL:  Key (token_lookup)=(35153ba8…) already exists.
+::: SQL QUERY:
+INSERT INTO public.usertokens ("userid", "tokentype", … ) VALUES ($1, … $21) RETURNING tokenid
+```
+
+That was `getMessage()`, and an authorization server answered it to an API client as an
+OAuth `error_description` — because the same catch is where that endpoint raises its own
+refusals, the ones whose message *is* the response. The customer read their own schema out
+of an HTTP 400 and sent it back.
+
+So a call site that can say something useful without saying what, should:
+
+```php
+throw new \Pramnos\Database\QueryException(
+    $driverText,          // getDriverMessage()
+    $sql,                 // getQuery()
+    $previous,
+    'Could not save ' . static::class . '.'   // getMessage()
+);
+```
+
+**If you are logging `getMessage()` today, log `getDetail()` instead.** Nothing is lost;
+it moved to where printing it has to be deliberate.
 
 Key points:
 
@@ -885,9 +924,12 @@ Key points:
   failure, MySQL still throws `mysqli_sql_exception` (which existing callers catch via
   `catch (\Exception)`). Turn it on only where a silently dropped write would be a
   correctness bug (billing, migrations, anything transactional).
-- **`QueryException extends \RuntimeException`** and adds `getQuery()` so you can log the
-  offending SQL. It is raised only in strict mode; `query()` continues to throw its
-  historical `\Exception`.
+- **`QueryException extends \RuntimeException`** and adds `getQuery()`,
+  `getDriverMessage()` and `getDetail()` so you can log what you must not print. In strict
+  mode it replaces the per-driver signals; `query()` continues to throw its historical
+  `\Exception`. **`Model::_save()` raises one unconditionally**, strict mode or not — a save
+  that did not save has no fail-soft reading, and it used to throw the driver's message as
+  a plain `\Exception` that no `catch` could separate from an application's own refusals.
 - **Driver parity in strict mode.** With `throwOnError = true`, a prepare failure becomes a
   `QueryException` on **both** drivers — the PostgreSQL `false` return and the MySQL
   `mysqli_sql_exception` are each translated — so a single `catch (QueryException)` works

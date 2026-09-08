@@ -210,7 +210,12 @@ class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
             $this->db->execute('INSERT INTO nonexistent_table (col) VALUES (%s)', $val);
             $message = (string) ($this->db->getError()['message'] ?? '');
         } catch (\Pramnos\Database\QueryException $exception) {
-            $message = $exception->getMessage();
+            // `getDetail()`, not `getMessage()`. The message is now a short sentence that
+            // names nothing, because the same exception covers a unique-constraint
+            // violation whose driver text carries the table, the index and the colliding
+            // value — one consumer answered exactly that to an API client. The specific
+            // half, which is what this test is about, moved behind the accessors.
+            $message = $exception->getDetail();
         }
 
         // Assert — the message must survive, by whichever route it travels

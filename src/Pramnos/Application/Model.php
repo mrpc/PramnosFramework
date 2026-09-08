@@ -523,7 +523,28 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 );
                 if ($result==false) {
                     $error = $database->getError();
-                    throw new \Exception($error['message']);
+
+                    /*
+                     * `QueryException`, not `\Exception`, and this is a security fix rather
+                     * than tidiness.
+                     *
+                     * `$error['message']` is the driver's: the table, every column in the
+                     * statement, the index that was violated and the value that violated it.
+                     * Thrown as a plain `\Exception` it was indistinguishable from a
+                     * hand-written refusal — which is what an authorization server's
+                     * catch-all answers to a client as an `error_description`. A customer
+                     * read their own schema out of an HTTP 400.
+                     *
+                     * A typed exception makes both call sites correct in one line each, and
+                     * `getMessage()` is now safe to print while the detail stays behind
+                     * `getDriverMessage()` for a log.
+                     */
+                    throw new \Pramnos\Database\QueryException(
+                        $error['message'] ?? '',
+                        '',
+                        null,
+                        'Could not save ' . static::class . '.'
+                    );
                 }
                 if ($database->type == 'postgresql') {
                     $this->$primarykey = $result->fields[$primarykey] ?? null;
@@ -937,11 +958,29 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             try {
                 $result = $qb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
                 if ($result === false || $result === null) {
-                    throw new \Exception("Query failed to execute: " . $qb->toSql());
+                    // The SQL goes in the exception's `getQuery()`, not in its message. It
+                    // was in the message, so anything that rendered the exception rendered
+                    // the statement and its values.
+                    throw new \Pramnos\Database\QueryException(
+                        'The paginated query returned neither a result nor an error.',
+                        $qb->toSql(),
+                        null,
+                        'Could not list ' . static::class . '.'
+                    );
                 }
+            } catch (\Pramnos\Database\QueryException $ex) {
+                // Already the right type and already carrying its detail; re-wrapping it
+                // would move the driver's text back into a message.
+                \Pramnos\Logs\Logger::logError('Error in getPaginated query: ' . $ex->getDetail(), $ex);
+                throw $ex;
             } catch (\Throwable $ex) {
                 \Pramnos\Logs\Logger::logError("Error in getPaginated query: " . $qb->toSql() . " - " . $ex->getMessage(), $ex);
-                throw new \Exception($ex->getMessage(), (int) $ex->getCode(), $ex);
+                throw new \Pramnos\Database\QueryException(
+                    $ex->getMessage(),
+                    $qb->toSql(),
+                    $ex,
+                    'Could not list ' . static::class . '.'
+                );
             }
 
             $class = get_class($this);

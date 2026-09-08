@@ -1844,7 +1844,11 @@ class Database extends \Pramnos\Framework\Base
             if ($this->throwOnError) {
                 throw new QueryException(
                     $this->error_text !== '' ? $this->error_text : 'statement could not be prepared',
-                    is_string($sql) ? $sql : ''
+                    is_string($sql) ? $sql : '',
+                    null,
+                    // `error_text` is the driver's, so it is the detail; the surfaceable
+                    // half says what happened without saying to what.
+                    'The statement could not be prepared.'
                 );
             }
 

@@ -1411,7 +1411,11 @@ class QueryBuilder
         if (!$result instanceof \Pramnos\Database\Result) {
             throw new QueryException(
                 'The query failed, so its result cannot be distinguished from an empty table.',
-                $this->toSql()
+                $this->toSql(),
+                null,
+                // Already a sentence that names nothing, so it stays the surfaceable one
+                // rather than being replaced by the generic default.
+                'The query failed, so its result cannot be distinguished from an empty table.'
             );
         }
 

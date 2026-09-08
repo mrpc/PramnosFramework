@@ -134,24 +134,49 @@ class QueryFailureParityTest extends BaseTestCase
     }
 
     /**
-     * The message names the relation, on both backends.
+     * The failure names the relation, on both backends — in its detail, not its message.
      *
-     * Whatever the driver, the thing a reader needs is which table was missing — that is the
-     * difference between a two-minute fix and an afternoon.
+     * Whatever the driver, the thing a reader needs is which table was missing: that is the
+     * difference between a two-minute fix and an afternoon. What changed is **where** it is
+     * read from.
+     *
+     * `QueryException::getMessage()` is now a short sentence that names nothing, because the
+     * same exception also covers a unique-constraint violation — where the driver's text
+     * carries the table, the index and the colliding value, and where one consumer answered
+     * it to an API client as an OAuth `error_description`. One message cannot be both safe
+     * to print and specific enough to diagnose, so the specific half moved to
+     * `getDriverMessage()` and `getDetail()`.
+     *
+     * This test asserted the old arrangement, which is why it is worth saying so here rather
+     * than quietly editing the assertion: it was pinning the leak.
      */
-    public function testTheMessageNamesTheTable(): void
+    public function testTheFailureNamesTheTableInItsDetail(): void
     {
         // Act
-        $message = '';
+        $exception = null;
         try {
             $this->db->queryBuilder()->table(self::ABSENT)->select(['a'])->first();
-        } catch (\Throwable $exception) {
-            $message = $exception->getMessage();
+        } catch (\Throwable $caught) {
+            $exception = $caught;
         }
 
         // Assert
-        $this->assertNotSame('', $message);
-        $this->assertStringContainsString('no_such_table_for_parity', $message);
+        $this->assertInstanceOf(
+            \Pramnos\Database\QueryException::class,
+            $exception,
+            'a failure a caller cannot type is a failure a caller cannot handle'
+        );
+        $this->assertStringContainsString(
+            'no_such_table_for_parity',
+            $exception->getDetail(),
+            'the detail no longer says which table was missing'
+        );
+        $this->assertNotSame('', $exception->getMessage());
+        $this->assertStringNotContainsString(
+            'no_such_table_for_parity',
+            $exception->getMessage(),
+            'the surfaceable message names the schema again'
+        );
     }
 
     /**
