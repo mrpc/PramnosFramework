@@ -174,6 +174,30 @@ Three things worth taking from it beyond the values:
 A test now asserts the rule rather than these five instances of it: a registry entry with
 `compress_after` must declare a `segmentby`, and it must not be a per-row identifier.
 
+#### And one where the answer is to drop compression instead
+
+Fixing the segment key is right when the table grows. `authserver.gdpr_requests` does not:
+its only writer is the GDPR controller, one row per request, so its volume is bounded by
+**people filing requests** — tens to hundreds a year on a large installation, thousands
+across the seven-year retention. At 5,000 rows the whole table is 5.56 MB and the best
+layout saves 1.86 MB of it.
+
+**Compression's benefit scales with volume. Its cost does not.** A compressed chunk cannot
+be altered, so every future schema change has to decompress first whatever the size — and
+compression on that table had already cost the framework two migrations: a column rename
+and a foreign key, both refused once its chunks aged past a year.
+
+So `gdpr_requests` declares retention and no compression. Retention is unaffected by the
+change; it drops whole chunks and needs no compression to do it.
+
+The question to ask of any table before declaring a policy is therefore not "will
+compression work" but **"does this table grow, and will its schema ever change"**:
+
+| | grows | does not grow |
+|---|---|---|
+| **schema is settled** | compress, with a measured segment key | compress if you like; it earns little |
+| **schema still moves** | compress, and expect to decompress for DDL | **do not compress** |
+
 !!! note "Existing installations keep what they have"
     `HypertableRegistry::apply()` sets compression only on a table that has none, so
     a changed `segmentby` reaches new databases only. To adopt it on an existing one,

@@ -115,8 +115,11 @@ class CompressionNeedsASegmentKeyTest extends TestCase
         $cases = [];
 
         foreach (HypertableRegistry::all() as $table => $spec) {
-            // No policy, nothing to get wrong. `pramnos.changelog_trace` is the one:
-            // a debugging table with a retention policy and no compression.
+            // No policy, nothing to get wrong — and two tables are deliberately there:
+            // `pramnos.changelog_trace`, a debugging table with retention and no
+            // compression, and `authserver.gdpr_requests`, where compression was dropped
+            // because its volume is bounded by people filing requests and a compressed
+            // chunk cannot be altered.
             if (($spec['compress_after'] ?? null) === null) {
                 continue;
             }
@@ -140,16 +143,21 @@ class CompressionNeedsASegmentKeyTest extends TestCase
 
         // Assert
         $this->assertGreaterThanOrEqual(
-            9,
+            8,
             count($cases),
-            'the registry declares nine compressed hypertables; a provider finding fewer '
+            'the registry declares eight compressed hypertables; a provider finding fewer '
             . 'is not exercising them'
         );
-        $this->assertArrayNotHasKey(
-            'pramnos.changelog_trace',
-            $cases,
-            'changelog_trace has no compression policy and must not be required to have a '
-            . 'segment key'
-        );
+
+        // The two without a policy, named rather than inferred — so dropping compression
+        // from a third is a deliberate edit here and not a silently shrinking test.
+        foreach (['pramnos.changelog_trace', 'authserver.gdpr_requests'] as $exempt) {
+            $this->assertArrayNotHasKey(
+                $exempt,
+                $cases,
+                $exempt . ' has no compression policy and must not be required to have a '
+                . 'segment key'
+            );
+        }
     }
 }

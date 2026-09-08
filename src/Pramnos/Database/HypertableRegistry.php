@@ -494,12 +494,34 @@ class HypertableRegistry
                 'retention'      => '36 months',
                 'feature'        => 'auth',
             ],
+            // **No compression policy, deliberately — this is the one where the answer is
+            // "drop it" rather than "fix the segment key".**
+            //
+            // Compression's benefit scales with volume; its cost does not. A compressed
+            // chunk cannot be altered — «operation not supported on hypertables that have
+            // compressed data» — so every future schema change on the table has to
+            // decompress first, whatever its size.
+            //
+            // This table's volume is bounded by **people filing GDPR requests**. Its only
+            // writer is `Auth\Controllers\Gdpr`, one row per request, so a large
+            // installation produces tens to hundreds a year: thousands of rows across the
+            // seven-year retention. Measured at 5,000 rows the whole table is 5.56 MB and
+            // `segmentby status` saves 1.86 MB of it.
+            //
+            // Against which: compression on this table has already cost the framework two
+            // migrations. `2026_08_10_000001` renames `notes` to `processing_notes` **and**
+            // adds a foreign key to it, and both statements are refused on any installation
+            // whose chunks have aged past a year. 1.86 MB is not worth a table the framework
+            // cannot alter.
+            //
+            // Retention is unaffected — it drops whole chunks and needs no compression.
+            //
+            // Existing installations keep the policy they have: `apply()` only adds one, and
+            // does nothing at all when `compress_after` is null. Removing it here reaches
+            // new databases.
             'authserver.gdpr_requests' => [
                 'time_column'    => 'requested_at',
-                'segmentby'      => 'status',
-                'orderby'        => 'requested_at DESC',
                 'chunk_interval' => '1 month',
-                'compress_after' => '1 year',
                 'retention'      => '7 years',
                 'feature'        => 'auth',
             ],
