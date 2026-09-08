@@ -380,6 +380,21 @@ their changes.
 filename timestamp, and a legacy `MigrationNNNN` class has none — `filterCutoff()`
 lets a migration with no timestamp through by design.
 
+**`migrate` now does this on its own, before deciding anything is pending.** You do not
+have to know the command below exists — which was the problem with it, because the person
+who needs it is the person who has just upgraded and does not yet know anything is wrong.
+
+One installation replayed **91 already-applied migrations against a live production
+database** in about fifty seconds, and the ledger recorded every one as a success. Most
+were harmless by accident: re-running old DDL mostly fails on arrival and `addQuery()` is
+tolerant, so the ledger filled with `23 of 80 statements failed`. The dangerous ones are
+the **idempotent** ones, because they succeed — one re-added a compression policy a later
+migration had removed with measurements behind it, and the replay stopped before reaching
+the later one. For a day the recorded state and the real state disagreed with nothing to
+indicate it.
+
+The command is still there, for looking before running:
+
 ```bash
 php pramnos migrate:adopt-legacy --dry-run   # what would be recorded
 php pramnos migrate:adopt-legacy             # record it
@@ -400,6 +415,47 @@ Two things it will not do, both deliberate:
 
 A migration with no `$version` — every modern, timestamped one — is skipped, so
 pointing this at a mixed directory is safe.
+
+### A whole history is refused on a database that is not new
+
+Adoption handles the case where the history is *somewhere else in the same table*. It
+cannot handle a history that is not there at all — moved to another engine, replaced by a
+dump, or never kept. So there is a net under it.
+
+**`migrate` refuses to run ten or more migrations when the ledger is empty and the database
+already has tables.** A runner that finds zero of ninety-one recorded is not looking at a
+fresh database — a fresh database has no tables either, and the one this happened on had
+407 GB of them. The cost of being wrong in that direction is a message; in the other
+direction it is 91 migrations against live data.
+
+Three ways past it, in the order worth trying:
+
+| | when | what it does |
+|---|---|---|
+| `migrate:adopt-legacy --dry-run` | the old history is version-keyed | shows what would be recorded; `migrate` already does this automatically, so an empty ledger here means there was nothing to match |
+| `migration_cutoff` in settings | these migrations predate this database | skips them by timestamp, permanently |
+| `migrate --adopt-baseline` | this database really should have every one applied | runs them |
+
+`--adopt-baseline` is its own option rather than a second meaning for `--force`, which means
+*include `autorun = false` migrations*. An operator reaching for one must not silently get
+the other, least of all this one.
+
+**The same refusal applies to the automatic path**, and it has to: the second replay on that
+installation came through `Application::exec()` → `checkversion()` → `upgrade()`, in a
+single web request, two days after the first. That path keys the ledger by version, found
+eleven unrecorded migrations and ran them — one of which decompresses a 70-chunk
+hypertable, behind the maintenance mode `runMigration()` correctly raises, at a measured
+cost of thirty to sixty meter readings that were never recorded. `migrate:status` reported
+"0 pending" throughout, because it reads slugs.
+
+It also defeated a deliberate guard, which is the part worth keeping in view: the
+application had set `autoExecute = false` on its own copy of that decompression, precisely
+to keep it out of a client request. The work happened in a client request anyway, through a
+different migration, on the path that does not consult the runner at all.
+
+So `upgrade()` logs and stops rather than auto-running a history. Below the threshold it
+behaves exactly as before — deploying an application with one or two new migrations still
+needs no shell.
 
 ## Check the data before you change it
 

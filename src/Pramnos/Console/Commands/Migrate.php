@@ -67,6 +67,14 @@ class Migrate extends Command
                 null,
                 InputOption::VALUE_REQUIRED,
                 'Path to migrations directory (default: app/Migrations)'
+            )
+            ->addOption(
+                'adopt-baseline',
+                null,
+                InputOption::VALUE_NONE,
+                'Run a whole history against a database that already has tables '
+                . '(the runner otherwise refuses: an empty ledger on a populated database '
+                . 'is a history that moved, not a new installation)'
             );
     }
 
@@ -135,6 +143,12 @@ class Migrate extends Command
         $options = [];
         if ($input->getOption('force')) {
             $options['force'] = true;
+        }
+        // Its own option rather than a second meaning for --force, which means "include
+        // autorun=false migrations". An operator reaching for one must not silently get
+        // the other, least of all this one.
+        if ($input->getOption('adopt-baseline')) {
+            $options[MigrationRunner::OPTION_ADOPT_BASELINE] = true;
         }
         // --cutoff wins; otherwise the configured one applies. Without this the
         // CLI attempted the whole baseline epoch on every installation whose

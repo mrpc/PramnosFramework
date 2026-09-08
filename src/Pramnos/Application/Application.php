@@ -3188,16 +3188,72 @@ class Application extends Base
      */
     public function upgrade()
     {
-        $migrations = array();
-        $migrationsFile = APP_PATH . DS . 'migrations.php';
-        if (file_exists($migrationsFile)) {
-            $migrations = require($migrationsFile);
-        }
+        $migrations = $this->legacyMigrationMap();
+
+        $unrecorded = array();
         foreach ($migrations as $version => $class) {
             if (!$this->checkversion($version)) {
-                $this->runMigration($class);
+                $unrecorded[$version] = $class;
             }
         }
+
+        /*
+         * The same refusal the runner makes, at the other entry point — and the reason it
+         * has to be at both is that this one is where the second replay happened.
+         *
+         * Two days after 91 migrations were replayed through `migrate`, a single web request
+         * on the same installation reached `exec()` → `checkversion()` → `upgrade()`, found
+         * no `0.137` … `0.147` rows and replayed eleven more. One of them decompresses a
+         * 70-chunk hypertable, and it did — in a client request, behind the maintenance
+         * mode `runMigration()` correctly raises, at a measured cost of roughly thirty to
+         * sixty meter readings that were never recorded.
+         *
+         * `migrate:status` reported "0 pending" throughout, because it reads slugs and this
+         * ledger is keyed by version. So the two halves of the migration system disagreed
+         * at *both* entry points, and this one has no status command to warn anybody first.
+         *
+         * It also defeated a deliberate guard, which is the part worth keeping in view: the
+         * application had set `autoExecute = false` on its own copy of that decompression,
+         * precisely to keep it out of a client request. The work happened in a client
+         * request anyway, through a different migration, on the path that does not consult
+         * the new runner at all.
+         */
+        if (count($unrecorded) >= \Pramnos\Database\MigrationRunner::WHOLE_HISTORY) {
+            \Pramnos\Logs\Logger::log(
+                'Refusing to auto-run ' . count($unrecorded) . ' unrecorded legacy '
+                . 'migrations: that is a history, not an upgrade, and this path runs inside '
+                . 'a web request. Run `migrate:adopt-legacy --dry-run` to see whether this '
+                . 'ledger already knows them under another key, or `migrate '
+                . '--adopt-baseline` deliberately from a shell.',
+                'migrations'
+            );
+
+            return;
+        }
+
+        foreach ($unrecorded as $class) {
+            $this->runMigration($class);
+        }
+    }
+
+    /**
+     * The legacy `version => class` map, from `app/migrations.php`.
+     *
+     * Its own method so {@see upgrade()}'s refusal can be tested without a file on disk at
+     * `APP_PATH`, which is a constant and therefore the same for every test in a process.
+     * A `require` is a collaborator like any other; the only reason it did not look like
+     * one is that it is spelled as a keyword.
+     *
+     * @return array<string,string> version => migration class name
+     */
+    protected function legacyMigrationMap(): array
+    {
+        $migrationsFile = APP_PATH . DS . 'migrations.php';
+        if (!file_exists($migrationsFile)) {
+            return array();
+        }
+
+        return (array) require($migrationsFile);
     }
 
     /**

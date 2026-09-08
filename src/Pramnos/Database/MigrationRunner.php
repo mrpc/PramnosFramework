@@ -399,6 +399,41 @@ class MigrationRunner
         $force  = (bool) ($options['force']  ?? false);
         $cutoff = $options['cutoff'] ?? null;
 
+        /*
+         * Carry a version-keyed history across before deciding anything is pending.
+         *
+         * Both systems write to `schemaversion` and key it differently: the legacy path
+         * stores a migration's `$version` (`0.088`), this one stores its slug
+         * (`migration0088`). An installation that migrated for years through the old path
+         * therefore has a full ledger this runner cannot read a row of — so it called every
+         * one of them pending and ran them again.
+         *
+         * That is not hypothetical. One installation replayed **91 already-applied
+         * migrations against a live production database** in about fifty seconds, and the
+         * ledger recorded every one as a success. Most were harmless by accident, because
+         * re-running old DDL mostly fails on arrival and `addQuery()` is tolerant. The
+         * dangerous ones are the *idempotent* ones, because they succeed: one re-added a
+         * compression policy a later migration had removed with measurements behind it, and
+         * the replay stopped before reaching the later one.
+         *
+         * `migrate:adopt-legacy` has always been able to do this, and that was the problem
+         * — it is a command somebody has to know exists, and the person who needs it is the
+         * person who has just upgraded and does not yet know anything is wrong. Doing it
+         * here costs one read of a table that is about to be read anyway, and it is
+         * idempotent: on every installation that has never used the legacy path it matches
+         * nothing and records nothing.
+         */
+        $adopted = $this->adoptLegacyVersions($migrations);
+        if ($adopted !== []) {
+            \Pramnos\Logs\Logger::log(
+                'Adopted ' . count($adopted) . ' migration(s) from the legacy version '
+                . 'ledger before running: ' . implode(', ', array_keys($adopted))
+                . '. They were already applied and are recorded, not re-run.',
+                'migrations'
+            );
+        }
+
+
         // Already-ran slugs are needed for dependency validation: a dep that ran
         // in a previous batch is satisfied and must not trigger "unknown dep" errors.
         $alreadyRan = $this->db !== null ? $this->getRanSlugs() : [];
@@ -412,6 +447,12 @@ class MigrationRunner
         }
 
         $pending = $this->getPending($candidates);
+
+        // Here rather than at the top of the method, because the question is not "is the
+        // ledger empty" but "is a whole history about to be replayed", and only `$pending`
+        // knows how many that is.
+        $this->refuseToReplayAWholeHistory($options, count($pending));
+
         $batch   = $this->nextBatch();
 
         $ran    = [];
@@ -994,6 +1035,143 @@ class MigrationRunner
      * @param  bool        $dryRun     Report what would be recorded, write nothing.
      * @return array<string, string>   slug => the legacy version it was matched by
      */
+    /**
+     * Option name that lets a run proceed on a populated database with an empty ledger.
+     *
+     * Named rather than reusing `force`, which means something else — «include
+     * `autorun = false` migrations» — and an operator reaching for one should not silently
+     * get the other.
+     */
+    public const OPTION_ADOPT_BASELINE = 'adoptBaseline';
+
+    /**
+     * Refuse to run a whole history against a database that plainly is not new.
+     *
+     * **A runner that finds zero of ninety-one migrations recorded is not looking at a
+     * fresh database.** A fresh database has no tables either, and the one this happened on
+     * had 407 GB of them. The empty ledger meant the history had moved, not that nothing
+     * had ever run — and the runner proceeded to do exactly what it is supposed to do with
+     * migrations that are not recorded.
+     *
+     * So the recognisable state is recognised: no rows in the ledger, and application
+     * tables in the schema. The cost of being wrong in that direction is a message; in the
+     * other direction it is 91 migrations against live data.
+     *
+     * This runs **after** {@see adoptLegacyVersions()}, which is what keeps it from firing
+     * on the installation it was written for: a version-keyed history is adopted first, so
+     * the ledger is no longer empty by the time this looks. What is left to refuse is the
+     * case where there is genuinely nothing to carry across — a database populated by hand,
+     * by a dump, or by a migration system that is not this one — and that is a case only an
+     * operator can decide.
+     *
+     * @param array<string,mixed> $options The run options; `adoptBaseline` overrides.
+     * @param int                 $pending How many migrations this run would execute.
+     * @throws \RuntimeException when a whole history is about to run on a populated database
+     */
+    private function refuseToReplayAWholeHistory(array $options, int $pending): void
+    {
+        if (!empty($options[self::OPTION_ADOPT_BASELINE])) {
+            return;
+        }
+        if ($this->db === null) {
+            return;
+        }
+        if ($pending < self::WHOLE_HISTORY) {
+            return;
+        }
+        if ($this->historyKeys() !== []) {
+            return;
+        }
+
+        $tables = $this->applicationTableCount();
+        if ($tables === 0) {
+            // A genuinely new database: nothing recorded and nothing to record it about.
+            return;
+        }
+
+        throw new \RuntimeException(
+            'Refusing to run ' . $pending . ' migrations: the history table is empty and '
+            . 'this database already has ' . $tables . ' other table(s). That is not a new '
+            . 'installation — it is a history that moved or was never carried across, and '
+            . 'running all of them would re-apply changes that are already here. One '
+            . 'installation replayed 91 this way, against live production data, in about '
+            . 'fifty seconds. Three ways forward, in the order worth trying: '
+            . '(1) if the old history is version-keyed, it is adopted automatically now, so '
+            . 'an empty ledger here means there was nothing to match — check '
+            . '`migrate:adopt-legacy --dry-run`; '
+            . '(2) if these migrations predate this database, set `migration_cutoff` in the '
+            . 'application settings to skip them; '
+            . '(3) if this database really should have every one applied from scratch, say '
+            . 'so with `migrate --adopt-baseline`.'
+        );
+    }
+
+    /**
+     * How many pending migrations make a run "a whole history" rather than an upgrade.
+     *
+     * A threshold, and it is one on purpose. The state being refused is *a whole history
+     * replaying*, not *the ledger is empty* — an empty ledger with two migrations behind it
+     * is a new project, or a test harness that truncated the table, and refusing those
+     * would make the guard something people route around.
+     *
+     * Ten, because the incident was ninety-one and the framework alone ships over a
+     * hundred: anything at or above this on a populated database with no recorded history
+     * is a history, not an upgrade. Below it, the blast radius of being wrong is small
+     * enough that a message costs more than it saves.
+     */
+    public const WHOLE_HISTORY = 10;
+
+    /**
+     * How many tables this schema holds besides the history table.
+     *
+     * The question is "is this database new", and the honest signal is whether anything
+     * else is in it. Counted rather than sampled by name, because a framework table list
+     * would answer for the framework's own tables and this has to answer for an
+     * application's.
+     *
+     * Best effort: a catalogue that cannot be read returns 0, which lets the run proceed —
+     * the same behaviour as before this guard existed. Refusing a migration because
+     * `information_schema` was unavailable would be a worse failure than the one it
+     * prevents.
+     */
+    private function applicationTableCount(): int
+    {
+        $db = $this->db;
+        if ($db === null) {
+            return 0;
+        }
+
+        try {
+            $history = $this->historyTableName();
+
+            if ($db->type === 'postgresql') {
+                $result = $db->query(
+                    $db->prepareQuery(
+                        "SELECT COUNT(*) AS cnt FROM information_schema.tables
+                          WHERE table_schema = COALESCE(NULLIF(current_schema(), ''), 'public')
+                            AND table_type = 'BASE TABLE'
+                            AND table_name <> %s",
+                        $history
+                    )
+                );
+            } else {
+                $result = $db->query(
+                    $db->prepareQuery(
+                        "SELECT COUNT(*) AS cnt FROM information_schema.tables
+                          WHERE table_schema = DATABASE()
+                            AND table_type = 'BASE TABLE'
+                            AND table_name <> %s",
+                        $history
+                    )
+                );
+            }
+
+            return $result ? (int) ($result->fields['cnt'] ?? 0) : 0;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
     public function adoptLegacyVersions(array $migrations, bool $dryRun = false): array
     {
         $this->ensureHistoryTable();

@@ -71,7 +71,7 @@ it — not a page, not a route: the whole site and the whole suite, before anyth
 Both of the framework's consuming applications have been bitten, once each:
 
 ```
-Fatal error: Declaration of Nannuka\Application::startMaintenance($reason = '')
+Fatal error: Declaration of App\Application::startMaintenance($reason = '')
 must be compatible with Pramnos\Application\Application::startMaintenance(
 $reason = '', $origin = self::MAINTENANCE_AUTOMATIC)
 ```
