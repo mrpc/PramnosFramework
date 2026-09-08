@@ -152,7 +152,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                 <div style="display:grid;gap:12px">
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">OAuth2 Redirect URI(s) / Callback</label>
-                        <textarea name="callback" style="<?php echo $inp; ?>;font-family:monospace" rows="2" placeholder="https://app.example.com/callback"><?php echo htmlspecialchars($app['callback'] ?? ''); ?></textarea>
+                        <textarea name="callback" style="<?php echo $inp; ?>;font-family:monospace" rows="3" placeholder="https://app.example.com/callback&#10;One URI per line, or comma-separated"><?php echo htmlspecialchars($app['callback'] ?? ''); ?></textarea>
                         <small style="color:#888;font-size:11px">Allowed redirect URIs for OAuth2 flows.</small>
                     </div>
                     <div>

@@ -424,9 +424,28 @@ class Application extends \Pramnos\Application\Model
      * second query for a string that is already in hand — and two parsers for one column
      * is how the endpoint and the repository come to disagree about what is registered.
      *
-     * The column is historically either a JSON array or a comma-separated list, so both
-     * are read. Empty entries are dropped: a trailing comma is not a registration, and an
-     * empty string that survived into the list would match a request that sent nothing.
+     * **One application has several legitimate callbacks.** The same client is developed on
+     * `http://localhost:3000`, tested on a staging host and run in production, and all
+     * three belong to one registration — so a column read as a single URI names one
+     * environment and, the moment anything treats it as authoritative, refuses the others.
+     * That is not hypothetical: it locked a customer out of their own localhost while
+     * production kept working.
+     *
+     * **The separator is permissive on purpose.** A human types this field, and a parser
+     * insisting on one separator silently drops a callback — a registration that is wrong
+     * in the direction that locks people out. Commas, spaces, tabs and newlines all
+     * separate, so a pasted list works whichever way it was pasted. `scope` in the same
+     * table already works this way; the convention was there to copy.
+     *
+     * A JSON array is still read, because installations have one stored.
+     *
+     * Empty entries are dropped: a trailing comma is not a registration, and an empty
+     * string that survived into the list would match a request that sent nothing.
+     *
+     * **A scheme that is only ever script is dropped**, not registered — see
+     * {@see REFUSED_SCHEMES}. This value reaches a `Location` header and a CSP
+     * `form-action` source, and `javascript://x/%0aalert(1)` satisfies every structural
+     * rule a URL parser applies.
      *
      * @param  string|null $callback The raw column value
      * @return list<string>
@@ -440,20 +459,94 @@ class Application extends \Pramnos\Application\Model
         $decoded = json_decode($callback, true);
         $uris = is_array($decoded)
             ? $decoded
-            : explode(',', $callback);
+            // Commas *and* whitespace, so a list typed on separate lines or pasted with
+            // spaces parses the same as one typed with commas.
+            : preg_split('/[\s,]+/', $callback);
 
         $clean = [];
-        foreach ($uris as $uri) {
+        foreach ((array) $uris as $uri) {
             if (!is_string($uri)) {
                 continue;
             }
             $uri = trim($uri);
-            if ($uri !== '') {
-                $clean[] = $uri;
+            if ($uri === '' || self::isRefusedScheme($uri) || !self::looksLikeACallback($uri)) {
+                continue;
             }
+            $clean[] = $uri;
         }
 
         return $clean;
+    }
+
+    /**
+     * Could this piece be a callback at all?
+     *
+     * A callback is either absolute with a scheme — `https://…`, `hwmapp://…`,
+     * `com.example.app://…` — or a path on this site. Anything else is not a destination a
+     * browser could be sent to, so registering it can only ever lock somebody out or, at
+     * worst, put a fragment of something else into a `Location` header.
+     *
+     * **It is a comma that made this necessary.** A URI may legitimately contain one, so
+     * splitting on commas cuts `data:text/html,<script>alert(1)</script>` in half — and the
+     * tail, `<script>alert(1)</script>`, has no scheme to refuse and was surviving as a
+     * registration. Found by the test for the refused-scheme list rather than by reading:
+     * the refusal was correct and ran on the wrong half.
+     *
+     * Splitting on commas stays, because a human types this field and `a,b` is what a human
+     * types. A callback that genuinely needs a comma percent-encodes it as `%2C`, which is
+     * what the RFC asks for in a query string anyway.
+     *
+     * @param string $uri One piece of a parsed `callback` value
+     */
+    protected static function looksLikeACallback(string $uri): bool
+    {
+        if (str_starts_with($uri, '/')) {
+            return true;
+        }
+
+        // A scheme, per RFC 3986: a letter, then letters, digits, `+`, `-` or `.`
+        return preg_match('#^[a-z][a-z0-9+.\-]*:#i', $uri) === 1;
+    }
+
+    /**
+     * Schemes that are never a callback and always script.
+     *
+     * The scheme cannot be restricted to `http(s)`: a mobile client returns to
+     * `hwmapp://oauth/callback` and that is a real registration. What can be refused is the
+     * set that has no other use — and the reason to refuse it here rather than trust a URL
+     * parser is that `javascript://x/%0aalert(1)` is structurally a valid URL with a host
+     * and a path. This value reaches a `Location` header and a CSP `form-action` source.
+     *
+     * @var list<string>
+     */
+    public const REFUSED_SCHEMES = [
+        'javascript',
+        'data',
+        'vbscript',
+        'file',
+        'blob',
+        'about',
+    ];
+
+    /**
+     * Is this URI's scheme one of the ones that is never a callback?
+     *
+     * Reads the scheme off the front of the string rather than through `parse_url()`, which
+     * returns `false` for the whole URL on some of these and would then be read as "no
+     * scheme, so nothing to refuse".
+     *
+     * @param string $uri A candidate callback
+     */
+    public static function isRefusedScheme(string $uri): bool
+    {
+        $colon = strpos($uri, ':');
+        if ($colon === false) {
+            return false;
+        }
+
+        $scheme = strtolower(trim(substr($uri, 0, $colon)));
+
+        return in_array($scheme, self::REFUSED_SCHEMES, true);
     }
 
     /**

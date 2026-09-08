@@ -129,7 +129,7 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
             <div class="<?php echo $card; ?>">
                 <div class="grid grid-cols-1 gap-4">
                     <div><label class="<?php echo $lbl; ?>">OAuth2 Redirect URI(s) / Callback</label>
-                        <textarea name="callback" class="<?php echo $inp; ?> font-mono" rows="2" placeholder="https://app.example.com/callback"><?php echo htmlspecialchars($app['callback'] ?? ''); ?></textarea>
+                        <textarea name="callback" class="<?php echo $inp; ?> font-mono" rows="3" placeholder="https://app.example.com/callback&#10;One URI per line, or comma-separated"><?php echo htmlspecialchars($app['callback'] ?? ''); ?></textarea>
                         <p class="text-xs text-base-content/60 mt-1">Allowed redirect URIs.</p></div>
                     <div><label class="<?php echo $lbl; ?>">Allowed Scopes</label>
                         <input type="text" name="scope" class="<?php echo $inp; ?>" value="<?php echo htmlspecialchars($app['scope'] ?? ''); ?>" placeholder="openid profile email">

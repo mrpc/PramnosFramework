@@ -28,8 +28,15 @@ use Pramnos\Database\QueryBuilder;
  * A client with **nothing** registered is a separate question, and the answer here is not
  * to refuse it: there is no registration to check against, and refusing would stop
  * authorization requests that work today on every installation whose `callback` column is
- * empty. It is recorded, and it gets no `form-action` widening — so it keeps exactly the
- * policy it had, and nothing it could not do before becomes possible.
+ * empty. It is recorded and it is accepted — and, since the endpoint accepted it, the
+ * `form-action` policy is widened to what it asked for.
+ *
+ * That last clause was the other way round for a day, gated on the registration, and it
+ * caused an outage: a customer's localhost login stopped working while production kept
+ * working, reported as «when I log in from localhost it does not redirect me back», with
+ * nothing server-side to see because the refusal happens in the browser. The lesson is in
+ * `testAnUnregisteredClientStillGetsThePolicyItNeeds()` — a CSP cannot be the enforcement
+ * point for a decision the layer below it does not make.
  */
 #[CoversClass(Oauth::class)]
 class OauthRedirectUriRegistrationTest extends TestCase
@@ -249,20 +256,25 @@ class OauthRedirectUriRegistrationTest extends TestCase
     }
 
     /**
-     * And it gets no `form-action` widening, so nothing new becomes possible.
+     * And it gets the policy it needs, because the endpoint accepted the request.
      *
-     * This is what keeps the previous test from being a hole. `form-action 'self'` has
-     * been accidentally preventing an unregistered client's delivery all along — badly,
-     * at the cost of blocking every legitimate login that goes through the form, but
-     * preventing it. Widening the policy for a destination no registration vouches for
-     * would convert a broken feature into a working attack, which is the ordering problem
-     * the report was explicit about.
+     * **This test asserted the opposite, and the opposite was wrong.** The reasoning was
+     * that widening the policy for a destination no registration vouches for converts a
+     * broken feature into a working attack. It had the layers backwards.
      *
-     * The distinction worth keeping in view: the CSP is not being used to block a redirect
-     * the OAuth layer permits. It is simply not being opened for one the OAuth layer
-     * cannot vouch for.
+     * `form-action` cannot answer *should this request be allowed*, only *may the form post
+     * toward the place this request names*. The endpoint above accepts an unregistered
+     * client's `redirect_uri` — deliberately, see the previous test — so refusing here
+     * added no security, only a second place to be inconsistent.
+     *
+     * It was not even the protection it looked like: `form-action` governs form
+     * submissions, so a user who already holds a session takes `GET /oauth/authorize` →
+     * 302 → client with no form in it, and the code is delivered regardless. What the gate
+     * stopped was the legitimate half — a customer's localhost login, reported as «when I
+     * log in from localhost it does not redirect me back», with nothing server-side to see
+     * because the refusal happens in the browser.
      */
-    public function testAnUnregisteredClientGetsNoPolicyWidening(): void
+    public function testAnUnregisteredClientStillGetsThePolicyItNeeds(): void
     {
         // Arrange
         $this->clientRegisters(null);
@@ -271,7 +283,11 @@ class OauthRedirectUriRegistrationTest extends TestCase
         $this->authorizeWith('https://client.example/cb');
 
         // Assert
-        $this->assertArrayNotHasKey(Oauth::FORM_ACTION_SESSION_KEY, $_SESSION);
+        $this->assertSame(
+            'https://client.example',
+            $_SESSION[Oauth::FORM_ACTION_SESSION_KEY] ?? null,
+            'the policy refused a destination the endpoint had just accepted'
+        );
     }
 
     /**
@@ -290,10 +306,14 @@ class OauthRedirectUriRegistrationTest extends TestCase
         $this->clientRegisters($callback);
 
         // Act
-        $this->authorizeWith('https://client.example/cb');
+        $out = $this->authorizeWith('https://client.example/cb');
 
-        // Assert — treated as unregistered: allowed through, and no widening
-        $this->assertArrayNotHasKey(Oauth::FORM_ACTION_SESSION_KEY, $_SESSION);
+        // Assert — treated as unregistered, which means accepted and widened, not refused
+        $this->assertStringNotContainsString('Authorization Error', $out);
+        $this->assertSame(
+            'https://client.example',
+            $_SESSION[Oauth::FORM_ACTION_SESSION_KEY] ?? null
+        );
     }
 
     /**
@@ -345,6 +365,71 @@ class OauthRedirectUriRegistrationTest extends TestCase
             'comma list, spaced' => ['https://a.example/cb , https://b.example/cb', 'https://b.example/cb'],
             'json array'         => ['["https://a.example/cb","https://b.example/cb"]', 'https://b.example/cb'],
             'native scheme'      => ['hwmapp://oauth', 'hwmapp://oauth'],
+
+            // The reported scenario, exactly: one client, three environments, and the
+            // localhost one is what stopped working when a single production value was
+            // read as authoritative. All three separators, because a human types this.
+            'the three environments, spaces' => [
+                'http://localhost:3000/callback https://staging.app.example/callback '
+                . 'https://app.example/callback',
+                'http://localhost:3000/callback',
+            ],
+            'the three environments, newlines' => [
+                "https://app.example/callback\nhttps://staging.app.example/callback\n"
+                . 'http://localhost:3000/callback',
+                'http://localhost:3000/callback',
+            ],
+            'production still works' => [
+                'http://localhost:3000/callback https://app.example/callback',
+                'https://app.example/callback',
+            ],
+        ];
+    }
+
+    /**
+     * A `redirect_uri` whose scheme is only ever script is refused on the request.
+     *
+     * Checked on the request and not only against the registration, because a client with
+     * nothing registered is accepted — so the registration is not a check that runs for
+     * everybody. This one does.
+     *
+     * `javascript://x/%0aalert(1)` satisfies every structural rule a URL parser applies: a
+     * scheme, a host, a path. And this value reaches a `Location` header and a CSP
+     * `form-action` source.
+     *
+     * @param string $uri A scheme that is never a callback
+     */
+    #[DataProvider('scriptSchemes')]
+    public function testAScriptSchemeIsRefusedEvenWithNothingRegistered(string $uri): void
+    {
+        // Arrange — the client that is *not* protected by an exact match
+        $this->clientRegisters(null);
+
+        // Act
+        $out = $this->authorizeWith($uri);
+
+        // Assert
+        $this->assertStringContainsString('Authorization Error', $out);
+        $this->assertStringNotContainsString('REDIRECTED_TO:', $out);
+        $this->assertArrayNotHasKey(
+            Oauth::FORM_ACTION_SESSION_KEY,
+            $_SESSION,
+            'a refused scheme must not reach the policy either'
+        );
+    }
+
+    /**
+     * @return array<string,array{string}>
+     */
+    public static function scriptSchemes(): array
+    {
+        return [
+            'javascript'           => ['javascript:alert(1)'],
+            'javascript with host' => ['javascript://x/%0aalert(1)'],
+            'uppercase'            => ['JavaScript:alert(1)'],
+            'data'                 => ['data:text/html;base64,PHNjcmlwdD4='],
+            'vbscript'             => ['vbscript:msgbox(1)'],
+            'file'                 => ['file:///etc/passwd'],
         ];
     }
 

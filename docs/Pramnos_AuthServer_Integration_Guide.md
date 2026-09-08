@@ -306,11 +306,70 @@ things:
 - The server widens its `form-action` policy for that origin, so a login that goes through
   the sign-in form completes (see the note below).
 
-A client with nothing registered still works exactly as it did. The server records the
-condition in `oauth.log` with the recommendation, and does **not** widen `form-action` for
-it — there is no registration to vouch for the destination, so such a client keeps precisely
-the policy it had and nothing new becomes possible. Whether to register is the operator's
-call about their own clients, not the framework's.
+A client with nothing registered still works exactly as it did, and **still gets the
+`form-action` widening**: the endpoint accepted its `redirect_uri`, so the policy says so.
+The condition is recorded in `oauth.log` with the recommendation. Whether to register is
+the operator's call about their own clients, not the framework's.
+
+!!! warning "A CSP cannot enforce what the layer below it does not"
+    The widening was briefly gated on the registration, on the reasoning that the two
+    layers should agree — and it had the agreement backwards. `form-action` can only answer
+    *may the form post toward the place this request names*, not *should this request be
+    allowed*. Gating it refused destinations the endpoint had just accepted, which added no
+    security and caused an outage: a customer's localhost login stopped working while
+    production kept working, with nothing server-side to see because the refusal happens in
+    the browser.
+
+    It was not even the protection it looked like. `form-action` governs form submissions,
+    so a user who already holds a session takes `GET /oauth/authorize` → 302 → client with
+    no form in it, and the code is delivered regardless. **A mismatch is worth a log line,
+    never a refusal, while the layer that could refuse does not.**
+
+#### One registration, several environments
+
+The same client is developed on `http://localhost:3000`, tested on a staging host and run
+in production, and **all three belong to one registration**. A field read as a single URI
+names one environment and refuses the others — which is exactly what happened: one
+production value in the column, and the customer's localhost login stopped working.
+
+So `callback` holds a list, and the separator is permissive because a human types this
+field. All of these are the same three registrations:
+
+```
+http://localhost:3000/callback https://staging.app.example/cb https://app.example/cb
+http://localhost:3000/callback,https://staging.app.example/cb,https://app.example/cb
+http://localhost:3000/callback
+https://staging.app.example/cb
+https://app.example/cb
+```
+
+Commas, spaces, tabs and newlines all separate; the admin screen's field is a textarea and
+what it stores is normalised to one space-separated list. A single value is a list of one,
+so nothing registered before reads differently.
+
+**A comma inside a URI must be percent-encoded** as `%2C`, since a comma separates.
+
+**A scheme that is only ever script is refused** — `javascript:`, `data:`, `vbscript:`,
+`file:`, `blob:`, `about:`. The scheme is otherwise unrestricted, because
+`myapp://oauth/callback` is a real registration for a native client; what is refused is the
+set that has no other use. `javascript://x/%0aalert(1)` satisfies every structural rule a
+URL parser applies, and this value reaches a `Location` header and a CSP `form-action`
+source. The admin screen says so when you paste one; the endpoint refuses it on the request
+as well, because a client with nothing registered has no registration to check.
+
+!!! note "An older installation may still have a 255-character ceiling"
+    `create_applications_table` declares `text`, but on a database whose `applications`
+    table predates the migration system that migration is `Skipped (cutoff)` and never
+    applied it — the column is `varchar(255)`, and three long callbacks plus separators is
+    about 190 characters.
+
+    `2026_09_08_000001_widen_applications_callback` fixes it, and it has to be a framework
+    migration: PostgreSQL refuses to alter a column two framework views select from
+    (*«cannot alter type of a column used by a view or rule»*), so widening means dropping
+    and rebuilding those views. The migration drops them with `CASCADE` and re-runs the
+    views migration, so their definitions stay in one place. Until you run it, the admin
+    screen refuses an overflow with a message naming the ceiling rather than letting the
+    driver truncate.
 
 #### Two ways to stop `form-action` cancelling an SSO login
 

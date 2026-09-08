@@ -134,13 +134,35 @@ class Oauth extends Controller
             // anywhere: this is the only place that can refuse a callback the client's
             // registration disagrees with, while the request is still cheap and nothing
             // has been issued.
-            //
-            // The policy is widened only for a URI a registration vouched for. A client
-            // with nothing registered is not refused — see the method — and gets no
-            // widening either, so it keeps exactly the policy it had.
-            if ($this->redirectUriIsRegistered($client, $params['redirect_uri'])) {
-                $this->allowFormActionTo($params['redirect_uri']);
-            }
+            $this->redirectUriIsRegistered($client, $params['redirect_uri']);
+
+            /*
+             * **Then widen the policy to what the request named — unconditionally.**
+             *
+             * This was gated on the registration, and that was wrong. The gate came from
+             * wanting the two layers to agree; it had the agreement backwards.
+             *
+             * `form-action` cannot answer *should this request be allowed*, only *may the
+             * form post toward the place this request names*. Anything reaching this line
+             * is a destination the OAuth layer above accepts — either a registration
+             * matched it exactly, or the client has none and the endpoint permits what it
+             * asked for. Refusing here while accepting there adds no security, only a
+             * second place to be inconsistent.
+             *
+             * It is not even the protection it looks like. `form-action` governs form
+             * submissions, so a user who already holds a session takes
+             * `GET /oauth/authorize` → 302 → client with no form in it, and the code is
+             * delivered regardless. What the gate actually stopped was the *legitimate*
+             * half: a customer's localhost login, reported as «when I log in from
+             * localhost it does not redirect me back», with nothing server-side to see
+             * because the refusal happens in the browser.
+             *
+             * A mismatch against the registration is worth a log line — it is either a
+             * client using an origin nobody wrote down, or a registration that has fallen
+             * behind — and {@see redirectUriIsRegistered()} writes one. It must not be
+             * load-bearing while the layer that could refuse does not.
+             */
+            $this->allowFormActionTo($params['redirect_uri']);
 
             $user        = $this->getLoggedInUser();
 
@@ -957,6 +979,26 @@ class Oauth extends Controller
         if ($params['redirect_uri'] === '') {
             throw new \InvalidArgumentException('Missing redirect_uri');
         }
+
+        /*
+         * A scheme that is only ever script is refused here, before anything else.
+         *
+         * The scheme cannot be restricted to `http(s)` — a mobile client returns to
+         * `hwmapp://oauth/callback` and that is a real registration. But `javascript:`,
+         * `data:` and their siblings have no other use, and this value reaches a `Location`
+         * header and a CSP `form-action` source. `javascript://x/%0aalert(1)` satisfies
+         * every structural rule a URL parser applies.
+         *
+         * Checked on the **request** and not only on the registration, because a client
+         * with nothing registered is accepted — deliberately — so the registration is not
+         * a check that runs for everybody. This one does.
+         */
+        if (\Pramnos\Auth\Application::isRefusedScheme($params['redirect_uri'])) {
+            throw new \InvalidArgumentException(
+                'The redirect_uri scheme is not one a callback may use.'
+            );
+        }
+
         if ($params['response_type'] !== 'code') {
             throw new \InvalidArgumentException('Unsupported response_type (only "code" is supported)');
         }

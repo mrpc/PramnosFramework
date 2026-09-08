@@ -305,8 +305,107 @@ class ApplicationModelTest extends TestCase
             // register `1`.
             'json of numbers'   => ['[1,2]', []],
             'json object'       => ['{"a":"https://a.example/cb"}', ['https://a.example/cb']],
-            // Not JSON, so it is read as the comma list it looks like.
-            'broken json'       => ['["https://a.example/cb"', ['["https://a.example/cb"']],
+            // Not JSON, so it is read as a list — and the one piece it yields starts with
+            // `[`, which is not a destination a browser could be sent to. It used to be
+            // registered anyway: a string that can never match any request, so the client
+            // was registered and permanently locked out. Now it parses to nothing, the
+            // client counts as unregistered, and the condition is logged.
+            'broken json'       => ['["https://a.example/cb"', []],
+
+            // A human types this field. A parser insisting on one separator silently drops
+            // a callback, which is a registration wrong in the direction that locks people
+            // out — and that is exactly what happened: one production value in the column,
+            // and a customer's localhost login stopped working while production kept
+            // working. `scope` in the same table already accepts whitespace.
+            'spaces'            => ['https://a.example/cb https://b.example/cb',
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            'newlines'          => ["https://a.example/cb\nhttps://b.example/cb",
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            'newline and comma' => ["https://a.example/cb,\n  https://b.example/cb\n",
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            'tabs'              => ["https://a.example/cb\t\thttps://b.example/cb",
+                                    ['https://a.example/cb', 'https://b.example/cb']],
+            // The one shape a whitespace split must not break: a native scheme with no
+            // spaces in it, alongside an http one.
+            'native and http'   => ['hwmapp://oauth https://a.example/cb',
+                                    ['hwmapp://oauth', 'https://a.example/cb']],
+        ];
+    }
+
+    // ── Schemes that are never a callback ────────────────────────────────────
+
+    /**
+     * A scheme that is only ever script is not a registration.
+     *
+     * The scheme cannot be restricted to `http(s)` — a mobile client returns to
+     * `hwmapp://oauth/callback`, and that is real. What can be refused is the set that has
+     * no other use, and the reason to refuse it rather than trust a URL parser is that
+     * `javascript://x/%0aalert(1)` is structurally a valid URL with a host and a path.
+     *
+     * This value reaches a `Location` header and a CSP `form-action` source, so a
+     * registration is not the only thing at stake.
+     *
+     * @param string $uri A candidate callback
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedSchemes')]
+    public function testAScriptSchemeIsNotRegistered(string $uri): void
+    {
+        // Act
+        $parsed = \Pramnos\Auth\Application::parseRedirectUris(
+            'https://good.example/cb ' . $uri
+        );
+
+        // Assert — the legitimate one survives and the other is gone
+        $this->assertSame(['https://good.example/cb'], $parsed);
+        $this->assertTrue(\Pramnos\Auth\Application::isRefusedScheme($uri));
+    }
+
+    /**
+     * @return array<string,array{string}>
+     */
+    public static function refusedSchemes(): array
+    {
+        return [
+            'javascript'          => ['javascript:alert(1)'],
+            'javascript with host' => ['javascript://x/%0aalert(1)'],
+            'JavaScript uppercase' => ['JavaScript:alert(1)'],
+            'javascript padded'    => ["\tjavascript:alert(1)"],
+            'data'                 => ['data:text/html,<script>alert(1)</script>'],
+            'vbscript'             => ['vbscript:msgbox(1)'],
+            'file'                 => ['file:///etc/passwd'],
+            'blob'                 => ['blob:https://x/uuid'],
+            'about'                => ['about:blank'],
+        ];
+    }
+
+    /**
+     * And a scheme that is merely unusual is kept.
+     *
+     * The control. Refusing everything but `http(s)` would break every native client, so
+     * the list has to be a deny-list — and a deny-list that is too eager is the same
+     * lockout as a single-valued column.
+     *
+     * @param string $uri A candidate callback that must survive
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('acceptedSchemes')]
+    public function testAnUnusualButLegitimateSchemeIsKept(string $uri): void
+    {
+        // Act & Assert
+        $this->assertSame([$uri], \Pramnos\Auth\Application::parseRedirectUris($uri));
+        $this->assertFalse(\Pramnos\Auth\Application::isRefusedScheme($uri));
+    }
+
+    /**
+     * @return array<string,array{string}>
+     */
+    public static function acceptedSchemes(): array
+    {
+        return [
+            'https'          => ['https://a.example/cb'],
+            'http localhost' => ['http://localhost:3000/callback'],
+            'native scheme'  => ['hwmapp://oauth/callback'],
+            'reverse dns'    => ['com.example.app://oauth'],
+            'no scheme'      => ['/relative/callback'],
         ];
     }
 }
