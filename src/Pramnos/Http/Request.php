@@ -401,6 +401,19 @@ class Request extends Base
      * `json_decode($raw, true)` itself; moving it onto the framework's parsing is
      * what broke it.
      *
+     * **It is also a breaking change, and was filed as only a fix.** That reasoning — "a
+     * regression rather than a feature that never worked" — is true of the endpoint it was
+     * found on and not of a handler written against what the framework actually did, which
+     * is the majority case. One mobile application had been sending the same nested payload
+     * for months; after the upgrade every batch answered 400, because `isset()` on a
+     * property of an array is false and the required-field check failed on element one and
+     * returned before storing anything. No exception, no log line, and no failing test — a
+     * unit test that hands a controller a hand-built array of `stdClass` still passes,
+     * since what changed is the decode and not the handler.
+     *
+     * "Breaking" and "fix" are orthogonal labels. It is now a row in the Upgrade Guide's
+     * unreleased table as well, which is what somebody on `dev-main` reads before bumping.
+     *
      * A body that declares or looks like JSON and is not valid JSON yields an empty
      * array rather than being handed to `parse_str`, which is deliberate:
      * `parse_str('{"id":7}', $out)` produces `['{"id":7}' => '']` — **non-empty, so

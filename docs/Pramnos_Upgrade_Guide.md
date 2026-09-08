@@ -489,6 +489,65 @@ So `.no-js` and `.js` selectors behave the way every guide on progressive enhanc
 says they should. If your stylesheets were written against the legacy behaviour, they
 start working rather than stopping.
 
+## Since v1.2 — unreleased
+
+**Read this section if you track `dev-main`.** Most applications on this framework do:
+`"mrpc/pramnosframework": "dev-main"` in `composer.json`, and the framework's own
+instructions are to `composer update`. So an upgrade crosses whatever landed since the tag,
+and until this section existed the only record of a behaviour change was a dated changelog
+post among dozens.
+
+That gap is not theoretical. A mobile application failed the day before a municipal
+presentation on a payload it had been sending unchanged for months, and the change behind it
+had shipped a month after the v1.2 tag, filed under `Fixed:` in a daily post. **"Breaking"
+and "fix" are orthogonal labels**, and filing under one had been excluding an item from the
+other by construction.
+
+This table is appended to when a change lands, and becomes the `v1.2 → v1.3` section when
+the tag is cut — assembled as it happens rather than reconstructed from a month of posts.
+
+| Area | Change | Action required |
+|---|---|---|
+| **JSON request bodies** | `Request::decodeBody()` decodes associatively, arrays all the way down. It was `(array) json_decode($raw)`, which cast only the top level, so every element of a nested list arrived as an `stdClass`. | Any handler that reads an element of a JSON body with `->` — a nested list especially — now receives an array. Convert the access, or normalise at the boundary. |
+| **`QueryException` messages** | `getMessage()` is a short sentence that names nothing; the driver's text and the SQL moved to `getDriverMessage()`, `getQuery()` and `getDetail()`. `Model::_save()` raises one instead of a plain `\Exception`. | If you log `$e->getMessage()`, log `$e->getDetail()`. If you *echo* it to a client, you were echoing your schema — that is the point of the change. |
+| **Controller resolution** | `Application::getController()` throws `ControllerNotFoundException` and no longer puts the request URI or the signed-in username in the message. | An `Api::exec()` override that matched `'Cannot find controller:'` on the message should catch the type. Read the context from `getContext()`. |
+| **OAuth2 `redirect_uri`** | `/oauth/authorize` refuses a `redirect_uri` that disagrees with the client's registered `applications.callback`, matched exactly. A client with *nothing* registered is unaffected. | Register the callback each client actually sends, character for character. Several are allowed, separated by commas, spaces or newlines. |
+| **Migrations** | `migrate` refuses to run ten or more migrations when the ledger is empty and the database already has tables; `Application::upgrade()` does the same rather than auto-running a history in a web request. | Nothing, on an installation with a recorded history. On one whose history moved, `migrate:adopt-legacy --dry-run` first — `migrate` now adopts a version-keyed ledger on its own. `migrate --adopt-baseline` overrides. |
+
+### JSON request bodies decode associatively
+
+The one most likely to be silent, and it was:
+
+```php
+- $postArray = (array) json_decode($rawInput);      // top level only
+- $_POST = array_merge($postArray, $_POST);
++ $_POST = array_merge($this->decodeBody(), $_POST);   // json_decode($raw, true)
+```
+
+A handler reading `$element->deviceid` over a nested list now sees an array, `isset()` on a
+property of an array is false, and a required-field check fails on **element one and returns
+before anything is stored** — the whole batch refused, not the bad element. No exception, no
+log line, and no failing test, because a unit test that hands the controller a hand-built
+array of `stdClass` still passes: what changed is the decode, not the handler.
+
+**The change itself is right** and nobody is asking for the old behaviour back. Associative
+all the way down is the defensible contract, and `(array) json_decode()` producing object
+elements inside an array was a half-cast structure. What was missing was this row.
+
+Two ways to fix a handler, and the second is smaller under time pressure:
+
+```php
+// convert the access
+$deviceId = $element['deviceid'] ?? null;
+
+// or normalise once at the boundary, which also keeps working if a caller sends objects
+$items = array_map(static fn($item) => (object) $item, $items);
+```
+
+An http-level test on the endpoint would have gone red at the upgrade instead of at a
+customer. A controller-level test passes while production fails, because the decode is
+upstream of the controller.
+
 ## v1.1 → v1.2
 
 v1.2 is a large release (replicas, query/schema builders, migration system

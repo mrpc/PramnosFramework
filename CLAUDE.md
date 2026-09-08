@@ -81,6 +81,29 @@ is genuinely no compatible way to do it, the commit takes `!` and the day's chan
 gets a **"What breaks in subclasses"** section carrying the one line somebody with an
 override needs — usually "delete it, the base class now does what yours did".
 
+**And a behaviour change gets a row in `docs/Pramnos_Upgrade_Guide.md` under
+`## Since v1.2 — unreleased`, in the same commit.** Signatures are the easy half. What
+actually breaks a consuming application is a response envelope, a default, or a decoded
+body changing shape while the code still compiles — and the Upgrade Guide's own opening tip
+says exactly that, then had no section for anything after the last tag.
+
+**Why a third place, when there is already a changelog post.** Applications track
+`dev-main` and this framework's own instructions are to `composer update`, so an upgrade
+crosses everything since the tag. A mobile application failed the day before a municipal
+presentation on a payload it had been sending unchanged for months; the change was a month
+after v1.2, correct, and filed in a daily post under `Fixed:`. **"Breaking" and "fix" are
+orthogonal** — filing under one excluded it from the other, and the only record was one post
+among 41.
+
+The row is three columns — area, what changed, what to do — and the third has to be
+**grep-able**: *"any handler that reads an element of a JSON body with `->` now receives an
+array"*, not a paragraph. It is appended as the change lands, so the `v1.2 → v1.3` section
+is assembled rather than reconstructed from a month of posts when the tag is cut.
+
+A change that cannot break anybody needs no row. If you are unsure, the test is whether an
+application that compiles against both versions can behave differently — not whether the
+change is a fix.
+
 ### 7. Tests have detailed explanatory comments
 
 Every test method must carry:
