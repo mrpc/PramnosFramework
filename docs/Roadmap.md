@@ -98,6 +98,68 @@ Two things are deliberately *not* planned:
   proxy that only wraps *some* services would report a domain layer that is
   partly missing, which is worse than one that is visibly opt-in.
 
+## Migrations
+
+### Moving the ledger replayed 91 already-applied migrations on a live database
+
+**Not fixed. Parked, not forgotten** — and recorded here because the report lives in a
+consuming application's repository (`docs/tasks/framework-prompt-ledger-change-replayed-91-migrations.md`
+in the reference application), which a session working on the framework has no reason to
+open.
+
+An installation upgrading across the ledger change replayed its whole migration history.
+Before it, migrations were recorded in `mysql.pramnos_schemaversion` keyed by **version
+number** — 73 rows, the last `0.088`. After it, the runner records in
+`public.schemaversion` keyed by **name**, `migration0091`. Nothing carried the history
+across, so the new runner found none of `migration0011` … `migration0125` and did what it
+is supposed to do with migrations that are not in the ledger:
+
+```
+07-09-2026 07:35:57  batch 10   91 migrations, from migration0011 onwards
+07-09-2026 07:36:33  batch 10   migration0091 → add_compression_policy('alerthistory', '3 months')
+```
+
+Ninety-one already-applied migrations ran against a live production database in about fifty
+seconds, and the ledger records every one as `result=1`.
+
+**Most were harmless by accident**: re-running old DDL mostly fails on arrival — the ledger
+is full of `23 of 80 statements failed (12 look like work already done)` — and the runner
+counts the migration successful anyway. The dangerous ones are the *idempotent* ones,
+because they succeed. `migration0091` re-added a compression policy that `migration0147`
+had removed two hours earlier with measurements behind it, and the replay stopped at
+`migration0125`, so 0147 was never reached to clean up. For a day the recorded state and
+the real state disagreed with nothing to indicate it.
+
+It then happened a second time on the same installation through the **legacy** entry point:
+a single web request reached `Application::exec()` → `checkversion()` → `upgrade()`, which
+keys the ledger by `$version` rather than by slug, found no `0.137` … `0.147` rows and
+replayed eleven more. `migrate:status` reported "0 pending" throughout, because it reads
+slugs. So the version-keyed and slug-keyed ledgers disagree at **both** entry points, and
+fixing one would not have been enough.
+
+**Three asks, in order of value:**
+
+1. **Carry the history when the ledger moves.** The upgrade knew both schemas and was the
+   only code that could ever have matched `0.088` to `migration0088`. A one-time backfill
+   turns this from a replay into a no-op. Without it, every installation upgrading from the
+   version-keyed ledger replays its entire history the first time anything calls `migrate`.
+2. **Refuse to replay a whole history unasked.** A runner that finds *zero* of *ninety-one*
+   migrations recorded is not looking at a fresh database — a fresh database has no tables
+   either, and this one had 407 GB of them. Require an explicit flag when the ledger is
+   empty but the application's tables exist. The cost of being wrong in that direction is a
+   message; in this direction it is 91 migrations against live data.
+3. **`result=1` should not cover a migration whose statements mostly failed.** A distinct
+   *partially applied* state would have made one `SELECT` show what had happened, which is
+   what made the replay invisible in review afterwards.
+
+**No installation is currently at risk**: the reference application's ledger is consistent
+and has nothing pending, so the replay cannot recur there. The exposure is the *next*
+installation to upgrade across the ledger change, and whether it gets away with it depends
+entirely on which of its old migrations happen to be idempotent.
+
+*Done when:* an installation whose history is only in the version-keyed table can run
+`migrate` and have it report nothing pending.
+
 ## Testing
 
 ### The suite takes 15 minutes, and that paces every change
