@@ -247,13 +247,33 @@ class DebugGrantController extends Controller
      */
     protected function mayGrant(): bool
     {
-        $user = \Pramnos\User\User::getCurrentUser();
-
-        if (!is_object($user) || (int) ($user->userid ?? 0) < 1) {
+        /*
+         * The floor, **and now a usertype list and a user-id list**.
+         *
+         * Only the DevPanel could name a person, and this route hands over the query log of
+         * a live request. On one installation `grant_min_usertype` was never set, so the
+         * framework's default of 90 held it — and 64 accounts were at 90 or above. A
+         * usertype is a role granted to other organisations; there was no value of that key
+         * that meant "this person".
+         *
+         * `debug.grant_userids` means it, and falls back to `devpanel.userids` when unset —
+         * see {@see \Pramnos\Application\DeveloperAccess}. The default floor is unchanged
+         * and stays deliberately lower than Adminer's 99: reading one request's queries is
+         * not reading the whole database. An installation that disagrees now has a narrower
+         * way to say so than raising a floor out of reach.
+         */
+        if (!\Pramnos\Application\DeveloperAccess::permits(
+            \Pramnos\Application\DeveloperAccess::DEBUGBAR,
+            $this->minUserType()
+        )) {
             return false;
         }
 
-        return (int) ($user->usertype ?? 0) >= $this->minUserType();
+        \Pramnos\Application\DeveloperAccess::recordOpening(
+            \Pramnos\Application\DeveloperAccess::DEBUGBAR
+        );
+
+        return true;
     }
 
     /**

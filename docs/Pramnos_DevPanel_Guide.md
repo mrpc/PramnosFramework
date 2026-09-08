@@ -6,6 +6,7 @@ use_cases:
   - Diagnosing an empty or wrong panel in the developer dashboard
   - Adding an application-specific panel to the developer dashboard
   - Reading the log while developing, without opening the administration area
+  - Restricting the developer tools to named people rather than a usertype
 ---
 
 # DevPanel Guide
@@ -43,8 +44,22 @@ The keys, in `app.php` beside the feature list:
     'production_min_usertype' => 99,          // opens it on any deployment
     'usertypes'               => [95],        // these types too, wherever they are
     'userids'                 => [7],         // and these people, whatever their type
+
+    // Adminer, at /adminer. Unset lists fall back to the panel's two above.
+    'adminer_min_usertype'    => 99,
+    'adminer_usertypes'       => [],
+    'adminer_userids'         => [],
+],
+'debug' => [
+    // The toolbar grant, at /debugbar. Same fallback.
+    'grant_min_usertype'      => 90,
+    'grant_usertypes'         => [],
+    'grant_userids'           => [],
 ],
 ```
+
+All three read the same three ideas — see
+[All three developer tools read the same names](#all-three-developer-tools-read-the-same-names).
 
 ### Opening it on a server that is not a development one
 
@@ -62,12 +77,72 @@ panel to named people and nobody else, raise `production_min_usertype` out of re
 the ids:
 
 ```php
-'devpanel' => ['production_min_usertype' => 9999, 'userids' => [7]],
+'devpanel' => ['production_min_usertype' => 100, 'userids' => [7]],
 ```
+
+100 rather than 9999, because `DevPanelServiceProvider::bootHttp()` warns on **every request**
+when `min_usertype` leaves 1..100 — worth knowing, since raising a floor out of reach is the
+way to narrow this.
 
 Every opening outside a development environment is written to the `auth` log with the user,
 their type and the address. On a development machine the environment is the trace; on a live
 one nothing else would be.
+
+### All three developer tools read the same names
+
+`/devpanel`, `/adminer` and `/debugbar` are three routes with three gates, and for a while
+only this one could name a person. Adminer and the toolbar had a usertype floor and nothing
+else, so there was no configuration that meant *this account and nobody else* for either.
+
+**A usertype is a role, and on a real installation it is a role granted to other
+organisations.** One production database had 9 accounts at usertype 99 across six of them —
+each able to open a full database client against a live 418 GB database — and 64 accounts at
+90 or above, each able to issue itself a toolbar grant carrying the query log of a live
+request. That installation set both floors to 100 and **turned two of the three tools off**,
+because off was the only reachable state narrower than nine organisations.
+
+Every gate now reads the same three ideas through
+`Pramnos\Application\DeveloperAccess`, and each tool has its own lists that **fall back to
+the panel's**:
+
+| | floor | usertypes | userids | default floor |
+|---|---|---|---|---|
+| `/devpanel` | `devpanel.production_min_usertype` | `devpanel.usertypes` | `devpanel.userids` | 99 |
+| `/adminer` | `devpanel.adminer_min_usertype` | `devpanel.adminer_usertypes` | `devpanel.adminer_userids` | 99 |
+| `/debugbar` | `debug.grant_min_usertype` | `debug.grant_usertypes` | `debug.grant_userids` | 90 |
+
+One line gives one person everything:
+
+```php
+'devpanel' => ['production_min_usertype' => 100, 'adminer_min_usertype' => 100, 'userids' => [7]],
+'debug'    => ['grant_min_usertype' => 100],
+```
+
+`devpanel.userids` reaches all three, so there is no third list to forget. A tool that names
+its own people uses those instead — which is how Adminer is made narrower than the panel:
+
+```php
+'devpanel' => [
+    'userids'         => [7, 8],   // the panel, for two people
+    'adminer_userids' => [7],      // the database client, for one
+],
+```
+
+**The fallback is one-way.** Naming somebody for Adminer does not give them the panel, which
+browses the database, reads the cache and dumps the container.
+
+Every opening of any of the three outside a development environment goes to the `auth` log,
+naming the tool.
+
+!!! note "Why the toolbar's default floor is 90 and Adminer's is 99"
+    They are different questions. Adminer reads the whole database; the toolbar grant carries
+    the queries, session keys and logs of **one request** in **one browser**, for a bounded
+    time. The gradient is deliberate.
+
+    It is worth stating because an installation that never set `grant_min_usertype` read the
+    90 as a decision somebody had made about it, and 64 accounts held that grant for as long
+    as the feature was enabled. If 90 is wrong for yours, `grant_userids` is now a narrower
+    answer than raising the floor.
 
 ### There is no setting that opens this panel
 

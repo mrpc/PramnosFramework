@@ -173,7 +173,27 @@ class Adminer extends \Pramnos\Application\Controller
 
         $usertype = (int) ($user->usertype ?? 0);
 
-        if ($usertype >= static::rootFloor()) {
+        /*
+         * The floor, **and now a usertype list and a user-id list**.
+         *
+         * Only the DevPanel could name a person, and this is the tool its own docblock
+         * calls "the more dangerous of the two". A usertype is a role, and on a real
+         * installation it is a role granted to other organisations: nine accounts at 99
+         * across six of them, each able to open a full database client against a live
+         * 418 GB database. There was no value of `adminer_min_usertype` that said "this
+         * person and nobody else", so that installation set 100 and turned the tool off.
+         *
+         * `adminer_userids` says it, and falls back to `devpanel.userids` when unset — see
+         * {@see \Pramnos\Application\DeveloperAccess}.
+         */
+        if (\Pramnos\Application\DeveloperAccess::permits(
+            \Pramnos\Application\DeveloperAccess::ADMINER,
+            static::rootFloor()
+        )) {
+            \Pramnos\Application\DeveloperAccess::recordOpening(
+                \Pramnos\Application\DeveloperAccess::ADMINER
+            );
+
             return true;
         }
 

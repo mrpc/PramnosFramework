@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\DevPanel;
 
 use Pramnos\Application\Controller;
+use Pramnos\Application\DeveloperAccess;
 use Pramnos\Application\FeatureRegistry;
 use Pramnos\Framework\GitInfo;
 use Pramnos\Application\Settings;
@@ -3708,25 +3709,24 @@ class DevPanelController extends Controller
      */
     protected function allowedOnAnyDeployment(): bool
     {
-        $user = \Pramnos\User\User::getCurrentUser();
-
-        // `!is_object()`, because an anonymous visitor is `false` here — see guardUserType().
-        if (!is_object($user) || !\Pramnos\Http\Session::staticIsLogged()) {
-            return false;
-        }
-
-        $usertype = (int) ($user->usertype ?? 0);
-        $userid   = (int) ($user->userid ?? 0);
-
-        $floor     = (int) static::config('production_min_usertype', 99);
-        $usertypes = array_map('intval', (array) static::config('usertypes', array()));
-        $userids   = array_map('intval', (array) static::config('userids', array()));
-
-        $allowed = ($floor > 0 && $usertype >= $floor)
-            || in_array($usertype, $usertypes, true)
-            || ($userid > 0 && in_array($userid, $userids, true));
-
-        if (!$allowed) {
+        /*
+         * The floor, the usertype list and the user-id list now live in one resolver, which
+         * the other two developer tools call as well.
+         *
+         * They did not, and only this gate could name a person. The docblock above cites
+         * Adminer as the arrangement being copied — *"the more dangerous of the two
+         * tools"* — and then the panel gained the narrower gate and Adminer did not. One
+         * installation had to turn two of the three tools off, because off was the only
+         * state narrower than the nine usertype-99 accounts it had across six
+         * organisations.
+         *
+         * See {@see \Pramnos\Application\DeveloperAccess}. The keys and the default are
+         * unchanged; what changed is that they are read in one place.
+         */
+        if (!DeveloperAccess::permits(
+            DeveloperAccess::DEVPANEL,
+            (int) static::config('production_min_usertype', 99)
+        )) {
             return false;
         }
 
@@ -3737,14 +3737,7 @@ class DevPanelController extends Controller
          * log line per tab is a log nobody reads. On a live server it is the only visible
          * trace that the panel was opened at all.
          */
-        if (!$this->isDevMode()) {
-            \Pramnos\Logs\Logger::log(
-                'DevPanel opened outside a development environment by user ' . $userid
-                . ' (usertype ' . $usertype . ') from '
-                . \Pramnos\Http\Request::clientIp('an unknown address'),
-                'auth'
-            );
-        }
+        DeveloperAccess::recordOpening(DeveloperAccess::DEVPANEL);
 
         return true;
     }
