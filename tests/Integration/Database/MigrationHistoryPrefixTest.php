@@ -25,7 +25,7 @@ use Pramnos\Framework\Factory;
  *    with `Duplicate column name 'scope'` and every later call died identically,
  *    because an asymmetry does not resolve itself on a retry.
  *
- * Reported by nannuka as FW-060, with the two tables and their timestamps.
+ * Reported by a consuming application as FW-060, with the two tables and their timestamps.
  */
 #[CoversClass(MigrationRunner::class)]
 class MigrationHistoryPrefixTest extends TestCase
