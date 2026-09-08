@@ -296,6 +296,29 @@ class AddMissingForeignKeysToExistingTables extends Migration
             return false;
         }
 
+        // TimescaleDB refuses `ALTER TABLE … ADD CONSTRAINT` on a hypertable that holds
+        // compressed chunks — «operation not supported on hypertables that have compressed
+        // data» — and a failing ALTER aborts the whole batch, taking unrelated migrations
+        // with it. `authserver.data_processing_records` compresses chunks older than 90
+        // days, so this migration failed on every installation old enough to have any.
+        //
+        // Skipped rather than decompressed, for the same reason as the orphan check below:
+        // skipping is recoverable and a broken batch is not. Decompressing a production
+        // hypertable inside a migration is minutes of maintenance mode on a table nobody
+        // asked to touch. A fresh installation adds the key while the table is empty and
+        // compresses afterwards, which works — the key and compression coexist once the key
+        // is there.
+        if ($this->tableHasCompressedChunks($table)) {
+            $this->skipForeignKey(
+                $constraint,
+                "$table is a hypertable with compressed chunks, which TimescaleDB will not "
+                . 'alter. Decompress it and run migrations again, or leave the key off — a '
+                . 'fresh installation gets it before the first chunk compresses'
+            );
+
+            return false;
+        }
+
         $orphans = $this->orphanCount($table, $column, $referencedTable, $onColumn);
 
         if ($orphans > 0) {
@@ -309,6 +332,29 @@ class AddMissingForeignKeysToExistingTables extends Migration
         }
 
         return true;
+    }
+
+    /**
+     * Is this table a hypertable that currently holds compressed chunks?
+     *
+     * Delegates to the schema builder, which is where the catalogue query and the
+     * reasoning live — see {@see \Pramnos\Database\SchemaBuilder::hasCompressedChunks()}.
+     * The name is split here because the builder wants the bare table and this migration
+     * works in schema-qualified names.
+     *
+     * @param  string $table Child table, schema-qualified or not
+     * @return bool
+     */
+    protected function tableHasCompressedChunks($table)
+    {
+        $schema = '';
+        $bare   = $table;
+
+        if (str_contains($table, '.')) {
+            [$schema, $bare] = explode('.', $table, 2);
+        }
+
+        return $this->schema('public')->hasCompressedChunks($bare, $schema);
     }
 
     /**

@@ -1138,6 +1138,61 @@ class SchemaBuilder
     }
 
     /**
+     * Does this hypertable hold compressed chunks right now?
+     *
+     * The question a migration has to ask before it alters one. TimescaleDB refuses
+     * outright:
+     *
+     * ```
+     * ERROR:  operation not supported on hypertables that have compressed data
+     * HINT:  Decompress the data before retrying the operation.
+     * ```
+     *
+     * — and a failing `ALTER` aborts the whole batch, taking unrelated migrations with it.
+     * That is what two framework migrations were doing on any installation whose
+     * `authserver.data_processing_records` had aged past its 90-day compression: adding a
+     * foreign key to a table the engine would not alter.
+     *
+     * **A foreign key and compression coexist perfectly once the key is there** — a chunk
+     * compresses fine on a table that already has one, and the cascade still fires through
+     * a compressed chunk. So the answer is not to give the key up, only to stop adding it
+     * to chunks that are already packed: a fresh installation adds it while the table is
+     * empty and compresses afterwards, and an aged one is told what it is skipping.
+     *
+     * Verified on TimescaleDB 2.19.3.
+     *
+     * @param  string $table  Plain table name (no schema prefix).
+     * @param  string $schema Schema to check (empty = the default schema).
+     * @return bool           False on a backend without TimescaleDB, and for a table that
+     *                        is not a hypertable at all — neither can refuse an ALTER for
+     *                        this reason.
+     */
+    public function hasCompressedChunks(string $table, string $schema = ''): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        if ($schema === '') {
+            // As `isHypertable()`: resolveSchema() yields '' without a withSchema()
+            // override, and '' matches no row in the catalogue view.
+            $schema = $this->defaultSchema();
+        }
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                'SELECT COUNT(*) AS cnt FROM timescaledb_information.chunks
+                 WHERE hypertable_schema = %s AND hypertable_name = %s
+                   AND is_compressed',
+                $schema,
+                $table
+            )
+        );
+
+        return $result && (int) ($result->fields['cnt'] ?? 0) > 0;
+    }
+
+    /**
      * The columns making up a table's primary key, in key order.
      *
      * TimescaleDB requires the partitioning column to be part of every unique

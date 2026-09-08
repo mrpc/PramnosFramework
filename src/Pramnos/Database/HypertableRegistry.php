@@ -411,8 +411,57 @@ class HypertableRegistry
                 'orderby'        => 'action_time DESC',
                 'feature'        => 'auth',
             ],
+            // ── Compression layouts, measured ──────────────────────────────────────
+            //
+            // Four of these tables declared a compression policy and **no `segmentby`**,
+            // and compression made every one of them *larger* — at both volumes, and worse
+            // at the busy one. Nothing reports that: the policy runs, no error is raised,
+            // the disk grows. The reference application found the same thing independently
+            // on its own `alerthistory` and removed the policy outright.
+            //
+            // TimescaleDB compresses in batches of up to 1000 rows **per segment**. With no
+            // segment key it warns that it cannot find a suitable indexed column and uses
+            // none — and a compressed chunk's own overhead then exceeds what the batches
+            // save. `userid` is no better: twenty thousand distinct values make segments of
+            // a few rows, which is what "no segment key" already amounts to.
+            //
+            // Measured by `tests/Benchmarks/hypertable_compression_sweep.php`, which builds
+            // each table with its own migration — quiet = 5,000 rows, busy = 500,000, both
+            // over 26 chunk intervals, TimescaleDB 2.19.3:
+            //
+            // | table                   | segmentby     | quiet | busy  |
+            // |-------------------------|---------------|-------|-------|
+            // | twofactor_attempts      | *(none)*      |  0.79 |  0.69 |
+            // |                         | userid        |  0.79 |  0.69 |
+            // |                         | ip_address    |  0.79 |  9.72 |
+            // |                         | **success**   |  1.49 | 27.66 |
+            // | user_activity_log       | *(none)*      |  0.78 |  0.72 |
+            // |                         | **action**    |  1.34 | 44.80 |
+            // | user_consents           | *(none)*      |  0.78 |  0.76 |
+            // |                         | client_id     |  1.34 | 45.84 |
+            // |                         | **consent_type** | 1.56 | 46.43 |
+            // | gdpr_requests           | *(none)*      |  0.73 |  0.67 |
+            // |                         | **status**    |  1.51 | 38.39 |
+            // | data_processing_records | userid        |  0.76 |  0.74 |
+            // |                         | **operation** |  1.58 | 62.59 |
+            //
+            // A ratio below 1.00 means compression made the table bigger.
+            //
+            // `orderby` is declared explicitly beside each one, and that is not decoration:
+            // left to the default, TimescaleDB picks an ordering that includes the segment
+            // column and then refuses to have it in both — «cannot use column X for both
+            // ordering and segmenting». Time descending is what these tables are read by
+            // anyway.
+            //
+            // **An existing installation keeps its old chunks.** Changing the layout is
+            // accepted while chunks are compressed, but those chunks keep the layout they
+            // were packed with; only new ones use the new key. `timescale:ensure` reports
+            // the drift, and reclaiming the space on old chunks means decompressing and
+            // recompressing them — an operator's decision, not a migration's.
             'authserver.twofactor_attempts' => [
                 'time_column'    => 'attempt_time',
+                'segmentby'      => 'success',
+                'orderby'        => 'attempt_time DESC',
                 'chunk_interval' => '7 days',
                 'compress_after' => '7 days',
                 'retention'      => '2 years',
@@ -420,6 +469,8 @@ class HypertableRegistry
             ],
             'authserver.user_activity_log' => [
                 'time_column'    => 'created_at',
+                'segmentby'      => 'action',
+                'orderby'        => 'created_at DESC',
                 'chunk_interval' => '1 day',
                 'compress_after' => '30 days',
                 'retention'      => '24 months',
@@ -427,6 +478,8 @@ class HypertableRegistry
             ],
             'authserver.user_consents' => [
                 'time_column'    => 'granted_at',
+                'segmentby'      => 'consent_type',
+                'orderby'        => 'granted_at DESC',
                 'chunk_interval' => '1 month',
                 'compress_after' => '6 months',
                 'retention'      => '7 years',
@@ -436,11 +489,15 @@ class HypertableRegistry
                 'time_column'    => 'processed_at',
                 'chunk_interval' => '1 week',
                 'compress_after' => '90 days',
+                'segmentby'      => 'operation',
+                'orderby'        => 'processed_at DESC',
                 'retention'      => '36 months',
                 'feature'        => 'auth',
             ],
             'authserver.gdpr_requests' => [
                 'time_column'    => 'requested_at',
+                'segmentby'      => 'status',
+                'orderby'        => 'requested_at DESC',
                 'chunk_interval' => '1 month',
                 'compress_after' => '1 year',
                 'retention'      => '7 years',

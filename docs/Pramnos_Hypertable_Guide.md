@@ -130,6 +130,50 @@ The cost of the safe default is a token-history listing at 6.8 ms rather than 0.
 — an admin screen rather than a hot path, and the analytical reads go through the
 hourly continuous aggregate rather than this table.
 
+#### And the four that had no segment key at all
+
+The rule above went unapplied on four of the framework's own tables. They declared a
+compression policy and **no `segmentby`**, so TimescaleDB picked none — it warns that it
+cannot find a suitable indexed column — and compression made every one of them *larger*:
+
+| table | `segmentby` | quiet (5 k rows) | busy (500 k rows) |
+|---|---|---|---|
+| `authserver.twofactor_attempts` | *(none)* | 0.79 | 0.69 |
+| | `userid` | 0.79 | 0.69 |
+| | `ip_address` | 0.79 | 9.72 |
+| | **`success`** | **1.49** | **27.66** |
+| `authserver.user_activity_log` | *(none)* | 0.78 | 0.72 |
+| | `userid` | 0.78 | 0.72 |
+| | **`action`** | **1.34** | **44.80** |
+| `authserver.user_consents` | *(none)* | 0.78 | 0.76 |
+| | `client_id` | 1.34 | 45.84 |
+| | **`consent_type`** | **1.56** | **46.43** |
+| `authserver.gdpr_requests` | *(none)* | 0.73 | 0.67 |
+| | `userid` | 0.73 | 0.67 |
+| | **`status`** | **1.51** | **38.39** |
+| `authserver.data_processing_records` | `userid` | 0.76 | 0.74 |
+| | **`operation`** | **1.58** | **62.59** |
+
+`tests/Benchmarks/hypertable_compression_sweep.php`, TimescaleDB 2.19.3, each table built
+by its own migration. Bold is what the framework declares now.
+
+Three things worth taking from it beyond the values:
+
+- **It got worse at volume, not better.** The intuition that a small table compresses badly
+  and a large one well does not hold when there is no segment key: 0.69 at half a million
+  rows against 0.79 at five thousand. There is no size an installation grows into.
+- **`userid` is the plausible wrong answer**, and it lost on all four. It is the column
+  these tables are *queried* by, which is what makes it tempting — but twenty thousand
+  distinct values make segments of a few rows, which is what no segment key already
+  amounts to.
+- **Declare `orderby` beside it.** Left to the default, TimescaleDB picks an ordering that
+  includes the segment column and then refuses to have it in both — *«cannot use column X
+  for both ordering and segmenting»*. In the sweep that made four winning layouts look
+  impossible.
+
+A test now asserts the rule rather than these five instances of it: a registry entry with
+`compress_after` must declare a `segmentby`, and it must not be a per-row identifier.
+
 !!! note "Existing installations keep what they have"
     `HypertableRegistry::apply()` sets compression only on a table that has none, so
     a changed `segmentby` reaches new databases only. To adopt it on an existing one,
