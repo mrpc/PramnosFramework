@@ -318,7 +318,7 @@ class Api extends Application
         // Controller dispatch path
         try {
             $moduleObject = $this->getController($this->controller);
-        } catch (\Exception $exception) {
+        } catch (\Pramnos\Application\ControllerNotFoundException $exception) {
             /**
              * No route matched, and there is no controller of that name either.
              *
@@ -331,7 +331,27 @@ class Api extends Application
              *
              * A missing endpoint is a 404, said in the same shape as every other
              * answer this application gives.
+             *
+             * **Typed, and it was `\Exception`.** `getController()` does more than look
+             * up a class name — it instantiates one — so the broad catch also covered a
+             * constructor that throws: a missing dependency, a failed database
+             * connection, a bad configuration read at construction time. All of those
+             * became `{"status":404,"error":"EndpointNotFound"}`.
+             *
+             * That is worse than the fatal it replaced, and worse in the way that
+             * matters: a 500 gets looked at, and a 404 on a path the client mistyped
+             * gets ignored. An endpoint that had broken *itself* reported as an endpoint
+             * that does not exist, indefinitely, and this path did not log.
+             *
+             * Anything else now propagates to the handler below, which already
+             * distinguishes a `ValidationException`, a 403 by code and a SQL error, and
+             * logs the last one.
              */
+            \Pramnos\Logs\Logger::log(
+                'API 404: no endpoint named ' . $exception->getController(),
+                'apinotfound'
+            );
+
             $this->_recordTokenAction($startTime, ['status' => 404]);
             $doc->addContent($this->_translateStatus([
                 'status'  => 404,

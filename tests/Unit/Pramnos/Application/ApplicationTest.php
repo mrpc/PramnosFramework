@@ -919,12 +919,19 @@ class ApplicationTest extends TestCase
     }
 
     /**
-     * Test getController() includes REQUEST_URI in the error message when set.
+     * getController() keeps REQUEST_URI **out** of the error message, and in the context.
      *
-     * When the controller is not found and $_SERVER['REQUEST_URI'] is set, the
-     * exception message must include the current URL for easier debugging.
+     * This test asserted the opposite, and it was pinning an exposure. The URI was appended
+     * to the message to help whoever read the log, and it did — but where an exception
+     * message goes next is the caller's choice: an application that lets it escape renders
+     * a PHP error page, a debug toolbar forwards it by design, `display_errors` on a
+     * staging host turns it into a page. A mistyped path is also the shape of a path being
+     * probed.
+     *
+     * Nothing is lost, which is why the assertion inverts rather than disappears: the URI
+     * is in `getContext()` and in the `controllernotfound` log.
      */
-    public function testGetControllerErrorMessageIncludesRequestUri(): void
+    public function testGetControllerKeepsTheRequestUriOutOfTheMessage(): void
     {
         // Arrange
         $app = new Application();
@@ -934,9 +941,11 @@ class ApplicationTest extends TestCase
         try {
             $app->getController('totally_nonexistent_xyz');
             $this->fail('Expected exception not thrown');
-        } catch (\Exception $e) {
-            $this->assertStringContainsString('/test/path', $e->getMessage(),
-                'Exception message must include REQUEST_URI');
+        } catch (\Pramnos\Application\ControllerNotFoundException $e) {
+            $this->assertStringNotContainsString('/test/path', $e->getMessage(),
+                'the request URI must not be in a message somebody may print');
+            $this->assertStringContainsString('/test/path', $e->getContext()['url'] ?? '',
+                'and it must still be available to a handler that logs it');
         }
     }
 
@@ -1481,15 +1490,22 @@ class ApplicationTest extends TestCase
     // =========================================================================
 
     /**
-     * getController() must include the logged-in username in the exception
-     * message when $_SESSION['user'] is an object with a 'username' property.
+     * getController() must **not** put the logged-in username in the exception message.
      *
-     * This covers lines 655–656 of Application.php: the `if (is_object(...))` branch
-     * that appends `'User: ' . $_SESSION['user']->username` to the error message.
-     * The path is only taken when the controller does not exist AND a user object
-     * is stored in the session — both conditions are true here.
+     * This test required the opposite, and required it explicitly — which is how the
+     * exposure survived: it was covered, so it looked deliberate. It was deliberate; what
+     * it was not was safe.
+     *
+     * A mistyped API version answered 500 with a trace, and the trace named the signed-in
+     * user. An exception message is not only read by the person who wanted it: an
+     * application that lets it escape renders an error page, a debug toolbar or an
+     * exception reporter forwards it by design, `display_errors` on a staging host turns
+     * it into a page.
+     *
+     * The username is still recorded — in `getContext()` and in the `controllernotfound`
+     * log — so the assertion inverts rather than disappearing.
      */
-    public function testGetControllerErrorIncludesUsernameWhenSessionUserIsObject(): void
+    public function testGetControllerKeepsTheSessionUsernameOutOfTheMessage(): void
     {
         // Arrange — store a user object in the session
         if (session_status() === PHP_SESSION_NONE) {
@@ -1505,10 +1521,12 @@ class ApplicationTest extends TestCase
         try {
             $app->getController('nonexistent_controller_xyz');
             $this->fail('getController() must throw when the controller is not found');
-        } catch (\Exception $ex) {
-            // Assert — the exception message must contain the username
-            $this->assertStringContainsString('testuser_coverage', $ex->getMessage(),
-                'getController() must include the session username in the error message');
+        } catch (\Pramnos\Application\ControllerNotFoundException $ex) {
+            // Assert
+            $this->assertStringNotContainsString('testuser_coverage', $ex->getMessage(),
+                'the signed-in username must not be in a message somebody may print');
+            $this->assertSame('testuser_coverage', $ex->getContext()['user'] ?? null,
+                'and it must still reach a handler that has somewhere safe to put it');
         } finally {
             unset($_SESSION['user']);
         }

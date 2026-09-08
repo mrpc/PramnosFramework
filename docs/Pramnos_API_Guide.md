@@ -228,6 +228,40 @@ return $this->json(['error' => 'Not found'], 404);
 return $this->json(['error' => 'Internal error'], 500);
 ```
 
+### The two «not found» codes, and which is which
+
+They are different answers and easy to get backwards from outside:
+
+| `error` | meaning | who emits it |
+|---|---|---|
+| `EndpointNotFound` | **no such route.** Nothing on this application answers to that controller name | `Api::exec()`, when `getController()` cannot resolve one |
+| `NotFound` | **no such record.** The route exists and ran; the thing it was asked for is not there | `Api::notFound()`, from your own action |
+
+A client can act on the distinction — the first means the URL is wrong, the second means the
+id is — so a consumer that answers `NotFound` for a missing route is telling callers to
+retry a path that will never work.
+
+**`EndpointNotFound` is only for a route that does not exist.** It used to be broader by
+accident: `Api::exec()` caught `\Exception` around `getController()`, which *instantiates*
+the controller, so a constructor that threw — a missing dependency, a failed database
+connection, a bad configuration read — also answered 404. That is worse than a 500 in the
+way that matters: a 500 gets looked at, and a 404 on a path the client mistyped gets
+ignored, so an endpoint that had broken *itself* reported as missing indefinitely.
+
+The catch is now `Pramnos\Application\ControllerNotFoundException`, and everything else
+propagates to the handler that already distinguishes a `ValidationException`, a 403 by code
+and a SQL error. **If you have overridden `exec()`**, catch the type rather than matching the
+message:
+
+```php
+catch (\Pramnos\Application\ControllerNotFoundException $exception) {   // 404
+```
+
+Its `getController()` returns the name that did not resolve, and `getContext()` the request
+URI and signed-in username — **for a log, not for the response.** They used to be appended
+to the exception's message, and a mistyped API version therefore answered 500 with a trace
+naming the signed-in user.
+
 ### Response Objects
 
 ```php

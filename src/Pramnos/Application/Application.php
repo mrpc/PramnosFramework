@@ -2171,22 +2171,42 @@ class Application extends Base
         }
 
 
-        $errorMessage = 'Cannot find controller: ' . $controller;
-        // check current called url
+        /*
+         * The request URI and the signed-in username go to the **log**, not into the
+         * message.
+         *
+         * They were appended to it, to help whoever read the log, and they did. But where
+         * an exception message goes next is the caller's choice, and every unhandled path
+         * puts it somewhere it should not be: an application that lets it escape renders a
+         * PHP error page carrying the username of whoever was logged in, a debug toolbar or
+         * an exception reporter forwards it by design, `display_errors` on a staging host
+         * turns it into a page.
+         *
+         * That is how it was found — a mistyped API version (`/api/1.09/…` for `1.0`)
+         * answered 500 with a trace, and the trace named the signed-in user. A mistyped
+         * path is also the shape of a path being probed, so the audience for that message
+         * is not always a colleague.
+         *
+         * Nothing is lost: the log has it, and the exception carries it in
+         * {@see ControllerNotFoundException::getContext()} for a handler with somewhere
+         * safe to put it.
+         */
+        $context = array();
         if (isset($_SERVER['REQUEST_URI'])) {
-            $errorMessage .= "\n"
-                . 'Current URL: ' . $_SERVER['REQUEST_URI'];  
-        } 
+            $context['url'] = (string) $_SERVER['REQUEST_URI'];
+        }
         if (isset($_SESSION['user']) && is_object($_SESSION['user'])) {
-            $errorMessage .= "\n"
-                . 'User: ' . $_SESSION['user']->username;
+            $context['user'] = (string) ($_SESSION['user']->username ?? '');
         }
 
-        
-
-        throw new \Exception(
-            $errorMessage
+        \Pramnos\Logs\Logger::log(
+            'Cannot find controller: ' . $controller
+            . (isset($context['url']) ? ' | url: ' . $context['url'] : '')
+            . (isset($context['user']) ? ' | user: ' . $context['user'] : ''),
+            'controllernotfound'
         );
+
+        throw new ControllerNotFoundException($controller, $context);
     }
 
 
