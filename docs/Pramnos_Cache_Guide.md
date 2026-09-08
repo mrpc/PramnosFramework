@@ -384,6 +384,42 @@ $cache->delete('user_123');
 $cache->clear('user');
 ```
 
+### The id is a string, and the framework says so if yours is not
+
+`load()`, `save()`, `delete()` and `increment()` take the id untyped, for compatibility:
+they are public and overridable, so a `string` declaration would be a fatal at class load
+for any application that overrides one.
+
+Pass a string anyway. An `int`, `float` or `bool` is converted the way it always was — an
+entry keyed by a row id keeps the name it has always had — but **an array or an object is
+not a cache key**:
+
+```php
+$cache->load(['user' => $id]);            // don't
+$cache->load('user_' . $id);              // do
+$cache->load('user_' . md5(serialize($f))); // for a composite key, name it yourself
+```
+
+An array used to be concatenated into the name as the literal `Array`, so *every*
+array-keyed call produced `<category>_Array.<ext>` and they all shared one entry: a `load()`
+could return whatever another caller had saved under a different array. One installation
+did this 38,081 times in a day, and the only symptom was
+`PHP Warning: Array to string conversion` naming a line inside the framework.
+
+It now hashes to a stable, distinct key instead, so such a call is at least correct — and
+the framework writes **one line per call site** to the `cache` log naming the file and line
+that passed it:
+
+```
+Cache id is a array, not a string, from /var/www/app/Controllers/Foo.php:212 (category
+"views"). It is hashed into a stable key, but until it is fixed there the entry is named
+after a hash of the value rather than after anything meaningful…
+```
+
+Once per call site per process, because the point is to be read. Fix it at the caller: a
+key you chose is one you can find in `cache:list`, invalidate by name, and reason about
+when it goes stale.
+
 ## Advanced Usage
 
 ### Categories and Organization

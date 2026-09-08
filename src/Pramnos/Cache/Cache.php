@@ -88,6 +88,18 @@ class Cache extends \Pramnos\Framework\Base
     protected static $loggedFallbacks = [];
 
     protected $_id='';
+
+    /**
+     * Call sites already reported by {@see reportNonStringCacheId()}.
+     *
+     * A class property rather than a `static` inside the method so a test can clear it:
+     * every test in a class reaches the reporter through the same line of its own probe,
+     * so the first one would otherwise silence the rest — and a dedupe nothing can reset
+     * is a dedupe whose tests pass in one order only.
+     *
+     * @var array<string,true>
+     */
+    private static array $reportedIdCallers = array();
     protected $_cachename='';
 
     /**
@@ -1091,6 +1103,8 @@ class Cache extends \Pramnos\Framework\Base
      */
     protected function _generateCacheName($id)
     {
+        $id = $this->normalizeCacheId($id);
+
         $prefix = '';
         $category = '';
         if ($this->prefix != ''){
@@ -1117,6 +1131,103 @@ class Cache extends \Pramnos\Framework\Base
         }
 
         return $this->_cachename;
+    }
+
+    /**
+     * A cache id as a string, whatever the caller handed over.
+     *
+     * `load()`, `save()`, `delete()` and `increment()` all take an untyped `$id`, so an
+     * array reached the concatenation in {@see _generateCacheName()} and PHP wrote the
+     * literal `Array` into the key — reported from one installation as
+     * `PHP Warning: Array to string conversion` **38,081 times**.
+     *
+     * **The warning was the smaller half.** Every array-keyed call produced the *same*
+     * name, `<category>_Array.<ext>`, so they all shared one entry: a `load()` could
+     * return the value another caller had just saved under a different array. Thirty-eight
+     * thousand reads and writes of a single key, which is a correctness bug wearing a
+     * warning's clothes.
+     *
+     * A type declaration is not the fix. `$id` is public API on four overridable methods,
+     * and adding `string` there is a fatal at class load for any application that
+     * overrides one — and it would turn this into a `TypeError` for whoever is passing the
+     * array, which is a broken page instead of a wrong cache entry. So the value is
+     * normalised at the one place all four go through, and the caller is named in the log
+     * so the array can be fixed where it comes from.
+     *
+     * @param  mixed  $id Whatever was passed as a cache id
+     * @return string     A stable name for it
+     */
+    protected function normalizeCacheId($id)
+    {
+        if (is_string($id)) {
+            return $id;
+        }
+
+        if ($id === null) {
+            return '';
+        }
+
+        // An int, a float or a bool is what the caller obviously meant; `(string)` is the
+        // conversion PHP was already doing, and no warning was raised for it.
+        if (is_scalar($id)) {
+            return (string) $id;
+        }
+
+        $this->reportNonStringCacheId($id);
+
+        try {
+            // Distinct values get distinct names, which is the part that was broken.
+            return 'k' . md5(serialize($id));
+        } catch (\Throwable) {
+            // A value that will not serialise — a closure inside the array, a resource.
+            // There is no stable name to give it, so this keeps the old behaviour rather
+            // than inventing one that differs between requests and caches nothing twice.
+            return get_debug_type($id);
+        }
+    }
+
+    /**
+     * Say once, per call site, that a cache id arrived as something other than a string.
+     *
+     * The reported symptom was 38,081 identical warnings naming **this file** — which says
+     * where the conversion happened and nothing about who asked for it. Every caller in the
+     * framework passes a string, so the line was unanswerable from here: the subsystem
+     * responsible is in the application, and the log had no way to name it.
+     *
+     * So the log names it. Once per call site per process, because the point is to be read:
+     * the same thirty-eight thousand calls become one line per place that makes them, and a
+     * repeated warning is a warning nobody reads twice.
+     *
+     * @param mixed $id The offending value
+     */
+    protected function reportNonStringCacheId($id): void
+    {
+        // Four frames out is enough to clear this method, the normaliser,
+        // `_generateCacheName()` and the `load()`/`save()`/`delete()`/`increment()` that
+        // called it — and a bounded backtrace on an already-anomalous path costs nothing
+        // that matters.
+        $frames = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 6);
+        $caller = 'unknown';
+        foreach ($frames as $frame) {
+            if (isset($frame['file']) && basename($frame['file']) !== 'Cache.php') {
+                $caller = $frame['file'] . ':' . ($frame['line'] ?? 0);
+                break;
+            }
+        }
+
+        if (isset(self::$reportedIdCallers[$caller])) {
+            return;
+        }
+        self::$reportedIdCallers[$caller] = true;
+
+        \Pramnos\Logs\Logger::log(
+            'Cache id is a ' . get_debug_type($id) . ', not a string, from ' . $caller
+            . ' (category "' . (is_string($this->category) ? $this->category : '?')
+            . '"). It is hashed into a stable key, but until it is fixed there the entry '
+            . 'is named after a hash of the value rather than after anything meaningful — '
+            . 'and before this it was named `Array`, so every such call shared one entry.',
+            'cache'
+        );
     }
 
     /**
