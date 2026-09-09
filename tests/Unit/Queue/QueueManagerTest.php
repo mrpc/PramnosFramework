@@ -879,12 +879,35 @@ class QueueManagerTest extends TestCase
     {
         $database = new class($state) {
             public string $prefix = '';
+            public string $type   = 'mysql';
             private \stdClass $state;
             public function __construct(\stdClass $s) { $this->state = $s; }
             public function prepareInput(string $s): string { return addslashes($s); }
+
+            /**
+             * `purgeOldTasks()` wraps its work in a transaction and asks the schema whether
+             * `queuestats` exists, because it summarises the rows before deleting them. A
+             * double that answers neither is a double that stopped describing the collaborator.
+             *
+             * `hasTable()` says no, so these tests stay about the DELETE they were written
+             * for; the roll-up has its own integration tests against both drivers.
+             */
+            public function schema(): object
+            {
+                return new class {
+                    public function hasTable(string $table): bool { return false; }
+                    public function resolveTableName(string $table): string { return $table; }
+                };
+            }
+
             public function query(string $sql): object
             {
-                $this->state->lastSql = $sql;
+                // Transaction control is not the statement any of these tests are about, and
+                // recording it would make `lastSql` the COMMIT.
+                if (!in_array(strtoupper(trim($sql)), array('BEGIN', 'COMMIT', 'ROLLBACK'), true)) {
+                    $this->state->lastSql = $sql;
+                }
+
                 return new class { public function getAffectedRows(): int { return 5; } };
             }
         };
@@ -910,7 +933,18 @@ class QueueManagerTest extends TestCase
     {
         $database = new class {
             public string $prefix = '';
+            public string $type   = 'mysql';
             public function prepareInput(string $s): string { return addslashes($s); }
+
+            /** See the note on the capturing double: `purgeOldTasks()` asks. */
+            public function schema(): object
+            {
+                return new class {
+                    public function hasTable(string $table): bool { return false; }
+                    public function resolveTableName(string $table): string { return $table; }
+                };
+            }
+
             public function query(string $sql): object { return new class { public function getAffectedRows(): int { return 0; } }; }
         };
 

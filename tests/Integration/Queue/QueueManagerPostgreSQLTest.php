@@ -95,6 +95,9 @@ class QueueManagerPostgreSQLTest extends QueueManagerMySQLTest
     protected function dropQueueTable(): void
     {
         $this->db->query('DROP TABLE IF EXISTS "queueitems" CASCADE');
+        // The roll-up table the purge writes before deleting; dropped here so a bucket
+        // from one test cannot be added to by the next — the upsert is additive by design.
+        $this->db->query('DROP TABLE IF EXISTS "queuestats" CASCADE');
         $this->db->query('DROP TYPE  IF EXISTS queue_status');
     }
 }

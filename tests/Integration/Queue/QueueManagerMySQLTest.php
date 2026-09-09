@@ -1444,7 +1444,351 @@ class QueueManagerMySQLTest extends TestCase
     {
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `queueitems`');
+        // The roll-up table the purge writes before deleting; dropped here so a bucket from
+        // one test cannot be added to by the next — the upsert is additive by design.
+        $this->db->query('DROP TABLE IF EXISTS `queuestats`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    // -------------------------------------------------------------------------
+    // The roll-up: purgeOldTasks() summarises before it deletes
+    // -------------------------------------------------------------------------
+
+    /**
+     * Write a terminal task with times of our choosing, old enough to be purged.
+     *
+     * The columns are set directly rather than through the lifecycle, because what is being
+     * tested is the aggregate over them and driving a worker to produce a chosen wait is
+     * both slower and less exact.
+     *
+     * @param  string $status    Terminal status
+     * @param  float  $execution Seconds the handler took
+     * @param  float  $wait      Seconds the task sat before a worker took it
+     * @param  int    $hoursAgo  How long ago it completed
+     * @param  int    $attempts  Attempt count; > 1 makes it a retry
+     * @return int    The taskid
+     */
+    protected function seedFinishedTask(
+        string $type,
+        string $status,
+        float $execution,
+        float $wait,
+        int $hoursAgo = 48,
+        int $attempts = 1,
+        ?float $cpu = null
+    ): int {
+        $completed = time() - ($hoursAgo * 3600);
+        $started   = $completed - (int) ceil($execution);
+        $created   = $started - (int) ceil($wait);
+
+        $id = $this->manager->addTask($type, array('probe' => $type . $status . $hoursAgo . $wait));
+
+        $quote = $this->db->type === 'postgresql' ? '"' : '`';
+        $set = array(
+            $quote . 'status' . $quote . " = '" . $status . "'",
+            $quote . 'attempts' . $quote . ' = ' . $attempts,
+            $quote . 'execution_time' . $quote . ' = ' . $execution,
+            $quote . 'cpu_time' . $quote . ' = ' . ($cpu === null ? 'NULL' : (string) $cpu),
+            $quote . 'createdat' . $quote . " = '" . date('Y-m-d H:i:s', $created) . "'",
+            $quote . 'startedat' . $quote . " = '" . date('Y-m-d H:i:s', $started) . "'",
+            $quote . 'completedat' . $quote . " = '" . date('Y-m-d H:i:s', $completed) . "'",
+        );
+
+        $this->db->query(
+            'UPDATE ' . $quote . 'queueitems' . $quote . ' SET ' . implode(', ', $set)
+            . ' WHERE ' . $quote . 'taskid' . $quote . ' = ' . (int) $id
+        );
+
+        return (int) $id;
+    }
+
+    /** Every row of the roll-up, newest bucket first. */
+    protected function statsRows(): array
+    {
+        $quote  = $this->db->type === 'postgresql' ? '"' : '`';
+        $result = $this->db->query(
+            'SELECT * FROM ' . $quote . 'queuestats' . $quote . ' ORDER BY bucket DESC, type ASC'
+        );
+
+        return ($result && $result->numRows) ? $result->fetchAll() : array();
+    }
+
+    /**
+     * The purge summarises the rows it deletes instead of losing them.
+     *
+     * The whole filing in one test: the queue recorded `execution_time` and `cpu_time` per
+     * task and `queue:cleanup` deleted them an hour later, so an installation could not
+     * answer "is this task type slower than last week" about either.
+     */
+    public function testPurgeSummarisesBeforeDeleting(): void
+    {
+        // Arrange — two tasks of one type in the same hour, both old enough to purge
+        $this->seedFinishedTask('roll_a', 'completed', 2.0, 4.0, 48, 1, 1.5);
+        $this->seedFinishedTask('roll_a', 'completed', 4.0, 8.0, 48, 1, 2.5);
+
+        // Act
+        $deleted = $this->manager->purgeOldTasks(24, array('completed', 'failed'));
+
+        // Assert — the rows are gone
+        $this->assertSame(2, $deleted);
+
+        // and the measurements are not
+        $rows = $this->statsRows();
+        $this->assertCount(1, $rows, 'two tasks of one type in one hour is one bucket');
+        $this->assertSame('roll_a', $rows[0]['type']);
+        $this->assertSame(2, (int) $rows[0]['tasks']);
+        $this->assertEqualsWithDelta(6.0, (float) $rows[0]['sum_exec'], 0.01, 'sum of execution_time');
+        $this->assertEqualsWithDelta(4.0, (float) $rows[0]['max_exec'], 0.01);
+        $this->assertEqualsWithDelta(4.0, (float) $rows[0]['sum_cpu'], 0.01);
+    }
+
+    /**
+     * Wait time is recorded, which it was not anywhere before.
+     *
+     * The most useful number a queue has — how long a task sat before a worker took it —
+     * existed only as `startedat - createdat` on rows about to be deleted. One installation
+     * found a nightly burst with it: 16,130 tasks at 01:00 averaging 9.48 s against ~0.60 s
+     * every other hour, which nothing would have shown and nothing had recorded.
+     */
+    public function testWaitTimeIsRecorded(): void
+    {
+        // Arrange — one quick task and one that sat for a while
+        $this->seedFinishedTask('roll_wait', 'completed', 1.0, 2.0);
+        $this->seedFinishedTask('roll_wait', 'completed', 1.0, 40.0);
+
+        // Act
+        $this->manager->purgeOldTasks(24);
+
+        // Assert
+        $rows = $this->statsRows();
+        $this->assertCount(1, $rows);
+        $this->assertEqualsWithDelta(42.0, (float) $rows[0]['sum_wait'], 1.0, 'sum of waits');
+        $this->assertEqualsWithDelta(40.0, (float) $rows[0]['max_wait'], 1.0, 'the burst is the max');
+    }
+
+    /**
+     * Failed, warning and retried are counted separately.
+     *
+     * Not decoration: `queue:cleanup` keeps warnings for `$hours * 10`, so on one
+     * installation `warning` was the **dominant** population — 38,041 rows against 25,861
+     * completed. A roll-up that counted only "tasks" would describe the small half.
+     */
+    public function testStatusesAndRetriesAreBrokenOut(): void
+    {
+        // Arrange
+        $this->seedFinishedTask('roll_mix', 'completed', 1.0, 1.0);
+        $this->seedFinishedTask('roll_mix', 'failed', 1.0, 1.0);
+        $this->seedFinishedTask('roll_mix', 'completed', 1.0, 1.0, 48, 3);
+
+        // Act — the statuses the framework's own cleanup purges together
+        $this->manager->purgeOldTasks(24, array('completed', 'failed'));
+
+        // Assert
+        $rows = $this->statsRows();
+        $this->assertCount(1, $rows);
+        $this->assertSame(3, (int) $rows[0]['tasks']);
+        $this->assertSame(1, (int) $rows[0]['failed']);
+        $this->assertSame(1, (int) $rows[0]['retried'], 'attempts > 1 is a retry');
+    }
+
+    /**
+     * A second purge inside the same hour adds to the bucket rather than replacing it.
+     *
+     * The property that makes sums and maxima the right thing to store and averages the
+     * wrong one: an average cannot be added to another average. `max` takes the greater of
+     * the two, which is what `GREATEST` in the upsert is for.
+     */
+    public function testASecondPurgeAddsToTheSameBucket(): void
+    {
+        // Arrange & Act — the **larger** task first, purged
+        $this->seedFinishedTask('roll_twice', 'completed', 6.0, 9.0);
+        $this->manager->purgeOldTasks(24);
+
+        // and a smaller one in the same hour, purged separately
+        $this->seedFinishedTask('roll_twice', 'completed', 2.0, 3.0);
+        $this->manager->purgeOldTasks(24);
+
+        // Assert — one bucket, both tasks
+        $rows = $this->statsRows();
+        $this->assertCount(1, $rows, 'the second purge created a second bucket');
+        $this->assertSame(2, (int) $rows[0]['tasks']);
+        $this->assertEqualsWithDelta(8.0, (float) $rows[0]['sum_exec'], 0.01);
+
+        /*
+         * The larger value goes **first** deliberately.
+         *
+         * A first version of this test purged the small one first, and then
+         * `max_exec = VALUES(max_exec)` — replacing rather than taking the greater — gave
+         * the same answer, so removing `GREATEST` reddened nothing. Ordering the arrival
+         * this way is the only way the assertion means what it says: a maximum that is
+         * overwritten by a later, smaller purge is a maximum that reports the last hour
+         * instead of the worst.
+         */
+        $this->assertEqualsWithDelta(
+            6.0,
+            (float) $rows[0]['max_exec'],
+            0.01,
+            'GREATEST, not the last write'
+        );
+        $this->assertEqualsWithDelta(9.0, (float) $rows[0]['max_wait'], 1.0, 'and the same for wait');
+    }
+
+    /**
+     * A counted row is a deleted row, so nothing is summarised twice.
+     *
+     * The transaction's whole purpose. Purging again with nothing left must add nothing —
+     * if the aggregate ran over rows the DELETE did not take, a second call would
+     * double-count the bucket.
+     */
+    public function testPurgingAgainWithNothingLeftAddsNothing(): void
+    {
+        // Arrange
+        $this->seedFinishedTask('roll_once', 'completed', 1.0, 1.0);
+        $this->manager->purgeOldTasks(24);
+        $first = $this->statsRows();
+
+        // Act
+        $this->assertSame(0, $this->manager->purgeOldTasks(24));
+
+        // Assert
+        $this->assertSame($first, $this->statsRows(), 'an empty purge changed the roll-up');
+    }
+
+    /**
+     * Types are separate buckets, because "slower than last week" is asked per type.
+     */
+    public function testEachTypeGetsItsOwnBucket(): void
+    {
+        // Arrange
+        $this->seedFinishedTask('roll_x', 'completed', 1.0, 1.0);
+        $this->seedFinishedTask('roll_y', 'completed', 5.0, 1.0);
+
+        // Act
+        $this->manager->purgeOldTasks(24);
+
+        // Assert
+        $rows = $this->statsRows();
+        $this->assertCount(2, $rows);
+        $types = array_map(static fn(array $r): string => (string) $r['type'], $rows);
+        sort($types);
+        $this->assertSame(array('roll_x', 'roll_y'), $types);
+    }
+
+    /**
+     * A task that is not old enough is neither deleted nor counted.
+     *
+     * The predicate is shared between the aggregate and the DELETE precisely so these two
+     * cannot disagree — a row counted but not deleted is one that gets counted again.
+     */
+    public function testARecentTaskIsNeitherPurgedNorCounted(): void
+    {
+        // Arrange — completed an hour ago, against a 24-hour cutoff
+        $this->seedFinishedTask('roll_recent', 'completed', 1.0, 1.0, 1);
+
+        // Act
+        $this->assertSame(0, $this->manager->purgeOldTasks(24));
+
+        // Assert
+        $this->assertSame(array(), $this->statsRows());
+    }
+
+    /**
+     * `history()` answers a window longer than the retention, which `throughput()` cannot.
+     *
+     * Consequence 1 of the filing: `throughput()` counts arrivals and completions among
+     * rows that are still there, so `queue:health --window=86400` on an hourly purge counts
+     * the ninety minutes that survived, reports the rate as if it were the day, and exits 0.
+     * The buckets outlive the rows.
+     */
+    public function testHistoryReadsTheBucketsAfterTheRowsAreGone(): void
+    {
+        // Arrange — purged, so no live row remains
+        $this->seedFinishedTask('roll_hist', 'completed', 3.0, 6.0, 48, 2, 1.0);
+        $this->seedFinishedTask('roll_hist', 'completed', 1.0, 2.0, 48, 1, 1.0);
+        $this->manager->purgeOldTasks(24);
+
+        // Act
+        $history = $this->manager->history(168, 'roll_hist');
+
+        // Assert — the means are derived, not stored
+        $this->assertCount(1, $history);
+        $this->assertSame('roll_hist', $history[0]['type']);
+        $this->assertSame(2, $history[0]['tasks']);
+        $this->assertEqualsWithDelta(2.0, $history[0]['exec_mean'], 0.01, '(3 + 1) / 2');
+        $this->assertEqualsWithDelta(3.0, $history[0]['exec_max'], 0.01);
+        $this->assertEqualsWithDelta(4.0, $history[0]['wait_mean'], 1.0, '(6 + 2) / 2');
+        $this->assertEqualsWithDelta(0.5, $history[0]['retry_rate'], 0.01, 'one of two retried');
+
+        // and `throughput()` cannot see any of it, which is the contrast being asserted
+        $live = $this->manager->throughput(86400, 'roll_hist');
+        $this->assertSame(0, (int) ($live['completions'] ?? -1));
+    }
+
+    /**
+     * `cpu_mean` is null when nothing measured CPU, and not zero.
+     *
+     * `cpu_time` is nullable because it is unknowable where `getrusage()` is unavailable,
+     * and a zero would read as "these tasks did no work" — which is exactly the diagnosis
+     * the column was added to make possible, and the wrong one to hand somebody for free.
+     */
+    public function testCpuMeanIsNullWhenNothingMeasuredIt(): void
+    {
+        // Arrange — no cpu_time
+        $this->seedFinishedTask('roll_nocpu', 'completed', 1.0, 1.0, 48, 1, null);
+
+        // Act
+        $this->manager->purgeOldTasks(24);
+        $history = $this->manager->history(168, 'roll_nocpu');
+
+        // Assert
+        $this->assertCount(1, $history);
+        $this->assertNull($history[0]['cpu_mean'], 'unmeasured CPU must not read as no work');
+    }
+
+    /**
+     * A bounded purge deletes without summarising, and says so.
+     *
+     * `DELETE … LIMIT` takes an arbitrary subset of what the predicate matches, so an
+     * aggregate over the predicate would count rows that are still there — and the next
+     * call would count them again. Saying so beats summarising it wrongly; `$limit` exists
+     * to keep one DELETE off a lock, not as the normal path.
+     */
+    public function testABoundedPurgeIsNotSummarised(): void
+    {
+        // Arrange
+        $this->seedFinishedTask('roll_limit', 'completed', 1.0, 1.0);
+        $this->seedFinishedTask('roll_limit', 'completed', 1.0, 1.0);
+
+        // Act — MySQL supports DELETE … LIMIT; PostgreSQL does not, so only assert where it runs
+        if ($this->db->type === 'postgresql') {
+            $this->markTestSkipped('DELETE … LIMIT is a MySQL extension; the limit path cannot run here.');
+        }
+
+        $deleted = $this->manager->purgeOldTasks(24, array('completed', 'failed'), 1);
+
+        // Assert — something went, and nothing was rolled up
+        $this->assertSame(1, $deleted);
+        $this->assertSame(array(), $this->statsRows());
+    }
+
+    /**
+     * With no `queuestats` table the purge still works.
+     *
+     * An installation that has not run the migration keeps deleting: the roll-up is
+     * additive to what the queue already did, not a precondition for it.
+     */
+    public function testThePurgeWorksWithoutTheRollUpTable(): void
+    {
+        // Arrange
+        $this->seedFinishedTask('roll_nostats', 'completed', 1.0, 1.0);
+
+        $quote = $this->db->type === 'postgresql' ? '"' : '`';
+        $this->db->query('DROP TABLE IF EXISTS ' . $quote . 'queuestats' . $quote
+            . ($this->db->type === 'postgresql' ? ' CASCADE' : ''));
+
+        // Act & Assert
+        $this->assertSame(1, $this->manager->purgeOldTasks(24));
+        $this->assertSame(array(), $this->manager->history());
     }
 }
 

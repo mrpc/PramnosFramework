@@ -65,6 +65,14 @@ class QueueHealth extends Command
                 null,
                 InputOption::VALUE_NONE,
                 'Machine-readable output'
+            )
+            ->addOption(
+                'history',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Read the hourly roll-up instead of live rows, this many hours back — the '
+                . 'only way to answer a window longer than the purge retention',
+                false
             );
     }
 
@@ -83,6 +91,28 @@ class QueueHealth extends Command
         $types  = $input->getOption('type');
         $types  = is_array($types) && $types !== [] ? $types : null;
 
+        /*
+         * `--history` reads the buckets, which outlive the rows.
+         *
+         * The live numbers cannot answer a window longer than the purge retention, and
+         * before this they did not say so: `--window=86400` on an installation purging
+         * hourly counted the ninety minutes that survived, reported the rate as if it were
+         * the day, and exited 0.
+         */
+        $historyHours = $input->getOption('history');
+        if ($historyHours !== false && $historyHours !== null) {
+            $hours = (int) $historyHours > 0 ? (int) $historyHours : 168;
+            $rows  = $queueManager->history($hours, $types);
+
+            if ($input->getOption('json')) {
+                $output->writeln((string) json_encode(['history' => $rows, 'hours' => $hours]));
+            } else {
+                $this->renderHistory($output, $rows, $hours);
+            }
+
+            return 0;
+        }
+
         $report = ['overall' => $queueManager->throughput($window, $types)];
 
         if ($input->getOption('per-type')) {
@@ -90,6 +120,10 @@ class QueueHealth extends Command
                 $report['types'][$type] = $queueManager->throughput($window, $type);
             }
         }
+
+        // Detected rather than configured: the retention is an argument on somebody else's
+        // crontab, and the oldest surviving completion is a fact this connection has.
+        $report['truncated'] = $this->windowReachesPastTheRows($queueManager, $window);
 
         if ($input->getOption('json')) {
             $output->writeln((string) json_encode($report));
@@ -136,10 +170,99 @@ class QueueHealth extends Command
     /**
      * @param array{overall: array<string, mixed>, types?: array<string, array<string, mixed>>} $report
      */
+    /**
+     * Does the requested window reach further back than the rows that are still there?
+     *
+     * If it does, `throughput()` is measuring a shorter period than the caller asked for
+     * and reporting the rate as if it were the whole thing — which is not an error the
+     * command could previously have known about, because the retention lives in a cron
+     * argument and not in the database.
+     *
+     * Best effort: a table that cannot be read answers "no", which is the behaviour before
+     * this existed. A health command that failed because it could not check its own caveat
+     * would be worse than the caveat.
+     */
+    private function windowReachesPastTheRows(QueueManager $queueManager, int $window): bool
+    {
+        try {
+            $horizon = $queueManager->retentionHorizon();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        if ($horizon === null) {
+            return false;
+        }
+
+        return strtotime($horizon) > (time() - max(1, $window));
+    }
+
+    /**
+     * The hourly roll-up, per type.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function renderHistory(OutputInterface $output, array $rows, int $hours): void
+    {
+        $output->writeln('<info>Queue history over the last ' . $hours . 'h, from the hourly roll-up</info>');
+        $output->writeln('');
+
+        if ($rows === []) {
+            $output->writeln(
+                '<comment>Nothing recorded.</comment> The roll-up is written by '
+                . '`queue:cleanup` — until it has run once there is nothing to read, and if '
+                . 'the framework migrations have not been applied there is nowhere to write.'
+            );
+
+            return;
+        }
+
+        $output->writeln(sprintf(
+            '%-19s  %-20s %7s %9s %9s %9s %9s %7s',
+            'hour',
+            'type',
+            'tasks',
+            'exec avg',
+            'exec max',
+            'wait avg',
+            'wait max',
+            'fail'
+        ));
+
+        foreach ($rows as $row) {
+            $output->writeln(sprintf(
+                '%-19s  %-20s %7d %9.3f %9.3f %9.3f %9.3f %6.1f%%',
+                substr((string) $row['bucket'], 0, 19),
+                substr((string) $row['type'], 0, 20),
+                (int) $row['tasks'],
+                (float) $row['exec_mean'],
+                (float) $row['exec_max'],
+                (float) $row['wait_mean'],
+                (float) $row['wait_max'],
+                ((float) $row['fail_rate']) * 100
+            ));
+        }
+
+        $output->writeln('');
+        $output->writeln(
+            '<comment>wait</comment> is how long a task sat before a worker took it. It is '
+            . 'the number a latency burst shows in first, and it is recorded nowhere else.'
+        );
+    }
+
     private function render(OutputInterface $output, array $report): void
     {
         $window = (int) $report['overall']['window'];
         $output->writeln('<info>Queue throughput over the last ' . $window . 's</info>');
+
+        if (!empty($report['truncated'])) {
+            $output->writeln(
+                '<comment>The oldest completed task in the table is newer than this '
+                . 'window</comment>, so these numbers cover less than ' . $window . 's and '
+                . 'the rate is that of the shorter period. `queue:cleanup` has deleted the '
+                . 'rest. Use --history for a window this long.'
+            );
+        }
         $output->writeln('');
         $output->writeln($this->line('all types', $report['overall']));
 

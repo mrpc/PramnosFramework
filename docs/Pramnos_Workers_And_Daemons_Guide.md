@@ -195,6 +195,24 @@ php pramnos work --max-runtime=3600 # exit hourly for a supervisor to restart
 `work` holds a single-instance lock and stops cooperatively, so a SIGTERM
 during a task lets that task finish.
 
+!!! warning "`schedule:list` shows what is registered; it now also says whether anything runs it"
+    **Listing reads definitions. Running needs a process, and nothing checked for one.** One
+    installation had forked `DaemonOrchestrator` without extending the framework's, so
+    `includeScheduler()` and `schedulerProcess()` never ran — no `work` process, and no
+    `schedule:run` line in the crontab. `schedule:list` printed six due jobs and **none of
+    them had ever executed**: `spool:drain` every minute, `timescale:drain` hourly,
+    `auth:token-cleanup`, `auth:twofactor-cleanup`, `mail:prune` and `auth:webhook-deliver`
+    every five minutes.
+
+    It took reading `ps` to find. `schedule:list` now ends with a line saying whether a
+    `work` process holds the lock, and says plainly that a `schedule:run` crontab line
+    cannot be detected from there — so the absence of the message is not a claim that
+    nothing is running.
+
+    **A fork of the orchestrator is a silent way to lose the whole schedule.** If you
+    subclass it, extend `Pramnos\Console\DaemonOrchestrator` rather than `CommandBase`, or
+    run `work` yourself.
+
 Three things about that lock, because each of them is the sort of decision that
 looks like an oversight:
 

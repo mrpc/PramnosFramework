@@ -5,6 +5,7 @@ use_cases:
   - Running or supervising a queue worker
   - Finding out why a queue is falling behind
   - Recovering tasks stuck in `processing` after a worker died
+  - Reading the queue's execution and wait times over days rather than minutes
 ---
 
 # Pramnos Queue Guide
@@ -248,6 +249,76 @@ one of those.
 Completions count every terminal state, failures included — a task that failed is one the
 queue is no longer carrying. A *retryable* failure is not a departure: `markTaskAsFailed()`
 returns it to `pending` while attempts remain, and the queue is still carrying it.
+
+!!! warning "`--window` cannot reach past the purge"
+    `throughput()` counts among rows that are **still there**, and `queue:cleanup` deletes
+    them. On an installation running it hourly, `--window=86400` counted the ninety minutes
+    that survived, reported the rate as if it were the day, and exited 0 — not an error, not
+    a warning, a number that looks like the answer to the question that was asked.
+
+    It says so now: when the oldest surviving completion is newer than the window, the
+    output carries a line to that effect. Detected rather than configured, because the
+    retention is an argument on somebody else's crontab and the oldest surviving row is a
+    fact this connection has.
+
+    For a window that long, read the roll-up instead — `--history`, below.
+
+### The history the queue used to delete — `queue:cleanup` and `--history`
+
+**The queue measured itself and then deleted the measurements.** `execution_time` and
+`cpu_time` are recorded per task; `queue:cleanup` deleted them an hour later and nothing
+aggregated them first. So an installation could not answer *is this task type slower than
+last week* about either — and **wait time was recorded nowhere at all**, existing only as
+`startedat - createdat` on rows about to go.
+
+That is not a small loss. Running the aggregate over one installation's purge set found:
+
+```
+01:00   16,130 tasks   avg wait 9.48 s   max wait 40 s
+others  ~2,300 tasks   avg wait 0.60 s   max wait 1–10 s
+```
+
+A nightly burst where queue latency went **fifteen times** normal — invisible that night and
+every night before it.
+
+`QueueManager::purgeOldTasks()` now summarises the rows it is about to delete into
+`queuestats`, one row per task type per hour, in the **same transaction** as the `DELETE`.
+That equivalence — a counted row is a deleted row — is the whole correctness argument: no
+row can be summarised twice and none deleted without being summarised.
+
+```
+php pramnos queue:health --history            # the last 168 hours, from the buckets
+php pramnos queue:health --history=48         # two days
+php pramnos queue:health --history --json     # for a collector
+```
+
+| | |
+|---|---|
+| Where the roll-up lives | `purgeOldTasks()`, not `queue:cleanup` — the method is what destroys the data, so every caller is covered: the framework's command, an application's own cron, a manual console call |
+| Cost | ~104 ms over a purge set of 40,840 rows producing 12 buckets, once an hour, on the connection that was about to scan them anyway |
+| Volume | one row per type per hour — three types is ~72 rows a day, 26k a year. **No hypertable, no compression, no retention policy** |
+| Stored | sums, counts and maxima. **Never averages** |
+| Read side | `QueueManager::history()`, which derives the means |
+
+**Sums and maxima, never averages**, and that is what makes the upsert additive: a second
+cleanup inside the same hour adds to the bucket instead of overwriting it. An average cannot
+be added to another average.
+
+**Percentiles are deliberately absent.** `percentile_cont` does not merge across two inserts
+into one bucket, so storing p95 would mean either a wrong number or a second pass over rows
+that no longer exist. `max` and the derived mean find the problem — the burst above shows in
+both.
+
+**Statuses are broken out**, and the framework's own retention is why: `queue:cleanup` keeps
+warnings for `$hours * 10`, which on that installation made `warning` the *dominant*
+population — 38,041 rows against 25,861 completed. A roll-up that counted only "tasks" would
+describe the small half.
+
+!!! note "A `--limit` purge is not summarised"
+    `DELETE … LIMIT` removes an arbitrary subset of what the predicate matches, so an
+    aggregate over the predicate would count rows that are still there — and the next call
+    would count them again. The limit exists to keep one `DELETE` off a lock on a table left
+    for months; it is not the normal path. It logs that it skipped the roll-up.
 
 ### Waiting is not working — `cpu_time` beside `execution_time`
 
