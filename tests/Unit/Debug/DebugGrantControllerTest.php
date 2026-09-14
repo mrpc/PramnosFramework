@@ -122,7 +122,7 @@ class DebugGrantControllerTest extends TestCase
             /**
              * A fixed return URL.
              *
-             * The real one goes through `DevPanelController::returnUrlFor()`, which reads
+             * The real one goes through `DevPanelController::returnUrlExcluding()`, which reads
              * the referrer, writes the session and refuses anything off-site. That is
              * covered where it lives; pinning it here would make these tests assertions
              * about the referrer instead of about the grant.
@@ -519,7 +519,7 @@ class DebugGrantControllerTest extends TestCase
 
         try {
             // Act
-            $back = \Pramnos\DevPanel\DevPanelController::returnUrlFor(
+            $back = \Pramnos\DevPanel\DevPanelController::returnUrlExcluding(
                 'debugbar',
                 array($base . '/debugbar')
             );
@@ -553,7 +553,7 @@ class DebugGrantControllerTest extends TestCase
 
         try {
             // Act
-            $back = \Pramnos\DevPanel\DevPanelController::returnUrlFor(
+            $back = \Pramnos\DevPanel\DevPanelController::returnUrlExcluding(
                 'debugbar',
                 array($base . '/debugbar')
             );

@@ -3269,7 +3269,25 @@ class DevPanelController extends Controller
      * The same remembered referrer the panel's own Back button uses, so a visitor who came from
      * a screen returns to it whichever of the two they went through.
      */
-    public static function returnUrlFor(string $mountPoint = '', array $alsoExclude = []): string
+    public static function returnUrlFor(string $mountPoint = ''): string
+    {
+        return static::returnUrlExcluding($mountPoint, array());
+    }
+
+    /**
+     * The same answer, with further developer pages the caller knows about excluded.
+     *
+     * A separate method rather than a second parameter on {@see returnUrlFor()}, and not as
+     * a matter of taste: PHP refuses to load a subclass whose signature no longer matches
+     * the parent, so an optional argument on a public method is a fatal at class load for
+     * every application that overrides it — the whole site, before a route is matched.
+     *
+     * `$alsoExclude` holds absolute URLs — a page that must never be returned *to* because
+     * it is itself a developer page. The panel's own mount and `/adminer` are always in the
+     * list; this is for the ones only the caller knows, such as the debug-toolbar grant
+     * screen.
+     */
+    public static function returnUrlExcluding(string $mountPoint, array $alsoExclude): string
     {
         $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
         $mount = $mountPoint !== '' ? $mountPoint : (string) static::config('mount', 'devpanel');

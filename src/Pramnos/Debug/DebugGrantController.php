@@ -332,7 +332,7 @@ class DebugGrantController extends Controller
     /**
      * The page this was opened from, or the site root.
      *
-     * `DevPanelController::returnUrlFor()` already does exactly this and does the part
+     * `DevPanelController::returnUrlExcluding()` already does exactly this and does the part
      * that is easy to get wrong: it remembers the referrer in the session, because the
      * POST that issues the grant has this screen as its own referrer, and it refuses
      * anything that is not on this site. A redirect target taken from a request without
@@ -387,7 +387,7 @@ class DebugGrantController extends Controller
          * that `echo`es its own HTML and never carries the toolbar. Enabling the grant
          * then landed back on it, with nothing to show for the click.
          */
-        return \Pramnos\DevPanel\DevPanelController::returnUrlFor(
+        return \Pramnos\DevPanel\DevPanelController::returnUrlExcluding(
             'debugbar',
             array((defined('sURL') ? rtrim((string) sURL, '/') : '') . '/debugbar')
         );
