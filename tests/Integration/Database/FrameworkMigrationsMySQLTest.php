@@ -128,6 +128,16 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // Assert – rollback
         $m->down();
         $this->assertFalse($this->tableExists('settings'));
+
+        /*
+         * Put it back, because this one is not this test's table.
+         *
+         * `settings` is the table `Pramnos\Application\Settings` writes to, so every later
+         * test in the run that reads or writes a setting needs it. Leaving it dropped made
+         * a whole class fail with «relation "settings" does not exist» in a full run while
+         * passing on its own – a failure that says nothing about the class it lands in.
+         */
+        $m->up();
     }
 
     // -------------------------------------------------------------------------
