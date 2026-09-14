@@ -28,6 +28,17 @@ class Settings extends \Pramnos\Framework\Base
     static protected $bulkLoaded = false;
 
     /**
+     * Does `settings.setting` carry its unique index? Null until asked.
+     *
+     * Decides which of two write paths {@see setSetting()} takes, so it is memoised as a
+     * schema fact rather than re-read on every save — a settings form calls `setSetting()`
+     * once per field.
+     *
+     * @var bool|null
+     */
+    static protected $uniqueSettingIndex = null;
+
+    /**
      * How long a settings read stays in the SQL cache, in seconds.
      *
      * One value for both the bulk read and the single-key read. They used to
@@ -61,6 +72,11 @@ class Settings extends \Pramnos\Framework\Base
         self::$loaded = false;
         self::$bulkLoaded = false;
         self::$database = null;
+
+        // The memoised schema fact belongs to the connection that is being dropped: a
+        // different database can have a different settings table, and answering for the old
+        // one would pick the wrong write path on the new.
+        self::$uniqueSettingIndex = null;
     }
 
 
@@ -146,6 +162,11 @@ class Settings extends \Pramnos\Framework\Base
         $loadSettings = true)
     {
         self::$database = $database;
+
+        // A new connection is a new settings table, and whether *that* one carries the
+        // unique index is a different question. Answering it from the previous connection
+        // would choose the wrong write path — which on MySQL means a silent duplicate row.
+        self::$uniqueSettingIndex = null;
     }
 
 
@@ -461,24 +482,110 @@ class Settings extends \Pramnos\Framework\Base
             // values instead of interpolating them. The hand-written version of
             // these three statements is what put MySQL backticks in front of
             // PostgreSQL.
-            $exists = self::$database->queryBuilder()
-                ->table('#PREFIX#settings')
-                ->where('setting', $setting)
-                ->exists();
-
-            if ($exists) {
+            /*
+             * One statement, because two were a race.
+             *
+             * This asked whether the row existed and then inserted or updated — check then
+             * act, with a window between the two. Two administrators saving settings in the
+             * same second both saw "no row", both inserted, and the second got a duplicate
+             * key error out of a screen that had every reason to work.
+             *
+             * `uq_settings_name` is what makes the upsert possible, and it was added for
+             * exactly this: its own migration says *"Settings::setSetting() relies on
+             * row-level uniqueness"*. The constraint was there and the code was not using it.
+             *
+             * Low-probability and real. It needs two saves inside one second, which is why
+             * it had never been reported — and why it would have been diagnosed as a fluke
+             * if it had.
+             */
+            if (self::hasUniqueSettingIndex()) {
                 self::$database->queryBuilder()
+                    ->table('#PREFIX#settings')
+                    ->upsert(
+                        ['setting' => $setting, 'value' => $value],
+                        ['setting'],
+                        ['value']
+                    );
+            } else {
+                /*
+                 * No unique index, so no upsert: the check-then-act it replaces.
+                 *
+                 * `2026_05_26_000051` **declines** when the table already holds two rows for
+                 * one name — deleting somebody's configuration is not a migration's decision
+                 * — so an installation can legitimately be running without the constraint.
+                 * There, `ON CONFLICT (setting)` raises *«no unique or exclusion constraint
+                 * matching the ON CONFLICT specification»* on PostgreSQL, and on MySQL
+                 * `ON DUPLICATE KEY UPDATE` with nothing to conflict on quietly inserts a
+                 * further duplicate — which is worse than the race, because it is silent and
+                 * it compounds.
+                 *
+                 * So the old path stays for those, with its window, and the way out is to
+                 * resolve the duplicates and run migrations rather than to change this code.
+                 */
+                $exists = self::$database->queryBuilder()
                     ->table('#PREFIX#settings')
                     ->where('setting', $setting)
-                    ->update(['value' => $value]);
-            } else {
-                self::$database->queryBuilder()
-                    ->table('#PREFIX#settings')
-                    ->insert(['setting' => $setting, 'value' => $value]);
+                    ->exists();
+
+                if ($exists) {
+                    self::$database->queryBuilder()
+                        ->table('#PREFIX#settings')
+                        ->where('setting', $setting)
+                        ->update(['value' => $value]);
+                } else {
+                    self::$database->queryBuilder()
+                        ->table('#PREFIX#settings')
+                        ->insert(['setting' => $setting, 'value' => $value]);
+                }
             }
 
             self::invalidateCache();
         }
+    }
+
+    /**
+     * Is the unique index on `settings.setting` actually there?
+     *
+     * Asked once per process rather than per write: it is a schema fact, and a settings
+     * write happens on a screen where a second catalogue query is free but a hundred are
+     * not — `setSetting()` is called in a loop by every settings form there is.
+     *
+     * The answer decides which of two write paths runs, so a wrong one is not cosmetic:
+     * claiming the index exists where it does not turns every save into an error on
+     * PostgreSQL and into a silent duplicate on MySQL. **Fails closed** — a catalogue that
+     * cannot be read answers "no", which is the check-then-act path this framework had for
+     * its whole life.
+     */
+    protected static function hasUniqueSettingIndex(): bool
+    {
+        if (self::$uniqueSettingIndex !== null) {
+            return self::$uniqueSettingIndex;
+        }
+
+        try {
+            return self::$uniqueSettingIndex = self::$database
+                ->schema()
+                ->hasIndex('settings', 'uq_settings_name');
+        } catch (\Throwable) {
+            return self::$uniqueSettingIndex = false;
+        }
+    }
+
+    /**
+     * Forget whether the unique index is there.
+     *
+     * For a test, and for the one runtime case that changes the answer: a migration run
+     * inside a long-lived process. Without it, a worker that started before
+     * `2026_05_26_000051` applied would keep taking the check-then-act path until it was
+     * restarted.
+     *
+     * A class property rather than a `static` inside the method, and that is the whole
+     * reason: a function static cannot be reset, so memoising there would have made this
+     * method impossible to write and the memo impossible to test.
+     */
+    public static function forgetSchemaFacts(): void
+    {
+        self::$uniqueSettingIndex = null;
     }
 
     /**

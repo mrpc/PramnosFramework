@@ -7,6 +7,7 @@ use_cases:
   - Handling errors or registering an exception handler
   - Telling the user what happened after a redirect (flash messages)
   - Reading application configuration in app/app.php
+  - Storing configuration an administrator edits at runtime (the settings table)
   - Allowing an external domain the Content-Security-Policy is blocking
   - Diagnosing a form POST or SSO redirect the browser cancels
   - Serving anonymous traffic from cache when the framework starts a session
@@ -647,6 +648,55 @@ return [
     ]
 ];
 ```
+
+
+### Runtime settings — the `settings` table
+
+Configuration files are read-only and deployed. The `settings` table is the other half: a
+key/value store an administrator writes at runtime, read through
+`Pramnos\Application\Settings`.
+
+```php
+use Pramnos\Application\Settings;
+
+$from = Settings::getSetting('mail_from', 'noreply@example.com');
+
+Settings::setSetting('mail_from', 'hello@example.com');
+```
+
+`setSetting()` writes one statement — an upsert onto `settings.setting` — so two
+administrators saving the same key in the same second get two saves, not a duplicate-key
+error on whoever was second. That requires the unique index the framework migration
+`2026_05_26_000051` adds:
+
+```sql
+CREATE UNIQUE INDEX uq_settings_name ON settings (setting);
+```
+
+**Check that your installation has it.** The migration *declines* on a table that already
+holds two rows for one name — deleting somebody's configuration is not a migration's
+decision — so an installation can be fully migrated and still be without the constraint:
+
+```sql
+SELECT setting, COUNT(*) FROM settings GROUP BY setting HAVING COUNT(*) > 1;
+```
+
+Resolve whatever that returns, then re-run migrations. Until it is empty, `setSetting()`
+detects the missing index and falls back to the older read-then-write, which is correct for
+one writer and still races for two. The fallback is not a second implementation to maintain
+— it is the behaviour the framework has always had, kept for installations that cannot take
+the constraint yet.
+
+The answer is read from the catalogue **once per process**, because a settings form calls
+`setSetting()` once per field. A long-lived worker that was running when the migration
+applied keeps the old answer until it restarts, or until something calls
+`Settings::forgetSchemaFacts()`.
+
+!!! warning "Encrypted values"
+    A setting whose name matches the framework's credential patterns is encrypted with
+    `APP_KEY` before it is written. Without a key it is stored in clear and converts itself
+    on the next save once `key:generate` has run — an unreadable mail password is a worse
+    outcome than a readable one.
 
 
 ## Declining the automatic session
