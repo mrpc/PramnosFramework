@@ -51,14 +51,14 @@ main {
     min-width: 12rem;
     padding: 0.45rem 0.75rem;
     font: inherit;
-    color: var(--text-main, #1e293b);
-    background: var(--white, #fff);
-    border: 1px solid var(--border-color, #d1d5db);
+    color: var(--bs-body-color, #1e293b);
+    background: var(--bs-body-bg, #fff);
+    border: 1px solid var(--bs-border-color, #d1d5db);
     border-radius: 0.375rem;
 }
 
 .pf-omnibox-input:focus {
-    outline: 2px solid var(--primary-color, #2563eb);
+    outline: 2px solid var(--bs-primary, #2563eb);
     outline-offset: 1px;
 }
 
@@ -70,8 +70,8 @@ main {
     min-width: 20rem;
     max-height: 24rem;
     overflow-y: auto;
-    background: var(--white, #fff);
-    border: 1px solid var(--border-color, #e5e7eb);
+    background: var(--bs-body-bg, #fff);
+    border: 1px solid var(--bs-border-color, #e5e7eb);
     border-radius: 0.375rem;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
 }
@@ -83,7 +83,7 @@ main {
 }
 
 .pf-omnibox-group + .pf-omnibox-group {
-    border-top: 1px solid var(--border-color, #f1f5f9);
+    border-top: 1px solid var(--bs-border-color, #f1f5f9);
 }
 
 .pf-omnibox-group-label {
@@ -93,7 +93,7 @@ main {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--text-muted, #64748b);
+    color: var(--bs-secondary-color, #64748b);
 }
 
 .pf-omnibox-count {
@@ -105,14 +105,14 @@ main {
 .pf-omnibox-option {
     display: block;
     padding: 0.5rem 0.75rem;
-    color: var(--text-main, #1e293b);
+    color: var(--bs-body-color, #1e293b);
     text-decoration: none;
     cursor: pointer;
 }
 
 .pf-omnibox-option:hover,
 .pf-omnibox-option.is-active {
-    background: var(--bg-subtle, #f1f5f9);
+    background: var(--bs-secondary-bg, #f1f5f9);
 }
 
 .pf-omnibox-title {
@@ -123,7 +123,7 @@ main {
 .pf-omnibox-subtitle {
     display: block;
     font-size: 0.8125rem;
-    color: var(--text-muted, #64748b);
+    color: var(--bs-secondary-color, #64748b);
 }
 
 .pf-omnibox-empty,
@@ -131,7 +131,7 @@ main {
     margin: 0;
     padding: 0.75rem;
     font-size: 0.875rem;
-    color: var(--text-muted, #64748b);
+    color: var(--bs-secondary-color, #64748b);
 }
 
 /*
@@ -251,17 +251,17 @@ main {
     margin: 0 0 1rem;
     padding: 0;
     font-size: 0.875rem;
-    color: var(--text-muted, #64748b);
+    color: var(--bs-secondary-color, #64748b);
 }
 
 .pf-breadcrumb a {
-    color: var(--primary-color, #2563eb);
+    color: var(--bs-primary, #2563eb);
 }
 
 .pf-breadcrumb li + li::before {
     content: "/";
     padding-right: 0.5rem;
-    color: var(--text-muted, #64748b);
+    color: var(--bs-secondary-color, #64748b);
 }
 
 .pf-pagination {
@@ -274,11 +274,11 @@ main {
 .pf-pagination a,
 .pf-pagination span {
     padding: 0.375rem 0.75rem;
-    border: 1px solid var(--border-color, #cbd5e1);
+    border: 1px solid var(--bs-border-color, #cbd5e1);
     border-radius: 0.25rem;
     text-decoration: none;
-    color: var(--text-main, #1e293b);
-    background: var(--white, #fff);
+    color: var(--bs-body-color, #1e293b);
+    background: var(--bs-body-bg, #fff);
     /* Large enough to hit on a touch screen: WCAG 2.5.8 asks for 24px, and a pager is
        the control people tap most often on a phone. */
     min-width: 2.25rem;
@@ -286,15 +286,15 @@ main {
 }
 
 .pf-pagination a:hover {
-    border-color: var(--primary-color, #2563eb);
-    color: var(--primary-color, #2563eb);
+    border-color: var(--bs-primary, #2563eb);
+    color: var(--bs-primary, #2563eb);
 }
 
 .pf-pagination .current,
 .pf-pagination [aria-current="page"] {
-    background: var(--primary-color, #2563eb);
-    border-color: var(--primary-color, #2563eb);
-    color: var(--white, #fff);
+    background: var(--bs-primary, #2563eb);
+    border-color: var(--bs-primary, #2563eb);
+    color: #fff;
     font-weight: 600;
     /* Not colour alone: WCAG 1.4.1. The weight carries it where colour cannot. */
     text-decoration: underline;

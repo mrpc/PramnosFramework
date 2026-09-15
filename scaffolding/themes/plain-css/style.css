@@ -5,6 +5,8 @@
     --text-main: #1e293b;
     --text-muted: #64748b;
     --white: #ffffff;
+    --border-color: #e5e7eb;
+    --bg-subtle: #f1f5f9;
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
     --glass-bg: rgba(255, 255, 255, 0.8);
 }

@@ -358,11 +358,19 @@ It rewrites `scaffold_theme` in `app/app.php`, re-installs the theme chrome into
 CSS/JS for that system. The scaffolded views themselves are resolved per-system from the
 bundled scaffolding, so nothing needs copying per screen.
 
-| System | What it is |
-| --- | --- |
-| `plain-css` | hand-written CSS, no framework, no vendored assets |
-| `bootstrap` | Bootstrap 5, vendored locally |
-| `tailwind` | Tailwind 4 **and daisyUI 5** — see below |
+| System | What it is | The custom properties its `style.css` reads |
+| --- | --- | --- |
+| `plain-css` | hand-written CSS, no framework, no vendored assets | its own, declared in the `:root` block at the top of the file |
+| `bootstrap` | Bootstrap 5, vendored locally | Bootstrap's `--bs-*`, defined by the vendored stylesheet |
+| `tailwind` | Tailwind 4 **and daisyUI 5** — see below | the palette's own tokens, `--color-*` and the rest, via `theme-tokens.css` |
+
+**Stay inside the column that applies.** `var(--name, #literal)` never fails: if nothing
+declares `--name`, the browser silently takes the literal, so a rule reading a vocabulary
+the page does not have looks opinionated rather than broken — and stays that colour
+through every palette change and every theme switch.
+`tests/Unit/Theme/ScaffoldThemeStylesheetTokensTest.php` checks each bundled stylesheet
+against the palette `init` writes, so adding a rule in the wrong vocabulary fails the
+suite instead of shipping.
 
 #### The tailwind theme is a daisyUI theme
 
