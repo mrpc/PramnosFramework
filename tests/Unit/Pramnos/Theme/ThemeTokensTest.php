@@ -120,6 +120,28 @@ class ThemeTokensTest extends TestCase
     }
 
     /**
+     * A declaration daisyUI understands and this does not is carried through.
+     *
+     * The palette file belongs to daisyUI, not to this parser, so a property added by a
+     * version of it that postdates this code has to survive: dropping a line somebody
+     * wrote is the worst answer available, and the generated outputs are what the rest
+     * of the project reads. Worth asserting beside the comment tests because the two
+     * look alike from inside the parser — both are lines it does not recognise, and only
+     * one of them is a declaration.
+     */
+    public function testAnUnrecognisedDeclarationIsKept(): void
+    {
+        // Arrange — a bare property, no leading `--`.
+        $css = "@plugin \"daisyui/theme\" {\n  name: \"acme\";\n  depth: 1;\n}\n";
+
+        // Act
+        $themes = ThemeTokens::parse($css);
+
+        // Assert
+        $this->assertSame('1', $themes['acme']['tokens']['depth']);
+    }
+
+    /**
      * A commented-out `}` does not end the block early.
      *
      * Comments are stripped before the block regex runs, and the regex stops at the
