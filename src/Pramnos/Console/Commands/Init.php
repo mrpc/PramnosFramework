@@ -4159,7 +4159,9 @@ HTML,
      * Two ink variants are written to www/assets/img/ so the header reads on
      * either a light or a dark navbar without re-exporting artwork:
      *   - logo.png          — dark ink, for light headers (plain-css, tailwind)
-     *   - logo-inverse.png  — light ink, for dark headers (bootstrap)
+     *   - logo-inverse.png  — light ink, for dark headers (bootstrap), and for the
+     *                         tailwind theme under its dark theme, where the swap is
+     *                         done in CSS on `.pf-logo` rather than in the markup
      *
      * The theme header (buildThemeHeader) references the variant matching its
      * default navbar background. This is framework artwork shipped as a sensible
@@ -4200,7 +4202,10 @@ HTML,
 
         return match ($uiSystem) {
             'bootstrap' => "<a class=\"navbar-brand d-flex align-items-center\" href=\"<?php echo sURL; ?>\">$img height=\"34\"></a>",
-            'tailwind'  => "<a href=\"<?php echo sURL; ?>\" class=\"btn btn-ghost px-2 gap-2 normal-case\">$img class=\"h-8 w-auto\">"
+            // `pf-logo` is what style.css swaps to the inverse ink under a dark theme.
+            // Only this theme needs it: bootstrap's navbar is dark in both directions and
+            // already gets the inverse file, and plain-css ships no dark theme at all.
+            'tailwind'  => "<a href=\"<?php echo sURL; ?>\" class=\"btn btn-ghost px-2 gap-2 normal-case\">$img class=\"pf-logo h-8 w-auto\">"
                 . "<span class=\"font-semibold text-base hidden sm:inline\">$name</span></a>",
             default     => "<a href=\"<?php echo sURL; ?>\" class=\"logo\">$img style=\"height:38px;display:block\"></a>",
         };

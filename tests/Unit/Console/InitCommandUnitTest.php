@@ -1149,6 +1149,72 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * The tailwind theme swaps the logo's ink with the theme, in CSS.
+     *
+     * That theme is the only one with a light/dark toggle, so its navbar is near-white
+     * in one direction and near-black in the other — and the scaffold's own wordmark is
+     * dark ink. Under `data-theme="<slug>-dark"` it disappears entirely: no error, no
+     * broken image, just a header with nothing in the corner.
+     *
+     * Both halves are asserted, because either alone leaves the bug in place: the class
+     * on the element the stylesheet targets, and the two rules that do the swapping —
+     * one for a stored choice, one for an OS preference with nothing stored.
+     */
+    public function testTailwindSwapsTheLogoInkForTheDarkTheme(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name'    => 'MyApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MyApp',
+            '--features'    => '',
+            '--ui-system'   => 'tailwind',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'myapp_db',
+            '--db-user'     => 'myapp',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+        ], ['interactive' => false]);
+
+        // Assert — the hook is on the image the stylesheet has to reach.
+        $header = (string) file_get_contents($this->tmpDir . '/app/themes/default/header.php');
+        // Matched as two substrings rather than one pattern: the alt attribute between
+        // them is a PHP block, so it closes with a right angle bracket of its own and
+        // no `[^>]*` can span it.
+        $this->assertStringContainsString('assets/img/logo.png"', $header);
+        $this->assertStringContainsString('class="pf-logo h-8 w-auto"', $header,
+            'the stylesheet targets .pf-logo; without the class nothing swaps');
+
+        // And the swap itself, in both the ways the theme can end up dark.
+        $css = (string) file_get_contents($this->tmpDir . '/www/assets/css/style.css');
+        $this->assertStringContainsString(
+            '[data-theme$="-dark"] .pf-logo',
+            $css,
+            'suffix match: the dark theme is named after the project, the stylesheet is static'
+        );
+        $this->assertStringContainsString(':root:not([data-theme]) .pf-logo', $css,
+            'with nothing stored the OS preference decides and no attribute is set');
+        $this->assertSame(
+            2,
+            substr_count($css, 'content: url("../img/logo-inverse.png")'),
+            'both rules must point at the inverse file the scaffold already ships'
+        );
+
+        // The file they point at is one the project actually has.
+        $this->assertFileExists($this->tmpDir . '/www/assets/img/logo-inverse.png');
+    }
+
+    /**
      * settings.php maps timescaledb → type=postgresql with timescale=true.
      */
     public function testSettingsPhpMapsTimescaledbToPostgresql(): void

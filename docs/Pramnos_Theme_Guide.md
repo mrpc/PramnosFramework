@@ -388,6 +388,12 @@ Tailwind's palette. Both halves matter:
 - **Light and dark both ship.** A toggle in the header stores the choice, and `head.php`
   applies it to `data-theme` before the first paint — inline and synchronous, because
   deferring it paints light and then flips.
+- **The logo follows the theme.** `init` copies two ink variants into
+  `www/assets/img/` — `logo.png` (dark ink) and `logo-inverse.png` (light) — and the
+  brand image carries the class `pf-logo`, which `style.css` swaps with
+  `content: url(…)` under `[data-theme$="-dark"]` and under a dark OS preference with
+  nothing stored. Replacing the artwork means replacing both files; nothing in the
+  markup or in JavaScript has to change.
 
 **No build step.** daisyUI 5 is a Tailwind *plugin*, and a plugin needs module resolution,
 which Tailwind's browser build cannot do — so `@plugin "daisyui"` is not available to a
