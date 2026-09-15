@@ -187,6 +187,48 @@ class ScaffoldSpaTest extends TestCase
     }
 
     /**
+     * The scaffolded front end builds clean and its own tests pass.
+     *
+     * Both halves of this were failing in a freshly generated project, and neither is
+     * something the developer who receives it can be expected to diagnose — a warning
+     * on every build and two red tests out of the box read as "this scaffold is broken",
+     * which is the worst possible first impression and the hardest to attribute.
+     *
+     * Asserted on the emitted source rather than by running Svelte: the framework's own
+     * JavaScript suite is `node --test` and has no compiler in it, so the check that is
+     * actually available here is that the two constructs are the ones that were wrong.
+     */
+    public function testTheScaffoldedFrontEndHasNoKnownBuildOrTestFailures(): void
+    {
+        // Arrange
+        $this->seedProject();
+
+        // Act
+        $this->scaffold(['--spa-stack' => 'svelte']);
+
+        // Assert — the search box reads its prop once, deliberately and silently.
+        // `$state(search)` warns `state_referenced_locally` on every `npm run build`.
+        $table = $this->read('frontend/components/DataTable.svelte');
+        $this->assertStringContainsString('$state(untrack(() => search))', $table);
+        $this->assertStringContainsString("import { untrack } from 'svelte';", $table,
+            'untrack without its import is a build error, not a warning');
+
+        // Assert — the focus-trap tests expect what the trap actually does. The
+        // backdrop is a <button> with tabindex="-1", so an unfiltered
+        // getAllByRole('button') hands the assertion an element the trap never visits.
+        $dialogTest = $this->read('frontend/__tests__/ConfirmDialog.test.js');
+        $component  = $this->read('frontend/components/ConfirmDialog.svelte');
+        $this->assertStringContainsString('!el.disabled && el.tabIndex !== -1', $component);
+        $this->assertStringContainsString('!el.disabled && el.tabIndex !== -1', $dialogTest,
+            'the expectation has to filter exactly as focusable() does');
+        $this->assertStringNotContainsString(
+            "const buttons = screen.getAllByRole('button');",
+            $dialogTest,
+            'an unfiltered query is what asserted against the backdrop'
+        );
+    }
+
+    /**
      * Running it twice does nothing the second time.
      *
      * Which is what makes it safe to run when you are not sure whether you already

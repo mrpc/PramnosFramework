@@ -13,6 +13,18 @@ import ConfirmDialog from '../components/ConfirmDialog.svelte';
  * be triggered twice.
  */
 
+/**
+ * The buttons the focus trap will actually visit.
+ *
+ * `getAllByRole('button')` also returns the backdrop, which is a <button> for the
+ * click and is deliberately out of the tab order (`tabindex="-1"`). The component's
+ * `focusable()` filters on exactly these two properties, so the expectation has to
+ * mirror it — querying the DOM with looser rules than the code under test asserts
+ * against an element the trap is designed never to reach.
+ */
+const tabbableButtons = () =>
+    screen.getAllByRole('button').filter((el) => !el.disabled && el.tabIndex !== -1);
+
 const BASE = {
     open: true,
     title: 'Delete this station?',
@@ -145,7 +157,7 @@ describe('ConfirmDialog', () => {
     it('wraps focus at the end of the dialog', async () => {
         // Arrange
         render(ConfirmDialog, { ...BASE, onconfirm: () => {}, oncancel: () => {} });
-        const buttons = screen.getAllByRole('button');
+        const buttons = tabbableButtons();
         const last = buttons[buttons.length - 1];
         last.focus();
 
@@ -159,7 +171,7 @@ describe('ConfirmDialog', () => {
     it('wraps focus backwards at the start of the dialog', async () => {
         // Arrange
         render(ConfirmDialog, { ...BASE, onconfirm: () => {}, oncancel: () => {} });
-        const buttons = screen.getAllByRole('button');
+        const buttons = tabbableButtons();
         buttons[0].focus();
 
         // Act

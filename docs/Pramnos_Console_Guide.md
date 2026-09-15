@@ -1262,7 +1262,21 @@ overwritten** afterwards:
 | `lib/i18n.svelte.js` | `t()` / `tHtml()`, a client for the framework's own catalogue |
 
 Each ships with its test, into the project's `__tests__/` — where the project's
-Vitest runner will actually run them.
+Vitest runner will actually run them. **The suite is green and the build is
+warning-free on a project that has just been scaffolded**; anything else is a
+framework bug worth reporting rather than something to fix locally.
+
+Two details in those files look like slips and are not:
+
+- `DataTable.svelte` initialises its search box with `$state(untrack(() => search))`.
+  The box holds what the user is typing and an `$effect` keeps it in step with the
+  prop, so the initialiser is a deliberate one-shot read — `untrack` is what says so,
+  and without it Svelte reports `state_referenced_locally` on every build.
+- `ConfirmDialog.test.js` filters its queries with `!el.disabled && el.tabIndex !== -1`
+  before asserting on the focus trap. The dialog's backdrop is a `<button>` held out
+  of the tab order on purpose, so an unfiltered `getAllByRole('button')` asserts
+  against an element the trap is designed never to reach. The filter mirrors the
+  component's own `focusable()`; if you change one, change both.
 
 They stop being the framework's files the moment they exist, because the whole
 value of shipping a `DataTable` is that a project extends it. To take a newer

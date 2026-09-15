@@ -1,4 +1,5 @@
 <script>
+    import { untrack } from 'svelte';
     import Pagination from './Pagination.svelte';
     import { locale, t } from '../lib/i18n.svelte.js';
 
@@ -141,7 +142,12 @@
         }
     }
 
-    let searchBox = $state(search);
+    // `untrack` because the initialiser really is a one-shot read: the box holds what
+    // the user is typing, and the `$effect` below is what keeps it in step with the prop.
+    // Without it Svelte warns `state_referenced_locally` on every build — correctly, the
+    // reference captures only the initial value — and a project inherits a warning it did
+    // not write and cannot act on.
+    let searchBox = $state(untrack(() => search));
 
     $effect(() => {
         searchBox = search;
