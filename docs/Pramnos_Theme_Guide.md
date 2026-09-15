@@ -355,7 +355,13 @@ project:
 
 It rewrites `scaffold_theme` in `app/app.php`, re-installs the theme chrome into
 `app/themes/default`, writes `www/assets/css/style.css`, and vendors the framework's
-CSS/JS for that system. The scaffolded views themselves are resolved per-system from the
+CSS/JS for that system.
+
+**It does not touch `app/themes/theme.css`.** The palette is the project's, not the
+scaffold's, and switching UI framework is not a decision about colours — it regenerates
+`theme-tokens.css` *from whatever palette the project has*, so the new stylesheet arrives
+already wearing them. A project that has no palette yet gets the template, named after
+the application. The scaffolded views themselves are resolved per-system from the
 bundled scaffolding, so nothing needs copying per screen.
 
 | System | What it is | The vocabulary its `style.css` reads |
@@ -1256,6 +1262,12 @@ A scaffolded SPA's `scripts/build-theme.mjs` reads `app/themes/theme.css` too, o
 build and every dev-server start — the same file, rather than the server theme's
 rendered `:root` properties, so no part of the palette has to be guessed back from CSS.
 
+**That makes two readers of one file**, and they have to agree about what it means:
+`ThemeTokens` for the server-rendered themes, `build-theme.mjs` for the SPA. Where they
+drift is over what is *not* a declaration — a comment — so both strip comments first,
+and `tests/js/spa-build-theme.test.js` runs the script against a commented palette.
+Change the parsing on one side and change it on the other.
+
 ### Reading a token from PHP
 
 For the places a custom property cannot reach — `<meta name="theme-color">`, an HTML
@@ -1279,6 +1291,23 @@ Three things about `token()` worth relying on:
   because half of the callers think in token names and half in custom properties.
 - **With no `fallback`, a miss is `''`.** Not `null` — which would otherwise reach string
   concatenation in every template that omits the third argument.
+
+**For an HTML email, use `hex()` instead.**
+
+```php
+$brand = \Pramnos\Theme\ThemeTokens::hex('--color-primary', fallback: '#2563eb');
+```
+
+`token()` returns what the palette says, and daisyUI's generator writes `oklch()`. No
+mail client parses that: the declaration is dropped and the colour becomes whatever the
+surrounding markup says, which in a dark template is black on black. `hex()` converts —
+the same conversion `theme:build` uses for Bootstrap's `-rgb` triplets, so an email and
+the page agree by construction. A value it cannot resolve to a colour, such as a
+`color-mix()`, returns the fallback rather than itself: a caller that asked for a hex and
+received `color-mix(…)` has the same unreadable email one step later.
+
+`<meta name="theme-color">` is the softer case — current browsers parse `oklch()`, older
+ones ignore the tag — but `hex()` is the safe answer there too.
 
 And for a test that needs a palette of its own: prime it rather than writing the file.
 `ThemeTokens::flush()` is public for exactly this, and the real palette lives in the project root

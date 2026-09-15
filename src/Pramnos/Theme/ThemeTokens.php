@@ -376,6 +376,48 @@ final class ThemeTokens
     }
 
     /**
+     * One token as a `#rrggbb` hex, for a client that cannot read anything else.
+     *
+     * {@see token()} returns what the palette says, and daisyUI's theme generator writes
+     * `oklch()` — which is the right thing for a stylesheet and useless in the two places
+     * that doc-block sends people. An HTML email has no custom properties *and* no mail
+     * client that parses oklch: Outlook and Gmail drop the declaration, so the colour
+     * falls back to whatever the surrounding markup says, which is usually black on
+     * black. `<meta name="theme-color">` is the softer case — modern browsers parse
+     * oklch, older ones ignore the tag.
+     *
+     * The conversion is the same one `theme:build` uses for Bootstrap's triplets, so a
+     * colour in an email and the colour on the page agree by construction.
+     *
+     * A value that cannot be resolved to a colour here — `color-mix()`, a named colour,
+     * a `var()` reference — returns the fallback rather than itself: a caller that asked
+     * for a hex and received `color-mix(…)` has been handed the same broken email one
+     * step later.
+     *
+     * @param string $token    The custom property, with or without the leading `--`
+     * @param string $theme    Theme name; the default theme when empty
+     * @param string $fallback Returned when the token, the theme, or the conversion fails
+     */
+    public static function hex(string $token, string $theme = '', string $fallback = ''): string
+    {
+        $triplet = self::rgbTriplet(self::token($token, $theme, ''));
+
+        if ($triplet === null) {
+            return $fallback;
+        }
+
+        return '#' . implode('', array_map(
+            static fn (string $channel): string => str_pad(
+                dechex((int) trim($channel)),
+                2,
+                '0',
+                STR_PAD_LEFT
+            ),
+            explode(',', $triplet)
+        ));
+    }
+
+    /**
      * The theme a page gets when it asks for none.
      *
      * The one flagged `default`, or the first declared — which is what daisyUI itself

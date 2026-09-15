@@ -3423,30 +3423,54 @@ PHP;
      */
     private function scaffoldPalette(string $appName): void
     {
-        $source = $this->scaffoldingDir . '/theme.css';
-        if (!file_exists($source)) {
-            // scaffolding/theme.css ships with the package
-            return; // @codeCoverageIgnore
+        $existing = $this->targetBaseDir . '/app/themes/theme.css';
+
+        /*
+         * **A palette that exists is the project's, and is never rewritten.**
+         *
+         * This is reached twice: from `init`, which refuses to run over an existing
+         * application, and from `installUiFramework()` — `project:switch-ui`, a command
+         * whose whole job is to be run against a live project. It used to write the
+         * scaffold's template unconditionally and then derive the tokens *from the
+         * template*, so switching UI framework replaced a project's colours with the
+         * framework's default blue and renamed both its themes. Nothing said so: the
+         * command reports the files it installed, and the palette is one of them.
+         *
+         * Deriving from `$css` is the other half. Reading the project's file and then
+         * generating from the template would leave `theme-tokens.css` describing a
+         * palette that is not the one on disk — the same failure, one file along.
+         */
+        if (is_file($existing)) {
+            $css = (string) file_get_contents($existing);
+        } else {
+            $source = $this->scaffoldingDir . '/theme.css';
+            if (!file_exists($source)) {
+                // scaffolding/theme.css ships with the package
+                return; // @codeCoverageIgnore
+            }
+
+            $slug = $this->paletteSlug($appName);
+            $css  = (string) file_get_contents($source);
+            // The two theme names, so a project's themes are its own rather than a
+            // generic pair every scaffolded project shares.
+            $css = str_replace(['name: "app";', 'name: "app-dark";'], [
+                'name: "' . $slug . '";',
+                'name: "' . $slug . '-dark";',
+            ], $css);
+
+            $this->writeFile('app/themes/theme.css', $css);
         }
-
-        $slug = $this->paletteSlug($appName);
-        $css  = (string) file_get_contents($source);
-        // The two theme names, so a project's themes are its own rather than a
-        // generic pair every scaffolded project shares.
-        $css = str_replace(['name: "app";', 'name: "app-dark";'], [
-            'name: "' . $slug . '";',
-            'name: "' . $slug . '-dark";',
-        ], $css);
-
-        $this->writeFile('app/themes/theme.css', $css);
 
         // Generated here rather than left for the developer to run: a project whose
         // stylesheet references tokens no file declares renders in black and white,
         // and "run theme:build" is not discoverable from that symptom.
         $themes = \Pramnos\Theme\ThemeTokens::parse($css);
         if ($themes === []) {
-            // the shipped palette declares two themes
-            return; // @codeCoverageIgnore
+            // A palette that declares nothing readable. Leaving the existing outputs
+            // alone is the safe answer — overwriting them with the empty string would
+            // turn an unparsable file into a colourless site, and `theme:build` is the
+            // command that reports the problem properly.
+            return;
         }
 
         $this->writeFile(

@@ -18,8 +18,11 @@
  * Doing it here rather than in the PHP shell keeps it off the request path
  * entirely: no per-request work, no inline <style> for a CSP to block.
  *
- * It is the single implementation of the mapping. Nothing else derives these
- * values, so there is nothing for it to drift from.
+ * It is the single implementation of the *mapping*, but not of the parsing: the PHP
+ * side reads the same file through `Pramnos\Theme\ThemeTokens`, for the server-rendered
+ * themes. Those two have to agree about what the file means, and the way they stop
+ * agreeing is over what is not a declaration — a comment. Keep `stripComments()` in step
+ * with that class.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -34,8 +37,36 @@ const OUT     = resolve(root, '{{ themeOutput }}');
  * The colour this project's UI framework actually paints with, used when the
  * theme declares no custom properties of its own. daisyUI's default purple
  * would match nothing on the server-rendered side.
+ *
+ * Reached only by the legacy path below, whose name map (`--primary-color`, `--white`,
+ * `--text-main`) is the vocabulary the *older* plain-CSS theme declared in its own
+ * `:root`. The current one declares none of those — they come from `theme-tokens.css`
+ * now — but a project old enough to have no `app/themes/theme.css` also has the old
+ * stylesheet, so the map still matches the only files it is ever asked about.
  */
 const FALLBACK_PRIMARY = '{{ fallbackPrimary }}';
+
+/**
+ * Remove CSS comments, before anything looks for a block or a `;`.
+ *
+ * The palette file invites annotating colours — the Theme Guide says so — and to a
+ * parser that splits on `;` a comment reads as one more `name: value`. Two ways that
+ * went wrong here, and the second is the reason this is a separate pass rather than a
+ * filter inside the loop:
+ *
+ *   - the comment's own text became a declaration in the generated stylesheet, and the
+ *     token on the line after it was swallowed into its value;
+ *   - a comment containing `}` ended the block regex early, and the fragment left
+ *     behind — `/* was: ;` — opened a comment that never closed, so **the rest of the
+ *     generated file**, the font rule included, was inside it. The build reported
+ *     success.
+ *
+ * @param {string} css
+ * @returns {string}
+ */
+function stripComments(css) {
+    return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
 
 /**
  * Read the `:root` custom properties of a stylesheet.
@@ -44,7 +75,7 @@ const FALLBACK_PRIMARY = '{{ fallbackPrimary }}';
  * @returns {Record<string, string>}
  */
 function rootVariables(css) {
-    const block = css.match(/:root\s*\{([\s\S]*?)\}/);
+    const block = stripComments(css).match(/:root\s*\{([\s\S]*?)\}/);
     if (!block) {
         return {};
     }
@@ -74,7 +105,7 @@ function rootVariables(css) {
 function paletteBlocks(css) {
     let out = '';
 
-    for (const [, body] of css.matchAll(/@plugin\s+["']daisyui\/theme["']\s*\{([^}]*)\}/g)) {
+    for (const [, body] of stripComments(css).matchAll(/@plugin\s+["']daisyui\/theme["']\s*\{([^}]*)\}/g)) {
         let name = '';
         let isDefault = false;
         let prefersDark = false;

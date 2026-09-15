@@ -147,4 +147,74 @@ class ThemeTokenLookupTest extends TestCase
         // Assert
         $this->assertSame('', $value);
     }
+
+    /**
+     * `hex()` answers the two use cases this class exists for, in a form they can read.
+     *
+     * `token()` returns what the palette says, and daisyUI's theme generator writes
+     * `oklch()` — which is correct in a stylesheet and useless in both places this
+     * class's own doc-block names. No mail client parses oklch: the declaration is
+     * dropped and the colour becomes whatever the surrounding markup says, which in a
+     * dark email template is black on black.
+     *
+     * `#2563eb` is the hex spelling of that exact oklch, so the conversion has to land
+     * back on it rather than within a shade of it.
+     */
+    public function testAColourCanBeReadAsAHexForAClientThatCannotParseOklch(): void
+    {
+        // Arrange
+        $this->palette([
+            'light' => ['default' => true, 'tokens' => [
+                '--color-primary' => 'oklch(54.6% 0.215 262.9)',
+                '--color-accent'  => 'color-mix(in oklab, red, blue)',
+            ]],
+        ]);
+
+        // Act & Assert
+        $this->assertSame('#2563eb', ThemeTokens::hex('--color-primary'));
+        // The leading `--` is optional here too, as it is for token().
+        $this->assertSame('#2563eb', ThemeTokens::hex('color-primary'));
+    }
+
+    /**
+     * A colour `hex()` cannot resolve gives the fallback, never itself.
+     *
+     * The contract that makes it safe to call: a caller that asked for a hex and was
+     * handed `color-mix(…)` has the same unreadable email one step further along, and
+     * would have no way to tell. Both failure modes are covered — a value that is a
+     * colour this cannot parse, and a token that is not declared at all.
+     */
+    public function testAnUnconvertibleOrMissingColourGivesTheFallback(): void
+    {
+        // Arrange
+        $this->palette([
+            'light' => ['default' => true, 'tokens' => [
+                '--color-accent' => 'color-mix(in oklab, red, blue)',
+            ]],
+        ]);
+
+        // Act & Assert
+        $this->assertSame('#000000', ThemeTokens::hex('--color-accent', fallback: '#000000'));
+        $this->assertSame('#000000', ThemeTokens::hex('--color-nothing', fallback: '#000000'));
+        // And with no fallback given, the empty string — the same default as token().
+        $this->assertSame('', ThemeTokens::hex('--color-accent'));
+    }
+
+    /**
+     * A channel below 0x10 keeps its leading zero.
+     *
+     * `dechex(9)` is `"9"`, and `#2963eb` is a different colour from `#092963eb`-ish
+     * nonsense — an unpadded channel shifts every digit after it and produces a string
+     * a client either rejects or reads as something else entirely.
+     */
+    public function testEachChannelIsPaddedToTwoDigits(): void
+    {
+        // Arrange — a near-black whose red and green channels are single digits.
+        $this->palette([
+            'light' => ['default' => true, 'tokens' => ['--color-base-100' => 'rgb(9, 4, 200)']],
+        ]);
+
+        // Act & Assert
+        $this->assertSame('#0904c8', ThemeTokens::hex('--color-base-100'));
+    }
 }

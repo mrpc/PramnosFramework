@@ -3676,6 +3676,118 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * A project's palette survives `project:switch-ui`.
+     *
+     * The command's job is to be run against a live project, and it goes through
+     * `installUiFramework()` → `scaffoldTheme()` → `scaffoldPalette()`. That last step
+     * wrote the scaffold's template unconditionally and then derived `theme-tokens.css`
+     * **from the template** — so switching UI framework replaced the project's colours
+     * with the framework's default blue and renamed both of its themes, and nothing said
+     * so: the command reports the files it installed, and the palette is one of them.
+     *
+     * Both files are asserted. Keeping `theme.css` and regenerating the tokens from the
+     * template would be the same defect one file along — a generated palette describing
+     * colours that are not the ones on disk.
+     */
+    public function testSwitchingUiFrameworkKeepsTheProjectsOwnPalette(): void
+    {
+        // Arrange — a project whose palette is its own, as any live project's is.
+        mkdir($this->tmpDir . '/app/themes', 0777, true);
+        file_put_contents($this->tmpDir . '/app/themes/theme.css', <<<'CSS'
+        @plugin "daisyui/theme" {
+            name: "mybrand";
+            default: true;
+            --color-primary: #ff0000;
+        }
+        CSS);
+
+        $init = new Init();
+        $init->targetBaseDir = $this->tmpDir;
+        $init->skipDockerRun = true;
+
+        // Act — the theme rewritten by the command that flips UI framework.
+        $init->installUiFramework('plain-css', 'My Brand');
+
+        // Assert — the palette is untouched, names and colour.
+        $palette = (string) file_get_contents($this->tmpDir . '/app/themes/theme.css');
+        $this->assertStringContainsString('name: "mybrand";', $palette);
+        $this->assertStringContainsString('--color-primary: #ff0000;', $palette);
+        $this->assertStringNotContainsString('my-brand', $palette,
+            'the scaffold template names its themes after the application; this project already had names');
+
+        // …and the generated tokens describe that palette rather than the template's.
+        $tokens = (string) file_get_contents($this->tmpDir . '/www/assets/css/theme-tokens.css');
+        $this->assertStringContainsString('[data-theme="mybrand"]', $tokens);
+        $this->assertStringContainsString('--color-primary: #ff0000;', $tokens);
+        // The framework default, in the oklch the shipped template is written in.
+        $this->assertStringNotContainsString('oklch(54.6% 0.215 262.9)', $tokens);
+    }
+
+    /**
+     * A project with no palette still gets one.
+     *
+     * The counterpart: the "keep what exists" rule must not turn into "never write it".
+     * `project:switch-ui` against a project scaffolded before the palette existed is
+     * exactly how such a project acquires one.
+     */
+    public function testSwitchingUiFrameworkWritesAPaletteWhenThereIsNone(): void
+    {
+        // Arrange — no app/themes/theme.css anywhere.
+        $init = new Init();
+        $init->targetBaseDir = $this->tmpDir;
+        $init->skipDockerRun = true;
+        $this->assertFileDoesNotExist($this->tmpDir . '/app/themes/theme.css');
+
+        // Act
+        $init->installUiFramework('plain-css', 'My Brand');
+
+        // Assert — the template, named after the application.
+        $palette = (string) file_get_contents($this->tmpDir . '/app/themes/theme.css');
+        $this->assertStringContainsString('name: "my-brand";', $palette);
+        $this->assertFileExists($this->tmpDir . '/www/assets/css/theme-tokens.css');
+    }
+
+    /**
+     * An unreadable palette leaves the generated files alone.
+     *
+     * Reachable only since the project's own palette started being the source: a file a
+     * person edits can be mid-edit, or pasted wrong. Regenerating from it would replace
+     * a working `theme-tokens.css` with the empty string — a colourless site produced by
+     * a command that was asked to change the UI framework, with no error anywhere.
+     * Keeping the previous outputs leaves the site rendering; `theme:build` is the
+     * command that reports the problem properly, and it says which file and what it
+     * expected.
+     */
+    public function testAnUnreadablePaletteDoesNotWipeTheGeneratedTokens(): void
+    {
+        // Arrange — a project with working tokens and a palette that declares nothing.
+        mkdir($this->tmpDir . '/app/themes', 0777, true);
+        mkdir($this->tmpDir . '/www/assets/css', 0777, true);
+        file_put_contents($this->tmpDir . '/app/themes/theme.css', "/* half a paste */\n");
+        file_put_contents(
+            $this->tmpDir . '/www/assets/css/theme-tokens.css',
+            ':root { --color-primary: #ff0000; }'
+        );
+
+        $init = new Init();
+        $init->targetBaseDir = $this->tmpDir;
+        $init->skipDockerRun = true;
+
+        // Act
+        $init->installUiFramework('plain-css', 'My Brand');
+
+        // Assert — the previous tokens are still there, and the palette is untouched.
+        $this->assertSame(
+            ':root { --color-primary: #ff0000; }',
+            (string) file_get_contents($this->tmpDir . '/www/assets/css/theme-tokens.css')
+        );
+        $this->assertSame(
+            "/* half a paste */\n",
+            (string) file_get_contents($this->tmpDir . '/app/themes/theme.css')
+        );
+    }
+
+    /**
      * The theme toggle switches between *this project's* themes.
      *
      * It wrote `light` and `dark` — daisyUI's stock themes — so a project with a
