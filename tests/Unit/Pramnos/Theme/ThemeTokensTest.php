@@ -229,6 +229,173 @@ class ThemeTokensTest extends TestCase
     }
 
     /**
+     * The generated stylesheet carries the palette under each UI system's own names.
+     *
+     * Only the tailwind theme reads daisyUI tokens. Bootstrap's components read `--bs-*`
+     * and the plain-CSS theme reads a vocabulary of its own, so without this both
+     * rendered their framework's stock colours whatever the project declared — "one
+     * palette, every UI system" was true of one system.
+     *
+     * Aliasing rather than rewriting those stylesheets is the point: Bootstrap's **own**
+     * `.btn-primary` and `.navbar` read `--bs-primary`, and nothing in this repository
+     * can edit Bootstrap.
+     */
+    public function testThePaletteIsAliasedOntoEachUiSystemsOwnNames(): void
+    {
+        // Act
+        $css = ThemeTokens::toCss(ThemeTokens::parse(self::PALETTE));
+
+        // Assert — Bootstrap's vocabulary, and the plain-CSS theme's.
+        $this->assertStringContainsString('--bs-primary: var(--color-primary);', $css);
+        $this->assertStringContainsString('--bs-body-bg: var(--color-base-100);', $css);
+        $this->assertStringContainsString('--primary-color: var(--color-primary);', $css);
+        $this->assertStringContainsString('--surface: var(--color-base-100);', $css);
+    }
+
+    /**
+     * The aliases are emitted per theme, so the dark palette carries its own.
+     *
+     * `var()` inside a custom property resolves against the same element, so an alias
+     * written once on `:root` would already follow a theme that redefines the token it
+     * points at. The reason to repeat it is the `prefers-color-scheme` block, which is a
+     * *different* selector — an alias that lived only on `:root` would be absent there,
+     * and a visitor on a dark-mode machine would get the dark palette with Bootstrap's
+     * light chrome on top of it.
+     */
+    public function testEveryThemeBlockCarriesTheAliases(): void
+    {
+        // Act
+        $css = ThemeTokens::toCss(ThemeTokens::parse(self::PALETTE));
+
+        // Assert — the light block, the dark block, and the OS-preference block.
+        $this->assertSame(3, substr_count($css, '--bs-primary: var(--color-primary);'));
+    }
+
+    /**
+     * Bootstrap's opacity utilities need a triplet, and it is computed, not aliased.
+     *
+     * `.bg-primary` is `rgba(var(--bs-primary-rgb), var(--bs-bg-opacity))`, and the
+     * scaffolded bootstrap navbar is a `.bg-primary`. `oklch()` cannot be fed to
+     * `rgba()` and CSS has no way to decompose it, so the conversion happens here —
+     * without it the most visible element on the page would keep Bootstrap's blue while
+     * everything around it followed the project.
+     *
+     * The expected value is not arbitrary: the scaffolded palette's primary is the
+     * oklch spelling of `#2563eb`, so a correct conversion has to land back on it.
+     */
+    public function testTheRgbTripletsAreComputedFromTheOklchValues(): void
+    {
+        // Arrange — `oklch(54.6% 0.215 262.9)` is `#2563eb`.
+        $css = <<<'CSS'
+        @plugin "daisyui/theme" {
+            name: "acme";
+            --color-primary: oklch(54.6% 0.215 262.9);
+            --color-base-100: oklch(100% 0 0);
+        }
+        CSS;
+
+        // Act
+        $out = ThemeTokens::toCss(ThemeTokens::parse($css));
+
+        // Assert
+        $this->assertStringContainsString('--bs-primary-rgb: 37, 99, 235;', $out);
+        $this->assertStringContainsString('--bs-body-bg-rgb: 255, 255, 255;', $out);
+    }
+
+    /**
+     * A hex or `rgb()` palette converts too, and anything else is left out.
+     *
+     * A palette is a file a designer edits, so it does not always arrive in `oklch()`.
+     * The last case is the one that matters: a wrong triplet is worse than an absent
+     * one, because Bootstrap falls back to its own value, which at least agrees with
+     * itself — a half-converted `color-mix()` would be a colour nobody chose.
+     */
+    public function testOtherColourSpellingsConvertAndUnresolvableOnesAreSkipped(): void
+    {
+        // Arrange
+        $css = <<<'CSS'
+        @plugin "daisyui/theme" {
+            name: "acme";
+            --color-primary: #2563eb;
+            --color-base-100: rgb(255, 255, 254);
+            --color-base-content: #fff;
+            --color-success: color-mix(in oklab, green 50%, white);
+        }
+        CSS;
+
+        // Act
+        $out = ThemeTokens::toCss(ThemeTokens::parse($css));
+
+        // Assert — hex long, `rgb()`, and hex short all resolve.
+        $this->assertStringContainsString('--bs-primary-rgb: 37, 99, 235;', $out);
+        $this->assertStringContainsString('--bs-body-bg-rgb: 255, 255, 254;', $out);
+        $this->assertStringContainsString('--bs-body-color-rgb: 255, 255, 255;', $out);
+
+        // …and the one that cannot be resolved here is absent rather than guessed.
+        $this->assertStringNotContainsString('--bs-success-rgb', $out);
+        // The plain alias still ships — `var()` needs no conversion, so `.btn-success`
+        // follows the palette even where the opacity utilities cannot.
+        $this->assertStringContainsString('--bs-success: var(--color-success);', $out);
+    }
+
+    /**
+     * The dark end of the transfer function, and the clamp above it.
+     *
+     * sRGB is linear below 0.0031308 and a power curve above it — a black or
+     * near-black token takes the branch nothing else in this file reaches, and getting
+     * it wrong would lift every dark surface off black by a visible amount. The second
+     * half is the out-of-gamut case: oklch describes colours sRGB cannot show, and a
+     * negative component has to clamp the way a browser clamps rather than wrap or
+     * produce a channel outside 0..255.
+     */
+    public function testBlackAndOutOfGamutColoursConvertWithinRange(): void
+    {
+        // Arrange — black, and a chroma no sRGB display can reach at that lightness.
+        $css = <<<'CSS'
+        @plugin "daisyui/theme" {
+            name: "acme";
+            --color-primary: oklch(0% 0 0);
+            --color-base-100: oklch(70% 0.37 142);
+        }
+        CSS;
+
+        // Act
+        $out = ThemeTokens::toCss(ThemeTokens::parse($css));
+
+        // Assert — the linear branch.
+        $this->assertStringContainsString('--bs-primary-rgb: 0, 0, 0;', $out);
+
+        // And the clamp: every channel is a whole number inside the range.
+        preg_match('/--bs-body-bg-rgb: ([\d, ]+);/', $out, $match);
+        $this->assertNotEmpty($match, 'an out-of-gamut colour still produces a triplet');
+        foreach (explode(', ', $match[1]) as $channel) {
+            $this->assertGreaterThanOrEqual(0, (int) $channel);
+            $this->assertLessThanOrEqual(255, (int) $channel);
+        }
+    }
+
+    /**
+     * An alias for a token the theme does not declare is not emitted.
+     *
+     * Aliasing to a property nothing defines would hand those stylesheets the same
+     * silent `var(--x, #literal)` fallback the bridge exists to remove — the rule would
+     * resolve, to the wrong colour, for ever.
+     */
+    public function testNoAliasIsEmittedForATokenTheThemeDoesNotDeclare(): void
+    {
+        // Arrange — a palette with a primary and nothing else.
+        $css = "@plugin \"daisyui/theme\" {\n  name: \"acme\";\n  --color-primary: #2563eb;\n}\n";
+
+        // Act
+        $out = ThemeTokens::toCss(ThemeTokens::parse($css));
+
+        // Assert
+        $this->assertStringContainsString('--bs-primary: var(--color-primary);', $out);
+        $this->assertStringNotContainsString('--bs-body-bg:', $out);
+        $this->assertStringNotContainsString('--surface:', $out);
+    }
+
+    /**
      * The generated file says it is generated, and names what to edit instead.
      *
      * A generated file that does not is a file somebody edits once, loses, and stops

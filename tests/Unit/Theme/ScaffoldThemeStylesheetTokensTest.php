@@ -21,7 +21,9 @@ use Pramnos\Theme\ThemeTokens;
  * `--color-*`, which is what made it invisible — it looked like a style choice.
  *
  * So the invariant is checked mechanically: a property is either declared in the same file,
- * or it carries a prefix that theme's page genuinely provides.
+ * is a token of the palette, is one of the aliases `theme:build` bridges the palette onto
+ * for Bootstrap and the plain-CSS theme, or carries a prefix that theme's page genuinely
+ * provides.
  */
 class ScaffoldThemeStylesheetTokensTest extends TestCase
 {
@@ -43,9 +45,30 @@ class ScaffoldThemeStylesheetTokensTest extends TestCase
     {
         return [
             'tailwind'  => ['tailwind',  []],
+            // Bootstrap declares far more of its own than the bridge overrides, and the
+            // ones it derives — `--bs-secondary-color` is `rgba(var(--bs-body-color-rgb), …)`
+            // — follow the palette through an alias rather than being one.
             'bootstrap' => ['bootstrap', ['--bs-']],
             'plain-css' => ['plain-css', []],
         ];
+    }
+
+    /**
+     * The alias names `ThemeTokens` bridges the palette onto.
+     *
+     * Read off the class rather than restated here, so a theme rule and the bridge that
+     * feeds it cannot drift apart without this failing: adding a `var(--bs-…)` to a
+     * bundled stylesheet without adding the alias is exactly the defect this test exists
+     * for, one vocabulary later.
+     *
+     * @return list<string>
+     */
+    private static function bridgedAliases(): array
+    {
+        $class   = new \ReflectionClass(ThemeTokens::class);
+        $aliases = array_keys($class->getConstant('BRIDGE') ?: []);
+
+        return array_merge($aliases, array_keys($class->getConstant('BRIDGE_RGB') ?: []));
     }
 
     /**
@@ -92,7 +115,9 @@ class ScaffoldThemeStylesheetTokensTest extends TestCase
             if (in_array($property, $declared[1], true)) {
                 continue;
             }
-            if (in_array($property, self::paletteTokens(), true)) {
+            if (in_array($property, self::paletteTokens(), true)
+                || in_array($property, self::bridgedAliases(), true)
+            ) {
                 continue;
             }
             foreach ($providedPrefixes as $prefix) {

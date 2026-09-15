@@ -358,19 +358,23 @@ It rewrites `scaffold_theme` in `app/app.php`, re-installs the theme chrome into
 CSS/JS for that system. The scaffolded views themselves are resolved per-system from the
 bundled scaffolding, so nothing needs copying per screen.
 
-| System | What it is | The custom properties its `style.css` reads |
+| System | What it is | The vocabulary its `style.css` reads |
 | --- | --- | --- |
-| `plain-css` | hand-written CSS, no framework, no vendored assets | its own, declared in the `:root` block at the top of the file |
-| `bootstrap` | Bootstrap 5, vendored locally | Bootstrap's `--bs-*`, defined by the vendored stylesheet |
-| `tailwind` | Tailwind 4 **and daisyUI 5** — see below | the palette's own tokens, `--color-*` and the rest, via `theme-tokens.css` |
+| `plain-css` | hand-written CSS, no framework, no vendored assets | its own names — `--primary-color`, `--text-main`, `--surface`, `--bg-subtle`, `--border-color` |
+| `bootstrap` | Bootstrap 5, vendored locally | Bootstrap's `--bs-*` |
+| `tailwind` | Tailwind 4 **and daisyUI 5** — see below | the palette's tokens directly, `--color-*` and the rest |
 
-**Stay inside the column that applies.** `var(--name, #literal)` never fails: if nothing
+All three follow the project's palette, because `theme-tokens.css` declares the first two
+vocabularies **as aliases of the third** — see [One palette, every UI
+system](#one-palette-every-ui-system).
+
+**Stay inside the row that applies.** `var(--name, #literal)` never fails: if nothing
 declares `--name`, the browser silently takes the literal, so a rule reading a vocabulary
 the page does not have looks opinionated rather than broken — and stays that colour
 through every palette change and every theme switch.
 `tests/Unit/Theme/ScaffoldThemeStylesheetTokensTest.php` checks each bundled stylesheet
-against the palette `init` writes, so adding a rule in the wrong vocabulary fails the
-suite instead of shipping.
+against the palette and against the alias table, so a rule in the wrong vocabulary — or
+one whose alias was never added — fails the suite instead of shipping.
 
 #### The tailwind theme is a daisyUI theme
 
@@ -1199,6 +1203,47 @@ pramnos theme:build --check    # exit 1 if they are stale — for CI
 |---|---|
 | `www/assets/css/theme-tokens.css` | Every server-rendered theme — buildless Tailwind, Bootstrap, plain CSS. Linked from `head.php` before the theme's own stylesheet. |
 | `www/assets/theme-tokens.json` | A SPA's own components, and anything else that reads JavaScript rather than CSS. |
+
+#### The same palette, under each system's own names
+
+Only the tailwind theme speaks daisyUI. Bootstrap's components read `--bs-*` and the
+plain-CSS theme reads a vocabulary of its own, so `theme-tokens.css` also emits the
+palette **as aliases of those names**:
+
+```css
+:root, [data-theme="acme"] {
+    --color-primary: oklch(54.6% 0.215 262.9);
+    /* The same palette, for Bootstrap and the plain-CSS theme. */
+    --bs-primary: var(--color-primary);
+    --bs-primary-rgb: 37, 99, 235;
+    --primary-color: var(--color-primary);
+}
+```
+
+Aliasing rather than rewriting those stylesheets is deliberate, and it buys something a
+rewrite cannot: **Bootstrap's own components read `--bs-*` too**, so redefining the
+variable reaches `.btn-primary`, `.navbar` and `.card` as well as the theme's rules —
+and nothing here could edit Bootstrap. `head.php` links this file after the UI
+framework's, so an equally specific `:root` in Bootstrap's stylesheet loses on source
+order.
+
+The aliases are written into every theme block, including the
+`prefers-color-scheme: dark` one, so the dark palette carries its own.
+
+**The `-rgb` triplets are computed, not aliased.** `.bg-primary` is
+`rgba(var(--bs-primary-rgb), var(--bs-bg-opacity))` — and the scaffolded bootstrap
+navbar is a `.bg-primary`. A palette written in `oklch()` cannot be fed to `rgba()` and
+CSS cannot decompose it, so `theme:build` converts those values to sRGB itself, by the
+conversion CSS Color 4 defines. `oklch()`, a hex literal and `rgb()` all convert; a value
+it cannot resolve — `color-mix()`, a named colour, a `var()` reference — simply gets no
+`-rgb` alias, and Bootstrap keeps its own for that one colour. A missing triplet is a
+colour that disagrees; a guessed one is a colour nobody chose.
+
+**What this turns on.** A `prefersdark` theme now reaches the bootstrap and plain-CSS
+themes as well, through `theme-tokens.css`'s `prefers-color-scheme` block — so a project
+on either will follow the visitor's operating system unless it says otherwise. The
+controls for that are the ones that were already there: drop `prefersdark: true` from the
+palette, or set `data-theme` on `<html>`.
 
 The generated stylesheet puts each theme under `[data-theme="<name>"]`, the one flagged
 `default` on `:root` as well, and the one flagged `prefersdark` inside a

@@ -66,6 +66,76 @@ final class ThemeTokens
     private const CANDIDATE_PATHS = ['app/themes/theme.css', 'app/theme.css'];
 
     /**
+     * The palette, under the names each UI system's own stylesheet already reads.
+     *
+     * Only the tailwind theme speaks daisyUI. Bootstrap's components read `--bs-*`,
+     * defined by the stylesheet it vendors, and the plain-CSS theme reads a vocabulary
+     * of its own — so for two of the three bundled themes "one palette, every UI system"
+     * was a claim the generated file could not keep. Both rendered their framework's
+     * stock colours whatever the project declared.
+     *
+     * Aliasing is the whole fix, and it is a better one than rewriting those stylesheets
+     * to read `--color-*`: Bootstrap's **own** components read `--bs-*` too, and nothing
+     * in this repository can edit those. Redefining the variable reaches `.btn-primary`
+     * and `.navbar` as well as the theme's own rules.
+     *
+     * Emitted per theme rather than once, so the dark palette carries its aliases with
+     * it — and `head.php` links this file after the UI framework's, so an alias here
+     * wins on source order against an equally specific `:root` in Bootstrap's.
+     *
+     * @var array<string, string> alias => the daisyUI token it takes its value from
+     */
+    private const BRIDGE = [
+        // Bootstrap 5.3. Its surfaces, its text, its borders and its semantic colours.
+        '--bs-body-bg'          => '--color-base-100',
+        '--bs-body-color'       => '--color-base-content',
+        '--bs-emphasis-color'   => '--color-base-content',
+        '--bs-secondary-bg'     => '--color-base-200',
+        '--bs-tertiary-bg'      => '--color-base-200',
+        '--bs-border-color'     => '--color-base-300',
+        '--bs-primary'          => '--color-primary',
+        '--bs-link-color'       => '--color-primary',
+        '--bs-link-hover-color' => '--color-primary',
+        '--bs-secondary'        => '--color-secondary',
+        '--bs-success'          => '--color-success',
+        '--bs-danger'           => '--color-error',
+        '--bs-warning'          => '--color-warning',
+        '--bs-info'             => '--color-info',
+
+        // The plain-CSS theme's own names. It composes the rest — a hover shade, a
+        // muted text tone — from these in its own stylesheet, because daisyUI has no
+        // token for either and guessing one here would be inventing vocabulary.
+        '--primary-color'       => '--color-primary',
+        '--text-main'           => '--color-base-content',
+        '--surface'             => '--color-base-100',
+        '--bg-subtle'           => '--color-base-200',
+        '--border-color'        => '--color-base-300',
+    ];
+
+    /**
+     * The aliases Bootstrap needs as an `r, g, b` triplet rather than as a colour.
+     *
+     * `.bg-primary` is `background-color: rgba(var(--bs-primary-rgb), var(--bs-bg-opacity))`,
+     * and the scaffolded bootstrap navbar is a `.bg-primary`. A palette written in
+     * `oklch()` cannot be fed to `rgba()` and CSS has no way to decompose it, so these
+     * are converted at build time — without them the most visible element on the page
+     * would keep Bootstrap's blue while everything around it followed the project.
+     *
+     * @var array<string, string> alias => the daisyUI token to convert
+     */
+    private const BRIDGE_RGB = [
+        '--bs-body-bg-rgb'    => '--color-base-100',
+        '--bs-body-color-rgb' => '--color-base-content',
+        '--bs-primary-rgb'    => '--color-primary',
+        '--bs-link-color-rgb' => '--color-primary',
+        '--bs-secondary-rgb'  => '--color-secondary',
+        '--bs-success-rgb'    => '--color-success',
+        '--bs-danger-rgb'     => '--color-error',
+        '--bs-warning-rgb'    => '--color-warning',
+        '--bs-info-rgb'       => '--color-info',
+    ];
+
+    /**
      * Parsed themes, keyed by path, so a request that asks twice reads once.
      *
      * @var array<string, array<string, array<string, mixed>>>
@@ -352,7 +422,128 @@ final class ThemeTokens
             $out .= $indent . $property . ': ' . $value . ";\n";
         }
 
-        return $out;
+        return $out . self::bridge($theme, $indent);
+    }
+
+    /**
+     * The same palette again, under the names Bootstrap and the plain-CSS theme read.
+     *
+     * An alias is emitted only for a token the theme actually declares: aliasing to a
+     * property nothing defines would hand those stylesheets the same silent fallback
+     * this exists to remove.
+     *
+     * @param array<string, mixed> $theme
+     */
+    private static function bridge(array $theme, string $indent = '    '): string
+    {
+        $out = '';
+
+        foreach (self::BRIDGE as $alias => $token) {
+            if (isset($theme['tokens'][$token])) {
+                $out .= $indent . $alias . ': var(' . $token . ");\n";
+            }
+        }
+
+        foreach (self::BRIDGE_RGB as $alias => $token) {
+            $triplet = self::rgbTriplet((string) ($theme['tokens'][$token] ?? ''));
+            if ($triplet !== null) {
+                $out .= $indent . $alias . ': ' . $triplet . ";\n";
+            }
+        }
+
+        return $out === '' ? '' : $indent . "/* The same palette, for Bootstrap and the plain-CSS theme. */\n" . $out;
+    }
+
+    /**
+     * A colour as the `r, g, b` triplet Bootstrap's opacity utilities expect.
+     *
+     * Three input forms are accepted, which is what a palette file actually contains:
+     * `oklch()` (what daisyUI's generator emits), a hex literal (what a designer
+     * pastes), and `rgb()`. Anything else — a named colour, `color-mix()`, a `var()`
+     * reference — returns null and the alias is simply not emitted, because a wrong
+     * triplet is worse than an absent one: Bootstrap falls back to its own value, which
+     * at least agrees with itself.
+     *
+     * @return string|null `r, g, b`, or null when the value cannot be resolved here
+     */
+    private static function rgbTriplet(string $value): ?string
+    {
+        $value = trim($value);
+
+        if (preg_match('/^#([0-9a-f]{3}|[0-9a-f]{6})$/i', $value, $hex)) {
+            $digits = $hex[1];
+            if (strlen($digits) === 3) {
+                $digits = $digits[0] . $digits[0] . $digits[1] . $digits[1] . $digits[2] . $digits[2];
+            }
+
+            return implode(', ', [
+                (string) hexdec(substr($digits, 0, 2)),
+                (string) hexdec(substr($digits, 2, 2)),
+                (string) hexdec(substr($digits, 4, 2)),
+            ]);
+        }
+
+        if (preg_match('/^rgba?\\(\\s*(\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)/i', $value, $rgb)) {
+            return $rgb[1] . ', ' . $rgb[2] . ', ' . $rgb[3];
+        }
+
+        if (preg_match(
+            '/^oklch\\(\\s*([\\d.]+)(%?)\\s+([\\d.]+)\\s+([\\d.]+)/i',
+            $value,
+            $oklch
+        )) {
+            return self::oklchToRgb(
+                (float) $oklch[1] / ($oklch[2] === '%' ? 100 : 1),
+                (float) $oklch[3],
+                (float) $oklch[4]
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Oklch to sRGB, by the conversion CSS Color 4 defines.
+     *
+     * Oklch to Oklab (polar to cartesian), Oklab to cone responses and cubed, the
+     * matrix to linear sRGB, then the sRGB transfer function. The coefficients are
+     * Björn Ottosson's, as published in the specification — not tuned here, and not to
+     * be adjusted: a browser rendering the same `oklch()` uses these numbers, and the
+     * triplet has to agree with the colour beside it.
+     *
+     * Out-of-gamut components are clamped, which is what a browser does for a colour it
+     * cannot show rather than refusing to paint.
+     *
+     * @param float $lightness 0..1
+     * @param float $chroma    0..~0.4
+     * @param float $hue       degrees
+     */
+    private static function oklchToRgb(float $lightness, float $chroma, float $hue): string
+    {
+        $a = $chroma * cos(deg2rad($hue));
+        $b = $chroma * sin(deg2rad($hue));
+
+        $long   = ($lightness + 0.3963377774 * $a + 0.2158037573 * $b) ** 3;
+        $medium = ($lightness - 0.1055613458 * $a - 0.0638541728 * $b) ** 3;
+        $short  = ($lightness - 0.0894841775 * $a - 1.2914855480 * $b) ** 3;
+
+        $linear = [
+             4.0767416621 * $long - 3.3077115913 * $medium + 0.2309699292 * $short,
+            -1.2684380046 * $long + 2.6097574011 * $medium - 0.3413193965 * $short,
+            -0.0041960863 * $long - 0.7034186147 * $medium + 1.7076147010 * $short,
+        ];
+
+        $channels = [];
+        foreach ($linear as $component) {
+            $component = max(0.0, min(1.0, $component));
+            $channels[] = (string) (int) round(255 * (
+                $component <= 0.0031308
+                    ? 12.92 * $component
+                    : 1.055 * $component ** (1 / 2.4) - 0.055
+            ));
+        }
+
+        return implode(', ', $channels);
     }
 
     /** daisyUI accepts `true`, and a bare property name means the same thing. */
