@@ -1509,7 +1509,13 @@ class Init extends Command
             // same position as the `window.__PRAMNOS__` script already beside it. An
             // application that adds a nonce policy in front of its SPA has to account
             // for both.
-            'serviceWorkerRegistration' => $this->serviceWorkerRegistration(),
+            //
+            // For the same reason it cannot use `sURL`: that constant is defined when
+            // the application boots, and the shell requires only the autoloader. It
+            // gets `$siteUrl`, which the shell already computes from `getUrl()` a few
+            // lines above for the API key — the same value, and still correct for an
+            // application served from a subdirectory.
+            'serviceWorkerRegistration' => $this->serviceWorkerRegistration('$siteUrl'),
             'devPort'       => (string) $devPort,
             'appPort'       => (string) $appPort,
             // Where the pages actually live — printed by the dev server, since
@@ -2332,12 +2338,19 @@ CSS;
      * Inline and PHP-built rather than a static file, for one reason: the URL has to be
      * right. A worker registered at `/sw.js` is wrong for an application served from a
      * subdirectory, and its scope — which is what decides the requests it sees — comes
-     * from that path. `sURL` is the only thing that knows.
+     * from that path.
      *
      * `Document\DocumentTypes\Html::render()` stamps the CSP nonce into every inline
      * script, so this needs nothing of its own to survive a nonce policy.
+     *
+     * @param string $base The PHP expression that evaluates to the site's base URL, in
+     *                     the scope this snippet is emitted into. `sURL` for a theme
+     *                     template, which runs inside a booted application; the SPA
+     *                     shell passes `$siteUrl`, its own `getUrl()` call, because it
+     *                     boots nothing and `sURL` there is an undefined constant —
+     *                     a fatal, and the registration never ran.
      */
-    private function serviceWorkerRegistration(): string
+    private function serviceWorkerRegistration(string $base = 'sURL'): string
     {
         // **Two sources, and the second is not redundant.** The flag answers for `init`,
         // where the theme is written (line ~589) before the worker file is (line ~657),
@@ -2366,7 +2379,7 @@ CSS;
         // building the site, and an uncaught error in the console reads as a broken
         // page to everybody else.
         return "    <script>if('serviceWorker' in navigator){addEventListener('load',"
-            . "function(){navigator.serviceWorker.register('<?php echo sURL; ?>sw.js')"
+            . "function(){navigator.serviceWorker.register('<?php echo " . $base . "; ?>sw.js')"
             . ".catch(function(e){console.warn('Service worker not registered:',e);});"
             . "});}</script>\n";
     }

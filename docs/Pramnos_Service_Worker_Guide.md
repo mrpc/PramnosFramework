@@ -150,6 +150,18 @@ It is emitted in **two** places, because a project can have both kinds of page:
   in the same position as the `window.__PRAMNOS__` script already beside it. An
   application putting a nonce policy in front of its SPA has to account for both.
 
+The same reason changes the base URL in the shell's copy:
+
+```php
+navigator.serviceWorker.register('<?php echo $siteUrl; ?>sw.js')
+```
+
+`sURL` is defined while the application boots, and the shell requires only the
+autoloader — the constant does not exist there. `$siteUrl` is the shell's own `getUrl()`
+call, made a few lines higher for the API key, and it is the same value, so the
+subdirectory case is still handled. If you have customised the shell, keep the
+assignment above the registration.
+
 ---
 
 ## CSP: `worker-src` has to allow it

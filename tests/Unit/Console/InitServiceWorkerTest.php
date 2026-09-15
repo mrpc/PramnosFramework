@@ -329,6 +329,45 @@ class InitServiceWorkerTest extends TestCase
     }
 
     /**
+     * The shell's copy uses `$siteUrl`, never the `sURL` constant.
+     *
+     * `sURL` is defined while the application boots, and the shell requires only the
+     * autoloader — so the theme's copy of this snippet, pasted into the shell verbatim,
+     * ended in `Uncaught Error: Undefined constant "sURL"` after `</html>`. The SPA still
+     * booted, which is why it survived: the page looked fine and the worker was simply
+     * never registered.
+     *
+     * `$siteUrl` is the shell's own `getUrl()` call, already computed a few lines above
+     * for the API key, so the subdirectory case the constant existed to handle is still
+     * handled.
+     */
+    public function testTheShellRegistrationUsesAValueTheShellActuallyHas(): void
+    {
+        // Act
+        $this->scaffold([
+            '--service-worker' => 'y',
+            '--app-style'      => 'spa',
+            '--spa-stack'      => 'vanilla',
+        ]);
+
+        // Assert
+        $shell = (string) file_get_contents($this->tmpDir . '/www/spa.php');
+        $this->assertStringContainsString(
+            "navigator.serviceWorker.register('<?php echo \$siteUrl; ?>sw.js')",
+            $shell
+        );
+        // The constant is nowhere in the file — not in this snippet and not anywhere
+        // else the shell might have picked it up.
+        $this->assertStringNotContainsString('sURL', $shell);
+        // And `$siteUrl` is genuinely defined above the point it is used.
+        $this->assertLessThan(
+            strpos($shell, 'serviceWorker.register'),
+            strpos($shell, '$siteUrl = getUrl();'),
+            'the registration must come after the assignment it reads'
+        );
+    }
+
+    /**
      * A SPA project that declined one has no placeholder left behind.
      *
      * The token is replaced with an empty string, so the negative case is worth
