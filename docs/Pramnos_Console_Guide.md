@@ -728,6 +728,30 @@ php bin/pramnos create:policy MyPolicy       # an authorization policy skeleton
 php bin/pramnos create:test MySubject        # a PHPUnit test class
 ```
 
+### The controllers `init` writes, and the test that names them
+
+Controllers land in two directories, and the split is by audience:
+
+| Directory | Namespace | What is in it |
+|---|---|---|
+| `src/Controllers/` | `App\Controllers` | public-facing: `Home`, `Health`, `Login`, `Account`, `Register`, `Sso`, `Oauth`, `Webhook`, `Messages`, and the OAuth2 server's endpoints |
+| `src/Admin/Controllers/` | `App\Admin\Controllers` | the administration screens: `Dashboard`, `Users`, `Settings`, `Logs`, `Services`, `Organizations`, `Emails`, `Tokens`, `Applications`, `Permissions`, `Roles`, `Queue`, and the rest |
+
+Which of them appear depends on the features enabled: no `auth`, no `Login`; no
+`queue`, no `Queue` screen.
+
+`init` also writes `tests/Unit/Controllers/ControllersContractTest.php`, which asserts
+that each one loads and extends the framework class it is meant to. **Its roster is read
+off the project's own `src/` at scaffold time**, not from a list inside the generator —
+so it names every controller the project has and nothing else, whatever combination of
+features produced it. A hand-maintained list drifts in both directions at once, and the
+half that names classes the project does not have turns the first command a developer
+runs into a wall of errors.
+
+The rows are the project's from then on. Adding a controller means adding a row; if you
+re-parent one, update its second column — that column is the contract, and it is the
+only thing that would notice.
+
 ### What `init` writes for AI assistants
 
 Every scaffolded project gets two files aimed at coding assistants:

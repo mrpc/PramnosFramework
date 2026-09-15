@@ -4616,7 +4616,7 @@ PHP;
         $this->writeFile('tests/Unit/Controllers/HomeControllerTest.php',
             $this->buildHomeControllerTest($namespace));
         $this->writeFile('tests/Unit/Controllers/ControllersContractTest.php',
-            $this->buildControllersContractTest($namespace, $features));
+            $this->buildControllersContractTest());
 
         if (in_array('auth', $features, true)) {
             $this->writeFile('tests/Unit/Controllers/LoginControllerTest.php',
@@ -4761,84 +4761,136 @@ PHP;
     }
 
     /**
-     * Builds ControllersContractTest.php — structural smoke tests for all
-     * thin-delegation controllers.  Every app controller must:
+     * Every controller this scaffold wrote, as class name => the parent it was given.
+     *
+     * Both directories, because the scaffold uses both: the public-facing controllers
+     * are `src/Controllers`, and the administration screens are `src/Admin/Controllers`
+     * under an `Admin\` namespace segment. A roster that knew only the first is what
+     * produced 24 "class not found" errors in a freshly generated project.
+     *
+     * Read from the emitted source rather than from a list maintained beside the code
+     * that writes them: a list cannot be wrong about a file that is not there, and this
+     * one was wrong in both directions for as long as it existed.
+     *
+     * @return array<string, string> Controller FQN => parent FQN, sorted by name
+     */
+    private function scaffoldedControllers(): array
+    {
+        $found = [];
+
+        foreach (['src/Controllers', 'src/Admin/Controllers'] as $relative) {
+            $directory = $this->targetBaseDir . '/' . $relative;
+            if (!is_dir($directory)) {
+                continue;
+            }
+
+            foreach ((array) glob($directory . '/*.php') as $file) {
+                $source = (string) @file_get_contents((string) $file);
+
+                if (!preg_match('/^\s*namespace\s+([^;]+);/m', $source, $ns)
+                    || !preg_match('/^\s*(?:final\s+|abstract\s+)?class\s+(\w+)\s+extends\s+(\\\\?[\w\\\\]+)/m', $source, $class)
+                ) {
+                    // Not a controller declaring a parent — nothing to assert about.
+                    continue;
+                }
+
+                $found[trim($ns[1]) . '\\' . $class[1]] = $this->resolveParent(
+                    $source,
+                    trim($ns[1]),
+                    $class[2]
+                );
+            }
+        }
+
+        ksort($found);
+
+        return $found;
+    }
+
+    /**
+     * The fully-qualified name behind an `extends` token.
+     *
+     * Three forms appear in what the scaffold emits, and the aliased one is the common
+     * one — a wrapper imports `Pramnos\Auth\Controllers\Account as FrameworkAccount`
+     * precisely so the app class can keep the plain name:
+     *
+     *   - already absolute (`\Pramnos\…`) — take it as it is;
+     *   - an import, with or without `as` — resolve through the `use` statement;
+     *   - neither — the parent is in the file's own namespace.
+     *
+     * @param string $source    The controller's source
+     * @param string $namespace The namespace it declares
+     * @param string $token     Whatever followed `extends`
+     */
+    private function resolveParent(string $source, string $namespace, string $token): string
+    {
+        if (str_starts_with($token, '\\')) {
+            return ltrim($token, '\\');
+        }
+
+        preg_match_all(
+            '/^\s*use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;/m',
+            $source,
+            $imports,
+            PREG_SET_ORDER
+        );
+
+        foreach ($imports as $import) {
+            $alias = $import[2] ?? '';
+            if ($alias === '') {
+                $alias = substr((string) strrchr('\\' . $import[1], '\\'), 1);
+            }
+            if ($alias === $token) {
+                return $import[1];
+            }
+        }
+
+        return $namespace . '\\' . $token;
+    }
+
+    /**
+     * Builds ControllersContractTest.php — structural smoke tests for the controllers
+     * this run actually wrote.
+     *
+     * Every app controller must:
      *   (1) load via autoload without fatal errors,
      *   (2) extend the correct framework parent.
      *
      * These tests give instant feedback when a namespace, use-statement,
      * or extends clause is wrong in a freshly generated project.
+     *
+     * **The roster is read off the disk, not written down here.** It used to be a
+     * hand-maintained list guarded by feature flags, and it drifted in both directions
+     * at once: it named twelve controllers under `{$namespace}\Controllers` that the
+     * scaffold writes to `{$namespace}\Admin\Controllers`, so a generated project
+     * opened with 24 errors of the form `Class "App\Controllers\Dashboard" not found`
+     * — and it missed four it had written, which were therefore never checked at all.
+     * Twelve false failures are worse than the four real gaps: they say the scaffold is
+     * broken on the first command a developer runs.
+     *
+     * {@see scaffoldTests()} runs after every controller is written, so the files are
+     * there to be read. The expected parent is resolved from each controller's own
+     * `extends` clause and imports — a generated file, so this is the generator's
+     * intent rather than an independent opinion, and the assertion is still worth
+     * making: it fails when the named parent does not exist, and it fails in the
+     * project when somebody re-parents a controller by hand without saying so.
      */
-    private function buildControllersContractTest(string $namespace, array $features): string
+    private function buildControllersContractTest(): string
     {
-        $hasAuth       = in_array('auth',       $features, true);
-        $hasAuthserver = in_array('authserver', $features, true);
-        $hasQueue      = in_array('queue',      $features, true);
+        $rows = '';
+        $seen = [];
+        foreach ($this->scaffoldedControllers() as $class => $parent) {
+            // The short name reads best in PHPUnit's output. `Admin\Users` beside
+            // `Users` would collide, so a repeat keeps its last two segments.
+            $parts = explode('\\', $class);
+            $label = end($parts);
+            if (isset($seen[$label])) {
+                $label = $parts[count($parts) - 2] . '\\\\' . $label;
+            }
+            $seen[$label] = true;
 
-        // Build use-imports for app controllers (only those actually generated).
-        $uses  = "use {$namespace}\\Controllers\\Home;\n";
-        $uses .= "use {$namespace}\\Controllers\\Dashboard;\n";
-        $uses .= "use {$namespace}\\Controllers\\Health;\n";
-        $uses .= "use {$namespace}\\Controllers\\Users;\n";
-        $uses .= "use {$namespace}\\Controllers\\Settings;\n";
-        $uses .= "use {$namespace}\\Controllers\\Logs;\n";
-        $uses .= "use {$namespace}\\Controllers\\Services;\n";
-        $uses .= "use {$namespace}\\Controllers\\Organizations;\n";
-        $uses .= "use {$namespace}\\Controllers\\Emails;\n";
-        if ($hasAuth) {
-            $uses .= "use {$namespace}\\Controllers\\Login;\n";
-            $uses .= "use {$namespace}\\Controllers\\Account;\n";
-            $uses .= "use {$namespace}\\Controllers\\TwoFactorAuth;\n";
-            $uses .= "use {$namespace}\\Controllers\\Passkey;\n";
-            $uses .= "use {$namespace}\\Controllers\\Session;\n";
-            $uses .= "use {$namespace}\\Controllers\\TokenActions;\n";
-            $uses .= "use {$namespace}\\Controllers\\Tokens;\n";
-            $uses .= "use {$namespace}\\Controllers\\Oauth;\n";
-        }
-        if ($hasAuthserver) {
-            $uses .= "use {$namespace}\\Controllers\\Applications;\n";
-            $uses .= "use {$namespace}\\Controllers\\Permissions;\n";
-            $uses .= "use {$namespace}\\Controllers\\Discovery;\n";
-            $uses .= "use {$namespace}\\Controllers\\Device;\n";
-            $uses .= "use {$namespace}\\Controllers\\Gdpr;\n";
-            $uses .= "use {$namespace}\\Controllers\\Capabilities;\n";
-            $uses .= "use {$namespace}\\Controllers\\InternalPermissions;\n";
-        }
-        if ($hasQueue) {
-            $uses .= "use {$namespace}\\Controllers\\Queue;\n";
-        }
-
-        // Build data-provider rows.
-        $rows  = "            'Home'          => [Home::class,          \\Pramnos\\Application\\Controller::class],\n";
-        $rows .= "            'Dashboard'     => [Dashboard::class,     \\Pramnos\\Application\\Controllers\\DashboardController::class],\n";
-        $rows .= "            'Health'        => [Health::class,         \\Pramnos\\Application\\Controllers\\Health::class],\n";
-        $rows .= "            'Users'         => [Users::class,          \\Pramnos\\Application\\Controllers\\UsersController::class],\n";
-        $rows .= "            'Settings'      => [Settings::class,       \\Pramnos\\Application\\Controllers\\SettingsController::class],\n";
-        $rows .= "            'Logs'          => [Logs::class,           \\Pramnos\\Application\\Controllers\\LogController::class],\n";
-        $rows .= "            'Services'      => [Services::class,       \\Pramnos\\Application\\Controllers\\ServicesController::class],\n";
-        $rows .= "            'Organizations' => [Organizations::class,  \\Pramnos\\Application\\Controllers\\OrganizationsController::class],\n";
-        $rows .= "            'Emails'        => [Emails::class,         \\Pramnos\\Application\\Controllers\\EmailsController::class],\n";
-        if ($hasAuth) {
-            $rows .= "            'Login'         => [Login::class,         \\Pramnos\\Auth\\Controllers\\Account::class],\n";
-            $rows .= "            'Account'       => [Account::class,       \\Pramnos\\Auth\\Controllers\\Account::class],\n";
-            $rows .= "            'TwoFactorAuth' => [TwoFactorAuth::class, \\Pramnos\\Auth\\Controllers\\TwoFactorAuth::class],\n";
-            $rows .= "            'Passkey'       => [Passkey::class,       \\Pramnos\\Auth\\Controllers\\Passkey::class],\n";
-            $rows .= "            'Session'       => [Session::class,       \\Pramnos\\Auth\\Controllers\\Session::class],\n";
-            $rows .= "            'TokenActions'  => [TokenActions::class,  \\Pramnos\\Auth\\Controllers\\TokenActionsController::class],\n";
-            $rows .= "            'Tokens'        => [Tokens::class,        \\Pramnos\\Auth\\Controllers\\TokensController::class],\n";
-            $rows .= "            'Oauth'         => [Oauth::class,         \\Pramnos\\Auth\\Controllers\\Oauth::class],\n";
-        }
-        if ($hasAuthserver) {
-            $rows .= "            'Applications'  => [Applications::class,  \\Pramnos\\Auth\\Controllers\\ApplicationsController::class],\n";
-            $rows .= "            'Permissions'   => [Permissions::class,   \\Pramnos\\Auth\\Controllers\\PermissionsController::class],\n";
-            $rows .= "            'Discovery'     => [Discovery::class,     \\Pramnos\\Auth\\Controllers\\Discovery::class],\n";
-            $rows .= "            'Device'        => [Device::class,        \\Pramnos\\Auth\\Controllers\\Device::class],\n";
-            $rows .= "            'Gdpr'          => [Gdpr::class,          \\Pramnos\\Auth\\Controllers\\Gdpr::class],\n";
-            $rows .= "            'Capabilities'  => [Capabilities::class,  \\Pramnos\\Auth\\Controllers\\Capabilities::class],\n";
-            $rows .= "            'InternalPermissions' => [InternalPermissions::class, \\Pramnos\\Auth\\Controllers\\InternalPermissions::class],\n";
-        }
-        if ($hasQueue) {
-            $rows .= "            'Queue'         => [Queue::class,          \\Pramnos\\Queue\\Controllers\\QueueController::class],\n";
+            $rows .= "            '" . $label . "' => ['" . addslashes($class) . "', '"
+                . addslashes($parent) . "'],\n";
         }
 
         return <<<PHP
@@ -4850,7 +4902,7 @@ namespace Tests\\Unit\\Controllers;
 
 use PHPUnit\\Framework\\TestCase;
 use PHPUnit\\Framework\\Attributes\\DataProvider;
-{$uses}
+
 /**
  * Structural contract tests for all thin-delegation controllers.
  *
@@ -4861,7 +4913,10 @@ use PHPUnit\\Framework\\Attributes\\DataProvider;
  * These tests prove no class-name, namespace, or extends clause is wrong.
  * They run in pure PHP (no database, no HTTP) and are extremely fast.
  *
- * If you add a new controller, add a corresponding row to provideControllers().
+ * The rows were generated from the controllers that existed when this project was
+ * scaffolded — class names as strings, so a controller that does not load fails the
+ * assertion rather than erroring in the data provider. If you add a controller, add a
+ * row; if you re-parent one, update its row, which is the point of the second column.
  */
 class ControllersContractTest extends TestCase
 {
