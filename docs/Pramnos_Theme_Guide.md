@@ -1153,6 +1153,19 @@ A project's colours live in **one file**, `app/themes/theme.css`, written in the
 `pramnos init` writes it, named after the application, and nothing else in a scaffolded
 project carries a colour value.
 
+**Annotate it freely.** Comments are stripped before anything is parsed, so `/* … */`
+is safe anywhere in the file — beside a declaration, on a line of its own inside a
+block, or wrapped around a declaration you are trying without deleting:
+
+```css
+@plugin "daisyui/theme" {
+    name: "acme";
+    /* The surfaces: white cards on a light grey page. */
+    --color-base-100: #ffffff;
+    --color-base-200: #f7f7f7;   /* the page behind them */
+}
+```
+
 **Why that format rather than a config file of our own.** It is the one a designer can
 produce without this framework existing — pick colours on daisyUI's site, copy the
 block, paste it in — and for a Tailwind project with npm it needs no build step at all:
@@ -1180,10 +1193,9 @@ operating system decides for a visitor who has not chosen, and an explicit choic
 wins. Without that scoping a theme switch works only for visitors whose OS is already
 in light mode.
 
-A scaffolded SPA's `scripts/build-theme.mjs` reads `app/themes/theme.css` too, on every build
-and every dev-server start. It used to scrape the server theme's `:root` properties and
-map what it recognised — which meant guessing the two thirds of the palette it had no
-name for.
+A scaffolded SPA's `scripts/build-theme.mjs` reads `app/themes/theme.css` too, on every
+build and every dev-server start — the same file, rather than the server theme's
+rendered `:root` properties, so no part of the palette has to be guessed back from CSS.
 
 ### Reading a token from PHP
 

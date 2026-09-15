@@ -85,6 +85,67 @@ class ThemeTokensTest extends TestCase
     }
 
     /**
+     * A comment inside a block is a comment, not a token.
+     *
+     * The palette file invites annotating colours, and the parser splits the block on
+     * `;` — so an un-stripped `/* … *\/` reads as one more `name: value` pair: the
+     * comment's own text becomes a JSON key, and the declaration on the line after it
+     * is swallowed into that key's value. Both halves are asserted, because the
+     * swallowed token is the half a reader notices last.
+     */
+    public function testACommentInsideABlockIsNotReadAsAToken(): void
+    {
+        // Arrange — a comment between two declarations, the shape a person writes.
+        $css = <<<'CSS'
+        @plugin "daisyui/theme" {
+            name: "acme";
+            /* The surfaces: white cards on a light grey page. */
+            --color-base-100: #ffffff;
+            --color-base-200: #f7f7f7; /* the page behind them */
+        }
+        CSS;
+
+        // Act
+        $themes = ThemeTokens::parse($css);
+
+        // Assert — nothing but the two declarations survived.
+        $this->assertSame(
+            ['--color-base-100', '--color-base-200'],
+            array_keys($themes['acme']['tokens'])
+        );
+        // The token after the comment kept its own value rather than being absorbed.
+        $this->assertSame('#ffffff', $themes['acme']['tokens']['--color-base-100']);
+        // A trailing comment does not end up appended to the value before it.
+        $this->assertSame('#f7f7f7', $themes['acme']['tokens']['--color-base-200']);
+    }
+
+    /**
+     * A commented-out `}` does not end the block early.
+     *
+     * Comments are stripped before the block regex runs, and the regex stops at the
+     * first `}`. Without the strip, commenting a line out truncates the block and
+     * every declaration below it disappears — silently, since a short block is still
+     * a valid one.
+     */
+    public function testACommentedOutBraceDoesNotTruncateTheBlock(): void
+    {
+        // Arrange
+        $css = <<<'CSS'
+        @plugin "daisyui/theme" {
+            name: "acme";
+            /* was: } */
+            --color-primary: red;
+        }
+        CSS;
+
+        // Act
+        $themes = ThemeTokens::parse($css);
+
+        // Assert — the declaration below the comment is still there.
+        $this->assertSame('red', $themes['acme']['tokens']['--color-primary']);
+    }
+
+    /**
      * A stylesheet with no theme blocks parses to nothing, not to an error.
      *
      * "This project declares no palette" is a normal state — every project scaffolded

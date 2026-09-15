@@ -77,7 +77,8 @@ final class ThemeTokens
      *
      * Tolerant by design: a block with no `name` is skipped rather than fatal, an
      * unknown property is carried through untouched, and anything outside a block —
-     * `@import`, a comment, the project's own CSS — is ignored. The file is a
+     * `@import`, the project's own CSS — is ignored. Comments are removed first,
+     * wherever they are, so annotating a colour inside a block is safe. The file is a
      * stylesheet a person edits, and refusing to read all of it because of one line
      * would be worse than reading the rest.
      *
@@ -89,6 +90,15 @@ final class ThemeTokens
     public static function parse(string $css): array
     {
         $themes = [];
+
+        // Comments go first, before anything looks for a block or a `;`. The file's own
+        // doc-block invites annotating colours, so a `/* … */` inside a block is expected
+        // — and to a parser that splits on `;` it reads as one more `name: value`, which
+        // put `"/* The surfaces of the site": "#FFF cards on a #F7F7F7 page"` in a
+        // project's theme-tokens.json and swallowed the token on the line after it.
+        // Stripping here rather than per line also keeps a commented-out `}` from ending
+        // a block early.
+        $css = (string) preg_replace('!/\\*.*?\\*/!s', '', $css);
 
         // The blocks, in order. Nothing inside one nests, so the first `}` closes it.
         if (!preg_match_all(
