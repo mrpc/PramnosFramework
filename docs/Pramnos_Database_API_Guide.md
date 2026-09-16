@@ -848,6 +848,52 @@ public function updateApplication($id, $name, $redirectUri)
 }
 ```
 
+## Who ran this query: the PostgreSQL session variables
+
+On PostgreSQL the framework labels every connection, so a query caught in
+`pg_stat_activity` or a slow-query log can be attributed to a request rather than to a
+process id. `Database::setTrackingInfo()` writes them, and `Api::execute()` and the console
+commands call it for you.
+
+```sql
+SELECT pid, application_name, query,
+       current_setting('app.userid',       true) AS userid,
+       current_setting('app.request_path', true) AS path,
+       current_setting('app.client_ip',    true) AS ip
+FROM pg_stat_activity
+WHERE state = 'active';
+```
+
+| Variable | What is in it |
+|---|---|
+| `application_name` | The application, plus `_u<userid>` when somebody is signed in, plus the connecting address |
+| `app.userid` | The signed-in user's id, or **`guest`** |
+| `app.session_id`, `app.client_ip`, `app.user_agent` | The caller |
+| `app.request_path`, `app.http_method`, `app.request_time` | The request |
+
+**`app.userid` is `guest` for anonymous traffic, not null.** That is the distinction worth
+knowing when you write the `WHERE`: a variable that was never set reads as null, and one
+set to `guest` reads as `guest`. Anonymous is a value here, not an absence — which matters
+because anonymous traffic is most of what anybody is chasing when they open that view:
+every login attempt, every public endpoint, every request whose token has just expired.
+
+Pass your own alongside them, and they are readable under `app.`:
+
+```php
+$this->database->setTrackingInfo($userId, 'Reporting', [
+    'userid' => $userId,
+    'tenant' => $tenantId,      // becomes app.tenant
+]);
+```
+
+A **null** value is skipped rather than written, so `current_setting('app.tenant', true)`
+answers null for it — "there was no tenant", which is a different answer from the empty
+string. The one exception is `userid`, which has a default: a null there gives you `guest`.
+
+Nothing here can fail a request. The writes are suppressed and their result is not read,
+because this runs while the connection is being opened and tracing must never be the reason
+something does not load.
+
 ## Error Handling and Best Practices
 
 ### How database failures surface (and `throwOnError`)

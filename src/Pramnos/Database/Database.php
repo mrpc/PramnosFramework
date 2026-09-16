@@ -3163,7 +3163,14 @@ class Database extends \Pramnos\Framework\Base
             
 
         if ($this->type == 'postgresql') {
-            @pg_query($this->_dbConnection, "SET application_name TO '$appName'");
+            // Parameterised for the same reason as the tracking variables below: this
+            // string ends with a slice of REMOTE_ADDR, which is as trustworthy as
+            // whatever sits in front of the application.
+            @pg_query_params(
+                $this->_dbConnection,
+                'SELECT set_config($1, $2, false)',
+                ['application_name', $appName]
+            );
         }
 
         
@@ -3184,17 +3191,58 @@ class Database extends \Pramnos\Framework\Base
             'app.http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
             'app.request_time' => date('Y-m-d H:i:s')
         ];
+        /*
+         * **The caller's data goes over the defaults, so a null must not travel with it.**
+         *
+         * `'app.userid' => $userId ?? 'guest'` above is a real fallback that had never once
+         * run in production. `Api::execute()` passes `$userdata['userid'] = $currentUser?->userid ?? null`
+         * — an explicit null for every anonymous request — and this loop put that null back
+         * over the `'guest'` that had just been computed for it. The fallback was correct
+         * and unreachable, which is the kind of thing that reads fine in a diff and is
+         * wrong in composition.
+         *
+         * Dropping nulls rather than merging underneath, because the two differ for a key
+         * that has no default: an explicit null for something like `app.tenant` means "no
+         * value", and a variable that is never set is what `current_setting(key, true)`
+         * reports as null. Setting it to the empty string instead would make "absent" and
+         * "empty" indistinguishable to whoever is reading the session.
+         */
         foreach ($userData as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
             $vars['app.' . $key] = $value;
         }
         if ($this->type == 'postgresql') {
             foreach ($vars as $key => $value) {
-                    if ($value === null) {
-                        @pg_query($this->_dbConnection, "SET $key = NULL");
-                    } else {
-                        $escaped = pg_escape_string($this->_dbConnection, (string)$value);
-                        @pg_query($this->_dbConnection, "SET $key = '$escaped'");
-                    }
+                /*
+                 * `set_config()` rather than `SET`, and parameters rather than interpolation.
+                 *
+                 * Two things were wrong with the statement this replaces. The null branch
+                 * emitted `SET app.userid = NULL`, which is not PostgreSQL grammar — `SET`
+                 * takes a value, `DEFAULT`, or nothing — so **every request by an
+                 * unauthenticated user raised a server-side syntax error**: roughly 430,000
+                 * a day on the installation that reported it, 48% of a 376 MB server log,
+                 * and never once seen, because `@` suppresses the warning and the `false`
+                 * return is not read. The variable that tracing exists for was then never
+                 * set at all, on exactly the anonymous traffic somebody would be chasing.
+                 *
+                 * And the variable's *name* was interpolated into the statement unescaped,
+                 * while it is built from array keys the caller supplies. Application-
+                 * controlled today rather than user-controlled, so a hazard rather than a
+                 * hole — but `set_config()` takes the name as a value, which closes it for
+                 * free and collapses the two branches into one.
+                 *
+                 * The suppression stays. This runs while the connection is being opened and
+                 * tracing must never be the reason a request fails; what made it dangerous
+                 * was a statement that could be invalid, and a fixed parameterised one
+                 * cannot be.
+                 */
+                @pg_query_params(
+                    $this->_dbConnection,
+                    'SELECT set_config($1, $2, false)',
+                    [$key, (string) $value]
+                );
             }
         }
     }
