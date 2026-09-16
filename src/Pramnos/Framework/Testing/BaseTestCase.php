@@ -129,19 +129,11 @@ abstract class BaseTestCase extends TestCase
      */
     protected function runMigrations(array $migrationClasses, $db = null): void
     {
-        $db = $db ?? \Pramnos\Framework\Factory::getDatabase();
-
-        // A lightweight Application stand-in: migrations only touch
-        // $this->application->database, so a mock with that property set is
-        // enough and avoids booting a full application.
-        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
-            ->disableOriginalConstructor()
-            ->getMock();
-        $app->database = $db;
-
-        foreach ($migrationClasses as $class) {
-            (new $class($app))->up();
-        }
+        // One implementation, in Testing\Schema, because the tests that need this most
+        // are the ones that do not extend this class — a unit test with its own bare
+        // TestCase cannot reach a protected method, and that is exactly how a second,
+        // hand-rolled `CREATE TABLE` gets written instead.
+        Schema::ensure($migrationClasses, $db);
     }
 
     /**

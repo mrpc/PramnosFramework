@@ -13,6 +13,7 @@ use Pramnos\Framework\Factory;
 use Pramnos\Database\Database;
 use Pramnos\Database\QueryBuilder;
 use Pramnos\Auth\JWT;
+use Pramnos\Framework\Testing\Schema;
 
 if (!defined('PRAMNOS_TESTING')) {
     define('PRAMNOS_TESTING', true);
@@ -156,21 +157,10 @@ class OauthCoverageTest extends TestCase
      */
     private function ensureSchema(): void
     {
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `applications` (
-                `appid`      int(11) NOT NULL AUTO_INCREMENT,
-                `name`       varchar(255) NOT NULL,
-                `description` text,
-                `apikey`     varchar(255) DEFAULT NULL,
-                `apisecret`  varchar(255) DEFAULT NULL,
-                `status`     tinyint(1) NOT NULL DEFAULT 1,
-                `created`    bigint(20) NOT NULL DEFAULT 0,
-                `redirect_uri` varchar(255) DEFAULT NULL,
-                `public_key` text DEFAULT NULL,
-                `systemuser` int(11) DEFAULT NULL,
-                PRIMARY KEY (`appid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ');
+        // The canonical `applications`, from the migrations that build it in
+        // production. The hand-rolled copy here declared columns no migration
+        // creates and omitted ones it does — see Testing\Schema.
+        Schema::table('applications', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `users` (
                 `userid`     bigint NOT NULL AUTO_INCREMENT,

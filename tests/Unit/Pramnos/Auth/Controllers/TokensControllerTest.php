@@ -9,6 +9,7 @@ use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Application\Application;
 use Pramnos\Auth\Controllers\TokensController;
 use Pramnos\User\User;
+use Pramnos\Framework\Testing\Schema;
 
 class TestableTokensController extends TokensController
 {
@@ -71,18 +72,10 @@ class TokensControllerTest extends BaseTestCase
         // missing parent table behind live foreign keys.
         \Pramnos\User\User::setupDb();
         $db->query("DROP TABLE IF EXISTS `applications`");
-        $db->query("CREATE TABLE `applications` (
-            `appid` int(11) NOT NULL AUTO_INCREMENT,
-            `name` varchar(255) NOT NULL,
-            `apikey` varchar(255) DEFAULT NULL,
-            `apisecret` varchar(255) DEFAULT NULL,
-            `status` tinyint(1) NOT NULL DEFAULT 1,
-            `created` bigint(20) NOT NULL DEFAULT 0,
-            `redirect_uri` varchar(255) DEFAULT NULL,
-            `public_key` text DEFAULT NULL,
-            `systemuser` int(11) DEFAULT NULL,
-            PRIMARY KEY (`appid`)
-        )");
+        // The canonical `applications`, from the migrations that build it in
+        // production. The hand-rolled copy here declared columns no migration
+        // creates and omitted ones it does — see Testing\Schema.
+        Schema::table('applications', $db);
         // Dropped *after* setupDb() (which creates the production usertokens table)
         // so the minimal fixture schema below always wins.
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");

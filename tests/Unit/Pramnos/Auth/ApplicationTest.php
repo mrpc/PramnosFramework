@@ -10,6 +10,7 @@ use Pramnos\Auth\Application;
 use Pramnos\Application\Controller;
 use Pramnos\Application\Settings;
 use Pramnos\Framework\Factory;
+use Pramnos\Framework\Testing\Schema;
 
 #[CoversClass(Application::class)]
 class ApplicationTest extends TestCase
@@ -37,17 +38,10 @@ class ApplicationTest extends TestCase
         }
         
         $this->db->query('DROP TABLE IF EXISTS `applications`');
-        $this->db->query('
-            CREATE TABLE `applications` (
-                `appid` int(11) NOT NULL AUTO_INCREMENT,
-                `name` varchar(255) NOT NULL,
-                `apikey` varchar(255) DEFAULT NULL,
-                `apisecret` varchar(255) DEFAULT NULL,
-                `status` tinyint(1) NOT NULL DEFAULT 1,
-                `systemuser` int(11) DEFAULT NULL,
-                PRIMARY KEY (`appid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `applications`, from the migrations that build it in production.
+        // A hand-rolled copy here declared columns no migration creates and omitted ones
+        // it does — see Testing\Schema.
+        Schema::table('applications', $this->db);
     }
 
     protected function tearDown(): void

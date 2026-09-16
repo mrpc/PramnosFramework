@@ -372,6 +372,49 @@ class UserApiTest extends \Pramnos\Framework\Testing\BaseTestCase
 }
 ```
 
+## Build a table from the migration that builds it in production
+
+```php
+use Pramnos\Framework\Testing\Schema;
+
+Schema::table('applications', $this->db);
+```
+
+**Never hand-write `CREATE TABLE` for a table the framework migrates.** A fixture that
+does is testing against a schema nothing else has, and the difference stays invisible until
+it is expensive. This repository has already paid for it: fixtures declared
+`applications.redirect_uri`, a column no migration has ever created — production registers
+the URI in `callback`, and only a *view* aliases it under the other name. So those tests
+set a field nothing consulted, took the "no redirect URI registered" branch, and passed.
+Four fixtures carried the column; a fifth carried the same wrong assumption in an array
+literal.
+
+The cost argument does not survive measurement. On this project's MySQL container, for
+`applications`:
+
+| | per call |
+| --- | --- |
+| hand-rolled `DROP` + `CREATE` | 9.56 ms |
+| canonical migrations, `drop` + `up()` | 12.18 ms |
+| canonical migrations, table already present | **0.23 ms** |
+
+A migration's `up()` opens with `if (hasTable()) return;`, so the second class to ask pays
+0.23 ms instead of building its own 9.56 ms copy. Converting eight fixtures cost nothing
+measurable: 16,075 tests in 3:22, against 3:22 before.
+
+`Schema::table()` takes a **name**, not a list of migrations, because the list is the part
+that gets written wrong — `applications` is created by one migration, gains `systemuser`
+from a second and a wider `callback` from a third, and the first attempt at this named only
+two. Add a table by putting its recipe in `Schema::RECIPES`. `Schema::ensure([...])` takes
+an explicit list for the cases that genuinely need one.
+
+**Two fixtures may still be hand-rolled**, and both are about the schema rather than about
+a feature:
+
+- a test for a migration, which has to build the *pre-migration* shape to prove the
+  migration changes it (`AddTrustedToApplicationsMigrationTest`);
+- a characterization test pinning what an older installation's table looked like.
+
 ## A test that rebuilds schema, without breaking the ones after it
 
 Some tests need a table in its **canonical** shape rather than whatever the suite happens

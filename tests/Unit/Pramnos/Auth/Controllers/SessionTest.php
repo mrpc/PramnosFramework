@@ -12,6 +12,7 @@ use Pramnos\Application\Settings;
 use Pramnos\Framework\Factory;
 use Pramnos\Auth\JWT;
 use Pramnos\Http\Response;
+use Pramnos\Framework\Testing\Schema;
 
 #[CoversClass(Session::class)]
 class SessionTest extends TestCase
@@ -38,15 +39,10 @@ class SessionTest extends TestCase
             $this->db->connect();
         }
 
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `applications` (
-                `appid` int(11) NOT NULL AUTO_INCREMENT,
-                `name` varchar(255) NOT NULL,
-                `apikey` varchar(255) DEFAULT NULL,
-                `apisecret` varchar(255) DEFAULT NULL,
-                PRIMARY KEY (`appid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `applications`, from the migrations that build it in
+        // production. The hand-rolled copy here declared columns no migration
+        // creates and omitted ones it does — see Testing\Schema.
+        Schema::table('applications', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `users` (
                 `userid` bigint NOT NULL AUTO_INCREMENT,

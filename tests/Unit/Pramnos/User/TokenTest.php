@@ -9,6 +9,7 @@ use Pramnos\User\Token;
 use Pramnos\Application\Settings;
 use Pramnos\Application\Application;
 use Pramnos\Framework\Factory;
+use Pramnos\Framework\Testing\Schema;
 
 class TokenTest extends TestCase
 {
@@ -45,6 +46,13 @@ class TokenTest extends TestCase
             $db->query("DROP TABLE IF EXISTS `" . $db->prefix . $table . "`");
         }
         $db->query("SET FOREIGN_KEY_CHECKS = 1");
+
+        // `applications` is no longer among them: it comes from the migrations that
+        // build it in production. The stub here declared `redirect_uri`, a column no
+        // migration has ever created — production registers the URI in `callback`, and
+        // only a view aliases it — so the join below was reading a field that does not
+        // exist anywhere but in this file.
+        Schema::table('applications', $db);
 
         foreach (self::schemaStatements($db) as $statement) {
             $db->query($statement);
@@ -173,18 +181,6 @@ class TokenTest extends TestCase
                 `execution_time_ms` DECIMAL(10,3),
                 `return_data` JSON,
                 `action_time` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
-            "CREATE TABLE `" . $db->prefix . "applications` (
-                `appid` INT NOT NULL AUTO_INCREMENT,
-                `name` VARCHAR(255) NOT NULL DEFAULT '',
-                `apikey` VARCHAR(255) DEFAULT NULL,
-                `apisecret` VARCHAR(255) DEFAULT NULL,
-                `status` TINYINT(1) NOT NULL DEFAULT 1,
-                `created` BIGINT(20) NOT NULL DEFAULT 0,
-                `redirect_uri` VARCHAR(255) DEFAULT NULL,
-                `public_key` TEXT DEFAULT NULL,
-                `systemuser` INT DEFAULT NULL,
-                PRIMARY KEY (`appid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8",
         ];
     }

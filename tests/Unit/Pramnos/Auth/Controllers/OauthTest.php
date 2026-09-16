@@ -12,6 +12,7 @@ use Pramnos\Application\Settings;
 use Pramnos\Framework\Factory;
 use Pramnos\Auth\JWT;
 use Pramnos\Http\Response;
+use Pramnos\Framework\Testing\Schema;
 
 if (!defined('PRAMNOS_TESTING')) {
     define('PRAMNOS_TESTING', true);
@@ -62,27 +63,10 @@ class OauthTest extends TestCase
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `applications`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
-        $this->db->query('
-            CREATE TABLE `applications` (
-                `appid` int(11) NOT NULL AUTO_INCREMENT,
-                `name` varchar(255) NOT NULL,
-                `description` text,
-                `apikey` varchar(255) DEFAULT NULL,
-                `apisecret` varchar(255) DEFAULT NULL,
-                `status` tinyint(1) NOT NULL DEFAULT 1,
-                `added` int(11) NOT NULL DEFAULT 0,
-                -- `callback`, which is the column the migration creates and the
-                -- authorization endpoint reads to decide whether a `redirect_uri` is
-                -- registered. This fixture used to declare `redirect_uri`, a column no
-                -- migration has ever created, which is the disagreement the comment
-                -- above warns about: the mock-based tests set a field nothing consulted
-                -- and passed.
-                `callback` text DEFAULT NULL,
-                `public_key` text DEFAULT NULL,
-                `systemuser` int(11) DEFAULT NULL,
-                PRIMARY KEY (`appid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `applications`, from the migrations that build it in
+        // production. The hand-rolled copy here declared columns no migration
+        // creates and omitted ones it does — see Testing\Schema.
+        Schema::table('applications', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `users` (
                 `userid` bigint NOT NULL AUTO_INCREMENT,

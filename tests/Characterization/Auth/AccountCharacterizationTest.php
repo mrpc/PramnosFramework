@@ -12,6 +12,7 @@ use Pramnos\Application\Settings;
 use Pramnos\Auth\Controllers\Account;
 use Pramnos\Framework\Factory;
 use Pramnos\User\User;
+use Pramnos\Framework\Testing\Schema;
 
 /**
  * Characterization tests for Account controller QB migration.
@@ -107,19 +108,10 @@ class AccountCharacterizationTest extends BaseTestCase
 
         // applications — referenced by makeApp(), getAuthorizedApplications(), eraseUserData()
         $this->db->query("DROP TABLE IF EXISTS `{$p}applications`");
-        $this->db->query(
-            "CREATE TABLE IF NOT EXISTS `{$p}applications` (
-                `appid`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                `name`       VARCHAR(255) NOT NULL DEFAULT '',
-                `apikey`     VARCHAR(255) NOT NULL DEFAULT '',
-                `apisecret`  VARCHAR(255) NOT NULL DEFAULT '',
-                `status`     TINYINT      NOT NULL DEFAULT 1,
-                `description` TEXT NULL,
-                -- The real table has had this since it was created; the fixture
-                -- did not, so a query selecting it failed here and nowhere else.
-                `url`        VARCHAR(500) NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-        );
+        // The canonical `applications`, from the migrations that build it in
+        // production. The hand-rolled copy here declared columns no migration
+        // creates and omitted ones it does — see Testing\Schema.
+        Schema::table('applications', $this->db);
 
         /*
          * user_activity_log — from its migration, not from hand-rolled DDL.

@@ -10,6 +10,7 @@ use Pramnos\Application\Api\Apikey;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Framework\Factory;
+use Pramnos\Framework\Testing\Schema;
 
 /**
  * Characterization tests for Api\Apikey model-like behavior.
@@ -70,27 +71,10 @@ class ApikeyCharacterizationTest extends TestCase
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
 
         // Act
-        $this->db->query(
-            'CREATE TABLE IF NOT EXISTS `applications` ('
-            . '`appid` INT AUTO_INCREMENT PRIMARY KEY,'
-            . '`name` VARCHAR(191) NOT NULL,'
-            . '`apikey` VARCHAR(191) NOT NULL,'
-            . '`apisecret` VARCHAR(191) NOT NULL,'
-            . '`status` INT NOT NULL DEFAULT 0,'
-            . '`added` INT NOT NULL DEFAULT 0,'
-            . '`description` TEXT NULL,'
-            . '`organization` VARCHAR(191) NULL,'
-            . '`organizationurl` VARCHAR(255) NULL,'
-            . '`url` VARCHAR(255) NULL,'
-            . '`apptype` INT NOT NULL DEFAULT 0,'
-            . '`accesstype` INT NOT NULL DEFAULT 0,'
-            . '`apiversion` VARCHAR(50) NULL,'
-            . '`scope` TEXT NULL,'
-            . '`public` INT NOT NULL DEFAULT 0,'
-            . '`callback` VARCHAR(255) NULL,'
-            . '`owner` INT NULL'
-            . ')'
-        );
+        // The canonical `applications`, from the migrations that build it in
+        // production. The hand-rolled copy here declared columns no migration
+        // creates and omitted ones it does — see Testing\Schema.
+        Schema::table('applications', $this->db);
     }
 
     /**
