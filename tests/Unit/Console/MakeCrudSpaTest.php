@@ -200,7 +200,18 @@ class MakeCrudSpaTest extends TestCase
         // The resource path carries the application's own api_prefix rather than
         // a hard-coded one — a generated screen with the wrong prefix 404s in
         // exactly the projects that configured one.
-        $this->assertStringContainsString("const RESOURCE = '/api/1.0/widget'", $component);
+        /*
+         * **Prefix-free, and this line used to assert the defect.**
+         *
+         * `lib/api.js` owns the API prefix — it reads `apiPrefix` from
+         * `window.__PRAMNOS__` so a deployment can move the API — and adds it in
+         * `fetch(apiPrefix + url)`. The template carried it too, so every generated screen
+         * fetched `/api/1.0/api/1.0/widget` and answered 404 on its first load. This
+         * assertion pinned that, which is a large part of why it survived: the screen's own
+         * generated test could not see it either, because it asserts the path handed to a
+         * *mocked* client and the mock is where the prefix stops.
+         */
+        $this->assertStringContainsString("const RESOURCE = '/widget'", $component);
         // The list must ask the server for a page, not fetch everything.
         $this->assertStringContainsString('limit: PER_PAGE', $component);
         $this->assertStringContainsString('result?.pagination', $component);

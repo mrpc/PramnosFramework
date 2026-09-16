@@ -2662,6 +2662,41 @@ CSS;
                     ],
                 ],
             ];
+            /*
+             * The second step, documented because it is routed — and it was neither.
+             * `ApiAccount::login2fa()` has always existed and the shipped SPA client has
+             * always posted here; a reader of the generated API docs had no way to know.
+             */
+            $paths['/account/login2fa'] = [
+                'post' => [
+                    'tags'        => ['Account'],
+                    'operationId' => 'login2fa',
+                    'summary'     => 'Login — second factor',
+                    'description' => 'Finish a login that answered two_factor_required. The pending login is held server-side, so only the code is sent. A wrong code leaves it pending so the user can try again.',
+                    'security'    => [],
+                    'requestBody' => [
+                        'required' => true,
+                        'content'  => ['application/json' => ['schema' => [
+                            'type'       => 'object',
+                            'required'   => ['code'],
+                            'properties' => [
+                                'code' => ['type' => 'string'],
+                            ],
+                        ]]],
+                    ],
+                    'responses' => [
+                        '200' => $jsonResponse('Authenticated', [
+                            'status'       => ['type' => 'string', 'example' => 'success'],
+                            'access_token' => ['type' => 'string'],
+                            'token_type'   => ['type' => 'string', 'example' => 'Bearer'],
+                            'user'         => ['type' => 'object'],
+                        ]),
+                        '400' => ['description' => 'missing_code'],
+                        '401' => ['description' => 'invalid_code'],
+                        '429' => ['description' => 'too_many_attempts — carries retry_after'],
+                    ],
+                ],
+            ];
             $paths['/account/logout'] = [
                 'post' => [
                     'tags'        => ['Account'],
@@ -3179,6 +3214,22 @@ PHP;
             $lines[] = "        // Account — token-based auth (login issues a bearer token)";
             $lines[] = "        \$r->post('/account/login', function () {";
             $lines[] = "            return (new {$account}(\$this))->login();";
+            $lines[] = "        });";
+            /*
+             * The second step of a two-factor sign-in, and it was the missing one.
+             *
+             * `ApiAccount` has always registered the action — `addaction(['login',
+             * 'login2fa', 'logout'])` — and the shipped client has always called it:
+             * `loginTwoFactor()` posts to `/account/login2fa`. Only the route was absent,
+             * so a user with two-factor enabled could not sign in to a scaffolded SPA at
+             * all: the password was accepted, the API answered `two_factor_required`, the
+             * client asked for the code as designed, and posting it hit a 404.
+             *
+             * Three places have to agree on this name — the controller, the client and
+             * this generator — and the generator was the one that did not.
+             */
+            $lines[] = "        \$r->post('/account/login2fa', function () {";
+            $lines[] = "            return (new {$account}(\$this))->login2fa();";
             $lines[] = "        });";
             $lines[] = "        \$r->post('/account/logout', function () {";
             $lines[] = "            return (new {$account}(\$this))->logout();";

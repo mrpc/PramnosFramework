@@ -37,7 +37,11 @@
     import { go, href } from '../lib/router.js';
     import { t } from '../lib/i18n.svelte.js';
 
-    const RESOURCE = '{{ apiPrefix }}/{{ resource }}';
+    // Prefix-free on purpose: `lib/api.js` owns the API prefix — it reads
+    // `apiPrefix` from `window.__PRAMNOS__` so a deployment can move the API —
+    // and adds it in `fetch(apiPrefix + url)`. Carrying it here as well produced
+    // `/api/1.0/api/1.0/<entity>` and a 404 on the first load of every screen.
+    const RESOURCE = '/{{ resource }}';
     const ROUTE    = '/{{ resource }}';
     const KEY      = '{{ primaryKey }}';
     const PER_PAGE = {{ perPage }};

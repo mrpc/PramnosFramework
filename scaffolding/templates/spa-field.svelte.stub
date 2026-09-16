@@ -40,7 +40,7 @@
      *       nullable: false,            // NOT NULL becomes `required`
      *       options:  null,             // an enum/check constraint, when known
      *       fk: {                       // null when the column is not a FK
-     *         endpoint: '/api/1.0/station',
+     *         endpoint: '/station',   // prefix-free: lib/api.js adds the API prefix
      *         valueKey: 'stationid',
      *         labelKey: 'name'
      *       }

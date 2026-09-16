@@ -38,7 +38,8 @@
         error = null;
 
         try {
-            data = await api.get('{{ apiPrefix }}/status');
+            // Prefix-free: lib/api.js adds it. See the note in the CRUD screen stub.
+            data = await api.get('/status');
         } catch (failure) {
             error = failure instanceof ApiError
                 ? t('Could not load: HTTP %s', failure.status)
