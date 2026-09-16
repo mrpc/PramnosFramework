@@ -52,6 +52,27 @@
         <testsuite name="Characterization Tests">
             <directory suffix="Test.php">./tests/Characterization</directory>
         </testsuite>
+        <!--
+            The only suite `dockertest` does not run by default.
+
+            These drive a whole subsystem against the real thing rather than against a
+            fixture: the OAuth2 client against the framework's own authorization server,
+            for instance. That means rebuilding schema objects from their canonical
+            migrations, and the suite shares one database, so such a test is not a peer of
+            the sixteen thousand around it. It has to own the tables it rebuilds, and
+            everything else has to be elsewhere while it does.
+
+            Keeping them out of the default run also keeps their cost out of it: RSA key
+            generation and repeated migrations are not worth paying for on every run.
+            Run them deliberately, with the e2e flag described in the Testing Guide.
+
+            The name has no spaces because dockertest passes it to PHPUnit through an
+            unquoted variable, where a space would split it into two arguments and select
+            nothing.
+        -->
+        <testsuite name="EndToEnd">
+            <directory suffix="Test.php">./tests/EndToEnd</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

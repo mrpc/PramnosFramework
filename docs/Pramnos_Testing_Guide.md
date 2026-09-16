@@ -372,6 +372,46 @@ class UserApiTest extends \Pramnos\Framework\Testing\BaseTestCase
 }
 ```
 
+## The end-to-end suite, and why it is not in the default run
+
+Four suites run on `./dockertest`. A fifth does not:
+
+```bash
+./dockertest --nocoverage     # Unit, Feature, Integration, Characterization
+./dockertest --e2e            # only tests/EndToEnd
+```
+
+An end-to-end test drives a whole subsystem against **the real thing** rather than against
+a fixture — `tests/EndToEnd/Auth/OAuth2/FullAuthorizationCodeFlowTest.php` points the
+OAuth2 client at the framework's own authorization server and completes a genuine flow:
+authorize, consent, real authorization code, real token exchange, real signed JWT, real
+refresh. That is worth having, because every other test of that client asserts against a
+response payload this repository wrote, and a response shape that is subtly wrong is wrong
+in the test and in the code at once.
+
+It is separate for two reasons, and the first is not about speed:
+
+**A test that rebuilds schema is everybody else's problem.** The suite shares one database.
+An earlier version of that test dropped and rebuilt `applications` so it could have the
+canonical `callback` column — and `usertokens` carries a foreign key to `applications`, so
+removing the parent mid-suite left a dangling constraint and **thirty-eight tests that had
+nothing to do with OAuth2 failed afterwards**, with errors pointing at their own tables.
+
+**And its cost should not be everyone's either.** RSA key generation and a migration run
+per test are not worth paying for on every `./dockertest`.
+
+So if you write one:
+
+- **Give it its own database.** `CREATE DATABASE`, use it, drop it in `tearDown()`. Then
+  nothing it does can reach another test, in any order, whatever it rebuilds. The OAuth2
+  one does this and it is the reason it is safe.
+- **Put it in `tests/EndToEnd/`**, under `Pramnos\Tests\EndToEnd\…`. The suite name in
+  `phpunit.xml` has no spaces on purpose — `dockertest` passes it through an unquoted
+  variable.
+- **Null the `Database` singleton in `tearDown()`** if you repointed it. Restoring a clone
+  does not work: a cloned connection reports itself connected while holding no live handle,
+  and the next test to ask gets a corpse.
+
 ## Writing a test that does not slow the suite down
 
 The suite's cost is concentrated, not spread: **203 tests out of 9364 account for 46% of

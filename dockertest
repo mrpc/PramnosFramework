@@ -15,6 +15,7 @@ nocoverage=false
 testdox=false
 resetdb=false
 force=false
+e2e=false
 passthrough=()
 for arg in "$@"; do
     if [[ "$arg" == "--nobrowser" ]]; then
@@ -33,6 +34,13 @@ for arg in "$@"; do
         resetdb=true
     elif [[ "$arg" == "--force" ]]; then
         force=true
+    elif [[ "$arg" == "--e2e" ]]; then
+        # Run ONLY the end-to-end suite. It is excluded from every other run: those
+        # tests rebuild schema objects from their canonical migrations, which is safe
+        # when they own the database for the duration and is not when sixteen thousand
+        # other tests are sharing it. Keeping them out also keeps their cost — RSA key
+        # generation, repeated migrations — off every ordinary run.
+        e2e=true
     else
         passthrough+=("$arg")
     fi
@@ -278,6 +286,11 @@ fi
 # Run tests
 echo -e "\e[32mRunning PHPUnit tests...\e[0m"
 extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped --display-phpunit-deprecations"
+if [[ "$e2e" == true ]]; then
+    extra_flags="$extra_flags --testsuite EndToEnd"
+else
+    extra_flags="$extra_flags --exclude-testsuite EndToEnd"
+fi
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 # `set -e` is not in force here, so the exit status is captured explicitly and
