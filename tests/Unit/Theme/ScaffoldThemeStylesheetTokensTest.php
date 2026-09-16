@@ -136,4 +136,63 @@ class ScaffoldThemeStylesheetTokensTest extends TestCase
             . ' — nothing declares them, so every one of those rules is permanently its literal'
         );
     }
+
+    /**
+     * The tailwind theme's blanket rules are inside a cascade layer.
+     *
+     * An **unlayered** rule beats every layered one, whatever the specificity — and
+     * daisyUI 5 ships entirely inside `@layer base / daisyui / utilities`. So an
+     * unlayered `html *` (0,0,1) won against `.btn-ghost` (0,1,0), and every component
+     * that had explicitly asked for no border got one: a `btn-ghost` setting
+     * `--btn-border: #0000` still drew an outline, and so did inputs and cards.
+     *
+     * It is not a specificity problem and reasoning about specificity does not find it,
+     * which is why this is asserted rather than left to review. The way it surfaced was
+     * an application whose SPA and server-rendered halves — same classes, same
+     * components — could not be made to look the same, because only one of them loads
+     * this file.
+     *
+     * Scoped selectors are exempt: `.pf-home h1` and `.breadcrumb` style this theme's own
+     * markup, which daisyUI has no opinion about. What must be layered is anything
+     * addressing *everything*.
+     */
+    public function testBlanketSelectorsInTheTailwindThemeAreLayered(): void
+    {
+        // Arrange
+        $path = dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/style.css';
+        $css  = (string) file_get_contents($path);
+
+        // Strip comments, so prose about `html *` is not read as a rule.
+        $css = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+
+        // Act — every selector that addresses every element, with the offset it sits at.
+        $offenders = [];
+        if (preg_match_all('/(^|[,{}])\s*(html\s*\*|\*)\s*[,{]/m', $css, $matches, PREG_OFFSET_CAPTURE)) {
+            foreach ($matches[2] as [$selector, $offset]) {
+                // Inside a layer? Count the braces opened by `@layer` blocks before it.
+                $before = substr($css, 0, $offset);
+                $layered = false;
+                foreach (['@layer'] as $at) {
+                    $pos = strrpos($before, $at);
+                    if ($pos === false) {
+                        continue;
+                    }
+                    // The layer block is still open when more `{` than `}` follow it.
+                    $tail    = substr($before, $pos);
+                    $layered = substr_count($tail, '{') > substr_count($tail, '}');
+                }
+                if (!$layered) {
+                    $offenders[] = trim($selector);
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $offenders,
+            'unlayered blanket selectors in tailwind/style.css: ' . implode(', ', $offenders)
+            . ' — an unlayered rule beats every daisyUI component regardless of specificity'
+        );
+    }
 }

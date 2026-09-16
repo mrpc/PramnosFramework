@@ -156,7 +156,19 @@
     });
 </script>
 
-<div class="form-control">
+<!--
+    daisyUI 5 markup. `form-control` and `label-text` were v4 and no longer exist,
+    so the wrapper stopped stacking: the label became an inline-flex box beside a
+    field shrunk to its content, and three of these rendered as three ragged rows
+    of different widths.
+
+    `fieldset` rather than a `div`, because it stacks its children with no class at
+    all — so the layout is right even where daisyUI is not loaded, which a `div`
+    depending on `form-control` was not. The name stays on a real `<label for>`
+    rather than a `<legend>`: a legend names a *group*, and a control whose only
+    accessible name comes from one has no name of its own.
+-->
+<fieldset class="fieldset w-full">
     {#if field.type === 'boolean'}
         <!-- The label wraps the input so the whole row is a hit target, and the
              text is a real <label> rather than adjacent text. -->
@@ -169,14 +181,12 @@
                 {disabled}
                 onchange={(e) => emit(e.currentTarget.checked)}
             />
-            <span class="label-text">{t(label)}</span>
+            <span>{t(label)}</span>
         </label>
     {:else}
         <label class="label" for={id}>
-            <span class="label-text">
-                {t(label)}
-                {#if required}<span class="text-error" aria-hidden="true">*</span>{/if}
-            </span>
+            {t(label)}
+            {#if required}<span class="text-error" aria-hidden="true">*</span>{/if}
         </label>
 
         {#if field.fk && !fkUnavailable}
@@ -301,4 +311,4 @@
     {:else if field.comment && field.comment !== label}
         <p class="text-xs opacity-60 mt-1">{t(field.comment)}</p>
     {/if}
-</div>
+</fieldset>

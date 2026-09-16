@@ -421,6 +421,26 @@ sessions, real cookies, no proxy and no CORS gymnastics in the app itself.
 Tailwind and daisyUI are configured from CSS alone (`@import "tailwindcss";`
 `@plugin "daisyui";`) — there is no `tailwind.config.js` to keep in sync.
 
+**Form markup is daisyUI 5's**, which is not daisyUI 4's. `form-control`,
+`label-text` and `label-text-alt` were removed in 5 and style nothing, so a wrapper
+written against them stops stacking: the label becomes an inline-flex box beside a
+field shrunk to its content, and three of them render as three ragged rows of
+different widths. `Field.svelte` and the generated screens use a `fieldset` instead:
+
+```svelte
+<fieldset class="fieldset w-full">
+    <label class="label" for={id}>{label}</label>
+    <input {id} class="input input-bordered w-full" />
+</fieldset>
+```
+
+Three details are deliberate. `fieldset` stacks its children with no class at all,
+so the layout survives even where daisyUI is not loaded — which a `div` leaning on
+`form-control` did not. The name stays on a real `<label for>` rather than a
+`<legend>`, because a legend names a *group* and a control whose only accessible
+name comes from one has no name of its own. And inputs carry `w-full`, because in 5
+nothing stretches them any more.
+
 Every stack ships with tests for the API client (cookie auth, Bearer auth, JSON
 encoding, `204`, error statuses) and, for Svelte, component tests for the root
 screen. They are meant to be extended, not deleted.

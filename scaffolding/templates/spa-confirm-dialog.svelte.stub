@@ -158,8 +158,12 @@
             {/if}
 
             {#if confirmPhrase}
-                <label class="form-control w-full mt-2">
-                    <span class="label-text mb-1">
+                <!-- daisyUI 5: `form-control` and `label-text` are v4 and gone, so this
+                     wrapper stopped stacking and the prompt sat beside a shrunken box.
+                     The label still wraps the input, which keeps the association
+                     without needing an id. -->
+                <label class="w-full mt-2 flex flex-col gap-1">
+                    <span>
                         {@html tHtml('Type <code class="font-mono">%s</code> to continue', confirmPhrase)}
                     </span>
                     <input

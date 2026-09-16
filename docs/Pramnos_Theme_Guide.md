@@ -418,6 +418,33 @@ load-bearing:
 
 so Tailwind's utilities override a component's defaults, and the project overrides both.
 
+**Layers, not load order, decide the last two** — and a rule that is in no layer wins
+against every rule that is. daisyUI 5 ships entirely inside `@layer base / daisyui /
+utilities`, so an **unlayered** selector in `style.css` beats every component whatever its
+specificity: `html *` is (0,0,1) and `.btn-ghost` is (0,1,0), and the first one won. The
+symptom is a border on components that explicitly asked for none — a `btn-ghost` sets
+`--btn-border: #0000` and still shows an outline, and so do inputs and cards.
+
+So anything in `style.css` addressing *everything* belongs in a layer:
+
+```css
+@layer base {
+    html *, html ::before, html ::after {
+        border-color: var(--color-base-300, #e5e7eb);
+    }
+}
+```
+
+Inside `base` the intent still holds — Tailwind's Preflight is in the same layer, where
+specificity does decide — and `base` comes before `daisyui`, so a component's own border
+wins as it should. Selectors scoped to this theme's own markup (`.pf-home h1`,
+`.breadcrumb`) need no layer: daisyUI has no opinion about them.
+
+This is worth knowing because reasoning about specificity does not find it. The way it
+surfaced was an application whose SPA and server-rendered halves — identical classes,
+identical components — could not be made to look the same, because only one of them loads
+this file.
+
 **A project that wants a build step should have one.** Tailwind's browser build is a
 runtime compile and daisyUI's prebuilt CSS is the whole library, unpurged: fine for a
 scaffolded application, and not what you want in front of real traffic. An application

@@ -26,16 +26,32 @@ body {
  * utilities, so restore a sensible default — as a token, so it follows the
  * theme instead of staying light in the dark one.
  *
- * The `html` prefix raises specificity to (0,0,1) so this beats Tailwind's own
- * Preflight `*` rule (0,0,0) — which is injected AFTER this stylesheet — without
- * needing !important. Explicit `border-<color>` utilities (0,1,0) still win.
+ * `@layer base` is the whole of the fix, and specificity is a red herring.
+ *
+ * The rule below is (0,0,1) and `.btn-ghost` is (0,1,0), so the obvious reading
+ * is that the component wins. It did not: **an unlayered rule beats every
+ * layered one, whatever the specificity**, and daisyUI 5 ships entirely inside
+ * `@layer base / daisyui / utilities`. So this sat above all of it and drew a
+ * border on every component that had asked for none — a `btn-ghost` setting
+ * `--btn-border: #0000` still showed an outline, and so did inputs and cards.
+ *
+ * The way it was found is worth recording: a SPA does not load this file, so the
+ * same markup with the same classes looked different on the two halves of one
+ * application, and no amount of comparing class lists explained it.
+ *
+ * Inside `base` the intent still holds. Tailwind's Preflight `*` rule (0,0,0) is
+ * in the same layer, where specificity does decide, so this still beats it; and
+ * `base` is declared before `daisyui`, so a component's own border wins as it
+ * always should have.
  */
-html *,
-html ::before,
-html ::after,
-html ::backdrop,
-html ::file-selector-button {
-    border-color: var(--color-base-300, #e5e7eb);
+@layer base {
+    html *,
+    html ::before,
+    html ::after,
+    html ::backdrop,
+    html ::file-selector-button {
+        border-color: var(--color-base-300, #e5e7eb);
+    }
 }
 
 /*

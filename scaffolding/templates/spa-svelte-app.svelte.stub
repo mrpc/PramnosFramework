@@ -264,8 +264,11 @@
                                 : 'Enter the code from your authenticator app.'}
                         </p>
                         <form class="flex flex-col gap-3" onsubmit={submitTwoFactor}>
-                            <label class="form-control">
-                                <span class="label-text">Code</span>
+                            <!-- daisyUI 5: `form-control`/`label-text` were v4 and no
+                                 longer exist, so the label and the field stopped
+                                 stacking. `fieldset` does it with no class at all. -->
+                            <fieldset class="fieldset w-full">
+                                <label class="label" for="pf-2fa-code">Code</label>
                                 <!-- one-time-code is what lets a phone offer the code
                                      from the message it just received; inputmode keeps
                                      the numeric keypad for a six-digit code without
@@ -278,14 +281,15 @@
                                      element. -->
                                 <!-- svelte-ignore a11y_autofocus -->
                                 <input
-                                    class="input input-bordered"
+                                    id="pf-2fa-code"
+                                    class="input input-bordered w-full"
                                     bind:value={factorCode}
                                     autocomplete="one-time-code"
                                     inputmode="numeric"
                                     autofocus
                                     required
                                 />
-                            </label>
+                            </fieldset>
 
                             {#if authError}
                                 <div role="alert" class="alert alert-error"><span>{authError}</span></div>
@@ -301,14 +305,14 @@
                     {:else}
                         <h2 class="card-title">Sign in</h2>
                         <form class="flex flex-col gap-3" onsubmit={submitLogin}>
-                            <label class="form-control">
-                                <span class="label-text">Username</span>
-                                <input class="input input-bordered" bind:value={username} autocomplete="username" required />
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text">Password</span>
-                                <input class="input input-bordered" type="password" bind:value={password} autocomplete="current-password" required />
-                            </label>
+                            <fieldset class="fieldset w-full">
+                                <label class="label" for="pf-username">Username</label>
+                                <input id="pf-username" class="input input-bordered w-full" bind:value={username} autocomplete="username" required />
+                            </fieldset>
+                            <fieldset class="fieldset w-full">
+                                <label class="label" for="pf-password">Password</label>
+                                <input id="pf-password" class="input input-bordered w-full" type="password" bind:value={password} autocomplete="current-password" required />
+                            </fieldset>
 
                             {#if authError}
                                 <div role="alert" class="alert alert-error"><span>{authError}</span></div>

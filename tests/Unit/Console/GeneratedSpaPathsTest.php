@@ -236,6 +236,55 @@ class GeneratedSpaPathsTest extends TestCase
     }
 
     /**
+     * No generated SPA markup uses a daisyUI class the shipped version removed.
+     *
+     * The scaffolder pins daisyUI 5 and generated daisyUI 4 markup: `form-control` and
+     * `label-text` are gone in 5, so the wrapper that stacked a label above its field
+     * stopped doing anything. Three fields rendered as three ragged rows of different
+     * widths — a form that looks broken on first sight, in the screen `create:crud`
+     * writes for you.
+     *
+     * Swept over the SPA templates only. `form-control` is also Bootstrap's class for an
+     * input, and the bootstrap theme's views use it correctly; the two share a name and
+     * nothing else.
+     *
+     * The comments that explain this replacement mention the old names, so the sweep
+     * reads markup rather than text.
+     */
+    public function testNoGeneratedSpaMarkupUsesRemovedDaisyUiClasses(): void
+    {
+        // Arrange — the SPA's own templates: Svelte components and the shells.
+        $templates = array_merge(
+            glob(dirname(__DIR__, 3) . '/scaffolding/templates/*.svelte.stub') ?: [],
+            glob(dirname(__DIR__, 3) . '/scaffolding/templates/spa-*.js.stub') ?: []
+        );
+        $this->assertNotEmpty($templates);
+
+        // daisyUI 4 names with no equivalent in 5. Each renders as nothing at all, which
+        // is why the failure is a layout collapse rather than a wrong colour.
+        $removed = ['form-control', 'label-text', 'label-text-alt'];
+
+        // Act
+        $offenders = [];
+        foreach ($templates as $file) {
+            $markup = (string) file_get_contents($file);
+            $markup = (string) preg_replace('/<!--.*?-->/s', '', $markup);
+            $markup = (string) preg_replace('#/\*.*?\*/#s', '', $markup);
+
+            foreach ($removed as $class) {
+                // In a class attribute or a Svelte `class:` directive, not in prose.
+                if (preg_match('/class(?::[\w-]+)?\s*=\s*["\x27{][^"\x27}]*\b'
+                    . preg_quote($class, '/') . '\b/', $markup)) {
+                    $offenders[] = basename($file) . ': ' . $class;
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $offenders, implode("\n", $offenders));
+    }
+
+    /**
      * Every block a generated Svelte file opens is closed.
      *
      * A Svelte template is compiled, not parsed leniently: one unclosed `{#if}` is a
