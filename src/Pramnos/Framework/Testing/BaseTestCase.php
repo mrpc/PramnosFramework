@@ -168,8 +168,10 @@ abstract class BaseTestCase extends TestCase
         if ($config === []) {
             throw new \RuntimeException(
                 'No database settings for the test connection. Load them with '
-                . 'Settings::loadSettings() — TestEnvironment::setup() does — or set '
-                . static::class . '::$dbConfig.'
+                . 'Settings::loadSettings(), or set ' . static::class . '::$dbConfig. '
+                . 'Note that TestEnvironment::setup() does NOT load them: it reads the '
+                . 'test settings file directly, for the credentials it needs to recreate '
+                . 'the database, and tells nothing else about them.'
             );
         }
 

@@ -92,6 +92,25 @@ class TestEnvironment
             return;
         }
 
+        /*
+         * **The settings the rest of the run will use.**
+         *
+         * This is the half that was missing, and its absence was invisible because each
+         * half did its own job correctly. This method recreated `<db>_test` and stopped;
+         * `BaseTestCase::setUp()` then called `init()` with no argument, so
+         * `Settings::getInstance()` fell back to `app/config/settings.php` — the
+         * **development** connection. Every scaffolded project's suite read and wrote the
+         * developer's working database, while the test database it had just built sat
+         * empty and unused.
+         *
+         * Nothing reported it because nothing was in a position to: this method knew the
+         * test settings and told nobody; `init()` knew it had been given nothing and had
+         * a reasonable default. Loading them here is what joins the two, and it works in
+         * the order's favour — `Settings::getInstance()` keeps the first instance, so the
+         * `init()` that follows finds these already in place.
+         */
+        \Pramnos\Application\Settings::loadSettings($testSettingsPath);
+
         // Acquire lock to prevent race conditions in parallel tests
         $lockAcquired = self::acquireLock();
 
@@ -104,6 +123,49 @@ class TestEnvironment
                 // For now, we'll re-throw for the primary process to ensure visibility.
                 throw $e;
             }
+
+            self::migrate($testSettingsPath);
+        }
+    }
+
+    /**
+     * Bring the test database's schema up to date, once per run.
+     *
+     * The database is created empty and kept between runs, so this is "everything" the
+     * first time and "whatever was added since" every time after — the migration ledger
+     * lives in the database and answers that question itself. A suite that rebuilt the
+     * schema on every run would pay for a hundred migrations to learn there was nothing
+     * to do.
+     *
+     * Guarded on the application existing, because this class is also used by suites that
+     * have no `app.php` — the framework's own does not take this path at all.
+     *
+     * Failures are reported and not thrown. A schema that could not be brought up will
+     * fail the tests that need it, with an error naming the table; killing the bootstrap
+     * instead would replace a hundred specific failures with one message about migrations
+     * from a developer who was trying to run one unrelated test.
+     */
+    protected static function migrate(string $testSettingsPath): void
+    {
+        if (!defined('APP_PATH') || !file_exists(APP_PATH . '/app.php')) {
+            return;
+        }
+
+        try {
+            $application = \Pramnos\Application\Application::getInstance();
+            if ($application === null) {
+                return;
+            }
+
+            $application->init($testSettingsPath);
+            $application->runPendingMigrations();
+        } catch (\Throwable $exception) {
+            fwrite(
+                STDERR,
+                "\nThe test database's schema could not be brought up to date:\n  "
+                . $exception->getMessage()
+                . "\nTests that need those tables will fail; the rest will run.\n\n"
+            );
         }
     }
 
@@ -192,19 +254,35 @@ class TestEnvironment
             PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT,
         ]);
 
-        // Clean existing sessions and drop DB
-        $pdo->exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName'");
-        $pdo->exec("DROP DATABASE IF EXISTS \"$dbName\"");
+        /*
+         * **Created when absent, not dropped and rebuilt on every run.**
+         *
+         * Dropping was safe while nothing used this database — and nothing did, which
+         * is the defect this is half of: the settings were never loaded, so the suite
+         * ran against the *development* database and the freshly recreated one was a
+         * standing lie. Now that the suite really does use it, dropping it would mean
+         * migrating a hundred tables before every run.
+         *
+         * Keeping it is what makes "run only the new migrations" possible: the ledger
+         * survives, so the first run migrates everything and each run after it
+         * migrates what was added since. Tests remove the rows they add; the schema is
+         * not theirs to reset.
+         */
+        $exists = $pdo->query(
+            "SELECT 1 FROM pg_database WHERE datname = " . $pdo->quote($dbName)
+        )->fetchColumn();
 
-        self::retryWhileTemplateBusy(function () use ($pdo, $dbName) {
-            // template1 must be session-free for the copy, and the sessions on it
-            // are not ours to wait for — see retryWhileTemplateBusy().
-            $pdo->exec(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                . "WHERE datname = 'template1' AND pid <> pg_backend_pid()"
-            );
-            $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
-        });
+        if ($exists === false) {
+            self::retryWhileTemplateBusy(function () use ($pdo, $dbName) {
+                // template1 must be session-free for the copy, and the sessions on it
+                // are not ours to wait for — see retryWhileTemplateBusy().
+                $pdo->exec(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    . "WHERE datname = 'template1' AND pid <> pg_backend_pid()"
+                );
+                $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
+            });
+        }
 
         // Import dump via psql if provided. ON_ERROR_STOP makes psql exit non-zero
         // on the first failing statement — without it a dump can fail statement by
@@ -286,8 +364,10 @@ class TestEnvironment
             PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT,
         ]);
 
-        $pdo->exec("DROP DATABASE IF EXISTS `$dbName` ");
-        $pdo->exec("CREATE DATABASE `$dbName`");
+        // Created when absent, not dropped and rebuilt on every run — see the
+        // PostgreSQL branch for why. `IF NOT EXISTS` rather than a lookup because
+        // MySQL offers it and the two statements would race each other anyway.
+        $pdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName`");
 
         // Import dump via mysql if provided
         if ($schemaPath && file_exists($schemaPath)) {
