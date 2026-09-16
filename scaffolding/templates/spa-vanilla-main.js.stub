@@ -20,7 +20,7 @@
  * a network.
  */
 {{ cssImport }}import {
-    api, ApiError, login, logout, currentUser,
+    api, ApiError, login, loginTwoFactor, TwoFactorRequired, logout, currentUser,
     passkeySupported, loginWithPasskey,
 } from './lib/api.js';
 import { screens } from './screens/registry.js';
@@ -173,6 +173,59 @@ export function renderAuth(target) {
         section.append(who, out);
     };
 
+    /**
+     * Ask for the second factor.
+     *
+     * A separate view rather than a field appended to the password form: the
+     * pending login lives server-side, so the password is neither needed nor
+     * wanted from here on, and a form still showing it invites somebody to
+     * retype it into a request that ignores it.
+     *
+     * @param {Array<string>} methods Which factors the account offers
+     */
+    const showTwoFactorForm = (methods) => {
+        section.textContent = '';
+        const form = document.createElement('form');
+        // one-time-code is what lets a phone offer the code from the message it
+        // just received; inputmode keeps the numeric keypad without rejecting an
+        // alphanumeric backup code.
+        form.innerHTML = '<h2>One more step</h2>'
+            + '<p>' + (methods.includes('email')
+                ? 'Enter the code we sent you.'
+                : 'Enter the code from your authenticator app.') + '</p>'
+            + '<p><label>Code <input name="code" autocomplete="one-time-code"'
+            + ' inputmode="numeric" autofocus required></label></p>'
+            + '<p><button type="submit">Continue</button></p>';
+
+        const problem = document.createElement('p');
+        problem.className = 'status status-error';
+        problem.hidden    = true;
+        form.append(problem);
+
+        const back = document.createElement('button');
+        back.type        = 'button';
+        back.textContent = 'Use a different account';
+        back.addEventListener('click', () => showForm());
+        form.append(back);
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            problem.hidden = true;
+            try {
+                // Only the code: a wrong one leaves the login pending, so the
+                // person simply tries again instead of starting over.
+                showUser(await loginTwoFactor(form.code.value));
+            } catch (err) {
+                problem.hidden      = false;
+                problem.textContent = err instanceof ApiError && err.status === 401
+                    ? 'That code is not right.'
+                    : 'Could not finish signing in.';
+            }
+        });
+
+        section.append(form);
+    };
+
     /** Show the credentials form. */
     const showForm = () => {
         currentUserCache = null;
@@ -223,6 +276,14 @@ export function renderAuth(target) {
                 const user = await login(form.username.value, form.password.value);
                 showUser(user);
             } catch (err) {
+                // Not a failure: the password was right and the account needs
+                // more. Nothing has to be carried across — the pending login is
+                // held server-side.
+                if (err instanceof TwoFactorRequired) {
+                    showTwoFactorForm(err.methods ?? []);
+
+                    return;
+                }
                 problem.hidden = false;
                 problem.textContent = err instanceof ApiError && err.status === 401
                     ? 'Wrong username or password.'

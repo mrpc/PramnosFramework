@@ -12,7 +12,7 @@
      * have permission" to someone who simply has not signed in yet is a dead end.
      */
     import {
-        api, ApiError, login, logout, currentUser,
+        api, ApiError, login, loginTwoFactor, TwoFactorRequired, logout, currentUser,
         passkeySupported, loginWithPasskey,
     } from './lib/api.js';
     import { reportError } from './lib/debug.js';
@@ -44,6 +44,17 @@
     let password  = $state('');
     let signingIn = $state(false);
     let authError = $state(null);
+
+    /**
+     * The pending second factor, or null.
+     *
+     * A login that answers `two_factor_required` is *not* a failed login: the
+     * password was right and the account simply needs more. The pending state
+     * lives server-side, so all this holds is which methods were offered — and
+     * that this screen is now asking for a code rather than a password.
+     */
+    let twoFactor  = $state(null);
+    let factorCode = $state('');
 
     /** Screens that require a signed-in user. */
     const PROTECTED = ['admin', ...screens.map((s) => s.name)];
@@ -98,12 +109,54 @@
             password = '';
             go('/', null, { replace: true });
         } catch (err) {
+            // Not a failure: ask for the code instead. The password is dropped
+            // here, not kept for a retry — the second leg does not need it, and
+            // holding it in a reactive variable for the length of somebody
+            // fetching their phone is the part nobody would notice.
+            if (err instanceof TwoFactorRequired) {
+                twoFactor = err;
+                password  = '';
+
+                return;
+            }
             authError = err instanceof ApiError && err.status === 401
                 ? 'Wrong username or password.'
                 : 'Could not sign in.';
         } finally {
             signingIn = false;
         }
+    }
+
+    /**
+     * Finish a sign-in that asked for a second factor.
+     *
+     * Only the code is sent: the pending login is held server-side, which is
+     * also why a wrong code leaves it pending and the person can simply try
+     * again rather than re-entering their password.
+     */
+    async function submitTwoFactor(event) {
+        event.preventDefault();
+        authError = null;
+        signingIn = true;
+        try {
+            user       = await loginTwoFactor(factorCode);
+            factorCode = '';
+            twoFactor  = null;
+            go('/', null, { replace: true });
+        } catch (err) {
+            authError = err instanceof ApiError && err.status === 401
+                ? 'That code is not right.'
+                : 'Could not finish signing in.';
+        } finally {
+            signingIn = false;
+        }
+    }
+
+    /** Abandon a pending second factor and start again from the password. */
+    function cancelTwoFactor() {
+        twoFactor  = null;
+        factorCode = '';
+        authError  = null;
     }
 
     /**
@@ -199,31 +252,79 @@
         {#if route.name === 'signin'}
             <div class="card mx-auto w-full max-w-sm bg-base-100 shadow">
                 <div class="card-body">
-                    <h2 class="card-title">Sign in</h2>
-                    <form class="flex flex-col gap-3" onsubmit={submitLogin}>
-                        <label class="form-control">
-                            <span class="label-text">Username</span>
-                            <input class="input input-bordered" bind:value={username} autocomplete="username" required />
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Password</span>
-                            <input class="input input-bordered" type="password" bind:value={password} autocomplete="current-password" required />
-                        </label>
+                    <!-- Two legs of one sign-in, not two screens: the password
+                         form is replaced by the code form, so the person is never
+                         looking at both and never has to re-enter the password
+                         they have already given. -->
+                    {#if twoFactor}
+                        <h2 class="card-title">One more step</h2>
+                        <p class="text-sm opacity-70">
+                            {twoFactor.methods?.includes('email')
+                                ? 'Enter the code we sent you.'
+                                : 'Enter the code from your authenticator app.'}
+                        </p>
+                        <form class="flex flex-col gap-3" onsubmit={submitTwoFactor}>
+                            <label class="form-control">
+                                <span class="label-text">Code</span>
+                                <!-- one-time-code is what lets a phone offer the code
+                                     from the message it just received; inputmode keeps
+                                     the numeric keypad for a six-digit code without
+                                     rejecting an alphanumeric backup code. Autofocus is
+                                     right in this one place: the view has just replaced
+                                     the password form in response to something the person
+                                     did, and the code field is all that is on it — so the
+                                     warning is silenced immediately below, where Svelte
+                                     requires the pragma to be the last thing before the
+                                     element. -->
+                                <!-- svelte-ignore a11y_autofocus -->
+                                <input
+                                    class="input input-bordered"
+                                    bind:value={factorCode}
+                                    autocomplete="one-time-code"
+                                    inputmode="numeric"
+                                    autofocus
+                                    required
+                                />
+                            </label>
 
-                        {#if authError}
-                            <div role="alert" class="alert alert-error"><span>{authError}</span></div>
+                            {#if authError}
+                                <div role="alert" class="alert alert-error"><span>{authError}</span></div>
+                            {/if}
+
+                            <button class="btn btn-primary" type="submit" disabled={signingIn}>
+                                {signingIn ? 'Checking…' : 'Continue'}
+                            </button>
+                            <button class="btn btn-ghost btn-sm" type="button" onclick={cancelTwoFactor}>
+                                Use a different account
+                            </button>
+                        </form>
+                    {:else}
+                        <h2 class="card-title">Sign in</h2>
+                        <form class="flex flex-col gap-3" onsubmit={submitLogin}>
+                            <label class="form-control">
+                                <span class="label-text">Username</span>
+                                <input class="input input-bordered" bind:value={username} autocomplete="username" required />
+                            </label>
+                            <label class="form-control">
+                                <span class="label-text">Password</span>
+                                <input class="input input-bordered" type="password" bind:value={password} autocomplete="current-password" required />
+                            </label>
+
+                            {#if authError}
+                                <div role="alert" class="alert alert-error"><span>{authError}</span></div>
+                            {/if}
+
+                            <button class="btn btn-primary" type="submit" disabled={signingIn}>
+                                {signingIn ? 'Signing in…' : 'Sign in'}
+                            </button>
+                        </form>
+
+                        {#if canUsePasskey}
+                            <div class="divider">or</div>
+                            <button class="btn btn-outline" onclick={submitPasskeyLogin} disabled={signingIn}>
+                                Sign in with a passkey
+                            </button>
                         {/if}
-
-                        <button class="btn btn-primary" type="submit" disabled={signingIn}>
-                            {signingIn ? 'Signing in…' : 'Sign in'}
-                        </button>
-                    </form>
-
-                    {#if canUsePasskey}
-                        <div class="divider">or</div>
-                        <button class="btn btn-outline" onclick={submitPasskeyLogin} disabled={signingIn}>
-                            Sign in with a passkey
-                        </button>
                     {/if}
                 </div>
             </div>

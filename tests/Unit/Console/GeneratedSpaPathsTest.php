@@ -168,4 +168,123 @@ class GeneratedSpaPathsTest extends TestCase
         $this->assertStringContainsString("from './webauthn.js'", $client);
         $this->assertStringNotContainsString('navigator.credentials', $client);
     }
+
+    /**
+     * Every way of signing in that the client supports has a screen that reaches it.
+     *
+     * The gap this closes is one step further along than a missing route, and it has
+     * happened for both methods in turn: the endpoint answers, the client function
+     * exists, and nothing in the scaffolded application ever calls it — so the feature
+     * is present in every sense except the one that matters to somebody trying to sign
+     * in.
+     *
+     * Two-factor is the sharp case. `login()` throws `TwoFactorRequired` rather than
+     * returning, so a screen that does not catch it shows "Could not sign in" to an
+     * account whose password was *correct*, and there is no way forward from that
+     * screen at all.
+     *
+     * Asserted on both stacks, because a scaffolded project gets one of them and the
+     * other one's user never finds out.
+     */
+    public function testBothSignInScreensCompleteEveryLoginTheClientSupports(): void
+    {
+        // Arrange
+        $client  = $this->stub('spa-api-client.js.stub');
+        $screens = [
+            'spa-svelte-app.svelte.stub' => $this->stub('spa-svelte-app.svelte.stub'),
+            'spa-vanilla-main.js.stub'   => $this->stub('spa-vanilla-main.js.stub'),
+        ];
+
+        // The client's half of the contract, so a rename breaks this test rather than
+        // the generated application.
+        $this->assertStringContainsString('export class TwoFactorRequired', $client);
+        $this->assertStringContainsString('export async function loginTwoFactor(', $client);
+        $this->assertStringContainsString('export async function loginWithPasskey(', $client);
+        $this->assertStringContainsString('export function passkeySupported(', $client);
+
+        // Act & Assert
+        foreach ($screens as $name => $screen) {
+            $this->assertStringContainsString(
+                'TwoFactorRequired',
+                $screen,
+                "{$name} never catches the pending second factor, so an account with 2FA "
+                . 'cannot sign in and is told its password was wrong'
+            );
+            $this->assertStringContainsString(
+                'loginTwoFactor(',
+                $screen,
+                "{$name} catches the second factor but never posts the code"
+            );
+            $this->assertStringContainsString(
+                'one-time-code',
+                $screen,
+                "{$name} asks for a code without the autocomplete token that lets a phone "
+                . 'offer the message it just received'
+            );
+            $this->assertStringContainsString(
+                'loginWithPasskey(',
+                $screen,
+                "{$name} offers no passwordless sign-in, though the routes and the client exist"
+            );
+            $this->assertStringContainsString(
+                'passkeySupported(',
+                $screen,
+                "{$name} offers the passkey button unconditionally — it fails when pressed on "
+                . 'plain http:// and in older browsers, where nothing says why'
+            );
+        }
+    }
+
+    /**
+     * Every block a generated Svelte file opens is closed.
+     *
+     * A Svelte template is compiled, not parsed leniently: one unclosed `{#if}` is a
+     * build error, and in a scaffolded project that is not a broken screen but an
+     * application that does not start. These files are edited by hand — by this
+     * generator's authors, not by the people who receive them — and the failure surfaces
+     * for the first time in somebody else's `npm run build`.
+     *
+     * Counted per kind rather than in total, so an `{#if}` closed with `{/each}` is
+     * caught rather than balancing out.
+     */
+    public function testEveryGeneratedSvelteTemplateClosesItsBlocks(): void
+    {
+        // Arrange
+        $templates = glob(dirname(__DIR__, 3) . '/scaffolding/templates/*.svelte.stub') ?: [];
+        $this->assertNotEmpty($templates, 'no Svelte stubs were found to check');
+
+        // Act
+        $offenders = [];
+        foreach ($templates as $file) {
+            // Only the markup: `{#if` inside the `<script>` block would be a comment or a
+            // string, and neither is a block the compiler pairs.
+            $contents = (string) file_get_contents($file);
+            $markup   = str_contains($contents, '</script>')
+                ? substr($contents, strpos($contents, '</script>'))
+                : $contents;
+
+            // HTML comments go too. These templates explain themselves in the
+            // markup, and a comment that *names* a block — "{#if body} makes the
+            // extra field vanish" — is documentation, not a block to pair.
+            $markup = (string) preg_replace('/<!--.*?-->/s', '', $markup);
+
+            foreach (['if', 'each', 'await', 'key', 'snippet'] as $kind) {
+                $opened = preg_match_all('/\{#' . $kind . '\b/', $markup);
+                $closed = preg_match_all('/\{\/' . $kind . '\}/', $markup);
+                if ($opened !== $closed) {
+                    $offenders[] = sprintf(
+                        '%s: %d {#%s} opened, %d {/%s} closed',
+                        basename($file),
+                        $opened,
+                        $kind,
+                        $closed,
+                        $kind
+                    );
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $offenders, implode("\n", $offenders));
+    }
 }

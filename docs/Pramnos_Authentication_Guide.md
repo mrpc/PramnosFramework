@@ -575,6 +575,27 @@ To add the module to a SPA project scaffolded before it existed:
 `lib/api.js` is the project's own file and is never overwritten, so its passkey functions are a
 copy-in from the current stub.
 
+### What the scaffolded SPA sign-in screen does
+
+Both stacks — Svelte and build-less — ship the same three paths, because a screen that
+implements only the first one is a dead end rather than a missing feature:
+
+1. **Password.** `login(username, password)`.
+2. **The second factor, when the account has one.** `login()` *throws* `TwoFactorRequired`
+   rather than returning — the password was correct and the account needs more — and the
+   screen replaces the password form with a code form, posting only the code through
+   `loginTwoFactor()`. The pending login is held server-side, so nothing is carried across;
+   a wrong code leaves it pending and the person tries again instead of starting over.
+3. **A passkey**, where the browser can honour one (`passkeySupported()`).
+
+A screen that does not catch `TwoFactorRequired` shows "Could not sign in" to somebody whose
+password was right, with no way forward from that screen at all — which is why
+`GeneratedSpaPathsTest` asserts both stacks handle it, rather than leaving it to a reviewer.
+
+The code field carries `autocomplete="one-time-code"`, which is what lets a phone offer the
+code from the message it has just received, and `inputmode="numeric"`, which keeps the numeric
+keypad without rejecting an alphanumeric backup code.
+
 ### What the form says when it fails, and while it works
 
 Two things the scaffolded sign-in screens do that are invisible on the machine of the person who
