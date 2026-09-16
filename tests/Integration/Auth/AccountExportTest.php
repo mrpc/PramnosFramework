@@ -12,6 +12,7 @@ use Pramnos\Event\Event;
 use Pramnos\Framework\Factory;
 use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\User\User;
+use Pramnos\Framework\Testing\Connection;
 
 /**
  * Integration tests for the GDPR data export (Account::buildExportData and its
@@ -44,12 +45,10 @@ class AccountExportTest extends BaseTestCase
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         Application::getInstance();
 
-        $dbRef = &\Pramnos\Database\Database::getInstance();
-        $dbRef = null;
-        $this->db = Factory::getDatabase();
-        if (!$this->db->connected) {
-            $this->db->connect();
-        }
+        // A connection built from the settings just loaded. Not
+        // Factory::getDatabase(): that hands back an instance built from whichever
+        // settings were loaded first in the run. See Testing\Connection.
+        $this->db = Connection::fresh();
         if ($this->db->type === 'postgresql') {
             $this->markTestSkipped('AccountExportTest runs on MySQL only.');
         }

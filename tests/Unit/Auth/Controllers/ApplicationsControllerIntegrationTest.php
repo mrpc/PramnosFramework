@@ -86,7 +86,22 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
 
         // Save original database reference
         $dbRef = &\Pramnos\Database\Database::getInstance();
-        $this->originalDb = clone $dbRef;
+        /*
+         * **The object, not a copy of it.**
+         *
+         * This parks the live connection while a mock takes the singleton's place, and
+         * `tearDown()` puts it back. Cloning put back a *different* Database — one whose
+         * connection parameters were frozen at clone time and whose `connected` flag said
+         * true while nothing behind it was usable. Every class that ran afterwards and
+         * asked for the singleton got that, and the next `connect()` fell through to a
+         * unix socket: `RuntimeException: No such file or directory`, in a test that had
+         * touched none of this.
+         *
+         * Two other classes carry a `$dbRef = null` guard in their own setUp written to
+         * survive exactly that. Nothing is being protected by the copy — the original is
+         * parked, not mutated.
+         */
+        $this->originalDb = $dbRef;
 
         // Mock QueryBuilder
         $this->queryBuilderMock = $this->createMock(QueryBuilder::class);

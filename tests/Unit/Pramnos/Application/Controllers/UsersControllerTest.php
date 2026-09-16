@@ -13,6 +13,7 @@ use Pramnos\Framework\Factory;
 use Pramnos\Database\Database;
 use Pramnos\Http\Request;
 use Pramnos\Framework\Testing\Schema;
+use Pramnos\Framework\Testing\Connection;
 
 #[CoversClass(UsersController::class)]
 class UsersControllerTest extends TestCase
@@ -247,10 +248,10 @@ class UsersControllerTest extends TestCase
         }
         Settings::loadSettings($settingsFile);
 
-        $db = Factory::getDatabase();
-        if (!$db->connected) {
-            $db->connect();
-        }
+        // Not Factory::getDatabase(): that hands back an instance built from whichever
+        // settings were loaded first in the run, so the two lines above would reach
+        // nothing. See Testing\Connection for what that looked like.
+        $db = Connection::fresh();
 
         return $db;
     }

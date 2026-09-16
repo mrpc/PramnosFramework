@@ -372,6 +372,42 @@ class UserApiTest extends \Pramnos\Framework\Testing\BaseTestCase
 }
 ```
 
+## Take the connection from `Connection::fresh()`, not from the factory
+
+```php
+use Pramnos\Framework\Testing\Connection;
+
+Settings::clearSettings();
+Settings::loadSettings($settingsFile);
+$db = Connection::fresh();
+```
+
+`Factory::getDatabase()` hands back whatever instance already exists, and it was built
+from whichever settings were loaded when the **first** class in the run asked for one. A
+class that loads its own settings and then calls the factory gets the old object:
+`connected` says true while nothing behind it is usable, or `server` is empty and the next
+`connect()` falls through to a unix socket —
+
+```
+RuntimeException: No such file or directory
+```
+
+— reported against a class that has touched none of this. It is order-dependent, so it
+appears when a filter or a new test changes what runs first and vanishes when the class is
+run alone, which is the worst way for a defect to behave. Three classes had each worked it
+out separately and written the same two lines; one had not, and carried the failure.
+
+**And when you park the singleton to put a mock in its place, park the object.**
+
+```php
+$dbRef = &Database::getInstance();
+$this->originalDb = $dbRef;      // not: clone $dbRef
+```
+
+A clone is a different `Database` whose connection parameters are frozen at clone time and
+whose `connected` flag says true. `tearDown()` then restores *that* as the singleton, and
+every class after it inherits a corpse.
+
 ## Build a table from the migration that builds it in production
 
 ```php

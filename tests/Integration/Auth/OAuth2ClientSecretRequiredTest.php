@@ -10,6 +10,7 @@ use Pramnos\Application\Settings;
 use Pramnos\Auth\Application;
 use Pramnos\Framework\Factory;
 use Pramnos\Framework\Testing\BaseTestCase;
+use Pramnos\Framework\Testing\Connection;
 
 /**
  * Integration tests for OAuth2 client authentication — {@see Application::validateCredentials()}
@@ -56,18 +57,10 @@ class OAuth2ClientSecretRequiredTest extends BaseTestCase
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         FrameworkApplication::getInstance();
 
-        // Drop the singleton before taking it: tests that inject a mock database
-        // restore a *clone* of the original, which reports itself as connected while
-        // holding no live handle, and the next connect() attempt fails on the socket.
-        // Nulling the reference forces a real instance. Same reason AccountExportTest
-        // does this in its own setUp.
-        $dbRef = &\Pramnos\Database\Database::getInstance();
-        $dbRef = null;
-
-        $this->db = Factory::getDatabase();
-        if (!$this->db->connected) {
-            $this->db->connect();
-        }
+        // A connection built from the settings just loaded. Not
+        // Factory::getDatabase(): that hands back an instance built from whichever
+        // settings were loaded first in the run. See Testing\Connection.
+        $this->db = Connection::fresh();
 
         // Built from the canonical migration rather than hand-rolled DDL, so the
         // columns under test are the ones a real installation has — `apisecret`
