@@ -1717,6 +1717,32 @@ Put that on a session-authenticated route. It answers `null` when nobody is sign
 when the minimum is not met, or when there is no usable signing key — a route that
 redirects sensibly either way is the intended caller.
 
+### The key it signs with is the API's, not its own front controller's
+
+`sURL` is `dirname(SCRIPT_NAME)`, so it is not one string: the API front controller
+(`www/api/index.php`) sees `https://host/api/` and every other request sees `https://host/`.
+The signing key is derived from it, so an exchange running on a session-authenticated MVC
+route derived a **different key from the one the API verifies with** — every exchanged token
+refused with `403 InvalidAccessToken`, which names neither the key nor the mistake.
+
+`Api::baseUrl()` is the answer to that: the API's own base in every context — `sURL`
+unchanged inside an API request, and `sURL` plus the API's directory anywhere else. Both
+`SessionExchange` and `mcp:token` derive through it, so a token minted outside an API request
+verifies inside one.
+
+A project that serves its API from somewhere other than `www/api/` says so:
+
+```php
+// app/app.php
+'api' => [
+    'prefix'    => '/api/1.0',
+    'directory' => 'api',   // where www/<directory>/index.php lives
+],
+```
+
+The directory is deliberately not guessed from `prefix`: the prefix is a route namespace and
+the directory is a place on disk, and a project is free to make them differ.
+
 ### Only a session may be exchanged
 
 A request whose identity was proved by anything other than a session is refused, whatever

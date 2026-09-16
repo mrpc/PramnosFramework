@@ -2761,6 +2761,66 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
+     * `.htaccess` rewrites `/robots.txt` and `/llms.txt` somewhere that exists.
+     *
+     * The rewrites have always been written; the controller they point at never was, so both
+     * addresses were 404 in every scaffolded project. Asserted as the *pair* rather than as
+     * the file, because that is the shape of the defect — two halves written by the same
+     * generator, one of them missing, and nothing that compares them.
+     *
+     * A 404 at `/robots.txt` is not a site without a crawler policy. It is a site whose
+     * policy is whatever each visiting crawler decides, which for the AI agents is a decision
+     * nobody at that installation made.
+     */
+    public function testRobotsAndLlmsAreRewrittenToAControllerThatExists(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act — no features: neither file is something a project opts into.
+        $tester->execute([
+            '--app-name'    => 'MinimalApp',
+            '--no-install'  => true,
+            '--no-download' => true,
+            '--namespace'   => 'MinimalApp',
+            '--features'    => '',
+            '--ui-system'   => 'plain-css',
+            '--docker'      => 'n',
+            '--libraries'   => '',
+            '--db-type'     => 'mysql',
+            '--db-host'     => 'localhost',
+            '--db-name'     => 'minimal_db',
+            '--db-user'     => 'minimal',
+            '--db-pass'     => 'pass',
+            '--db-prefix'   => '',
+            '--rest-api'    => 'n',
+        ], ['interactive' => false]);
+
+        // Assert — the rewrites name MachineReadable…
+        $htaccess = (string) file_get_contents($this->tmpDir . '/www/.htaccess');
+        $this->assertStringContainsString('r=MachineReadable/robots', $htaccess);
+        $this->assertStringContainsString('r=MachineReadable/llms', $htaccess);
+
+        // …and the controller they name is there to answer.
+        $path = $this->tmpDir . '/src/Controllers/MachineReadable.php';
+        $this->assertFileExists(
+            $path,
+            'www/.htaccess rewrites /robots.txt and /llms.txt here; without it both are 404'
+        );
+
+        $controller = (string) file_get_contents($path);
+        $this->assertStringContainsString('namespace MinimalApp\\Controllers;', $controller);
+        $this->assertStringContainsString('extends FrameworkMachineReadable', $controller);
+        $this->assertStringContainsString(
+            'use Pramnos\\Auth\\Controllers\\MachineReadable as FrameworkMachineReadable',
+            $controller
+        );
+    }
+
+    /**
      * When --webhook=y is passed, pramnos init must generate www/webhook.php.
      *
      * The file must contain a WebhookHandler instantiation with the HMAC secret

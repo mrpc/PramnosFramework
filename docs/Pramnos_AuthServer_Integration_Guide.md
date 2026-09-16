@@ -909,7 +909,27 @@ can call and where to authenticate for them. Without it the endpoint is a servic
 It appears only once something has actually been offered through `PublicRegistry`, because an
 endpoint serving an empty list is not worth pointing anybody at.
 
-Both paths are scaffolded into a generated project's rewrite rules alongside the `.well-known` ones.
+### Every project gets both, and the addresses in them are real
+
+The rewrite rules and the controller behind them are scaffolded into **every** project, not only an
+authorization server: what a crawler may read is not a question about issuing tokens, and a site
+answering 404 at `/robots.txt` has not declined to have a policy — it has left the policy to
+whichever crawler asked.
+
+The three addresses these files advertise are derived rather than written down, because a
+machine-readable file exists to be read by something that will not look around for the right URL — a
+wrong address in one is worse than an absent one:
+
+| Line | Where it points | How it is derived |
+|---|---|---|
+| `Sitemap:` in robots.txt | the site's sitemap | `sitemap_url` if set; otherwise the line is **omitted unless a file is actually served at `/sitemap.xml`**. The framework ships no sitemap generator, and a `Sitemap:` pointing at a 404 teaches a crawler that the site is broken |
+| `[Documentation]` in llms.txt | the generated API docs | `Api::baseUrl()` + `docs/` — `<site>/api/docs/`, which is where `init` writes them |
+| `MCP endpoint:` in llms.txt | the JSON-RPC endpoint | the API's own prefix + `/mcp` — `<site>/api/1.0/mcp`, which is where the scaffolded route puts it |
+
+```php
+// app/settings.php — when this site does generate a sitemap, or generates it elsewhere
+'sitemap_url' => 'https://cdn.example.com/sitemap-index.xml',
+```
 
 ## Related guides
 

@@ -87,8 +87,21 @@ class MachineReadable extends \Pramnos\Application\Controller
             $lines[] = '';
         }
 
-        if ($url !== '') {
-            $lines[] = 'Sitemap: ' . $url . '/sitemap.xml';
+        /*
+         * Named only when there is one.
+         *
+         * A `Sitemap:` line is an instruction, and an instruction pointing at a 404 is worse
+         * than silence: a crawler that follows it learns the site is broken rather than that
+         * it has no sitemap. The framework does not ship a sitemap generator, so the honest
+         * question is whether this installation serves a file at that address — which
+         * `sitemap_url` answers when it is somewhere else.
+         */
+        $sitemap = trim((string) self::setting('sitemap_url'));
+        if ($sitemap === '' && $url !== '' && self::servesSitemap()) {
+            $sitemap = $url . '/sitemap.xml';
+        }
+        if ($sitemap !== '') {
+            $lines[] = 'Sitemap: ' . $sitemap;
         }
 
         \Pramnos\Framework\Factory::getDocument('raw')
@@ -125,7 +138,8 @@ class MachineReadable extends \Pramnos\Application\Controller
 
         $lines[] = '## Documentation';
         $lines[] = '';
-        $lines[] = '- [Documentation](' . $url . '/docs): how to integrate with this service.';
+        $lines[] = '- [Documentation](' . self::docsUrl()
+            . '): how to integrate with this service.';
         $lines[] = '';
 
         /*
@@ -139,7 +153,7 @@ class MachineReadable extends \Pramnos\Application\Controller
         if (self::hasPublicTools()) {
             $lines[] = '## Tools';
             $lines[] = '';
-            $lines[] = '- MCP endpoint: `' . $url . '/mcp` (JSON-RPC over POST)';
+            $lines[] = '- MCP endpoint: `' . self::mcpUrl() . '` (JSON-RPC over POST)';
             $lines[] = '- Authorization: [OAuth 2.1](' . $url
                 . '/.well-known/oauth-protected-resource)';
             $lines[] = '';
@@ -154,6 +168,64 @@ class MachineReadable extends \Pramnos\Application\Controller
 
         \Pramnos\Framework\Factory::getDocument('raw')
             ->setContent(implode("\n", $lines));
+    }
+
+    /**
+     * Where the generated API documentation is served.
+     *
+     * `<site>/api/docs/`, because that is where `init` writes it — and asked through
+     * {@see \Pramnos\Application\Api::baseUrl()} rather than hard-coded, so a project
+     * that moved the API front controller moves this with it.
+     *
+     * It was `<site>/docs`, which is nothing: a machine-readable file's whole job is to
+     * be read by something that will not look around for the right URL.
+     */
+    private static function docsUrl(): string
+    {
+        $base = \Pramnos\Application\Api::baseUrl();
+
+        return $base === '' ? '' : rtrim($base, '/') . '/docs/';
+    }
+
+    /**
+     * Where the MCP endpoint answers.
+     *
+     * Inside the API's version prefix (`/api/1.0/mcp`), which is where the scaffolded
+     * route puts it — not at the site root, where it was advertised and where nothing
+     * has ever answered.
+     */
+    private static function mcpUrl(): string
+    {
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $prefix = is_object($app)
+            ? trim((string) ($app->applicationInfo['api']['prefix'] ?? ''), '/')
+            : '';
+
+        if ($prefix !== '') {
+            return rtrim(defined('sURL') ? (string) sURL : '', '/') . '/' . $prefix . '/mcp';
+        }
+
+        // No configured prefix: build the address the API would route, from the two things
+        // it builds its own from. Better than falling back to `<site>/mcp`, which is where
+        // this was announced and where nothing has ever answered.
+        $base = \Pramnos\Application\Api::baseUrl();
+
+        return $base === '' ? '' : rtrim($base, '/') . '/'
+            . \Pramnos\Application\Api::version() . '/mcp';
+    }
+
+    /**
+     * Is a file actually served at `/sitemap.xml`?
+     *
+     * Asked of the document root, because that is the same question a crawler asks. A
+     * `sitemap_url` setting overrides this for an installation that generates one
+     * elsewhere.
+     */
+    private static function servesSitemap(): bool
+    {
+        $root = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+
+        return $root !== '' && is_file(rtrim($root, '/') . '/sitemap.xml');
     }
 
     private static function hasPublicTools(): bool

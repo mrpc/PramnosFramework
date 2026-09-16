@@ -676,6 +676,7 @@ class Init extends Command
 
         $this->scaffoldLogsWiring($namespace);
         $this->scaffoldHealthWiring($namespace);
+        $this->scaffoldMachineReadableWiring($namespace);
         $this->scaffoldUsersWiring($namespace);
         $this->scaffoldSettingsWiring($namespace);
         $this->scaffoldDashboardWiring($namespace);
@@ -5720,6 +5721,12 @@ PHP;
      * `openid_configuration` is in no specification and in plenty of clients;
      * answering it costs one line.
      *
+     * `robots.txt` and `llms.txt` are **not** among them: they were written only for an
+     * authserver, which is a feature about issuing tokens and has nothing to say about what
+     * a crawler may read. Every site answers those two addresses, and a site that answers
+     * 404 has not declined to have a policy — it has left the policy to whichever crawler
+     * asked.
+     *
      * @param  list<string> $features Enabled framework features
      * @return string Rules to place directly after `RewriteEngine On`
      */
@@ -5728,7 +5735,12 @@ PHP;
         $rules = "\n# Apache does not hand the Authorization header to PHP-FPM or CGI on its\n"
             . "# own, so a bearer token would arrive as no token at all.\n"
             . "RewriteCond %{HTTP:Authorization} .\n"
-            . "RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n";
+            . "RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n"
+            . "\n# What a crawler and a language model read when they arrive uninvited.\n"
+            . "# Generated rather than static files: the one line that matters in each is\n"
+            . "# derived from this installation's own URL.\n"
+            . "RewriteRule ^robots\\.txt$ index.php?r=MachineReadable/robots [L]\n"
+            . "RewriteRule ^llms\\.txt$ index.php?r=MachineReadable/llms [L]\n";
 
         if (!in_array('authserver', $features, true)) {
             return $rules;
@@ -5742,12 +5754,7 @@ PHP;
             . "RewriteRule ^\\.well-known/jwks\\.json$ index.php?r=Discovery/jwks [L]\n"
             . "RewriteRule ^\\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]\n"
             . "RewriteRule ^\\.well-known/oauth-protected-resource$ index.php?r=Discovery/oauthProtectedResource [L]\n"
-            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n"
-            . "\n# What a crawler and a language model read when they arrive uninvited.\n"
-            . "# Generated rather than static files: the one line that matters in each is\n"
-            . "# derived from this installation's own URL.\n"
-            . "RewriteRule ^robots\\.txt$ index.php?r=MachineReadable/robots [L]\n"
-            . "RewriteRule ^llms\\.txt$ index.php?r=MachineReadable/llms [L]\n";
+            . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n";
     }
 
     private function getIndexTemplate(string $namespace = 'Pramnos'): string
@@ -8715,6 +8722,59 @@ class Health extends FrameworkHealth
 PHP;
 
         $this->writeFile('src/Controllers/Health.php', $healthController);
+    }
+
+    /**
+     * Creates src/Controllers/MachineReadable.php — the wrapper `/robots.txt` and
+     * `/llms.txt` are rewritten to.
+     *
+     * `.htaccess` has always carried the two rewrites; nothing has ever carried the
+     * controller they point at, so both addresses were **404** in every scaffolded
+     * project. The framework class's own doc-block says a missing robots.txt "does not
+     * mean 'no policy' — it means the policy is whatever the visiting crawler decides",
+     * which is precisely the state it shipped in.
+     *
+     * Scaffolded in every application, like Health: neither file is a feature somebody
+     * opts into, and a site that answers 404 for `/robots.txt` has made a decision it
+     * did not know it was making.
+     */
+    private function scaffoldMachineReadableWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\MachineReadable as FrameworkMachineReadable;
+
+/**
+ * `/robots.txt` and `/llms.txt` — delegates to the framework controller.
+ *
+ * Routes (rewritten in www/.htaccess):
+ *   GET /robots.txt  → robots()  crawler policy, including the AI agents by name
+ *   GET /llms.txt    → llms()    what this site is, for a model arriving cold
+ *
+ * Both are generated rather than served as files, because the addresses in them are
+ * this installation's own. What they say is settable:
+ *
+ *   ai_crawler_policy   'allow' (the default) or 'disallow' — the answer given to
+ *                       GPTBot, ClaudeBot, Google-Extended and the rest, each named
+ *                       so the decision is visible rather than left to the crawler
+ *   sitemap_url         where this site's sitemap is, when it has one. Unset, the
+ *                       line is omitted rather than pointed at a 404
+ *   sitename            the heading of llms.txt
+ *   sitedescription     the one-line summary under it
+ */
+class MachineReadable extends FrameworkMachineReadable
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/MachineReadable.php', $controller);
     }
 
     private function scaffoldUsersWiring(string $namespace): void

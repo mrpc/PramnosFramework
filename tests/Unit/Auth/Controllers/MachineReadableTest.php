@@ -110,32 +110,145 @@ class MachineReadableTest extends TestCase
     }
 
     /**
-     * The `Sitemap:` line is absolute or absent.
+     * The sitemap is named when there is one, and not named when there is not.
      *
-     * It is the one line in the file derived from the installation's own URL — the reason this is
-     * generated rather than shipped, since a static robots.txt in a scaffold carries somebody
-     * else's domain.
+     * A `Sitemap:` directive is an instruction, and one pointing at a 404 is worse than
+     * silence: a crawler that follows it learns the site is broken rather than that it has no
+     * sitemap. The framework ships no sitemap generator, so the question asked here is the same
+     * one a crawler asks — is a file served at that address.
      *
-     * And the protocol requires an **absolute** URL there. With no site URL configured the line is
+     * And the protocol requires an **absolute** URL. With no site URL configured the line is
      * omitted rather than emitted relative: `Sitemap: /sitemap.xml` is not a smaller version of
-     * the right answer, it is an invalid directive a crawler discards along with any trust in the
-     * rest of the file.
+     * the right answer, it is an invalid directive a crawler discards along with any trust in
+     * the rest of the file.
      */
-    public function testTheSitemapLineIsAbsoluteOrAbsent(): void
+    public function testTheSitemapIsNamedOnlyWhenOneIsServed(): void
+    {
+        // Arrange — a document root with nothing in it.
+        $root = sys_get_temp_dir() . '/pf-robots-' . uniqid();
+        mkdir($root);
+        $saved = $_SERVER['DOCUMENT_ROOT'] ?? null;
+        $_SERVER['DOCUMENT_ROOT'] = $root;
+
+        try {
+            // Act & Assert — nothing at /sitemap.xml, so nothing is claimed.
+            $this->assertStringNotContainsString('Sitemap:', $this->render('robots'));
+
+            // …and once there is a file, it is named, absolutely.
+            file_put_contents($root . '/sitemap.xml', '<urlset/>');
+            Document::reset();
+            $robots = $this->render('robots');
+            $url    = rtrim(defined('sURL') ? (string) sURL : '', '/');
+
+            if ($url === '') {
+                $this->assertStringNotContainsString('Sitemap:', $robots,
+                    'a relative Sitemap directive is invalid — omit it instead');
+
+                return;
+            }
+
+            $this->assertStringContainsString('Sitemap: ' . $url . '/sitemap.xml', $robots);
+        } finally {
+            @unlink($root . '/sitemap.xml');
+            @rmdir($root);
+            if ($saved === null) {
+                unset($_SERVER['DOCUMENT_ROOT']);
+            } else {
+                $_SERVER['DOCUMENT_ROOT'] = $saved;
+            }
+        }
+    }
+
+    /**
+     * An installation that generates its sitemap elsewhere says so, and is believed.
+     *
+     * The file check answers the common case; a site whose sitemap is on a CDN, or is an index
+     * of several, has an address the document root knows nothing about.
+     */
+    public function testAConfiguredSitemapUrlIsUsedAsGiven(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting('sitemap_url', 'https://cdn.example.test/sitemap-index.xml');
+
+        try {
+            // Act
+            $robots = $this->render('robots');
+
+            // Assert
+            $this->assertStringContainsString(
+                'Sitemap: https://cdn.example.test/sitemap-index.xml',
+                $robots
+            );
+        } finally {
+            \Pramnos\Application\Settings::setSetting('sitemap_url', '');
+        }
+    }
+
+    /**
+     * The documentation link points where the documentation is actually served.
+     *
+     * `<site>/api/docs/`, which is where `init` writes it. It said `<site>/docs`, which is
+     * nothing — and this file's entire purpose is to be read by something that will not look
+     * around for the right URL. A wrong address here is worse than an absent one: it is a
+     * confident answer.
+     */
+    public function testTheDocumentationLinkPointsWhereTheDocsAreServed(): void
     {
         // Act
-        $robots = $this->render('robots');
-        $url    = rtrim(defined('sURL') ? (string) sURL : '', '/');
+        $llms = $this->render('llms');
 
-        // Assert
-        if ($url === '') {
-            $this->assertStringNotContainsString('Sitemap:', $robots,
-                'a relative Sitemap directive is invalid — omit it instead');
+        // Assert — derived through Api::baseUrl(), so a moved API front controller moves this.
+        $this->assertStringContainsString(
+            '[Documentation](' . rtrim(\Pramnos\Application\Api::baseUrl(), '/') . '/docs/)',
+            $llms
+        );
+        $this->assertMatchesRegularExpression(
+            '#\[Documentation\]\([^)]*/api/docs/\)#',
+            $llms,
+            'the docs are generated into <web root>/api/docs'
+        );
+    }
 
-            return;
+    /**
+     * The MCP endpoint is announced inside the API's version prefix.
+     *
+     * `POST /api/1.0/mcp` is where the scaffolded route puts it. It was announced at the site
+     * root, where nothing has ever answered — and this is the one link that tells a model the
+     * site has tools it can call at all, so a 404 there is the difference between discoverable
+     * and invisible.
+     */
+    public function testTheMcpEndpointIsAnnouncedInsideTheApiPrefix(): void
+    {
+        // Arrange — llms.txt names the endpoint only when there is something to call.
+        \Pramnos\Mcp\PublicRegistry::offer(
+            'ping',
+            'public',
+            'Answers.',
+            ['type' => 'object'],
+            static fn(): array => ['ok' => true]
+        );
+
+        try {
+            // Act
+            $llms = $this->render('llms');
+
+            // Assert
+            $expected = rtrim(\Pramnos\Application\Api::baseUrl(), '/')
+                . '/' . \Pramnos\Application\Api::version() . '/mcp';
+
+            $this->assertStringContainsString('MCP endpoint: `' . $expected . '`', $llms);
+
+            // Inside the API, whatever this installation's version is — `/api/1.0/mcp` in a
+            // scaffolded project. Asserted as structure rather than as that literal, because
+            // the version is the project's and the address has to follow it.
+            $this->assertMatchesRegularExpression(
+                '#MCP endpoint: `[^`]*/api/[^/`]+/mcp`#',
+                $llms,
+                'the scaffolded route is POST <api prefix>/mcp, not <site>/mcp'
+            );
+        } finally {
+            \Pramnos\Mcp\PublicRegistry::reset();
         }
-
-        $this->assertStringContainsString('Sitemap: ' . $url . '/sitemap.xml', $robots);
     }
 
     /**

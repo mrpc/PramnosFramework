@@ -142,7 +142,21 @@ final class DebugBarAsset
             . "    }\n"
             . "}\n";
 
-        return $header . self::source() . $export;
+        // Guarded, and the source inside it untouched.
+        //
+        // The toolbar boots itself on import — `window.__pramnosDebugBar = …`, then
+        // `document.readyState`. In a browser both exist and nothing here changes. Under
+        // Node neither does, and this module is imported by `lib/api.js`, which is imported
+        // by every test a scaffolded project ships for its API client: the whole suite died
+        // at `ReferenceError: window is not defined`, in a file nobody had touched, for a
+        // panel none of those tests use.
+        //
+        // An `if` around the IIFE rather than a change inside it, because the same bytes are
+        // inlined into server-rendered pages where the guard would be dead weight — and
+        // because the point of generating this file is that there is one source to fix.
+        $guard = "\nif (typeof window !== 'undefined' && typeof document !== 'undefined') {\n";
+
+        return $header . $guard . self::source() . "\n}\n" . $export;
     }
 
     /**

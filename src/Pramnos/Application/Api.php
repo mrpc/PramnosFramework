@@ -86,6 +86,21 @@ class Api extends Application
      * Its own docblock said "no signing key is configured", which read as a deployment
      * problem rather than as a lookup that could not succeed.
      *
+     * **The lookup was fixed; the input was not.** `sURL` is not one string: it is
+     * `dirname(SCRIPT_NAME)`, so the API front controller (`www/api/index.php`) sees
+     * `https://host/api/` and every other request sees `https://host/`. One derivation,
+     * two inputs, two keys — and every token minted outside an API request was refused
+     * with `403 InvalidAccessToken`, which names neither the key nor the mistake. Worse
+     * than the refusal is how it presents: a SPA asks the exchange for a token, is
+     * refused, concludes the token is dead and asks for another — a redirect loop at
+     * browser speed, on the page somebody opens when something is already wrong.
+     *
+     * So the input is {@see baseUrl()}, which is the API's own base in **every** context.
+     * Inside an API request that is `sURL` and the key is byte-for-byte what it has always
+     * been — existing tokens keep verifying. Outside one it is the URL the API *would*
+     * see, which is what the two callers here (`SessionExchange`, `mcp:token`) needed and
+     * never had.
+     *
      * @param  string|null $version The API version; defaults to `APIVERSION` when defined,
      *                              then to the application's `api_version`, then `edge` —
      *                              the same order the constructor establishes it in.
@@ -93,19 +108,115 @@ class Api extends Application
      */
     public static function deriveAuthenticationKey(?string $version = null): string
     {
-        if ($version === null) {
-            if (defined('APIVERSION')) {
-                $version = (string) APIVERSION;
-            } else {
-                $app     = Application::currentInstance();
-                $version = (string) (
-                    (is_object($app) ? ($app->applicationInfo['api_version'] ?? null) : null)
-                    ?? 'edge'
-                );
-            }
+        $version ??= static::version();
+        $baseUrl = static::baseUrl();
+
+        return $baseUrl === '' ? md5($version) : md5($baseUrl . $version);
+    }
+
+    /**
+     * This API's version, resolved the way the constructor establishes it.
+     *
+     * `APIVERSION` when the API is running, then the application's `api_version`, then
+     * `edge`. Extracted because more than the key derivation needs it — a URL inside the
+     * version prefix is the other one — and two resolutions that drift are two answers to
+     * "which API is this".
+     */
+    public static function version(): string
+    {
+        if (defined('APIVERSION')) {
+            return (string) APIVERSION;
         }
 
-        return defined('sURL') ? md5(sURL . $version) : md5($version);
+        $app = Application::currentInstance();
+
+        return (string) (
+            (is_object($app) ? ($app->applicationInfo['api_version'] ?? null) : null) ?? 'edge'
+        );
+    }
+
+    /**
+     * Where this site's API answers, as the API itself computes it.
+     *
+     * The API's `sURL` is `dirname(SCRIPT_NAME)` of its own front controller, so it
+     * carries the directory that front controller sits in — `www/api/index.php`, which
+     * `init` has always written and which {@see directory()} can be told about when a
+     * project moved it. Everything else in the site sees `sURL` without that segment.
+     *
+     * Two contexts, one answer:
+     *
+     *   - **Inside an API request** `sURL` is already the API's base. Returned unchanged,
+     *     which is why this cannot alter a key any existing token was signed with.
+     *   - **Anywhere else** — an MVC route, the console — the directory is appended, so
+     *     the caller derives what the API will verify with rather than what its own front
+     *     controller happens to be called.
+     *
+     * The test is `instanceof static`, not a guess at the URL: the API registers itself as
+     * the current application in `Application::__construct()`, before this is first
+     * reached, and nothing else in the framework constructs one.
+     *
+     * @return string Absolute; empty when there is no `sURL` to build on (CLI without a
+     *                configured site URL).
+     */
+    public static function baseUrl(): string
+    {
+        if (!defined('sURL')) {
+            return '';
+        }
+
+        $site = (string) sURL;
+        if ($site === '') {
+            return '';
+        }
+
+        // Returned untouched, not normalised. `getUrl()` always ends `sURL` with a slash,
+        // but an installation that defines its own without one would have every existing
+        // token invalidated by a tidy-up here — the key is `md5()` of this string, so one
+        // character is a different key and a fleet of clients signed out at once.
+        if (Application::currentInstance() instanceof static) {
+            return $site;
+        }
+
+        // Idempotent, so an installation whose `sURL` is configured *as* the API's base —
+        // a console that sets it explicitly, rather than letting `getUrl()` derive it —
+        // does not get the directory twice. Appending blindly would take the one case
+        // where the old derivation happened to be right and break it.
+        $directory = static::directory();
+        $site      = rtrim($site, '/');
+        if ($directory === '' || str_ends_with($site, '/' . $directory)) {
+            return $site . '/';
+        }
+
+        return $site . '/' . $directory . '/';
+    }
+
+    /**
+     * The directory the API front controller is served from, relative to the site root.
+     *
+     * `api`, which is where `init` writes `www/api/index.php` and has since the scaffolder
+     * existed. A project that mounted it elsewhere says so in `app.php`:
+     *
+     * ```php
+     * 'api' => [
+     *     'prefix'    => '/api/1.0',
+     *     'directory' => 'api',   // where www/<directory>/index.php lives
+     * ],
+     * ```
+     *
+     * Deliberately **not** derived from `prefix`: the prefix is the route namespace and
+     * the directory is a place on disk, and a project is free to make them differ. Guessing
+     * one from the other would replace a visible failure with a silent one.
+     *
+     * @return string With no surrounding slashes.
+     */
+    protected static function directory(): string
+    {
+        $app = Application::currentInstance();
+        $configured = is_object($app)
+            ? (string) ($app->applicationInfo['api']['directory'] ?? '')
+            : '';
+
+        return $configured !== '' ? trim($configured, '/') : 'api';
     }
 
     /**

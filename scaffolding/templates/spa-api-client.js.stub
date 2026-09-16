@@ -224,6 +224,24 @@ export async function request(path, { method = 'GET', body = null, query = null,
         // and the user can sign in again.
         if (payload && payload.error === 'InvalidAccessToken') {
             setToken(null);
+
+            // …and answer *this* call, not merely the next one. Without the
+            // retry, one expired or revoked token — or one minted before a
+            // redeploy — turns the endpoints that need no authentication at all
+            // into "the backend is down" for the whole of the first load: the
+            // API refuses a request carrying a bad token before it looks at the
+            // route, so `/status` and the language file fail alongside the
+            // protected calls, and the screen has nothing to show.
+            //
+            // Safe for any method, including a POST: that refusal happens before
+            // dispatch, so nothing ran and there is nothing to run twice.
+            //
+            // `anonymous` is both the point and the recursion guard — the API
+            // only answers InvalidAccessToken to a request that presented a
+            // token, and this one presents none.
+            if (!anonymous) {
+                return request(path, { method, body, query, headers, anonymous: true, signal });
+            }
         }
 
         const detail = payload && payload.message ? `: ${payload.message}` : '';
