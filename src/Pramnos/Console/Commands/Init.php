@@ -1179,6 +1179,32 @@ class Init extends Command
             . "    //     'pagination.current' => 'active',\n"
             . "    // ],\n";
 
+        /*
+         * **The block that mounts `src/Admin/`.**
+         *
+         * `init` writes sixteen controllers into `src/Admin/Controllers/` and, until this,
+         * nothing that put them in scope. `Application::enterAdminAreaIfRequested()`
+         * returns immediately when this key is absent, and two things follow: the prefix
+         * stays `''`, so `adminUrl('Users')` renders `/Users`, and `src/Admin/` is never
+         * added to the controller scope — by design, per the Routing Guide. So **every
+         * administration screen in a freshly scaffolded project answered 404**, while the
+         * menu still listed them, because the navigation is built from the registry rather
+         * than from routes. The area looked present and nothing in it opened.
+         *
+         * `min_usertype` is 80 because that is the *lowest* any bundled admin controller
+         * requires — nine declare 80 and four declare 90. The area gate has to be the
+         * lowest of them or it would lock out the ones that only need 80; each controller
+         * then enforces its own, stricter where it says so.
+         */
+        $adminSection = "    // The administration area: mounts src/Admin/ under this prefix.\n"
+            . "    // Remove this block and every screen under it becomes unreachable —\n"
+            . "    // the controllers are only in scope while the area is.\n"
+            . "    'admin' => [\n"
+            . "        'prefix'             => 'admin',\n"
+            . "        'min_usertype'       => 80,\n"
+            . "        'default_controller' => 'Dashboard',\n"
+            . "    ],\n";
+
         $styleLines = "    'app_style' => '$appStyle',\n";
         if ($spaStack !== '') {
             $styleLines .= "    'spa_stack' => '$spaStack',\n";
@@ -1253,7 +1279,7 @@ class Init extends Command
             ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
             : "        'style-src'  => []\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$classLines}{$styleLines}{$featuresPhp}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$classLines}{$styleLines}{$adminSection}{$featuresPhp}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 

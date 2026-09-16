@@ -3617,8 +3617,37 @@ class DevPanelController extends Controller
         $this->terminate();
     }
 
+    /**
+     * End the request — by throwing under test, exactly as `Application::close()` does.
+     *
+     * **A bare `exit` in a suite is worse than a failure.** PHPUnit's process simply
+     * stops: no summary, no failure count, and **exit status 0**, which every CI reads as
+     * a pass. A test that requested any devpanel URL truncated the whole run and reported
+     * success — found by a sweep over a scaffolded project's screens that stopped
+     * mid-list, and only visible because it was appending to a file as it went.
+     *
+     * The framework already answers this. `TestEnvironment::setup()` defines
+     * `PRAMNOS_TESTING` so that `close()` throws instead of exiting, with its own comment
+     * saying "without this a single database fault silently truncates the whole suite" —
+     * and this path never reached `close()`. It honours the same constant now, and throws
+     * the same type, so a caller that already catches `ApplicationClosedException` around
+     * one part of the framework catches it around this one too.
+     *
+     * The status is read back from PHP rather than passed in: the fifteen call sites have
+     * already set it with `http_response_code()` by the time they get here, and a
+     * signature change would be a break for anyone who has subclassed this.
+     */
     protected function terminate(): void
     {
+        if (defined('PRAMNOS_TESTING')) {
+            $status = http_response_code();
+
+            throw new \Pramnos\Application\ApplicationClosedException(
+                'DevPanelController::terminate() called',
+                is_int($status) ? $status : 200
+            );
+        }
+
         exit;
     }
 

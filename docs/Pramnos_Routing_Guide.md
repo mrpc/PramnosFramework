@@ -784,7 +784,8 @@ floor on who may reach any of them:
 /admin/Applications/edit/5
 ```
 
-Configure it once:
+Configure it once — and **`pramnos init` writes this block for you**, because the same
+command writes the sixteen controllers that live inside the area:
 
 ```php
 // app/app.php
@@ -795,6 +796,18 @@ Configure it once:
     'default_controller' => 'Dashboard', // what the bare /admin opens (optional)
 ],
 ```
+
+**Removing the block does not merely unmount the routes — it takes the controllers out of
+scope.** `src/Admin/` is only on the controller path while the area is active, so without
+it `<Ns>\Admin\Controllers\Users` is not a class anybody can reach, and `adminUrl('Users')`
+renders `/Users` because the prefix is empty. The screens answer 404 while the menu still
+lists them, since the navigation is built from the registry rather than from routes: the
+area looks present and nothing in it opens.
+
+`min_usertype` is the floor for the **area**, and 80 is what `init` writes because that is
+the lowest any bundled admin controller requires. Raising it above the lowest locks out the
+screens that only needed 80; each controller still enforces its own, which is stricter for
+some of them.
 
 Set `default_controller` unless you want the bare prefix to fall through to the
 site's own default — which is usually the public home page, and which for a
