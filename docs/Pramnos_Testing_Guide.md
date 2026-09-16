@@ -408,6 +408,13 @@ from a second and a wider `callback` from a third, and the first attempt at this
 two. Add a table by putting its recipe in `Schema::RECIPES`. `Schema::ensure([...])` takes
 an explicit list for the cases that genuinely need one.
 
+**Seeding a row means seeding it the way production does.** The canonical `usertokens` has
+`token`, `deviceinfo` and `scope` as `TEXT NOT NULL`, and MySQL gives a TEXT column no
+default — so a seed that omits one is refused, and a stub that declared them nullable was
+hiding that. Converting the fixtures surfaced it in eleven places, and in one production
+writer: `Oauth::generateAuthCode()` omitted `deviceinfo`, which meant the framework's own
+authorization endpoint could not issue a code at all under strict mode.
+
 **Two fixtures may still be hand-rolled**, and both are about the schema rather than about
 a feature:
 

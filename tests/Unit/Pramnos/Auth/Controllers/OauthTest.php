@@ -97,29 +97,9 @@ class OauthTest extends TestCase
                 PRIMARY KEY (`userid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `usertokens` (
-                `tokenid` int(11) NOT NULL AUTO_INCREMENT,
-                `userid` int(11) NOT NULL,
-                `applicationid` int(11) NOT NULL,
-                `tokentype` varchar(50) NOT NULL,
-                `token` text NOT NULL,
-                `token_lookup` varchar(64) DEFAULT NULL,
-                `parentToken` int(11) DEFAULT NULL,
-                `scope` text,
-                `sid` varchar(255) DEFAULT NULL,
-                `notes` text,
-                `redirect_uri` text,
-                `code_challenge` varchar(255),
-                `code_challenge_method` varchar(50),
-                `expires` bigint(20) NOT NULL,
-                `status` tinyint(1) NOT NULL DEFAULT 1,
-                `created` bigint(20) NOT NULL,
-                `lastused` bigint(20) NOT NULL DEFAULT 0,
-                `deviceinfo` varchar(255) DEFAULT NULL,
-                PRIMARY KEY (`tokenid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `usertokens`, from the migrations that build it in
+        // production — see Testing\Schema for why a hand-rolled copy is a trap.
+        Schema::table('usertokens', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `authserver_oauth2_user_consents` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -381,7 +361,13 @@ class OauthTest extends TestCase
         $this->db->queryBuilder()->table('users')->insert(['userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            ...\Pramnos\User\Token::storageFor((string) 'some_token'), 'expires' => time() + 3600, 'status' => 1, 'created' => time()
+            ...\Pramnos\User\Token::storageFor((string) 'some_token'), 'expires' => time() + 3600, 'status' => 1, 'created' => time(),
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
         
         $response = $this->controller->revoke();
@@ -596,7 +582,10 @@ class OauthTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'introspect_tok'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'scope' => 'profile'
+            'created' => time(), 'scope' => 'profile',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
         ]);
 
         // Use POST body credentials (plain text match)
@@ -625,7 +614,13 @@ class OauthTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'expired_tok'), 'expires' => time() - 100, 'status' => 1,
-            'created' => time() - 200
+            'created' => time() - 200,
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
 
         $_POST['client_id'] = 'k';
@@ -680,7 +675,10 @@ class OauthTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'ui_tok'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'scope' => 'profile'
+            'created' => time(), 'scope' => 'profile',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ui_tok';
         $response = $this->controller->userinfo();
@@ -699,7 +697,10 @@ class OauthTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'oidc_tok'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'scope' => 'openid profile email phone'
+            'created' => time(), 'scope' => 'openid profile email phone',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer oidc_tok';
         $response = $this->controller->userinfo();
@@ -719,7 +720,13 @@ class OauthTest extends TestCase
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            ...\Pramnos\User\Token::storageFor((string) 'logout_tok'), 'expires' => time() + 3600, 'status' => 1, 'created' => time()
+            ...\Pramnos\User\Token::storageFor((string) 'logout_tok'), 'expires' => time() + 3600, 'status' => 1, 'created' => time(),
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer logout_tok';
         $response = $this->controller->logout();

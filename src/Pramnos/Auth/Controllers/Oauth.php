@@ -1355,6 +1355,16 @@ class Oauth extends Controller
                 'expires'             => $expires,
                 'status'              => 1,
                 'created'             => time(),
+                /*
+                 * **Not optional, despite carrying nothing.** `usertokens.deviceinfo` is
+                 * `TEXT NOT NULL`, and MySQL cannot give a TEXT column a default — so
+                 * omitting it was refused outright under strict mode with `Field
+                 * 'deviceinfo' doesn't have a default value`, and this endpoint could not
+                 * issue an authorization code at all. Every other writer of this table
+                 * already passed `''`; this one did not, and the fixtures it was tested
+                 * against declared the column nullable, so nothing said so.
+                 */
+                'deviceinfo'          => '',
             ]);
 
         return $code;

@@ -12,6 +12,7 @@ use Pramnos\Application\Settings;
 use Pramnos\Framework\Factory;
 use Pramnos\Database\Database;
 use Pramnos\Http\Request;
+use Pramnos\Framework\Testing\Schema;
 
 #[CoversClass(UsersController::class)]
 class UsersControllerTest extends TestCase
@@ -139,29 +140,9 @@ class UsersControllerTest extends TestCase
                 PRIMARY KEY (`visitorid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
-        $db->query('
-            CREATE TABLE `usertokens` (
-                `tokenid` int(11) NOT NULL AUTO_INCREMENT,
-                `userid` bigint NOT NULL,
-                `applicationid` int(11) NOT NULL DEFAULT 0,
-                `tokentype` varchar(50) NOT NULL DEFAULT \'\',
-                `token` text NOT NULL,
-                `expires` bigint(20) NOT NULL DEFAULT 0,
-                `status` tinyint(1) NOT NULL DEFAULT 1,
-                `created` bigint(20) NOT NULL DEFAULT 0,
-                `lastused` bigint(20) NOT NULL DEFAULT 0,
-                `code_challenge` varchar(128) DEFAULT NULL,
-                `code_challenge_method` varchar(10) DEFAULT NULL,
-                `deviceinfo` text DEFAULT NULL,
-                `notes` text DEFAULT NULL,
-                `ipaddress` varchar(45) DEFAULT NULL,
-                `parentToken` int(11) DEFAULT NULL,
-                `actions` int(11) DEFAULT 0,
-                `scope` text DEFAULT NULL,
-                `removedate` bigint(20) NOT NULL DEFAULT 0,
-                PRIMARY KEY (`tokenid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `usertokens`, from the migrations that build it in
+        // production — see Testing\Schema for why a hand-rolled copy is a trap.
+        Schema::table('usertokens', $db);
         // The mail log, which the user screen reads to show what this address was sent.
         $db->query('
             CREATE TABLE `mails` (
@@ -624,7 +605,7 @@ class UsersControllerTest extends TestCase
 
     public function testDeactivateToken(): void
     {
-        $this->db->query("INSERT INTO `usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `expires`, `created`, `status`) VALUES (9, 3, 'api', '123', 0, 0, 1)");
+        $this->db->query("INSERT INTO `usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `expires`, `created`, `status`, `scope`, `deviceinfo`) VALUES (9, 3, 'api', '123', 0, 0, 1, '', '')");
         
         $_POST = ['userid' => 3, 'tokenid' => 9];
         $this->controller->deactivateToken();
@@ -635,7 +616,7 @@ class UsersControllerTest extends TestCase
 
     public function testDeleteToken(): void
     {
-        $this->db->query("INSERT INTO `usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `expires`, `created`, `status`) VALUES (9, 3, 'api', '123', 0, 0, 1)");
+        $this->db->query("INSERT INTO `usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `expires`, `created`, `status`, `scope`, `deviceinfo`) VALUES (9, 3, 'api', '123', 0, 0, 1, '', '')");
         
         $_POST = ['userid' => 3, 'tokenid' => 9];
         $this->controller->deleteToken();
@@ -725,8 +706,8 @@ class UsersControllerTest extends TestCase
         );
 
         $this->db->query(
-            "INSERT INTO `usertokens` (`userid`, `tokentype`, `token`, `created`, `notes`) "
-            . "VALUES (3, 'api', 'tok_" . bin2hex(random_bytes(6)) . "', " . time() . ", 'A token')"
+            "INSERT INTO `usertokens` (`userid`, `tokentype`, `token`, `created`, `notes`, `status`, `scope`, `deviceinfo`) "
+            . "VALUES (3, 'api', 'tok_" . bin2hex(random_bytes(6)) . "', " . time() . ", 'A token', 1, '', '')"
         );
         $tokenId = (int) $this->db->getInsertId();
 

@@ -79,27 +79,9 @@ class TokensControllerTest extends BaseTestCase
         // Dropped *after* setupDb() (which creates the production usertokens table)
         // so the minimal fixture schema below always wins.
         $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
-        $db->query("CREATE TABLE `#PREFIX#usertokens` (
-            `tokenid` int(11) NOT NULL AUTO_INCREMENT,
-            `userid` bigint NOT NULL,
-            `tokentype` varchar(50) NOT NULL DEFAULT 'oauth',
-            `token` varchar(255) NOT NULL DEFAULT 'testtoken',
-            `applicationid` int(11) NOT NULL DEFAULT 0,
-            `scope` varchar(255) DEFAULT NULL,
-            `expires` int(11) DEFAULT NULL,
-            `lastused` int(11) DEFAULT NULL,
-            `status` tinyint(1) NOT NULL DEFAULT '1',
-            `removedate` int(11) DEFAULT NULL,
-            `code_challenge` varchar(128) DEFAULT NULL,
-            `code_challenge_method` varchar(10) DEFAULT NULL,
-            `deviceinfo` text DEFAULT NULL,
-            `notes` text DEFAULT NULL,
-            `created` int(11) DEFAULT NULL,
-            `ipaddress` varchar(45) DEFAULT NULL,
-            `parentToken` int(11) DEFAULT NULL,
-            `actions` int(11) DEFAULT 0,
-            PRIMARY KEY (`tokenid`)
-        )");
+        // The canonical `usertokens`, from the migrations that build it in
+        // production — see Testing\Schema for why a hand-rolled copy is a trap.
+        Schema::table('usertokens', $db);
 
         // DELETE, not TRUNCATE: the real users table is referenced by the
         // userstogroups FK, which makes TRUNCATE fail on MySQL.
@@ -108,7 +90,7 @@ class TokensControllerTest extends BaseTestCase
 
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (1, 'testuser', 'test@test.com')");
         $db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (100, 'Test App', 'dummy_key', 'dummy_secret')");
-        $db->query("INSERT INTO `#PREFIX#usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `applicationid`, `status`) VALUES (10, 1, 'oauth', 'testtoken', 100, 1)");
+        $db->query("INSERT INTO `#PREFIX#usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `applicationid`, `status`, `created`, `scope`, `deviceinfo`) VALUES (10, 1, 'oauth', 'testtoken', 100, 1, 0, '', '')");
 
         $app = \Pramnos\Application\Application::getInstance();
         if (!$app) {

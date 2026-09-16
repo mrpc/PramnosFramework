@@ -67,6 +67,23 @@ final class Schema
             \Pramnos\Framework\Migrations\AuthServer\AddSystemuserToApplications::class,
             \Pramnos\Framework\Migrations\Applications\WidenApplicationsCallback::class,
         ],
+        /*
+         * The table's own shape, and not the foreign keys.
+         *
+         * `usertokens` gains its keys from the `core/` sweeps that add missing keys and
+         * indexes across the *whole* schema — running one of those from a fixture would
+         * reach into every other table to fix up something this test never mentioned.
+         * A real installation has them because it has run every migration, and so does a
+         * database the suite has migrated; a fixture's job is the columns.
+         *
+         * `token_lookup` is not optional among them. `User\Token::storageFor()` writes it
+         * on every insert, so a stub without it fails every write with
+         * `Unknown column 'token_lookup'` — which is how it was found.
+         */
+        'usertokens' => [
+            \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
+            \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
+        ],
     ];
 
     /**

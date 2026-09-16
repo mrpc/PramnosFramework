@@ -52,21 +52,9 @@ class SessionTest extends TestCase
                 PRIMARY KEY (`userid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `usertokens` (
-                `tokenid` int(11) NOT NULL AUTO_INCREMENT,
-                `userid` bigint NOT NULL,
-                `applicationid` int(11) NOT NULL,
-                `tokentype` varchar(50) NOT NULL,
-                `token` text NOT NULL,
-                `token_lookup` varchar(64) DEFAULT NULL,
-                `expires` bigint(20) NOT NULL,
-                `status` tinyint(1) NOT NULL DEFAULT 1,
-                `created` bigint(20) NOT NULL,
-                `lastused` bigint(20) NOT NULL DEFAULT 0,
-                PRIMARY KEY (`tokenid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `usertokens`, from the migrations that build it in
+        // production — see Testing\Schema for why a hand-rolled copy is a trap.
+        Schema::table('usertokens', $this->db);
 
         // Clean up any old test data
         $this->db->query('DELETE FROM `applications` WHERE `appid` = 1');
@@ -252,7 +240,7 @@ class SessionTest extends TestCase
         
         $expires = time() + 3600;
         $lookup = \Pramnos\User\Token::lookup($tokenStr);
-        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`) VALUES (55, 1, 'access_token', '{$tokenStr}', '{$lookup}', {$expires}, 1, " . time() . ")");
+        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`, `scope`, `deviceinfo`) VALUES (55, 1, 'access_token', '{$tokenStr}', '{$lookup}', {$expires}, 1, " . time() . ", '', '')");
         
         // Mock Bearer Header
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $tokenStr;
@@ -319,7 +307,7 @@ class SessionTest extends TestCase
         $this->db->query("INSERT IGNORE INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
         $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (2, 'App2', 'key', '')");
         $badLookup = \Pramnos\User\Token::lookup('bad_token');
-        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`) VALUES (55, 2, 'access_token', 'bad_token', '{$badLookup}', " . (time()+3600) . ", 1, " . time() . ")");
+        $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`, `scope`, `deviceinfo`) VALUES (55, 2, 'access_token', 'bad_token', '{$badLookup}', " . (time()+3600) . ", 1, " . time() . ", '', '')");
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer bad_token';
         $controller = $this->getController();
         $response = $controller->check();

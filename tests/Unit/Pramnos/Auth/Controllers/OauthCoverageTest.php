@@ -191,33 +191,9 @@ class OauthCoverageTest extends TestCase
                 PRIMARY KEY (`userid`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ');
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `usertokens` (
-                `tokenid`    int(11) NOT NULL AUTO_INCREMENT,
-                `userid`     int(11) NOT NULL,
-                `applicationid` int(11) NOT NULL,
-                `tokentype`  varchar(50) NOT NULL,
-                `token`      text NOT NULL,
-                `token_lookup` varchar(64) DEFAULT NULL,
-                `scope`      text,
-                -- parentToken links a refresh token to the access token it was
-                -- issued with; the logout, revoke and introspect paths read it.
-                -- There is deliberately no `sid` column: the real table has never
-                -- had one, and inventing it here is how a query selecting it
-                -- passed its tests while failing in every application.
-                `parentToken` int(11) DEFAULT NULL,
-                `notes`      text,
-                `redirect_uri` text,
-                `code_challenge` varchar(255),
-                `code_challenge_method` varchar(50),
-                `expires`    bigint(20) NOT NULL,
-                `status`     tinyint(1) NOT NULL DEFAULT 1,
-                `created`    bigint(20) NOT NULL,
-                `lastused`   bigint(20) NOT NULL DEFAULT 0,
-                `deviceinfo` varchar(255) DEFAULT NULL,
-                PRIMARY KEY (`tokenid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ');
+        // The canonical `usertokens`, from the migrations that build it in
+        // production — see Testing\Schema for why a hand-rolled copy is a trap.
+        Schema::table('usertokens', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `authserver_oauth2_user_consents` (
                 `id`           int(11) NOT NULL AUTO_INCREMENT,
@@ -344,7 +320,13 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'family_access'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time()
+            'created' => time(),
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
         $accessId = (int) $this->db->queryBuilder()->table('usertokens')
             ->select(['tokenid'])->where('token_lookup', \Pramnos\User\Token::lookup((string) 'family_access'))->first()->fields['tokenid'];
@@ -353,7 +335,13 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 77, 'applicationid' => 3, 'tokentype' => 'refresh_token',
             ...\Pramnos\User\Token::storageFor((string) 'family_refresh'), 'expires' => time() + 86400, 'status' => 1,
-            'created' => time(), 'parentToken' => $accessId
+            'created' => time(), 'parentToken' => $accessId,
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
 
         // A token from another sign-in on another device. Same user, different
@@ -361,7 +349,13 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 77, 'applicationid' => 3, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'other_device'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time()
+            'created' => time(),
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
 
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer family_access';
@@ -409,14 +403,26 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 78, 'applicationid' => 4, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'parent_access'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time()
+            'created' => time(),
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
         $accessId = (int) $this->db->queryBuilder()->table('usertokens')
             ->select(['tokenid'])->where('token_lookup', \Pramnos\User\Token::lookup((string) 'parent_access'))->first()->fields['tokenid'];
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 78, 'applicationid' => 4, 'tokentype' => 'refresh_token',
             ...\Pramnos\User\Token::storageFor((string) 'child_refresh'), 'expires' => time() + 86400, 'status' => 1,
-            'created' => time(), 'parentToken' => $accessId
+            'created' => time(), 'parentToken' => $accessId,
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies it.
+            'deviceinfo' => '',
+            // NOT NULL with no default in the canonical table: MySQL gives a
+            // TEXT column none, and every production writer supplies these.
+            'scope' => '',
         ]);
 
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer child_refresh';
@@ -606,7 +612,7 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange — user row required by FK constraint on usertokens
         $this->db->queryBuilder()->table('users')->insert([
-            'userid' => 99, 'username' => 'state_user', 'email' => 'su@t.com', 'active' => 1
+            'userid' => 99, 'username' => 'state_user', 'email' => 'su@t.com', 'active' => 1,
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => 6, 'name' => 'State App', 'status' => 1, 'apikey' => 'state_key', 'apisecret' => '', 'callback' => 'https://example.com/cb'
@@ -798,7 +804,10 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 110, 'applicationid' => 7, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'revoked_ui_tok'), 'expires' => time() + 3600, 'status' => 0,
-            'created' => time(), 'scope' => 'openid'
+            'created' => time(), 'scope' => 'openid',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer revoked_ui_tok';
 
@@ -828,7 +837,10 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 111, 'applicationid' => 8, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'expired_ui_tok'), 'expires' => time() - 100, 'status' => 1,
-            'created' => time() - 7200, 'scope' => 'openid'
+            'created' => time() - 7200, 'scope' => 'openid',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer expired_ui_tok';
 
@@ -865,7 +877,10 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 120, 'applicationid' => 9, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'revoked_tok_intr'), 'expires' => time() + 3600, 'status' => 0,
-            'created' => time(), 'scope' => 'profile'
+            'created' => time(), 'scope' => 'profile',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
 
         $_POST['client_id']     = 'rk';
@@ -902,7 +917,10 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 121, 'applicationid' => 10, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'never_expires_tok'), 'expires' => 0, 'status' => 1,
-            'created' => time(), 'scope' => 'read'
+            'created' => time(), 'scope' => 'read',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
 
         $_POST['client_id']     = 'nek';
@@ -1393,7 +1411,10 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 140, 'applicationid' => 18, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'ba_token'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'scope' => 'profile'
+            'created' => time(), 'scope' => 'profile',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
 
         // Credentials via Basic auth, not POST body
@@ -1434,7 +1455,10 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 160, 'applicationid' => 19, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'valid_oidc_tok'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'scope' => 'openid profile'
+            'created' => time(), 'scope' => 'openid profile',
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer valid_oidc_tok';
 
@@ -1465,7 +1489,11 @@ class OauthCoverageTest extends TestCase
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 161, 'applicationid' => 20, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'no_openid_tok'), 'expires' => time() + 3600, 'status' => 1,
-            'created' => time(), 'scope' => 'read write'   // no openid
+            'created' => time(),
+            'scope' => 'read write',   // deliberately no openid,
+            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
+            // column none, and every production writer supplies these.
+            'deviceinfo' => '',
         ]);
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer no_openid_tok';
 
