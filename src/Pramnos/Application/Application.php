@@ -3832,7 +3832,58 @@ class Application extends Base
     {
         $root = defined('ROOT') ? ROOT : '';
 
-        return 'pramnos:migrations:' . md5($root) . ':' . $fingerprint;
+        /*
+         * The connection goes **after** the root, not into it.
+         *
+         * `forgetVerifiedMigrations()` deletes by the prefix
+         * `pramnos:migrations:<md5(ROOT)>`, so folding the connection into that hash makes
+         * forgetting silently stop working — which is what the first attempt at this did,
+         * and what `AutoMigrationFingerprintTest` caught. Keeping the prefix intact also
+         * gives forgetting the right scope: "this checkout", every database of it.
+         */
+        return 'pramnos:migrations:' . md5($root)
+            . ':' . md5($this->connectionIdentity())
+            . ':' . $fingerprint;
+    }
+
+    /**
+     * Which database a verification was performed against.
+     *
+     * **The fingerprint says these migration files have been verified; it does not say
+     * against what.** One checkout used to mean one database in practice, so the omission
+     * cost nothing. It now routinely means two — the application's and the suite's — and a
+     * fingerprint verified against the first was suppressing the check for the second:
+     * the test database stayed empty, every test that needed a table failed with "the
+     * table does not exist", and nothing anywhere mentioned migrations. The diagnosis was
+     * deleting `var/migrations/*.verified` by hand, which is not one anybody reaches by
+     * reading the failure.
+     *
+     * Read from the settings rather than from the connection, because this is asked before
+     * anything has necessarily connected. The host is in it as well as the name: two
+     * servers hosting a database of the same name is the ordinary shape of a staging box.
+     *
+     * The fingerprint itself is deliberately left alone. The copy stored **inside** the
+     * database is already per-database by construction — it lives in the one it describes
+     * — and changing what it is made of would invalidate every installation's for nothing.
+     */
+    protected function connectionIdentity(): string
+    {
+        try {
+            $settings = (array) Settings::getSetting('database');
+        } catch (\Throwable) {
+            return '';
+        }
+
+        if ($settings === []) {
+            return '';
+        }
+
+        return implode('|', [
+            (string) ($settings['type']     ?? ''),
+            (string) ($settings['hostname'] ?? ''),
+            (string) ($settings['port']     ?? ''),
+            (string) ($settings['database'] ?? ''),
+        ]);
     }
 
     /**
@@ -3849,8 +3900,12 @@ class Application extends Base
 
         $base = defined('VAR_PATH') ? VAR_PATH : ROOT . DIRECTORY_SEPARATOR . 'var';
 
+        // The connection is in the name for the same reason it is in the APCu key: one
+        // checkout now has two databases, and a file named after the migration files
+        // alone answers for both. See connectionIdentity().
         return $base . DIRECTORY_SEPARATOR . 'migrations'
-            . DIRECTORY_SEPARATOR . md5($fingerprint) . '.verified';
+            . DIRECTORY_SEPARATOR . md5($fingerprint . '|' . $this->connectionIdentity())
+            . '.verified';
     }
 
     /**

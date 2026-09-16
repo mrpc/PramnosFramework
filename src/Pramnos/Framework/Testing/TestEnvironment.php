@@ -147,7 +147,30 @@ class TestEnvironment
      */
     protected static function migrate(string $testSettingsPath): void
     {
-        if (!defined('APP_PATH') || !file_exists(APP_PATH . '/app.php')) {
+        /*
+         * **Derived, not required.**
+         *
+         * `APP_PATH` is defined by `Application::setDefines()`, and at bootstrap time no
+         * application has been constructed — a scaffolded `tests/bootstrap.php` defines
+         * `ROOT`, `DS`, `sURL` and `URL`, and nothing else. A guard written as
+         * `defined('APP_PATH')` therefore returned immediately in every project that has
+         * one, and said nothing: the suite pointed at a test database whose schema was
+         * never built. Measured in one project, the same commit either way: **0 tables
+         * without it, 26 with**.
+         *
+         * It passed here because this repository's own bootstrap defines `APP_PATH` — the
+         * same blind spot that hid the defect this method was written to fix, one layer
+         * further in.
+         *
+         * `ROOT . /app` is the fallback `Application::readApplicationConfig()` already
+         * documents and uses for the same reason, so this is the framework's existing
+         * answer rather than a new one.
+         */
+        $appPath = defined('APP_PATH')
+            ? APP_PATH
+            : (defined('ROOT') ? ROOT . DIRECTORY_SEPARATOR . 'app' : '');
+
+        if ($appPath === '' || !file_exists($appPath . DIRECTORY_SEPARATOR . 'app.php')) {
             return;
         }
 

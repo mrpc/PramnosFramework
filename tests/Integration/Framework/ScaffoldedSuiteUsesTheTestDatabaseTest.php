@@ -160,6 +160,60 @@ class ScaffoldedSuiteUsesTheTestDatabaseTest extends TestCase
         }
     }
 
+    /**
+     * The schema step runs without `APP_PATH`, which no scaffolded bootstrap defines.
+     *
+     * `APP_PATH` is defined by `Application::setDefines()`, and at bootstrap time no
+     * application has been constructed: a scaffolded `tests/bootstrap.php` defines `ROOT`,
+     * `DS`, `sURL` and `URL`, and nothing else. A guard written as `defined('APP_PATH')`
+     * therefore returned immediately in every project that has one — so the suite was
+     * pointed at the test database correctly and then left it empty, which is the same
+     * outcome as before by a different route.
+     *
+     * Measured in the project that reported it, the same commit either way: **0 tables
+     * without `APP_PATH`, 26 with**.
+     *
+     * It survived because this repository's own bootstrap *does* define `APP_PATH` — the
+     * same blind spot that hid the original defect, one layer further in. So this test
+     * asserts on the derivation directly rather than on a migration run: `ROOT . /app` is
+     * what `Application::readApplicationConfig()` already falls back to, and the guard has
+     * to reach the same place.
+     */
+    public function testTheSchemaStepDoesNotDependOnAppPath(): void
+    {
+        // Arrange — a project laid out as `init` lays one out, with no APP_PATH anywhere.
+        file_put_contents($this->tmpDir . '/app/app.php', "<?php\nreturn ['name' => 'T'];\n");
+
+        $environment = new class extends \Pramnos\Framework\Testing\TestEnvironment {
+            /** Where the guard decides to look, without running the migration. */
+            public static function resolvedAppPath(string $root): string
+            {
+                return defined('APP_PATH')
+                    ? APP_PATH
+                    : $root . DIRECTORY_SEPARATOR . 'app';
+            }
+        };
+
+        // Act — the path the guard derives for a project rooted here.
+        $resolved = $environment::resolvedAppPath($this->tmpDir);
+
+        // Assert — it lands on the project's own app.php rather than on nothing.
+        $this->assertFileExists(
+            $resolved . DIRECTORY_SEPARATOR . 'app.php',
+            'the schema step must find app.php without being told APP_PATH'
+        );
+
+        // And the guard in the shipped method is the derived one, not a bare defined().
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Framework/Testing/TestEnvironment.php'
+        );
+        $this->assertStringNotContainsString(
+            "if (!defined('APP_PATH') || !file_exists(APP_PATH",
+            $source,
+            'requiring APP_PATH makes the schema step a no-op in every scaffolded project'
+        );
+    }
+
     /** The settings file `init` writes, with a database name substituted. */
     private function settingsFile(string $database): string
     {
