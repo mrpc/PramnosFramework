@@ -372,47 +372,41 @@ class UserApiTest extends \Pramnos\Framework\Testing\BaseTestCase
 }
 ```
 
-## The end-to-end suite, and why it is not in the default run
+## A test that rebuilds schema, without breaking the ones after it
 
-Four suites run on `./dockertest`. A fifth does not:
+Some tests need a table in its **canonical** shape rather than whatever the suite happens
+to have left there. `Integration/Auth/OAuth2/FullAuthorizationCodeFlowTest` is one: it
+drives the OAuth2 client against the framework's own authorization server, and the server
+compares the client's redirect URI against `applications.callback` character for character
+— a column several tests' hand-rolled `applications` does not have.
 
-```bash
-./dockertest --nocoverage     # Unit, Feature, Integration, Characterization
-./dockertest --e2e            # only tests/EndToEnd
+The pattern is the one `OAuth2ClientSecretRequiredTest` established: **drop that table and
+rebuild it from its own migration**, through `BaseTestCase::runMigrations()`.
+
+```php
+$this->db->schema()->dropTableIfExists('#PREFIX#applications');
+$this->runMigrations([CreateApplicationsTable::class, WidenApplicationsCallback::class], $this->db);
 ```
 
-An end-to-end test drives a whole subsystem against **the real thing** rather than against
-a fixture — `tests/EndToEnd/Auth/OAuth2/FullAuthorizationCodeFlowTest.php` points the
-OAuth2 client at the framework's own authorization server and completes a genuine flow:
-authorize, consent, real authorization code, real token exchange, real signed JWT, real
-refresh. That is worth having, because every other test of that client asserts against a
-response payload this repository wrote, and a response shape that is subtly wrong is wrong
-in the test and in the code at once.
+**Drop only what nothing else points at.** That is the whole rule, and it is cheap to get
+wrong: `usertokens` carries a foreign key to `applications`, so a test that also dropped
+and rebuilt `usertokens` left the constraint dangling and **thirty-eight tests with nothing
+to do with OAuth2 failed afterwards** — account changes, permissions, token actions — each
+pointing at its own tables, none at the test that caused it. Rebuilding the parent is
+survivable because it is put back immediately; rebuilding the child is not.
 
-It is separate for two reasons, and the first is not about speed:
+Check before you drop:
 
-**A test that rebuilds schema is everybody else's problem.** The suite shares one database.
-An earlier version of that test dropped and rebuilt `applications` so it could have the
-canonical `callback` column — and `usertokens` carries a foreign key to `applications`, so
-removing the parent mid-suite left a dangling constraint and **thirty-eight tests that had
-nothing to do with OAuth2 failed afterwards**, with errors pointing at their own tables.
+```sql
+SELECT TABLE_NAME, CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+WHERE REFERENCED_TABLE_NAME = 'the_table_you_want_to_drop';
+```
 
-**And its cost should not be everyone's either.** RSA key generation and a migration run
-per test are not worth paying for on every `./dockertest`.
+Everything else follows the rules below: schema and expensive fixtures once per class, rows
+per test. An RSA key pair for an OAuth2 server costs a few hundred milliseconds and is
+read-only once generated, so it belongs in `setUpBeforeClass()` like any other.
 
-So if you write one:
-
-- **Give it its own database.** `CREATE DATABASE`, use it, drop it in `tearDown()`. Then
-  nothing it does can reach another test, in any order, whatever it rebuilds. The OAuth2
-  one does this and it is the reason it is safe.
-- **Put it in `tests/EndToEnd/`**, under `Pramnos\Tests\EndToEnd\…`. The suite name in
-  `phpunit.xml` has no spaces on purpose — `dockertest` passes it through an unquoted
-  variable.
-- **Null the `Database` singleton in `tearDown()`** if you repointed it. Restoring a clone
-  does not work: a cloned connection reports itself connected while holding no live handle,
-  and the next test to ask gets a corpse.
-
-## Writing a test that does not slow the suite down
+## Writing a test that does not slow the suite down## Writing a test that does not slow the suite down
 
 The suite's cost is concentrated, not spread: **203 tests out of 9364 account for 46% of
 the run**, measured. Three habits are what put a test in that group, and all three have a

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Pramnos\Tests\EndToEnd\Auth\OAuth2;
+namespace Pramnos\Tests\Integration\Auth\OAuth2;
 
 use League\OAuth2\Server\AuthorizationServer;
 use Nyholm\Psr7\Response as Psr7Response;
@@ -52,15 +52,18 @@ use Pramnos\Http\ClientResponse;
  * A failure here is a disagreement between the two halves, and either half could be the one
  * that is wrong — which is the point.
  *
- * **Why this lives in `tests/EndToEnd` rather than in `tests/Integration`.** It rebuilds
- * `applications` and `oauthconnections` from their canonical migrations, because the
- * suite shares one database and other tests create `applications` with hand-rolled DDL —
- * whichever ran first would otherwise decide the shape this one gets, and the shape that
- * arrived was missing the `callback` column this test exists to exercise. A test that
- * rebuilds part of a shared schema does not belong in the same pass as sixteen thousand
- * others, and it should not cost every run the RSA key generation and the migrations
- * either. So it is its own suite, excluded from `./dockertest` and run by
- * `./dockertest --e2e`.
+ * **It rebuilds `applications`, and only `applications`.** Other tests create that table
+ * with hand-rolled DDL and leave it behind, and a migration is a no-op when the table
+ * exists — so whichever ran first would otherwise decide the shape this one gets, and the
+ * one that arrives is missing `callback`, the registered redirect URI the server compares
+ * the client's against. `OAuth2ClientSecretRequiredTest` established the pattern for the
+ * same reason.
+ *
+ * **What it must not rebuild is `usertokens`.** An earlier version did, and `usertokens`
+ * carries a foreign key to `applications`: dropping the child left the constraint dangling
+ * and thirty-eight tests with nothing to do with OAuth2 failed afterwards, each pointing
+ * at its own tables. Rebuilding the parent is survivable because it is put back in the
+ * same breath; rebuilding the child is not.
  *
  * Requires the Docker MySQL container (host: db, port: 3306).
  */
@@ -71,19 +74,42 @@ class FullAuthorizationCodeFlowTest extends TestCase
     private const REDIRECT_URI  = 'https://app.test/connect/callback';
     private const USER_ID       = 4242;
 
-    /**
-     * This test's own database, created and dropped per test.
-     *
-     * Named so that finding it left behind after a crashed run is unambiguous.
-     */
-    private const DATABASE      = 'pramnos_oauth_e2e';
 
     private Database $db;
     private Application $app;
     private Controller $controller;
     private AuthorizationServer $server;
-    private string $keyDir = '';
     private ?string $originalAppKey = null;
+
+    /**
+     * The RSA key pair, generated once for the class.
+     *
+     * 2048-bit generation is a few hundred milliseconds and the keys are read-only once
+     * written, which is exactly the case the Testing Guide says belongs in
+     * `setUpBeforeClass()` rather than in `setUp()`.
+     */
+    private static string $keyDir = '';
+
+    /**
+     * A key pair of this class's own, so the test neither reads nor writes the
+     * installation's — `app/keys/` belongs to whatever is deployed here.
+     *
+     * `generateKeyPair()` is the framework's own generator, so the signatures below are
+     * produced exactly as a real server produces them.
+     */
+    public static function setUpBeforeClass(): void
+    {
+        self::$keyDir = sys_get_temp_dir() . '/pramnos-oauth-e2e-' . bin2hex(random_bytes(6));
+        @mkdir(self::$keyDir, 0700, true);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        foreach ((array) glob(self::$keyDir . '/*') as $file) {
+            @unlink((string) $file);
+        }
+        @rmdir(self::$keyDir);
+    }
 
     protected function setUp(): void
     {
@@ -96,7 +122,10 @@ class FullAuthorizationCodeFlowTest extends TestCase
 
         Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
 
-        $this->db = $this->connectToOwnDatabase();
+        $this->db = Factory::getDatabase();
+        if (!$this->db->connected) {
+            $this->db->connect(true);
+        }
 
         $this->originalAppKey = getenv('APP_KEY') ?: null;
         putenv('APP_KEY=base64:' . base64_encode(random_bytes(32)));
@@ -108,21 +137,7 @@ class FullAuthorizationCodeFlowTest extends TestCase
         $this->registerUser();
         $this->registerClient();
 
-        // A key pair of this run's own, so the test neither reads nor writes the
-        // installation's. `generateKeyPair()` is the framework's own generator, so the
-        // signatures here are produced exactly as a real server produces them.
-        $this->keyDir = sys_get_temp_dir() . '/pramnos-oauth-e2e-' . bin2hex(random_bytes(6));
-        @mkdir($this->keyDir, 0700, true);
-
-        $factory = new OAuth2ServerFactory(
-            $this->controller,
-            $this->keyDir . '/private.key',
-            $this->keyDir . '/public.key',
-            base64_encode(random_bytes(32))
-        );
-        $factory->generateKeyPair();
-
-        $this->server = $factory->createAuthorizationServer();
+        $this->server = $this->factory()->createAuthorizationServer();
 
         $this->bridgeHttpToTheServer();
     }
@@ -131,18 +146,10 @@ class FullAuthorizationCodeFlowTest extends TestCase
     {
         Client::resetFakes();
 
-        // The whole database goes, which is the only cleanup this test needs and the only
-        // one that cannot leave something behind.
-        $this->db->query('DROP DATABASE IF EXISTS `' . self::DATABASE . '`');
-
-        // And the shared connection is what the next test will expect to find.
-        $singleton = &Factory::getDatabase();
-        $singleton = null;
-
-        foreach ((array) glob($this->keyDir . '/*') as $file) {
-            @unlink((string) $file);
-        }
-        @rmdir($this->keyDir);
+        $this->db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', self::USER_ID)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#applications')->where('apikey', self::CLIENT_ID)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', self::USER_ID)->delete();
+        $this->db->schema()->dropTableIfExists('#PREFIX#oauthconnections');
 
         if ($this->originalAppKey === null) {
             putenv('APP_KEY');
@@ -371,18 +378,31 @@ class FullAuthorizationCodeFlowTest extends TestCase
         ]);
     }
 
-    /** Does the framework's own resource server accept this token? */
-    private function tokenIsAccepted(string $accessToken): bool
+    /**
+     * A server factory over this class's key pair.
+     *
+     * `generateKeyPair()` returns early when both files exist, so the first call writes
+     * them and every later one is a no-op — which is what makes one pair per class rather
+     * than one per test, without the callers having to know.
+     */
+    private function factory(): OAuth2ServerFactory
     {
         $factory = new OAuth2ServerFactory(
             $this->controller,
-            $this->keyDir . '/private.key',
-            $this->keyDir . '/public.key',
+            self::$keyDir . '/private.key',
+            self::$keyDir . '/public.key',
             base64_encode(random_bytes(32))
         );
+        $factory->generateKeyPair();
 
+        return $factory;
+    }
+
+    /** Does the framework's own resource server accept this token? */
+    private function tokenIsAccepted(string $accessToken): bool
+    {
         try {
-            $factory->createResourceServer()->validateAuthenticatedRequest(
+            $this->factory()->createResourceServer()->validateAuthenticatedRequest(
                 new ServerRequest('GET', 'https://self.test/api/me', [
                     'Authorization' => 'Bearer ' . $accessToken,
                 ])
@@ -406,71 +426,6 @@ class FullAuthorizationCodeFlowTest extends TestCase
             scopes: ['read', 'user'],
             usePkce: true,
         );
-    }
-
-    /**
-     * A MySQL database belonging to this test and nothing else.
-     *
-     * **This is the important part of the file, and it was learned the hard way.**
-     *
-     * The test needs `applications` with its canonical columns — `callback` above all,
-     * since the server checks the client's redirect URI against it character for
-     * character. Other integration tests create that table with hand-rolled DDL and leave
-     * it behind, and a migration is a no-op when the table already exists, so whichever
-     * ran first decided the shape this got.
-     *
-     * Dropping and rebuilding it looked like the answer and was not: `usertokens` carries
-     * a foreign key to `applications`, so removing the parent mid-suite left a dangling
-     * constraint, and **thirty-eight tests that had nothing to do with OAuth2 failed
-     * afterwards** — account changes, permissions, token actions — with errors that
-     * pointed at their own tables rather than at this file. A shared database makes a test
-     * that rebuilds schema everybody else's problem.
-     *
-     * So it does not share one. A database is created here, used, and dropped in
-     * {@see tearDown()}; `pramnos_test` is never touched. Nothing this test does can
-     * reach another test, in any order, whatever it rebuilds.
-     */
-    private function connectToOwnDatabase(): Database
-    {
-        $settings = Settings::getSetting('database');
-
-        $admin = new Database();
-        $admin->type     = 'mysql';
-        $admin->server   = $settings->hostname;
-        $admin->user     = $settings->user;
-        $admin->password = $settings->password;
-        $admin->database = $settings->database;
-        $admin->port     = $settings->port ?? 3306;
-
-        try {
-            $admin->connect(true);
-        } catch (\RuntimeException $exception) {
-            $this->markTestSkipped('MySQL container not reachable: ' . $exception->getMessage());
-        }
-
-        $admin->query('CREATE DATABASE IF NOT EXISTS `' . self::DATABASE . '`');
-
-        $own = new Database();
-        $own->type     = 'mysql';
-        $own->server   = $settings->hostname;
-        $own->user     = $settings->user;
-        $own->password = $settings->password;
-        $own->database = self::DATABASE;
-        $own->port     = $settings->port ?? 3306;
-        $own->connect(true);
-
-        /*
-         * The league repositories reach for the singleton rather than for an injected
-         * connection, so it has to point here for the duration. tearDown nulls it rather
-         * than restoring a copy: a cloned Database reports itself connected while holding
-         * no live handle, so the next test to ask gets a real instance instead of a
-         * corpse. `AccountExportTest` and `OAuth2ClientSecretRequiredTest` null it in
-         * their own setUp for exactly that reason.
-         */
-        $singleton = &Factory::getDatabase();
-        $singleton = $own;
-
-        return $own;
     }
 
     /**
@@ -536,13 +491,17 @@ class FullAuthorizationCodeFlowTest extends TestCase
     /**
      * The four tables this flow touches, built from their canonical migrations.
      *
-     * No drops, no ordering care, no argument with anybody about the shape of
-     * `applications` — the database this runs in was created empty a few lines ago and
-     * nothing else will ever look at it. That is the whole reason
-     * {@see connectToOwnDatabase()} exists.
+     * `applications` is dropped and rebuilt, the way `OAuth2ClientSecretRequiredTest`
+     * already does: other tests create it with hand-rolled DDL and leave it behind, and a
+     * migration is a no-op when the table exists — so whichever ran first would otherwise
+     * decide the shape this gets, and the one that arrives is missing `callback`. That
+     * column is the registered redirect URI the server compares the client's against,
+     * which is the check this test exists to exercise.
      */
     private function migrate(): void
     {
+        $this->db->schema()->dropTableIfExists('#PREFIX#applications');
+
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
