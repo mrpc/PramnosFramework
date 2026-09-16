@@ -42,8 +42,16 @@ abstract class BaseTestCase extends TestCase
     protected $application;
     
     /**
-     * Database configuration settings.
-     * @var array|null
+     * Database configuration for {@see getConnection()}, or null to read the settings.
+     *
+     * Declared here and **never populated**, for as long as it existed: `getConnection()`
+     * read it for host, database and credentials and got null for each, so the documented
+     * `assertDatabaseHas()` failed with
+     * `buildDsn(): Argument #2 ($host) must be of type string, null given`. It now falls
+     * back to the settings the suite has already loaded, and stays a property so a test
+     * that wants another connection can still set one.
+     *
+     * @var array|object|null
      */
     protected static $dbConfig;
 
@@ -151,7 +159,20 @@ abstract class BaseTestCase extends TestCase
             return $this->pdo;
         }
 
-        $config = (array)self::$dbConfig;
+        /*
+         * The settings the suite already loaded, when nothing has been set explicitly.
+         * `Settings::getSetting()` answers an object; the cast below reads either.
+         */
+        $config = (array) (self::$dbConfig ?? \Pramnos\Application\Settings::getSetting('database'));
+
+        if ($config === []) {
+            throw new \RuntimeException(
+                'No database settings for the test connection. Load them with '
+                . 'Settings::loadSettings() — TestEnvironment::setup() does — or set '
+                . static::class . '::$dbConfig.'
+            );
+        }
+
         $host = $config['hostname'];
         $port = $config['port'] ?? null;
         $dbName = $config['database'];
@@ -167,11 +188,15 @@ abstract class BaseTestCase extends TestCase
         try {
             $dsn = $this->buildDsn($type, $host, $dbName, $port);
 
-            $pdo = new PDO($dsn, $user, $pass, [
+            // Assigned, not just returned. The `if ($this->pdo !== null)` above was
+            // unreachable and `$this->pdo` stayed null for ever — which is what
+            // assertDatabaseHas() then called `prepare()` on.
+            $this->pdo = new PDO($dsn, $user, $pass, [
                 PDO::ATTR_ERRMODE   => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_TIMEOUT   => self::CONNECT_TIMEOUT,
             ]);
-            return $pdo;
+
+            return $this->pdo;
         } catch (\PDOException $e) {
             throw new \RuntimeException("Database connection failed: " . $e->getMessage());
         }
@@ -458,7 +483,7 @@ abstract class BaseTestCase extends TestCase
         }
         
         $sql = "SELECT COUNT(*) FROM $table WHERE " . implode(' AND ', $where);
-        $stmt = $this->pdo->prepare($sql);
+        $stmt = $this->getConnection()->prepare($sql);
         $stmt->execute($params);
         
         $this->assertGreaterThan(0, $stmt->fetchColumn(), "Database table '$table' does not contain matching record.");
@@ -480,7 +505,7 @@ abstract class BaseTestCase extends TestCase
         }
         
         $sql = "SELECT COUNT(*) FROM $table WHERE " . implode(' AND ', $where);
-        $stmt = $this->pdo->prepare($sql);
+        $stmt = $this->getConnection()->prepare($sql);
         $stmt->execute($params);
         
         $this->assertEquals(0, $stmt->fetchColumn(), "Database table '$table' contains unexpected matching record.");

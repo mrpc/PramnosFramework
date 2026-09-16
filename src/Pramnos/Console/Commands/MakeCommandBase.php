@@ -4137,10 +4137,13 @@ PHP;
             [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
         }
 
+        // Asked of the table once, and then used by everything this call generates.
+        // Empty on the wizard path — the table is not there to ask.
+        $livePrimaryKey = empty($wizardColumns) ? $this->livePrimaryKey($tableName) : '';
+
         $fileContent = $this->buildModelFromWizardColumns(
             $namespace, $className, $tableName, $columns, $foreignKeys,
-            // Empty on the wizard path — the table is not there to ask.
-            empty($wizardColumns) ? $this->livePrimaryKey($tableName) : ''
+            $livePrimaryKey
         );
 
         /*
@@ -4176,9 +4179,25 @@ PHP;
 
         $testLine = '';
         if (!$isUpdate) {
+            /*
+             * **The key the model was just given, not the name re-derived from the table.**
+             *
+             * These two are three statements apart and used to disagree. The model asks the
+             * table through `livePrimaryKey()`; the test asked
+             * `getSingularPrimaryKey()`, which trims a trailing `s` — so `properties`
+             * became `propertie` and the generated test asserted
+             * `property_exists($model, 'propertieid')` against a model that correctly had
+             * `property_id`. Two halves of one generation, disagreeing about the one name
+             * they both had to know.
+             *
+             * The convention is still the answer on the wizard path, where the table does
+             * not exist yet and the migration about to be written is what will name its
+             * key.
+             */
             $testLine = $this->buildModelTest(
                 $className, $namespace, $columns,
-                $this->getSingularPrimaryKey($tableName), $tableName,
+                $livePrimaryKey !== '' ? $livePrimaryKey : $this->getSingularPrimaryKey($tableName),
+                $tableName,
                 $foreignKeys, defined('ROOT') ? ROOT : getcwd()
             );
         }

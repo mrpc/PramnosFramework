@@ -7995,10 +7995,10 @@ $errorMessages
                 <div class="card-body">
                     <?php foreach (\$_msgs as \$_m): ?>
                     <div class="alert alert-success"><?php echo htmlspecialchars(\$_m, ENT_QUOTES, 'UTF-8'); ?></div>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
                     <?php foreach (\$_errs as \$_e): ?>
                     <div class="alert alert-danger"><?php echo htmlspecialchars(\$_e, ENT_QUOTES, 'UTF-8'); ?></div>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
                     <form method="post" action="<?php echo sURL; ?>account/profile">
                         <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
                         <div class="row mb-3">
@@ -8047,10 +8047,10 @@ $errorMessages
         </div>
         <?php foreach (\$_msgs as \$_m): ?>
         <div class="bg-green-50 border border-green-200 text-green-800 rounded-md p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_m, ENT_QUOTES, 'UTF-8'); ?></div>
-        <?php endif; ?>
+        <?php endforeach; ?>
         <?php foreach (\$_errs as \$_e): ?>
         <div class="bg-red-50 border border-red-200 text-red-800 rounded-md p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_e, ENT_QUOTES, 'UTF-8'); ?></div>
-        <?php endif; ?>
+        <?php endforeach; ?>
         <form method="post" action="<?php echo sURL; ?>account/profile" class="space-y-4">
             <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
             <div class="grid grid-cols-2 gap-4">
@@ -8099,10 +8099,10 @@ $errorMessages
             </div>
             <?php foreach (\$_msgs as \$_m): ?>
             <div class="bg-green-50 border border-green-200 text-green-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_m, ENT_QUOTES, 'UTF-8'); ?></div>
-            <?php endif; ?>
+            <?php endforeach; ?>
             <?php foreach (\$_errs as \$_e): ?>
             <div class="bg-red-50 border border-red-200 text-red-800 rounded p-3 mb-4 text-sm"><?php echo htmlspecialchars(\$_e, ENT_QUOTES, 'UTF-8'); ?></div>
-            <?php endif; ?>
+            <?php endforeach; ?>
             <form method="post" action="<?php echo sURL; ?>account/profile">
                 <?php echo \\Pramnos\\Http\\Session::getInstance()->getTokenField(); ?>
                 <div class="grid grid-cols-2 gap-4 mb-4">

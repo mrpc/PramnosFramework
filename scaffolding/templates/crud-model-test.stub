@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Models;
 
+use Pramnos\Application\ServiceController;
 use Tests\BaseTestCase;
 
 /**
@@ -18,6 +19,12 @@ use Tests\BaseTestCase;
  * confirms it is gone. Foreign-key columns are intentionally left unset so the
  * test does not depend on parent rows existing; adjust them if your table has
  * NOT NULL foreign keys.
+ *
+ * `Model::__construct()` requires a Controller, so the models here are built with
+ * `ServiceController::shared()` — the framework's answer for using a model outside an MVC
+ * request, which is also what a worker or an MCP tool uses. This template used to write
+ * `new {{ class }}()` and every generated test died on `ArgumentCountError` before its
+ * first assertion.
  */
 class {{ class }}Test extends BaseTestCase
 {
@@ -28,7 +35,7 @@ class {{ class }}Test extends BaseTestCase
     public function testExtendsFrameworkModel(): void
     {
         // Arrange / Act
-        $model = new \{{ namespace }}\{{ class }}();
+        $model = new \{{ namespace }}\{{ class }}(ServiceController::shared());
 
         // Assert — it is a framework Model
         $this->assertInstanceOf(\Pramnos\Application\Model::class, $model);
@@ -41,7 +48,7 @@ class {{ class }}Test extends BaseTestCase
     public function testDeclaresPropertyForEachColumn(): void
     {
         // Arrange
-        $model = new \{{ namespace }}\{{ class }}();
+        $model = new \{{ namespace }}\{{ class }}(ServiceController::shared());
 
         // Assert — one property per column
 {{ propertyAssertions }}
@@ -57,7 +64,7 @@ class {{ class }}Test extends BaseTestCase
     public function testSaveLoadGetDataDeleteRoundTrip(): void
     {
         // Arrange — populate every scalar (non-FK) column with a typed sample.
-        $model = new \{{ namespace }}\{{ class }}();
+        $model = new \{{ namespace }}\{{ class }}(ServiceController::shared());
 {{ setColumns }}
 
         // Act — persist and capture the assigned primary key.
@@ -69,7 +76,7 @@ class {{ class }}Test extends BaseTestCase
             $this->assertNotEmpty($id, 'save() must assign a primary key');
 
             // Act — reload a fresh instance from the database by primary key.
-            $reloaded = new \{{ namespace }}\{{ class }}();
+            $reloaded = new \{{ namespace }}\{{ class }}(ServiceController::shared());
             $reloaded->load($id);
 
             // Assert — the reloaded row carries the primary key we saved.
@@ -85,12 +92,12 @@ class {{ class }}Test extends BaseTestCase
 {{ assertGetData }}
         } finally {
             // Cleanup — always remove the row, even if an assertion failed.
-            $cleanup = new \{{ namespace }}\{{ class }}();
+            $cleanup = new \{{ namespace }}\{{ class }}(ServiceController::shared());
             $cleanup->delete($id);
         }
 
         // Assert — after delete() the row can no longer be loaded.
-        $gone = new \{{ namespace }}\{{ class }}();
+        $gone = new \{{ namespace }}\{{ class }}(ServiceController::shared());
         $gone->load($id);
         $this->assertEmpty($gone->{{ primaryKey }}, 'row must be gone after delete()');
     }
@@ -103,7 +110,7 @@ class {{ class }}Test extends BaseTestCase
     public function testGetApiListReturnsEnvelope(): void
     {
         // Arrange / Act
-        $model = new \{{ namespace }}\{{ class }}();
+        $model = new \{{ namespace }}\{{ class }}(ServiceController::shared());
         $list  = $model->getApiList();
 
         // Assert — the standard envelope keys exist.
