@@ -33,6 +33,13 @@ use Pramnos\Database\Migration;
  *     pages, two channels or two advertising accounts on the same platform, and a unique
  *     key of (user, provider) would silently overwrite the first with the second.
  *
+ * **The timestamps are `bigInteger`, not `integer`.** A 32-bit unix timestamp runs out on
+ * 19 January 2038 — `SET expires_at = 2147483648` is already `ERROR: integer out of range`
+ * — and an expiry column is the one place that matters first, since it holds a moment in
+ * the future rather than in the past. The rest of the framework uses `integer` for unix
+ * timestamps and that is a larger conversation; on a table being created it costs nothing
+ * to be right.
+ *
  * The tokens themselves are encrypted at rest through `Pramnos\Security\Encrypter` before
  * they reach this table. The columns are `text` rather than `string` for that reason: a
  * ciphertext is longer than its plaintext, and some providers' access tokens are already
@@ -75,9 +82,9 @@ class CreateOauthconnectionsTable extends Migration
                 ->comment('Encrypted at rest through Security\Encrypter; text because a ciphertext is longer than its plaintext and some providers issue tokens over a kilobyte');
             $table->text('refresh_token')->nullable()
                 ->comment('Encrypted the same way. NULL for a provider that issues none — such a connection simply dies at expires_at');
-            $table->integer('expires_at')->nullable()
+            $table->bigInteger('expires_at')->nullable()
                 ->comment('Unix timestamp the access token stops working; NULL for a token the provider says does not expire');
-            $table->integer('refresh_expires_at')->nullable()
+            $table->bigInteger('refresh_expires_at')->nullable()
                 ->comment('Unix timestamp the refresh token itself stops working. Terminal, unlike expires_at — this is what makes an idle connection need a scheduled refresh rather than a refresh on next use');
             $table->text('scopes')->nullable()
                 ->comment('Space-separated scopes the provider actually granted, which is not always the set that was asked for');
@@ -86,21 +93,34 @@ class CreateOauthconnectionsTable extends Migration
                 ->comment("'active' or 'dead'. A dead connection is kept rather than deleted: the row is the evidence of what stopped working and when");
             $table->string('dead_reason', 190)->nullable()
                 ->comment('What the provider said, so an operator is not left guessing between a revoked grant and a network failure');
-            $table->integer('dead_at')->nullable()
+            $table->bigInteger('dead_at')->nullable()
                 ->comment('Unix timestamp the connection was first found to be unrefreshable');
 
-            $table->integer('created_at')->nullable()
+            $table->bigInteger('created_at')->nullable()
                 ->comment('Unix timestamp the connection was first authorised');
-            $table->integer('updated_at')->nullable()
+            $table->bigInteger('updated_at')->nullable()
                 ->comment('Unix timestamp of the last successful refresh or write');
 
             // One connection per (user, provider, account). Two rows for one account
             // would make "the token" ambiguous, and the loser would be refreshed for
             // ever against a provider that has already reissued it.
             $table->unique(['userid', 'provider', 'account_id']);
-            $table->index('userid');
+            /*
+             * **No separate index on `userid`.** The unique above is a btree on
+             * `(userid, provider, account_id)`, and a btree serves any leading prefix of
+             * its columns — so `WHERE userid = ?` and `WHERE userid = ? AND provider = ?`
+             * both use it. Verified with `EXPLAIN` on PostgreSQL after dropping the
+             * standalone one: `Bitmap Index Scan on
+             * oauthconnections_userid_provider_account_id_unique`.
+             *
+             * Every predicate `ConnectionStore` issues is covered: `(userid, provider,
+             * account_id)` exactly, `userid [+ provider]` as a prefix, `(status,
+             * expires_at)` by the index below, and `id` by the primary key. A second
+             * index on `userid` would be maintained on every write and read by nothing.
+             */
             // The scheduled refresh reads "active connections expiring soon", in that
-            // order — so the index is on both, not on either.
+            // order — so the index is on both, not on either. `status` first because it is
+            // the equality; a range on `expires_at` cannot be a leading column.
             $table->index(['status', 'expires_at']);
         });
     }
