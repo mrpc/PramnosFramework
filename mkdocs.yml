@@ -103,6 +103,7 @@ nav:
     - Security Hardening: Pramnos_Security_Guide.md
     - Account & Security (End Users): Pramnos_Account_Guide.md
     - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
+    - OAuth2 Client (signing in elsewhere): Pramnos_OAuth_Client_Guide.md
   - APIs & Integrations:
     - API Guide: Pramnos_API_Guide.md
     - HTTP Client (outbound requests): Pramnos_Http_Client_Guide.md

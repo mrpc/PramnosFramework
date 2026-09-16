@@ -171,6 +171,10 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\QueueReclaim());
         $this->add(new \Pramnos\Console\Commands\QueueHealth());
         $this->add(new \Pramnos\Console\Commands\AuthTokenCleanup());
+        // The OAuth2 *client* half: tokens this application holds for third-party APIs.
+        // Registered with no providers configured — an application subclasses it to say
+        // which platforms it talks to; see the command's own doc-block.
+        $this->add(new \Pramnos\Console\Commands\OauthRefresh());
         $this->add(new \Pramnos\Console\Commands\AuthTwoFactorCleanup());
         $this->add(new \Pramnos\Console\Commands\MessagesDispatch());
         $this->add(new \Pramnos\Console\Commands\AuthTwoFactorStatus());
