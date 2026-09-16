@@ -116,11 +116,23 @@ trait IssuesAccessTokens
         }
 
         $now = time();
+            // `jti` — a random identifier, and the only thing making two tokens differ.
+            //
+            // The claims above are `iss`, `aud`, `iat`, `nbf` and `exp`: not one of them
+            // names the user, and all of them are identical for any two tokens minted in
+            // the same second. So two issuances one second apart produced the **same
+            // string**, and `usertokens.token_lookup` is unique — the second insert failed,
+            // which surfaced as a sign-in that did nothing. Two people signing in at the
+            // same moment was enough; so was a SPA opening two tabs.
+            //
+            // It is what `jti` is for (RFC 7519 §4.1.7), and nothing verifies it: a token
+            // is still resolved to its user by the `usertokens` row, exactly as before.
         $claims = [
             'iss' => defined('sURL') ? sURL : '',
             'aud' => $this->audience(),
             'iat' => $now,
             'nbf' => $now - (3600 * 12),
+            'jti' => bin2hex(random_bytes(16)),
         ];
 
         // Optional expiry. TTL of 0 keeps the historical never-expires behaviour;

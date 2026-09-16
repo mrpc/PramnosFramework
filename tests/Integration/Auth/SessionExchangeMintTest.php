@@ -89,6 +89,9 @@ class SessionExchangeMintTest extends TestCase
      *
      * @return void
      */
+    /** Whether this test turned the `auth` feature on and must put it back. */
+    private bool $featureForced = false;
+
     protected function setUp(): void
     {
         $this->boot();
@@ -129,6 +132,20 @@ class SessionExchangeMintTest extends TestCase
     {
         RequestIdentity::reset();
         $this->setApplication(null);
+
+        // The exchange marks the session once it has logged one. Left behind, it would
+        // silence the next test's first exchange — the same order-dependence the fresh
+        // user id above exists to avoid.
+        $_SESSION = [];
+
+        // The feature registry and the table probe are process-wide, so a test that
+        // switched `auth` on puts it back. Leaving it on would change what every test
+        // after this one in the same process records.
+        if ($this->featureForced) {
+            \Pramnos\Application\FeatureRegistry::reset();
+            \Pramnos\Auth\ActivityLog::resetTableCache();
+            $this->featureForced = false;
+        }
     }
 
     /**
@@ -372,6 +389,181 @@ class SessionExchangeMintTest extends TestCase
         );
 
         return ($result === false) ? [] : $result->fetchAll();
+    }
+
+    /**
+     * The next request of the same session, and its exchange.
+     *
+     * A request is what carries the sealed identity, so a new one means resealing it;
+     * `$_SESSION` is deliberately left alone, because that is the thing that persists
+     * across requests and the thing the log entry is now counted per.
+     *
+     * @return string|null Whatever the exchange answered
+     */
+    protected function nextRequestThenIssue(): ?string
+    {
+        RequestIdentity::reset();
+        $this->sealSession(sessionUsertype: 99);
+
+        return SessionExchange::issue();
+    }
+
+    /**
+     * Activity-log rows for the seeded user with this action.
+     *
+     * Read through the query builder with the qualified name, so it resolves to the
+     * `authserver` schema on PostgreSQL and the prefixed table on MySQL — the same way
+     * {@see \Pramnos\Auth\ActivityLog} writes it.
+     *
+     * @return int
+     */
+    protected function activityCount(string $action): int
+    {
+        $result = $this->db->queryBuilder()
+            ->table('authserver.user_activity_log')
+            ->where('userid', $this->userId)
+            ->where('action', $action)
+            ->get();
+
+        return ($result === false) ? 0 : count($result->fetchAll());
+    }
+
+    /**
+     * Make sure this connection can record activity, rather than skipping when it cannot.
+     *
+     * The `user_activity_log` table belongs to the `auth` feature's migrations, and the
+     * framework's own fixture application does not enable that feature — so on the test
+     * database the table is simply absent and {@see \Pramnos\Auth\ActivityLog} is a
+     * silent no-op. A test that skipped there would assert nothing in the run that
+     * matters and keep passing if the behaviour came back.
+     *
+     * Created **from the canonical migration**, never from hand-rolled DDL: a
+     * `CREATE TABLE` written here would let whichever test touched the table first decide
+     * its shape for the whole run, which has already cost this suite a silently disabled
+     * rate limit on emailed sign-in codes.
+     */
+    protected function requireActivityLog(): void
+    {
+        if (!\Pramnos\Application\FeatureRegistry::isEnabled('auth')) {
+            \Pramnos\Application\FeatureRegistry::loadFromConfig(['auth']);
+            $this->featureForced = true;
+        }
+
+        if (!$this->db->schema()->hasTable('authserver.user_activity_log')) {
+            // `Schema::ensure()` rather than BaseTestCase::runMigrations(): this class has
+            // its own bare TestCase, which is precisely the case that helper was extracted
+            // for — a protected method it cannot reach is how a hand-rolled CREATE TABLE
+            // gets written instead.
+            \Pramnos\Framework\Testing\Schema::ensure(
+                [\Pramnos\Framework\Migrations\Auth\CreateUserActivityLogTable::class],
+                $this->db
+            );
+        }
+
+        \Pramnos\Auth\ActivityLog::resetTableCache();
+
+        // Rows survive the run, and the per-test user id restarts from the same base on
+        // the next one — so a count would otherwise grow by the number of times the suite
+        // has been executed. `usertokens` and `users` are cleaned in setUp for the same
+        // reason; this table is not, because only these two tests read it.
+        $this->db->queryBuilder()
+            ->table('authserver.user_activity_log')
+            ->where('userid', $this->userId)
+            ->delete();
+    }
+
+    /**
+     * The activity log gets one entry per session, not one per exchange.
+     *
+     * This is the entry that made the log unreadable. Every other action in it is a
+     * decision somebody made — signed in, changed a password, added a passkey — and is
+     * worth a row each time it happens. An exchange is what happens when a page opens
+     * without a token, so a new tab, a hard refresh, a private window and an expiry each
+     * added one, and the entries a person can act on drowned in them.
+     *
+     * Three exchanges here, as a SPA makes across three cold loads of one session: three
+     * tokens, because each is a real credential and each must be revocable, and one log
+     * entry, because it is one fact.
+     */
+    public function testTheActivityLogGetsOneEntryPerSessionNotPerExchange(): void
+    {
+        // Arrange
+        $this->requireActivityLog();
+        $this->setApplication($this->appWithKey(self::KEY));
+        $this->seedUser(usertype: 99);
+        $this->sealSession(sessionUsertype: 99);
+
+        // Act — three requests in one session, which is what a new tab, a hard refresh
+        // and an expiry look like from here. Not three calls in one request: an exchange
+        // re-seals the identity as `session-exchange`, so a second call inside the same
+        // request is refused by the guard above it, and a test written that way would
+        // pass while measuring nothing.
+        $first  = SessionExchange::issue();
+        $second = $this->nextRequestThenIssue();
+        $third  = $this->nextRequestThenIssue();
+
+        // Assert — three credentials…
+        $this->assertIsString($first);
+        $this->assertIsString($second);
+        $this->assertIsString($third);
+        $this->assertCount(3, $this->tokenRows(), 'each exchange must still mint a revocable token');
+
+        // …and one audit entry.
+        $this->assertSame(1, $this->activityCount('session_exchange'));
+    }
+
+    /**
+     * Two exchanges a second apart are two different tokens.
+     *
+     * They were the same string, and that is not a cosmetic collision: the claims are
+     * `iss`, `aud`, `iat`, `nbf` and `exp`, not one of which names the user, so any two
+     * tokens minted in the same second were byte-identical — for two different people as
+     * readily as for one. `usertokens.token_lookup` is unique, so the second insert
+     * failed and the exchange answered null, which a SPA reads as "you are not signed
+     * in" and bounces to the login page.
+     *
+     * `jti` is what makes them differ, which is what it is for.
+     */
+    public function testTwoExchangesInTheSameSecondAreDifferentTokens(): void
+    {
+        // Arrange
+        $this->setApplication($this->appWithKey(self::KEY));
+        $this->seedUser(usertype: 99);
+        $this->sealSession(sessionUsertype: 99);
+
+        // Act — the same second, by construction: nothing here sleeps.
+        $first  = SessionExchange::issue();
+        $second = $this->nextRequestThenIssue();
+
+        // Assert — both usable, and not the same credential.
+        $this->assertIsString($first);
+        $this->assertIsString($second, 'the second exchange collided with the first');
+        $this->assertNotSame($first, $second);
+        $this->assertCount(2, $this->tokenRows(), 'both must be revocable independently');
+    }
+
+    /**
+     * A new session is recorded again.
+     *
+     * The unit is the session, so the entry is not suppressed forever — it is suppressed
+     * for the session that already produced one. A new session means a new sign-in, which
+     * is logged as such, and this alongside it.
+     */
+    public function testANewSessionIsRecordedAgain(): void
+    {
+        // Arrange
+        $this->requireActivityLog();
+        $this->setApplication($this->appWithKey(self::KEY));
+        $this->seedUser(usertype: 99);
+        $this->sealSession(sessionUsertype: 99);
+
+        // Act — one exchange, then the session goes away and another one begins.
+        SessionExchange::issue();
+        $_SESSION = [];
+        $this->nextRequestThenIssue();
+
+        // Assert
+        $this->assertSame(2, $this->activityCount('session_exchange'));
     }
 
     /**

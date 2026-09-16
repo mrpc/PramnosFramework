@@ -397,6 +397,38 @@ class ApiAccountControllerTest extends TestCase
         // request, would issue a working token for an account nobody proved they held.
         $this->assertSame(4242, $body['user']['id'] ?? null);
     }
+
+    /**
+     * Two logins in the same second issue two different tokens.
+     *
+     * The claims are `iss`, `aud`, `iat`, `nbf` and `exp` — not one of them names the
+     * user — so any two tokens minted in the same second were byte-identical, for two
+     * different people as readily as for one. `usertokens.token_lookup` is unique, so the
+     * second `addToken()` failed: two people signing in at the same moment was enough,
+     * and the second one's sign-in did nothing.
+     *
+     * `jti` is what makes them differ (RFC 7519 §4.1.7). Nothing verifies it — a token is
+     * still resolved to its user by the `usertokens` row.
+     */
+    public function testTwoTokensIssuedInTheSameSecondDiffer(): void
+    {
+        // Arrange
+        $first  = new StubApiUser();
+        $second = new StubApiUser();
+        $first->userid  = 11;
+        $second->userid = 22;
+
+        // Act
+        [, $one] = $this->readJson($this->c->mintFor($first));
+        [, $two] = $this->readJson($this->c->mintFor($second));
+
+        // Assert
+        $this->assertNotSame(
+            $one['access_token'] ?? 'a',
+            $two['access_token'] ?? 'b',
+            'two tokens minted in the same second must not be the same string'
+        );
+    }
 }
 
 /** ApiAccount with every external collaborator replaced by a settable double. */
@@ -422,6 +454,14 @@ class TestableApiAccount extends ApiAccount
         $this->lastCreds = [$username, $password];
         return $this->verifyResult;
     }
+
+    /**
+     * The token response for a user, reachable from a test.
+     *
+     * `tokenResponse()` is protected on purpose — a public method on a controller is a
+     * routable action — so the double opens it rather than the production class.
+     */
+    public function mintFor(User $user): mixed { return $this->tokenResponse($user); }
 
     protected function signingKey(): string { return $this->key; }
     protected function audience(): string { return $this->aud; }

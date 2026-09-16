@@ -47,6 +47,12 @@ namespace Pramnos\Auth;
  * **4. Failure is null, not an exception.** This is called from a route whose job is to
  * redirect somewhere sensible either way.
  *
+ * **And one thing it does only once.** The activity-log entry is written once per session
+ * rather than once per exchange. Every other entry in that log is a decision somebody made;
+ * an exchange is what happens when a page opens without a token, which is a new tab, a hard
+ * refresh, a private window and an expiry — and an audit log that has to be filtered before
+ * it can be read is one nobody reads.
+ *
  * The fifth decision belongs to the consumer and cannot be made here: an SPA that
  * bounces to the exchange route when it has no token **must record that it has bounced
  * before redirecting**, not after. The route redirects back without a fragment when it
@@ -70,6 +76,9 @@ namespace Pramnos\Auth;
  */
 class SessionExchange
 {
+    /** Session key marking that this session's exchange has already been logged. */
+    private const S_RECORDED = 'pramnos_session_exchange_logged';
+
     /**
      * Issue an API token for the user the **session** says is signed in.
      *
@@ -152,10 +161,31 @@ class SessionExchange
             // API login filled it.
             \Pramnos\Http\RequestIdentity::seal($user, 'session-exchange', $token);
 
-            ActivityLog::record($userId, 'session_exchange', [
-                'minimum_usertype' => $minimumUserType,
-                'ttl'              => $ttl > 0 ? $ttl : self::configuredTtl(),
-            ]);
+            // Recorded once per session, not once per exchange.
+            //
+            // Every other entry in this log is a decision somebody made — signed in,
+            // changed a password, added a passkey — and each occurrence is worth a row.
+            // An exchange is not a decision: a SPA asks for one whenever it opens
+            // without a token, so a new tab, a hard refresh, a private window and an
+            // expired token each add one, and the entries a person can actually act on
+            // drown in them. An activity log that has to be filtered before it can be
+            // read is one nobody reads.
+            //
+            // What is audit-worthy is that *this session* obtained an API credential,
+            // and that is one fact however many times the page asks again. A new
+            // session means a new sign-in, which is logged as such, and this alongside
+            // it.
+            //
+            // The flag lives in the session on purpose: no query, no cache, and the
+            // unit is exactly the thing being exchanged.
+            if (!isset($_SESSION[self::S_RECORDED])) {
+                $_SESSION[self::S_RECORDED] = true;
+
+                ActivityLog::record($userId, 'session_exchange', [
+                    'minimum_usertype' => $minimumUserType,
+                    'ttl'              => $ttl > 0 ? $ttl : self::configuredTtl(),
+                ]);
+            }
 
             return $token;
         } catch (\Throwable $ex) {
@@ -226,11 +256,23 @@ class SessionExchange
         $now      = time();
         $lifetime = $ttl > 0 ? $ttl : self::configuredTtl();
 
+        // `jti` — a random identifier, and the only thing making two tokens differ.
+        //
+        // The claims above are `iss`, `aud`, `iat`, `nbf` and `exp`: not one of them
+        // names the user, and all of them are identical for any two tokens minted in
+        // the same second. So two issuances one second apart produced the **same
+        // string**, and `usertokens.token_lookup` is unique — the second insert failed,
+        // which surfaced as a sign-in that did nothing. Two people signing in at the
+        // same moment was enough; so was a SPA opening two tabs.
+        //
+        // It is what `jti` is for (RFC 7519 §4.1.7), and nothing verifies it: a token
+        // is still resolved to its user by the `usertokens` row, exactly as before.
         $claims = [
             'iss' => defined('sURL') ? sURL : '',
             'aud' => self::audience(),
             'iat' => $now,
             'nbf' => $now - (3600 * 12),
+            'jti' => bin2hex(random_bytes(16)),
         ];
 
         $expires = null;

@@ -1803,7 +1803,20 @@ Three are only wrong in ways nobody notices.
 
 The claim set matches the API login's, so an exchanged token is indistinguishable to
 every verifier. The row is recorded with `notes = 'session_exchange'`, so a session list
-can say where the credential came from, and the exchange is written to the activity log.
+can say where the credential came from.
+
+**The activity-log entry is written once per session, not once per exchange.** Every other
+entry in that log is a decision somebody made — signed in, changed a password, added a
+passkey — and each occurrence is worth a row. An exchange is what happens when a page opens
+without a token, so a new tab, a hard refresh, a private window and an expiry each produced
+one, and the entries a person can act on drowned in them. What is audit-worthy is that *this
+session* obtained an API credential, and that is one fact however often the page asks again.
+
+**Every issued token carries a `jti`.** The other claims — `iss`, `aud`, `iat`, `nbf`, `exp`
+— name no user and are identical for anything minted in the same second, so two tokens
+issued a second apart were the same string, for two different people as readily as for one.
+`usertokens.token_lookup` is unique, so the second insert failed and the sign-in did nothing.
+Nothing verifies the `jti`; a token is still resolved to its user by its `usertokens` row.
 
 ### The one decision that stays yours
 
