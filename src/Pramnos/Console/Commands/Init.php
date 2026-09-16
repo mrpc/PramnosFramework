@@ -1608,6 +1608,16 @@ class Init extends Command
             $sourceDir . '/lib/debug.js',
             \Pramnos\Debug\DebugBarAsset::spaModule($appName)
         );
+        // The WebAuthn ceremony, from the same source the server-rendered login
+        // page is served — for the same reason as the panel above. A passkey
+        // ceremony is exact in a way that does not survive being written twice:
+        // the failure of a mistyped field is `authentication_failed`, which says
+        // nothing about which field it was. lib/api.js imports this and gives it
+        // a transport that carries the API key and the bearer token.
+        $this->writeFile(
+            $sourceDir . '/lib/webauthn.js',
+            \Pramnos\Auth\Passkey\PasskeyAsset::spaModule($appName)
+        );
         // Real URLs for every screen: without them the back button leaves the
         // application and no page can be linked to or bookmarked.
         $this->writeFile($sourceDir . '/lib/router.js', $this->renderStub('spa-router.js', $tokens));
@@ -2706,6 +2716,156 @@ CSS;
                     'responses'   => ['200' => $jsonResponse('Logged out', ['status' => ['type' => 'string']])],
                 ],
             ];
+
+            /*
+             * Passkeys. Two calls per ceremony, and the order is the whole contract:
+             * the challenge issued by the first is held server-side and consumed by the
+             * second, so neither half means anything alone. Saying so here is what stops
+             * a reader from posting an assertion to /passkey/login and wondering why the
+             * answer is `no_ceremony`.
+             */
+            $ceremonyBody = [
+                'required' => true,
+                'content'  => ['application/json' => ['schema' => [
+                    'type'        => 'object',
+                    'description' => 'The credential as serialised by the framework\'s WebAuthn client — base64url id, rawId and response. Built by lib/webauthn.js; not something to assemble by hand.',
+                ]]],
+            ];
+
+            $paths['/passkey/loginOptions'] = [
+                'post' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyLoginOptions',
+                    'summary'     => 'Passkey sign-in — request options',
+                    'description' => 'Start a passwordless sign-in. With a username the ceremony is pinned to that account; without one it is usernameless (discoverable credentials) and the authenticator decides who is signing in. The issued challenge is held server-side for the verify call.',
+                    'security'    => [],
+                    'requestBody' => [
+                        'required' => false,
+                        'content'  => ['application/json' => ['schema' => [
+                            'type'       => 'object',
+                            'properties' => ['username' => ['type' => 'string']],
+                        ]]],
+                    ],
+                    'responses' => [
+                        '200' => $jsonResponse('Request options', ['options' => ['type' => 'object']]),
+                    ],
+                ],
+            ];
+            $paths['/passkey/login'] = [
+                'post' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyLogin',
+                    'summary'     => 'Passkey sign-in — verify',
+                    'description' => 'Verify the authenticator\'s assertion and, on success, issue a bearer token — the same envelope /account/login returns, so a client stores it with the same code. Requires a ceremony started by /passkey/loginOptions.',
+                    'security'    => [],
+                    'requestBody' => $ceremonyBody,
+                    'responses'   => [
+                        '200' => $jsonResponse('Authenticated', [
+                            'status'       => ['type' => 'string', 'example' => 'success'],
+                            'access_token' => ['type' => 'string'],
+                            'token_type'   => ['type' => 'string', 'example' => 'Bearer'],
+                            'user'         => ['type' => 'object'],
+                        ]),
+                        '400' => ['description' => 'no_ceremony — nothing was started, or it was already consumed'],
+                        '401' => ['description' => 'authentication_failed'],
+                    ],
+                ],
+            ];
+            $paths['/passkey/registerOptions'] = [
+                'post' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyRegisterOptions',
+                    'summary'     => 'Add a passkey — creation options',
+                    'description' => 'Start enrolling a passkey for the authenticated caller. The optional label is what the passkey will be listed as.',
+                    'requestBody' => [
+                        'required' => false,
+                        'content'  => ['application/json' => ['schema' => [
+                            'type'       => 'object',
+                            'properties' => ['label' => ['type' => 'string']],
+                        ]]],
+                    ],
+                    'responses' => [
+                        '200' => $jsonResponse('Creation options', ['options' => ['type' => 'object']]),
+                        '401' => ['description' => 'unauthorized'],
+                    ],
+                ],
+            ];
+            $paths['/passkey/register'] = [
+                'post' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyRegister',
+                    'summary'     => 'Add a passkey — verify',
+                    'description' => 'Verify the attestation and store the credential against the authenticated caller.',
+                    'requestBody' => $ceremonyBody,
+                    'responses'   => [
+                        '200' => $jsonResponse('Stored', [
+                            'status'     => ['type' => 'string', 'example' => 'ok'],
+                            'credential' => ['type' => 'object'],
+                        ]),
+                        '400' => ['description' => 'no_ceremony / registration_failed'],
+                        '401' => ['description' => 'unauthorized'],
+                    ],
+                ],
+            ];
+            $paths['/passkey/list'] = [
+                'get' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyList',
+                    'summary'     => 'List passkeys',
+                    'description' => 'The authenticated caller\'s active passkeys.',
+                    'responses'   => [
+                        '200' => $jsonResponse('Passkeys', ['passkeys' => ['type' => 'array', 'items' => ['type' => 'object']]]),
+                        '401' => ['description' => 'unauthorized'],
+                    ],
+                ],
+            ];
+            $paths['/passkey/rename'] = [
+                'post' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyRename',
+                    'summary'     => 'Rename a passkey',
+                    'description' => 'Rename one of the caller\'s passkeys. A passkey belonging to somebody else answers not_found, not forbidden — the caller has no way to learn it exists.',
+                    'requestBody' => [
+                        'required' => true,
+                        'content'  => ['application/json' => ['schema' => [
+                            'type'       => 'object',
+                            'required'   => ['id', 'name'],
+                            'properties' => [
+                                'id'   => ['type' => 'integer'],
+                                'name' => ['type' => 'string'],
+                            ],
+                        ]]],
+                    ],
+                    'responses' => [
+                        '200' => $jsonResponse('Renamed', ['status' => ['type' => 'string', 'example' => 'ok']]),
+                        '400' => ['description' => 'invalid_request'],
+                        '401' => ['description' => 'unauthorized'],
+                        '404' => ['description' => 'not_found'],
+                    ],
+                ],
+            ];
+            $paths['/passkey/revoke'] = [
+                'post' => [
+                    'tags'        => ['Passkey'],
+                    'operationId' => 'passkeyRevoke',
+                    'summary'     => 'Revoke a passkey',
+                    'description' => 'Revoke one of the caller\'s passkeys. Revoking the last one leaves the account on its password, so a client that hides the password form should check what is left first.',
+                    'requestBody' => [
+                        'required' => true,
+                        'content'  => ['application/json' => ['schema' => [
+                            'type'       => 'object',
+                            'required'   => ['id'],
+                            'properties' => ['id' => ['type' => 'integer']],
+                        ]]],
+                    ],
+                    'responses' => [
+                        '200' => $jsonResponse('Revoked', ['status' => ['type' => 'string', 'example' => 'ok']]),
+                        '400' => ['description' => 'invalid_request'],
+                        '401' => ['description' => 'unauthorized'],
+                        '404' => ['description' => 'not_found'],
+                    ],
+                ],
+            ];
         }
 
         // ── authserver feature: OAuth2 endpoints + capability sync ──
@@ -3161,6 +3321,12 @@ PHP;
             );
             $this->writeApiWrapper(
                 $namespace,
+                'Passkey',
+                '\\Pramnos\\Auth\\Controllers\\ApiPasskey',
+                'Passkey API — passwordless sign-in and passkey management. Sign-in issues a bearer token, exactly as /account/login does.'
+            );
+            $this->writeApiWrapper(
+                $namespace,
                 'Admin',
                 '\\Pramnos\\Auth\\Controllers\\ApiAdmin',
                 'Administration API — read-only user list, log viewer and dashboard summary for the admin screen. Each action is permission-checked separately.'
@@ -3170,6 +3336,7 @@ PHP;
             $session = $fqcn('Session');
             $account = $fqcn('Account');
             $admin   = $fqcn('Admin');
+            $passkey = $fqcn('Passkey');
 
             $lines[] = "        // Current authenticated user (profile + personal tokens)";
             $lines[] = "        \$r->get('/me', function () {";
@@ -3233,6 +3400,41 @@ PHP;
             $lines[] = "        });";
             $lines[] = "        \$r->post('/account/logout', function () {";
             $lines[] = "            return (new {$account}(\$this))->logout();";
+            $lines[] = "        });";
+            $lines[] = "";
+            /*
+             * Passkeys, the same treatment /account/login2fa got.
+             *
+             * The ceremony endpoints have always existed and the shipped WebAuthn client
+             * has always been able to drive them — but only over the session cookie, from
+             * a server-rendered page. A SPA had the controller, the client and no routes,
+             * so the one authentication method that needs no password was the one it could
+             * not offer.
+             *
+             * `/passkey/login` answers with a bearer token rather than a session, which is
+             * why it is ApiPasskey and not the web controller behind these.
+             */
+            $lines[] = "        // Passkeys — passwordless sign-in (issues a bearer token) + management";
+            $lines[] = "        \$r->post('/passkey/loginOptions', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->loginOptions();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/passkey/login', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->login();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/passkey/registerOptions', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->registerOptions();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/passkey/register', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->register();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->get('/passkey/list', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->list();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/passkey/rename', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->rename();";
+            $lines[] = "        });";
+            $lines[] = "        \$r->post('/passkey/revoke', function () {";
+            $lines[] = "            return (new {$passkey}(\$this))->revoke();";
             $lines[] = "        });";
         }
 
@@ -6989,6 +7191,7 @@ PHP;
         $lines[] = "$sourceDir" . str_repeat(' ', max(1, 20 - strlen($sourceDir))) . 'front-end sources — edit these';
         $lines[] = "  lib/api.js         API client: apiKey, tokens, errors";
         $lines[] = "  lib/debug.js       FRAMEWORK-OWNED debug panel — do not rewrite";
+        $lines[] = "  lib/webauthn.js    FRAMEWORK-OWNED passkey ceremony — do not rewrite";
         if ($spaStack === 'svelte') {
             $lines[] = '  App.svelte         root component';
             $lines[] = '  main.js            entry point (mounts App)';
@@ -7064,6 +7267,38 @@ PHP;
         $lines[] = 'before `</body>` — including an `ajax` tab that wraps `fetch`/`XMLHttpRequest`';
         $lines[] = 'and stays live after the render. The SPA shell cannot use it: it does not boot';
         $lines[] = 'the framework (only the autoloader), so no middleware ever sees its HTML.';
+        $lines[] = '';
+        $lines[] = '### Passkeys already exist — do not write a WebAuthn client';
+        $lines[] = '';
+        $lines[] = 'Passwordless sign-in is wired end to end: `' . $sourceDir . 'lib/webauthn.js` is the';
+        $lines[] = 'framework\'s ceremony (**framework-owned, same rules as `lib/debug.js`**), and';
+        $lines[] = '`lib/api.js` already wraps it against the generated `/passkey/*` routes:';
+        $lines[] = '';
+        $lines[] = '```js';
+        $lines[] = "import { passkeySupported, loginWithPasskey, registerPasskey } from './lib/api.js';";
+        $lines[] = '';
+        $lines[] = 'if (passkeySupported()) {';
+        $lines[] = '    const user = await loginWithPasskey();   // no argument: usernameless';
+        $lines[] = '}';
+        $lines[] = '```';
+        $lines[] = '';
+        $lines[] = 'Also `loginWithPasskeyAutofill()` / `cancelPasskeyAutofill()` for the username';
+        $lines[] = 'autofill, and `listPasskeys()`, `renamePasskey(id, name)`, `revokePasskey(id)`';
+        $lines[] = 'for a management screen. `loginWithPasskey()` stores the issued token exactly as';
+        $lines[] = '`login()` does.';
+        $lines[] = '';
+        $lines[] = 'So:';
+        $lines[] = '';
+        $lines[] = '- **Do not write a second WebAuthn client**, and do not reach for a library.';
+        $lines[] = '  The ceremony is base64url in both directions and a precise set of field names;';
+        $lines[] = '  when one is wrong the server answers `authentication_failed` and names';
+        $lines[] = '  nothing, so a copy that drifts does not look broken — it looks like a passkey';
+        $lines[] = '  that stopped working.';
+        $lines[] = '- If `lib/webauthn.js` is absent (project scaffolded before it existed), get it';
+        $lines[] = '  with `./' . $cliName . ' project:resync --debug-panel --all` — never by hand.';
+        $lines[] = '- The session cookie travels on these calls and is **not** the credential: it';
+        $lines[] = '  correlates the two halves of a ceremony (the challenge is held server-side).';
+        $lines[] = '  Authentication is the bearer token `/passkey/login` issues.';
         $lines[] = '';
         $lines[] = 'Add an endpoint the way `GET ' . $apiPrefix . '/status` is built: behaviour in a';
         $lines[] = '`src/Services/*Service.php`, a thin `src/Api/Controllers/*.php` over it, and a';
@@ -7183,7 +7418,7 @@ PHP;
     }
 
     /**
-     * The "the debug panel is already here" note for the README front-end section.
+     * The "these framework-owned modules are already here" note for the README.
      *
      * Stated in the README as well as CLAUDE.md because the panel is invisible
      * until a request carries debug data: without being told the file exists,
@@ -7207,7 +7442,15 @@ PHP;
             . "```js\n"
             . "import { reportError } from './lib/debug.js';\n\n"
             . "try { … } catch (error) { reportError(error, { kind: 'import' }); throw error; }\n"
-            . "```\n";
+            . "```\n\n"
+            . "### Passkeys\n\n"
+            . "`{$sourceDir}lib/webauthn.js` is the framework's WebAuthn ceremony, shipped the\n"
+            . "same way and equally not to be rewritten — `lib/api.js` already wraps it as\n"
+            . "`loginWithPasskey()`, `registerPasskey()`, `listPasskeys()`, `renamePasskey()`\n"
+            . "and `revokePasskey()`, against the generated `/passkey/*` routes. A second\n"
+            . "WebAuthn client is the mistake to avoid here: the ceremony is exact and its\n"
+            . "failures name no field, so a copy that drifts looks like a passkey that stopped\n"
+            . "working. Missing from an older project? `project:resync --debug-panel --all`.\n";
     }
 
     /**

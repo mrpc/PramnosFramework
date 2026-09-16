@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Auth\Controllers;
 
 use Pramnos\Application\Controller;
-use Pramnos\Auth\JWT;
+use Pramnos\Auth\IssuesAccessTokens;
 use Pramnos\Http\Response;
 use Pramnos\User\User;
 
@@ -30,6 +30,8 @@ use Pramnos\User\User;
  */
 class ApiAccount extends Controller
 {
+    use IssuesAccessTokens;
+
     /** @var array<string, mixed>|null decoded JSON body cache */
     private ?array $jsonBodyCache = null;
 
@@ -144,55 +146,6 @@ class ApiAccount extends Controller
     }
 
     /**
-     * The success response: a bearer token for a fully verified user.
-     *
-     * Shared by both legs so a login that needed a second factor is answered
-     * exactly like one that did not.
-     */
-    protected function tokenResponse(User $user): mixed
-    {
-        // This request *did* authenticate somebody — with a password rather than
-        // a token, which is the only reason it did not look like it. Saying so
-        // is what lets the debug toolbar show the login at the moment it
-        // happens, instead of only on whatever call comes next; and it means
-        // anything reading the current user during this response (activity logs,
-        // tracking) sees who it was for.
-        // `currentInstance()`: `getInstance()` is a factory, and this is a login response
-        // — not the place to construct an application, a database connection and a session
-        // as a side effect. The guard was already written for a null this call never
-        // returned.
-        $app = \Pramnos\Application\Application::currentInstance();
-        if ($app) {
-            $app->currentUser = $user;
-        }
-
-        $token = $this->issueToken($user);
-        if ($token === null) {
-            \Pramnos\Http\RequestIdentity::seal($user, 'password');
-
-            return Response::json(
-                ['error' => 'token_unavailable', 'error_description' => 'The API signing key is not configured.'],
-                500
-            );
-        }
-
-        // Sealed after the token exists, so the toolbar can describe what was
-        // just issued — how long it lasts, and what is in it — at the moment it
-        // is handed over. Before this, a login showed "signed in" and the expiry
-        // only appeared on the next request, which is the one moment nobody is
-        // looking. The token's *value* still never enters the payload; the
-        // response beside it already carries that to the client that asked.
-        \Pramnos\Http\RequestIdentity::seal($user, 'password', $token);
-
-        return Response::json([
-            'status'       => 'success',
-            'access_token' => $token,
-            'token_type'   => 'Bearer',
-            'user'         => $this->userPayload($user),
-        ]);
-    }
-
-    /**
      * The flow that decides what a password entitles the caller to.
      *
      * The same one the HTML login uses — lockout, credentials, second factor —
@@ -264,97 +217,6 @@ class ApiAccount extends Controller
         }
 
         return new User((int) $result['uid']);
-    }
-
-    /**
-     * Mint a signed JWT for the user and persist it as an `auth` token, so the API
-     * auth middleware accepts it. Returns null when no signing key is available.
-     */
-    protected function issueToken(User $user): ?string
-    {
-        $key = $this->signingKey();
-        if ($key === '') {
-            return null;
-        }
-
-        $now = time();
-        $claims = [
-            'iss' => defined('sURL') ? sURL : '',
-            'aud' => $this->audience(),
-            'iat' => $now,
-            'nbf' => $now - (3600 * 12),
-        ];
-
-        // Optional expiry. TTL of 0 keeps the historical never-expires behaviour;
-        // a positive TTL stamps both the JWT `exp` claim (rejected by JWT::decode
-        // once past) and the usertokens.expires column (rejected by loadByToken).
-        $ttl = $this->tokenTtl();
-        $expires = null;
-        if ($ttl > 0) {
-            $expires = $now + $ttl;
-            $claims['exp'] = $expires;
-        }
-
-        $jwt = JWT::encode($claims, $key);
-
-        $user->addToken('auth', $jwt, 'api_login', null, $expires);
-
-        return $jwt;
-    }
-
-    /**
-     * Access-token lifetime in seconds. 0 (the default) means the token never
-     * expires — preserving the historical behaviour. Apps enable expiry by
-     * overriding this or by setting the `auth.token_ttl` application config key.
-     */
-    protected function tokenTtl(): int
-    {
-        $app = $this->application;
-        if (is_object($app) && isset($app->applicationInfo['auth']['token_ttl'])) {
-            return max(0, (int) $app->applicationInfo['auth']['token_ttl']);
-        }
-
-        return 0;
-    }
-
-    /**
-     * The public profile returned alongside the token.
-     *
-     * @return array<string, mixed>
-     */
-    protected function userPayload(User $user): array
-    {
-        return [
-            'id'       => (int) $user->userid,
-            'username' => $user->username,
-            'email'    => $user->email,
-        ];
-    }
-
-    /**
-     * The HS256 signing key — the API application's authentication key.
-     *
-     * @codeCoverageIgnore — reads the Api instance; overridden in tests.
-     */
-    protected function signingKey(): string
-    {
-        $app = $this->application;
-        return (is_object($app) && isset($app->authenticationKey)) ? (string) $app->authenticationKey : '';
-    }
-
-    /**
-     * The token audience — the authenticated application's API key (if any).
-     *
-     * @codeCoverageIgnore — reads the Api instance; overridden in tests.
-     */
-    protected function audience(): string
-    {
-        $app = $this->application;
-        if (is_object($app) && isset($app->apiKey) && is_object($app->apiKey)) {
-            return (string) ($app->apiKey->apikey ?? '');
-        }
-
-        return '';
     }
 
     /**

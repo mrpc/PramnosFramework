@@ -4,6 +4,7 @@
  *
  * Exposes window.PramnosWebAuthn with:
  *   supported()                        → boolean
+ *   setTransport(fn)                   → send the ceremony's POSTs through fn
  *   authenticate(optionsUrl, verifyUrl, extra?) → Promise<result>
  *   register(optionsUrl, registerUrl, body?)    → Promise<result>
  *
@@ -15,6 +16,12 @@
  */
 (function () {
     'use strict';
+
+    // `window` in a browser, `globalThis` under Node. The SPA ships this file as an ES
+    // module (lib/webauthn.js), and `node --test` imports it along with lib/api.js —
+    // where a bare `window` reference is a ReferenceError at import time, before any
+    // test has run.
+    var root = typeof window !== 'undefined' ? window : globalThis;
 
     /** Decode a base64url string into an ArrayBuffer (for navigator.credentials). */
     function b64urlToBuf(value) {
@@ -102,6 +109,20 @@
         });
     }
 
+    /**
+     * How the ceremony talks to the server.
+     *
+     * The ceremony itself is the same everywhere — the conversions, the options, the
+     * serialisation — and the *only* thing a token-authenticated SPA needs differently is
+     * this one function: its calls carry an API key and a bearer token through lib/api.js
+     * rather than a session cookie. Replacing it is what lets the SPA use this file
+     * instead of a second copy of the ceremony that then has to be fixed twice.
+     *
+     * Anything put here must answer like `fetch`: a promise for an object with `ok` and
+     * `json()`.
+     */
+    var transport = postJson;
+
     // The one pending conditional ceremony, so an explicit sign-in can cancel it.
     //
     // The browser allows a single outstanding `credentials.get()`. A conditional request sits
@@ -122,8 +143,19 @@
     }
 
     var PramnosWebAuthn = {
+        /**
+         * Send the ceremony's requests through `fn` instead of a same-origin fetch.
+         *
+         * Called once, at import time, by a SPA's lib/api.js. Passing anything that is not
+         * a function restores the default, so a bad argument degrades to the server-rendered
+         * behaviour rather than to a TypeError in the middle of a login.
+         */
+        setTransport: function (fn) {
+            transport = typeof fn === 'function' ? fn : postJson;
+        },
+
         supported: function () {
-            return typeof window.PublicKeyCredential !== 'undefined'
+            return typeof root.PublicKeyCredential !== 'undefined'
                 && typeof navigator.credentials !== 'undefined';
         },
 
@@ -133,8 +165,8 @@
         // it there is a TypeError on the sign-in page.
         conditionalSupported: function () {
             return this.supported()
-                && typeof window.PublicKeyCredential.isConditionalMediationAvailable === 'function'
-                && typeof window.AbortController !== 'undefined';
+                && typeof root.PublicKeyCredential.isConditionalMediationAvailable === 'function'
+                && typeof root.AbortController !== 'undefined';
         },
 
         // Offer the passkey inside the username field's autofill, instead of behind a button.
@@ -150,20 +182,20 @@
                 return Promise.resolve(null);
             }
 
-            return window.PublicKeyCredential.isConditionalMediationAvailable()
+            return root.PublicKeyCredential.isConditionalMediationAvailable()
                 .then(function (available) {
                     if (!available) {
                         return null;
                     }
 
-                    return postJson(optionsUrl, extra || {})
+                    return transport(optionsUrl, extra || {})
                         .then(function (res) {
                             if (!res.ok) { throw new Error('options_failed'); }
                             return res.json();
                         })
                         .then(function (data) {
                             cancelConditional();
-                            pendingConditional = new window.AbortController();
+                            pendingConditional = new root.AbortController();
 
                             return navigator.credentials.get({
                                 publicKey: prepareRequestOptions(data.options),
@@ -180,7 +212,7 @@
                                 return null;
                             }
 
-                            return postJson(verifyUrl, serializeAssertion(cred))
+                            return transport(verifyUrl, serializeAssertion(cred))
                                 .then(function (res) {
                                     return res.json().then(function (body) {
                                         if (!res.ok) {
@@ -218,7 +250,7 @@
             // outstanding `credentials.get()`. Without this the button below it would be refused.
             cancelConditional();
 
-            return postJson(optionsUrl, extra || {})
+            return transport(optionsUrl, extra || {})
                 .then(function (res) {
                     if (!res.ok) { throw new Error('options_failed'); }
                     return res.json();
@@ -227,7 +259,7 @@
                     return navigator.credentials.get({ publicKey: prepareRequestOptions(data.options) });
                 })
                 .then(function (cred) {
-                    return postJson(verifyUrl, serializeAssertion(cred));
+                    return transport(verifyUrl, serializeAssertion(cred));
                 })
                 .then(function (res) {
                     return res.json().then(function (body) {
@@ -240,7 +272,7 @@
         // Registration ceremony (dashboard). $body is passed to the options call.
         register: function (optionsUrl, registerUrl, body) {
             if (!this.supported()) { return Promise.reject(new Error('webauthn_unsupported')); }
-            return postJson(optionsUrl, body || {})
+            return transport(optionsUrl, body || {})
                 .then(function (res) {
                     if (!res.ok) { throw new Error('options_failed'); }
                     return res.json();
@@ -249,7 +281,7 @@
                     return navigator.credentials.create({ publicKey: prepareCreationOptions(data.options) });
                 })
                 .then(function (cred) {
-                    return postJson(registerUrl, serializeAttestation(cred));
+                    return transport(registerUrl, serializeAttestation(cred));
                 })
                 .then(function (res) {
                     return res.json().then(function (b) {
@@ -260,5 +292,5 @@
         }
     };
 
-    window.PramnosWebAuthn = PramnosWebAuthn;
+    root.PramnosWebAuthn = PramnosWebAuthn;
 })();

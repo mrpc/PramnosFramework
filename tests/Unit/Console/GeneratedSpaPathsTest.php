@@ -121,4 +121,51 @@ class GeneratedSpaPathsTest extends TestCase
         // And it is documented, or a reader of the generated API docs cannot find it.
         $this->assertStringContainsString("\$paths['/account/login2fa']", $init);
     }
+
+    /**
+     * Every passkey endpoint the shipped client calls is routed and documented.
+     *
+     * The same three-way agreement as the two-factor route above, and the same
+     * defect was waiting: the ceremony endpoints and the WebAuthn client have
+     * both existed for a long time, but nothing routed them under the API — so a
+     * SPA had every piece of passwordless sign-in except the ability to reach it.
+     *
+     * Asserted per path rather than as one blob: half a ceremony is the worst
+     * outcome, because the first call succeeds and the failure surfaces on the
+     * second, after the authenticator has already asked the user for a
+     * fingerprint.
+     */
+    public function testEveryPasskeyRouteIsGeneratedAndMatchesTheClient(): void
+    {
+        // Arrange
+        $client = $this->stub('spa-api-client.js.stub');
+        $init   = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Console/Commands/Init.php'
+        );
+        $controller = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Auth/Controllers/ApiPasskey.php'
+        );
+
+        // Act & Assert — the four ceremony paths the client names.
+        foreach (['loginOptions', 'login', 'registerOptions', 'register'] as $action) {
+            $this->assertStringContainsString("'/passkey/{$action}'", $client);
+            $this->assertStringContainsString("post('/passkey/{$action}'", $init);
+            $this->assertStringContainsString("\$paths['/passkey/{$action}']", $init);
+        }
+
+        // …and the three management ones.
+        $this->assertStringContainsString("get('/passkey/list'", $init);
+        $this->assertStringContainsString("post('/passkey/rename'", $init);
+        $this->assertStringContainsString("post('/passkey/revoke'", $init);
+        $this->assertStringContainsString("api.get('/passkey/list')", $client);
+
+        // The controller behind them answers with a token, which is the reason a
+        // separate one exists at all — the web controller establishes a session.
+        $this->assertStringContainsString('IssuesAccessTokens', $controller);
+
+        // The ceremony itself is the framework's single source, imported rather
+        // than re-implemented in the client.
+        $this->assertStringContainsString("from './webauthn.js'", $client);
+        $this->assertStringNotContainsString('navigator.credentials', $client);
+    }
 }

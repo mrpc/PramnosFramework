@@ -15,11 +15,24 @@
  *     signed in through the server-rendered pages is already authenticated here:
  *     UnifiedAuthMiddleware accepts the web session for same-origin requests.
  *
+ *   - **Passkeys** go through the same transport. The ceremony itself is the
+ *     framework's (`lib/webauthn.js`); what it gets from here is a POST that
+ *     carries the API key and, where one is needed, the bearer token.
+ *
  * Errors arrive as ApiError with the HTTP status attached, so a screen can react
  * to 401 (sign in again) or 422 (field errors) instead of parsing messages.
  */
 
 import { record as recordDebug, reportError as reportDebugError } from './debug.js';
+import {
+    setTransport as setWebAuthnTransport,
+    supported as webAuthnSupported,
+    conditionalSupported as webAuthnAutofillSupported,
+    authenticate as webAuthnAuthenticate,
+    register as webAuthnRegister,
+    conditional as webAuthnConditional,
+    cancelConditional as webAuthnCancelConditional,
+} from './webauthn.js';
 
 /** Fallback prefix, used when the shell injected no configuration. */
 const DEFAULT_PREFIX = '{{ apiPrefix }}';
@@ -375,6 +388,168 @@ export async function currentUser() {
         }
         throw err;
     }
+}
+
+// ── Passkeys (WebAuthn) ──────────────────────────────────────────────────────
+
+/**
+ * How the framework's WebAuthn ceremony talks to this API.
+ *
+ * The ceremony was written against `fetch`, so it expects a response object
+ * rather than a decoded body or a thrown error. Adapting here rather than
+ * branching inside the ceremony is what lets the SPA run the same bytes the
+ * server-rendered login page runs: only the transport differs between them, and
+ * it is this function.
+ *
+ * @param {string} url
+ * @param {object} body
+ * @returns {Promise<{ok: boolean, status: number, json: function(): Promise<object>}>}
+ */
+async function passkeyTransport(url, body) {
+    try {
+        const payload = await request(url, {
+            method: 'POST',
+            body: body ?? {},
+            // The two sign-in calls happen before there is a token, and have to
+            // work when a stale one is still in storage — the same reason
+            // login() is anonymous.
+            anonymous: url.startsWith('/passkey/login'),
+        });
+
+        return { ok: true, status: 200, json: async () => payload ?? {} };
+    } catch (error) {
+        if (error instanceof ApiError) {
+            return { ok: false, status: error.status, json: async () => error.payload ?? {} };
+        }
+
+        throw error;
+    }
+}
+
+setWebAuthnTransport(passkeyTransport);
+
+/**
+ * Whether this browser can use passkeys at all.
+ *
+ * False in older browsers and over plain http:// (localhost excepted), which is
+ * why a passkey button is rendered conditionally rather than failing when it is
+ * pressed.
+ *
+ * @returns {boolean}
+ */
+export function passkeySupported() {
+    return webAuthnSupported();
+}
+
+/**
+ * Whether a passkey can be offered inside the username field's autofill.
+ *
+ * @returns {Promise<boolean>}
+ */
+export function passkeyAutofillSupported() {
+    return webAuthnAutofillSupported();
+}
+
+/**
+ * Sign in with a passkey and remember the issued bearer token.
+ *
+ * With no username the ceremony is usernameless: the authenticator offers
+ * whatever passkeys it holds for this site and decides who is signing in, which
+ * is the version worth offering — a sign-in that asks for nothing at all.
+ *
+ * @param {string} [username] Pins the ceremony to one account
+ * @returns {Promise<object|null>} The authenticated user
+ */
+export async function loginWithPasskey(username = '') {
+    const result = await webAuthnAuthenticate(
+        '/passkey/loginOptions',
+        '/passkey/login',
+        username ? { username } : {}
+    );
+    if (result && result.access_token) {
+        setToken(result.access_token);
+    }
+
+    return result ? result.user : null;
+}
+
+/**
+ * Wait for a passkey picked from the username field's autofill, then sign in.
+ *
+ * Resolves with null when the wait was cancelled, which is what happens when the
+ * visitor used the password form instead — not a failure, and not something to
+ * show an error for. Call {@link cancelPasskeyAutofill} before starting any
+ * other ceremony: a browser allows one outstanding request at a time, so a
+ * pending autofill makes the passkey button refuse.
+ *
+ * The username input it waits on needs `autocomplete="username webauthn"`.
+ *
+ * @returns {Promise<object|null>} The authenticated user, or null
+ */
+export async function loginWithPasskeyAutofill() {
+    const result = await webAuthnConditional('/passkey/loginOptions', '/passkey/login', {});
+    if (!result) {
+        return null;
+    }
+    if (result.access_token) {
+        setToken(result.access_token);
+    }
+
+    return result.user ?? null;
+}
+
+/** Stop waiting for a passkey from the autofill list. */
+export function cancelPasskeyAutofill() {
+    webAuthnCancelConditional();
+}
+
+/**
+ * Enrol a passkey for the signed-in user.
+ *
+ * @param {string} [label] What to list it as
+ * @returns {Promise<object>} The stored credential
+ */
+export async function registerPasskey(label = '') {
+    const result = await webAuthnRegister(
+        '/passkey/registerOptions',
+        '/passkey/register',
+        label ? { label } : {}
+    );
+
+    return result ? result.credential : null;
+}
+
+/**
+ * The signed-in user's active passkeys.
+ *
+ * @returns {Promise<Array<object>>}
+ */
+export async function listPasskeys() {
+    const result = await api.get('/passkey/list');
+
+    return result && result.passkeys ? result.passkeys : [];
+}
+
+/**
+ * Rename one of the user's passkeys.
+ *
+ * @param {number} id
+ * @param {string} name
+ */
+export function renamePasskey(id, name) {
+    return api.post('/passkey/rename', { id, name });
+}
+
+/**
+ * Revoke one of the user's passkeys.
+ *
+ * Revoking the last one leaves the account on its password, so a screen that
+ * hides the password form should check what is left first.
+ *
+ * @param {number} id
+ */
+export function revokePasskey(id) {
+    return api.post('/passkey/revoke', { id });
 }
 
 export default api;

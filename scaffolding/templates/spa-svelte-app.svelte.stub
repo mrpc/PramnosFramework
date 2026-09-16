@@ -11,7 +11,10 @@
      * visitor who is not allowed somewhere is sent home. Showing "you do not
      * have permission" to someone who simply has not signed in yet is a dead end.
      */
-    import { api, ApiError, login, logout, currentUser } from './lib/api.js';
+    import {
+        api, ApiError, login, logout, currentUser,
+        passkeySupported, loginWithPasskey,
+    } from './lib/api.js';
     import { reportError } from './lib/debug.js';
     import { start as startRouter, go, href } from './lib/router.js';
     import { screens } from './screens/registry.js';
@@ -103,6 +106,41 @@
         }
     }
 
+    /**
+     * Whether to offer the passkey button at all.
+     *
+     * Read once: it cannot change while the page is open, and it is false over
+     * plain http:// (localhost excepted) and in older browsers. A button that
+     * fails when pressed is worse than no button — the person has no way to know
+     * the problem is their browser rather than their passkey.
+     */
+    const canUsePasskey = hasAuth && passkeySupported();
+
+    /**
+     * Sign in with a passkey, asking for nothing at all.
+     *
+     * No username is sent, so the ceremony is usernameless: the authenticator
+     * offers whatever passkeys it holds for this site and decides who is signing
+     * in. The framework's ceremony is in lib/webauthn.js — do not write another.
+     */
+    async function submitPasskeyLogin() {
+        authError = null;
+        signingIn = true;
+        try {
+            user = await loginWithPasskey();
+            go('/', null, { replace: true });
+        } catch (err) {
+            // A cancelled ceremony is not a failure: the person changed their
+            // mind, or the browser offered nothing. Showing an error for that is
+            // an error message nobody caused.
+            if (err?.name !== 'NotAllowedError' && err?.name !== 'AbortError') {
+                authError = 'That passkey could not be used to sign in.';
+            }
+        } finally {
+            signingIn = false;
+        }
+    }
+
     /** Revoke the token and return to the front page. */
     async function submitLogout() {
         await logout();
@@ -180,6 +218,13 @@
                             {signingIn ? 'Signing in…' : 'Sign in'}
                         </button>
                     </form>
+
+                    {#if canUsePasskey}
+                        <div class="divider">or</div>
+                        <button class="btn btn-outline" onclick={submitPasskeyLogin} disabled={signingIn}>
+                            Sign in with a passkey
+                        </button>
+                    {/if}
                 </div>
             </div>
         {:else if screen}

@@ -42,7 +42,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   ./pramnos project:resync --all          # also copy files not present yet
  *   ./pramnos project:resync --js           # only the pf-*.js UI hooks
  *   ./pramnos project:resync --scripts      # only the docs tooling scripts
- *   ./pramnos project:resync --debug-panel --all    # add/refresh the SPA debug panel
+ *   ./pramnos project:resync --debug-panel --all    # add/refresh the framework-owned SPA modules
  *   ./pramnos project:resync --spa-components       # take a newer DataTable, Field, …
  */
 class ProjectResync extends Command
@@ -73,7 +73,7 @@ class ProjectResync extends Command
             ->addOption('all', null, InputOption::VALUE_NONE, 'Also copy framework files that are not present in the project yet')
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
-            ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA debug panel (lib/debug.js)')
+            ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)')
             ->addOption('pwa', null, InputOption::VALUE_NONE, 'Only sync the PWA files: icons (never overwritten) and manifest.json (merged)')
             ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n) and their tests');
     }
@@ -421,11 +421,30 @@ class ProjectResync extends Command
             // @codeCoverageIgnoreEnd
         }
 
-        return [[
+        $files = [[
             'content' => $content,
             'dest'    => $sourceDir . 'lib/debug.js',
             'exec'    => false,
         ]];
+
+        // The WebAuthn ceremony travels with the panel: both are framework-owned
+        // files inside a project's source tree, refreshed rather than edited, and
+        // lib/api.js imports both. A project that has the one and not the other
+        // fails at import — which is every screen, not only the sign-in page.
+        try {
+            $files[] = [
+                'content' => \Pramnos\Auth\Passkey\PasskeyAsset::spaModule($appName),
+                'dest'    => $sourceDir . 'lib/webauthn.js',
+                'exec'    => false,
+            ];
+        } catch (\RuntimeException) {
+            // the asset ships with the framework
+            // @codeCoverageIgnoreStart
+            return $files;
+            // @codeCoverageIgnoreEnd
+        }
+
+        return $files;
     }
 
     /**

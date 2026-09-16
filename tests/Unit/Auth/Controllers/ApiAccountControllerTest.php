@@ -397,7 +397,6 @@ class ApiAccountControllerTest extends TestCase
         // request, would issue a working token for an account nobody proved they held.
         $this->assertSame(4242, $body['user']['id'] ?? null);
     }
-
 }
 
 /** ApiAccount with every external collaborator replaced by a settable double. */

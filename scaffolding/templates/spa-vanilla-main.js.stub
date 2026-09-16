@@ -19,7 +19,10 @@
  * can be tested on its own: the API outcome without a DOM, the DOM work without
  * a network.
  */
-{{ cssImport }}import { api, ApiError, login, logout, currentUser } from './lib/api.js';
+{{ cssImport }}import {
+    api, ApiError, login, logout, currentUser,
+    passkeySupported, loginWithPasskey,
+} from './lib/api.js';
 import { screens } from './screens/registry.js';
 import { start, href } from './lib/router.js';
 
@@ -184,6 +187,34 @@ export function renderAuth(target) {
         problem.className = 'status status-error';
         problem.hidden    = true;
         form.append(problem);
+
+        // A passkey button, only where the browser can honour it: false over plain
+        // http:// (localhost excepted) and in older browsers. One that failed when
+        // pressed would leave the person with no way to tell that the problem is
+        // their browser rather than their passkey.
+        if (passkeySupported()) {
+            const passkey = document.createElement('button');
+            passkey.type        = 'button';
+            passkey.textContent = 'Sign in with a passkey';
+            passkey.addEventListener('click', async () => {
+                problem.hidden = true;
+                try {
+                    // No username: the ceremony is usernameless, so the
+                    // authenticator decides who is signing in. The ceremony
+                    // itself is lib/webauthn.js — do not write another.
+                    showUser(await loginWithPasskey());
+                } catch (err) {
+                    // A cancelled ceremony is not a failure: the person changed
+                    // their mind, or the browser offered nothing.
+                    if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
+                        return;
+                    }
+                    problem.hidden      = false;
+                    problem.textContent = 'That passkey could not be used to sign in.';
+                }
+            });
+            form.append(passkey);
+        }
 
         form.addEventListener('submit', async (event) => {
             event.preventDefault();

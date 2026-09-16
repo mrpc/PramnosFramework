@@ -10,6 +10,7 @@ use_cases:
   - Showing a user which devices and sessions their account has
   - Migrating an old password table, or sharing one with another writer
   - Offering a second factor by email, or choosing which factors exist
+  - Adding passkey sign-in to a SPA, or to a screen that has only a password form
 ---
 
 # Pramnos Authentication & User Management Guide
@@ -515,6 +516,64 @@ password attempts, which is a way to use your login form as somebody else's mail
 The completion is recorded as its own method so an audit can tell which factor actually
 carried a login. They are not equally strong, and a log that calls them the same thing
 cannot answer that afterwards.
+
+### Passkeys from a SPA
+
+A single-page application authenticates with a bearer token, not a session cookie, and its code is
+modules rather than `<script>` tags. Neither difference touches the ceremony — a passkey sign-in is
+the same conversation with the authenticator either way — so a SPA runs **the framework's own
+WebAuthn client**, delivered as an ES module.
+
+What a scaffolded SPA gets, without asking:
+
+| Piece | Where | What it is |
+|---|---|---|
+| `Pramnos\Auth\Controllers\ApiPasskey` | `Api\Controllers\Passkey` in the project | The web `Passkey` controller, answering a verified assertion with a bearer token |
+| `/passkey/*` routes | `app/api-routes.php` | The seven endpoints, documented in the generated OpenAPI |
+| `lib/webauthn.js` | the SPA source tree | The framework's ceremony, with ES exports — **framework-owned, not to be edited** |
+| `loginWithPasskey()` and friends | `lib/api.js` | The calls a screen makes |
+
+A sign-in screen needs this much:
+
+```js
+import { passkeySupported, loginWithPasskey } from './lib/api.js';
+
+// The button exists only where the browser can honour it: false on plain http://
+// (localhost excepted) and in older browsers.
+if (passkeySupported()) {
+    const user = await loginWithPasskey();   // no argument: the authenticator decides who
+}
+```
+
+`loginWithPasskey()` stores the issued token exactly as `login()` does, so everything after it is a
+normal authenticated call. Passing a username pins the ceremony to one account; passing nothing
+makes it usernameless, which is the version worth offering — a sign-in that asks for nothing at all.
+
+Enrolment and management are the same shape: `registerPasskey(label)`, `listPasskeys()`,
+`renamePasskey(id, name)`, `revokePasskey(id)`. For the autofill experience described above,
+`loginWithPasskeyAutofill()` and `cancelPasskeyAutofill()` are the module's conditional pair.
+
+**The cookie still travels, and it is not a credential.** A ceremony is two calls, and the challenge
+issued by the first is held server-side so that only the session that started one can finish it.
+That correlation is what the cookie carries; `credentials: 'same-origin'` in the generated client is
+why it works. Authentication is still the token — `/passkey/login` seals the request's identity and
+establishes no login session.
+
+**One implementation, and the reason it matters.** `lib/webauthn.js` is generated from the same
+source the server-rendered login page is served (`PasskeyAsset::spaModule()`), and the only thing
+the SPA replaces is the transport: one injected function that carries the API key and the bearer
+token instead of posting same-origin. Writing a second WebAuthn client is the obvious alternative
+and the wrong one — the ceremony is exact in a way that does not survive being typed twice, and its
+failure mode is a flat `authentication_failed` that names no field.
+
+To add the module to a SPA project scaffolded before it existed:
+
+```bash
+./<cli> project:resync --debug-panel --all   # writes lib/debug.js and lib/webauthn.js
+```
+
+`lib/api.js` is the project's own file and is never overwritten, so its passkey functions are a
+copy-in from the current stub.
 
 ### What the form says when it fails, and while it works
 

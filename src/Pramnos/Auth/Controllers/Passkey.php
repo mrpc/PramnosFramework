@@ -174,12 +174,27 @@ class Passkey extends Controller
             return Response::json(['error' => 'authentication_failed'], 401);
         }
 
+        return $this->loginResponse($result->userId);
+    }
+
+    /**
+     * What a verified assertion is answered with.
+     *
+     * Separate from the ceremony above because this is the one step that differs
+     * by client and nothing else does: a browser wants the session a password
+     * login would have given it, and a token-authenticated SPA wants a bearer
+     * token instead ({@see ApiPasskey}). The conversions, the challenge
+     * correlation and the verification are identical, and a second copy of them
+     * would be a second place for a WebAuthn bug to live.
+     */
+    protected function loginResponse(int $userId): mixed
+    {
         // Establish the session the same way a password login would.
-        if (!$this->establishSession($result->userId)) {
+        if (!$this->establishSession($userId)) {
             return Response::json(['error' => 'login_failed'], 401);
         }
 
-        return Response::json(['status' => 'ok', 'user_id' => $result->userId], 200);
+        return Response::json(['status' => 'ok', 'user_id' => $userId], 200);
     }
 
     // ── Management (auth) ─────────────────────────────────────────────────────
