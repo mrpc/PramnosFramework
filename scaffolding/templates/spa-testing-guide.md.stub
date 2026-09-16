@@ -12,6 +12,17 @@ Run them with:
 {{ coverageCommand }}
 ```
 
+**What the coverage number counts.** Everything under `{{ sourceDir }}` **except** the
+tests themselves and `{{ sourceDir }}/lib/debug.js`. That file is the framework's debug
+panel — generated from its toolbar source, about four thousand lines, shipped into every
+project and not yours to rewrite — and the framework tests it in its own suite. Left in,
+it decided the figure: one project measured 47.8% with it against 81.5% without, on the
+same tests, and a number that moves that far on a file you cannot touch is one nobody
+acts on.
+
+Everything else *is* yours, the shared components included: they are scaffolded to be
+extended, so they are measured.
+
 ## The shape of the suite
 
 | What | Where | Runner |

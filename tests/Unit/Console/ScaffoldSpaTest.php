@@ -229,6 +229,50 @@ class ScaffoldSpaTest extends TestCase
     }
 
     /**
+     * The framework's own debug panel is not counted as the project's coverage.
+     *
+     * `lib/debug.js` is the one file under the source directory that is **generated from
+     * the framework's toolbar source** rather than scaffolded as a starting point. It is
+     * about four thousand lines, ships unconditionally, and the generated CLAUDE.md tells
+     * the reader not to rewrite it — so it is not code this project can act on, and the
+     * framework tests it in its own JavaScript suite.
+     *
+     * Left inside `coverage.include` it decides the number: a project reported 47.8% with
+     * it against 81.5% without, on the same tests. The failure that follows is not a bad
+     * number, it is somebody deleting the threshold.
+     *
+     * The path is asserted as it is written into the config, because an exclusion that
+     * does not match the file is indistinguishable from no exclusion at all.
+     */
+    public function testTheFrameworkDebugPanelIsExcludedFromProjectCoverage(): void
+    {
+        // Arrange
+        $this->seedProject();
+
+        // Act
+        $this->scaffold(['--spa-stack' => 'svelte']);
+
+        // Assert — the exclusion names the file the scaffold actually writes.
+        $config = $this->read('vitest.config.js');
+        $this->assertStringContainsString("'frontend/lib/debug.js'", $config);
+        $this->assertFileExists($this->tmpDir . '/frontend/lib/debug.js');
+
+        // …and everything else under the directory is still measured. Asserted as the
+        // shape of the exclude list rather than as the absence of a word: the shared
+        // components are scaffolded to be extended, so they are the project's, and an
+        // exclusion that reached them would be the same mistake in the other direction.
+        $this->assertStringContainsString("include: ['frontend/**/*.{js,svelte}']", $config);
+        preg_match('/exclude: \[(.*?)\n            \]/s', $config, $exclude);
+        $this->assertNotEmpty($exclude, 'the coverage exclude list must be readable');
+        $entries = preg_match_all("/^\s*'([^']+)',$/m", $exclude[1], $listed);
+        $this->assertSame(
+            ['frontend/**/*.{test,spec}.js', 'frontend/lib/debug.js'],
+            $listed[1],
+            'only the tests and the framework panel are excluded; every component is measured'
+        );
+    }
+
+    /**
      * Running it twice does nothing the second time.
      *
      * Which is what makes it safe to run when you are not sure whether you already

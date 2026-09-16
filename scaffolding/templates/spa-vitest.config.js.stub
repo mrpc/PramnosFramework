@@ -26,7 +26,27 @@ export default defineConfig({
         coverage: {
             provider: 'v8',
             include: ['{{ sourceDir }}/**/*.{js,svelte}'],
-            exclude: ['{{ sourceDir }}/**/*.{test,spec}.js'],
+            exclude: [
+                '{{ sourceDir }}/**/*.{test,spec}.js',
+                /*
+                 * The debug panel is the framework's, not this project's.
+                 *
+                 * It is generated from the framework's own toolbar source rather than
+                 * scaffolded as a starting point, it is about four thousand lines, it
+                 * ships unconditionally, and CLAUDE.md tells you not to rewrite it. The
+                 * framework tests it where it is owned, in its own JavaScript suite.
+                 *
+                 * Left in, it decides the number: a project measured 47.8% with it and
+                 * 81.5% without, on the same tests. A figure that moves that far on a file
+                 * nobody here is allowed to touch is not a figure anybody acts on — and
+                 * the way that ends is somebody deleting the threshold rather than writing
+                 * a test.
+                 *
+                 * Every other file under this directory is yours, including the shared
+                 * components: those are scaffolded to be extended, so they are measured.
+                 */
+                '{{ sourceDir }}/lib/debug.js',
+            ],
         },
     },
 });
