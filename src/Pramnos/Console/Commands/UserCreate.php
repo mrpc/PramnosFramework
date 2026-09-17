@@ -31,8 +31,8 @@ use Pramnos\User\User;
  *   - Duplicate username / email addresses are refused when detectable.
  *   - The password is hashed by the framework's User model (bcrypt, salted with
  *     the securitySalt + userid), exactly like a normally-registered account.
- *   - `--admin` creates an administrator: `usertype = 90`, the tier every
- *     administrative screen in the framework actually requires.
+ *   - `--admin` creates a root account: `usertype = 99`, the tier that reaches
+ *     every administrative screen in the framework, including ones added later.
  *   - `--usertype=N` sets the tier explicitly, for anything in between.
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
@@ -43,18 +43,32 @@ class UserCreate extends Command
     /**
      * The tier `--admin` grants.
      *
-     * 90, because that is what the framework's administrative screens require:
-     * Users, Settings, Logs, Dashboard, Services, Organizations, Emails and Queue
-     * ask for 80 or more; Applications, Tokens, Permissions, `phpinfo` and the
-     * dev panel ask for 90.
+     * **99 — Root, not 90.** This is the account somebody creates to set a fresh
+     * installation up, and on most of them it is the only one that will ever
+     * exist. The framework already has a name for that account:
+     * {@see \Pramnos\User\UserTypes::DEFAULTS} calls 99 *Root* and 90
+     * *Administrator*, and {@see \Pramnos\User\UserTypes::DEFAULT_CAPABILITIES}
+     * gives 99 `['*']` — every capability, **including ones added later** —
+     * against a fixed list at 90 and 98.
      *
-     * This option used to set 1, which satisfied none of them — the command
-     * printed "created successfully (admin)" and the account it made could not
-     * open a single administrative page. `init` has always created its own first
-     * administrator at 90, so the two paths disagreed, and the one this command
-     * produced was the broken one.
+     * Stated honestly, because the tempting justification is wrong: every
+     * administrative screen the framework ships today is reachable at 90. The
+     * screens gate on `minUserType` / `requiredUserType`, which top out at 90,
+     * not on the capability map. So this is not a fix for a locked-out installer.
+     *
+     * It is about which tier a fresh installation's owner should be *given*.
+     * `['*']` is the only tier that does not have to be revisited when the
+     * framework adds a capability above 90 — and the owner of a deployment is
+     * exactly the account that must not need a hand-edit in the `users` table to
+     * keep up with an upgrade. Handing them the second-highest tier and leaving
+     * Root unused says there is somebody above them, and on a scaffolded
+     * application there is not.
+     *
+     * The option once set 1, which satisfied nothing while the command printed
+     * "created successfully (admin)". Choosing the tier deliberately, and saying
+     * which one in the success line, is what keeps that from coming back.
      */
-    public const ADMIN_USERTYPE = 90;
+    public const ADMIN_USERTYPE = 99;
 
     protected static $defaultName = 'user:create';
 

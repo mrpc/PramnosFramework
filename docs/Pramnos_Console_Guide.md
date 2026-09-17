@@ -690,21 +690,27 @@ notices and succeeds quietly rather than failing on every schedule tick.
 
 ### The tier `--admin` grants
 
-`--admin` creates the account at **usertype 90** — the tier the framework's own
-administrative screens require:
+`--admin` creates the account at **usertype 99 — Root**, and so does the first
+administrator `init` creates during scaffolding. The two paths are deliberately the
+same number; `ProjectSetup` reaches this command for exactly that reason.
+
+**Not because 90 is locked out of anything.** Every administrative screen the
+framework ships is reachable at 90 — they gate on `minUserType` /
+`requiredUserType`, which top out at 90:
 
 | Screen | Minimum usertype |
 |---|---|
-| Users, Settings, Logs, Dashboard, Services, Organizations, Emails, Queue | 80 |
-| Applications, Tokens, Permissions, `/health/phpinfo`, the dev panel | 90 |
+| Users, Settings, Logs, Dashboard, Health, Services, Organizations, Emails, Push, Queue | 80 |
+| Applications, Tokens, Permissions, Roles, Mass messages, `/health/phpinfo`, the dev panel | 90 |
 
-This is worth stating because the option used to set 1, which satisfies none of
-them: the command printed "created successfully (admin)" and the account it made
-could not open a single administrative page. `init` has always created its first
-administrator at 90, so the two paths disagreed and the one this command produced
-was the broken one.
+It is about which tier this account should be *given*. `UserTypes` calls 99 **Root**
+and grants it `['*']` — every capability, including ones added later — against a
+fixed list at 90 and 98. On a fresh installation this is the owner of the
+deployment and usually the only account there is, so it should be the tier that
+never needs a hand-edit in the `users` table after an upgrade, and there should
+not be an unused tier above them.
 
-For anything in between, name the tier:
+For anything below root, name it:
 
 ```bash
 php bin/pramnos user:create --username=editor --email=editor@example.com --usertype=50

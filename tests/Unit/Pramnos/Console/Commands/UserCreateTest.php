@@ -242,13 +242,17 @@ class UserCreateTest extends TestCase
     }
 
     /**
-     * `--admin` creates the account at usertype 90.
+     * `--admin` creates the account at usertype 99 — Root.
      *
      * The number is the assertion, not a detail. This option used to set 1, which
      * satisfies none of the framework's administrative screens — they require 80
      * or 90 — so the command reported success and produced an account that could
      * not open a single administrative page. Asserting on the tier, rather than on
      * a boolean reaching a seam, is what keeps that from coming back.
+     *
+     * 99 rather than 90 is a deliberate choice about which tier a fresh
+     * installation's owner is given, not a fix for a lockout; the constant's
+     * docblock says why, including why the obvious justification is wrong.
      */
     public function testSuccessAdminAccount(): void
     {
@@ -264,10 +268,10 @@ class UserCreateTest extends TestCase
 
         // Assert
         $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
-        $this->assertStringContainsString('usertype=90', $tester->getDisplay());
+        $this->assertStringContainsString('usertype=99', $tester->getDisplay());
         $this->assertStringContainsString('administrator', $tester->getDisplay());
         $this->assertSame(
-            90,
+            99,
             $command->persisted['usertype'],
             '--admin must create an account the administrative screens accept'
         );
@@ -279,7 +283,7 @@ class UserCreateTest extends TestCase
      * Somebody who names a number has a number in mind, so the more specific
      * instruction takes precedence. Tested with both flags present, because that
      * is the combination where a wrong precedence is invisible: `--admin` alone
-     * would produce 90 either way.
+     * would produce 99 either way.
      */
     public function testExplicitUsertypeWinsOverAdmin(): void
     {

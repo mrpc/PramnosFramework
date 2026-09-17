@@ -163,9 +163,14 @@ page.
 ### What a usertype is, what each one may do, and how to change them
 
 `users.usertype` is an **integer read as a threshold**, not an enum. `>= 90` is an
-administrator (`UserCreate::ADMIN_USERTYPE`), and the administration area's floor is
-whatever `admin.min_usertype` says — so a comparison, not an equality, is what the
-framework's own guards are written in.
+administrator, `>= 80` reaches most of the administration area, and the administration
+area's own floor is whatever `admin.min_usertype` says — so a comparison, not an
+equality, is what the framework's own guards are written in.
+
+The account `init` and `user:create --admin` create is **99, Root**
+(`UserCreate::ADMIN_USERTYPE`): on a fresh installation that account is the owner of
+the deployment, and 99 is the only tier granted `*` rather than a list that has to be
+revisited when a capability is added above it.
 
 #### The framework's own types, and what each may do
 

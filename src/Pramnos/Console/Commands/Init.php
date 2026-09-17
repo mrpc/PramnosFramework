@@ -6956,7 +6956,7 @@ try {
     \$user->email     = $safeEmail;
     \$user->firstname = $safeFirstName;
     \$user->lastname  = $safeLastName;
-    \$user->usertype  = 90;
+    \$user->usertype  = 99;
     \$user->active    = 1;
     \$user->validated = 1;
     \$user->regdate   = time();

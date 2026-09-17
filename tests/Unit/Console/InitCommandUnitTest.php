@@ -3366,30 +3366,52 @@ class InitCommandUnitTest extends TestCase
     }
 
     /**
-     * The admin user created by the scaffold must have usertype 90, not 10.
+     * The admin user created by the scaffold is Root, and is the same tier
+     * `user:create --admin` produces.
      *
-     * Bug regression: init previously set usertype=10 which is below the
-     * minUserType=80 threshold for admin nav items (Logs, Users, Settings).
-     * A fresh-init admin would see no admin links at all in the navbar.
+     * WHAT: the snippet `init` writes sets `usertype = 99`, and that number is
+     *       `UserCreate::ADMIN_USERTYPE` rather than a second opinion about it.
+     *
+     * WHY:  two things, and the second is the one worth a test.
+     *
+     *       The tier itself: 99 is the only one `UserTypes` grants `['*']`, so
+     *       the owner of a fresh installation does not need a hand-edit in the
+     *       `users` table when the framework adds a capability above 90. It has
+     *       been 10 once — below the 80 floor of every admin nav item, which
+     *       gave a freshly-scaffolded application an administrator who could see
+     *       no administrative links at all.
+     *
+     *       The agreement: an application can be set up through `init` or through
+     *       `ProjectSetup`, which shells out to `user:create --admin`. Those are
+     *       two code paths to the same sentence — "make me an administrator" —
+     *       and they have already disagreed once, when the command said 1 and
+     *       `init` said 90. Asserting the constant rather than the literal is
+     *       what makes the next change to one of them fail here instead of in
+     *       somebody's installation.
      */
-    public function testCreateAdminUserScriptHasUsertype90(): void
+    public function testCreateAdminUserScriptCreatesARootAccount(): void
     {
         // Arrange — read the generated admin-user creation snippet directly from Init.php
         $initSrc = file_get_contents(
             dirname(__DIR__, 3) . '/src/Pramnos/Console/Commands/Init.php'
         );
 
-        // Act — find the usertype assignment inside createAdminUser()
+        // Act + Assert — the tier, taken from the constant so the two paths cannot drift.
         // file_get_contents returns raw PHP source; inside a heredoc the dollar is escaped as \$
+        $this->assertSame(
+            99,
+            \Pramnos\Console\Commands\UserCreate::ADMIN_USERTYPE,
+            'the scaffolded administrator is Root — see the constant for why'
+        );
         $this->assertStringContainsString(
-            '\$user->usertype  = 90;',
+            '\$user->usertype  = ' . \Pramnos\Console\Commands\UserCreate::ADMIN_USERTYPE . ';',
             $initSrc,
-            "createAdminUser() must set usertype=90 so the admin user sees Logs/Users/Settings in navbar (minUserType=80)"
+            'createAdminUser() must create the same tier as `user:create --admin`'
         );
         $this->assertStringNotContainsString(
             '\$user->usertype  = 10;',
             $initSrc,
-            "usertype=10 is below minUserType=80 — admin would be locked out of admin nav items"
+            'usertype=10 is below minUserType=80 — admin would be locked out of admin nav items'
         );
     }
 

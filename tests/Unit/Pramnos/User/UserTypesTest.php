@@ -99,14 +99,15 @@ class UserTypesTest extends TestCase
     /**
      * The framework's defaults match the numbers it already had opinions about.
      *
-     * `90` is `UserCreate::ADMIN_USERTYPE` and `80` is the scaffolded admin area's floor;
-     * a default set that disagreed with those would name an administrator "Manager".
+     * `99` is `UserCreate::ADMIN_USERTYPE` — the tier `--admin` and `init` both create —
+     * and `80` is the scaffolded admin area's floor; a default set that disagreed with
+     * those would name the account the installer just made something other than Root.
      */
     public function testTheDefaultsAgreeWithTheFrameworksOwnNumbers(): void
     {
         // Assert
         $this->assertSame(
-            'Administrator',
+            'Root',
             UserTypes::label(\Pramnos\Console\Commands\UserCreate::ADMIN_USERTYPE)
         );
         // …and the machine account the Client Credentials grant authenticates as.
