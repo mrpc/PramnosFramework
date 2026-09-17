@@ -1171,24 +1171,44 @@ class SchemaBuilder
              * decides by asking what the view *is* rather than what the server has.
              */
             try {
-                $created = (bool) $this->db->query(
+                $this->db->query(
                     "CREATE MATERIALIZED VIEW {$resolved} WITH ("
                     . implode(', ', $withParts) . ") AS {$sql}"
                 );
+
+                return;
             } catch (\Throwable $ex) {
-                $created = false;
-                \Pramnos\Logs\Logger::log(
-                    'Continuous aggregate ' . $name . ' was refused by this TimescaleDB ('
-                    . $ex->getMessage() . '). Creating a plain materialised view with the '
-                    . 'same columns, refreshed by the PolicyEngine daemon instead of a '
-                    . 'background job.',
-                    'migrations'
+                /*
+                 * Narrow on purpose, and this is the important part.
+                 *
+                 * A blanket fallback would turn *any* failure here — a lock timeout, a
+                 * permission, a typo in the SELECT — into a quiet plain materialised view
+                 * that nothing ever refreshes incrementally. That is the same silent
+                 * downgrade this whole area exists to stop, installed at the one place
+                 * best able to hide it.
+                 *
+                 * So only the one error that means "this version cannot maintain this
+                 * expression incrementally" is caught. Everything else is re-thrown, and
+                 * the migration fails the way a migration should.
+                 */
+                if (!str_contains(
+                    strtolower($ex->getMessage()),
+                    'invalid continuous aggregate'
+                )) {
+                    throw $ex;
+                }
+
+                \Pramnos\Logs\Logger::logError(
+                    'Continuous aggregate ' . $name . ' was refused by this TimescaleDB: '
+                    . $ex->getMessage() . '. Creating a plain materialised view with the '
+                    . 'same columns instead — it refreshes through the PolicyEngine daemon '
+                    . 'rather than a background job, so that daemon has to be running. '
+                    . '`health:check` reports which views are in this state.',
+                    $ex
                 );
             }
 
-            if (!$created) {
-                $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
-            }
+            $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
         } elseif ($this->capabilities->isPostgreSQL()) {
             $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
         } else {
